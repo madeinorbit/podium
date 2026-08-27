@@ -1,42 +1,36 @@
 # Updating a development instance
 
 How to move a Podium development authority forward, including the one-time transition from the old
-source-run units to the installed single-unit update path. Written after moving `ludovico` onto the
-update-operations work (POD-2087), and corrected after the isolated source-to-installed rehearsal
-(POD-2894).
+source units to the installed single-unit update path. Written after moving `ludovico` onto the
+update-operations work (POD-2087), then corrected by the source-to-installed rehearsal (POD-2894).
 
-## Which first hop applies
+## Which path applies
 
-A published `0.1.0` headless install is already an installed, persistence-managed instance. It must
-take its first hop through its own updater and a release whose headless and desktop manifests have
-the same version. That path is supported and proven against the real published artifact; see
+A published `0.1.0` headless install is already persistence-managed. Its first hop must use its own
+updater and a release whose headless and desktop manifests have the same version; see
 [the real-release upgrade investigation](investigations/2026-08-25-real-release-upgrade.md).
 
-The procedure below is only for the handful of development authorities that still run
-`scripts/server.ts` and `scripts/daemon.ts` directly from a checkout, have config version 2 with no
-`persistence` key, and need to join the installed `podium.service` path. Do not apply it to a
-desktop-supervised instance, a named instance without adapting all instance-scoped paths and unit
-names, or an existing installed 0.1.0 user.
+The exception below is for a development authority whose systemd units run `scripts/server.ts` and
+`scripts/daemon.ts` directly. It accepts both source shapes found during this work:
 
-## The normal path after bootstrap
+- config version 2, `mode: server`, with no `persistence` key (the isolated rehearsal); or
+- config version 2, `mode: server`, `persistence: systemd`, with separate source server and daemon
+  units (Ludovico at cutover time).
 
-The live service executes an installed, orderable build. `PODIUM_DEV_SOURCE_ROOT` points at the
-protected development checkout only as publisher/build input.
+Do not use it for desktop supervision, detached persistence, named instances without adapting all
+instance paths and unit names, or an installed `0.1.0` user.
 
-1. Move that checkout forward on its branch.
-2. The development publisher builds and advertises the next orderable dev release.
-3. Click **Update Podium**. The installed parent performs the verified swap, child handover, health
-   gate, and rollback.
-4. Reload when the panel asks. That remains the one step it cannot take for you.
+## The normal path after this cutover
 
-The old all-git `dev+<sha>` path and `podium-redeploy.service` are not the bootstrap for the
-single-unit topology.
+The live service executes an installed, orderable build. `PODIUM_DEV_SOURCE_ROOT` names the protected
+checkout only as publisher/build input. Move that checkout forward, approve the dev release, then
+accept the ordinary update offer. The installed parent owns swap, handover, health gate, and rollback.
 
-## Before the one-time cutover
+## One-time source-to-installed cutover
 
-Run the whole procedure in one host-local shell, never in a Podium terminal. The source server is
-deliberately stopped during the critical section, so recovery must not depend on its data or control
-plane. The commands below target the default instance.
+Run this from one host-local shell, never a Podium terminal. The data plane is deliberately down for
+one short boundary, so recovery must not depend on Podium. These commands target the default instance
+and standard port.
 
     set -eu
     PODIUM_CUTOVER_REPO=$(git rev-parse --show-toplevel)
@@ -44,56 +38,37 @@ plane. The commands below target the default instance.
     PODIUM_CUTOVER_STATE=$PODIUM_CUTOVER_ACCOUNT_HOME/.podium
     PODIUM_CUTOVER_CONFIG=$PODIUM_CUTOVER_STATE/config.json
     PODIUM_CUTOVER_UNIT_DIR=$PODIUM_CUTOVER_ACCOUNT_HOME/.config/systemd/user
-    PODIUM_CUTOVER_DATA=$PODIUM_CUTOVER_ACCOUNT_HOME/.local/share
-    PODIUM_CUTOVER_INSTALL=$PODIUM_CUTOVER_DATA/podium
+    PODIUM_CUTOVER_INSTALL=$PODIUM_CUTOVER_ACCOUNT_HOME/.local/share/podium
     PODIUM_CUTOVER_BIN_DIR=$PODIUM_CUTOVER_ACCOUNT_HOME/.local/bin
     PODIUM_CUTOVER_PORT=18787
     PODIUM_CUTOVER_URL=http://127.0.0.1:$PODIUM_CUTOVER_PORT
-    PODIUM_CUTOVER_MODE=all-in-one
+    PODIUM_CUTOVER_LEGACY_UNITS="podium-parent.service podium-server.service podium-janitor.service podium-daemon.service podium-redeploy.service podium-health.service podium-health.timer podium-backend.service podium-daemon-system.service"
     cd "$PODIUM_CUTOVER_REPO"
 
-If the live units set `PODIUM_STATE_DIR` or a non-default port, replace the defaults above with
-those exact values. `all-in-one` is correct when this authority currently runs both the server and
-local daemon even if the old config says `server`.
+If the live units set `PODIUM_STATE_DIR`, `PODIUM_INSTANCE`, or a different port, stop and adapt all
+paths, names, and checks before continuing.
 
-### Boundary 0: prove the source starting point
+### Boundary 0: prove and preserve the source authority
 
     PODIUM_CUTOVER_CONFIG=$PODIUM_CUTOVER_CONFIG bun -e '
       const config = await Bun.file(process.env.PODIUM_CUTOVER_CONFIG).json()
       if (config.configVersion !== 2) throw new Error("expected configVersion 2")
-      if (Object.hasOwn(config, "persistence")) throw new Error("persistence is already set")
-      if (!config.mode) throw new Error("mode is absent")
+      if (config.mode !== "server") throw new Error("expected split source mode server")
+      if (Object.hasOwn(config, "persistence") && config.persistence !== "systemd") {
+        throw new Error("expected persistence absent or systemd")
+      }
       console.log(JSON.stringify(config, null, 2))
     '
     curl --fail --silent --show-error "$PODIUM_CUTOVER_URL/readiness"
     curl --fail --silent --show-error "$PODIUM_CUTOVER_URL/version"
     systemctl --user is-active podium-server.service podium-daemon.service
 
-Checkpoint: `/readiness` must be `ready` with both planes available. `/version` must say
-`installKind: source` and, for `all-in-one`, `daemonConnected: true`.
+Require readiness `ready` with both planes available, version `installKind: source`, and
+`daemonConnected: true`. Repair the source authority first if any check fails.
 
-Repair: if this checkpoint fails, do not start the cutover. Repair the source server/daemon and
-repeat Boundary 0.
-
-## Stage everything while source remains ready
-
-Build a normal orderable bundle. Do not stamp it as `dev+SHA`: source labels cannot seed the
-installed dev release sequence.
-
-    test -z "$(git status --porcelain)"
-    bun install --frozen-lockfile
-    bun run package:headless
-    test -x dist-bun/headless/podium
-    PODIUM_CUTOVER_VERSION=$(tr -d '\n' < dist-bun/headless/VERSION)
-    case "$PODIUM_CUTOVER_VERSION" in
-      dev+*) echo "refusing unordered version $PODIUM_CUTOVER_VERSION" >&2; exit 1 ;;
-    esac
-
-Capture every legacy definition plus the exact enabled and active sets. The healthy parent removes
-legacy files, so the backups—not the live unit directory—are rollback truth.
+Capture rollback truth before building. The healthy parent eventually removes legacy definitions.
 
     PODIUM_CUTOVER_RECOVERY=$PODIUM_CUTOVER_STATE/recovery/source-to-installed-$(date -u +%Y%m%dT%H%M%SZ)
-    PODIUM_CUTOVER_LEGACY_UNITS="podium-parent.service podium-server.service podium-janitor.service podium-daemon.service podium-redeploy.service podium-health.service podium-health.timer podium-backend.service podium-daemon-system.service"
     mkdir -m 700 -p "$PODIUM_CUTOVER_RECOVERY/units"
     cp -a "$PODIUM_CUTOVER_CONFIG" "$PODIUM_CUTOVER_RECOVERY/config.json"
     : > "$PODIUM_CUTOVER_RECOVERY/enabled-units"
@@ -109,111 +84,103 @@ legacy files, so the backups—not the live unit directory—are rollback truth.
     done
     test -s "$PODIUM_CUTOVER_RECOVERY/active-units"
 
-Preserve prior installed locations, then place the bundle atomically on the same filesystem:
+### Boundary 1: stage the installed build while source remains ready
 
+    test -z "$(git status --porcelain)"
+    bun run package:headless
+    test -x dist-bun/headless/podium
+    PODIUM_CUTOVER_VERSION=$(tr -d '\n' < dist-bun/headless/VERSION)
+    case "$PODIUM_CUTOVER_VERSION" in
+      dev+*) echo "refusing unordered version $PODIUM_CUTOVER_VERSION" >&2; exit 1 ;;
+    esac
+    mkdir -p "$PODIUM_CUTOVER_BIN_DIR" "$(dirname "$PODIUM_CUTOVER_INSTALL")"
     if [ -e "$PODIUM_CUTOVER_INSTALL" ] || [ -L "$PODIUM_CUTOVER_INSTALL" ]; then
       mv "$PODIUM_CUTOVER_INSTALL" "$PODIUM_CUTOVER_RECOVERY/pre-cutover-install"
     fi
-    mkdir -p "$PODIUM_CUTOVER_BIN_DIR" "$PODIUM_CUTOVER_DATA"
     if [ -e "$PODIUM_CUTOVER_BIN_DIR/podium" ] || [ -L "$PODIUM_CUTOVER_BIN_DIR/podium" ]; then
       cp -a "$PODIUM_CUTOVER_BIN_DIR/podium" "$PODIUM_CUTOVER_RECOVERY/pre-cutover-command"
     fi
-    PODIUM_CUTOVER_STAGE=$(mktemp -d "$PODIUM_CUTOVER_DATA/.podium-cutover.XXXXXX")
+    PODIUM_CUTOVER_STAGE=$(mktemp -d "$PODIUM_CUTOVER_ACCOUNT_HOME/.local/share/.podium-cutover.XXXXXX")
     cp -a dist-bun/headless/. "$PODIUM_CUTOVER_STAGE/"
-    test "$(tr -d '\n' < "$PODIUM_CUTOVER_STAGE/VERSION")" = "$PODIUM_CUTOVER_VERSION"
     mv "$PODIUM_CUTOVER_STAGE" "$PODIUM_CUTOVER_INSTALL"
     ln -sfn "$PODIUM_CUTOVER_INSTALL/podium" "$PODIUM_CUTOVER_BIN_DIR/podium"
 
-Render the parent with the actual account and protected checkout; the checked-in generated example
-contains placeholder paths.
+Pre-render the **dev** parent. Bare reconciliation would otherwise render the packaged profile,
+which omits `PODIUM_DEV_SOURCE_ROOT` and cannot publish later development releases.
 
-    PODIUM_CUTOVER_PARENT_STAGE=$PODIUM_CUTOVER_RECOVERY/podium.service
-    PODIUM_CUTOVER_HOME=$PODIUM_CUTOVER_ACCOUNT_HOME \
+    PODIUM_CUTOVER_PARENT=$PODIUM_CUTOVER_RECOVERY/podium.service
+    PODIUM_CUTOVER_ACCOUNT_HOME=$PODIUM_CUTOVER_ACCOUNT_HOME \
     PODIUM_CUTOVER_REPO=$PODIUM_CUTOVER_REPO \
     PODIUM_CUTOVER_PORT=$PODIUM_CUTOVER_PORT \
-    PODIUM_CUTOVER_PARENT_STAGE=$PODIUM_CUTOVER_PARENT_STAGE \
+    PODIUM_CUTOVER_PARENT=$PODIUM_CUTOVER_PARENT \
     bun --conditions=@podium/source -e '
       import { writeFileSync } from "node:fs"
       import { renderParentUnit } from "./apps/cli/src/cli-systemd.ts"
-      writeFileSync(process.env.PODIUM_CUTOVER_PARENT_STAGE, renderParentUnit({
-        profile: "dev",
-        instanceId: "default",
-        home: process.env.PODIUM_CUTOVER_HOME,
+      writeFileSync(process.env.PODIUM_CUTOVER_PARENT, renderParentUnit({
+        profile: "dev", instanceId: "default",
+        home: process.env.PODIUM_CUTOVER_ACCOUNT_HOME,
         repoRoot: process.env.PODIUM_CUTOVER_REPO,
         port: Number(process.env.PODIUM_CUTOVER_PORT),
       }))
     '
-    grep -F "ExecStart=%h/.local/bin/podium parent --takeover" "$PODIUM_CUTOVER_PARENT_STAGE"
-    grep -F "PODIUM_DEV_SOURCE_ROOT=$PODIUM_CUTOVER_REPO" "$PODIUM_CUTOVER_PARENT_STAGE"
+    grep -F "PODIUM_DEV_SOURCE_ROOT=$PODIUM_CUTOVER_REPO" "$PODIUM_CUTOVER_PARENT"
     if [ -e "$PODIUM_CUTOVER_UNIT_DIR/podium.service" ]; then
       cp -a "$PODIUM_CUTOVER_UNIT_DIR/podium.service" "$PODIUM_CUTOVER_RECOVERY/pre-cutover-podium.service"
     fi
-    install -m 0644 "$PODIUM_CUTOVER_PARENT_STAGE" "$PODIUM_CUTOVER_UNIT_DIR/podium.service"
+    install -m 0644 "$PODIUM_CUTOVER_PARENT" "$PODIUM_CUTOVER_UNIT_DIR/podium.service"
     systemctl --user daemon-reload
-    systemctl --user enable podium.service
     test "$(systemctl --user is-active podium.service 2>/dev/null || true)" != active
 
-### Boundary 1: staged and armed, not started
+Repeat Boundary 0's HTTP checks. Source must remain ready; the staged version must match
+`PODIUM_CUTOVER_VERSION`; `podium.service` must be inactive. Before the next boundary, abort by
+restoring staged files only: the running source authority is untouched.
 
-Repeat both Boundary 0 HTTP checks. The source process must still be ready, `podium.service` must be
-enabled but inactive, and the staged `VERSION` must equal `PODIUM_CUTOVER_VERSION`.
+### Boundary 2: stop source cleanly
 
-Repair: before the source units stop, abort safely by disabling `podium.service`. Restore a prior
-install or command from `PODIUM_CUTOVER_RECOVERY` if one existed; config and source units are still
-untouched.
+Runtime-mask the legacy names so systemd cannot restart them during the handover, then stop the exact
+active source set. Do not write config until all of it is inactive.
 
-## Critical section: stop, write, start
-
-Do not write config while the source server is running. Stop the exact units recorded at Boundary 0,
-then runtime-mask all legacy names:
-
-    while IFS= read -r unit; do systemctl --user stop "$unit"; done < "$PODIUM_CUTOVER_RECOVERY/active-units"
     systemctl --user mask --runtime $PODIUM_CUTOVER_LEGACY_UNITS
+    while IFS= read -r unit; do systemctl --user stop "$unit"; done < "$PODIUM_CUTOVER_RECOVERY/active-units"
+    while IFS= read -r unit; do systemctl --user is-active --quiet "$unit" && exit 1 || true; done < "$PODIUM_CUTOVER_RECOVERY/active-units"
+    curl --fail --silent "$PODIUM_CUTOVER_URL/readiness" && exit 1 || true
 
-### Boundary 2: source stopped
+Checkpoint: the exact prior active set is inactive and the endpoint is unreachable. If either is
+false, stop and run rollback without changing config.
 
-The old endpoint should now be unreachable and every unit in `active-units` should be inactive.
-That is a deliberate, host-local handover window.
+### Boundary 3: establish installed topology
 
-Repair: if any old unit is still active, do not write config. Stop it or run the rollback below.
+Atomically change process topology. For Ludovico this changes only `mode`; for the rehearsed older
+shape it also establishes `persistence`.
 
-Atomically preserve every config field while establishing the installed topology:
-
-    PODIUM_CUTOVER_CONFIG=$PODIUM_CUTOVER_CONFIG \
-    PODIUM_CUTOVER_MODE=$PODIUM_CUTOVER_MODE \
-    bun -e '
+    PODIUM_CUTOVER_CONFIG=$PODIUM_CUTOVER_CONFIG bun -e '
       import { chmodSync, renameSync, writeFileSync } from "node:fs"
       const path = process.env.PODIUM_CUTOVER_CONFIG
       const config = await Bun.file(path).json()
       const next = path + ".source-to-installed-next"
       writeFileSync(next, JSON.stringify({
-        ...config,
-        configVersion: 2,
-        mode: process.env.PODIUM_CUTOVER_MODE,
-        persistence: "systemd",
+        ...config, configVersion: 2, mode: "all-in-one", persistence: "systemd",
       }, null, 2) + "\n", { mode: 0o600 })
       chmodSync(next, 0o600)
       renameSync(next, path)
     '
 
-### Boundary 3: config established, no stale process
+Checkpoint: config says `mode: all-in-one` and `persistence: systemd`, the source set remains
+inactive, `podium.service` is inactive, and the endpoint remains unreachable. If any condition is
+false, do not start the parent; run rollback.
 
-Inspect `config.json` and confirm `mode: all-in-one` and `persistence: systemd`.
-`podium.service` must still be inactive, and the endpoint must remain unreachable because no old
-process is alive to report `activation_pending`.
+### Boundary 4: reconcile and accept the installed authority
 
-Repair: if the config is wrong, do not start the parent. Run the rollback below.
+Invoke the installed CLI once. Because the old units are stopped and the correct dev parent is
+already present, reconciliation can safely enable the parent, runtime-mask legacy units, and start
+it. It must not be invoked before the stop boundary.
 
-Start the already-armed parent:
+    "$PODIUM_CUTOVER_BIN_DIR/podium"
 
-    systemctl --user --no-block start podium.service
+Wait up to 120 seconds, then require readiness `ready`, both planes available, the staged installed
+version, and its daemon connection:
 
-Wait up to 120 seconds for the installed identity and complete topology:
-
-    PODIUM_CUTOVER_URL=$PODIUM_CUTOVER_URL \
-    PODIUM_CUTOVER_MODE=$PODIUM_CUTOVER_MODE \
-    PODIUM_CUTOVER_VERSION=$PODIUM_CUTOVER_VERSION \
-    bun -e '
+    PODIUM_CUTOVER_URL=$PODIUM_CUTOVER_URL PODIUM_CUTOVER_VERSION=$PODIUM_CUTOVER_VERSION bun -e '
       const deadline = Date.now() + 120000
       let last = ""
       while (Date.now() < deadline) {
@@ -221,40 +188,27 @@ Wait up to 120 seconds for the installed identity and complete topology:
           const readiness = await fetch(process.env.PODIUM_CUTOVER_URL + "/readiness").then(r => r.json())
           const version = await fetch(process.env.PODIUM_CUTOVER_URL + "/version").then(r => r.json())
           last = JSON.stringify({ readiness, version })
-          const daemonOk = process.env.PODIUM_CUTOVER_MODE !== "all-in-one" || version.daemonConnected === true
-          if (readiness.state === "ready" &&
-              readiness.dataPlane === "available" &&
+          if (readiness.state === "ready" && readiness.dataPlane === "available" &&
               version.installKind === "installed" &&
               version.appVersion === process.env.PODIUM_CUTOVER_VERSION &&
-              daemonOk) {
-            console.log(JSON.stringify({ readiness, version }, null, 2))
-            process.exit(0)
-          }
-        } catch (error) {
-          last = String(error)
-        }
+              version.daemonConnected === true) process.exit(0)
+        } catch (error) { last = String(error) }
         await Bun.sleep(250)
       }
       throw new Error("installed parent did not prove ready: " + last)
     '
+    systemctl --user is-active podium.service
+    systemctl --user is-enabled podium.service
 
-### Boundary 4: installed parent healthy
+The healthy parent may now retire legacy definitions. If any checkpoint fails, use host-local
+rollback before returning control to operators.
 
-`/readiness` must be `ready` with both planes available. `/version` must report
-`installKind: installed`, the staged version, and `daemonConnected: true` for `all-in-one`.
-`podium.service` must be active and enabled, its main process must run the installed
-`podium-cli parent --takeover`, and legacy definitions should be retired.
+## Rollback after the source stop
 
-Repair: if any condition fails, do not hand control back to the data plane. Run the rollback.
-
-## Rollback after Boundary 2
-
-Rollback requires no Podium API. Stop every possible contender before restoring old boot config:
+Stop every contender before restoring boot config and old units:
 
     systemctl --user disable --now podium.service 2>/dev/null || true
-    for unit in $PODIUM_CUTOVER_LEGACY_UNITS; do
-      systemctl --user stop "$unit" 2>/dev/null || true
-    done
+    for unit in $PODIUM_CUTOVER_LEGACY_UNITS; do systemctl --user stop "$unit" 2>/dev/null || true; done
     cp -a "$PODIUM_CUTOVER_RECOVERY/config.json" "$PODIUM_CUTOVER_CONFIG.rollback-next"
     mv "$PODIUM_CUTOVER_CONFIG.rollback-next" "$PODIUM_CUTOVER_CONFIG"
     if [ -e "$PODIUM_CUTOVER_RECOVERY/pre-cutover-podium.service" ]; then
@@ -271,60 +225,34 @@ Rollback requires no Podium API. Stop every possible contender before restoring 
     while IFS= read -r unit; do systemctl --user enable "$unit"; done < "$PODIUM_CUTOVER_RECOVERY/enabled-units"
     while IFS= read -r unit; do systemctl --user start "$unit"; done < "$PODIUM_CUTOVER_RECOVERY/active-units"
 
-Rollback checkpoint: `/readiness` must return to `ready`, `/version` must say
-`installKind: source`, and the exact prior active set must be active. Restoring config before
-stopping the parent/source contenders recreates `activation_pending`; preserve the order above.
+Require source readiness `ready`, `installKind: source`, `daemonConnected: true`, and the exact prior
+active set. Restoring config before stopping contenders can recreate `activation_pending`; preserve
+the order above.
 
-## Why the automatic overlap timed out
+## Why ordinary reconciliation is not the live-overlap path
 
-The rehearsal proved a source-specific runtime seam rather than a generic parent failure:
+`scripts/server.ts` and `scripts/daemon.ts` never register run-registry roles. Reconciliation
+runtime-masks their systemd units, but masking does not stop an already-active process. The new
+parent's `podium server --takeover` therefore cannot signal the old server, hits `EADDRINUSE`, and
+the Type=notify parent eventually times out. With `mode: server`, it would also omit the daemon.
 
-- `scripts/server.ts` and `scripts/daemon.ts` start through `bootProcess` and never register
-  their run-registry roles. The server's fixed port makes that omission fatal during overlap.
-- `maskSystemdUnitsRuntime` runtime-masks legacy names but does not stop an already-active unit.
-- The installed child starts as `podium server --takeover`. Its `registerProcess` call can reclaim
-  only a holder named by the run registry. With no record, it signals nobody, reaches the occupied
-  port, exits on `EADDRINUSE`, and is retried.
-- The parent never observes a healthy installed server, deliberately withholds `READY=1`, and the
-  Type=notify start job times out.
+Stopping the direct source units first removes both defects. Reconciliation is safe after that
+boundary, and its health-gated retirement remains useful.
 
-This blocks the automatic overlap choreography for direct source units. It does **not** block the
-Ludovico cutover above: Boundary 2 stops those units before config changes or the parent starts.
-Published 0.1.0 installed units use the installed CLI role-registration path and retain their
-separately proven first hop.
+An absent boot-relevant field must still count as divergence. In config version 2, absent
+`persistence` means unmanaged supervision; writing `systemd` changes restart authority. Treating it
+as unchanged would let an old process report ready while the file names a different supervisor.
 
-## Why absent boot fields remain divergent
+The isolated rehearsal started from missing persistence and proved the dangerous write produced
+`activation_pending` with a blocked data plane, forced a failed-parent rollback, and then reached an
+installed `0.1.1-edge.2` authority in 3.63 seconds through stop-write-start. Ludovico's current
+systemd-persistence shape removes the persistence change, but not the required stop or mode change.
 
-Config version 2 defines absent `persistence` as unmanaged foreground/desktop supervision, not
-unknown history. Writing `systemd` changes restart authority and process topology. Ignoring
-`undefined -> systemd` would let the old source process claim ready while the file names a different
-supervisor, allowing work during a port/restart-owner race. Mode is equally boot-relevant:
-`server -> all-in-one` changes which children the parent owns.
+## Three things that stop later updates
 
-The safe answer is therefore to keep absence divergent and ensure no stale process is serving when
-the value is established.
+**A dirty checkout publishes nothing.** Untracked files count; check `git status`.
 
-## What the rehearsal observed
+**A detached HEAD offers nothing.** Keep the protected checkout on its branch.
 
-On 2026-08-27, a private systemd user manager ran the real source server and daemon from
-`2595a904f` with config version 2, mode `server`, and no persistence key.
-
-- Writing mode/persistence while source remained live produced `activation_pending`,
-  `dataPlane: blocked`, stale `[mode, persistence]`. A deliberately broken parent was rolled back
-  to source `ready`.
-- The naive mask-and-start parent path timed out for the unregistered-source reason above.
-- The stop-write-start path reached installed `0.1.1-edge.2` `ready` in 3.63 seconds, with
-  `daemonConnected: true`, active/enabled `podium.service`, retired legacy definitions, and the
-  recovery bundle still present.
-
-## Three things that will stop later updates
-
-**A dirty checkout publishes nothing.** Untracked files count. If the panel is silent, check
-`git status` first.
-
-**A detached HEAD can never offer an update.** Keep the protected checkout on its branch; remove a
-redundant worktree instead of detaching the live one.
-
-**Going backwards is refused.** Once newer migrations run, an older build may not open the database.
-Moving forward is effectively one-way without a database restore; see
-[Data and upgrades](data-and-upgrades.md).
+**Going backwards is refused.** After newer migrations run, recover from a database backup or roll
+forward; see [Data and upgrades](data-and-upgrades.md).
