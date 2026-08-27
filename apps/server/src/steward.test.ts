@@ -558,6 +558,28 @@ describe('StewardService unblock handler', () => {
     expect(text).not.toContain('\n')
   })
 
+  it('routes an unblock nudge only to the eligible dependent coordinator', async () => {
+    const sessions = [
+      fakeSession({ sessionId: asSessionId('worker'), cwd: '/r/.worktrees/issue-2-b' }),
+      fakeSession({
+        sessionId: asSessionId('coordinator'),
+        cwd: '/r/.worktrees/issue-2-b',
+        status: 'starting',
+      }),
+    ]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const blocker = issues.create({ repoPath: '/r', title: 'Blocker', startNow: false })
+    const dependent = issues.create({ repoPath: '/r', title: 'Dependent', startNow: false })
+    issues.update(dependent.id, { worktreePath: '/r/.worktrees/issue-2-b' })
+    issues.setCoordinator(dependent.id, asSessionId('coordinator'))
+    issues.addDep(dependent.id, blocker.id, 'blocks')
+
+    issues.close(blocker.id)
+    await steward.tick()
+
+    expect(sendTextWhenReady.mock.calls.map((call) => call[0])).toEqual(['coordinator'])
+  })
+
   it('no live session → no nudge, but the comment still lands', async () => {
     const { issues, steward, sendTextWhenReady } = harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -644,6 +666,31 @@ describe('StewardService parent-nudge handler', () => {
     // Comment-only excerpt: the agent-authored note never reaches the nudge.
     expect(text).not.toContain('widget')
     expect(text).not.toContain('\n')
+  })
+
+  it('routes a child-event nudge only to the parent coordinator', async () => {
+    const sessions = [
+      fakeSession({ sessionId: asSessionId('worker'), cwd: '/r/.worktrees/issue-1-epic' }),
+      fakeSession({
+        sessionId: asSessionId('coordinator'),
+        cwd: '/r/.worktrees/issue-1-epic',
+      }),
+    ]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    issues.setCoordinator(parent.id, asSessionId('coordinator'))
+    const child = issues.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: parent.id,
+      startNow: false,
+    })
+
+    issues.close(child.id)
+    await steward.tick()
+
+    expect(sendTextWhenReady.mock.calls.map((call) => call[0])).toEqual(['coordinator'])
   })
 
   it('already-communicated (§07b, POD-913): suppresses the nudge when the child already messaged the parent directly', async () => {
@@ -984,6 +1031,30 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
 
+  it('routes an issue subscription only to its coordinator', async () => {
+    const sessions = [
+      fakeSession({ sessionId: asSessionId('worker'), cwd: '/r/.worktrees/p' }),
+      fakeSession({ sessionId: asSessionId('coordinator'), cwd: '/r/.worktrees/p' }),
+    ]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const subscriber = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    issues.update(subscriber.id, { worktreePath: '/r/.worktrees/p' })
+    issues.setCoordinator(subscriber.id, asSessionId('coordinator'))
+    const source = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.events.addSubscription(
+      seedSub({
+        id: 'sub_coord',
+        subscriberId: subscriber.id,
+        sourceRef: source.id,
+      }),
+    )
+
+    issues.close(source.id)
+    await steward.tick()
+
+    expect(sendTextWhenReady.mock.calls.map((call) => call[0])).toEqual(['coordinator'])
+  })
+
   it('already-communicated (§07b, POD-913): suppresses a subscription nudge when the source issue already messaged the subscriber directly', async () => {
     const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
@@ -1124,7 +1195,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
-  it('suppresses the nudge to the session that caused the source event (#116)', async () => {
+  it('excludes a coordinator that caused the event and falls back to an eligible peer', async () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/p' }),
       fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/p' }),
@@ -1132,6 +1203,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
+    issues.setCoordinator(p.id, asSessionId('causer'))
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
     store.events.addSubscription(seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id }))
     issues.close(x.id, 'done', { actorSessionId: asSessionId('causer') })

@@ -1397,8 +1397,30 @@ export class IssueCrudModule {
     return wire
   }
 
-  claim(id: string, assignee: UserId): IssueWire {
-    return this.update(id, { assignee, stage: 'in_progress' })
+  /** Fill an empty coordinator seat from a real issue member. Automatic callers
+   * use onlyMember so the first agent establishes the default without guessing
+   * among an existing team; an explicit issue claim may name its bound caller.
+   * Existing values — including intentional handoffs and dangling historical
+   * ids — are never replaced here. */
+  ensureCoordinator(id: string, sessionId: SessionId, opts?: { onlyMember?: boolean }): IssueWire {
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    if (row.coordinatorSessionId) return this.store.toWire(row)
+    const eligible = this.store
+      .sessionsFor(row)
+      .filter(
+        (session) =>
+          session.agentKind !== 'shell' && !session.archived && session.status !== 'exited',
+      )
+    const candidate = eligible.find((session) => session.sessionId === sessionId)
+    if (!candidate || (opts?.onlyMember && eligible.length !== 1)) {
+      return this.store.toWire(row)
+    }
+    return this.update(row.id, { coordinatorSessionId: candidate.sessionId })
+  }
+
+  claim(id: string, assignee: UserId, opts?: { actorSessionId?: SessionId }): IssueWire {
+    const claimed = this.update(id, { assignee, stage: 'in_progress' }, opts)
+    return opts?.actorSessionId ? this.ensureCoordinator(claimed.id, opts.actorSessionId) : claimed
   }
 
   /** Claim / set / clear the issue's designated coordinator session

@@ -1065,7 +1065,12 @@ const defs = {
     target: targetId,
     handler: (ctx, input) => {
       assertNotProposedForAgent(ctx, input.id, 'claim')
-      return ctx.crud.claim(input.id, input.assignee)
+      const actorSessionId = ctx.caller.capability.actorSessionId
+      return ctx.crud.claim(
+        input.id,
+        input.assignee,
+        actorSessionId ? { actorSessionId } : undefined,
+      )
     },
   }),
   /** Claim / set / clear the issue's designated coordinator session
