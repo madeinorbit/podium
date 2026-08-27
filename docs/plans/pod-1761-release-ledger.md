@@ -4996,3 +4996,39 @@ be measuring the same thing.**
 **Nothing about the reaper is in question.** Drive accepted on byte-identical blobs, delayed census
 clean, `test:multi-instance` green, branch clean at `549fd8d98`. **Ten lines of raw output and it
 lands.**
+
+### The apps/web attribution is settled, and my hypothesis was wrong twice (2026-08-27 04:49 CEST)
+
+    TURBO_FORCE=1 bun run typecheck --filter @podium/web --uncached-because "..."
+    Tasks:  16 successful, 16 total
+    Cached: 0 cached, 16 total
+    Time:   1m54.647s        error TS occurrences: 0
+
+**Same command POD-2691 used, same filter, cache genuinely bypassed, on the tip without its
+change — green.** Its branch is red. **The errors are its change's.**
+
+**THREE READINGS, AND ONLY THE THIRD SETTLES ANYTHING.** A direct `tsgo` (green, but against
+build artifacts of unknown age). A turbo run that came back in 836ms as `FULL TURBO` (green, but
+nothing compiled). And this one: its method, its scope, zero of sixteen cached, nearly two minutes
+of real work. **I said at each of the first two that they were weaker than they looked, which is
+the only reason the third got run at all.**
+
+**AND I COST THE SESSION AN HOUR.** I told it I believed the errors were pre-existing and to hold
+off triaging. **Both of my hypotheses failed:** the stale-`packages/model/dist` story died when a
+fresh model build still typechecked clean, and the follow-up runtime experiment never ran —
+`No packages matched the filter` — while printing `BUILD_EXIT=1 / WEB_TSGO_EXIT=0`, which reads
+exactly like a coherent second refutation. **I asked a working session to wait on reasoning that
+did not hold, and that is worse than being wrong quietly.**
+
+**WHAT REMAINS PUZZLING, recorded so nobody re-derives it:** `packages/model/src` is
+**byte-identical** between the branch and the tip (`driverId` appears 7 times in both), the only
+non-app differences are two files in `packages/runtime`, and its own run had **23/25 tasks succeed
+with only web failing**. **Upstream green, model identical, web red.** That points at how web's
+dependency outputs are produced in its tree rather than at a source contract.
+
+**The division of labour is now clean and I said so: I own "whose errors are these", it owns "what
+are they."** I have the answer to the first and it has the file:line for the second. **I am not
+guessing at the diagnosis a third time.**
+
+Everything else about the reaper is landable: drive accepted on byte-identical blobs, delayed
+census clean, `test:multi-instance` green, branch clean.
