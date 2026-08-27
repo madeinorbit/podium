@@ -791,6 +791,92 @@ describe('test lane configuration', () => {
     expect(failures.sort()).toEqual([])
   })
 
+  it('restores the scripts typecheck hash after generated Turbo logs appear [POD-2937]', () => {
+    // The scripts package typechecks repository code reached by relative imports, so its
+    // explicit root inputs deliberately cross package boundaries. Explicit globs also see
+    // ignored files, though: the cache-admission probes leave `.turbo/turbo-typecheck.log`
+    // files beneath those roots, and a repaired checkout at the same commit then used to
+    // get a different scripts hash from its original clean hash.
+    const rootTurbo = JSON.parse(
+      readFileSync(new URL('../turbo.json', import.meta.url), 'utf8'),
+    ) as {
+      tasks: Record<string, { dependsOn?: string[]; inputs?: string[]; outputs?: string[] }>
+    }
+    const scriptsTypecheck = rootTurbo.tasks['@podium/scripts#typecheck']
+    expect(scriptsTypecheck, 'scripts typecheck task is missing').toBeDefined()
+
+    const fixture = mkdtempSync(join(tmpdir(), 'podium-typecheck-inputs-'))
+    const roots = ['apps', 'packages', 'services', 'tests']
+    try {
+      mkdirSync(join(fixture, 'scripts'), { recursive: true })
+      writeFileSync(
+        join(fixture, 'package.json'),
+        JSON.stringify({
+          name: 'fixture-root',
+          private: true,
+          packageManager: 'bun@1.3.14',
+          workspaces: ['scripts'],
+        }),
+      )
+      writeFileSync(join(fixture, 'bun.lock'), '')
+      writeFileSync(join(fixture, '.gitignore'), '.turbo/\n')
+      writeFileSync(
+        join(fixture, 'turbo.json'),
+        JSON.stringify({
+          daemon: false,
+          tasks: { '@podium/scripts#typecheck': scriptsTypecheck },
+        }),
+      )
+      writeFileSync(
+        join(fixture, 'scripts/package.json'),
+        JSON.stringify({
+          name: '@podium/scripts',
+          version: '0.0.0',
+          scripts: { typecheck: 'exit 0' },
+        }),
+      )
+      writeFileSync(join(fixture, 'scripts/check.ts'), 'export const checked = true\n')
+      for (const root of roots) {
+        mkdirSync(join(fixture, root, 'fixture'), { recursive: true })
+        writeFileSync(join(fixture, root, 'fixture/source.ts'), `export const ${root} = true\n`)
+      }
+
+      const turbo = fileURLToPath(new URL('../node_modules/.bin/turbo', import.meta.url))
+      const hash = (): string => {
+        const run = spawnSync(
+          turbo,
+          ['run', 'typecheck', '--filter=@podium/scripts', '--dry=json'],
+          {
+            cwd: fixture,
+            encoding: 'utf8',
+          },
+        )
+        expect(run.status, `${run.stderr ?? ''}${run.stdout ?? ''}`).toBe(0)
+        const dry = JSON.parse(run.stdout) as { tasks?: { taskId?: string; hash?: string }[] }
+        const task = dry.tasks?.find(({ taskId }) => taskId === '@podium/scripts#typecheck')
+        expect(task?.hash, 'dry run omitted the scripts typecheck hash').toBeTruthy()
+        return task?.hash as string
+      }
+
+      const clean = hash()
+      for (const root of roots) {
+        const generated = join(fixture, root, 'fixture/.turbo/turbo-typecheck.log')
+        mkdirSync(dirname(generated), { recursive: true })
+        writeFileSync(generated, `${root} generated log\n`)
+      }
+      expect(hash()).toBe(clean)
+
+      // The exclusion must be surgical: all four broad roots remain real inputs.
+      for (const root of roots) {
+        writeFileSync(join(fixture, root, 'fixture/source.ts'), `export const ${root} = false\n`)
+        expect(hash(), `${root}/** stopped affecting the scripts typecheck hash`).not.toBe(clean)
+        writeFileSync(join(fixture, root, 'fixture/source.ts'), `export const ${root} = true\n`)
+      }
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+
   it('builds browser workspace dependencies in the lane, not under webServer [POD-1389][POD-535]', () => {
     // Cold-checkout self-containment moved out of Playwright's webServer wall
     // clock: the lane builds packages + web + mobile once; webServer only boots

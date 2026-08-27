@@ -32,6 +32,7 @@
         "$TURBO_ROOT$/packages/**",
         "$TURBO_ROOT$/services/**",
         "$TURBO_ROOT$/tests/**",
+        "!$TURBO_ROOT$/**/.turbo/**",
         "$TURBO_ROOT$/vitest.acceptance.config.ts",
         "$TURBO_ROOT$/vitest.agent-smoke.config.ts",
         "$TURBO_ROOT$/vitest.integration.config.ts"
