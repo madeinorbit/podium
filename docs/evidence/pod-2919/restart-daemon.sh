@@ -2,9 +2,14 @@
 # Restart only the daemon. The server and client socket remain up for A7a.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+<<<<<<< HEAD
 REPO="$(cd "$HERE/../../.." && pwd)"
 source "$HERE/drive-env.sh"
 : "${P2919_CODE_PIN:?P2919_CODE_PIN must name the immutable rig pin}"
+=======
+REPO="$(cd "$HERE/../.." && pwd)"
+source "$HERE/drive-env.sh"
+>>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
 
 pidfile="$PODIUM_DRIVE_BASE/daemon.pid"
 old="$(cat "$pidfile")"
@@ -20,7 +25,11 @@ nohup bun --conditions=@podium/source "$REPO/scripts/daemon.ts" \
   >"$PODIUM_DRIVE_BASE/logs/daemon.log" 2>&1 &
 new="$!"
 echo "$new" >"$pidfile"
+<<<<<<< HEAD
 printf "%s\n" "$P2919_CODE_PIN" >"$PODIUM_DRIVE_BASE/daemon.sha"
+=======
+git -C "$REPO" rev-parse HEAD >"$PODIUM_DRIVE_BASE/daemon.sha"
+>>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
 
 reconnected=0
 for _ in $(seq 1 120); do

@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+<<<<<<< HEAD
 REPO="$(cd "$HERE/../../.." && pwd)"
 cell="${1:?cell id, e.g. A1a}"
 arm="${2:-headless}"
 export PODIUM_DRIVE_BASE="${PODIUM_DRIVE_BASE:-${P2919_BASE:-/tmp/pod-2919}}"
+=======
+REPO="$(cd "$HERE/../.." && pwd)"
+cell="${1:?cell id, e.g. A1a}"
+arm="${2:-headless}"
+>>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
 case "$cell" in A1a|A1b|A1c|A2b|A3|A5|A6a|A7a|A9|A10) ;; *) echo "unknown cell $cell" >&2; exit 2;; esac
 case "$arm" in headless) driver=''; family=server;; terminal) driver=generic-pty; family=terminal;; *) echo "unknown arm $arm" >&2; exit 2;; esac
 case "$cell:$arm" in

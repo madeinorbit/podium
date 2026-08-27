@@ -2,9 +2,14 @@
 # Restart the server and daemon for the explicit A10 arm switch.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+<<<<<<< HEAD
 REPO="$(cd "$HERE/../../.." && pwd)"
 source "$HERE/drive-env.sh"
 : "${P2919_CODE_PIN:?P2919_CODE_PIN must name the immutable rig pin}"
+=======
+REPO="$(cd "$HERE/../.." && pwd)"
+source "$HERE/drive-env.sh"
+>>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
 
 stop_one() {
   local name="$1" file="$PODIUM_DRIVE_BASE/$1.pid"
@@ -29,7 +34,11 @@ start_one() {
     >"$PODIUM_DRIVE_BASE/logs/$name.log" 2>&1 &
   local pid="$!"
   echo "$pid" >"$PODIUM_DRIVE_BASE/$name.pid"
+<<<<<<< HEAD
   printf "%s\n" "$P2919_CODE_PIN" >"$PODIUM_DRIVE_BASE/$name.sha"
+=======
+  git -C "$REPO" rev-parse HEAD >"$PODIUM_DRIVE_BASE/$name.sha"
+>>>>>>> fd5cc091a (docs(evidence): add opencode ten-cell drive)
   echo "STARTED_${name^^}_PID=$pid"
 }
 
