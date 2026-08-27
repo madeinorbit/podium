@@ -122,6 +122,7 @@ log(`  reports          driverId=${driverId}  driverFamily=${family}`)
 log(`  expected here    ${wantServer ?? '(this harness has no server driver)'} / family 'server'`)
 const identityOk = wantServer ? driverId === wantServer && family === 'server' : family === 'terminal'
 log(`  half 1 (reports server family): ${identityOk ? 'PASS' : 'FAIL'}`)
+if (harness === 'grok' && !identityOk) throw new Error(`refusing A5: expected grok-acp/server, received ${driverId}/${family}`)
 log('')
 log('  half 2 (PODIUM_RUNTIME_DRIVER=generic-pty demotes it): PARTIAL — measured,')
 log('  but not to the row\'s full wording, and the reason is POD-2853.')
@@ -214,7 +215,7 @@ if (toolItems.length === 0) {
    * all is reported separately — a result with nothing to tie it to a call
    * satisfies "a result is present" while pairing nothing.
    */
-  const byUse = new Map<string, { name: string; hasResult: boolean; items: number; result: string }>()
+  const byUse = new Map<string, { name: string; hasCall: boolean; hasResult: boolean; items: number; result: string }>()
   let orphans = 0
   for (const it of chat.items) {
     if (!(it.role === 'tool' || it.toolName)) continue
@@ -224,9 +225,11 @@ if (toolItems.length === 0) {
       continue
     }
     const got = typeof it.toolResult === 'string' && it.toolResult.length > 0
+    const call = typeof it.toolInput === 'string' || typeof it.toolName === 'string'
     const prev = byUse.get(id)
     byUse.set(id, {
-      name: it.toolName ?? it.role,
+      name: it.toolName ?? prev?.name ?? it.role,
+      hasCall: (prev?.hasCall ?? false) || call,
       hasResult: (prev?.hasResult ?? false) || got,
       items: (prev?.items ?? 0) + 1,
       result: got ? it.toolResult!.replace(/\n/g, '\\n').slice(0, 60) : (prev?.result ?? ''),
@@ -234,10 +237,14 @@ if (toolItems.length === 0) {
   }
   const paired = [...byUse.entries()].map(([id, v]) => ({ id, ...v }))
   for (const p of paired) {
-    log(`    toolUseId ${p.id.slice(0, 28).padEnd(28)} tool=${p.name.padEnd(8)} items=${p.items} result=${p.hasResult}  ${JSON.stringify(p.result)}`)
+    log(`    toolUseId ${p.id.slice(0, 28).padEnd(28)} tool=${p.name.padEnd(8)} items=${p.items} call=${p.hasCall} result=${p.hasResult}  ${JSON.stringify(p.result)}`)
   }
   if (orphans > 0) log(`    ${orphans} tool item(s) carried NO toolUseId — nothing ties them to a call`)
-  const allPaired = paired.length > 0 && paired.every((p) => p.hasResult) && orphans === 0
+  const allPaired = paired.length > 0 && paired.every((p) => p.hasCall && p.hasResult) && orphans === 0
+  const liveProviderPayload = toolItems
+    .flatMap((item) => (typeof item.toolResult === 'string' ? [item.toolResult] : []))
+    .find((payload) => payload.includes(word))
+  log(`  provider result live ${JSON.stringify(liveProviderPayload ?? null)}`)
 
   // RELOAD: drop the socket and open a new one, then compare the history the
   // server serves a fresh client against what this one was streamed live.
@@ -258,12 +265,39 @@ if (toolItems.length === 0) {
   log(`                   the turn's nonce is still in the reloaded history: ${sameNonce}`)
   const reloadToolItems = chat.items.filter((i) => i.role === 'tool' || i.toolName)
   log(`                   tool items after reload: ${reloadToolItems.length} (live: ${toolItems.length})`)
+  const reloadByUse = new Map<string, { hasCall: boolean; hasResult: boolean }>()
+  let reloadOrphans = 0
+  for (const item of reloadToolItems) {
+    if (!item.toolUseId) {
+      reloadOrphans += 1
+      continue
+    }
+    const previous = reloadByUse.get(item.toolUseId)
+    reloadByUse.set(item.toolUseId, {
+      hasCall: (previous?.hasCall ?? false) || typeof item.toolInput === 'string' || typeof item.toolName === 'string',
+      hasResult: (previous?.hasResult ?? false) || (typeof item.toolResult === 'string' && item.toolResult.length > 0),
+    })
+  }
+  const reloadPaired = reloadByUse.size > 0 && [...reloadByUse.values()].every((pair) => pair.hasCall && pair.hasResult) && reloadOrphans === 0
+  const reloadProviderPayload = reloadToolItems
+    .flatMap((item) => (typeof item.toolResult === 'string' ? [item.toolResult] : []))
+    .find((payload) => payload.includes(word))
 
-  const a5 = allPaired && missing.length === 0 && sameNonce ? 'PASS' : 'FAIL'
+  const shape = (items: typeof toolItems) => items.map((item) => ({
+    id: item.id,
+    toolUseId: item.toolUseId,
+    toolInput: item.toolInput,
+    toolResult: item.toolResult,
+  }))
+  const sameToolHistory = JSON.stringify(shape(reloadToolItems)) === JSON.stringify(shape(toolItems))
+  log(`  provider result reload ${JSON.stringify(reloadProviderPayload ?? null)}`)
+  log(`  paired after reload ${reloadPaired}; exact tool history ${sameToolHistory}`)
+  const a5 = allPaired && Boolean(liveProviderPayload) && reloadPaired && Boolean(reloadProviderPayload) && sameToolHistory && missing.length === 0 && sameNonce ? 'PASS' : 'FAIL'
   log('')
   log(`  A5 ${a5}`)
-  log(`      tool calls paired to results: ${allPaired} (${paired.length} distinct toolUseId(s))`)
-  log(`      reload shows the same history: ${missing.length === 0 && sameNonce}`)
+  log(`      tool calls paired to provider results live: ${allPaired && Boolean(liveProviderPayload)} (${paired.length} distinct toolUseId(s))`)
+  log(`      paired provider payload survives reload: ${reloadPaired && Boolean(reloadProviderPayload)}`)
+  log(`      reload shows the same history: ${sameToolHistory && missing.length === 0 && sameNonce}`)
   log(`      control FIRED — the turn produced ${toolItems.length} tool item(s)`)
 }
 
