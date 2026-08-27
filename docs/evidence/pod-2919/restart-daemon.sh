@@ -4,6 +4,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 source "$HERE/drive-env.sh"
+: "${P2919_CODE_PIN:?P2919_CODE_PIN must name the immutable rig pin}"
 
 pidfile="$PODIUM_DRIVE_BASE/daemon.pid"
 old="$(cat "$pidfile")"
@@ -19,7 +20,7 @@ nohup bun --conditions=@podium/source "$REPO/scripts/daemon.ts" \
   >"$PODIUM_DRIVE_BASE/logs/daemon.log" 2>&1 &
 new="$!"
 echo "$new" >"$pidfile"
-git -C "$REPO" rev-parse HEAD >"$PODIUM_DRIVE_BASE/daemon.sha"
+printf "%s\n" "$P2919_CODE_PIN" >"$PODIUM_DRIVE_BASE/daemon.sha"
 
 reconnected=0
 for _ in $(seq 1 120); do

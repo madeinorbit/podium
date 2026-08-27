@@ -4,6 +4,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 source "$HERE/drive-env.sh"
+: "${P2919_CODE_PIN:?P2919_CODE_PIN must name the immutable rig pin}"
 
 stop_one() {
   local name="$1" file="$PODIUM_DRIVE_BASE/$1.pid"
@@ -28,7 +29,7 @@ start_one() {
     >"$PODIUM_DRIVE_BASE/logs/$name.log" 2>&1 &
   local pid="$!"
   echo "$pid" >"$PODIUM_DRIVE_BASE/$name.pid"
-  git -C "$REPO" rev-parse HEAD >"$PODIUM_DRIVE_BASE/$name.sha"
+  printf "%s\n" "$P2919_CODE_PIN" >"$PODIUM_DRIVE_BASE/$name.sha"
   echo "STARTED_${name^^}_PID=$pid"
 }
 
