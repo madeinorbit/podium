@@ -37,7 +37,7 @@ import {
   Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useSession, useSessionDraft, useStoreSelector } from '@/app/store'
@@ -211,7 +211,37 @@ export function AgentPanel({
   )
   const session = useSession(sessionId)
   const spawnConfirmed = useStoreSelector((s) => !s.pendingSpawnIds.has(sessionId))
-  const optimisticFirstPrompt = useStoreSelector((s) => s.pendingSpawnPrompts.get(sessionId))
+  const observedOptimisticFirstPrompt = useStoreSelector((s) =>
+    s.pendingSpawnPrompts.get(sessionId),
+  )
+  // Replica confirmation retires the engine's prompt seed at the same time it
+  // can move this panel between live/parked/ended surface branches. Those
+  // branches remount ChatView, so retain the seed one level higher until the
+  // transcript explicitly echoes it; otherwise a fast terminal row can flash
+  // an empty conversation between confirmation and the transcript write.
+  const [heldOptimisticFirstPrompt, setHeldOptimisticFirstPrompt] = useState<{
+    sessionId: SessionId
+    text: string
+  } | null>(
+    observedOptimisticFirstPrompt === undefined
+      ? null
+      : { sessionId, text: observedOptimisticFirstPrompt },
+  )
+  useEffect(() => {
+    if (observedOptimisticFirstPrompt !== undefined) {
+      setHeldOptimisticFirstPrompt({ sessionId, text: observedOptimisticFirstPrompt })
+    }
+  }, [observedOptimisticFirstPrompt, sessionId])
+  const optimisticFirstPrompt =
+    observedOptimisticFirstPrompt ??
+    (heldOptimisticFirstPrompt?.sessionId === sessionId
+      ? heldOptimisticFirstPrompt.text
+      : undefined)
+  const settleOptimisticFirstPrompt = useCallback(() => {
+    setHeldOptimisticFirstPrompt((current) =>
+      current?.sessionId === sessionId ? null : current,
+    )
+  }, [sessionId])
   // Agent chrome needs durable issue fields (colour, branch, git state), not
   // session-derived rollups. `useReplicaIssues` intentionally invalidates on
   // every session row change to refresh those rollups, which would wake all
@@ -1006,6 +1036,7 @@ export function AgentPanel({
               sessionId={sessionId}
               active={active}
               initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
               deferInitialTranscript={!spawnConfirmed}
             />
           </>
@@ -1031,6 +1062,7 @@ export function AgentPanel({
               sessionId={sessionId}
               active={active}
               initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
               deferInitialTranscript={!spawnConfirmed}
             />
           </>
@@ -1055,6 +1087,7 @@ export function AgentPanel({
               sessionId={sessionId}
               active={active}
               initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
               deferInitialTranscript={!spawnConfirmed}
             />
           )}

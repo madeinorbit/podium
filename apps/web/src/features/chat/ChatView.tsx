@@ -150,6 +150,7 @@ export function ChatView({
   compact = false,
   initialTurnRunning = false,
   initialPendingText,
+  onInitialPendingSettled,
   deferInitialTranscript = false,
   onLeave,
 }: {
@@ -168,6 +169,8 @@ export function ChatView({
   /** The first prompt shown optimistically while the freshly-created headless
    * transcript catches up to the thread/session swap. */
   initialPendingText?: string
+  /** Called once the transcript echoes `initialPendingText`. */
+  onInitialPendingSettled?: () => void
   /** Wait to read/subscribe until a client-minted session id exists on the
    * authority. The optimistic prompt remains visible during this boundary. */
   deferInitialTranscript?: boolean
@@ -187,6 +190,7 @@ export function ChatView({
     ...(initialPendingText !== undefined
       ? { initialPendingText }
       : { initialPendingText: undefined }),
+    onInitialPendingSettled,
   })
   const quoteDraftRef = useRef<((markdown: string) => void) | null>(null)
   const [issueLivenessRoot, setIssueLivenessRoot] = useState<HTMLDivElement | null>(null)

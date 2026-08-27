@@ -14,7 +14,7 @@
  * halves: it survives well past the old ceiling in silence, and it yields the
  * instant the daemon speaks — whatever the daemon says.
  */
-import { asSessionId } from '@podium/model'
+import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
@@ -88,6 +88,41 @@ describe('useChatSend optimistic window', () => {
     rerender({ ...seeded, initialPendingText: undefined })
     expect(result.current.pending).toHaveLength(1)
     expect(result.current.justSent).toBe(true)
+  })
+
+  it('releases a host-held first prompt only after its transcript echo arrives', async () => {
+    const onInitialPendingSettled = vi.fn()
+    const seeded: UseChatSendOptions = {
+      ...opts(undefined),
+      session: {},
+      initialPendingText: 'Plan the release',
+      onInitialPendingSettled,
+    }
+    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: seeded,
+    })
+
+    rerender({ ...seeded, initialPendingText: undefined })
+    expect(onInitialPendingSettled).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rerender({
+        ...seeded,
+        initialPendingText: undefined,
+        blocks: [
+          {
+            item: {
+              id: 'echo-1',
+              role: 'user',
+              text: 'Plan the release',
+            } as TranscriptItem,
+          },
+        ],
+      })
+    })
+
+    expect(result.current.pending).toEqual([])
+    expect(onInitialPendingSettled).toHaveBeenCalledOnce()
   })
 
   it('opens on send', async () => {

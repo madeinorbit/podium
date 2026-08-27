@@ -4,6 +4,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 // ---------------------------------------------------------------------------
 // The arbitration through a real render (POD-408). `panel-surface.test.ts` pins
 // the rules; this file pins that the PANEL is wired to them — in particular the
@@ -66,18 +68,24 @@ vi.mock('@/lib/voice', () => ({
 let storeSessions: SessionMeta[] = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
 let storePendingSpawnIds = new Set<string>()
+let storePendingSpawnPrompts = new Map<string, string>()
 
+const subscribeTranscript = vi.fn(
+  (_s: string, _since: string | undefined, _cb: unknown): (() => void) => () => {},
+)
 const fakeHub = {
-  subscribeTranscript:
-    (_s: string, _since: string | undefined, _cb: unknown): (() => void) =>
-    () => {},
+  subscribeTranscript,
 }
 
+const transcriptRead = vi.fn(async () => ({ items: [], tail: 'confirmed-tail', hasMore: false }))
 const fakeTrpc = {
   settings: {
     get: { query: vi.fn(async () => ({ roles: { coding: { startScreen: 'native' } } })) },
   },
-  sessions: { sendText: { mutate: vi.fn(async () => {}) } },
+  sessions: {
+    sendText: { mutate: vi.fn(async () => {}) },
+    transcriptRead: { query: transcriptRead },
+  },
 }
 
 const stableStoreFns = {
@@ -97,7 +105,7 @@ vi.mock('@/app/store', () => {
     sessions: storeSessions,
     machines: [],
     pendingSpawnIds: storePendingSpawnIds,
-    pendingSpawnPrompts: new Map<string, string>(),
+    pendingSpawnPrompts: storePendingSpawnPrompts,
     repos: [],
     trpc: fakeTrpc,
     drafts: {},
@@ -158,6 +166,7 @@ beforeEach(() => {
   storeSessions = [meta({})]
   storePanelMode = { s1: 'native' }
   storePendingSpawnIds = new Set<string>()
+  storePendingSpawnPrompts = new Map<string, string>()
   vi.clearAllMocks()
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -325,6 +334,38 @@ describe('AgentPanel mount gating', () => {
     storePendingSpawnIds = new Set<string>()
     await render({ active: true })
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts the transcript exactly once after an optimistic spawn is confirmed', async () => {
+    const prompt = 'Keep the optimistic first turn visible.'
+    storePanelMode = { s1: 'chat' }
+    storeSessions = [meta({ status: 'starting' })]
+    storePendingSpawnIds = new Set(['s1'])
+    storePendingSpawnPrompts = new Map([['s1', prompt]])
+
+    await render({ active: true })
+
+    expect(transcriptRead).not.toHaveBeenCalled()
+    // AgentPanel's terminal file-link index observes all transcript deltas from
+    // mount. The window subscription is the one anchored to the read's tail.
+    expect(subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail')).toEqual(
+      [],
+    )
+    expect(container.textContent).toContain(prompt)
+
+    // One store publication installs the authoritative terminal row and retires
+    // both optimistic maps. AgentPanel must re-arm the read-then-subscribe
+    // effect, while ChatView's local first-turn state bridges that transition.
+    storeSessions = [meta({ status: 'exited', exitCode: 0 })]
+    storePendingSpawnIds = new Set<string>()
+    storePendingSpawnPrompts = new Map<string, string>()
+    await render({ active: true })
+
+    expect(transcriptRead).toHaveBeenCalledTimes(1)
+    expect(
+      subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail'),
+    ).toHaveLength(1)
+    expect(container.textContent).toContain(prompt)
   })
 
   it('tears the terminal down, and offers no mode switch, once the session is in transit', async () => {

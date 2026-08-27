@@ -92,6 +92,9 @@ export interface UseChatSendOptions {
   /** The first prompt shown optimistically while a freshly-created headless
    *  transcript catches up to the thread/session swap. */
   initialPendingText: string | undefined
+  /** Tells the host that the seeded first turn now has an authoritative echo,
+   *  so it no longer needs to survive ChatView surface remounts. */
+  onInitialPendingSettled?: () => void
 }
 
 export interface UseChatSendResult {
@@ -141,6 +144,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     headlessTurn,
     pinToBottom,
     initialPendingText,
+    onInitialPendingSettled,
   } = opts
 
   const initialPending = useCallback(
@@ -164,6 +168,8 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     [headless, initialPendingText],
   )
   const [pending, setPending] = useState<PendingItem[]>(initialPending)
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
   const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   /**
    * THE OPEN SEND, AS STATE RATHER THAN A FLAG (POD-1595 review).
@@ -274,6 +280,13 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     for (const item of userItems) prev.add(item.id)
     seenUserTailId.current = userItems.at(-1)?.id ?? null
     if (newUserItems.length > 0) {
+      const before = pendingRef.current
+      const seededBefore = before.some((item) => item.id === 'pending-first-turn')
+      const seededAfter = headless
+        ? false
+        : reconcilePending(before, newUserItems).some(
+            (item) => item.id === 'pending-first-turn',
+          )
       // Headless: the server prepends machine context (seed/delta blocks) to the
       // delivered turn text, so the echoed user item rarely equals the optimistic
       // bubble verbatim — any new user item means the send landed; drop them all.
@@ -282,8 +295,9 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserItems)))
         setQueuedMessages((q) => (q.length === 0 ? q : reconcileQueued(q, newUserItems)))
       }
+      if (seededBefore && !seededAfter) onInitialPendingSettled?.()
     }
-  }, [blocks, headless])
+  }, [blocks, headless, onInitialPendingSettled])
 
   // Drop the "sending" affordance after a grace period even if no echo arrived
   // (slow tail / uninstrumented) — the prompt was still sent, so settle to 'sent'
