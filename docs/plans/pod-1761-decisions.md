@@ -677,3 +677,32 @@ credential runs to 07:43 and the default instance is free. I am not starting it 
 window — POD-2918's hard stop is 07:00 and a rushed baseline is worse than none — but it is first
 in the queue after, ahead of grok's 11:03 cells, because grok adds coverage while this decides
 whether the coverage means the epic can ship.
+
+## Decision 21 RESOLVED — claude A1c is a genuine lost message (2026-08-27 06:52 CEST)
+
+I asked whether the dead-session send being *"accepted without a typed refusal"* was a regression or
+the new design working, since `b1c725716` deliberately made non-running sends persist and report
+`queued` rather than refuse. **The separating observation was: does the needle arrive after resume?**
+
+**POD-2918 ran it. It does not.**
+
+    killed exact Claude child 1186968 (proved alive first)
+    send returned queued=true
+    session then: status=exited, resume=null
+    no assistant needle for 120.036s
+
+**The send was accepted, reported queued, and delivered nowhere — because the session had no resume
+path.** That is not the persistence feature working; **it is a message queued against a session that
+can never come back.**
+
+**AND IT IS ARGUABLY WORSE THAN A REFUSAL.** A typed refusal loses the message but tells the user.
+**This tells the user `queued` and then silently never delivers** — the exact "silent settle" shape
+the matrix warns about in A1a's criterion. **A user cannot tell this apart from a slow reply.**
+
+**So A1c is a real defect on the epic.** Whether it BLOCKS the release still depends on the main
+baseline — POD-2921 is running it now — but this is no longer a question about the criterion being
+out of date. **The criterion was right and the product is wrong.**
+
+**What this changes for POD-2921: A1c is now the most important of its three cells.** A1b and A3
+failed for POD-2874 too, so they have at least a consistency story. **A1c is a confirmed
+user-visible loss, and only main tells us whether it is new.**
