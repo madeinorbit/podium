@@ -47,7 +47,7 @@ export interface EventMap {
   }
   /** A session was created by an operator/programmatic caller (createSession —
    *  the one funnel for fresh spawns; resumes and reattaches do not fire it). */
-  'session.created': { sessionId: SessionId; agentKind: AgentKind }
+  'session.created': { sessionId: SessionId; agentKind: AgentKind; issueId?: IssueId }
   /** A session's process ended (agentExit / reattachFailed death). */
   'session.exited': { sessionId: SessionId; code: number }
   /** Durable queued input requested a best-effort asynchronous wake. */
@@ -109,9 +109,9 @@ export interface EventMap {
   'oplog.appended': { changes: MetadataChange[] }
   /** The conversation index changed and was broadcast. */
   'conversations.changed': { conversations: ConversationSummaryWire[] }
-  /** Agent mail was sent to an issue (issue #103) — the sessions module picks a
-   *  live member session to nudge. */
-  'issue.mailSent': { seq: number; worktreePath?: string }
+  /** Agent mail was sent to an issue (issue #103) — the sessions module resolves
+   *  live membership and coordinator from the canonical issue id. */
+  'issue.mailSent': { issueId: IssueId; seq: number }
   /** Durable refusal committed; sender notification is an asynchronous nudge. */
   'message.deadLettered': { messageId: string; reason: string }
   /** The hub-reachability flag flipped (spec §2.3) — the conversation and issue

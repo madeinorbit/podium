@@ -11,7 +11,7 @@ import type {
 import { asIssueId, asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
-import { sessionsForIssue } from './issue-util'
+import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
 import { findSessionById } from './modules/sessions/session-by-id'
 import type { SessionStore, Subscription } from './store'
@@ -713,12 +713,19 @@ export class StewardService {
     if (sub.deliverNudge) {
       const causer = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
       const text = subscriptionNudge(sub, e)
-      const targets = this.subscriberNudgeTargets(sub, sessions).filter(
+      const candidates = this.subscriberNudgeTargets(sub, sessions).filter(
         (s) =>
           (s.status === 'live' || s.status === 'starting') &&
           s.agentKind !== 'shell' &&
           s.sessionId !== causer,
       )
+      const targets =
+        sub.subscriberKind === 'issue'
+          ? preferIssueCoordinator(
+              candidates,
+              this.deps.issues.getMeta(sub.subscriberId)?.coordinatorSessionId,
+            )
+          : candidates
       for (const s of targets) {
         // Already-communicated (§07b): targets here are already live/starting
         // (no wake-rights concern — see handleSessionParentNudge's note).
@@ -821,7 +828,7 @@ export class StewardService {
       // and a shell would have the text typed into bash. The nudge itself stays
       // single-line with no backticks and no agent-authored note interpolated —
       // the note lives in the issue comment only.
-      const targets = sessionsForIssue(
+      const candidates = sessionsForIssue(
         dependent.worktreePath,
         this.deps.listSessions(),
         dependent.id,
@@ -831,6 +838,7 @@ export class StewardService {
           s.agentKind !== 'shell' &&
           s.sessionId !== causedBy,
       )
+      const targets = preferIssueCoordinator(candidates, dependent.coordinatorSessionId)
       for (const s of targets) {
         // Already-communicated (§07b): the closer may have mailed the
         // dependent directly instead of relying on this nudge.
@@ -1002,7 +1010,7 @@ export class StewardService {
     // Resolved once for the already-communicated check below — the child whose
     // transition drove this coalesced nudge.
     const lastChild = this.deps.issues.list(parent.repoPath).find((w) => w.seq === lastChildSeq)
-    const targets = sessionsForIssue(
+    const candidates = sessionsForIssue(
       parent.worktreePath,
       this.deps.listSessions(),
       parent.id,
@@ -1012,6 +1020,7 @@ export class StewardService {
         s.agentKind !== 'shell' &&
         !causedBy.has(s.sessionId),
     )
+    const targets = preferIssueCoordinator(candidates, parent.coordinatorSessionId)
     for (const s of targets) {
       // Already-communicated (§07b): the child may have mailed the parent
       // directly instead of relying on this nudge (targets are already

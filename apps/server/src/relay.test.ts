@@ -111,6 +111,51 @@ describe('SessionRegistry', () => {
     ])
   })
 
+  it('defaults the first issue agent to coordinator without overriding clear or claim', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const issue = reg.modules.issues.create({
+        repoPath: '/proj',
+        title: 'Coordinator default',
+        startNow: false,
+      })
+
+      reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/proj',
+        issueId: issue.id,
+      })
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBeUndefined()
+
+      const first = reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/proj',
+        issueId: issue.id,
+      }).sessionId
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBe(first)
+
+      // Explicit clear survives a later teammate joining: with two eligible
+      // agents there is no unambiguous default to invent.
+      reg.modules.issues.setCoordinator(issue.id, null)
+      const second = reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/proj',
+        issueId: issue.id,
+      }).sessionId
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBeUndefined()
+
+      // An issue claim by a bound agent fills the empty seat, but never replaces
+      // an explicit handoff.
+      reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBe(second)
+      reg.modules.issues.setCoordinator(issue.id, first)
+      reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBe(first)
+    } finally {
+      reg.dispose()
+    }
+  })
+
   it('records and reuses repo-affine targets for host and remote worktrees', async () => {
     const store = new SessionStore(':memory:', asMachineId('host-under-test'))
     store.machines.upsertMachine({
@@ -179,7 +224,9 @@ describe('SessionRegistry', () => {
         host.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
       ).toHaveLength(1)
       expect(
-        remote.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
+        remote.filter(
+          (message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd',
+        ),
       ).toHaveLength(1)
     } finally {
       reg.dispose()
@@ -1651,9 +1698,7 @@ describe('SessionRegistry', () => {
       reg2.modules.sessions.listSessions().find((s) => s.sessionId === sessionId),
     ).toMatchObject({ title: 'rename functionality' })
     expect(
-      c.sent.filter(
-        (m) => m.type === 'sessionTitleChanged' && m.title !== 'rename functionality',
-      ),
+      c.sent.filter((m) => m.type === 'sessionTitleChanged' && m.title !== 'rename functionality'),
     ).toEqual([])
   })
 
