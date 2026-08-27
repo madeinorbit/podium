@@ -17,7 +17,7 @@ Built and runtime code tree: `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`. Served 
 
 | A5 | FAIL | Product driver `grok-acp/server`; tool call present without a paired result; reload returned the same incomplete history | `readings/a5.json` |
 
-| A6a | BLOCKED | Product driver `grok-acp/server`; native attach emitted no bytes or frames, so echo/resize/second-viewer clauses were unmeasurable | `readings/a6a.json` |
+| A6a | BLOCKED (superseded) | Product driver `grok-acp/server`; native attach emitted no bytes or frames, so echo/resize/second-viewer clauses were unmeasurable | `readings/a6a.json` |
 
 | A6b | PASS | Product driver `grok-acp/server`; four switches preserved original PIDs, marker, 120x40 geometry, chat reply, and CLI echo | `readings/a6b.json` |
 
@@ -28,3 +28,5 @@ Built and runtime code tree: `7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4`. Served 
 | A4a | BLOCKED | Product driver `grok-acp/server`; terminal attached, but permission probe produced no durable turn, so ask/card/answer clauses were unmeasurable | `readings/a4a.json` |
 
 | A4b | BLOCKED | Product driver `grok-acp/server`; no permission turn/ask existed, so a successful first answer and typed second refusal were unmeasurable | `readings/a4b.json` |
+
+| A6a | PASS | Authoritative delayed attach: `grok-acp/server`; echo, 3432B resize repaint, and second-viewer marker all passed | `readings/a6a-authoritative.json` |
