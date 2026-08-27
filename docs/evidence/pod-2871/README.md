@@ -58,6 +58,21 @@ The different-directory arm used two real non-git directories, and each API
 transcript contained only its own nonce. Both rows in the same legacy database
 had user and assistant messages. The machine-readable result is
 `$PODIUM_DRIVE_BASE/transcript-isolation/result.json`.
+
+## Measured with-fix control
+
+Recorded: 2026-08-27 03:29:38 CEST. The fixed server and daemon were spawned
+at `68efad1bdce8dd00447fc4cc8833a10f86328c69`; the served web bundle is
+`4a18e7d`, proven unchanged through the fix, with exactly one terminal daemon.
+
+The same-directory fault returned empty API assistant content after the fix.
+Its session-owned store had `sessionRows=1`, `messageRows=1`, `userRows=1`,
+`assistantRows=0`, and `partRows=1`; the companion returned its own nonce from
+a different session-owned store.
+
+The different-directory controls returned only their own nonces, and each
+session-owned store had user and assistant rows. The fixed result is recorded
+in `$PODIUM_DRIVE_BASE/transcript-isolation/result.json`.
 ## Run later, when the box is quiet
 
 Do not run this while another rig owns the same instance identity. Source the
