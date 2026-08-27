@@ -40,6 +40,8 @@
     "build": "bun run --filter './packages/*' build && bun run --filter @podium/web build",
     "dev": "bun run --filter './packages/*' dev",
     "deps:clean-local-installs": "bun scripts/clean-workspace-installs.ts",
+    "setup:worktree": "bun install --frozen-lockfile",
+    "deps:repair": "bun run deps:clean-local-installs && bun install --frozen-lockfile",
     "deps:rollback-hoisted": "bun run deps:clean-local-installs && bun install --frozen-lockfile --linker=hoisted",
     "deps:canary-global-store": "bun scripts/global-store-canary.ts",
     "//deps:global-store-cache-admission": "One heavy-test lease around the WHOLE lane, not per probe. The lane runs several cold typechecks and package tests in disposable worktrees, and it unsets PODIUM_SESSION_ID inside them because `podium lock` cannot name a holder from a detached worktree — so no inner probe can take a lease of its own and the lane would otherwise burn the box unadmitted (POD-2774).",

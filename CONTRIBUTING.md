@@ -24,8 +24,13 @@ bot: just open a pull request.
 ## Setup
 
 ```bash
-bun install
+bun run setup:worktree
 ```
+
+This runs `bun install --frozen-lockfile` and follows the linker setting tracked in `bunfig.toml`,
+currently `linker = "hoisted"`. The supported path gives each checkout its own `node_modules` tree
+without overriding that setting. Never share, copy, symlink, or bind-mount a complete
+`node_modules` tree between checkouts.
 
 ## Run locally
 
@@ -76,44 +81,32 @@ bun run --cwd apps/desktop build                # release build (.app/.dmg on ma
 | `bun run typecheck` | `tsc --noEmit` across every workspace. |
 | `bun run build` | Builds the publishable libraries (`packages/*`) with tsup. Not required to run the app. |
 | `bun run dev` | Watch-build the publishable libraries (this does **not** start the app — use `bun run host`). |
-| `bun run test` | The full test suite: vitest across every workspace (web under happy-dom) + the bun-only suites. Needs a real Node ≥ 22 on PATH (never symlink `node`→`bun`) — see [Testing](#testing) below. |
+| `bun run test` | The normal cached gate: lock-free typecheck plus a small one-worker boot/configuration probe — see the verification guidance below. |
 | `bun run lint` | Biome check. |
 | `bun run format` | Biome format (writes). |
 | `bun run --filter <name> <script>` | Run one workspace's script, e.g. `bun run --filter @podium/protocol build`. |
 
-## Testing
+## Verification
 
-The whole suite runs with one command from the repo root:
-
-```bash
-bun run test    # vitest (all workspaces, web under happy-dom) + the bun-only suites
-```
-
-Prerequisites: **Bun ≥ 1.3.14** and a real **Node ≥ 22** on PATH. Vitest runs under Node —
-do NOT symlink `node` → `bun`; Bun's Node shim breaks vitest's CJS interop (symptoms:
-`z.string is not a function`, `DOMPurify.sanitize is undefined`, `document is not defined`
-across hundreds of files).
-
-Some tests self-skip when their machine setup is absent (they never fail for it):
-
-- `apps/cli/src/podium-update.test.ts` swap tests — need the operator's signing key
-  (`apps/cli/src/.podium-update-dev.key`, the private half of `PODIUM_UPDATE_PUBKEY`).
-- `packages/pty/test/harness-smoke/claude-smoke.test.ts` — needs `claude` on PATH
-  with `$HOME` already trusted (run `claude` once in `$HOME` and accept the prompt), or
-  set `PODIUM_SKIP_CLAUDE_SMOKE=1`.
-- `packages/harness/src/opencode/*` detection tests expect the `opencode` CLI at
-  `~/.opencode/bin/opencode`.
-
-Browser E2E (Playwright, headless Chromium; builds protocol + web, then boots the real
-relay/daemon harness):
+The normal end-of-task check is the cached gate:
 
 ```bash
-bunx playwright install chromium         # once per machine
-cd tests/e2e && NODE_OPTIONS="--conditions=@podium/source" bunx playwright test --project=chromium-desktop
+bun run test
 ```
 
-The `NODE_OPTIONS` condition is required so Playwright's loader resolves workspace
-packages from source instead of (possibly unbuilt) `dist/`.
+It runs lock-free typecheck and a small, one-worker boot/configuration probe. The typecheck
+admits the install topology and workspace-resolution census before Turbo can reuse or create a
+result.
+
+For a narrow change, choose one focused lane that matches the risk, such as
+`bun run test:related -- <test-file>`, `bun run test:changed`, `bun run test:web`,
+`bun run test:mobile`, or the applicable server shard. Keep focused lanes targeted; do not run
+the exhaustive `bun run test:full`, `bun run test:unit`, or `bun run oracle` as routine contributor
+verification. Use those only for scheduled CI, merge/release validation, or an explicit request.
+
+Do not bypass cache admission with `--force`, `TURBO_FORCE`, or write-only `--cache` flags. If a
+real cache-key gap is found, document it and use the existing reasoned `--uncached-because` escape
+only as an explicit exception while the gap is fixed.
 
 ## Adding a package
 
@@ -126,7 +119,7 @@ packages from source instead of (possibly unbuilt) `dist/`.
 
    Note: the `@podium/*` library packages are currently consumed **in-repo only** — none of
    them are published to npm, even the ones structured as "publishable".
-4. Run `bun install`, then `bun run --filter @podium/<name> typecheck`.
+4. Run `bun run setup:worktree`, then `bun run --filter @podium/<name> typecheck`.
 
 ## Toolchain notes
 
@@ -139,30 +132,36 @@ packages from source instead of (possibly unbuilt) `dist/`.
   step passes a `baseUrl` to the TypeScript 6 compiler, which TS 6 rejects as deprecated
   (TS5101). The shim suppresses it. Remove it once tsup no longer injects `baseUrl`.
 
-### Rolling the Bun linker back to hoisted
+### Checkout-local dependency workflow
 
-An isolated install creates `node_modules` trees inside individual workspaces. Removing only the
-root install leaves those trees available to resolution after a rollback. From the checkout being
-rolled back, first restore `bunfig.toml` to `linker = "hoisted"`, stop processes using that
-checkout's dependencies, and preview the cleanup:
+Every git checkout or worktree owns its dependency tree. Never share, copy, symlink, or bind-mount a
+complete `node_modules` tree between checkouts. The supported path keeps the tracked
+`linker = "hoisted"` default inside each checkout; “isolated” here means isolated checkout state,
+not a shared dependency tree.
 
-```bash
-bun scripts/clean-workspace-installs.ts --dry-run
-```
-
-Then run the Stage 1 rollback command:
+For a fresh checkout, run:
 
 ```bash
-bun run deps:rollback-hoisted
+bun run setup:worktree
 ```
 
-The command removes every `node_modules` entry in this checkout, including workspace-local ones,
-then runs `bun install --frozen-lockfile --linker=hoisted`. The cleanup anchors itself to the
-checkout containing the script rather than the shell's current directory. It does not descend
-through symlinks; a symlink named `node_modules` is unlinked without touching its target. It never
-runs a Bun cache-cleaning command, so the shared cache outside the repository remains available to
-the reinstall. A cleanup or install error stops the chain; do not start the checkout against a
-partial install—fix the error and rerun the rollback command.
+For a damaged or mixed-linker install, stop processes using this checkout's dependencies and run:
+
+```bash
+bun run deps:repair
+```
+
+`deps:repair` first runs the checkout-scoped cleanup, which removes every `node_modules` entry
+under this checkout without following directory symlinks, then runs `bun install --frozen-lockfile`
+according to the tracked `bunfig.toml` setting. A cleanup or install error stops the chain; fix the
+error and rerun the repair before starting the checkout.
+
+Neither command deletes Bun or Turbo caches. The cleanup is anchored to the checkout containing
+the script, and the reinstall may reuse or populate the shared Bun cache but does not remove it.
+Never add `bun pm cache rm`, delete `~/.bun/install/cache` (or the configured global Bun cache), or
+delete the shared Turbo cache to a repair procedure. Only `deps:rollback-hoisted` intentionally
+forces `--linker=hoisted` for explicit linker rollback compatibility; `deps:repair` is the normal
+repair command.
 
 ## Cross-package imports
 

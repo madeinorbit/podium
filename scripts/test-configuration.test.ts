@@ -510,6 +510,10 @@ describe('test lane configuration', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
+    expect(pkg.scripts['setup:worktree']).toBe('bun install --frozen-lockfile')
+    expect(pkg.scripts['deps:repair']).toBe(
+      'bun run deps:clean-local-installs && bun install --frozen-lockfile',
+    )
     expect(pkg.scripts.test).toContain('bun run typecheck &&')
     expect(pkg.scripts['test:agent']).toBe('bun run test')
     expect(pkg.scripts['test:full']).toBe('bun run typecheck && bun scripts/test.ts')

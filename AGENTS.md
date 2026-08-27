@@ -28,6 +28,40 @@ behavior, follow **[docs/multi-instance.md](docs/multi-instance.md)** and run
 `bun run test:multi-instance`. The acceptance lane starts fully separate concurrent runtimes;
 do not substitute multiple clients routed to one server.
 
+## Checkout-local dependencies
+
+For a fresh checkout or git worktree, run:
+
+```bash
+bun run setup:worktree
+```
+
+This is the supported topology-following frozen install: it uses the linker setting tracked in
+`bunfig.toml` (currently `linker = "hoisted"`) and creates a dependency tree inside the current
+checkout. The command does not override that setting, so it follows future tracked linker changes.
+Never share, copy, symlink, or bind-mount a complete `node_modules` tree between checkouts; isolated
+checkout state is the boundary.
+
+If the checkout has a damaged or mixed-linker install, stop processes using it and run:
+
+```bash
+bun run deps:repair
+```
+
+`deps:repair` composes the checkout-scoped `deps:clean-local-installs` cleanup with a
+topology-following frozen reinstall (`bun install --frozen-lockfile`). The cleanup removes only
+`node_modules` entries under this checkout, does not follow directory symlinks, and stops before
+reinstalling if it finds an unsafe entry.
+`bun run test` is the normal cached gate after repair; its admission census must pass before Turbo
+can reuse or create a result.
+
+Neither command deletes shared caches. Do not add global Bun cache deletion (`bun pm cache rm`,
+removing `~/.bun/install/cache`, or deleting the configured equivalent) or shared Turbo-cache
+deletion to a repair. A reinstall may reuse or populate Bun's shared cache, but repair owns only
+the current checkout's dependency tree.
+Only `deps:rollback-hoisted` intentionally forces `--linker=hoisted`; setup and repair follow the
+tracked `bunfig.toml` setting.
+
 ## Issue tracking with Podium
 
 This project uses Podium's issue tracker for work management. If you are running inside a Podium
@@ -70,6 +104,11 @@ without traversing every package, starting browsers, or taking the whole-host he
 Docs, copy, fonts, formatting, generated artifacts, and other changes that cannot affect runtime
 may skip even this gate; state why in the handoff.
 
+For a narrow change, use the focused lane that matches its risk, such as `bun run test:related --
+<test-file>`, `bun run test:changed`, `bun run test:web`, `bun run test:mobile`, or an applicable
+server shard. Keep focused lanes targeted; use the normal cached gate as the default admission
+check and add only the one specialized lane that the changed behavior requires.
+
 Run another lane only when the changed behavior matches its trigger. Examples: database/store
 changes use the server store shard; daemon or PTY process behavior uses integration; instance
 identity or lifecycle uses multi-instance. A UI edit does **not** require browser automation or
@@ -89,14 +128,16 @@ filename patterns, configs, parent commands, caching, and exclusions—is in
 **[docs/agents/testing.md](docs/agents/testing.md)**. Read that file before selecting anything
 other than `test`.
 
-`bun run test:full` is the exhaustive cached package sweep for scheduled CI, merge batches, and
-explicit requests. It is never the default agent command and is not required before every commit.
-`bun run test:rearch` owns the whole-repository rewrite audit tests; they are excluded from the
-normal package sweep.
+`bun run test:full`, `bun run test:unit`, and `bun run oracle` are exhaustive or multi-lane
+validation reserved for scheduled CI, merge/release validation, or explicit requests—not routine
+agent work. `bun run test:rearch` owns the whole-repository rewrite audit and is likewise not an
+ordinary gate.
 
-Trust typecheck and Turbo cache hits. Never force recomputation. If a concrete cache-key gap is
-known, use `-- --uncached-because="<missing input>"` and file the gap; bare `--force` and
-`TURBO_FORCE` are rejected. A checkout without usable `node_modules/@podium` links is refused.
+Trust typecheck and Turbo cache hits. Never use a forced cache bypass as routine verification.
+Do not set `TURBO_FORCE`, pass `--force`, or use write-only `--cache` flags. If a concrete
+cache-key gap is known, document it and use `--uncached-because="<missing input>"` only as an
+explicit exception while filing the gap; the normal cached gate remains the contract. A checkout
+without usable `node_modules/@podium` links is refused.
 
 ## Reference docs for agents
 
