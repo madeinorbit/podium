@@ -29,6 +29,7 @@ The POD-2691 process/tracker cell has no product runtime to start; its measured 
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
 =======
@@ -52,6 +53,8 @@ ledger row remained 'status=delivered'. This is the pre-fix symptom.
 =======
 =======
 >>>>>>> 314ea0caa (docs: record POD-2298 drive result)
+=======
+>>>>>>> 314ea0caa (docs: record POD-2298 drive result)
 The parent arm used named instance 'p2913-2298b' with server and daemon pinned
 to 'c203cec50aab6e32e1629463b9e33042210cf505'; the daemon pin was recorded at
 spawn with 'PODIUM_RUNTIME_CONTRACT=1'. No web bundle was used because this is a
@@ -63,6 +66,7 @@ persisted transitions then showed 'message.receipt' with
 'outcome=refused, refusedFor=not_running', while the ledger row remained
 'status=delivered'. This is the pre-fix symptom.
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> 314ea0caa (docs: record POD-2298 drive result)
 =======
 >>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
@@ -70,6 +74,8 @@ persisted transitions then showed 'message.receipt' with
 >>>>>>> 314ea0caa (docs: record POD-2298 drive result)
 =======
 >>>>>>> 562620c41 (docs: refresh POD-2298 parent drive evidence)
+=======
+>>>>>>> 314ea0caa (docs: record POD-2298 drive result)
 
 The fix arm used fresh named instance 'p2913-2298tip' with server and daemon
 both pinned to 'b5c53918c5d6af54d28bafcd5ae607a30940bc6e'; both spawn-time pin
@@ -84,6 +90,7 @@ The parent reproduces the optimistic-delivery lie and the tip retracts it on
 the same refused receipt. Verdict: **PASS — defect gone**.
 
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -137,6 +144,8 @@ typed-refusal defect gone; later staging support also verified**. No product
 repair was made.
 
 =======
+=======
+>>>>>>> 314ea0caa (docs: record POD-2298 drive result)
 ### POD-2691 — still broken
 >>>>>>> 314ea0caa (docs: record POD-2298 drive result)
 =======
@@ -400,6 +409,7 @@ Complete rows are appended to 'docs/plans/pod-1761-results.tsv'. The remaining
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 children (POD-2602, POD-2604, and POD-2637) were not touched in this interval
 and have no result claimed here. POD-2622 is handed to POD-2914;
 this report does not claim a drive for it.
@@ -496,3 +506,10 @@ this report does not claim a drive for it.
 
 Last evidence update: '2026-08-27 00:40 CEST'.
 >>>>>>> 9a1562b9e (docs: record dead agent process finding)
+=======
+children (POD-2408, POD-2602, POD-2604, and POD-2637) were not touched in this
+interval and have no result claimed here. POD-2622 is handed to POD-2914;
+this report does not claim a drive for it.
+
+Last evidence update: '2026-08-27 01:54:27 CEST'.
+>>>>>>> 314ea0caa (docs: record POD-2298 drive result)
