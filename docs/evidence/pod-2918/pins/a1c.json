@@ -1,10 +1,14 @@
 {
   "cell": "A1C",
 <<<<<<< HEAD
+<<<<<<< HEAD
   "at": "2026-08-27T04:43:11.684Z",
 =======
   "at": "2026-08-27T03:31:01.924Z",
 >>>>>>> 73b46bd2b (Record Claude current-pin redrive)
+=======
+  "at": "2026-08-27T04:43:11.684Z",
+>>>>>>> 0f3c1515a (docs(evidence): resolve Claude A1c persistence)
   "sourceRoot": "/tmp/pod-2918/source-40c",
   "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
   "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
@@ -13,14 +17,19 @@
     "wireSchemaDigest": "986ebf5e8e57820c",
     "wireVersion": 2,
 <<<<<<< HEAD
+<<<<<<< HEAD
     "builtAt": "2026-08-27T04:30:53.133Z",
 =======
     "builtAt": "2026-08-27T01:52:00.954Z",
 >>>>>>> 73b46bd2b (Record Claude current-pin redrive)
+=======
+    "builtAt": "2026-08-27T04:30:53.133Z",
+>>>>>>> 0f3c1515a (docs(evidence): resolve Claude A1c persistence)
     "appVersion": "dev+40c198e",
     "sourceSha": "40c198e",
     "bundleVersion": "bundle+BN6ReJPR"
   },
+<<<<<<< HEAD
 <<<<<<< HEAD
   "serverPid": "1185151",
   "daemonPid": "1185204",
@@ -28,6 +37,10 @@
   "serverPid": "735180",
   "daemonPid": "789168",
 >>>>>>> 73b46bd2b (Record Claude current-pin redrive)
+=======
+  "serverPid": "1185151",
+  "daemonPid": "1185204",
+>>>>>>> 0f3c1515a (docs(evidence): resolve Claude A1c persistence)
   "serverAlive": true,
   "daemonAlive": true,
   "serverCwd": "/tmp/pod-2918/source-40c",
@@ -35,12 +48,17 @@
   "freeMemory": {
     "MemTotal": "12242288 kB",
 <<<<<<< HEAD
+<<<<<<< HEAD
     "MemAvailable": "5141716 kB",
     "SwapFree": "37207600 kB"
 =======
     "MemAvailable": "5103156 kB",
     "SwapFree": "36703240 kB"
 >>>>>>> 73b46bd2b (Record Claude current-pin redrive)
+=======
+    "MemAvailable": "5141716 kB",
+    "SwapFree": "37207600 kB"
+>>>>>>> 0f3c1515a (docs(evidence): resolve Claude A1c persistence)
   },
   "forbiddenOverrides": {
     "PODIUM_STATE_DIR": null,
