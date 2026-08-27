@@ -5469,3 +5469,37 @@ this epic it has been evidence of a bad check about as often as of a real gap.
     opencode badge latency           landed as ffa2fadcd
 
 **State: 242 result rows, 5 evidence directories, 10 recorded decisions.**
+
+### Three older delegates finished as the coordinator ran out (2026-08-27 11:30 CEST)
+
+They completed after the handover was written. **Their outputs are NOT in this ledger — a successor
+should read them.**
+
+    142ad9f3-57b5-4071-814b-f1e2c0d7d927   "Reviewer: row existence split"    POD-2682   VERDICT: PASS
+    48ada344-1c92-42ec-92be-9a08c28a2cd3   "Agent process ownership spec"     unread
+    c6757cbd-3341-4327-9b18-72b2f8b74a14   "Runtime spec conformance map"     unread
+
+Read them with `podium session read <FULL-uuid> --turns 1`. **Mail cannot deliver them** — each
+says it "durably mailed" its verdict to POD-1761, and POD-1761's inbox shows only messages from
+2026-08-13 to 08-20 (POD-2911). **Their reports exist only in their transcripts and worktrees.**
+
+**The one I did read is worth the pattern it demonstrates.** The POD-2682 reviewer returned PASS
+with no findings, and its evidence is the shape this epic should want everywhere:
+
+- **Two mutations, each reproducing a DIFFERENT regression.** Mutation 1 broke row retention and
+  exactly three tests failed — backlog issue, done/unread issue, repo-scoped worktree disappearance.
+  Mutation 2 reopened the original bug and all five exited-agent roster assertions failed, plus the
+  Flight Deck rendered an exited agent as "Retired". **That is a corpus proven able to fail, twice,
+  in two distinct ways.**
+- **It named the mechanism, not a symptom**: retention uses `sessionRetainsWorklistRow`, roster
+  membership uses `sessionVisibleInLiveRoster`, with distinct call sites. **The split is real, not
+  cosmetic.**
+- **Live verification against `/trpc/sessions.list`**, not against its own beliefs — POD-9 without
+  an agent glyph, the repo worktree at count 0, exited agents absent, live POD-75 keeping its
+  OpenCode glyph.
+- **Server, daemon and bundle verified immediately before EVERY successful drive**, and the layout
+  restored afterwards. Detached checkout clean, no product code touched.
+
+**POD-2682 is already `done`, so this confirms a closed issue rather than opening anything.** But it
+is the best worked example on the epic of what "driven" is supposed to mean, and a successor
+briefing a reviewer could do worse than point at it.
