@@ -5411,3 +5411,36 @@ transcript marker and then ignore it, and its motion predicate did not require `
 to reuse its own **independent in-flight control**, the PTY-growth-plus-visible-countdown proof it
 built for A1b after correctly distrusting the phase observer. **Without that, an interrupt that
 "worked" cannot be told from a turn that had already finished.**
+
+### Codex's last three cells are staffed — and one was a stale BLOCKED (2026-08-27 08:32 CEST)
+
+Box quiet at load 4.0 with 15GB, only two sessions running, so I went looking for what else could
+move. **Codex is 14/16 and the two "missing" cells turned out to be three.**
+
+    A4b  never driven at all
+    A8   never driven at all
+    A4a  recorded BLOCKED — "no approval raised" — at pin 6685c59
+
+**The A4a block is STALE and I nearly left it alone.** `apps/server/src/modules/interactions/
+service.ts` has changed since that pin, and that is precisely the code path the cell exercises. **By
+this epic's own staleness rule the reading no longer describes the tree** — a row is stale when CODE
+changed in its area, not merely when commits landed, and here it did.
+
+**That is the fourth stale-blocker found tonight**, after "nobody has driven shell" (21 cells existed
+in an evidence README), "claude needs the operator" (the token was valid), and "inherited apps/web
+errors" (a missing workspace symlink). **The pattern is that a blocker recorded once is treated as a
+property of the world**, and this epic moves fast enough that most of them expire.
+
+**What the other columns say about difficulty**, passed to POD-2923 so it starts informed:
+- **A4b: opencode PASSED**, so it is drivable; claude's BLOCKED is a real claude-2.1.231 limitation
+  that does not apply to codex.
+- **A8: grok PASSED, opencode PARTIAL** — *"demotion recorded, no login path"* — so the login half
+  is where it falls down.
+- **A4a: opencode PARTIAL, "chat half only."** The criterion needs the ask in chat AND in the
+  terminal with one answer resolving both. **The terminal half has defeated every column so far.**
+
+Also handed it POD-2893's finding — that the duplicate-approval fix gates the classifier by driver
+family from the manifest rather than by harness name — **so a duplicate ask now would be a
+regression in a landed fix rather than the original defect.**
+
+Base verified at the epic tip.
