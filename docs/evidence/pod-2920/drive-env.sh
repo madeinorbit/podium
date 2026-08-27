@@ -25,4 +25,3 @@ export POD2920_PIN="59e851a655a75d88e5f50906317dce7b06a5222e"
 export POD2920_EVIDENCE="$REPO/docs/evidence/pod-2920"
 mkdir -p "$PODIUM_DRIVE_BASE/probes" "$PODIUM_DRIVE_BASE/logs" "$POD2920_EVIDENCE/readings"
 chmod 700 "$PODIUM_DRIVE_BASE/probes" "$PODIUM_DRIVE_BASE/logs"
-

@@ -261,4 +261,3 @@ await Bun.write(output, `${JSON.stringify(result, null, 2)}\n`)
 console.log(`A1b ${driver} PASS`)
 console.log(`driver=${result.productDriverId} family=${result.productDriverFamily}`)
 console.log(`evidence=${output}`)
-

@@ -1,0 +1,140 @@
+{
+  "verdict": "PASS",
+  "driverRequested": "opencode",
+  "productDriverId": "opencode-server",
+  "productDriverFamily": "server",
+  "sessionId": "0b805694-b10e-4c9c-a133-df0e6852503d",
+  "cwd": "/tmp/pod-2920-qpos/probes/opencode-a1b",
+  "pins": {
+    "pin": "59e851a655a75d88e5f50906317dce7b06a5222e",
+    "server": {
+      "pid": 2058270,
+      "spawnSha": "59e851a655a75d88e5f50906317dce7b06a5222e",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2920-queue-position-lost-before-the-caller"
+    },
+    "daemon": {
+      "pid": 2058790,
+      "spawnSha": "59e851a655a75d88e5f50906317dce7b06a5222e",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2920-queue-position-lost-before-the-caller"
+    },
+    "servedWeb": {
+      "spawnSourceSha": "59e851a655a75d88e5f50906317dce7b06a5222e",
+      "servedStamp": "59e851a"
+    },
+    "instance": "qpos2920"
+  },
+  "hostAtStart": {
+    "load": [
+      10.06,
+      8.81,
+      7.74
+    ],
+    "memAvailableKb": 4001680,
+    "rootFreeKb": 12443212
+  },
+  "control": {
+    "receipt": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "durableUserTurn": true,
+    "phaseWorking": true,
+    "token": "P2920-OPENCODE-CONTROL-I1KK0R"
+  },
+  "queued": {
+    "callerReceipt": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "physicalPosition": 1,
+    "durableBeforeReload": {
+      "id": "msg_55233dd0-f405-4000-90ad-23d164a1e677",
+      "threadId": "msg_55233dd0-f405-4000-90ad-23d164a1e677",
+      "inReplyTo": null,
+      "from": "operator",
+      "to": "session:0b805694-b10e-4c9c-a133-df0e6852503d",
+      "kind": "message",
+      "urgency": "next-turn",
+      "lifecycle": "wait",
+      "body": "Reply with exactly P2920-OPENCODE-QUEUED-REPLY-APDDEM and nothing else. Do not use tools.",
+      "createdAt": "2026-08-27T10:36:35.728Z",
+      "status": "queued",
+      "queuePosition": 1,
+      "ackedBy": null,
+      "deliveredAt": null,
+      "deliveredTo": null,
+      "injectedAt": null,
+      "expiresAt": null,
+      "clampedFrom": null,
+      "hop": 0,
+      "readAt": null,
+      "deadLetteredAt": null,
+      "deliveryDeferredAt": null,
+      "deliveryDeferredReason": null,
+      "expectsResponse": false
+    },
+    "durableAfterReload": {
+      "id": "msg_55233dd0-f405-4000-90ad-23d164a1e677",
+      "threadId": "msg_55233dd0-f405-4000-90ad-23d164a1e677",
+      "inReplyTo": null,
+      "from": "operator",
+      "to": "session:0b805694-b10e-4c9c-a133-df0e6852503d",
+      "kind": "message",
+      "urgency": "next-turn",
+      "lifecycle": "wait",
+      "body": "Reply with exactly P2920-OPENCODE-QUEUED-REPLY-APDDEM and nothing else. Do not use tools.",
+      "createdAt": "2026-08-27T10:36:35.728Z",
+      "status": "queued",
+      "queuePosition": 1,
+      "ackedBy": null,
+      "deliveredAt": null,
+      "deliveredTo": null,
+      "injectedAt": null,
+      "expiresAt": null,
+      "clampedFrom": null,
+      "hop": 0,
+      "readAt": null,
+      "deadLetteredAt": null,
+      "deliveryDeferredAt": null,
+      "deliveryDeferredReason": null,
+      "expectsResponse": false
+    },
+    "delivered": {
+      "id": "msg_55233dd0-f405-4000-90ad-23d164a1e677",
+      "threadId": "msg_55233dd0-f405-4000-90ad-23d164a1e677",
+      "inReplyTo": null,
+      "from": "operator",
+      "to": "session:0b805694-b10e-4c9c-a133-df0e6852503d",
+      "kind": "message",
+      "urgency": "next-turn",
+      "lifecycle": "wait",
+      "body": "Reply with exactly P2920-OPENCODE-QUEUED-REPLY-APDDEM and nothing else. Do not use tools.",
+      "createdAt": "2026-08-27T10:36:35.728Z",
+      "status": "delivered",
+      "ackedBy": null,
+      "deliveredAt": "2026-08-27T10:36:46.415Z",
+      "deliveredTo": "0b805694-b10e-4c9c-a133-df0e6852503d",
+      "injectedAt": null,
+      "expiresAt": null,
+      "clampedFrom": null,
+      "hop": 0,
+      "readAt": null,
+      "deadLetteredAt": null,
+      "deliveryDeferredAt": null,
+      "deliveryDeferredReason": null,
+      "expectsResponse": false
+    },
+    "requestedReply": "P2920-OPENCODE-QUEUED-REPLY-APDDEM",
+    "exactReply": "P2920-OPENCODE-QUEUED-REPLY-APDDEM"
+  },
+  "isolation": {
+    "instance": "qpos2920",
+    "uniqueCwd": "/tmp/pod-2920-qpos/probes/opencode-a1b",
+    "genericPtyOverride": null
+  },
+  "startedAt": "2026-08-27T10:36:23.812Z",
+  "finishedAt": "2026-08-27T10:36:48.946Z",
+  "elapsedMs": 25134
+}

@@ -37,4 +37,3 @@ git -C "$PODIUM_DRIVE_REPO" diff --quiet "$POD2920_PIN" HEAD -- apps packages sc
 
 printf 'PINJSON {"pin":"%s","server":{"pid":%s,"spawnSha":"%s","cwd":"%s"},"daemon":{"pid":%s,"spawnSha":"%s","cwd":"%s"},"servedWeb":{"spawnSourceSha":"%s","servedStamp":"%s"},"instance":"%s"}\n' \
   "$POD2920_PIN" "$server_pid" "$server_sha" "$server_cwd" "$daemon_pid" "$daemon_sha" "$daemon_cwd" "$web_sha" "$served_short" "$PODIUM_INSTANCE"
-
