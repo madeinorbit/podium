@@ -14,6 +14,7 @@ import type { MachineId, UserId } from '@podium/model'
 import {
   type AcceptorStep,
   type CapabilityRef,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
   createDefaultAuthRegistry,
   createHandshakeAcceptor,
   type DaemonHandshake,
@@ -72,9 +73,7 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAccepto
       machines: createMachineDirectory(deps.machines),
       mint: gatewayCapabilityMinter,
     }),
-    // No negotiated capabilities on the daemon link today; the mechanism is here
-    // and additive (ADR 5 D3.3), so adding one is adding a token to this list.
-    supportedCaps: [],
+    supportedCaps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
     transport: {
       endpoint: '/daemon',
       connectionId: deps.connectionId,
@@ -103,6 +102,8 @@ export type DaemonFrameOutcome =
       readonly build?: PeerBuild
       /** The capability offer from the authenticated hello, before intersection. */
       readonly offeredCaps: string[]
+      /** The actual negotiated intersection; only these may select a transport. */
+      readonly acceptedCaps: string[]
     }
   | { readonly kind: 'rejected'; readonly reply: DaemonHandshakeReply | PeerHelloReply }
   | { readonly kind: 'deliver'; readonly machineId: MachineId; readonly raw: string }
@@ -147,6 +148,7 @@ export const receiveDaemonFrame = (
         reply: reply(step.reply),
         pairingGrant: step.peer.directoryContext,
         offeredCaps: [...hello.caps],
+        acceptedCaps: [...step.peer.caps.accepted],
         ...(hello.build === undefined ? {} : { build: hello.build }),
       }
     }

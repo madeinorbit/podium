@@ -1,8 +1,8 @@
 import { asSessionId } from '@podium/model'
-import { z } from 'zod'
 import { describe, expect, it } from 'vitest'
 import {
   BINARY_ENVELOPE_MAX_METADATA_BYTES,
+  DaemonPtyOutputMetadata,
   decodeBinaryEnvelope as decodeEnvelope,
   encodeBinaryEnvelope,
   PtyOutputBinaryMetadata,
@@ -68,15 +68,53 @@ describe('binary envelope v1', () => {
     expect(() => decodeBinaryEnvelope(jsonEnvelope({ ...metadata, v: 2 }))).toThrow()
   })
   it('applies a caller schema when planes share the same header discriminator', () => {
-    const DaemonPtyOutputMetadata = z
-      .object({
-        v: z.literal(1),
-        type: z.literal('ptyOutput'),
-        sourceFrames: z.number().int().positive(),
-      })
-      .passthrough()
-    const frame = jsonEnvelope({ v: 1, type: 'ptyOutput', sourceFrames: 3 })
+    const frame = jsonEnvelope({
+      v: 1,
+      type: 'ptyOutput',
+      sessionId: asSessionId('session-1'),
+      sourceFrames: 3,
+    })
     expect(decodeEnvelope(frame, DaemonPtyOutputMetadata).metadata.sourceFrames).toBe(3)
     expect(() => decodeEnvelope(frame, PtyOutputBinaryMetadata)).toThrow()
+  })
+  it('validates daemon output required fields and positive source frame counts', () => {
+    expect(() =>
+      decodeEnvelope(
+        jsonEnvelope({ v: 1, type: 'ptyOutput', sessionId: asSessionId('session-1') }),
+        DaemonPtyOutputMetadata,
+      ),
+    ).toThrow()
+    expect(() =>
+      decodeEnvelope(
+        jsonEnvelope({ v: 1, type: 'ptyOutput', sourceFrames: 1 }),
+        DaemonPtyOutputMetadata,
+      ),
+    ).toThrow()
+    expect(() =>
+      decodeEnvelope(
+        jsonEnvelope({
+          v: 1,
+          type: 'ptyOutput',
+          sessionId: asSessionId('session-1'),
+          sourceFrames: 0,
+        }),
+        DaemonPtyOutputMetadata,
+      ),
+    ).toThrow()
+  })
+  it('retains additive daemon output metadata fields', () => {
+    const daemonMetadata = {
+      v: 1 as const,
+      type: 'ptyOutput' as const,
+      sessionId: asSessionId('session-1'),
+      sourceFrames: 2,
+      future: true,
+    }
+    expect(
+      decodeEnvelope(
+        encodeBinaryEnvelope(daemonMetadata, Uint8Array.of(0xff)),
+        DaemonPtyOutputMetadata,
+      ).metadata,
+    ).toMatchObject(daemonMetadata)
   })
 })

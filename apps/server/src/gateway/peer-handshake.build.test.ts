@@ -34,7 +34,7 @@ function fakeWs() {
   }
 }
 
-const frame = (value: unknown) => Buffer.from(JSON.stringify(value))
+const frame = (value: unknown): string => JSON.stringify(value)
 
 describe('build report on hello accept', () => {
   it('persists a report carried by the hello', () => {

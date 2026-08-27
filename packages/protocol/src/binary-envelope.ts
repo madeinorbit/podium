@@ -25,6 +25,17 @@ export const PtyOutputBinaryMetadata = z
   .passthrough()
 export type PtyOutputBinaryMetadata = z.infer<typeof PtyOutputBinaryMetadata>
 
+/** V1 daemon-to-server PTY output metadata. Unknown additive fields survive. */
+export const DaemonPtyOutputMetadata = z
+  .object({
+    v: z.literal(1),
+    type: z.literal('ptyOutput'),
+    sessionId: SessionIdField,
+    sourceFrames: z.number().int().positive(),
+  })
+  .passthrough()
+export type DaemonPtyOutputMetadata = z.infer<typeof DaemonPtyOutputMetadata>
+
 /** Supported framing header. Plane schemas validate fields beyond this header. */
 export const BinaryEnvelopeHeader = z
   .object({ v: z.literal(1), type: z.literal('ptyOutput') })

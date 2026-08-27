@@ -3,7 +3,14 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asSessionId } from '@podium/model'
-import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import {
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  DaemonPtyOutputMetadata,
+  decodeBinaryEnvelope,
+  type PeerHello,
+  type PeerHelloReply,
+  WIRE_VERSION,
+} from '@podium/protocol'
 import { readConnectivity } from '@podium/runtime/connectivity'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 import {
@@ -93,6 +100,7 @@ describe('daemon connection credential state machine', () => {
       { ...identity },
     )
     await state.start()
+    expect(hello?.caps).toContain(CAP_TERMINAL_OUTPUT_BINARY_V1)
     expect(hello).toMatchObject({
       type: 'peerHello',
       peerRole: 'machine',
@@ -362,8 +370,8 @@ describe('daemon connection credential state machine', () => {
 
 class FakeSocket extends EventEmitter {
   readyState = 1
-  sent: string[] = []
-  send(data: string): void {
+  sent: Array<string | Uint8Array> = []
+  send(data: string | Uint8Array): void {
     this.sent.push(data)
   }
   close(): void {
@@ -448,6 +456,94 @@ it('converts remote typed output to one legacy payload without changing JSON sen
     }),
   ).toThrow(/positive sourceFrames/)
   await h.state.close()
+})
+
+it('sends exact binary output only when the remote handshake accepts it', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({
+    ...ok,
+    caps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+  })
+  await started
+
+  const bytes = Uint8Array.of(0x00, 0xff, 0xe2, 0x82, 0x1b)
+  h.state.sendOutput({
+    sessionId: asSessionId('session-binary'),
+    sourceFrames: 4,
+    bytes,
+  })
+
+  const frame = h.socket.sent[1]
+  expect(frame).toBeInstanceOf(Uint8Array)
+  const decoded = decodeBinaryEnvelope(frame as Uint8Array, DaemonPtyOutputMetadata)
+  expect(decoded.metadata).toMatchObject({
+    sessionId: 'session-binary',
+    sourceFrames: 4,
+  })
+  expect(decoded.payload).toEqual(bytes)
+  expect(h.sendApplicationFrame).not.toHaveBeenCalled()
+  await h.state.close()
+})
+
+it('clears accepted binary selection before a reconnect handshake', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket()]
+  let socketIndex = 0
+  let retry: (() => void) | undefined
+  const sendApplicationFrame = vi.fn()
+  const state = createDaemonConnection({
+    options: {
+      serverUrl: 'ws://server',
+      identityDir: temp(),
+      reconnectTimers: {
+        setTimeout: (fn) => {
+          retry = fn
+          return fn
+        },
+        clearTimeout: vi.fn(),
+      },
+    },
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: { token: 'token' },
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+    openSocket: () => sockets[socketIndex++] as FakeSocket,
+  })
+
+  const started = state.start()
+  sockets[0]!.emit('open')
+  sockets[0]!.message({ ...ok, caps: [CAP_TERMINAL_OUTPUT_BINARY_V1] })
+  await started
+  state.sendOutput({
+    sessionId: asSessionId('before-reconnect'),
+    sourceFrames: 1,
+    bytes: Uint8Array.of(0xff),
+  })
+  expect(sockets[0]!.sent[1]).toBeInstanceOf(Uint8Array)
+
+  sockets[0]!.emit('close')
+  retry?.()
+  sockets[1]!.emit('open')
+  sockets[1]!.message(ok)
+  state.sendOutput({
+    sessionId: asSessionId('after-reconnect'),
+    sourceFrames: 2,
+    bytes: Uint8Array.of(0x00, 0xff),
+  })
+  expect(sendApplicationFrame).toHaveBeenCalledWith(
+    sockets[1],
+    {
+      type: 'agentFrameBatch',
+      sessionId: 'after-reconnect',
+      frames: ['AP8=', ''],
+    },
+  )
+  expect(sockets[1]!.sent).toHaveLength(1)
+  await state.close()
 })
 
 it('delivers local typed output by reference without changing JSON sends', async () => {
@@ -564,8 +660,8 @@ it('keeps the daemon boot identity when the live source changes before reconnect
     retry?.()
     sockets[1]?.emit('open')
 
-    const firstHello = JSON.parse(sockets[0]?.sent[0] ?? '{}') as PeerHello
-    const secondHello = JSON.parse(sockets[1]?.sent[0] ?? '{}') as PeerHello
+    const firstHello = JSON.parse(String(sockets[0]?.sent[0] ?? '{}')) as PeerHello
+    const secondHello = JSON.parse(String(sockets[1]?.sent[0] ?? '{}')) as PeerHello
     expect(firstHello.build?.appVersion).toBe('dev+aaaaaaa')
     expect(secondHello.build?.appVersion).toBe('dev+aaaaaaa')
   } finally {

@@ -2,7 +2,9 @@ import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
 import type { MachineId } from '@podium/model'
 import {
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
   createHandshakeDialer,
+  encodeBinaryEnvelope,
   type DaemonPtyOutputBatch,
   type LocalDaemonAttachment,
   type PeerBuild,
@@ -61,7 +63,7 @@ export type DaemonConnectionState =
 
 interface SocketLike {
   readonly readyState: number
-  send(data: string): void
+  send(data: string | Uint8Array): void
   close(): void
   once(event: 'open' | 'close', listener: () => void): this
   on(event: 'message', listener: (raw: RawData) => void): this
@@ -144,6 +146,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let pairFallbackTried = false
   let lastSocketError: string | undefined
   let convergedVersion: string | undefined
+  let acceptedCaps = new Set<string>()
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
   // per code/version until an authenticated machine transport exists; ordinary
   // runtime frames retain the historical drop-while-offline behavior.
@@ -253,6 +256,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     updatePubkey?: string,
     updateKeyRotations?: readonly UpdateKeyRotation[],
     active?: SocketLike,
+    caps: readonly string[] = [],
   ): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
@@ -289,6 +293,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
     }
     state = 'connected'
+    acceptedCaps = new Set(caps)
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
     const boot = deps.onConnected() ?? {}
@@ -375,7 +380,13 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     if (step.action === 'established') {
-      established(step.issuedToken, step.updatePubkey, step.updateKeyRotations, active)
+      established(
+        step.issuedToken,
+        step.updatePubkey,
+        step.updateKeyRotations,
+        active,
+        step.caps.accepted,
+      )
       return
     }
     if (step.action === 'protocol-error') {
@@ -416,9 +427,12 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     return createHandshakeDialer({
       peerRole: 'machine',
       credential: selected,
-      caps: deliveryCaps(deps.build).filter(
-        (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
-      ),
+      caps: [
+        ...deliveryCaps(deps.build).filter(
+          (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
+        ),
+        CAP_TERMINAL_OUTPUT_BINARY_V1,
+      ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
         machineId: deps.machineId,
@@ -429,6 +443,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   const connectLocal = (): void => {
+    acceptedCaps.clear()
     state = 'connecting'
     const localLink = options.localLink
     if (!localLink) {
@@ -453,6 +468,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   function connectSocket(): void {
     if (closing) return
+    acceptedCaps.clear()
     state = 'connecting'
     const active = openSocket(`${options.serverUrl}/daemon`)
     socket = active
@@ -482,7 +498,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       lastSocketError = error instanceof Error ? error.message : String(error)
     })
     active.on('close', () => {
-      if (socket === active) socket = undefined
+      if (socket === active) {
+        socket = undefined
+        acceptedCaps.clear()
+      }
       scheduleReconnect()
     })
   }
@@ -512,6 +531,24 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         localAttachment.deliverOutput(batch)
         return
       }
+      if (socket && acceptedCaps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)) {
+        try {
+          socket.send(
+            encodeBinaryEnvelope(
+              {
+                v: 1,
+                type: 'ptyOutput',
+                sessionId: batch.sessionId,
+                sourceFrames: batch.sourceFrames,
+              },
+              batch.bytes,
+            ),
+          )
+        } catch (error) {
+          lastSocketError = error instanceof Error ? error.message : String(error)
+        }
+        return
+      }
       const message = legacyOutputMessage(batch)
       deps.sendApplicationFrame(socket, message)
     },
@@ -538,6 +575,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       localAttachment?.close()
       localAttachment = undefined
       const active = socket
+      acceptedCaps.clear()
       socket = undefined
       if (!active || active.readyState === WebSocket.CLOSED) return
       await new Promise<void>((resolve) => {

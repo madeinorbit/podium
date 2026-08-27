@@ -7,6 +7,7 @@ import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
 import { asMachineId, controlPlaneAvailable, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
   type MobileWebIdentity,
@@ -1390,6 +1391,14 @@ export async function startServer(
           return { established: false as const, reply }
         }
         const { principal } = outcome
+        perf.record(
+          'phase',
+          outcome.acceptedCaps.includes(CAP_TERMINAL_OUTPUT_BINARY_V1)
+            ? 'terminal.output.daemon.capability.binary'
+            : 'terminal.output.daemon.capability.base64',
+          0,
+          DEPLOYMENT,
+        )
         recordHelloBuild(registry.modules.machines, outcome.machineId, {
           build: outcome.build,
           caps: outcome.offeredCaps,
@@ -1405,8 +1414,16 @@ export async function startServer(
           // sites; it is a row in the gateway's routing table now, so this
           // link routes the WHOLE daemon union through one seam.
           deliver: (msg) => queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
-          deliverOutput: (batch) =>
-            queueMicrotask(() => registry.gateway.routeDaemonOutput(principal, batch)),
+          deliverOutput: (batch) => {
+            perf.record(
+              'phase',
+              'terminal.output.daemon.direct',
+              0,
+              DEPLOYMENT,
+              batch.bytes.byteLength,
+            )
+            queueMicrotask(() => registry.gateway.routeDaemonOutput(principal, batch))
+          },
           close: () => registry.gateway.detachDaemon(principal, send),
         }
       },
