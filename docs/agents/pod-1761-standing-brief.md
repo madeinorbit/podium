@@ -1410,3 +1410,27 @@ and that is sufficient. Do not use it to get past a refusal you have not read.
 be asked what it actually did. A gate that prints is not a gate that ran; a completion
 notification reports that a process ended, not that work happened; and a green in 836ms across
 sixteen packages did not typecheck sixteen packages.
+
+### Verify the row parsed, not just that you wrote it (2026-08-27 04:33 CEST)
+
+A session wrote five driven acceptance cells into `results.tsv` using the two-character sequence
+`\t` instead of TAB characters — almost certainly `echo "a\tb"` without `-e`. **Every field
+landed in column one, so the coverage query saw five driven cells as zero.**
+
+**Run this after appending, every time:**
+
+    awk -F'\t' '!/^#/ && NF>0 && NF<8 {print NR": "$0}' docs/plans/pod-1761-results.tsv
+
+**Empty output means every data row has its eight fields.** One line, and it would have caught the
+problem at the first cell instead of the fifth. Use `printf '%s\t%s\n'` or a literal tab; `echo`
+without `-e` does not interpret escapes.
+
+**This is the same family as two other traps this epic has paid for:** a backticked identifier in a
+mail body being eaten as command substitution, and a header edit that left a comment fragment
+uncommented so a parser would have read it as a malformed row. **An escape you did not verify is an
+escape that did not happen.**
+
+**And the consequence is always the same one: invisibility, not an error.** Nothing fails. The file
+looks written, the session reports success, and the work silently does not count — exactly like a
+results row with no cell id, or a driven column recorded only in an evidence README. **The recurring
+cost on this epic is not wrong data. It is correct data that nothing can see.**
