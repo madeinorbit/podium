@@ -1,6 +1,6 @@
 # A1b main baseline
 
-Measured 2026-08-27 07:23 CEST on instance `default` using the isolated default-ID rig at `/tmp/pod-2921` (the live `/home/mgw/.podium` default daemon was inventoried but not touched). The server, web bundle, and daemon were all pinned to main `0bd90092c3a926b9305da34547fcc51b1e19b0a7`; the recorded pin is `docs/evidence/pod-2918/pins/main-a1b-final-a1b.json`.
+Measured 2026-08-27 07:23 CEST on instance `default` using the isolated default-ID rig at `/tmp/pod-2921` (the live `/home/mgw/.podium` default daemon was inventoried but not touched). The server, web bundle, and daemon were all pinned to main `0bd90092c3a926b9305da34547fcc51b1e19b0a7`; the pin record is `docs/evidence/pod-2921/a1b-pin.json`.
 
 Positive control: the first user marker `POD2921-A1B-FIRST-MTB2V060` landed durably. Independent in-flight control: terminal output grew by 2,375 bytes in the one-second interval immediately before the second send, while the first count-to-160 turn was still at numbers 156–159. The second marker `POD2921-A1B-QUEUED-MTB2V060` appeared as a user turn and assistant reply after the chat was closed and reopened.
 
