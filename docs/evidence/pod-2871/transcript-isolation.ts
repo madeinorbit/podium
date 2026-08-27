@@ -25,6 +25,7 @@ import {
   login,
   mutate,
   nonce,
+  sessionRow,
   until,
   untilText,
   wait,
@@ -39,14 +40,17 @@ const EXPECTS_ISOLATION = ARM === 'with-fix'
 const FAULT_MODEL = process.env.P2871_FAULT_MODEL ?? 'opencode/laguna-s-2.1-free'
 const STORE_WAIT_MS = positiveMs('P2871_STORE_WAIT_MS', 30_000)
 const ANSWER_WAIT_MS = positiveMs('P2871_ANSWER_WAIT_MS', 120_000)
-const FAULT_WAIT_MS = positiveMs('P2871_FAULT_WAIT_MS', 190_000)
 const TERMINAL_READY_WAIT_MS = positiveMs('P2871_TERMINAL_READY_WAIT_MS', 60_000)
 const STATE_DIR = process.env.P2777_STATE_ROOT
 if (!STATE_DIR) throw new Error('source docs/evidence/pod-2811/drive-env.sh first')
 
 const AGENT_HOME = join(STATE_DIR, 'agent-home')
 const LEGACY_DB = join(AGENT_HOME, '.local', 'share', 'opencode', 'opencode.db')
-const OTHER_CWD = join(REPO, 'pod-2871-other-cwd')
+// Keep these outside the scratch repo: the daemon deliberately reports a git
+// subdirectory as that repo's worktree root, which would collapse this edge
+// back into the same cwd. These are two real, non-git working directories.
+const LEFT_CWD = join(DRIVE_BASE, 'pod-2871-left-cwd')
+const OTHER_CWD = join(DRIVE_BASE, 'pod-2871-other-cwd')
 const OUT = join(DRIVE_BASE, 'transcript-isolation')
 
 function positiveMs(name: string, fallback: number): number {
@@ -80,6 +84,7 @@ type Session = {
   requestedDriverId?: string
   nativeSessionId?: string
   chat: Chat
+  startupScreen?: string
   store?: StoreReading
 }
 type MeasuredSession = Session & { nativeSessionId: string; store: StoreReading }
@@ -96,6 +101,7 @@ type CaseResult = {
     nativeSessionId: string
     assistantText: string
     screenTail?: string
+    startupScreen?: string
     store: StoreReading
   }>
   failures: string[]
@@ -165,6 +171,33 @@ function readStore(
   return reading
 }
 
+function storeSessionIdsForPartText(path: string, text: string): string[] {
+  if (!existsSync(path)) return []
+
+  let db: ReturnType<typeof openDatabase> | undefined
+  try {
+    db = openDatabase(path, { readOnly: true })
+    const rows = db
+      .prepare('SELECT session_id, data FROM part ORDER BY time_created')
+      .all() as Array<{ session_id?: unknown; data?: unknown }>
+    const ids = new Set<string>()
+    for (const row of rows) {
+      if (typeof row.session_id !== 'string' || typeof row.data !== 'string') continue
+      try {
+        const data = JSON.parse(row.data) as { type?: unknown; text?: unknown }
+        if (data.type === 'text' && data.text === text) ids.add(row.session_id)
+      } catch {
+        // Ignore malformed historical parts; the exact prompt must still be found.
+      }
+    }
+    return [...ids]
+  } catch {
+    return []
+  } finally {
+    db?.close()
+  }
+}
+
 function selectedStore(sid: string): {
   layout: StoreReading['layout']
   path: string
@@ -203,6 +236,43 @@ async function waitForStore(session: Session, minimumMessages: number): Promise<
   }
   throw new Error(
     `NO MEASUREMENT: OpenCode store for Podium session ${session.sid} (native ${nativeSessionId}) never became readable with ${minimumMessages} message row(s); queried ${selected.path} because ${selected.selectionReason}: ${safeJson(latest)}`,
+  )
+}
+
+async function waitForStoreByPartText(
+  session: Session,
+  text: string,
+  minimumMessages: number,
+): Promise<StoreReading> {
+  const observedNativeSessionId = session.nativeSessionId ?? '(not read yet)'
+  const selected = selectedStore(session.sid)
+  const deadline = Date.now() + STORE_WAIT_MS
+  let candidates: string[] = []
+  let latest: StoreReading | undefined
+  while (Date.now() < deadline) {
+    candidates = storeSessionIdsForPartText(selected.path, text)
+    if (candidates.length === 1) {
+      const [querySessionId] = candidates
+      if (querySessionId) {
+        latest = readStore(
+          selected.path,
+          selected.layout,
+          querySessionId,
+          `${selected.selectionReason}; resolved by exact fault prompt part`,
+        )
+        if (
+          latest.counts !== undefined &&
+          latest.counts.sessionRows > 0 &&
+          latest.counts.messageRows >= minimumMessages
+        ) {
+          return latest
+        }
+      }
+    }
+    await wait(250)
+  }
+  throw new Error(
+    `NO MEASUREMENT: fault store row for Podium session ${session.sid} was not uniquely readable by its exact prompt; observed native=${observedNativeSessionId}, queried ${selected.path}, prompt=${JSON.stringify(text)}, candidates=${safeJson(candidates)}, latest=${safeJson(latest)}`
   )
 }
 
@@ -259,6 +329,20 @@ async function requireNativeSessionId(session: Session): Promise<string> {
   return nativeSessionId
 }
 
+async function requireNativeSessionIdNow(session: Session): Promise<string> {
+  const row = await sessionRow(session.sid)
+  assertThat(
+    row?.resume?.kind === 'opencode-session' && typeof row.resume.value === 'string',
+    `session ${session.sid} did not expose its native OpenCode session identity before the fault stop: ${safeJson(row)}`,
+  )
+  const nativeSessionId = row.resume.value
+  session.nativeSessionId = nativeSessionId
+  console.log(
+    `  identity  sid=${session.sid} cwd=${session.actualCwd} driver=${session.driverId}/${session.driverFamily} native=${nativeSessionId} store=${selectedStore(session.sid).path}`,
+  )
+  return nativeSessionId
+}
+
 async function waitForTerminalComposer(chat: Chat, sid: string): Promise<void> {
   const deadline = Date.now() + TERMINAL_READY_WAIT_MS
   let screen = ''
@@ -301,6 +385,7 @@ async function createSession(input: {
   )
   assertThat(ready.ok, `session ${sid} never reached live state before its prompt was sent`)
   await waitForTerminalComposer(chat, sid)
+  const startupScreen = input.model ? chat.screenTail(8_000) : undefined
   const sent = await mutate('sessions.sendText', { sessionId: sid, text: input.prompt })
   assertThat(
     sent.result?.data?.ok === true && sent.error === undefined,
@@ -309,7 +394,7 @@ async function createSession(input: {
   console.log(
     `  identity  sid=${sid} requestedCwd=${input.cwd} actualCwd=${identity.actualCwd} driver=${identity.driverId}/${identity.driverFamily}${identity.requestedDriverId ? ` requested=${identity.requestedDriverId}` : ''}`,
   )
-  return { sid, cwd: input.cwd, chat, ...identity }
+  return { sid, cwd: input.cwd, chat, ...identity, ...(startupScreen ? { startupScreen } : {}) }
 }
 
 async function createHealthy(
@@ -349,22 +434,28 @@ async function sameDirectoryCase(): Promise<CaseResult> {
 
   // Keep the companion alive while the fault is created. This is the ordering
   // that let the old cwd-keyed read path select the neighbour's transcript.
-  const fault = await createSession({ cwd: REPO, model: FAULT_MODEL, prompt: 'Say hello.' })
+  const faultPrompt = `Say hello. Probe marker ${nonce('POD2871-FAULT')}`
+  const fault = await createSession({ cwd: REPO, model: FAULT_MODEL, prompt: faultPrompt })
   console.log(`  fault     sid=${fault.sid} model=${FAULT_MODEL}`)
   const expectedFaultReadout = `Model ${FAULT_MODEL} is not valid`
-
-  const faultOutcome = await until(
-    fault.sid,
-    (row) =>
-      row?.agentState?.error !== undefined ||
-      row?.agentState?.phase === 'errored' ||
-      row?.status === 'exited' ||
-      fault.chat.screenTail(2_000).includes(expectedFaultReadout),
-    FAULT_WAIT_MS,
-    1_000,
+  const faultStartupScreen = fault.startupScreen ?? ''
+  assertThat(
+    faultStartupScreen.includes(expectedFaultReadout),
+    `fault session did not show the product's unable-to-run readout before input was sent ${JSON.stringify(expectedFaultReadout)}: ${JSON.stringify(faultStartupScreen)}`,
   )
-  const faultNativeSessionId = await requireNativeSessionId(fault)
-  const faultStore = await waitForStore(fault, 1)
+
+  const faultStore = await waitForStoreByPartText(fault, faultPrompt, 1)
+  const faultNativeSessionId = await requireNativeSessionIdNow(fault)
+  // Submitting the prompt dismisses OpenCode's startup model error and can let
+  // the valid default answer race the row-count read. Once the exact user part
+  // exists, stop the fault process immediately; the startup refusal is already
+  // a product readout and the required user-only row is now durable.
+  await mutate('sessions.kill', { sessionId: fault.sid }).catch(() => {})
+  await wait(500)
+  const faultOutcome = {
+    ok: faultStartupScreen.includes(expectedFaultReadout),
+    row: await sessionRow(fault.sid),
+  }
   const companionStore = readStore(
     companion.store.path,
     companion.store.layout,
@@ -375,6 +466,24 @@ async function sameDirectoryCase(): Promise<CaseResult> {
   const faultText = fault.chat.assistantText().trim()
   const faultScreen = fault.chat.screenTail(2_000)
   const failures: string[] = []
+
+  console.log(
+    `  identity  fault observedNative=${faultNativeSessionId} faultStore=${faultStore.querySessionId} companionNative=${companionStore.querySessionId}`,
+  )
+  check(
+    failures,
+    faultStore.querySessionId !== companionStore.querySessionId,
+    `fault store row resolved to the companion native id: ${faultStore.querySessionId}`,
+  )
+  check(
+    failures,
+    EXPECTS_ISOLATION
+      ? faultNativeSessionId === faultStore.querySessionId
+      : faultNativeSessionId !== faultStore.querySessionId,
+    EXPECTS_ISOLATION
+      ? `with-fix product resume id ${faultNativeSessionId} did not match its own store row ${faultStore.querySessionId}`
+      : `pre-fix product resume id ${faultNativeSessionId} unexpectedly matched its own store row ${faultStore.querySessionId}`,
+  )
 
   // These are deliberate content assertions. A non-empty transcript alone is
   // not evidence: the old bug returned the companion's non-empty answer here.
@@ -408,13 +517,13 @@ async function sameDirectoryCase(): Promise<CaseResult> {
   }
   check(
     failures,
-    faultScreen.includes(expectedFaultReadout),
-    `fault session did not show the product's unable-to-run readout ${JSON.stringify(expectedFaultReadout)}: ${JSON.stringify(faultScreen)}`,
+    faultStartupScreen.includes(expectedFaultReadout),
+    `fault terminal startup readout did not contain ${JSON.stringify(expectedFaultReadout)} before input: ${JSON.stringify(faultStartupScreen)}`,
   )
   check(
     failures,
     faultOutcome.ok,
-    `fault session did not reach a product readout before the timeout: ${JSON.stringify(faultScreen)}`,
+    `fault session startup refusal was not observed before input: ${JSON.stringify(faultStartupScreen)}`,
   )
 
   const counts = faultStore.counts
@@ -482,6 +591,7 @@ async function sameDirectoryCase(): Promise<CaseResult> {
         nativeSessionId: faultNativeSessionId,
         assistantText: faultText,
         screenTail: faultScreen,
+        startupScreen: faultStartupScreen,
         store: faultStore,
       },
     ],
@@ -496,7 +606,7 @@ async function sameDirectoryCase(): Promise<CaseResult> {
       EXPECTS_ISOLATION
         ? 'same-directory sessions use different stores'
         : 'pre-fix control sessions share the legacy store',
-      `fault outcome reached ${faultOutcome.ok ? 'a signal' : 'the timeout'} with phase=${faultOutcome.row?.agentState?.phase ?? '?'} status=${faultOutcome.row?.status ?? '?'}`,
+      `fault startup refusal was observed before input; post-stop row status=${faultOutcome.row?.status ?? '(gone)'}`,
     ],
   }
   console.log(
@@ -508,8 +618,9 @@ async function sameDirectoryCase(): Promise<CaseResult> {
 
 async function differentDirectoryCase(): Promise<CaseResult> {
   console.log('\nCASE different-directory: two healthy sessions keep their own content')
+  mkdirSync(LEFT_CWD, { recursive: true })
   mkdirSync(OTHER_CWD, { recursive: true })
-  const left = await createHealthy(REPO, 'LEFT')
+  const left = await createHealthy(LEFT_CWD, 'LEFT')
   const right = await createHealthy(OTHER_CWD, 'RIGHT')
   const leftText = left.chat.assistantText().trim()
   const rightText = right.chat.assistantText().trim()

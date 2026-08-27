@@ -41,6 +41,23 @@ because that is the cwd-keyed store. The with-fix arm queries only the hashed
 Podium-session-owned path selected by opencodeSessionDbPath; it never falls back
 to the legacy path. Every row count records the native OpenCode session ID used
 
+## Measured pre-fix control
+
+Recorded: 2026-08-27 03:14:14 CEST. The pinned server, web bundle, and daemon
+were all spawned at exact parent `4a18e7d237bc798554100c2d2582f02389c746d8`,
+with exactly one `generic-pty` daemon on the named instance.
+
+The same-directory arm reproduced the leak: the fault session's API transcript
+contained the companion's nonce even though the fault product had displayed
+`Model opencode/laguna-s-2.1-free is not valid` before input. The exact fault
+prompt resolved to a distinct native row in the shared legacy database, with
+`sessionRows=1`, `messageRows=1`, `userRows=1`, `assistantRows=0`, and
+`partRows=1`; the fault's observed native resume id was the companion's id.
+
+The different-directory arm used two real non-git directories, and each API
+transcript contained only its own nonce. Both rows in the same legacy database
+had user and assistant messages. The machine-readable result is
+`$PODIUM_DRIVE_BASE/transcript-isolation/result.json`.
 ## Run later, when the box is quiet
 
 Do not run this while another rig owns the same instance identity. Source the
@@ -63,7 +80,9 @@ bun docs/evidence/pod-2777/drive-verify.sh <fixed-tip>
 P2871_ARM=with-fix P2871_EXPECTED_DRIVER=generic-pty P2871_EXPECTED_DRIVER_FAMILY=terminal bun docs/evidence/pod-2871/transcript-isolation.ts
 ~~~
 
-The default fault wait is 190 seconds, matching the existing POD-2811 watch;
-override it with `P2871_FAULT_WAIT_MS` only when the measurement plan says to.
+The fault control captures the product's unable-to-run readout before sending
+input, then stops the fault immediately after its exact user part is durable;
+there is no timeout-based fault verdict. The healthy control still waits for
+the assistant nonce through the transcript API before reading SQLite.
 Evidence is written to `$PODIUM_DRIVE_BASE/transcript-isolation/result.json`.
 Any missing positive control or identity pin is `NO_MEASUREMENT`, never a pass.
