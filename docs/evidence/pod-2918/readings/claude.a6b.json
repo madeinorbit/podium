@@ -1,0 +1,219 @@
+{
+  "cell": "A6B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a6b",
+  "at": "2026-08-27T03:43:25.232Z",
+  "pin": {
+    "cell": "A6B",
+    "at": "2026-08-27T03:43:25.270Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "789168",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5153812 kB",
+      "SwapFree": "37019692 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "chat→CLI→chat→CLI retained one live session and both views remained functional",
+  "control": {
+    "fired": true,
+    "what": "the first chat send landing before view switches",
+    "detail": "chat control user=true; reply=true"
+  },
+  "evidence": [
+    "CHAT 1            {\"needle\":\"P2874-A6B-CHAT1-MTAZB0QV\",\"sent\":{\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}},\"user\":{\"ok\":true,\"ms\":636,\"items\":[{\"role\":\"user\",\"text\":\"Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTAZB0QV. Do not use tools.\",\"ts\":\"2",
+    "CLI 1             true 501ms",
+    "CHAT 2            {\"needle\":\"P2874-A6B-CHAT2-MTAZBOY3\",\"sent\":{\"result\":{\"data\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}}},\"user\":{\"ok\":true,\"ms\":1318,\"items\":[{\"role\":\"user\",\"text\":\"Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTAZB0QV. Do not use too",
+    "CLI 2             true 500ms",
+    "GEOMETRY          {\"cols\":80,\"rows\":24}",
+    "SCREEN TAIL       \"erate response tokenCrunched for 2s  automodeon(shift+tabtocycle)foragentsReplywithexactlythiswordandnothingelse:P2874-A6B-CHAT2-MTAZBOY3.Do  not use tools.\\nautomodeon(shift+tabtocycle)\\n]0; Generate response token Reply with exactly this word and nothing else: P2874-A6B-CHAT2-MTAZBOY3. Do  not use ools. Improvising Tip:Hit shift+tab to cycle betweenmanualmode,auto-accepteditmode,and\\nplanmode\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n*\\n]0; Generate response tokenImprovisingTip:Hitshift+tabtocyclebetweenmanualmode,auto-accepteditmode,and     plan mode\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n*\\nP2874-A6B-CHAT2-MTAZBOY3\\n(runningstophook)\\n]0; Generate response tokenBaked for 1s  automodeon(shift+tabtocycle)foragents(B(B(B]0; Generate response token P2874-A6B-CLI2-MTAZCBQ9 Cultivating Tip:Dynamicworklows letClaudewrite ascriptthatorchestratesmany\\nagentsforyou.MentionthekeywordultracodeoraskClaudetousea\\nworkflowdirectly.\\nautomodeon(shift+tabtocycle)esctointerruptforagents\""
+  ],
+  "data": {
+    "sid": "b1927294-f666-4e23-96a8-b9a497873189",
+    "c1": {
+      "needle": "P2874-A6B-CHAT1-MTAZB0QV",
+      "sent": {
+        "result": {
+          "data": {
+            "ok": true,
+            "disposition": "delivered"
+          }
+        }
+      },
+      "user": {
+        "ok": true,
+        "ms": 636,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTAZB0QV. Do not use tools.",
+            "ts": "2026-08-27T03:44:20.566Z"
+          }
+        ]
+      },
+      "assistant": {
+        "ok": true,
+        "ms": 2098,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTAZB0QV. Do not use tools.",
+            "ts": "2026-08-27T03:44:20.566Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CHAT1-MTAZB0QV",
+            "ts": "2026-08-27T03:44:22.949Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-27T03:44:23.027Z"
+          }
+        ]
+      }
+    },
+    "cli1": "P2874-A6B-CLI1-MTAZBM8Q",
+    "cli1Seen": {
+      "ok": true,
+      "ms": 501
+    },
+    "c2": {
+      "needle": "P2874-A6B-CHAT2-MTAZBOY3",
+      "sent": {
+        "result": {
+          "data": {
+            "ok": true,
+            "queued": true,
+            "disposition": "queued"
+          }
+        }
+      },
+      "user": {
+        "ok": true,
+        "ms": 1318,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTAZB0QV. Do not use tools.",
+            "ts": "2026-08-27T03:44:20.566Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CHAT1-MTAZB0QV",
+            "ts": "2026-08-27T03:44:22.949Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-27T03:44:23.027Z"
+          },
+          {
+            "role": "user",
+            "text": "P2874-A6B-CLI1-MTAZBM8Q",
+            "ts": "2026-08-27T03:44:49.747Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CLI1-MTAZBM8Q",
+            "ts": "2026-08-27T03:44:52.393Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-27T03:44:52.516Z"
+          },
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT2-MTAZBOY3. Do not use tools.",
+            "ts": "2026-08-27T03:44:52.768Z"
+          }
+        ]
+      },
+      "assistant": {
+        "ok": true,
+        "ms": 1635,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT1-MTAZB0QV. Do not use tools.",
+            "ts": "2026-08-27T03:44:20.566Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CHAT1-MTAZB0QV",
+            "ts": "2026-08-27T03:44:22.949Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-27T03:44:23.027Z"
+          },
+          {
+            "role": "user",
+            "text": "P2874-A6B-CLI1-MTAZBM8Q",
+            "ts": "2026-08-27T03:44:49.747Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CLI1-MTAZBM8Q",
+            "ts": "2026-08-27T03:44:52.393Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-27T03:44:52.516Z"
+          },
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A6B-CHAT2-MTAZBOY3. Do not use tools.",
+            "ts": "2026-08-27T03:44:52.768Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A6B-CHAT2-MTAZBOY3",
+            "ts": "2026-08-27T03:44:54.407Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-27T03:44:54.461Z"
+          }
+        ]
+      }
+    },
+    "cli2": "P2874-A6B-CLI2-MTAZCBQ9",
+    "cli2Seen": {
+      "ok": true,
+      "ms": 500
+    },
+    "geometry": {
+      "cols": 80,
+      "rows": 24
+    }
+  }
+}

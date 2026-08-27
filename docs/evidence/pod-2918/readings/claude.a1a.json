@@ -1,0 +1,195 @@
+{
+  "cell": "A1A",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a1a",
+  "at": "2026-08-27T03:22:39.995Z",
+  "pin": {
+    "cell": "A1A",
+    "at": "2026-08-27T03:22:40.084Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "789168",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5108600 kB",
+      "SwapFree": "36685312 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "three idle sends replied, including the required last send",
+  "control": {
+    "fired": true,
+    "what": "a prompt appearing as a durable user turn",
+    "detail": "3/3 user turns landed; last=true"
+  },
+  "evidence": [
+    "SENDS             [{\"i\":1,\"needle\":\"P2874-A1A-claude-1-MTAYK0FD\",\"sent\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}},\"user\":true,\"assistant\":true,\"userMs\":566,\"assistantMs\":2358,\"diskUser\":true,\"status\":{\"sessionId\":\"aaf94796-a01e-462a-8546-5db3f0a71e2c\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":\"native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241\",\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[],\"files\":[],\"unackedMessages\":0}},{\"i\":2,\"needle\":\"P2874-A1A-claude-2-MTAYKQS7\",\"sent\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}},\"user\":true,\"assistant\":true,\"userMs\":639,\"assistantMs\":1631,\"diskUser\":true,\"status\":{\"sessionId\":\"aaf94796-a01e-462a-8546-5db3f0a71e2c\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"claude-opus-5\",\"effort\":\"high\",\"contextUsagePercent\":null,\"account\":\"native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241\",\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[],\"files\":[],\"unackedMessages\":0}},{\"i\":3,\"needle\":\"P2874-A1A-claude-3-MTAYLGK0\",\"sent\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}},\"user\":true,\"assistant\":true,\"userMs\":582,\"assistantMs\":1629,\"diskUser\":true,\"status\":{\"sessionId\":\"aaf94796-a01e-462a-8546-5db3f0a71e2c\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"claude-opus-5\",\"effort\":\"high\",\"contextUsagePercent\":null,\"account\":\"native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241\",\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[],\"files\":[],\"unackedMessages\":0}}]",
+    "LAST DISK USER     true",
+    "SCREEN TAIL        \"utomodeon(shift+tabtocycle)\\n]0; Generate authentication token Reply with exactly this word and nothing else: P2874-A1A-claude-3-MTAYLGK0.  Do not usetools. Shimmying Tip:Create skills by adding .md filesto.claude/skills/inyourproject\\nor~/.claude/skills/forskillsthatworkinanyproject\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n*\\n]0; Generate authentication token\\nShimmyingTip:Createskillsbyadding.mdfilesto.claude/skills/inyourproject     or ~/.claude/skills/ for skills that work in any project\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n*\\nP2874-A1A-claude-3-MTAYLGK0\\n(runningstophook1s7tokens)\\n]0; Generate authentication tokenCogitated fo 1s  automodeon(shift+tabtocycle)foragents\"",
+    "FRAME TYPES        outputFrame=135 sessionTitleChanged=34 hostMetricsChanged=25 sessionAgentStateChanged=24 transcriptDelta=16 turnPreview=7 machinesChanged=3 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+  ],
+  "data": {
+    "sid": "aaf94796-a01e-462a-8546-5db3f0a71e2c",
+    "turns": [
+      {
+        "i": 1,
+        "needle": "P2874-A1A-claude-1-MTAYK0FD",
+        "sent": {
+          "data": {
+            "ok": true,
+            "disposition": "delivered"
+          }
+        },
+        "user": true,
+        "assistant": true,
+        "userMs": 566,
+        "assistantMs": 2358,
+        "diskUser": true,
+        "status": {
+          "sessionId": "aaf94796-a01e-462a-8546-5db3f0a71e2c",
+          "agentKind": "claude-code",
+          "harness": "claude-code",
+          "driverId": "claude-pty",
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "idle",
+          "machine": "flatblock",
+          "model": null,
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [],
+          "files": [],
+          "unackedMessages": 0
+        }
+      },
+      {
+        "i": 2,
+        "needle": "P2874-A1A-claude-2-MTAYKQS7",
+        "sent": {
+          "data": {
+            "ok": true,
+            "disposition": "delivered"
+          }
+        },
+        "user": true,
+        "assistant": true,
+        "userMs": 639,
+        "assistantMs": 1631,
+        "diskUser": true,
+        "status": {
+          "sessionId": "aaf94796-a01e-462a-8546-5db3f0a71e2c",
+          "agentKind": "claude-code",
+          "harness": "claude-code",
+          "driverId": "claude-pty",
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "idle",
+          "machine": "flatblock",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "contextUsagePercent": null,
+          "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [],
+          "files": [],
+          "unackedMessages": 0
+        }
+      },
+      {
+        "i": 3,
+        "needle": "P2874-A1A-claude-3-MTAYLGK0",
+        "sent": {
+          "data": {
+            "ok": true,
+            "disposition": "delivered"
+          }
+        },
+        "user": true,
+        "assistant": true,
+        "userMs": 582,
+        "assistantMs": 1629,
+        "diskUser": true,
+        "status": {
+          "sessionId": "aaf94796-a01e-462a-8546-5db3f0a71e2c",
+          "agentKind": "claude-code",
+          "harness": "claude-code",
+          "driverId": "claude-pty",
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "idle",
+          "machine": "flatblock",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "contextUsagePercent": null,
+          "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [],
+          "files": [],
+          "unackedMessages": 0
+        }
+      }
+    ],
+    "driver": {
+      "sessionId": "aaf94796-a01e-462a-8546-5db3f0a71e2c",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": "claude-opus-5",
+      "effort": "high",
+      "contextUsagePercent": null,
+      "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [],
+      "files": [],
+      "unackedMessages": 0
+    }
+  }
+}
