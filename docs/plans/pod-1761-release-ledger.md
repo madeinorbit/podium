@@ -4284,3 +4284,32 @@ to spend a round on.
 **Method note for reuse:** file-level `grep -rl` answers "does anything else mention this", and
 occurrence-count within the defining file answers "is it used at all". **Both are needed; the first
 alone over-reports by counting internal helpers as dead.**
+
+### The disk cleared itself and the hold is lifted (2026-08-27 02:08 CEST)
+
+**2.4GB -> 20GB.** All four of the neighbour's 4.3GB cache directories are gone; POD-2781 released
+about 17GB, either from my mail landing or from its run finishing. Load 10.7, 5.3GB available,
+swap-out zero.
+
+**That confirms the attribution rather than just ending the incident.** The wall was 17.2GB of
+someone else's caches, not my four sessions — which is what I said an hour ago after first
+blaming myself, and the recovery is the control for it: **nothing of mine changed and the disk
+went up eightfold.** Had I capped my own concurrency as Decision 19 first recommended, the box
+would have recovered at exactly the same moment and I would have credited the cap.
+
+**Lifted with an explicit ORDER rather than an all-clear**, because the last time I announced spare
+capacity to everyone at once, five sessions acted on it simultaneously and took the box from load
+9.87 to 65,156 KB/s of swap-in. *An announcement of spare capacity, sent to everyone, consumes the
+capacity it announces.* So: POD-2871 first (waited longest, probe now hardened), then POD-2913's
+refused cell, then POD-2915 on the no-build issue, with POD-2691 staying on code and unit tests.
+Told them explicitly to start anyway if the session ahead has not moved — an order is to stop
+collisions, not to make people wait on someone stuck.
+
+**Also told them to discard anything measured between 01:45 and now unless its control fired.**
+Two periods at 100% sit inside that window.
+
+**Five separate sessions refused a reading on this disk tonight** rather than record a number
+through it — POD-2902 on ENOSPC, POD-2913 on the parent refusal cell, POD-2878 on the unit
+comparison, POD-2871 twice, and POD-2691 holding its rig. **That standard has propagated further
+than any single correction I have written down**, and it is the one that protects every number in
+this file.
