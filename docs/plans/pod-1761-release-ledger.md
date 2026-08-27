@@ -4912,3 +4912,47 @@ exist to catch — keep the markers, re-pin all three parts, and say which insta
 from.
 
 Its five audit rows and six evidence records are committed at `2acf726ca`.
+
+## FOREST — 2026-08-27 04:36 CEST
+
+    EVER  48/69 (70%)   PASS 36  red 7  other 5
+    CURR  34/69 (49%)   PASS 26  red 3  other 5
+
+    claude    current  1/15     <- POD-2918 driving, window to 07:43
+    codex     current 14/16
+    grok      current  2/16     <- 11:03
+    opencode  current 11/16     <- POD-2919 driving, 5 left
+    shell     current  6/ 6     <- done
+
+**Current coverage nearly doubled tonight (22 -> 34) and there is still not one product FAIL among
+currently-valid readings.** The eight non-PASS cells are three PARTIALs, two UNMEASURED, one VOID,
+one REFUSED and one BLOCKED — every one of them an instrument or a partial criterion, none of them
+a driver behaving worse than main.
+
+### A1b is PARTIAL on every driver measured, and it is the same missing thing each time
+
+    A1b codex-headless    PARTIAL  "no position"
+    A1b opencode-headless PARTIAL  "queued send delivered and survived reload but no position"
+    A1b claude-pty        FAIL     at the stale pin
+
+**Three independent sessions, three drivers, one symptom — that is a pattern, not three
+coincidences.** And it is a plumbing bug rather than a missing feature: POD-2878's fix landed
+tonight reporting `{ok:true, queued:true, position:1, disposition:queued}` from the send, **so the
+position is computed and present in the receipt.** The cell's middle and last clauses — survives
+reload, delivered when idle — pass everywhere. **Only the position is lost between the receipt and
+the caller.**
+
+**One fix turns three cells green**, which makes it the highest-leverage repair available. Started
+**POD-2920** on it, cut from the tip and verified.
+
+**It is NOT a release blocker under the epic's own bar**, and I told it so: the bar is *at least as
+good as main*, and on main a send to a busy session was lost or falsely reported delivered.
+`queued` without a position is strictly better. **This is the difference between a Tier-A cell that
+can go green and one that needs a waiver** — and the standing rule is zero Tier-A fails with no
+waiver row, which is why it is worth doing rather than accepting.
+
+**A lifecycle problem the operator has to resolve:** POD-2870 and POD-2879 both describe this exact
+defect and both sit at `proposed`. **I cannot reparent a proposed issue — operator-only** — so
+POD-2920 does the work and its brief says plainly that 2870 and 2879 should be closed as duplicates
+at the next triage. **Two sessions independently filed the same defect and neither could act on it**,
+which is worth knowing on its own: the proposal queue is where cross-driver findings go to wait.
