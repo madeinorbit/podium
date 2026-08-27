@@ -23,6 +23,9 @@ function staleBootFields(
   bootConfig: PodiumConfig,
   liveConfig: PodiumConfig,
 ): readonly BootRelevantConfigField[] {
+  // Absence is a value here, not "unknown": config v2 defines an unset persistence field as an
+  // unmanaged foreground/desktop process. Establishing systemd changes the supervisor and must
+  // stay activation-pending until a process has actually booted under that authority.
   return BOOT_RELEVANT_CONFIG_FIELDS.filter((field) => bootConfig[field] !== liveConfig[field])
 }
 
