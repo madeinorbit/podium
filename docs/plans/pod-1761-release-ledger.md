@@ -4734,3 +4734,51 @@ rediscover it.
 
 **All three defects that were open when the night started are now closed by measurement:** the
 parked send, the opencode badge, and cross-session transcripts.
+
+### The reaper is built and driven — and blocked on a collision I caused (2026-08-27 04:01 CEST)
+
+**POD-2691's drive on a real production instance, 03:44:**
+
+    TERM sentinel     examined 1, TERM 1, KILL 0, remaining 0
+    KILL sentinel     examined 1, TERM 1, KILL 1, remaining 0
+    FOREIGN-UUID      examined 0, signals 0, sentinel STILL ALIVE
+
+**The third line is the one that matters.** A reaper that kills the right things is half a result;
+**proving it leaves the wrong things alone is the other half, and most reaper work never
+demonstrates it.** Verified in the production path rather than the report:
+`instance-process-reaper.ts` documents its counters as *"after immediate identity revalidation"*,
+and its tests flip `startTime` to `'999'` between selection and signal — the pid-reuse race,
+as a test rather than a comment.
+
+Eligibility is exact stamped UUID + session id + cwd + boot id + `/proc` start time, revalidated
+before both TERM and KILL. No age, no phase, no cmdline pattern, no `pgrep`. **Closed queued wake
+deliveries are terminal**, which is the POD-2916 resurrection path closed as a side effect.
+
+**Its stated limit, recorded exactly as it put it:** *"the safe shape is zero eligible stamped
+corpses, not global zero."* Pre-stamp legacy processes are deliberately untouched, so **tonight's
+3–7 orphans persist and the fix prevents future ones rather than clearing the backlog.** Correct
+trade, and it said so unprompted.
+
+### THE COLLISION IS MINE
+
+**POD-2871 landed while POD-2691 was driving**, and they touch the same files —
+`control/session.ts`, `transcripts.ts`, `agent-state/opencode.ts`, `manifests/opencode.ts`,
+and `model/entities/session.ts`. POD-2691's branch is now **37 commits behind**.
+
+**This also explains its apps/web typecheck claim.** Diffed against the current tip its branch
+appears to DELETE `transcript_identity_unavailable`; it does not — it predates the commit that
+added it, which is POD-2871's `aff3fdbc5`. **Any typecheck it ran was against a tree missing 37
+commits, so "blocked only by inherited apps/web errors" is a claim about the wrong tree** and has
+to be re-run after the rebase.
+
+**I put six sessions on one epic and did not track which of them shared files.** The lock discipline
+covered the heavy gate and the merge mutex; it never covered two implementers editing
+`control/session.ts` a floor apart. **The delegation guide says to say who owns which files when
+sessions may collide, and I did not do it** — POD-2871 and POD-2691 were briefed independently,
+weeks of daemon surface between them, and they still met in the same file.
+
+Told it to rebase onto the LOCAL ref, keep both sides in `session.ts` (fail-closed transcript
+reads and reap-on-stop are independent concerns), then **`range-diff` and read it** — if the
+reaper is untouched by the resolution its 03:44 drive stands, and if anything in the identity
+checks moved, that arm is invalid. A session tonight reported "I rebased, the drives remain exact"
+when the patch had been amended mid-rebase, and it cost an arm.
