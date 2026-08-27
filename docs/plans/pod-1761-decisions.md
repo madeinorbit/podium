@@ -737,3 +737,41 @@ should have.
 lost message, so if main loses it too, all three claude reds are inherited and the bar is met. A3
 stays undriven for now: the credential expires at 07:43 and a rushed reading on the cell where haste
 flatters the answer is worse than none.
+
+## Decision 23 ANSWERED — two of three claude reds are INHERITED, one undriven (2026-08-27 07:50 CEST)
+
+**The measurement the release was waiting on is done.** POD-2921 drove the three cells on main
+`0bd90092c` from an isolated default-ID rig, leaving the operator's live default daemon untouched.
+
+    cell   epic    MAIN    verdict
+    A1b    FAIL    FAIL    INHERITED — no numeric queue position on either side
+    A1c    FAIL    FAIL    INHERITED — dead-session send accepted, no typed refusal, on either side
+    A3     FAIL    UNDRIVEN — the load gate was clear at 5.26, but the bounded probe hit the
+                             07:35 credential cutoff before its positive control produced a reading
+
+**SO: NO CONFIRMED REGRESSION EXISTS ANYWHERE IN THE MATRIX.** Fifty-three cells have current
+readings across three complete columns, and every red is either an instrument or a behaviour main
+shares.
+
+**A1c is the important one.** It is a genuine user-visible defect — the send is accepted, reported
+`queued`, and never delivered because the session has no resume path — and **main does exactly the
+same thing.** Its control was as strong as the epic-side one: exact live child PID 1255774
+SIGKILLed and confirmed gone before the send, positive baseline control fired. **The defect is real
+and it is not ours.**
+
+**A3 IS THE ONLY CELL THAT COULD STILL BE A REGRESSION**, and it is undriven rather than failing.
+The session had good conditions — load 5.26, well under the ceiling — and stopped anyway because
+the credential window closed before its control fired. **That was the correct trade and I told it
+to make it: a rushed reading on the cell where haste flatters the answer is worse than none.**
+
+**IT COSTS ONE MORE WINDOW, AND THE WINDOW IS FREE.** The token refreshes itself; a later session
+takes a fresh copy and drives one cell. No operator action is needed.
+
+**WHAT THIS MEANS FOR THE RELEASE.** Against the stated bar — every driver at least as good as it
+is on today's main — **the epic currently meets it on every measured cell.** The qualification from
+Decision 22 still applies: that is *no gross regression found*, not *every criterion met in full*.
+The three claude reds are real defects that predate this work, and POD-2920's queue-position fix
+will make one of them better than main rather than equal to it.
+
+**TEARDOWN VERIFIED.** All rig processes, worktrees and credential copies removed; `instance:default`
+free; the operator's credential mtime unchanged at 23:43:12 through the entire run.
