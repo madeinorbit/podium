@@ -875,15 +875,22 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         )
         foldState(session, { kind: 'session_ended' }, at, 'live')
         /**
-         * THE QUEUE DIED WITH THE CHILD (POD-2297).
+         * THE HANDLE DIED WITH THE CHILD (POD-2980).
          *
-         * `disposed` stays false — that is the handle owner's call, and this arm
-         * has always reported the process fact and stopped. The parked turns are
-         * finished regardless: the state just folded to `session_ended` and every
-         * remaining drain would prompt a link that is gone, while each sender
-         * holds a `queued` receipt that POD-2291 made the ledger's last word.
+         * A spontaneous link close is just as terminal for THIS handle as stop,
+         * kill or hibernate. Leaving it registered made `handleFor` keep routing
+         * sends to a dead child. Worse, a `when-ready` send that raced the close
+         * could already be waiting on `idleWaiters`; no prompt response would ever
+         * wake it, so the daemon withheld a typed refusal until the ten-minute
+         * driver timeout while the server's durable row remained only `queued`.
+         *
+         * End the handle after emitting the causal exit/state facts. `endSession`
+         * reports its parked queue, wakes in-flight waiters and removes this dead
+         * object from the runtime maps. The server can then observe `agentExit`
+         * and resume any durable row against a fresh child instead of sending it
+         * back into this one.
          */
-        abandonQueue(session, 'teardown')
+        endSession(session)
       },
     })
     persist(session)
@@ -1455,15 +1462,19 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
            */
           if (options.delivery === 'interrupt') {
             await this.interrupt()
-            if (!(await waitForIdle(session)))
-              return refused('busy', 'Grok did not confirm cancellation')
+            const idle = await waitForIdle(session)
             if (session.disposed || !session.endpoint.alive()) return refused('not_running')
+            if (!idle) return refused('busy', 'Grok did not confirm cancellation')
             return startPrompt(session, input, options, 'interrupt')
           }
           if (options.delivery === 'when-ready') {
-            if (!(await waitForIdle(session))) return refused('busy', 'Grok turn did not finish')
-            if (session.interactions.size > 0) return refused('needs_user')
+            const idle = await waitForIdle(session)
+            // Liveness wins over the wait predicate. A teardown wakes every
+            // waiter while the interrupted turn still has `busy=true`; calling
+            // that a busy LIVE session hid the fact that no process remained.
             if (session.disposed || !session.endpoint.alive()) return refused('not_running')
+            if (!idle) return refused('busy', 'Grok turn did not finish')
+            if (session.interactions.size > 0) return refused('needs_user')
             return startPrompt(session, input, options, 'when-ready')
           }
           session.queue.push({ input, options })

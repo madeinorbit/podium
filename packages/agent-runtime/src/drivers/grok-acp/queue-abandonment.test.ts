@@ -118,10 +118,8 @@ describe('a queue this driver loses says so — POD-2297', () => {
   })
 
   it('reports the queue when the child closes the link under the session', async () => {
-    // `disposed` is deliberately NOT set by this arm — that is the handle
-    // owner's call — but the parked turns are finished either way: the state has
-    // just folded to `session_ended` and every later drain would prompt a link
-    // that is gone.
+    // A child close ends this handle as well as its parked turns. Keeping the
+    // handle registered routes later sends back to a link already proved gone.
     const w = world()
     const runtime = createGrokAcpRuntime(w.host)
     try {
@@ -136,6 +134,38 @@ describe('a queue this driver loses says so — POD-2297', () => {
       await expect
         .poll(() => w.reports, { timeout: 2000 })
         .toEqual([{ turnIds: ['orphan'], reason: 'teardown' }])
+      expect(runtime.has(handle.binding.sessionId)).toBe(false)
+      await expect(
+        handle.send(
+          { id: 'after-close', text: 'after close' },
+          { origin: 'human', delivery: 'when-ready' },
+        ),
+      ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'not_running' } })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('releases a when-ready send waiting on a child that dies mid-turn', async () => {
+    const w = world()
+    const runtime = createGrokAcpRuntime(w.host)
+    try {
+      const handle = await runtime.driver.create(spec())
+      await handle.send(
+        { id: 'open-turn', text: 'keep working' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      const waiting = handle.send(
+        { id: 'after-turn', text: 'send after the turn' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+
+      w.serverFor(handle.binding.sessionId)?.crash()
+
+      await expect(waiting).resolves.toMatchObject({
+        outcome: 'refused',
+        refusal: { reason: 'not_running' },
+      })
     } finally {
       runtime.dispose()
     }

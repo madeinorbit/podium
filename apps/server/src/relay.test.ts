@@ -3900,6 +3900,333 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
   })
 
+  it('rejects a fenced Grok exit when both live and durable leases are absent', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/w',
+    })
+    const spawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    const generation = spawn?.observationGeneration
+    expect(generation).toEqual(expect.any(Number))
+    if (generation === undefined) throw new Error('initial spawn was not fenced')
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+
+    const leaseBook = (
+      reg.modules.sessions as unknown as {
+        observationLeases: {
+          hydrate(rows: Iterable<never>): void
+          get(sessionId: SessionId): unknown
+        }
+      }
+    ).observationLeases
+    leaseBook.hydrate([])
+    reg.sessionStore.observationCheckpoints.purge(sessionId)
+    expect(leaseBook.get(sessionId)).toBeUndefined()
+    expect(reg.sessionStore.observationCheckpoints.get(sessionId)).toBeNull()
+    daemon.length = 0
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+      observerGeneration: generation,
+    })
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
+    expect(daemon.some((message) => message.type === 'spawn')).toBe(false)
+    reg.dispose()
+  })
+
+  it('resumes a Grok row admitted just before its child exit reaches the server', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    const lifecycle: string[] = []
+    let target: SessionId | undefined
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+      daemon.push(m)
+      if (m.type === 'spawn' && m.sessionId === target) lifecycle.push('spawn')
+    })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/w',
+    })
+    target = sessionId
+    const initialSpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    const initialGeneration = initialSpawn?.observationGeneration
+    expect(initialGeneration).toEqual(expect.any(Number))
+    if (initialGeneration === undefined) throw new Error('initial spawn was not fenced')
+    reg.bus.on('session.exited', (event) => {
+      if (event.sessionId === sessionId) lifecycle.push('exit')
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-dead-child-resume' },
+    })
+    daemon.length = 0
+
+    expect(
+      reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' }),
+    ).toEqual({ ok: true, queued: true })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+      observerGeneration: initialGeneration,
+    })
+
+    const recoverySpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    expect(recoverySpawn).toMatchObject({
+      type: 'spawn',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-dead-child-resume' },
+    })
+    const recoveryGeneration = recoverySpawn?.observationGeneration
+    expect(recoveryGeneration).toBeGreaterThan(initialGeneration)
+    if (recoveryGeneration === undefined) throw new Error('recovery spawn was not fenced')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+
+    // The real exit must publish before its synchronous wake mutates the same row.
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+
+    // A duplicate from the dead generation cannot poison or double-spawn the
+    // starting replacement.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+      observerGeneration: initialGeneration,
+    })
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+
+    // The automatic replacement can fail before bind. Its spawnError closes
+    // that attempt, while the accepted row remains durable for an authorized
+    // retry instead of being consumed or stranded behind lifecycle bookkeeping.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'spawnError',
+      sessionId,
+      message: 'grok session/load timed out',
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+
+    daemon.length = 0
+    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+      ok: true,
+    })
+    const retrySpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    const retryGeneration = retrySpawn?.observationGeneration
+    expect(retryGeneration).toBeGreaterThan(recoveryGeneration)
+    if (retryGeneration === undefined) throw new Error('authorized retry was not fenced')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+
+    for (const staleGeneration of [initialGeneration, recoveryGeneration]) {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId,
+        code: 137,
+        observerGeneration: staleGeneration,
+      })
+    }
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+      observerGeneration: recoveryGeneration,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+
+    // A matching current-generation exit after bind is the replacement's real
+    // death. It applies once and hands the still-durable row to the next wake.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 139,
+      observerGeneration: retryGeneration,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    const postBindSpawns = daemon.filter(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    expect(postBindSpawns).toHaveLength(2)
+    expect(postBindSpawns[1]?.observationGeneration).toBeGreaterThan(retryGeneration)
+
+    // Recovery advanced the lease, so replaying that same exit generation is
+    // now stale. It cannot poison the new starting process or spawn a third one.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 139,
+      observerGeneration: retryGeneration,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2)
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    reg.dispose()
+  })
+
+  it('deduplicates legacy unfenced exits and clears their guard on spawnError', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-legacy-exit-resume' },
+    })
+    daemon.length = 0
+    expect(reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' })).toEqual(
+      { ok: true, queued: true },
+    )
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'spawnError',
+      sessionId,
+      message: 'legacy replacement failed before bind',
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
+
+    daemon.length = 0
+    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+      ok: true,
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 138,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    reg.dispose()
+  })
+
+  it('keeps a revoked delegated row durable without waking after exit', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const actorSessionId = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/actor',
+    }).sessionId
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/target',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-revoked-resume' },
+    })
+    const principal = {
+      kind: 'agent' as const,
+      principalRef: actorSessionId,
+      delegation: asDelegationRef(actorSessionId),
+      attribution: {
+        actor: actorAgent(asAgentIdentityId(actorSessionId)),
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
+    }
+    expect(
+      reg.modules.sessions.queueText({
+        sessionId,
+        text: 'delegation revoked before process exit',
+        principal,
+      }),
+    ).toEqual({ ok: true, queued: true })
+
+    // Removing the delegated actor revokes the reference before the target's
+    // death applies. Exit recovery must re-resolve it live, refuse the wake,
+    // and retain the durable row for an explicit authorized recovery.
+    reg.modules.sessions.killSession({ sessionId: actorSessionId })
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+    })
+
+    expect(daemon.some((message) => message.type === 'spawn')).toBe(false)
+    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+      'exited',
+    )
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    reg.dispose()
+  })
+
   it('restarts an exited shell fresh in the same cwd — no resume ref needed', async () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []

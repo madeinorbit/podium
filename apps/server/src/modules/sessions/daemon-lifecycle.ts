@@ -127,6 +127,11 @@ function isExactFencedCheckpointReplay(
 }
 
 export class SessionDaemonLifecycle {
+  /** Unfenced legacy exits can only be deduplicated until their replacement
+   * binds. Runtime exits carry an observer generation and use the durable lease
+   * comparison instead, which remains valid after bind as well. */
+  private readonly unfencedExitsAwaitingBind = new Set<SessionId>()
+
   constructor(private readonly ports: SessionDaemonLifecyclePorts) {}
 
   private get sessions(): Map<SessionId, Session> {
@@ -247,6 +252,7 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'bind': {
+        this.unfencedExitsAwaitingBind.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
         this.inbox.markSessionBound(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)
@@ -316,7 +322,31 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'agentExit': {
-        this.sessions.get(msg.sessionId)?.onExit(msg.code)
+        const before = this.sessions.get(msg.sessionId)
+        const lease =
+          this.observationLeases.get(msg.sessionId) ??
+          this.store.observationCheckpoints.get(msg.sessionId)
+        // A replacement reuses the Podium session id but owns a newer runtime
+        // generation. Reject any exit not authored by the currently fenced
+        // process, including one repeated after the replacement has bound live.
+        // A stated generation with no lease fails closed: the runtime cannot
+        // legitimately spawn until terminal proof has minted that lease.
+        if (
+          msg.observerGeneration !== undefined &&
+          (!lease || msg.observerGeneration !== lease.observationGeneration)
+        ) {
+          break
+        }
+        // Older terminal/daemon frames have no generation. Preserve their
+        // pre-bind duplicate guard; an already-exited row is inert either way.
+        if (
+          (msg.observerGeneration === undefined &&
+            this.unfencedExitsAwaitingBind.has(msg.sessionId)) ||
+          before?.status === 'exited'
+        ) {
+          break
+        }
+        before?.onExit(msg.code)
         this.autoContinue.onSessionGone(msg.sessionId)
         // Free the lingering per-session title debouncer when the process ends (audit
         // P1-12) — previously only killSession did, so every exited-but-not-killed
@@ -336,11 +366,29 @@ export class SessionDaemonLifecycle {
         // and the session's leases with it. Also durable for steward parent-wake
         // (POD-904).
         if (s?.status === 'exited') {
+          // Capture and publish the REAL death before requesting recovery. The
+          // wake reaction is synchronous through workspace ensure and mutates
+          // this same Session to `starting`; doing it first suppresses this
+          // event and loses lock release and parent wake.
+          if (msg.observerGeneration === undefined) {
+            this.unfencedExitsAwaitingBind.add(msg.sessionId)
+          }
           this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
+          // A send can be durably admitted in the narrow interval between the
+          // child dying and this exit reaching the server. It was accepted while
+          // the row still said `live`, so queueText did not request resurrection.
+          // Once the real exit is published, hand that accepted row back to the
+          // ordinary delegated wake path; a fresh bind re-arms its FIFO drain.
+          this.inbox.recoverQueuedAfterExit(msg.sessionId)
         }
         break
       }
       case 'spawnError': {
+        // No bind will arrive for this attempt. Retire the legacy pre-bind
+        // duplicate guard so a later explicitly authorized retry starts with
+        // clean lifecycle accounting; fenced Grok exits remain distinguishable
+        // by their observer generation across both attempts.
+        this.unfencedExitsAwaitingBind.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.markSpawnError(msg.message)
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)

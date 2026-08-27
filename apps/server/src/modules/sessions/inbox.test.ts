@@ -52,6 +52,9 @@ function harness(
     archived?: boolean
     /** Model a server-family session (no PTY bridge behind it) — POD-2291. */
     serverDriven?: boolean
+    /** Exact live runtime binding facts reported by the daemon bind. */
+    runtimeContract?: boolean
+    driverId?: string
     /** Whether a native terminal view currently owns the controller lease. */
     nativeView?: boolean
     /** Receipts the fake contract port answers with, in order; when omitted
@@ -67,6 +70,7 @@ function harness(
   const sent: unknown[] = []
   const contractCalls: unknown[] = []
   const contractInterrupts: SessionId[] = []
+  const resurrections: Array<{ sessionId: SessionId; principal: InboxPrincipalReference }> = []
   const rejected: unknown[] = []
   const answered: unknown[] = []
   const promptFailed = vi.fn()
@@ -89,6 +93,8 @@ function harness(
     status: options.status ?? 'live',
     agentKind: options.agentKind ?? 'codex',
     resume: { kind: 'codex', value: 'resume-1' },
+    runtimeContract: options.runtimeContract ?? false,
+    driverId: options.driverId,
     archived: options.archived ?? false,
     queuedMessageCount: 0,
     transcriptAvailable: options.transcriptAvailable ?? false,
@@ -173,7 +179,9 @@ function harness(
     ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
     setSessionDraft,
     draftText: () => draft,
-    resurrect: async () => ({ ok: true }),
+    resurrect: (sessionId, principal) => {
+      resurrections.push({ sessionId, principal })
+    },
     ...(options.serverDriven !== undefined
       ? { serverDriven: () => options.serverDriven === true }
       : {}),
@@ -210,6 +218,7 @@ function harness(
     sent,
     contractCalls,
     contractInterrupts,
+    resurrections,
     rejected,
     answered,
     promptFailed,
@@ -608,6 +617,104 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.inbox.sendText({ sessionId: SID, text: 'hello?' })).toEqual({ ok: false })
     expect(h.sent).toEqual([])
     expect(h.rows).toHaveLength(0)
+  })
+
+  it('re-requests a delegated wake for a durable row admitted before exit', () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({
+        agentKind: 'grok',
+        serverDriven: true,
+        runtimeContract: true,
+        driverId: 'grok-acp',
+      })
+      const principal = agentPrincipal()
+      expect(
+        h.inbox.queueText({
+          sessionId: SID,
+          text: 'survive the dead-child race',
+          principal,
+        }),
+      ).toEqual({ ok: true, queued: true })
+      expect(h.resurrections).toEqual([])
+
+      h.setStatus('exited')
+      expect(h.inbox.recoverQueuedAfterExit(SID)).toBe(true)
+
+      expect(h.resurrections).toEqual([{ sessionId: SID, principal }])
+      expect(h.rows).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not request exit recovery without every durable recovery guard', () => {
+    vi.useFakeTimers()
+
+    const exactGrok = () =>
+      harness({
+        agentKind: 'grok',
+        serverDriven: true,
+        runtimeContract: true,
+        driverId: 'grok-acp',
+      })
+
+    const noRow = exactGrok()
+    noRow.setStatus('exited')
+    ;(noRow.session as unknown as { queuedMessageCount: number }).queuedMessageCount = 1
+    expect(noRow.inbox.recoverQueuedAfterExit(SID)).toBe(false)
+
+    const archived = exactGrok()
+    archived.inbox.queueText({ sessionId: SID, text: 'retired target' })
+    archived.setStatus('exited')
+    ;(archived.session as unknown as { archived: boolean }).archived = true
+    expect(archived.inbox.recoverQueuedAfterExit(SID)).toBe(false)
+
+    const unboundAgent = exactGrok()
+    unboundAgent.inbox.queueText({ sessionId: SID, text: 'no conversation to resume' })
+    unboundAgent.setStatus('exited')
+    ;(unboundAgent.session as unknown as { resume?: unknown }).resume = undefined
+    expect(unboundAgent.inbox.recoverQueuedAfterExit(SID)).toBe(false)
+
+    expect(noRow.resurrections).toEqual([])
+    expect(archived.resurrections).toEqual([])
+    expect(unboundAgent.resurrections).toEqual([])
+  })
+
+  it.each([
+    [
+      'terminal Grok',
+      { agentKind: 'grok' as const, runtimeContract: false, driverId: 'generic-pty' },
+    ],
+    [
+      'fallback Grok',
+      { agentKind: 'grok' as const, runtimeContract: true, driverId: 'generic-pty' },
+    ],
+    [
+      'Codex',
+      { agentKind: 'codex' as const, runtimeContract: true, driverId: 'codex-app-server' },
+    ],
+    [
+      'OpenCode',
+      { agentKind: 'opencode' as const, runtimeContract: true, driverId: 'opencode-server' },
+    ],
+    [
+      'shell',
+      { agentKind: 'shell' as const, runtimeContract: false, driverId: 'generic-pty' },
+    ],
+  ])('does not auto-spawn %s after exit', (_label, identity) => {
+    vi.useFakeTimers()
+    const h = harness({
+      ...identity,
+      serverDriven: identity.runtimeContract,
+      nativeView: true,
+    })
+    h.inbox.queueText({ sessionId: SID, text: 'keep explicit recovery semantics' })
+    h.setStatus('exited')
+
+    expect(h.inbox.recoverQueuedAfterExit(SID)).toBe(false)
+    expect(h.resurrections).toEqual([])
+    expect(h.rows).toHaveLength(1)
   })
 
   /**

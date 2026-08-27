@@ -648,7 +648,7 @@ describe('DaemonMessage (daemon -> server)', () => {
       geometry,
     },
     { type: 'agentFrame', sessionId: asSessionId('s1'), seq: 0, data: 'eA==' },
-    { type: 'agentExit', sessionId: asSessionId('s1'), code: 0 },
+    { type: 'agentExit', sessionId: asSessionId('s1'), code: 0, observerGeneration: 7 },
     {
       type: 'sessionResumeRef',
       sessionId: asSessionId('s1'),

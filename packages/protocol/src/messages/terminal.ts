@@ -297,6 +297,9 @@ export const AgentExitMessage = z.object({
   type: z.literal('agentExit'),
   sessionId: SessionIdField,
   code: z.number().int(),
+  /** Runtime observer generation that owned this process. Additive because
+   * terminal/legacy bridges do not have a causal runtime envelope. */
+  observerGeneration: z.number().int().positive().optional(),
 })
 
 // ---- Daemon <-> server: spawn/reattach/kill + PTY relay ----

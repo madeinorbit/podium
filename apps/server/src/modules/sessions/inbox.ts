@@ -570,6 +570,45 @@ export class SessionInbox {
     return this.activeDrains.has(sessionId)
   }
 
+  /**
+   * A DURABLE ROW ACCEPTED JUST BEFORE PROCESS DEATH STILL OWNS A DELIVERY
+   * (POD-2980).
+   *
+   * `queueText` requests a wake when the session is already parked. The inverse
+   * race used to have no owner: enqueue saw `live`, then `agentExit` changed the
+   * row to `exited`, and nothing revisited the wake decision. The input remained
+   * durably queued forever even though the caller had been told it was accepted.
+   *
+   * The lifecycle calls this after applying a real exit. Reuse the oldest row's
+   * principal so the existing wake reaction re-authorizes the same delegation at
+   * apply time.
+   *
+   * THIS IS THE EXACT GROK ACP REPAIR, not a general crashed-agent policy. Only
+   * its bound server driver proved the dead-handle send race; terminal Grok,
+   * fallback drivers and other runtime families keep their existing explicit
+   * recovery behavior. The live binding facts are intentionally transient, so
+   * this cannot infer authority from a requested or historical driver.
+   */
+  recoverQueuedAfterExit(sessionId: SessionId): boolean {
+    const session = this.deps.getSession(sessionId)
+    if (
+      !session ||
+      session.status !== 'exited' ||
+      session.archived ||
+      session.queuedMessageCount === 0 ||
+      session.agentKind !== 'grok' ||
+      session.runtimeContract !== true ||
+      session.driverId !== 'grok-acp' ||
+      !session.resume
+    ) {
+      return false
+    }
+    const head = this.deps.queue.list(sessionId)[0]
+    if (!head) return false
+    this.deps.resurrect(sessionId, head.principal)
+    return true
+  }
+
   /** A new bind starts a fresh harness-readiness window — and STAMPS it, so the
    *  drain can tell a composer that has had an hour to mount from one that has
    *  had a second (POD-2836). */

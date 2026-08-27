@@ -72,7 +72,15 @@ export function createDaemonGrokRuntime(deps: {
       }
       case 'process':
         if (event.ev.ev !== 'exited') return
-        deps.send({ type: 'agentExit', sessionId, code: event.ev.code ?? 0 })
+        // Preserve the runtime envelope's process generation. A resumed Grok
+        // child reuses the Podium session id, so the server needs this fence to
+        // reject a duplicated exit from the handle that recovery replaced.
+        deps.send({
+          type: 'agentExit',
+          sessionId,
+          code: event.ev.code ?? 0,
+          observerGeneration: event.observerGeneration,
+        })
         return
       default:
         return

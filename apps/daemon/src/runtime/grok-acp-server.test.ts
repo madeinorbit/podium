@@ -4,6 +4,7 @@ import type {
   GrokAcpTransport,
 } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { grokAcpProcessKey, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './grok-acp-server'
 import { createDaemonGrokRuntime } from './grok-driver'
@@ -16,6 +17,8 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
   const requests: Array<{ method?: string; params?: Record<string, unknown> }> = []
   const stopWaiters: Array<() => void> = []
   const loadReplies: Array<{ respond(payload: Record<string, unknown>): void }> = []
+  const childCloses: Array<() => void> = []
+  const sent: DaemonMessage[] = []
   let deferLoad = options.deferLoad ?? false
   let launches = 0
 
@@ -58,6 +61,7 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
         },
         close() {},
       }
+      childCloses.push(() => handler?.closed())
       return {
         transport,
         process: { key: grokAcpProcessKey(input.sessionId), pid: 10_000 + launches },
@@ -70,12 +74,14 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
       }
     },
   }
-  const runtime = createDaemonGrokRuntime({ send: () => {}, host })
+  const runtime = createDaemonGrokRuntime({ send: (message) => sent.push(message), host })
   return {
     entries,
     requests,
     runtime,
+    sent,
     launches: () => launches,
+    crashLatest: () => childCloses.at(-1)?.(),
     releaseStops: () => stopWaiters.splice(0).forEach((resolve) => resolve()),
     setLoadDeferred: (deferred: boolean) => {
       deferLoad = deferred
@@ -144,6 +150,30 @@ describe('Grok ACP daemon restart adoption', () => {
       process: { key: grokAcpProcessKey(sessionId) },
     })
     expect(world.runtime.has(sessionId)).toBe(true)
+    world.runtime.dispose()
+  })
+
+  it('carries the dead Grok handle generation on agentExit', async () => {
+    const world = adoptionWorld()
+    const sessionId = 'grok-exit-generation' as SessionId
+    world.entries.set(sessionId, journalEntry(sessionId))
+
+    const handle = await world.runtime.adoptFromJournal(sessionId)
+    expect(handle).toBeDefined()
+    const generation = (await handle?.snapshot())?.observerGeneration
+    expect(generation).toEqual(expect.any(Number))
+    if (generation === undefined) throw new Error('Grok handle was not generation-fenced')
+
+    world.crashLatest()
+
+    await vi.waitFor(() =>
+      expect(world.sent).toContainEqual({
+        type: 'agentExit',
+        sessionId,
+        code: 0,
+        observerGeneration: generation,
+      }),
+    )
     world.runtime.dispose()
   })
 
