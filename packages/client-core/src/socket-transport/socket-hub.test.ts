@@ -40,6 +40,8 @@ function setup() {
   return { sock, hub }
 }
 const b64 = (s: string): string => btoa(s)
+const b64Bytes = (...bytes: number[]): string => btoa(String.fromCharCode(...bytes))
+const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
 
 describe('SocketHub', () => {
   it('sends hello with the viewport on open', () => {
@@ -482,8 +484,8 @@ describe('SocketHub', () => {
     hub.connect()
     sock.open()
     sock.recv({ type: 'welcome', clientId: 'c0' })
-    const f1: string[] = []
-    const f2: string[] = []
+    const f1: Uint8Array[] = []
+    const f2: Uint8Array[] = []
     hub.attach(asSessionId('s1'), { onFrame: (t) => f1.push(t) })
     hub.attach(asSessionId('s2'), { onFrame: (t) => f2.push(t) })
     sock.recv({
@@ -500,8 +502,8 @@ describe('SocketHub', () => {
       epoch: 0,
       data: b64('two'),
     })
-    expect(f1).toEqual(['one'])
-    expect(f2).toEqual(['two'])
+    expect(f1).toEqual([utf8('one')])
+    expect(f2).toEqual([utf8('two')])
   })
 
   it('drops session-scoped messages for unknown sessions without throwing', () => {
@@ -746,12 +748,18 @@ describe('SessionConnection (hub-backed)', () => {
     })
   })
 
-  it('updates lastSeq/epoch and emits the decoded frame', () => {
+  it('updates lastSeq/epoch and emits the decoded bytes', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
-    const frames: string[] = []
-    const conn = hub.attach(asSessionId('s1'), { onFrame: (t) => frames.push(t) })
+    const frames: Uint8Array[] = []
+    let stateAtCallback: { lastSeq: number; epoch: number } | undefined
+    const conn = hub.attach(asSessionId('s1'), {
+      onFrame: (bytes) => {
+        frames.push(bytes)
+        stateAtCallback = conn.state()
+      },
+    })
     sock.recv({
       type: 'outputFrame',
       sessionId: asSessionId('s1'),
@@ -759,8 +767,34 @@ describe('SessionConnection (hub-backed)', () => {
       epoch: 2,
       data: b64('hello'),
     })
-    expect(frames).toEqual(['hello'])
+    expect(frames).toEqual([utf8('hello')])
+    expect(stateAtCallback).toMatchObject({ lastSeq: 5, epoch: 2 })
     expect(conn.state()).toMatchObject({ lastSeq: 5, epoch: 2 })
+  })
+
+  it('preserves UTF-8 bytes split across output frames', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const frames: Uint8Array[] = []
+    hub.attach(asSessionId('s1'), { onFrame: (bytes) => frames.push(bytes) })
+
+    sock.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 1,
+      epoch: 0,
+      data: b64Bytes(0xe2, 0x82),
+    })
+    sock.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 2,
+      epoch: 0,
+      data: b64Bytes(0xac),
+    })
+
+    expect(frames).toEqual([Uint8Array.of(0xe2, 0x82), Uint8Array.of(0xac)])
   })
 
   it('applies geometry updates', () => {
@@ -790,7 +824,7 @@ describe('SessionConnection (hub-backed)', () => {
     sock.open()
     hub.attach(asSessionId('s1'))
     const before = sock.parsed().filter((m) => m.type === 'attach' && m.sessionId === 's1').length
-    const frames: string[] = []
+    const frames: Uint8Array[] = []
     hub.attach(asSessionId('s1'), { onFrame: (t) => frames.push(t) })
     const after = sock.parsed().filter((m) => m.type === 'attach' && m.sessionId === 's1').length
     expect(after).toBe(before) // no duplicate attach
@@ -801,7 +835,7 @@ describe('SessionConnection (hub-backed)', () => {
       epoch: 0,
       data: btoa('hi'),
     })
-    expect(frames).toEqual(['hi'])
+    expect(frames).toEqual([utf8('hi')])
   })
 })
 

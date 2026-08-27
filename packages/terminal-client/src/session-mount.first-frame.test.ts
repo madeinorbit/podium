@@ -17,7 +17,7 @@ function withResizeObserver(): void {
 }
 
 /** Fake hub that captures the frame callback mountSession registers on attach. */
-function fakeHub(): { hub: SocketHub; frame: (text: string) => void } {
+function fakeHub(): { hub: SocketHub; frame: (bytes: Uint8Array) => void } {
   let onFrame: SessionCallbacks['onFrame']
   const connection = {
     sendResize: () => {},
@@ -33,7 +33,7 @@ function fakeHub(): { hub: SocketHub; frame: (text: string) => void } {
     },
     detach: () => {},
   } as unknown as SocketHub
-  return { hub, frame: (text: string) => onFrame?.(text) }
+  return { hub, frame: (bytes: Uint8Array) => onFrame?.(bytes) }
 }
 
 describe('session-mount onFirstFrame', () => {
@@ -47,13 +47,13 @@ describe('session-mount onFirstFrame', () => {
       onFirstFrame,
     })
 
-    frame('') // empty replay of a not-yet-producing spawn — still "Starting…"
+    frame(new Uint8Array()) // empty replay of a not-yet-producing spawn — still "Starting…"
     expect(onFirstFrame).not.toHaveBeenCalled()
 
-    frame('hello') // first real output
+    frame(new TextEncoder().encode('hello')) // first real output
     expect(onFirstFrame).toHaveBeenCalledTimes(1)
 
-    frame('more') // subsequent frames don't re-fire
+    frame(new TextEncoder().encode('more')) // subsequent frames don't re-fire
     expect(onFirstFrame).toHaveBeenCalledTimes(1)
 
     mounted.dispose()

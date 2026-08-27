@@ -134,7 +134,7 @@ export interface ConnectionState {
 }
 
 export interface SessionCallbacks {
-  onFrame?: (text: string) => void
+  onFrame?: (bytes: Uint8Array) => void
   onState?: (state: ConnectionState) => void
   /**
    * The server is about to send a full replay (not a `resumed` catch-up): clear
@@ -316,9 +316,9 @@ function utf8ToBase64(text: string): string {
   return btoa(bin)
 }
 
-function fromBase64Utf8(b64: string): string {
+function fromBase64Bytes(b64: string): Uint8Array {
   const bin = atob(b64)
-  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0))
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -2346,13 +2346,13 @@ export class SessionConnection {
       this.lastSeq = msg.seq
       this.epoch = msg.epoch
       if (this.echo.enabled()) this.echo.onOutput(interactionNow())
-      const text = fromBase64Utf8(msg.data)
+      const bytes = fromBase64Bytes(msg.data)
       // Latch before emit so the state this frame publishes already says the
       // PTY has spoken — a subscriber that clears a waiting affordance on the
       // state must not see one more "silent" snapshot after real output.
-      if (text.length > 0) this.frameSeen = true
+      if (bytes.length > 0) this.frameSeen = true
       this.emit()
-      this.cb.onFrame?.(text)
+      this.cb.onFrame?.(bytes)
     },
     controllerChanged: (msg) => {
       this.controllerId = msg.controllerId

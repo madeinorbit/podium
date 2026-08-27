@@ -426,9 +426,9 @@ export class TerminalView {
     this.forceRepaint()
   }
 
-  write(text: string): void {
+  write(data: string | Uint8Array): void {
     if (this.disposed) return
-    this.term.write(text)
+    this.term.write(data)
   }
 
   clear(): void {
