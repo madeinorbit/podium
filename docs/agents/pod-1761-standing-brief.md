@@ -1905,3 +1905,34 @@ following `start` then exited immediately. Host was healthy throughout (load
 come up; record the state, say plainly that the work is not running, and let a
 human see it. An issue that silently is not running is worse than one that is
 visibly stuck.
+
+## Retry on a success signal, never on a blacklist of failures
+
+Retrying a flaky Podium call is right. Deciding it *worked* by checking that the
+output did not contain the one error you have been seeing is not.
+
+I wrapped `issue state --set` in a 30-attempt loop whose test was
+`grep -q "fetch failed"`. Attempt 14 returned:
+
+    podium issue: agent relay timed out
+
+That is not "fetch failed", so the loop printed `OK on attempt 14`, exited 0, and
+I reported the panel as updated. It was not. A second, different transport error
+had been sitting in the same failure class the whole time and my check could not
+see it.
+
+This is the epic's recurring defect shape, committed by me, in the script I wrote
+to work around another instance of it: **a check looser than the thing it checks,
+producing a confident wrong answer rather than an error.**
+
+Ask for the success, not the absence of one known failure:
+
+    --json  ...  && grep -q '"ok":true'
+
+Every one of these commands takes `--json` and returns an explicit `ok` field.
+Use it. A failure set is open — you cannot enumerate the errors a network will
+invent — but the success set is closed and the server names it for you.
+
+Same rule at the other end: `EXIT=$?` echoed into a log you then `tail` is worth
+nothing if the tail window is shorter than the command's own output. `grep` for
+the sentinel, do not eyeball the last N lines.
