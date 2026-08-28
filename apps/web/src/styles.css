@@ -9687,15 +9687,10 @@ a.ref-link--session::before {
    What is left is the only limit the column genuinely needs: a brief may not
    take so much of the window that the spine underneath it has nowhere to be.
 
-   32vh, because the constraint is the WINDOW's height and nothing else here
-   knows it. The deck is the window less the top bar and the status strip, and
-   the rest of this header plus the view bar is a fixed ~154px on top of the
-   brief — so at the smallest window anybody works in, a brief at the cap still
-   leaves the spine under it just under half the column. That is ten or eleven
-   lines of description, which no brief anybody writes reaches; what it stops is
-   a pasted spec taking the column. A line count cannot express that: eleven
-   lines is comfortable on a tall display and the whole column on a laptop in a
-   split window.
+   The component measures the DECK itself, places the divider at 40% by default,
+   and clamps it to keep three ordinary task rows visible. The inline value wins
+   after the first layout. `32dvh` remains only as a no-flash first-paint guard:
+   it stops a pasted spec taking the column before that measurement arrives.
 
    THE CUT SAYS SO. `line-clamp`'s ellipsis needs a single run of inline text,
    and this box has blocks in it, so the tail fades instead. Over TWO lines, not
@@ -9706,7 +9701,7 @@ a.ref-link--session::before {
    JS, because nothing in CSS can answer it — so a brief that fits is never
    dimmed for a cut that did not happen. */
 .deck-brief.chat-md {
-  max-height: 32vh;
+  max-height: 32dvh;
   overflow: hidden;
   color: var(--muted-foreground);
   /* THE EXPAND IS A MOVE, NOT A CUT — the same call `.brief-shelf-text` makes.
@@ -9717,9 +9712,12 @@ a.ref-link--session::before {
      measured, so the easing is spent on the text and not on empty space. */
   transition: max-height 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+.deck-brief[data-resizing="true"] {
+  transition: none;
+}
 /* Past the second ceiling the brief scrolls inside itself rather than taking the
-   column: `min(content, 60vh)` stops the box, and this is what lets the operator
-   reach the rest of a pasted spec. */
+   column: `min(content, 60% of the deck)` stops the box, and this is what lets
+   the operator reach the rest of a pasted spec. */
 .deck-brief[data-open="true"] {
   overflow-y: auto;
 }
@@ -9741,6 +9739,7 @@ a.ref-link--session::before {
   margin-top: 10px;
 }
 .deck-brief-rule {
+  position: relative;
   height: 1px;
   flex: 1;
   /* NOT `--hairline-soft`, which is INVISIBLE HERE. The header's ground is the
@@ -9753,6 +9752,32 @@ a.ref-link--session::before {
      "chat" because that is where the problem was met first; what it encodes is
      "a hairline that survives a panel-tier face", which is this. */
   background: var(--chat-rule);
+}
+.deck-brief-end[data-resizable="true"] .deck-brief-rule {
+  cursor: row-resize;
+  touch-action: none;
+}
+.deck-brief-rule::after {
+  position: absolute;
+  inset: -17px 0 -6px;
+  content: "";
+}
+@media (pointer: coarse) {
+  .deck-brief-rule::after {
+    inset-block: -33px -10px;
+  }
+}
+@media (hover: hover) {
+  .deck-brief-end[data-resizable="true"] .deck-brief-rule:hover {
+    background: color-mix(in oklab, var(--ring) 62%, var(--chat-rule));
+  }
+}
+.deck-brief-rule[data-dragging="true"] {
+  background: color-mix(in oklab, var(--ring) 78%, var(--chat-rule));
+}
+.deck-brief-rule:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 75%, transparent);
+  outline-offset: 4px;
 }
 /* The shell's established toggle voice — `.brief-shelf-toggle`'s, to the letter.
    Two ways to say "there is more of this" in one window is one too many. */

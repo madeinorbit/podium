@@ -1,6 +1,10 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
+import {
+  FLIGHT_DECK_BRIEF_CUTOFF_KEY,
+  FLIGHT_DECK_FOLDS_KEY,
+  FLIGHT_DECK_MODE_KEY,
+} from '@podium/client-core/ui-state'
 import {
   archivedSessionsForIssue,
   buildFlightDeckRows,
@@ -73,7 +77,14 @@ import {
   X,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
-import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import type {
+  CSSProperties,
+  JSX,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from 'react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
@@ -2319,22 +2330,91 @@ export function ContinuationCard({
  * already the register the pinned brief and the transcript are set in, and it
  * brings the list and emphasis rules with it rather than restating them here.
  *
- * AND IT IS NOT A TEASER. The old four-line clamp existed to protect the
- * column's height budget, and it protected it against the wrong thing: this
- * column IS the mission, the brief is what the mission is, and a header that
- * stops mid-sentence sends the operator to the dock to read four more lines.
- * The brief is shown. What is left in the stylesheet is a ceiling, not a
- * preview — a brief may not take so much of the window that the spine
- * underneath it has nowhere to be — and nothing anybody writes into a
- * description reaches it. When a pasted spec does, the tail fades rather than
- * stopping, and the fade is gated on `data-clipped` here so a brief that fits
- * is never dimmed for a cut that did not happen.
+ * THE CUTOFF BELONGS TO THE DECK, NOT THE WINDOW. The automatic position is a
+ * fraction of this scrollport, clamped so a short screen keeps enough roster in
+ * view. Dragging the ending rule stores that fraction once for this device and
+ * applies it to every mission. A laptop and a phone do not inherit each other's
+ * geometry, and changing tasks never resets the operator's choice.
  */
+const BRIEF_DEFAULT_CUTOFF_RATIO = 0.4
+const BRIEF_MIN_HEIGHT = 46
+const BRIEF_ROSTER_RESERVE = 192
+const BRIEF_KEYBOARD_STEP = 12
+
+interface BriefMetrics {
+  readonly deckHeight: number
+  readonly briefTop: number
+  readonly endGap: number
+  readonly contentHeight: number
+}
+
+interface BriefCutoffLayout {
+  readonly ratio: number
+  readonly minRatio: number
+  readonly maxRatio: number
+  readonly limit: number
+}
+
+const clampBriefRatio = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value))
+
+/** A missing or corrupt value means "keep adapting automatically". */
+export function readBriefCutoff(raw: string | null): number | null {
+  if (raw === null || raw.trim() === '') return null
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 && value < 1 ? value : null
+}
+
+export function writeBriefCutoff(value: number | null): string | null {
+  return value === null ? null : clampBriefRatio(value, 0.01, 0.99).toFixed(4)
+}
+
+/**
+ * Resolve the divider first, then turn that position into the brief's max height.
+ * The divider is what the operator sees and drags, so its ratio is the durable
+ * value. Brief text begins lower when a title wraps, without moving the saved
+ * boundary or stealing the task space below it.
+ */
+export function briefCutoffLayout(
+  metrics: BriefMetrics,
+  preferredRatio: number | null,
+): BriefCutoffLayout {
+  const { deckHeight, briefTop, endGap, contentHeight } = metrics
+  const minimumBrief = Math.min(BRIEF_MIN_HEIGHT, contentHeight)
+  const minimumDivider = Math.min(deckHeight, briefTop + minimumBrief + endGap)
+  const maximumDivider = Math.max(minimumDivider, deckHeight - BRIEF_ROSTER_RESERVE)
+  const minRatio = minimumDivider / deckHeight
+  const maxRatio = Math.min(1, maximumDivider / deckHeight)
+  const ratio = clampBriefRatio(preferredRatio ?? BRIEF_DEFAULT_CUTOFF_RATIO, minRatio, maxRatio)
+  return {
+    ratio,
+    minRatio,
+    maxRatio,
+    limit: Math.max(0, ratio * deckHeight - briefTop - endGap),
+  }
+}
+
 function MissionBrief({ html, standing }: { html: string; standing?: boolean }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  const [clipped, setClipped] = useState(false)
-  const [content, setContent] = useState(0)
+  const endRef = useRef<HTMLDivElement>(null)
+  const [savedRatio, setSavedRatio] = usePersistedUiState<number | null>(
+    FLIGHT_DECK_BRIEF_CUTOFF_KEY,
+    readBriefCutoff,
+    writeBriefCutoff,
+  )
+  const [previewRatio, setPreviewRatio] = useState<number | null>(null)
+  const [metrics, setMetrics] = useState<BriefMetrics | null>(null)
+  const [dragging, setDragging] = useState(false)
   const [open, setOpen] = useState(false)
+  const layout = metrics ? briefCutoffLayout(metrics, previewRatio ?? savedRatio) : null
+  const clipped = Boolean(layout && metrics && metrics.contentHeight - layout.limit > 1)
+  const resizable = Boolean(metrics && metrics.contentHeight > BRIEF_MIN_HEIGHT + 1)
+  const expandedLimit =
+    layout && metrics
+      ? Math.min(metrics.contentHeight, Math.max(layout.limit, metrics.deckHeight * 0.6))
+      : null
+  const maxHeight = open ? expandedLimit : layout?.limit
+
   // A different mission is a different brief: whatever the operator opened, it
   // was not this one. Same shape as the measure below — the dependency is the
   // trigger, not a value the effect reads.
@@ -2346,26 +2426,103 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return
-    // `scrollHeight` is the whole content even while `max-height` hides most of
-    // it, so one read answers both questions: is anything cut, and how far does
-    // the open state have to travel.
+    const end = endRef.current
+    const deck = el?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
+    if (!el || !end || !deck) return
     const measure = (): void => {
-      setClipped(el.scrollHeight - el.clientHeight > 1)
-      setContent(el.scrollHeight)
+      const deckRect = deck.getBoundingClientRect()
+      if (deckRect.height <= 0) return
+      const briefRect = el.getBoundingClientRect()
+      const endRect = end.getBoundingClientRect()
+      const next = {
+        deckHeight: deckRect.height,
+        briefTop: briefRect.top - deckRect.top,
+        endGap: Math.max(0, endRect.top - briefRect.bottom),
+        contentHeight: el.scrollHeight,
+      }
+      setMetrics((current) =>
+        current &&
+        current.deckHeight === next.deckHeight &&
+        current.briefTop === next.briefTop &&
+        current.endGap === next.endGap &&
+        current.contentHeight === next.contentHeight
+          ? current
+          : next,
+      )
     }
     measure()
-    // No layout, no overflow: under happy-dom every box is zero-high, `measure`
-    // correctly answers "nothing is cut", and there is no observer to attach.
     if (typeof ResizeObserver === 'undefined') return
-    // The ceiling is a share of the WINDOW, so the answer changes when the window
-    // is resized as well as when the column is. Nothing this sets changes the
-    // text's own width — the toggle is on the line UNDER the brief, never beside
-    // it — so the observer cannot feed itself the way `.brief-shelf`'s could.
     const observer = new ResizeObserver(measure)
     observer.observe(el)
+    observer.observe(deck)
     return () => observer.disconnect()
   }, [html])
+
+  const onRulePointerDown = (event: ReactPointerEvent<HTMLSpanElement>): void => {
+    if (!layout || !metrics || !resizable) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const deck = ref.current?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
+    if (!deck) return
+    const deckRect = deck.getBoundingClientRect()
+    const handleRect = handle.getBoundingClientRect()
+    const grabOffset = event.clientY - handleRect.top
+    let latestRatio = layout.ratio
+    let moved = false
+    handle.setPointerCapture(event.pointerId)
+    setDragging(true)
+
+    const move = (pointer: PointerEvent): void => {
+      moved = true
+      const dividerTop = pointer.clientY - grabOffset - deckRect.top
+      latestRatio = clampBriefRatio(
+        dividerTop / metrics.deckHeight,
+        layout.minRatio,
+        layout.maxRatio,
+      )
+      setOpen(false)
+      setPreviewRatio(latestRatio)
+    }
+    const finish = (): void => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', finish)
+      handle.removeEventListener('pointercancel', finish)
+      if (moved) setSavedRatio(latestRatio)
+      setPreviewRatio(null)
+      setDragging(false)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', finish)
+    handle.addEventListener('pointercancel', finish)
+  }
+
+  const onRuleKeyDown = (event: ReactKeyboardEvent<HTMLSpanElement>): void => {
+    if (!layout || !metrics || !resizable) return
+    if (event.key === 'Escape' && savedRatio !== null) {
+      event.preventDefault()
+      setSavedRatio(null)
+      setPreviewRatio(null)
+      setOpen(false)
+      return
+    }
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const step =
+      (event.shiftKey ? BRIEF_KEYBOARD_STEP * 3 : BRIEF_KEYBOARD_STEP) / metrics.deckHeight
+    const next =
+      event.key === 'Home'
+        ? layout.minRatio
+        : event.key === 'End'
+          ? layout.maxRatio
+          : clampBriefRatio(
+              layout.ratio + (event.key === 'ArrowUp' ? -step : step),
+              layout.minRatio,
+              layout.maxRatio,
+            )
+    setOpen(false)
+    setSavedRatio(next)
+  }
+
   return (
     <>
       <div
@@ -2377,13 +2534,13 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
         data-testid="deck-brief"
         data-clipped={clipped && !open ? 'true' : undefined}
         data-open={open ? 'true' : undefined}
+        data-resizing={dragging ? 'true' : undefined}
         data-standing={standing ? 'true' : undefined}
         // OPEN TRAVELS TO A MEASURED NUMBER, not to a keyword: `max-height: none`
         // does not animate at all, and a cap far above the content eases across
-        // space the text does not occupy. `min()` keeps the second ceiling —
-        // reading the whole of a pasted spec must not leave the spine with
-        // nowhere to be, and past that the brief scrolls inside itself.
-        style={open ? { maxHeight: `min(${content}px, 60vh)` } : undefined}
+        // space the text does not occupy. The open state still stops at 60% of
+        // the real deck; past that, a pasted spec scrolls inside itself.
+        style={maxHeight === null || maxHeight === undefined ? undefined : { maxHeight }}
         // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
         dangerouslySetInnerHTML={{ __html: html }}
       />
@@ -2393,8 +2550,32 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
           on the header's own 16px datum in every state — which is why the
           toggle takes the RIGHT end rather than the left, where a word would
           push the line off the datum the title and the text share. */}
-      <div className="deck-brief-end">
-        <span aria-hidden className="deck-brief-rule" />
+      <div ref={endRef} className="deck-brief-end" data-resizable={resizable ? 'true' : undefined}>
+        {/* biome-ignore lint/a11y/useSemanticElements: the visible divider is a keyboard-operable resize handle */}
+        <span
+          className="deck-brief-rule"
+          role={resizable ? 'separator' : undefined}
+          aria-hidden={resizable ? undefined : true}
+          aria-orientation={resizable ? 'horizontal' : undefined}
+          aria-label={resizable ? 'Resize mission brief' : undefined}
+          aria-valuemin={resizable && layout ? Math.round(layout.minRatio * 100) : undefined}
+          aria-valuemax={resizable && layout ? Math.round(layout.maxRatio * 100) : undefined}
+          aria-valuenow={resizable && layout ? Math.round(layout.ratio * 100) : undefined}
+          aria-valuetext={
+            resizable && layout
+              ? `${savedRatio === null ? 'Automatic cutoff' : 'Saved cutoff'} at ${Math.round(layout.ratio * 100)}% of the Flight Deck`
+              : undefined
+          }
+          tabIndex={resizable ? 0 : undefined}
+          data-dragging={dragging ? 'true' : undefined}
+          title={
+            resizable
+              ? 'Drag to resize. Use arrow keys to adjust or Escape to restore automatic sizing.'
+              : undefined
+          }
+          onPointerDown={onRulePointerDown}
+          onKeyDown={onRuleKeyDown}
+        />
         {(clipped || open) && (
           <button
             data-pressable
