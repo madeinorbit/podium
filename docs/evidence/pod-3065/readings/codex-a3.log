@@ -1,0 +1,23 @@
+==============================================================================
+A3  interrupt a running turn   harness=codex
+==============================================================================
+  pin  server pid=1737282 spawned at f76f698ce
+  pin  daemon pid=1737368 spawned at f76f698ce
+  host load 5.75
+
+session 7f6732da-92ab-444f-a01e-4031b7cffb87
+BOUND DRIVER       codex-app-server (family server)
+
+── interrupt — interrupt a running turn
+   PASS  turn stopped 524ms after interrupt, but nothing marks it
+   control: FIRED — 3 preview frame(s) and 0 new transcript chars — tokens are being produced; phase=working, 3 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+   WAS RUNNING       3 preview frame(s) and 0 new transcript chars — tokens are being produced; phase=working, 3 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+   INTERRUPT SENT    {"ok":true,"requested":"protocol"}
+   SETTLED           phase left 'working' after 524ms
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT              0 chars at the call -> 0 chars at settle
+   FRAMES AFTER      1 preview frame(s) arrived AFTER the call
+   TERMINAL BYTES    0 at the call -> +0 after 6s -> +0 after 12s
+   AFTER THE CALL    phase=idle status=live error=none
+   SCORED ON         phase leaving 'working'
+   ELAPSED 31849ms
