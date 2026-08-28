@@ -3010,6 +3010,63 @@ describe('the fleet bridge', () => {
     ])
   })
 
+  /**
+   * THE STALE PROMISE IS ON THE OLDER ROW (POD-3040).
+   *
+   * A deferred promise belongs to the operation that made it, and operations
+   * keep happening. An all-offline update finishes owing the laptop a sentence;
+   * a second update then runs on the machines that were awake and finishes
+   * owing nobody anything. Looking only at the newest — or only at the active —
+   * row finds that second operation, has nothing to correct, and leaves the
+   * first still promising a release that no longer exists.
+   */
+  it('restates a stale promise on an older retained operation, not just the newest', async () => {
+    const fleet = [machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+
+    // op_1: every behind machine asleep. No wave, terminal, promise standing.
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.read('op_1').deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'offline' },
+    ])
+
+    // op_2: a later update with nothing to defer, which is what a naive
+    // "newest operation" reader would find and pass over.
+    fleet.length = 0
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_2')
+    const untouched = h.read('op_2')
+    expect(untouched.deferred).toEqual([])
+    expect(h.engine.history(UPDATE_OPERATION_KIND, 1)[0]?.id).toBe('op_2')
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+
+    h.clock.advance(5_000)
+    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.engine.whenSettled('op_1')
+    await h.engine.whenSettled('op_2')
+
+    // The older row is corrected…
+    expect(h.read('op_1').deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+    expect(h.read('op_1').state).toBe('done')
+
+    // …and the row with nothing to promise is not written at all.
+    expect(h.read('op_2')).toEqual(untouched)
+  })
+
   it('restates the same promise as unavailable when the channel is withdrawn instead', async () => {
     const fleet = [machine({ id: 'laptop', online: false })]
     const h = harness({

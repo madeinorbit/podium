@@ -2300,23 +2300,34 @@ export function createUpdateFleetBridge(deps: {
   now?: () => number
 }): { onFleetChanged: () => void; onTargetChanged: () => void } {
   /**
-   * THE UPDATE WHOSE DEFERRED PROMISE IS STILL STANDING.
+   * EVERY UPDATE WHOSE DEFERRED PROMISE IS STILL STANDING (POD-3040).
    *
-   * The active one if there is one; otherwise the most recent, BECAUSE A
-   * FINISHED OPERATION IS THE COMMON CASE HERE (POD-3040). A fleet whose behind
-   * machines were all asleep plans no wave at all — `planUpdateOperation` puts
-   * every one of them in `deferred` and creates no machines step — so the
-   * operation is terminal within a tick while its promise ("they will update
-   * when they reconnect") has years left to run. An update that only ever
-   * looked at the ACTIVE row could never correct the sentence it is commonest
-   * for.
+   * ALL of the retained ones, not the newest — and that distinction is the
+   * whole point. A deferred promise belongs to the operation that made it, and
+   * operations keep happening: an all-offline update finishes with "laptop will
+   * update when it reconnects", then a second update runs on the machines that
+   * were awake and finishes with nothing deferred at all. Reading only the
+   * newest row — or only the active one — would find that second operation,
+   * have nothing to correct, and leave the first one promising delivery of a
+   * release that no longer exists. The stale sentence is precisely the one on
+   * the OLDER row.
+   *
+   * `history` is bounded by the same retention that bounds the list Settings →
+   * Updates renders, and it includes a running operation as well as finished
+   * ones, so this is the whole set of rows whose promise anybody can still
+   * read. Rows whose promise is still true cost one comparison each:
+   * {@link supersededDeferredPlaces} returns nothing for an empty `deferred`
+   * list and nothing for an operation whose exact target is still published, so
+   * an unrelated row is never written.
    */
-  const promisingOperation = ():
-    | { id: string; kind: string; operation: Operation | null }
-    | undefined => {
-    const active = deps.engine.active(LIFECYCLE_EXCLUSION_GROUP)
-    if (active?.kind === UPDATE_OPERATION_KIND) return active
-    return deps.engine.history(UPDATE_OPERATION_KIND, 1)[0]
+  const restateStaleDeferredPromises = (): void => {
+    for (const row of deps.engine.history(UPDATE_OPERATION_KIND)) {
+      if (!row.operation) continue
+      const details = updateOperationDetails(row.operation)
+      if (!details) continue
+      const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
+      if (restated) void deps.engine.recordDeferred(row.id, restated)
+    }
   }
 
   const bridge = {
@@ -2332,12 +2343,7 @@ export function createUpdateFleetBridge(deps: {
      * finished (see {@link OperationEngine.recordDeferred}).
      */
     onTargetChanged: () => {
-      const row = promisingOperation()
-      const details = row?.operation ? updateOperationDetails(row.operation) : undefined
-      if (row?.operation && details) {
-        const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
-        if (restated) void deps.engine.recordDeferred(row.id, restated)
-      }
+      restateStaleDeferredPromises()
       // …and then the ordinary fleet pass, which is what a target change has
       // always driven: an active wave still has to be projected against it.
       bridge.onFleetChanged()
