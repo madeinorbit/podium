@@ -48,3 +48,17 @@ script:
 PODIUM_TEST_WORKERS=1 /home/mgw/.bun/bin/bun --conditions=@podium/source docs/evidence/pod-2777/scorer-controls.ts
 ```
 
+## Current-tip refresh (2026-08-28)
+
+The branch was rebased onto exact epic tip
+`2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42` before this refresh. The earlier
+`b3343f39a…` rows remain historical; this section records new current-tip
+admission and scorer outcomes.
+
+### A1c — OpenCode headless
+
+The exact stamped child `3997579` was killed and confirmed gone. The dead-session
+send returned `ok=true, disposition=delivered`, but no typed refusal, resume
+offer, or assistant nonce arrived through the full 120-second delayed window:
+the tightened scorer returns **FAIL**. See
+`readings/a1c-opencode-2e1648.json`.

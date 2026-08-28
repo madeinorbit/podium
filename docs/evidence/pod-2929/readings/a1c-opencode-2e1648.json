@@ -1,0 +1,93 @@
+{
+  "cell": "A1c",
+  "arm": "headless",
+  "harness": "opencode",
+  "verdict": "FAIL",
+  "summary": "At the exact current epic tip, the dead-session send was accepted as delivered but no delayed terminal outcome arrived.",
+  "evidence": [
+    "drive-verify passed immediately before the probe; server, daemon, and reused unchanged web bundle were pinned",
+    "alive control=true; the live send was answered before the kill",
+    "stamp uuid=76892e82-1eaf-4ccb-93cf-ce66401a71a0 source=/home/mgw/.local/state/podium/p2929z/instance.json",
+    "session=2f4cdf64-a066-43a4-a21b-002bb7438016",
+    "exact stamped target before kill: pid=3997579 cwd=/tmp/pod-2929-rig-z/repo",
+    "SIGKILL pid=3997579 sent=true; exact PID gone=true; remaining stamped targets=(none)",
+    "dead-session send={ok:true,disposition:delivered}",
+    "typedRefusal=false; resumeOffer=false; accepted=true; delayed outcome=LOST through 120s"
+  ],
+  "data": {
+    "controlFired": true,
+    "deadConfirmed": true,
+    "typedRefusal": false,
+    "resumeOffer": false,
+    "accepted": true,
+    "delayedDelivered": false,
+    "delayedOutcomeWindowMs": 120000,
+    "send": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "instanceUuid": "76892e82-1eaf-4ccb-93cf-ce66401a71a0",
+    "uuidSource": "/home/mgw/.local/state/podium/p2929z/instance.json",
+    "sessionId": "2f4cdf64-a066-43a4-a21b-002bb7438016",
+    "targetBefore": [
+      {
+        "pid": 3997579,
+        "cwd": "/tmp/pod-2929-rig-z/repo",
+        "cmd": "/home/mgw/.opencode/bin/opencode serve --port 38037 --hostname 127.0.0.1",
+        "instanceUuid": "76892e82-1eaf-4ccb-93cf-ce66401a71a0",
+        "sessionId": "2f4cdf64-a066-43a4-a21b-002bb7438016"
+      }
+    ],
+    "targetAfterKill": []
+  },
+  "targetCwd": "/tmp/pod-2929-rig-z/repo",
+  "instance": "p2929z",
+  "codePin": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42",
+  "pin": {
+    "codeSha": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42",
+    "codeShort": "2e1648c",
+    "server": {
+      "pid": 3995884,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2929-lost-message-rebound-scorers",
+      "sha": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42"
+    },
+    "daemon": {
+      "pid": 3996014,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2929-lost-message-rebound-scorers",
+      "sha": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42"
+    },
+    "bundleSourceSha": "b3343f3",
+    "bundleReuseSource": "/tmp/pod-2929-product",
+    "bundleUnchangedThrough": "2e1648ca",
+    "expectedDriver": "opencode-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "hostAdmissionSnapshot": {
+    "capturedAt": "2026-08-28T04:40:31Z",
+    "rootFreeKb": 5387600,
+    "floorKb": 5242880,
+    "loadAverage": ["4.54", "5.23", "5.40"],
+    "memAvailableKb": 6516496,
+    "swapUsedKb": 5092568,
+    "vmstatLaterSwapInKbPerSec": [0, 0],
+    "vmstatLaterSwapOutKbPerSec": [0, 0]
+  },
+  "lease": "test:heavy acquired without queueing immediately before bring-up and released after the rig was stopped",
+  "recordedAt": "2026-08-28T04:52:25Z",
+  "error": "",
+  "log": [
+    "PINJSON {\"want\":\"2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42\",\"short\":\"2e1648c\",\"spawnedSha\":\"2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42\",\"serverPid\":3995884,\"daemonPid\":3996014,\"webSourceSha\":\"b3343f3\",\"contract\":\"1\",\"streaming\":\"1\",\"driver\":\"\"}",
+    "BOUND product driver opencode-server family=server",
+    "CONTROL a send to this session WHILE ALIVE was answered: true",
+    "target stamp uuid=76892e82-1eaf-4ccb-93cf-ce66401a71a0 source=/home/mgw/.local/state/podium/p2929z/instance.json",
+    "target processes 1 exact stamped PID before kill: 3997579",
+    "SIGKILL target pid=3997579 sent=true",
+    "exact PID gone true; remaining stamped target PIDs=(none)",
+    "send to dead {\"ok\":true,\"disposition\":\"delivered\"}",
+    "typed refusal false; offers resume false; accepted true; delayed outcome LOST after <=120s",
+    "A1c FAIL: accepted send without delayed terminal outcome"
+  ]
+}
