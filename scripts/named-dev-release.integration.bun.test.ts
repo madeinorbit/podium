@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto'
 import {
   existsSync,
   mkdirSync,
@@ -397,23 +397,40 @@ describe('named-instance development releases', () => {
     const summaries = (): string[] =>
       existsSync(join(ROOT, '.turbo', 'runs')) ? readdirSync(join(ROOT, '.turbo', 'runs')) : []
 
-    // Warm this commit's clients THROUGH THE SAME ENTRY the coordinator uses. The
-    // build is keyed on PODIUM_APP_VERSION among other things, so warming with a bare
-    // `buildClients` would warm a different key and the run below would legitimately
-    // MISS — a green that proved nothing about reuse.
-    await beginFreshClientPackagingSession([])
-    const before = new Set(summaries())
+    // A THROWAWAY RELEASE SIGNING KEY, because staging refuses an unsigned tarball.
+    // `prepareHeadlessCross` signs with PODIUM_UPDATE_SIGNING_KEY or the gitignored
+    // scripts/.podium-update-dev.key, and neither is present on a checkout that has not
+    // been set up to publish. That is a prerequisite of the RELEASE, not of the claim
+    // this test makes — it counts Turbo run summaries and reads cache status — so the
+    // test mints its own rather than being green only where someone happened to have a
+    // key on disk.
+    const previousSigningKey = process.env.PODIUM_UPDATE_SIGNING_KEY
+    process.env.PODIUM_UPDATE_SIGNING_KEY = generateKeyPairSync('ed25519')
+      .privateKey.export({ type: 'pkcs8', format: 'der' })
+      .toString('base64')
 
-    await prepareHeadlessCross(['linux-x86_64', 'darwin-aarch64'], join(scratch(), 'release'))
+    try {
+      // Warm this commit's clients THROUGH THE SAME ENTRY the coordinator uses. The
+      // build is keyed on PODIUM_APP_VERSION among other things, so warming with a bare
+      // `buildClients` would warm a different key and the run below would legitimately
+      // MISS — a green that proved nothing about reuse.
+      await beginFreshClientPackagingSession([])
+      const before = new Set(summaries())
 
-    const written = summaries().filter((name) => !before.has(name))
-    // ONE lane for two platforms. Two would be the regression this milestone removed.
-    expect(written).toHaveLength(1)
+      await prepareHeadlessCross(['linux-x86_64', 'darwin-aarch64'], join(scratch(), 'release'))
 
-    const tasks = readRunSummary(ROOT, join(ROOT, '.turbo', 'runs', written[0] as string))
-    for (const task of CLIENT_BUILD_TASKS) {
-      // Nothing was built: an approval whose clients did not change costs no client build.
-      expect(tasks[task].cache, task).toBe('HIT')
+      const written = summaries().filter((name) => !before.has(name))
+      // ONE lane for two platforms. Two would be the regression this milestone removed.
+      expect(written).toHaveLength(1)
+
+      const tasks = readRunSummary(ROOT, join(ROOT, '.turbo', 'runs', written[0] as string))
+      for (const task of CLIENT_BUILD_TASKS) {
+        // Nothing was built: an approval whose clients did not change costs no client build.
+        expect(tasks[task].cache, task).toBe('HIT')
+      }
+    } finally {
+      if (previousSigningKey === undefined) delete process.env.PODIUM_UPDATE_SIGNING_KEY
+      else process.env.PODIUM_UPDATE_SIGNING_KEY = previousSigningKey
     }
   }, 2_400_000)
 })
