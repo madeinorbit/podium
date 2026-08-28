@@ -96,10 +96,10 @@ async function pairTarget(source: ReturnType<typeof api>) {
   writeCoord('pair-code', `${pairing.code}\n`)
   return eventually(
     () => source.machines.list.query(),
-    (machines) => machines.some((machine) => machine.name === 'transfer-target' && machine.online),
+    (machines) => machines.some((machine) => machine.hostname === 'target' && machine.online),
     'paired target daemon',
   ).then((machines) => {
-    const target = machines.find((machine) => machine.name === 'transfer-target')
+    const target = machines.find((machine) => machine.hostname === 'target')
     if (!target) throw new Error('paired target disappeared')
     return target
   })
@@ -107,7 +107,9 @@ async function pairTarget(source: ReturnType<typeof api>) {
 
 async function createLiveFixture(source: ReturnType<typeof api>) {
   const machines = await source.machines.list.query()
-  const sourceMachine = machines.find((machine) => machine.name !== 'transfer-target')
+  const sourceMachine = machines.find(
+    (machine) => machine.hostname !== 'target' && machine.name !== 'transfer-target',
+  )
   if (!sourceMachine) throw new Error('source host machine is missing')
   const agent = await source.sessions.create.mutate({
     agentKind: 'codex',
@@ -231,7 +233,7 @@ async function successCase(
   const sourceEvidence = await eventually(
     () => evidence('source'),
     (value) =>
-      value.primaryExited &&
+      !value.primaryExited &&
       value.config?.mode === 'daemon' &&
       value.connectivity?.state === 'connected',
     'source daemon reconnection',
@@ -368,7 +370,7 @@ async function lostReplyCase(
   const recoveredSourceEvidence = await eventually(
     () => evidence('source'),
     (value) =>
-      value.primaryExited &&
+      !value.primaryExited &&
       value.config?.mode === 'daemon' &&
       value.connectivity?.state === 'connected',
     'source daemon reconnection after lost-reply recovery',
@@ -428,7 +430,7 @@ async function waitForSourceDaemon() {
   return eventually(
     () => evidence('source'),
     (value) =>
-      value.primaryExited &&
+      !value.primaryExited &&
       value.config?.mode === 'daemon' &&
       value.connectivity?.state === 'connected',
     'source daemon handoff',

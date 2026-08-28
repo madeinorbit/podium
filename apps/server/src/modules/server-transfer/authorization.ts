@@ -23,13 +23,13 @@ export function serverMoveAuthorization(
   return {
     reauthorize: async () => {
       const actor = decodeOperationActor(deps.authorizedBy)
-      if (!actor) denied('the recorded actor is invalid')
+      if (!actor) return denied('the recorded actor is invalid')
       if (actor.kind !== 'user') {
-        denied('the recorded actor is not a current administrator')
+        return denied('the recorded actor is not a current administrator')
       }
       const role = deps.roleOf(actor.userId)
       if (role !== 'admin') {
-        denied('the recorded administrator is unavailable')
+        return denied('the recorded administrator is unavailable')
       }
       const principal = userCommandPrincipal(actor.userId, role)
       const refusal = checkMachineVerb(

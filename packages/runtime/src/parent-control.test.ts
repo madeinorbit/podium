@@ -6,6 +6,8 @@ import {
   clearParentRequest,
   readParentRequest,
   readParentResult,
+  requestParentTopology,
+  signalParentTopology,
   requestParentHandover,
   requestParentSwap,
   writeParentRequest,
@@ -114,6 +116,57 @@ describe('requestParentHandover', () => {
       expect(written?.kind).toBe('handover')
       expect(written?.expectedVersion).toBe('9.9.9')
       expect(written?.releaseHadMigrations).toBe(false)
+    } finally {
+      if (prev === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = prev
+    }
+  })
+})
+
+describe('requestParentTopology', () => {
+  it('writes the desired child set and waits for the parent health result', async () => {
+    const dir = tempState()
+    const prev = process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = dir
+    try {
+      writeRecord({
+        role: 'parent',
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        mode: 'systemd',
+      })
+      const pending = requestParentTopology(
+        { children: ['daemon'], restartDaemon: true, health: 'daemon' },
+        {
+          stateDir: dir,
+          signal: () => {
+            const request = readParentRequest(dir)
+            expect(request).toMatchObject({
+              kind: 'topology',
+              children: ['daemon'],
+              restartDaemon: true,
+              topologyHealth: 'daemon',
+            })
+            writeParentResult(
+              {
+                requestId: request?.requestId ?? 'missing',
+                kind: 'topology',
+                ok: true,
+                completedAt: new Date().toISOString(),
+              },
+              dir,
+            )
+          },
+          sleep: async () => {},
+        },
+      )
+      await expect(pending).resolves.toBeUndefined()
+      expect(
+        signalParentTopology(
+          { children: ['server'], health: 'none' },
+          { stateDir: dir, signal: () => {} },
+        ),
+      ).toMatchObject({ ok: true, pid: process.pid })
     } finally {
       if (prev === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = prev

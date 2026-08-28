@@ -1,6 +1,6 @@
 # Disposable server-transfer acceptance
 
-This opt-in lane proves server moves between two fresh Linux containers. Source and target have separate named state and agent-home volumes, share only a private Docker network and a fixture coordination volume, and never mount the operator's Podium state. The short-lived pairing code never leaves that disposable volume.
+This opt-in lane proves server moves between two fresh Linux containers. Each container launches one real top-level Podium parent, which owns and reconciles its server and daemon children throughout promotion and source retirement. Source and target have separate named state and agent-home volumes, share only a private Docker network and a fixture coordination volume, and never mount the operator's Podium state. The short-lived pairing code never leaves that disposable volume.
 
 Run it from a dependency-complete checkout:
 

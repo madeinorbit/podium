@@ -1236,7 +1236,7 @@ export class DaemonRpcService {
         },
     machineId: MachineId,
   ): Promise<Payload<ServerTransferResultMessage>> {
-    if (Array.isArray(input.manifest))
+    if (!('publicUrl' in input) || Array.isArray(input.manifest))
       return Promise.resolve({
         transferId: input.transferId,
         operation: 'prepare',

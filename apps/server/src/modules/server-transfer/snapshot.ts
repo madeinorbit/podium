@@ -10,7 +10,13 @@ import {
   type ServerTransferManifestEntry,
 } from '@podium/protocol'
 
-const ROOT_FILES = ['podium.db', 'enrollment.ledger'] as const
+/**
+ * The server update-signing key is an explicit portable secret: unlike config,
+ * machine credentials, and runtime files it belongs to the transferred server
+ * authority. It travels only through this authenticated server-transfer channel,
+ * never through the generic file RPC.
+ */
+const ROOT_FILES = ['podium.db', 'enrollment.ledger', 'update-signing-key.json'] as const
 const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads'] as const
 export const MAX_TRANSFER_BYTES = 512 * 1024 * 1024
 export const TRANSFER_SPACE_MARGIN_BYTES = 64 * 1024 * 1024

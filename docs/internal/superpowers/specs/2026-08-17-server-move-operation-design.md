@@ -1,6 +1,6 @@
 # Server move as a durable operation
 
-- **Date:** 2026-08-17, surveyed against `origin/main` @ `6120a5681`
+- **Date:** 2026-08-17, refreshed against supervisor-era `dev/mw` @ `2e06fa9a4`
 - **Issue:** POD-2271 (Server move operations spec), parent epic POD-1747 (Server Transfer Across Machines); finalizes and supersedes the POD-2267 draft (which superseded POD-2257)
 - **Status:** implementation-ready, coordinator corrections applied
 - **Relation to prior art:** replaces the public surface of `2026-08-06-server-transfer-design.md` (its journal state contract and split-brain internals survive); builds on `2026-08-14-update-operations-design.md` §3.0, which reserved the `lifecycle` exclusion group for exactly this operation.
@@ -173,6 +173,8 @@ The public claim discipline: the sealed row can never be rewritten on the source
 
 The operation row lives in `podium.db`, which is `ROOT_FILES[0]` of the portable payload (`snapshot.ts:13`). The final snapshot is cut after the fence; whatever the sealed row says is what the target inherits: `fence: running`, `cutover: pending` — the truthful pre-cutover shape.
 
+**Parent-owned runtime topology.** Every managed machine has one long-lived Podium parent; systemd or detached persistence owns only that parent, never server or daemon peer units. Promotion asks the target parent to add and health-prove a server while retaining the remote daemon carrying the promote reply. Acknowledgement asks that parent to remove the retained daemon. Source retirement asks the source parent to remove the server and restart the daemon so it re-reads the durable remote-server config. These are health-gated parent control-channel transactions; transfer code never enables, disables, or restarts per-role systemd services. A no-parent fallback exists only for legacy foreground or desktop launches during migration.
+
 ### 5.1 Source epilogue ordering
 
 Pinned by tests (it is §4 steps 7–8): journal `committing` before promote-send; promote → proof → demote (durable) → journal `commit` (durable) → acknowledge → retire. No ack before the committed journal exists on disk.
@@ -285,7 +287,7 @@ This is a daemon-wire schema change; §9's capability gating (`server-move.v1`) 
 
 Server: delete `machines.serverTransferStatus` (`router.ts:413`), `serverTransferStatusQuery`, `publicStatus` (`service.ts:211-264`); replace `machines.transferServer` with **`machines.moveServer`** (rename settles prior-draft question 3 — un-aliasable cutover): same input schema + `port?`, same policy row (`packages/commands/src/fleet/contracts.ts:814-846` carried over), handler = `engine.start(...)`, returns `{started:true, operationId} | {started:false, alreadyRunning}`. Recovery ships as the generic `operations.settleAsk`/`operations.action` dispatch (§2.3, §6.2) — **no new kind-named RPC of any sort**. Daemon wire protocol stays internal transport (with §8's port change).
 
-Web: delete `apps/web/src/features/machines/server-transfer.ts`, `ServerTransfer.tsx`, and the inline copy in `MachinesPanel.tsx:49-137`; the panel reads `operations.active({group:'lifecycle'})` on the `use-update-state.ts` cadence with a `server-move` presenter beside the update presenter (`operation-view.ts` is kind-agnostic; its update-keyed `errorCopy` and the client's hardcoded `kind:'update'` in `readLatestOperation` (`operations-client.ts:81`) are generalized by kind parameter — a required enabler, since both kinds share the `lifecycle` group). Confirmation dialog survives as UI gating the start call. Settings → Machines gains the history list (`operations.history({kind:'server-move', limit:20})`). Desktop: no supervisor change — `bootstrap.rs` keeps reading the raw journal marker; retarget continuity improves for free via §5.3. CLI promote/retire workers untouched.
+Web: delete `apps/web/src/features/machines/server-transfer.ts`, `ServerTransfer.tsx`, and the inline copy in `MachinesPanel.tsx:49-137`; the panel reads `operations.active({group:'lifecycle'})` on the `use-update-state.ts` cadence with a `server-move` presenter beside the update presenter (`operation-view.ts` is kind-agnostic; its update-keyed `errorCopy` and the client's hardcoded `kind:'update'` in `readLatestOperation` (`operations-client.ts:81`) are generalized by kind parameter — a required enabler, since both kinds share the `lifecycle` group). Confirmation dialog survives as UI gating the start call. Settings → Machines gains the history list (`operations.history({kind:'server-move', limit:20})`). Desktop keeps reading the raw journal marker for webview retargeting, while its backend uses the same parent-owned child-set transaction as headless installs. CLI promote/retire commands are thin parent-control clients; they never manipulate role units or spawn replacement peers.
 
 Grep-gate test: `serverTransferStatus` exists nowhere outside `packages/protocol` (daemon wire name); `recoverServerMove` exists nowhere. Delete/replace the bespoke web tests, the `publicStatus` cases, and the e2e status-route intercepts.
 

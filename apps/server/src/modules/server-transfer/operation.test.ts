@@ -235,6 +235,7 @@ describe('server-move operation', () => {
       machineId: 'target-1',
       now: 100,
     })
+    if (done === ADOPTION_DEFERRED) throw new Error('promoted proof unexpectedly deferred')
     expect(done).toMatchObject({ state: 'done', finishedAt: 100 })
     expect(done.steps?.map((step) => [step.id, step.state])).toContainEqual(['cutover', 'done'])
 
@@ -294,6 +295,7 @@ describe('server-move operation', () => {
       targetOnline: true,
       now: 101,
     })
+    if (resumed === ADOPTION_DEFERRED) throw new Error('online target unexpectedly deferred')
     expect(resumed.state).toBe('running')
     expect(resumed.details).not.toHaveProperty('_handoff')
 

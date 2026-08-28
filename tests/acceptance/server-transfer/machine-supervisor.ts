@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { saveConfig } from '@podium/runtime/config'
 import { applyMode } from '@podium/runtime/setup'
 import { Database } from 'bun:sqlite'
 
@@ -157,26 +158,20 @@ async function waitForPairCode(): Promise<string> {
   throw new Error('target timed out waiting for the source pairing code')
 }
 
+if (role === 'target') {
+  saveConfig({
+    mode: 'daemon',
+    serverUrl: 'ws://control-proxy:18789',
+    pairCode: await waitForPairCode(),
+  })
+}
+
 const evidenceTimer = setInterval(() => void writeEvidence(), 100)
 evidenceTimer.unref()
 await writeEvidence()
 
 const cli = join('/workspace', 'scripts', 'cli.ts')
-const args =
-  role === 'source'
-    ? [process.execPath, '--conditions=@podium/source', cli, 'all']
-    : [
-        process.execPath,
-        '--conditions=@podium/source',
-        cli,
-        'daemon',
-        '--server',
-        'ws://control-proxy:18789',
-        '--pair',
-        await waitForPairCode(),
-        '--name',
-        'transfer-target',
-      ]
+const args = [process.execPath, '--conditions=@podium/source', cli, 'parent', '--takeover']
 
 primary = Bun.spawn(args, {
   cwd: repoRoot,
@@ -230,48 +225,25 @@ if (
     'commit-uncertain',
   ].includes(interruptedState)
 ) {
-  primary = Bun.spawn([process.execPath, '--conditions=@podium/source', cli, 'all'], {
-    cwd: repoRoot,
-    env: process.env,
-    stdin: 'ignore',
-    stdout: 'inherit',
-    stderr: 'inherit',
-  })
+  primaryExited = false
+  primary = Bun.spawn(
+    [process.execPath, '--conditions=@podium/source', cli, 'parent', '--takeover'],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdin: 'ignore',
+      stdout: 'inherit',
+      stderr: 'inherit',
+    },
+  )
   await writeEvidence()
-  console.log(`[transfer-fixture:${role}] relaunched all-in-one for ${interruptedState} recovery`)
+  console.log(
+    '[transfer-fixture:' + role + '] relaunched parent for ' + interruptedState + ' recovery',
+  )
   const recoveryExitCode = await primary.exited
   primaryExited = true
   await writeEvidence()
   console.log(`[transfer-fixture:${role}] recovery process exited ${recoveryExitCode}`)
-}
-
-if (role === 'source' || role === 'target') {
-  const config = readJson(join(stateRoot, 'config.json'))
-  const serverUrl =
-    (role === 'source' && config?.mode === 'daemon') ||
-    (role === 'target' && config?.mode === 'server')
-      ? config.serverUrl
-      : undefined
-  if (typeof serverUrl === 'string' && serverUrl.length > 0) {
-    primary = Bun.spawn(
-      [
-        process.execPath,
-        '--conditions=@podium/source',
-        cli,
-        'daemon',
-        '--server',
-        serverUrl,
-        '--takeover',
-      ],
-      { cwd: repoRoot, env: process.env, stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
-    )
-    await writeEvidence()
-    console.log(`[transfer-fixture:${role}] relaunched daemon → ${serverUrl}`)
-    const daemonExitCode = await primary.exited
-    primaryExited = true
-    await writeEvidence()
-    console.log(`[transfer-fixture:${role}] replacement daemon exited ${daemonExitCode}`)
-  }
 }
 
 console.log(`[transfer-fixture:${role}] supervisor retaining container`)

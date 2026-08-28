@@ -346,6 +346,7 @@ describe('server transfer RPC', () => {
           transferId: 'transfer-2',
           manifest: {
             formatVersion: 1,
+            operationId: 'operation-2',
             transferId: 'transfer-2',
             sourceInstanceId: 'source-instance',
             sourceMachineId: asMachineId('promoted-host'),
@@ -358,6 +359,8 @@ describe('server transfer RPC', () => {
             files: [],
           },
           manifestDigest: 'b'.repeat(64),
+          publicUrl: 'https://target.example.test',
+          port: 443,
         },
         asMachineId('next-target'),
       ),
@@ -382,6 +385,7 @@ describe('server transfer RPC', () => {
           transferId: 'transfer-wrong-source',
           manifest: {
             formatVersion: 1,
+            operationId: 'operation-wrong-source',
             transferId: 'transfer-wrong-source',
             sourceInstanceId: 'source-instance',
             sourceMachineId: asMachineId('unrelated-online-daemon'),
@@ -394,6 +398,8 @@ describe('server transfer RPC', () => {
             files: [],
           },
           manifestDigest: 'c'.repeat(64),
+          publicUrl: 'https://target.example.test',
+          port: 443,
         },
         asMachineId('next-target'),
       ),

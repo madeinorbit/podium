@@ -180,6 +180,7 @@ export async function promoteTargetServerRole(
     {
       transferId: input.transferId,
       publicUrl: config.publicUrl,
+      bindHost: config.bindHost ?? '127.0.0.1',
       ...(config.port ? { port: config.port } : {}),
     },
     supervisor,

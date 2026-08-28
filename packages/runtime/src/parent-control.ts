@@ -1,8 +1,7 @@
 /**
  * Parent ←→ server control channel for update swap and self-handover [POD-2505].
  *
- * TWO request kinds, because spec §8 disposition 11 moves the swap itself into
- * the parent:
+ * Three request kinds share one serialized parent channel:
  *
  *  - `swap`     — the parent runs schema-gate-before-fetch, verified fetch,
  *                 atomic swap (retaining `.old`) and the post-swap VERSION
@@ -10,6 +9,8 @@
  *                 from under itself; it asks and waits for the answer.
  *  - `handover` — the bundle on disk is already the target; the parent spawns
  *                 the successor parent and waits for it to be healthy.
+ *  - `topology` — the live parent reconciles its server/daemon child set and
+ *                 answers only after the requested health boundary.
  *
  * A `swap` needs an answer (a fetch can fail, and the operation's `server` step
  * has to report `download-failed` with a real reason rather than hanging), so
@@ -28,7 +29,7 @@ import { liveRecord } from './run-registry'
 
 export const PARENT_HANDOVER_SIGNAL: NodeJS.Signals = 'SIGUSR1'
 
-export const ParentRequestKind = z.enum(['swap', 'handover'])
+export const ParentRequestKind = z.enum(['swap', 'handover', 'topology'])
 export type ParentRequestKind = z.infer<typeof ParentRequestKind>
 
 export const ParentRequest = z.object({
@@ -64,6 +65,9 @@ export const ParentRequest = z.object({
    * with this machine's ledger. Absence stays unknown, so rollback stays refused.
    */
   releaseHadMigrations: z.boolean().optional(),
+  children: z.array(z.enum(['server', 'daemon'])).optional(),
+  restartDaemon: z.boolean().optional(),
+  topologyHealth: z.enum(['server', 'daemon', 'none']).optional(),
 })
 export type ParentRequest = z.infer<typeof ParentRequest>
 
@@ -207,6 +211,9 @@ function post(
     pinnedPubkey?: string
     publisherPubkey?: string
     releaseHadMigrations?: boolean
+    children?: Array<'server' | 'daemon'>
+    restartDaemon?: boolean
+    topologyHealth?: 'server' | 'daemon' | 'none'
   },
   opts: ParentRequestOptions,
 ): { ok: true; pid: number; requestId: string } | { ok: false; reason: 'no-parent' } {
@@ -226,6 +233,9 @@ function post(
       ...(request.releaseHadMigrations !== undefined
         ? { releaseHadMigrations: request.releaseHadMigrations }
         : {}),
+      ...(request.children ? { children: request.children } : {}),
+      ...(request.restartDaemon !== undefined ? { restartDaemon: request.restartDaemon } : {}),
+      ...(request.topologyHealth ? { topologyHealth: request.topologyHealth } : {}),
     },
     dir,
   )
@@ -248,11 +258,56 @@ export function requestParentHandover(
   return posted.ok ? { ok: true, pid: posted.pid } : posted
 }
 
-/**
- * Ask the live parent to schema-gate, fetch, verify and swap `target`, and WAIT
- * for its answer. Resolves once the parent has written its result; rejects with
- * the parent's own reason on failure, and on timeout.
- */
+/** Ask the live parent to reconcile its complete child set. The async form waits for
+ * the requested health boundary; the signal form is for a child that expects to be retired. */
+export function signalParentTopology(
+  request: {
+    children: Array<'server' | 'daemon'>
+    restartDaemon?: boolean
+    health: 'server' | 'daemon' | 'none'
+  },
+  opts: ParentRequestOptions = {},
+): { ok: true; pid: number; requestId: string } | { ok: false; reason: 'no-parent' } {
+  return post(
+    'topology',
+    {
+      expectedVersion: 'topology',
+      children: request.children,
+      ...(request.restartDaemon !== undefined ? { restartDaemon: request.restartDaemon } : {}),
+      topologyHealth: request.health,
+    },
+    opts,
+  )
+}
+
+export async function requestParentTopology(
+  request: {
+    children: Array<'server' | 'daemon'>
+    restartDaemon?: boolean
+    health: 'server' | 'daemon' | 'none'
+  },
+  opts: ParentRequestOptions & { timeoutMs?: number } = {},
+): Promise<void> {
+  const dir = opts.stateDir ?? stateDir()
+  const posted = signalParentTopology(request, opts)
+  if (!posted.ok) throw new Error('machine-cannot-restart: no supervising parent is registered')
+  const now = opts.now ?? Date.now
+  const sleeper = opts.sleep ?? sleepMs
+  const deadline = now() + (opts.timeoutMs ?? 60_000)
+  while (now() < deadline) {
+    const result = readParentResult(posted.requestId, dir)
+    if (result) {
+      if (!result.ok)
+        throw new Error(result.error ?? 'the parent could not reconcile runtime topology')
+      return
+    }
+    await sleeper(250)
+  }
+  throw new Error(
+    `the supervising parent (pid ${posted.pid}) did not reconcile runtime topology in time`,
+  )
+}
+
 export async function requestParentSwap(
   request: {
     expectedVersion: string

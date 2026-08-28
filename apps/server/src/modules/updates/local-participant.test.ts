@@ -1,4 +1,5 @@
 import { asMachineId, type MachineId } from '@podium/model'
+import { SERVER_MOVE_CAPABILITY } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { startLocalUpdateParticipant } from './local-participant'
@@ -42,7 +43,7 @@ describe('local update participant', () => {
     expect(setMachineBuild).toHaveBeenCalledWith(
       machineId,
       expect.objectContaining({ appVersion: '0.4.1', installKind: 'installed' }),
-      ['update.delivery.feed'],
+      ['update.delivery.feed', SERVER_MOVE_CAPABILITY],
       '2023-11-14T22:13:20.000Z',
     )
     expect(attachUpdateParticipant).toHaveBeenCalledOnce()

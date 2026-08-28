@@ -1,7 +1,4 @@
 x-fixture: &fixture
-  build:
-    context: ../../..
-    dockerfile: tests/acceptance/server-transfer/Dockerfile
   image: podium-server-transfer-acceptance:local
   networks:
     - transfer
@@ -14,6 +11,9 @@ x-fixture: &fixture
 services:
   source:
     <<: *fixture
+    build:
+      context: ../../..
+      dockerfile: tests/acceptance/server-transfer/Dockerfile
     hostname: source
     command:
       - bun

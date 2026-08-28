@@ -732,6 +732,7 @@ export async function startServer(
 
   /** One real host participant when an installed parent can apply its grants. */
   const localUpdateParticipant =
+    !recoveryOnly &&
     process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
     !developmentRuntime.runningFromSource &&
     prepareCoordinatorUpdate &&
@@ -780,7 +781,9 @@ export async function startServer(
   if (localUpdateParticipant === undefined) {
     const why = developmentRuntime.runningFromSource
       ? 'this coordinator runs from source'
-      : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
+      : recoveryOnly
+        ? 'the coordinator is fenced in recovery-only mode'
+        : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
         ? 'the local participant is disabled for this run'
         : 'no supervising parent is discoverable in the run registry'
     const note = `this machine will not report its build or appear online in its own fleet: ${why}`

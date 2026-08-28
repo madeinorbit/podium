@@ -1520,9 +1520,9 @@ export async function main(
       return
     }
     case 'server-transfer-promote': {
-      const { promoteTargetServerRole } = await import('./role-reconcile')
+      const { requestParentTopology } = await import('@podium/runtime/parent-control')
       try {
-        await promoteTargetServerRole({ transferId: plan.transferId })
+        await requestParentTopology({ children: ['server', 'daemon'], health: 'server' })
       } catch (error) {
         console.error((error as Error).message)
         process.exit(2)
@@ -1530,8 +1530,8 @@ export async function main(
       return
     }
     case 'server-transfer-retire-daemon': {
-      const { retireTargetDaemon } = await import('./role-reconcile')
-      await retireTargetDaemon({ acknowledged: true })
+      const { requestParentTopology } = await import('@podium/runtime/parent-control')
+      await requestParentTopology({ children: ['server'], health: 'none' })
       return
     }
     case 'parent': {

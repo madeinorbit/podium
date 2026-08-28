@@ -1577,7 +1577,7 @@ describe('the step runners', () => {
   it('prepare: refuses a legacy transfer before packaging or machine delivery', async () => {
     const requestDestBundle = vi.fn(() => Promise.resolve())
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       requestDestBundle,
@@ -2148,7 +2148,7 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     expect(h.sent).toHaveLength(1)
 
-    expect(h.engine.cancel('op_1').canceled).toBe(true)
+    expect((await h.engine.cancel('op_1')).canceled).toBe(true)
     await h.engine.whenSettled('op_1')
     h.updates.withdrawAuthorization()
     expect(

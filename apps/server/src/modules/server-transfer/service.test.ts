@@ -17,6 +17,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'podium-server-transfer-'))
   await writeFile(join(root, 'podium.db'), 'db-v1')
   await writeFile(join(root, 'enrollment.ledger'), 'ledger-v1')
+  await writeFile(join(root, 'update-signing-key.json'), 'server-key-v1')
   await mkdir(join(root, 'transcripts'))
   await writeFile(join(root, 'transcripts', 'session.txt'), 'transcript-v1')
 })

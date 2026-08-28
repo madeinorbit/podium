@@ -43,6 +43,7 @@ import type { ControlHandlers, DaemonContext } from './control/context'
 const TRANSFER_DIR = '.server-transfer'
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024
 const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads'] as const
+const PORTABLE_ROOT_FILES = ['podium.db', 'enrollment.ledger', 'update-signing-key.json'] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'
 interface PromotionInventoryEntry {
@@ -142,8 +143,7 @@ function assertPortablePath(path: string): void {
     fail('unsafe-path', `unsafe transfer path: ${path}`)
   }
   const allowed =
-    path === 'podium.db' ||
-    path === 'enrollment.ledger' ||
+    PORTABLE_ROOT_FILES.includes(path as (typeof PORTABLE_ROOT_FILES)[number]) ||
     PORTABLE_ROOTS.some((prefix) => path.startsWith(`${prefix}/`))
   if (!allowed || normalize(path) !== path) fail('unsafe-path', `path is not portable: ${path}`)
 }

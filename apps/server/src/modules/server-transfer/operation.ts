@@ -213,7 +213,7 @@ export function projectRecoveryOperation(
 export function reconcileServerMoveOperation(
   operation: ProtocolOperation,
   reality: ServerMoveReality,
-): ProtocolOperation {
+): ProtocolOperation | typeof ADOPTION_DEFERRED {
   const details = detailsOf(operation)
   if (!details) {
     return {

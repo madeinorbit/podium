@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
 import type { MachineId } from '@podium/model'
-import { asMachineId } from '@podium/model'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { isActiveTransfer, TransferJournal } from './journal'
 import { TransferLock } from './lock'
@@ -281,7 +280,24 @@ export class ServerTransferService {
     outcome: 'resolved-committed' | 'resolved-aborted' | 'still-uncertain'
   }> {
     const entry = this.journal.read()
-
+    if (!entry) return { outcome: 'still-uncertain' }
+    if (entry.state === 'committed') return { outcome: 'resolved-committed' }
+    if (entry.state === 'source-fenced') {
+      const manifest = entry.record.manifest
+      if (manifest) {
+        await this.abortPrepared(
+          { transferId: entry.record.transferId, manifestDigest: manifest.digest },
+          entry.record.targetMachineId,
+          'operator-recovery',
+        )
+      }
+      await this.deps.releaseFence()
+      this.journal.abort(
+        { code: 'boot-recovery', message: 'the fenced move was safely aborted before promotion' },
+        { result: 'cleaned' },
+      )
+      this.deps.afterRecoveredAbort?.()
+      return { outcome: 'resolved-aborted' }
     }
     if (entry.state !== 'committing' && entry.state !== 'commit-uncertain') {
       return { outcome: 'still-uncertain' }
@@ -728,7 +744,7 @@ export class ServerTransferService {
         () =>
           resolve({
             result: 'pending',
-            detail: 'target acknowledgement did not settle within ' + timeoutMs + 'ms',
+            detail: `target acknowledgement did not settle within ${timeoutMs}ms`,
           }),
         timeoutMs,
       )

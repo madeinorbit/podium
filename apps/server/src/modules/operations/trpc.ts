@@ -30,8 +30,10 @@ function assertActionAuthorized(ctx: Context, operationId: string): void {
   }
 
   const operation = operationsModule(ctx).engine.get(operationId)?.operation
-  const details =
-    operation?.details && typeof operation.details === 'object' ? operation.details : {}
+  const details: Record<string, unknown> =
+    operation?.details && typeof operation.details === 'object'
+      ? (operation.details as Record<string, unknown>)
+      : {}
   const targetMachineId = details.targetMachineId
   if (typeof targetMachineId !== 'string') return
 

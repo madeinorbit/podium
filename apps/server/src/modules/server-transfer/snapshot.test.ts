@@ -58,6 +58,7 @@ describe('portable server snapshot', () => {
     roots.push(root)
     await writeFile(join(root, 'podium.db'), 'db')
     await writeFile(join(root, 'enrollment.ledger'), 'ledger')
+    await writeFile(join(root, 'update-signing-key.json'), 'server-key')
     await mkdir(join(root, 'transcripts'))
     await symlink(join(root, 'podium.db'), join(root, 'transcripts', 'linked.db'))
     const checkpoint = vi.fn()

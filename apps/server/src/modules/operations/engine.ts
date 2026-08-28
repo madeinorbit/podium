@@ -303,8 +303,10 @@ export class OperationEngine {
     if (this.isSealed(operationId)) return undefined
     const operation = this.deps.store.get(operationId)?.operation
     if (!operation || isTerminalOperationState(operation.state)) return undefined
-    const details =
-      operation.details && typeof operation.details === 'object' ? operation.details : {}
+    const details: Record<string, unknown> =
+      operation.details && typeof operation.details === 'object'
+        ? (operation.details as Record<string, unknown>)
+        : {}
     return this.persist(
       {
         ...operation,
@@ -345,8 +347,10 @@ export class OperationEngine {
     }
 
     const at = this.now()
-    const details =
-      operation.details && typeof operation.details === 'object' ? operation.details : {}
+    const details: Record<string, unknown> =
+      operation.details && typeof operation.details === 'object'
+        ? (operation.details as Record<string, unknown>)
+        : {}
     const withStep = this.applyPatch(operation, stepId, { ...patch.step, state: 'running' }, at)
     const sealed: PersistedOperation = {
       ...withStep,
@@ -1055,7 +1059,8 @@ export class OperationEngine {
       if (handoff) return
 
       const at = this.now()
-      const next = this.applyPatch(current, step.id, outcome, at)
+      const patch: StepProgressPatch = { ...outcome, state: outcome.state }
+      const next = this.applyPatch(current, step.id, patch, at)
       this.persist(next, at)
 
       if (outcome.state === 'running') {
@@ -1272,18 +1277,22 @@ export class OperationEngine {
 
   private actionOffered(operation: Operation, actionId: string): boolean {
     if ((operation.awaiting ?? []).some((ask) => ask.id === actionId)) return true
-    const details =
-      operation.details && typeof operation.details === 'object' ? operation.details : {}
+    const details: Record<string, unknown> =
+      operation.details && typeof operation.details === 'object'
+        ? (operation.details as Record<string, unknown>)
+        : {}
     const actions = Array.isArray(details.actions) ? details.actions : []
     return actions.some(
-      (action) =>
+      (action: unknown) =>
         typeof action === 'object' && action !== null && 'id' in action && action.id === actionId,
     )
   }
 
   private hasPersistedHandoff(operation: Operation): boolean {
-    const details =
-      operation.details && typeof operation.details === 'object' ? operation.details : {}
+    const details: Record<string, unknown> =
+      operation.details && typeof operation.details === 'object'
+        ? (operation.details as Record<string, unknown>)
+        : {}
     return typeof details._handoff === 'object' && details._handoff !== null
   }
 
@@ -1659,7 +1668,8 @@ export class OperationEngine {
     if (handoff) return
 
     const at = this.now()
-    const next = this.applyPatch(after, step.id, outcome, at)
+    const patch: StepProgressPatch = { ...outcome, state: outcome.state }
+    const next = this.applyPatch(after, step.id, patch, at)
     this.persist(next, at)
 
     if (outcome.state === 'failed') {

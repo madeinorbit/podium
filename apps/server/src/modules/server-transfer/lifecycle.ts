@@ -1,8 +1,10 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { signalParentTopology } from '@podium/runtime/parent-control'
 import { unsupervisedEnv } from '@podium/runtime/supervisor'
 
 interface SourceRetirementDeps {
+  signalTopology?: typeof signalParentTopology
   env?: Readonly<Record<string, string | undefined>>
   spawnProcess?: typeof spawn
   schedule?: (callback: () => void, delayMs: number) => void
@@ -23,6 +25,13 @@ export function retireSourceAfterTransfer(
   const schedule = deps.schedule ?? ((callback, delayMs) => void setTimeout(callback, delayMs))
   const exit = deps.exit ?? process.exit
   schedule(() => {
+    const posted = (deps.signalTopology ?? signalParentTopology)({
+      children: ['daemon'],
+      restartDaemon: true,
+      health: 'daemon',
+    })
+    if (posted.ok) return
+
     if ((deps.env ?? process.env).PODIUM_DESKTOP_SUPERVISED === '1') {
       exit(0)
       return
