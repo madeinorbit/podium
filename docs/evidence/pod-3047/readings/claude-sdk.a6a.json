@@ -2,15 +2,15 @@
   "cell": "A6A",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a6a",
-  "at": "2026-08-28T13:30:19.146Z",
+  "at": "2026-08-28T14:31:46.713Z",
   "pin": {
     "cell": "A6A",
-    "at": "2026-08-28T13:30:19.175Z",
+    "at": "2026-08-28T14:31:46.736Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "59d84a239b95f13168889b334052b225f96c1fb6",
-    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "59d84a2",
+      "headShort": "b7da1db",
       "appsWebIdentical": true
     },
-    "serverPid": "989426",
-    "daemonPid": "990109",
+    "serverPid": "1434135",
+    "daemonPid": "1434316",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,16 +33,16 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "15597504 kB",
-      "SwapFree": "41724912 kB"
+      "MemAvailable": "18908464 kB",
+      "SwapFree": "41118680 kB"
     },
-    "rootFreeKiB": 83746500,
-    "load1m": 18.99,
+    "rootFreeKiB": 83299856,
+    "load1m": 8.72,
     "credential": {
       "live": {
         "present": true,
         "path": "/home/mgw/.claude/.credentials.json",
-        "mtime": "2026-08-28T06:20:34.463Z",
+        "mtime": "2026-08-28T14:15:35.225Z",
         "size": 962
       },
       "isolated": {
@@ -65,14 +65,14 @@
     "detail": "driverId=claude-sdk; family=(none)"
   },
   "evidence": [
-    "IDENTITY          {\"sessionId\":\"c7e1a691-2f9d-4ffe-af52-a8c514a1e6eb\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
+    "IDENTITY          {\"sessionId\":\"81bff76b-4b02-4d88-a5f1-f01dd0c85028\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
     "SCREEN BYTES      0"
   ],
   "data": {
-    "sid": "c7e1a691-2f9d-4ffe-af52-a8c514a1e6eb",
+    "sid": "81bff76b-4b02-4d88-a5f1-f01dd0c85028",
     "applicable": false,
     "row": {
-      "sessionId": "c7e1a691-2f9d-4ffe-af52-a8c514a1e6eb",
+      "sessionId": "81bff76b-4b02-4d88-a5f1-f01dd0c85028",
       "agentKind": "claude-code",
       "harness": "claude-code",
       "driverId": "claude-sdk",
@@ -91,7 +91,7 @@
       "subagents": [],
       "issue": null,
       "commits": [
-        "8352f08 probe seed"
+        "24d5d71 probe seed"
       ],
       "files": [
         "## main"

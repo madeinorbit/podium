@@ -2,15 +2,15 @@
   "cell": "A3NEG",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a3neg",
-  "at": "2026-08-28T13:19:41.423Z",
+  "at": "2026-08-28T14:28:10.351Z",
   "pin": {
     "cell": "A3NEG",
-    "at": "2026-08-28T13:19:41.469Z",
+    "at": "2026-08-28T14:28:10.377Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "12b3801f9d9e42fae380ef81ffb83d5eb122a83d",
-    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "12b3801",
+      "headShort": "b7da1db",
       "appsWebIdentical": true
     },
-    "serverPid": "989426",
-    "daemonPid": "990109",
+    "serverPid": "1434135",
+    "daemonPid": "1434316",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,16 +33,16 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "15582124 kB",
-      "SwapFree": "41724360 kB"
+      "MemAvailable": "18849028 kB",
+      "SwapFree": "41109372 kB"
     },
-    "rootFreeKiB": 83836832,
-    "load1m": 10.04,
+    "rootFreeKiB": 83324520,
+    "load1m": 8.22,
     "credential": {
       "live": {
         "present": true,
         "path": "/home/mgw/.claude/.credentials.json",
-        "mtime": "2026-08-28T06:20:34.463Z",
+        "mtime": "2026-08-28T14:15:35.225Z",
         "size": 962
       },
       "isolated": {
@@ -65,24 +65,24 @@
     "detail": "user=true; working=true; hostChildren=1; preExistingStopRecords=0"
   },
   "evidence": [
-    "FROZEN HOSTS      [1021413]",
+    "FROZEN HOSTS      [1439918]",
     "INTERRUPT         {\"ok\":true,\"requested\":\"protocol\"}",
-    "STOPPED           true in 10791ms",
+    "STOPPED           true in 10145ms",
     "STOP RECORDS      live=1 persisted=1",
-    "RECORD TEXTS      [{\"id\":\"claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended.\"}]",
+    "RECORD TEXTS      [{\"id\":\"claude-sdk-interrupt-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended.\"}]",
     "OUTCOME           unconfirmed (expected unconfirmed)",
     "REFUSAL RECORDS   0",
     "IDLE RECEIPTS     before=0 afterTwoPresses=1 onePerEpoch=true",
     "TYPED REFUSAL     false",
     "CLAUSES           stopped=true exactlyOneStopRecord=true durableAfterReload=true outcome=unconfirmed expected=unconfirmed truthful=true idleReceiptOnePerEpoch=true stopRecordUnchangedByIdlePresses=true",
     "SERVER READ ITEMS 0 (sessions.read; empty on this path — see the note on interruptRecords)",
-    "ALL ITEMS         [{\"id\":\"claude-sdk-user-15f39d52-39f7-4912-a71f-d1f29c46805c-1\",\"role\":\"user\",\"text\":\"Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTCZATSU in the final line.\"},{\"id\":\"claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended.\"},{\"id\":\"claude-sdk-interrupt-idle-15f39d52-39f7-4912-a71f-d1f29c46805c-1\",\"role\":\"system\",\"text\":\"Interrupt refused: no turn was in flight.\"}]"
+    "ALL ITEMS         [{\"id\":\"claude-sdk-user-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1\",\"role\":\"user\",\"text\":\"Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD1QWFV in the final line.\"},{\"id\":\"claude-sdk-interrupt-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended.\"},{\"id\":\"claude-sdk-interrupt-idle-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1\",\"role\":\"system\",\"text\":\"Interrupt refused: no turn was in flight.\"}]"
   ],
   "data": {
-    "sid": "15f39d52-39f7-4912-a71f-d1f29c46805c",
+    "sid": "08ca74a8-5a59-4e62-83b9-f0bd104200cd",
     "freezeHost": true,
     "frozen": [
-      1021413
+      1439918
     ],
     "payload": {
       "ok": true,
@@ -90,9 +90,9 @@
     },
     "after": {
       "ok": true,
-      "ms": 10791,
+      "ms": 10145,
       "row": {
-        "sessionId": "15f39d52-39f7-4912-a71f-d1f29c46805c",
+        "sessionId": "08ca74a8-5a59-4e62-83b9-f0bd104200cd",
         "agentKind": "claude-code",
         "harness": "claude-code",
         "driverId": "claude-sdk",
@@ -115,7 +115,7 @@
         "subagents": [],
         "issue": null,
         "commits": [
-          "5941428 probe seed"
+          "a021a89 probe seed"
         ],
         "files": [
           "## main"
@@ -124,138 +124,132 @@
       },
       "samples": [
         {
-          "ms": 37,
+          "ms": 15,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 563,
+          "ms": 557,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 1091,
+          "ms": 1101,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 1603,
+          "ms": 1623,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 2120,
+          "ms": 2149,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 2638,
+          "ms": 2681,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 3157,
+          "ms": 3212,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 3675,
+          "ms": 3759,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 4199,
+          "ms": 4283,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 4723,
+          "ms": 4801,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 5331,
+          "ms": 5328,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 5853,
+          "ms": 5869,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 6367,
+          "ms": 6430,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 6885,
+          "ms": 6977,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 7400,
+          "ms": 7494,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 7921,
+          "ms": 8012,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 8481,
+          "ms": 8526,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 8997,
+          "ms": 9056,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 9525,
+          "ms": 9572,
           "phase": "working",
           "status": "live",
           "driverId": "claude-sdk"
         },
         {
-          "ms": 10208,
-          "phase": "working",
-          "status": "live",
-          "driverId": "claude-sdk"
-        },
-        {
-          "ms": 10791,
+          "ms": 10145,
           "phase": "errored",
           "status": "live",
           "driverId": "claude-sdk"
         }
       ]
     },
-    "stopMs": 10791,
+    "stopMs": 10145,
     "hosts": [
       {
-        "pid": 1021413,
-        "ppid": 990109,
+        "pid": 1439918,
+        "ppid": 1434316,
         "cwd": "/tmp/pod-3047n/probes/claude-sdk-a3neg",
         "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
       }
@@ -273,52 +267,52 @@
     "typedRefusal": false,
     "liveStop": [
       {
-        "id": "claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "id": "claude-sdk-interrupt-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1",
         "role": "system",
-        "ts": "2026-08-28T13:20:00.423Z",
+        "ts": "2026-08-28T14:28:30.120Z",
         "text": "Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended."
       }
     ],
     "persistedStop": [
       {
-        "id": "claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "id": "claude-sdk-interrupt-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1",
         "role": "system",
-        "ts": "2026-08-28T13:20:00.423Z",
+        "ts": "2026-08-28T14:28:30.120Z",
         "text": "Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended."
       }
     ],
     "persistedRefused": [],
     "persistedIdle": [
       {
-        "id": "claude-sdk-interrupt-idle-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "id": "claude-sdk-interrupt-idle-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1",
         "role": "system",
-        "ts": "2026-08-28T13:20:07.511Z",
+        "ts": "2026-08-28T14:28:36.649Z",
         "text": "Interrupt refused: no turn was in flight."
       }
     ],
     "allItems": [
       {
-        "id": "claude-sdk-user-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "id": "claude-sdk-user-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1",
         "role": "user",
-        "ts": "2026-08-28T13:19:43.725Z",
-        "text": "Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTCZATSU in the final line."
+        "ts": "2026-08-28T14:28:12.875Z",
+        "text": "Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD1QWFV in the final line."
       },
       {
-        "id": "claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "id": "claude-sdk-interrupt-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1",
         "role": "system",
-        "ts": "2026-08-28T13:20:00.423Z",
+        "ts": "2026-08-28T14:28:30.120Z",
         "text": "Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended."
       },
       {
-        "id": "claude-sdk-interrupt-idle-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "id": "claude-sdk-interrupt-idle-08ca74a8-5a59-4e62-83b9-f0bd104200cd-1",
         "role": "system",
-        "ts": "2026-08-28T13:20:07.511Z",
+        "ts": "2026-08-28T14:28:36.649Z",
         "text": "Interrupt refused: no turn was in flight."
       }
     ],
     "serverReadItems": [],
     "statusAfter": {
-      "sessionId": "15f39d52-39f7-4912-a71f-d1f29c46805c",
+      "sessionId": "08ca74a8-5a59-4e62-83b9-f0bd104200cd",
       "agentKind": "claude-code",
       "harness": "claude-code",
       "driverId": "claude-sdk",
@@ -341,7 +335,7 @@
       "subagents": [],
       "issue": null,
       "commits": [
-        "5941428 probe seed"
+        "a021a89 probe seed"
       ],
       "files": [
         "## main"

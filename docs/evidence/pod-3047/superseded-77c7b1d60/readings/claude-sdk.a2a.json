@@ -1,0 +1,438 @@
+{
+  "cell": "A2A",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a2a",
+  "at": "2026-08-28T14:07:13.417Z",
+  "pin": {
+    "cell": "A2A",
+    "at": "2026-08-28T14:07:13.455Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "4bb1585b808b7f2ec852859b3895685bfb9c33df",
+    "pinSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "serverSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "daemonSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "4bb1585",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1287233",
+    "daemonPid": "1287371",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "17263476 kB",
+      "SwapFree": "40944412 kB"
+    },
+    "rootFreeKiB": 83094368,
+    "load1m": 12.16,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "working appeared within 2s, stayed working through the sample, and returned idle",
+  "control": {
+    "fired": true,
+    "what": "the working-turn send delivering or producing a measurable in-flight signal",
+    "detail": "user=true; assistant=true; workingAt={\"at\":29,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-sdk\"}"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "WORKING AT        {\"at\":29,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-sdk\"}",
+    "IDLE SAMPLES      0",
+    "AFTER             {\"sessionId\":\"696c98fd-3485-4f2d-b634-d6ca1b807e0f\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a"
+  ],
+  "data": {
+    "sid": "696c98fd-3485-4f2d-b634-d6ca1b807e0f",
+    "user": true,
+    "assistant": true,
+    "workingAt": {
+      "at": 29,
+      "phase": "working",
+      "status": "live",
+      "driverId": "claude-sdk"
+    },
+    "idleDuring": 0,
+    "samples": [
+      {
+        "at": 29,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 341,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 607,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 870,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 1162,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 1427,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 1695,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 1967,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 2242,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 2534,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 2807,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 3082,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 3350,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 3621,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 3897,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 4162,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 4455,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 4740,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 5015,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 5291,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 5567,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 5832,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 6116,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 6380,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 6655,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 6927,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 7201,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 7466,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 7761,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 8043,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 8309,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 8576,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 8895,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 9277,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 9571,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 9841,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 10112,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 10404,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 10692,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 10973,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 11248,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 11516,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 11787,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 12092,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 12371,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 12635,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 12910,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 13198,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 13476,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 13746,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 14042,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 14313,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 14578,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      },
+      {
+        "at": 14848,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      }
+    ],
+    "after": {
+      "sessionId": "696c98fd-3485-4f2d-b634-d6ca1b807e0f",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-sdk",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "9d22151 probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

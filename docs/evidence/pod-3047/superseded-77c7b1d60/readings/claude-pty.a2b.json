@@ -1,0 +1,102 @@
+{
+  "cell": "A2B",
+  "driver": "claude-pty",
+  "cwd": "/tmp/pod-3047n/probes/claude-pty-a2b",
+  "at": "2026-08-28T14:17:09.822Z",
+  "pin": {
+    "cell": "A2B",
+    "at": "2026-08-28T14:17:09.875Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "4bb1585b808b7f2ec852859b3895685bfb9c33df",
+    "pinSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "serverSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "daemonSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "4bb1585",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1287233",
+    "daemonPid": "1346246",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18692328 kB",
+      "SwapFree": "41106808 kB"
+    },
+    "rootFreeKiB": 83124424,
+    "load1m": 6.9,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "fresh session reported idle at boot",
+  "control": {
+    "fired": true,
+    "what": "new session attach/output/bind evidence independent of the status value",
+    "detail": "created={\"sessionId\":\"289890c9-d575-47f0-a4c3-48311df508c0\",\"agentId\":\"289890c9-d575-47f0-a4c3-48311df508c0\",\"harness\":\"claude-code\",\"model\":null,\"effort\":null,\"machine\":\"flatblock\",\"machineId\":\"0478899a-47b3-4aaa-9640-500eb92aee97\",\"accountId\":\"native:claude-code\"}; attached=1; driver=claude-pty"
+  },
+  "evidence": [
+    "STATUS            {\"sessionId\":\"289890c9-d575-47f0-a4c3-48311df508c0\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
+    "SESSION ROW       {\"sessionId\":\"289890c9-d575-47f0-a4c3-48311df508c0\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"✳ Claude Code\",\"cwd\":\"/tmp/pod-3047n/probes/claude-pty-a2b\",\"status\":\"live\",\"controllerId\":\"c32\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,",
+    "FRAME TYPES       outputFrame=12 hostMetricsChanged=6 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 sessionTitleChanged=1"
+  ],
+  "data": {
+    "sid": "289890c9-d575-47f0-a4c3-48311df508c0",
+    "status": {
+      "sessionId": "289890c9-d575-47f0-a4c3-48311df508c0",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "725de09 probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

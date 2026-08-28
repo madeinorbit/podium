@@ -1,0 +1,115 @@
+{
+  "cell": "A5",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a5",
+  "at": "2026-08-28T14:09:41.145Z",
+  "pin": {
+    "cell": "A5",
+    "at": "2026-08-28T14:09:41.165Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "4bb1585b808b7f2ec852859b3895685bfb9c33df",
+    "pinSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "serverSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "daemonSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "4bb1585",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1287233",
+    "daemonPid": "1287371",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "17995536 kB",
+      "SwapFree": "40944888 kB"
+    },
+    "rootFreeKiB": 83119588,
+    "load1m": 8.95,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "the agent DID read the fixture file — its reply carries a marker that exists only inside it — and the transcript published no tool call and no tool result at all",
+  "control": {
+    "fired": true,
+    "what": "the transcript fixture send delivering or a needle appearing",
+    "detail": "user=true; assistant=true; items=2"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "USER              true",
+    "ASSISTANT         true",
+    "TOOL ITEMS        []",
+    "RELOAD SAME       true",
+    "STREAM ITEMS      [{\"id\":\"claude-sdk-user-c3371098-c4af-4ffc-bd57-8af79152508a-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the te\"},{\"id\":\"cf222f73-a586-4f23-9fd8-018775cefb90\",\"role\":\"assistant\",\"text\":\"P3047-A5-MARKER-MTD134AM\"}]",
+    "SERVER READ ITEMS before=0 after=0 (sessions.read, empty on this path)"
+  ],
+  "data": {
+    "sid": "c3371098-c4af-4ffc-bd57-8af79152508a",
+    "marker": "P3047-A5-MARKER-MTD134AM",
+    "before": [
+      {
+        "id": "claude-sdk-user-c3371098-c4af-4ffc-bd57-8af79152508a-1",
+        "role": "user",
+        "ts": "2026-08-28T14:09:43.305Z",
+        "text": "Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the test marker it contains."
+      },
+      {
+        "id": "cf222f73-a586-4f23-9fd8-018775cefb90",
+        "role": "assistant",
+        "ts": "2026-08-28T14:09:49.303Z",
+        "text": "P3047-A5-MARKER-MTD134AM"
+      }
+    ],
+    "after": [
+      {
+        "id": "claude-sdk-user-c3371098-c4af-4ffc-bd57-8af79152508a-1",
+        "role": "user",
+        "ts": "2026-08-28T14:09:43.305Z",
+        "text": "Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the test marker it contains."
+      },
+      {
+        "id": "cf222f73-a586-4f23-9fd8-018775cefb90",
+        "role": "assistant",
+        "ts": "2026-08-28T14:09:49.303Z",
+        "text": "P3047-A5-MARKER-MTD134AM"
+      }
+    ],
+    "serverBefore": [],
+    "serverAfter": [],
+    "toolItems": [],
+    "resultItems": [],
+    "paired": false,
+    "sameHistory": true,
+    "toolRan": true
+  }
+}

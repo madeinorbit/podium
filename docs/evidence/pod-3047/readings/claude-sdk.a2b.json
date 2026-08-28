@@ -2,15 +2,15 @@
   "cell": "A2B",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a2b",
-  "at": "2026-08-28T13:20:41.830Z",
+  "at": "2026-08-28T14:28:44.238Z",
   "pin": {
     "cell": "A2B",
-    "at": "2026-08-28T13:20:41.869Z",
+    "at": "2026-08-28T14:28:44.265Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "9ba8292cd86e88faf0a7cef71ca2b3716fef2317",
-    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "9ba8292",
+      "headShort": "b7da1db",
       "appsWebIdentical": true
     },
-    "serverPid": "989426",
-    "daemonPid": "990109",
+    "serverPid": "1434135",
+    "daemonPid": "1434316",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,16 +33,16 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "15522308 kB",
-      "SwapFree": "41724360 kB"
+      "MemAvailable": "18818856 kB",
+      "SwapFree": "41109380 kB"
     },
-    "rootFreeKiB": 83806516,
-    "load1m": 12.25,
+    "rootFreeKiB": 83323572,
+    "load1m": 8.95,
     "credential": {
       "live": {
         "present": true,
         "path": "/home/mgw/.claude/.credentials.json",
-        "mtime": "2026-08-28T06:20:34.463Z",
+        "mtime": "2026-08-28T14:15:35.225Z",
         "size": 962
       },
       "isolated": {
@@ -62,17 +62,17 @@
   "control": {
     "fired": true,
     "what": "new session attach/output/bind evidence independent of the status value",
-    "detail": "created={\"sessionId\":\"d2fb300a-cf7a-451d-bc4a-e51aca139daa\",\"agentId\":\"d2fb300a-cf7a-451d-bc4a-e51aca139daa\",\"harness\":\"claude-code\",\"model\":null,\"effort\":null,\"machine\":\"flatblock\",\"machineId\":\"1ab8bf67-10a1-4021-9139-9628dd2fb31d\",\"accountId\":\"native:claude-code\"}; attached=1; driver=claude-sdk"
+    "detail": "created={\"sessionId\":\"2973e5e8-e1bd-42fd-bcb3-70fa42e6902e\",\"agentId\":\"2973e5e8-e1bd-42fd-bcb3-70fa42e6902e\",\"harness\":\"claude-code\",\"model\":null,\"effort\":null,\"machine\":\"flatblock\",\"machineId\":\"2effd927-941e-44aa-af9c-d326698461ea\",\"accountId\":\"native:claude-code\"}; attached=1; driver=claude-sdk"
   },
   "evidence": [
-    "STATUS            {\"sessionId\":\"d2fb300a-cf7a-451d-bc4a-e51aca139daa\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
-    "SESSION ROW       {\"sessionId\":\"d2fb300a-cf7a-451d-bc4a-e51aca139daa\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"claude-sdk-a2b\",\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a2b\",\"status\":\"live\",\"agentState\":{\"phase\":\"idle\",\"since\":\"2026-08-28T13:20:41.968Z\"",
-    "FRAME TYPES       sessionAgentStateChanged=3 hostMetricsChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+    "STATUS            {\"sessionId\":\"2973e5e8-e1bd-42fd-bcb3-70fa42e6902e\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
+    "SESSION ROW       {\"sessionId\":\"2973e5e8-e1bd-42fd-bcb3-70fa42e6902e\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"claude-sdk-a2b\",\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a2b\",\"status\":\"live\",\"agentState\":{\"phase\":\"idle\",\"since\":\"2026-08-28T14:28:44.341Z\"",
+    "FRAME TYPES       hostMetricsChanged=2 sessionAgentStateChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
   ],
   "data": {
-    "sid": "d2fb300a-cf7a-451d-bc4a-e51aca139daa",
+    "sid": "2973e5e8-e1bd-42fd-bcb3-70fa42e6902e",
     "status": {
-      "sessionId": "d2fb300a-cf7a-451d-bc4a-e51aca139daa",
+      "sessionId": "2973e5e8-e1bd-42fd-bcb3-70fa42e6902e",
       "agentKind": "claude-code",
       "harness": "claude-code",
       "driverId": "claude-sdk",
@@ -91,7 +91,7 @@
       "subagents": [],
       "issue": null,
       "commits": [
-        "b82e307 probe seed"
+        "90140d3 probe seed"
       ],
       "files": [
         "## main"

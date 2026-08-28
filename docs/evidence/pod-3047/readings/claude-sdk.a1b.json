@@ -2,15 +2,15 @@
   "cell": "A1B",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a1b",
-  "at": "2026-08-28T13:21:09.079Z",
+  "at": "2026-08-28T14:29:03.227Z",
   "pin": {
     "cell": "A1B",
-    "at": "2026-08-28T13:21:09.102Z",
+    "at": "2026-08-28T14:29:03.255Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "9ba8292cd86e88faf0a7cef71ca2b3716fef2317",
-    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "9ba8292",
+      "headShort": "b7da1db",
       "appsWebIdentical": true
     },
-    "serverPid": "989426",
-    "daemonPid": "990109",
+    "serverPid": "1434135",
+    "daemonPid": "1434316",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,16 +33,16 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "15460860 kB",
-      "SwapFree": "41724360 kB"
+      "MemAvailable": "18773616 kB",
+      "SwapFree": "41109380 kB"
     },
-    "rootFreeKiB": 83791380,
-    "load1m": 12.65,
+    "rootFreeKiB": 83311896,
+    "load1m": 9.01,
     "credential": {
       "live": {
         "present": true,
         "path": "/home/mgw/.claude/.credentials.json",
-        "mtime": "2026-08-28T06:20:34.463Z",
+        "mtime": "2026-08-28T14:15:35.225Z",
         "size": 962
       },
       "isolated": {
@@ -62,24 +62,24 @@
   "control": {
     "fired": true,
     "what": "the first busy-turn send delivering and the session producing an in-flight signal",
-    "detail": "first user turn=true; preview=true; working=true at 35ms"
+    "detail": "first user turn=true; preview=true; working=true at 53ms"
   },
   "evidence": [
     "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
     "SECOND SEND       {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}",
     "QUEUE POSITION    1",
     "POSITION FIELD    true",
-    "RELOADED USER     false in 5136ms",
-    "RELOADED REPLY    true in 30849ms"
+    "RELOADED USER     false in 5486ms",
+    "RELOADED REPLY    true in 11508ms"
   ],
   "data": {
-    "sid": "7a59c4fd-bd73-420d-9f59-65218e91775c",
-    "first": "P3047-A1B-FIRST-MTCZCPDA",
-    "queued": "P3047-A1B-QUEUED-MTCZCPDA",
+    "sid": "7aac89f6-fc1f-4478-80be-603bb7169384",
+    "first": "P3047-A1B-FIRST-MTD1S10O",
+    "queued": "P3047-A1B-QUEUED-MTD1S10O",
     "firstUser": true,
     "working": [
       {
-        "ms": 35,
+        "ms": 52,
         "phase": "working",
         "status": "live",
         "driverId": "claude-sdk"

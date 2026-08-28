@@ -2,15 +2,15 @@
   "cell": "A8",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a8",
-  "at": "2026-08-28T13:32:43.106Z",
+  "at": "2026-08-28T14:32:31.107Z",
   "pin": {
     "cell": "A8",
-    "at": "2026-08-28T13:32:43.200Z",
+    "at": "2026-08-28T14:32:31.185Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "f9910c99a34681feb78be8d54dece243727cf9f4",
-    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "f9910c9",
+      "headShort": "b7da1db",
       "appsWebIdentical": true
     },
-    "serverPid": "989426",
-    "daemonPid": "1096919",
+    "serverPid": "1434135",
+    "daemonPid": "1453628",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,16 +33,16 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "15478068 kB",
-      "SwapFree": "41724952 kB"
+      "MemAvailable": "18698204 kB",
+      "SwapFree": "41118756 kB"
     },
-    "rootFreeKiB": 83560144,
-    "load1m": 15.86,
+    "rootFreeKiB": 83265940,
+    "load1m": 9.67,
     "credential": {
       "live": {
         "present": true,
         "path": "/home/mgw/.claude/.credentials.json",
-        "mtime": "2026-08-28T06:20:34.463Z",
+        "mtime": "2026-08-28T14:15:35.225Z",
         "size": 962
       },
       "isolated": {
@@ -62,17 +62,17 @@
   "control": {
     "fired": true,
     "what": "the product itself reporting whether the session is logged out — a live reply means it is not",
-    "detail": "probe reply=true in 4844ms; isolatedCredential=absent; loginPathText=false"
+    "detail": "probe reply=true in 4079ms; isolatedCredential=absent; loginPathText=false"
   },
   "evidence": [
-    "AUTH PROBE        replied=true in 4844ms",
+    "AUTH PROBE        replied=true in 4079ms",
     "SCREEN            \"\"",
     "LOGIN PATH        false",
     "CLASS             {\"errorClass\":\"none\",\"retryable\":null}",
-    "STATUS            {\"sessionId\":\"c0f82bed-662b-4773-b8b7-460609d6a5c0\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a"
+    "STATUS            {\"sessionId\":\"18db2cff-39a6-4079-86cd-899ed4e245f6\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a"
   ],
   "data": {
-    "sid": "c0f82bed-662b-4773-b8b7-460609d6a5c0",
+    "sid": "18db2cff-39a6-4079-86cd-899ed4e245f6",
     "loginPath": false,
     "class": {
       "errorClass": "none",
@@ -80,6 +80,6 @@
     },
     "isolatedCredential": false,
     "authenticated": true,
-    "probeMs": 4844
+    "probeMs": 4079
   }
 }

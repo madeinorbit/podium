@@ -2,15 +2,15 @@
   "cell": "A10",
   "driver": "claude-pty",
   "cwd": "/tmp/pod-3047n/probes/claude-pty-a10",
-  "at": "2026-08-28T13:40:41.522Z",
+  "at": "2026-08-28T14:38:53.938Z",
   "pin": {
     "cell": "A10",
-    "at": "2026-08-28T13:40:41.564Z",
+    "at": "2026-08-28T14:38:53.967Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "c7ebf4bb3d91479311bad28c69f80f1e6083e498",
-    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "c7ebf4b",
+      "headShort": "b7da1db",
       "appsWebIdentical": true
     },
-    "serverPid": "989426",
-    "daemonPid": "1096919",
+    "serverPid": "1434135",
+    "daemonPid": "1453628",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,16 +33,16 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "14710204 kB",
-      "SwapFree": "41736836 kB"
+      "MemAvailable": "18845404 kB",
+      "SwapFree": "41118808 kB"
     },
-    "rootFreeKiB": 83351648,
-    "load1m": 24.64,
+    "rootFreeKiB": 83254728,
+    "load1m": 6.28,
     "credential": {
       "live": {
         "present": true,
         "path": "/home/mgw/.claude/.credentials.json",
-        "mtime": "2026-08-28T06:20:34.463Z",
+        "mtime": "2026-08-28T14:15:35.225Z",
         "size": 962
       },
       "isolated": {
@@ -65,14 +65,14 @@
     "detail": "driverId=claude-pty; family=(none)"
   },
   "evidence": [
-    "STATUS            {\"sessionId\":\"c8b4c7d8-de3d-4258-8b1f-9953d52e9a0b\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
-    "SESSION ROW       {\"sessionId\":\"c8b4c7d8-de3d-4258-8b1f-9953d52e9a0b\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"✳ Claude Code\",\"cwd\":\"/tmp/pod-3047n/probes/claude-pty-a10\",\"status\":\"live\",\"controllerId\":\"c42\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,",
-    "FRAME TYPES       outputFrame=10 hostMetricsChanged=6 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 sessionTitleChanged=1"
+    "STATUS            {\"sessionId\":\"bbe1e4fa-ee23-4468-a8d2-b57ec3f5907e\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
+    "SESSION ROW       {\"sessionId\":\"bbe1e4fa-ee23-4468-a8d2-b57ec3f5907e\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"✳ Claude Code\",\"cwd\":\"/tmp/pod-3047n/probes/claude-pty-a10\",\"status\":\"live\",\"controllerId\":\"c25\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,",
+    "FRAME TYPES       outputFrame=12 hostMetricsChanged=6 machinesChanged=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 sessionTitleChanged=1"
   ],
   "data": {
-    "sid": "c8b4c7d8-de3d-4258-8b1f-9953d52e9a0b",
+    "sid": "bbe1e4fa-ee23-4468-a8d2-b57ec3f5907e",
     "row": {
-      "sessionId": "c8b4c7d8-de3d-4258-8b1f-9953d52e9a0b",
+      "sessionId": "bbe1e4fa-ee23-4468-a8d2-b57ec3f5907e",
       "agentKind": "claude-code",
       "harness": "claude-code",
       "driverId": "claude-pty",
@@ -91,7 +91,7 @@
       "subagents": [],
       "issue": null,
       "commits": [
-        "19af194 probe seed"
+        "7cd2966 probe seed"
       ],
       "files": [
         "## main"

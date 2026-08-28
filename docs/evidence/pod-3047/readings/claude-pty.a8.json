@@ -2,15 +2,15 @@
   "cell": "A8",
   "driver": "claude-pty",
   "cwd": "/tmp/pod-3047n/probes/claude-pty-a8",
-  "at": "2026-08-28T13:42:13.079Z",
+  "at": "2026-08-28T14:40:18.868Z",
   "pin": {
     "cell": "A8",
-    "at": "2026-08-28T13:42:13.132Z",
+    "at": "2026-08-28T14:40:18.892Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "c7ebf4bb3d91479311bad28c69f80f1e6083e498",
-    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
-    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "c7ebf4b",
+      "headShort": "b7da1db",
       "appsWebIdentical": true
     },
-    "serverPid": "989426",
-    "daemonPid": "1096919",
+    "serverPid": "1434135",
+    "daemonPid": "1453628",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,16 +33,16 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "13766084 kB",
-      "SwapFree": "41688236 kB"
+      "MemAvailable": "18516464 kB",
+      "SwapFree": "41118812 kB"
     },
-    "rootFreeKiB": 83063800,
-    "load1m": 22.44,
+    "rootFreeKiB": 83022880,
+    "load1m": 7.06,
     "credential": {
       "live": {
         "present": true,
         "path": "/home/mgw/.claude/.credentials.json",
-        "mtime": "2026-08-28T06:20:34.463Z",
+        "mtime": "2026-08-28T14:15:35.225Z",
         "size": 962
       },
       "isolated": {
@@ -62,16 +62,16 @@
   "control": {
     "fired": true,
     "what": "logged-out Claude spawn producing a live surface",
-    "detail": "attached=1; screenBytes=4499; items=0"
+    "detail": "attached=1; screenBytes=4503; items=0"
   },
   "evidence": [
-    "SCREEN            \"78\\nAccessingworkspace:\\n/tmp/pod-3047n/probes/claude-pty-a8\\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyour\\nowncode,awell-knownopensourceproject,orworkfromyourteam).Ifnot,\\ntakeamomenttoreviewwhat'sinthisfolderfirst.\\nClaudeCode'llbeabletoread,edit,andexecutefileshere.\\nSecurityguide\\n1.Yes,Itrustthisfolder\\n2.No,exit\\nEntertoconfirmEsctocancel\\n]11;?[>0q(BYes, I trust this folder\\n]0; Claude CodeClaude Codev2.1.236                                              Tips for getting started                       Welcome back!AskClaudetocreateanewap                            What's newBugfixesandreliabilityimp                                    Aded`--restricted`or `CLA                                       Added `experimentl.cacheTtl`   Opus 5 (1M context)  API Usage Billing    /release-notes for more/tmp/pod-3047n/probes/claude-pty-a8  manual mode on  ? for shortcuts   for agentsNot logged in  Run /login                                 high  /effort\\nNot logged in  Run /login\\nUpdateinstalledRestarttoupdate\\nhigh/effort\\n(B\"",
+    "SCREEN            \"78\\nAccessingworkspace:\\n/tmp/pod-3047n/probes/claude-pty-a8\\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyour\\nowncode,awell-knownopensourceproject,orworkfromyourteam).Ifnot,\\ntakeamomenttoreviewwhat'sinthisfolderfirst.\\nClaudeCode'llbeabletoread,edit,andexecutefileshere.\\nSecurityguide\\n1.Yes,Itrustthisfolder\\n2.No,exit\\nEntertoconfirmEsctocancel\\n]11;?[>0q(BYes, I trust this folder\\n]0; Claude CodeClaude Codev2.1.236                                              Tips for getting started                       Welcome back!AskClaudetocreateanewap                            What's newBugfixesandreliabilityimp                                    Aded`--restricted`or `CLA                                       Added `experimentl.cacheTtl`   Opus 5 (1M context)  API Usage Billing    /release-notes for more/tmp/pod-3047n/probes/claude-pty-a8  manual mode on  ? for shortcuts   for agentsNot logged in  Run /login                                 high  /effort\\nNot logged in  Run /login\\nUpdateinstalledRestarttoupdate\\nhigh/effort\\n(B(B\"",
     "LOGIN PATH        true",
     "CLASS             {\"errorClass\":\"authentication\",\"retryable\":false}",
-    "STATUS            {\"sessionId\":\"593cd35d-0da7-4132-976d-1062949598fc\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
+    "STATUS            {\"sessionId\":\"6d713b57-8169-4e84-931d-d02f74fcb53e\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
   ],
   "data": {
-    "sid": "593cd35d-0da7-4132-976d-1062949598fc",
+    "sid": "6d713b57-8169-4e84-931d-d02f74fcb53e",
     "loginPath": true,
     "class": {
       "errorClass": "authentication",
