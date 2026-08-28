@@ -17,6 +17,13 @@ Your worktree is `/home/mgw/src/podium/.worktrees/issue-1761-agent-runtime` on b
 This section supersedes the older live-state and priority sections below; keep those sections as
 the historical handover that explains how the present state was reached.
 
+**Policy overlay, 2026-08-28 11:44 CEST:** Claude subscription OAuth on the persistent Agent SDK
+path is operator-authorized under an explicit acknowledgement. Claude headless is first-class /
+high-priority; PTY is the fallback. Credential-safety (no mint/rotate/stale refresh) is unchanged.
+Do not skip Claude SDK cells as terminal-only. Canonical:
+`docs/architecture/claude-subscription-oauth-policy.md`. Decision 26 in
+`docs/plans/pod-1761-decisions.md`.
+
 - **56 of 69 cells have current readings.** Claude, OpenCode, Shell, and Codex now have current
   complete columns; Grok remains 2/16 until quota returns at 11:03 CEST.
 - **There is no current confirmed release regression.** POD-2924 re-drove Claude A3 on exact

@@ -1157,7 +1157,7 @@ permitted failures — is implemented as the conformance corpus and is
 | IS12 | generic procedures (oneShot / askAndAwait / interruptAndSend) | M4 |
 | LD1 | one concrete per-machine AgentRuntime | M4 (POD-2410) |
 | LD2 | import + process-table list | M4 (POD-2415, POD-2432; the restart-survival *behaviour* is M1 via matrix row A7a) |
-| LD8 | Claude SDK embedded driver in a worker child | M4 (POD-2753, in review rounds) |
+| LD8 | Claude SDK embedded driver in a worker child | M4 (POD-2753, in review rounds). **Policy 2026-08-28:** subscription OAuth on this path is allowed; Claude headless is first-class — see `docs/architecture/claude-subscription-oauth-policy.md`. Implementation lag is not a ToS bar. |
 | LD11 | macOS/Windows degradation declared | M4 |
 | CLI2 / CLI3 | `podium attach`, `podium runtime ps` | M4 |
 | XT1 | every primitive on the daemon wire | M4 (POD-2412) |

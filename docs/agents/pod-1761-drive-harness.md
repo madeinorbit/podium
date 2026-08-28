@@ -4,6 +4,12 @@ A UX claim on this epic is proven by driving the product, not by a green suite. 
 harness the coordinator used to reproduce POD-2600 (codex dead on its first turn) in about
 ninety seconds, after a whole night of green reviews had missed it.
 
+**Policy, 2026-08-28:** Claude headless / Agent SDK is first-class. A drive that uses the
+managed subscription credential on that path needs an explicit acknowledgement; PTY remains
+the fallback. Do not skip Claude because an older matrix said terminal-only. Credential-safety
+(no mint, no rotate, no stale refresh token) is unchanged. See
+`docs/architecture/claude-subscription-oauth-policy.md`.
+
 It logs into the running operator instance, starts a real session of a chosen agent family,
 sends `hello`, and screenshots the result.
 

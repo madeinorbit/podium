@@ -15,8 +15,11 @@ the release route through it. Plain language throughout, on purpose.
 
 1. **All three new drivers ship in v1** (codex, grok, opencode). They are already
    the default on this branch; un-flipping them would create work, not save it.
-   Claude is untouched — it stays on its terminal path permanently (that is the
-   only way to use a Claude subscription), so it adds no new testing burden.
+   **Claude headless is first-class / high-priority** (operator ruling 2026-08-28):
+   the persistent Agent SDK path may use the managed subscription credential under
+   an explicit rollout acknowledgement, and PTY is the fallback, not the exclusive
+   path. Do not skip Claude SDK cells as "terminal-only" or "no new testing
+   burden." Canonical text: `docs/architecture/claude-subscription-oauth-policy.md`.
 2. **The bar is set per capability, relative to today.**
    - *Tier A (non-negotiable):* works today, used every hour. Any regression
      blocks release.
@@ -122,7 +125,9 @@ answered on each of claude, codex, grok, opencode, and a shell session.
 Work through the Tier-A blocker list above. Then the release test is the tier
 table itself: **every A-row driven live on every shipped driver** (a written
 drive script per row, so re-verification is cheap next time), and spot-checks
-that Tier B is not worse than today. Claude and shell sessions driven unchanged.
+that Tier B is not worse than today. Claude headless (`claude-sdk`) is a shipped
+driver for that table, first-class with the others; `claude-pty` remains the
+fallback. Shell sessions driven unchanged.
 
 User benefit: codex, grok and opencode sessions on plumbing that tells the
 truth — receipts instead of hope, real status, survivable restarts — with

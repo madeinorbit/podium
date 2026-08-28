@@ -6,8 +6,16 @@ Audit-time normative specification: `docs/2026-08-07-agent-runtime-architecture.
 Implementation-plan scope: `docs/plans/pod-1761-agent-runtime-plan.md`
 
 The classifications below preserve the audit-time comparison. The four specification corrections
-identified by the audit were resolved in the normative document on 2026-08-19; the rulings are
+identified by the audit were resolved in the normative document on 2026-08-19; a fifth policy
+amendment (Claude subscription OAuth on the Agent SDK) was added on 2026-08-28. The rulings are
 recorded in “Specification amendments and rulings” below.
+
+**Current policy overlay, 2026-08-28 11:44 CEST (does not rewrite the rows):** operator ruling
+authorizes the persistent Claude Agent SDK path to use the managed subscription credential under
+an explicit rollout acknowledgement, and treats Claude headless as first-class / high-priority.
+PTY remains the fallback. Audit-time SA4/LD8 policy language (“subscription → terminal only”,
+“embedded rework is a plan non-goal”) is historical. Canonical current text:
+[claude-subscription-oauth-policy.md](claude-subscription-oauth-policy.md).
 
 ## Method and status counts
 
@@ -95,7 +103,7 @@ settled: **S** (localized), **M** (multi-module), **L** (cross-cutting/product v
 | LD5 | **LANDED** (POD-2413) | P0 | §6 requires real memory/RSS/OOM observation and first-class `oomKilled` events (`spec:503-533`). | One cgroup observer per machine (`apps/daemon/src/runtime/scope-monitor.ts`) feeds every driver host, so `health()` reports the cgroup's own memory, peak, tasks, budget and `oom_kill` counter instead of `oomEvents: 0`; a new kill is stated by the owning driver as `process.oomKilled` and the server correlates it into `stopReason: 'oom'` on the row. Baselining is decided by the cgroup's creation time, so adopted history is not re-announced and a kill seconds after spawn is not swallowed. | Done. |
 | LD6 | **PARTIAL** | P1 | §6 requires daemon/server restart survival, exact-identity adoption, and later reconciliation from process/native state (`spec:503-533`). | Opencode uses 0600 journals and exact secret-backed health (`apps/daemon/src/runtime/opencode-server.ts:122-175,553-595`); reaping/adoption corroborates process identity (`apps/daemon/src/runtime/server-reap.ts:166-255,336-437`). Codex's protocol rides Unix but its child remains daemon-lifetime-tethered through stdin; Codex/Grok therefore resume into fresh children, and there is no unified process-table scan/list. | **M**; depends on LD1/LD2. |
 | LD7 | **PARTIAL** | P1 | §6 requires one supervisor and a dedicated process tree per session, with transient scopes surviving daemon restarts (`spec:503-533`). | The daemon is the supervisor and terminal/server drivers launch dedicated processes/scopes; the hierarchy, budgets, and full adoption scan are incomplete. | **M**; depends on LD4. |
-| LD8 | **MISSING** | P1 | §§2/6/8 require the Claude SDK embedded family in a worker child, selected for API-key/Bedrock/Vertex auth (`spec:170-184,503-533,551`). | The manifest declares `claude-sdk` but always selects `claude-pty` (`packages/harness/src/manifests/claude-code.ts:167-195`); no embedded runtime driver or isolated worker host exists. **Known/decided:** embedded/Claude-SDK rework is a plan non-goal; do not re-file. | **L**. |
+| LD8 | **MISSING** | P1 | §§2/6/8 require the Claude SDK embedded family in a worker child, selected for API-key/Bedrock/Vertex auth (`spec:170-184,503-533,551`). | The manifest declares `claude-sdk` but always selects `claude-pty` (`packages/harness/src/manifests/claude-code.ts:167-195`); no embedded runtime driver or isolated worker host exists. **Audit-time known/decided:** embedded/Claude-SDK rework is a plan non-goal; do not re-file. **Current policy, 2026-08-28:** that non-goal is superseded — Claude headless is first-class and subscription OAuth on the SDK is allowed; do not treat the old non-goal as a bar. Implementation remains a code lane. | **L**. |
 | LD9 | **PARTIAL** | P1 | §3 requires create/resume/adopt/stop/hibernate/kill with early, declared resume-ref timing (`spec:239-249`). | Production drivers implement lifecycle and timing declarations, but they are reached through separate composition and cannot honor unified import/list. | **M** to unify; depends on LD1. |
 | LD10 | **PARTIAL** | P1 | §6 requires hibernation based on settled turns/open interactions and more aggressive server-family policy (`spec:503-533`). | Lifecycle calls work and state evidence exists, but the broad policy and memory-pressure path are absent. | **M**; depends on AS4, IS6, LD4/LD5. |
 | LD11 | **MISSING** | P2 | §6 requires capability-declared macOS soft watermarks and Windows durability degradation (`spec:532`). | No corresponding runtime capability axes or supervisor policies exist. | **M** per platform; after Linux contract is settled. |
@@ -111,7 +119,7 @@ settled: **S** (localized), **M** (multi-module), **L** (cross-cutting/product v
 | SA1 | **PARTIAL** | P0 | §§2/3 require one feature-consumed contract in which every family implements or honestly declines every core primitive (`spec:153-177,192-206`). | The interface/capabilities are strong, but there is no concrete runtime, embedded driver, product-wide consumption, or typed attachment-staging refusal. | **L**; umbrella outcome of LD1, IS2, IS3, AS4. |
 | SA2 | **PARTIAL** | P0 | §3 requires a shared conformance corpus to pin every core primitive and permitted failure (`spec:206,382-391`). | The corpus covers send, interactions, interrupt, snapshots/adoption, causality, secrets, and leases, but omits `stageAttachment`, runtime `import/list`, production reachability, and the production Codex attach-host mismatch. | **M**; add cases alongside each P0 fix. |
 | SA3 | **PARTIAL** | P1 | §3 runtime primitives include discover, inventory, capabilities, quota/usage, accounts/login/logout, and credential export/seed (`spec:208-237`). | `AgentRuntime` includes capabilities/quota/usage/accounts/login but omits discover, inventory, logout, exportCredential, and seedCredential (`packages/agent-runtime/src/runtime.ts:44-98`); none has a unified production implementation. Existing separate services are migration inputs, not completion. | **L**; after LD1. |
-| SA4 | **PARTIAL** | P1 | §2 selects Claude terminal for subscription and embedded for API-key/Bedrock/Vertex (`spec:179-190`). | Claude always selects terminal (`packages/harness/src/manifests/claude-code.ts:167-195`). The subscription half is correct; the embedded half is absent. **Known/decided:** embedded rework is excluded. | **L**; LD8. |
+| SA4 | **PARTIAL** | P1 | §2 selects Claude terminal for subscription and embedded for API-key/Bedrock/Vertex (`spec:179-190`). | Claude always selects terminal (`packages/harness/src/manifests/claude-code.ts:167-195`). Audit-time: the subscription half is “correct” only under the old terminal-only policy; the embedded half is absent. **Current policy, 2026-08-28:** subscription may also select embedded; PTY is the fallback. The selection/auth gap is now a product defect relative to current spec, not a decided exclusion. | **L**; LD8. |
 | SA5 | **DIVERGED** | P2 | §2 initial matrix leaves Grok terminal pending feasibility (`spec:179-190`). | Grok ACP is implemented and default-selected when admitted (`packages/harness/src/manifests/grok.ts:202-223`). Implementation is the better current state. **Corrected post-audit in the normative matrix.** | **S** docs. |
 | SA6 | **IMPLEMENTED** | — | §2 defines permanent terminal, harness-server, and embedded families with runtime selection context (`spec:153-190`). | The runtime axis, family/id schemas, and pure selection context exist (`packages/harness/src/manifest.ts:506-600,710-731`). Embedded is separately classified missing under LD8. | — |
 | SA7 | **IMPLEMENTED** | — | §2 requires Codex app-server by default when admitted/authenticated (`spec:179-190`). | Codex manifest selects app-server by default and records its protocol gate (`packages/harness/src/manifests/codex.ts:319-363`). | — |
@@ -171,10 +179,12 @@ These are corroborating issues, not substitutes for the broader commitments abov
 - **POD-2108** already records the opencode attach stream/input/geometry failure. It is proposed and
   should not be duplicated; AS1 remains broader and is under operator decision.
 
-The plan's other explicit non-goals are also known/decided: telemetry, attach-v2 client-terminal
-surface, embedded/Claude-SDK rework, cloud, embedded TUI handover, interaction-suppression policy,
-and UI redesign. Their spec commitments remain classified above so the audit is complete, but this
-report does not propose duplicate work for them.
+The plan's other explicit non-goals are also known/decided at audit time: telemetry, attach-v2
+client-terminal surface, embedded/Claude-SDK rework, cloud, embedded TUI handover,
+interaction-suppression policy, and UI redesign. Their spec commitments remain classified above so
+the audit is complete. **Current policy, 2026-08-28:** the embedded/Claude-SDK *policy* non-goal is
+superseded (Claude headless is first-class; subscription OAuth on the SDK is allowed). This audit
+still does not rewrite its 2026-08-19 counts or invent an implementation that was not there.
 
 ## Proposed build order and dependency graph
 
@@ -234,7 +244,9 @@ harness runtime surface.
 
 ## Specification amendments and rulings
 
-Resolved in the normative architecture document on 2026-08-19:
+Items 1–4 were resolved in the normative architecture document on 2026-08-19. Item 5 is the
+2026-08-28 operator policy amendment (normative spec + this overlay); it does not re-audit the
+2026-08-19 tree:
 
 1. Grok ACP is an implemented, preferred server-family driver when the harness is logged in and its
    version is admitted; the terminal driver remains the explicit fallback (SA5). Evidence:
@@ -255,6 +267,13 @@ Resolved in the normative architecture document on 2026-08-19:
    require it. `opencode`'s per-session message/part archive is valid without copying its shared
    machine-wide SQLite database (LD3). Evidence:
    `packages/agent-runtime/src/drivers/opencode/capabilities.ts:100-117`, `runtime.ts:1006-1034`.
+
+5. Claude subscription OAuth on the persistent Agent SDK path is allowed under an explicit
+   rollout acknowledgement; Claude headless is first-class / high-priority; PTY is the
+   fallback (SA4, LD8 policy language). Canonical current text:
+   [claude-subscription-oauth-policy.md](claude-subscription-oauth-policy.md). The 2026-08-19
+   implementation classifications are unchanged: this amendment updates the *policy* those rows
+   compared against, not the code that was audited.
 
 The remaining independent recommendation is unchanged: after the native-TUI decision, either
 approve the AS1 build chain or remove the false/reachable attach commitments and capability claims

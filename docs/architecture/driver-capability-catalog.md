@@ -6,6 +6,15 @@ Started 2026-08-25 for POD-1761 at the operator's request, from their list plus 
 contract's own vocabulary. **This is meant to be extended.** Add a row when you find
 a behaviour a driver has to get right; do not delete one because it is inconvenient.
 
+**Policy, 2026-08-28 11:44 CEST:** Claude headless (`claude-sdk`) is a first-class,
+high-priority driver. The persistent Agent SDK path may use the managed subscription
+credential under an explicit acknowledgement; `claude-pty` is the fallback, not the
+exclusive Claude column. This catalogue currently folds Claude into **terminal**
+because that is what has been driven. Do not read the missing SDK column as
+"out of scope" or "ToS-barred" — add `claude-sdk` cells when they are first
+driven, with measured status, rather than inventing unmeasured marks. Canonical
+text: [claude-subscription-oauth-policy.md](claude-subscription-oauth-policy.md).
+
 ## How to read the status column
 
 | mark | means |

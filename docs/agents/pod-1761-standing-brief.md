@@ -467,6 +467,11 @@ having none available.**
 **And after copying, confirm the PRODUCT sees it** — the harness's own logged-in readout, not
 the file's presence on disk. A setup step is not a condition until the product says so.
 
+**Policy overlay, 2026-08-28 11:44 CEST:** using the managed Claude *subscription* credential
+on the persistent Agent SDK path is now allowed under an explicit acknowledgement. That does
+not lift any rule in this section. Full current stance:
+`docs/architecture/claude-subscription-oauth-policy.md`.
+
 ## Re-check a BLOCKED cell whose blocker has expired (2026-08-26 17:19 CEST)
 
 A PASS is the reading nobody revisits — and **a BLOCKED is the reading nobody revisits for the
@@ -1591,3 +1596,45 @@ the blocker decision, and stop without inventing a fix arm.
 product tip under the original admission controls. If it does not reproduce, record the complete
 current reading, preserve the older row, and do not make a speculative repair. A confirmed defect is
 not timeless; its source pin is part of the claim.
+
+## Claude subscription OAuth on the Agent SDK is allowed (2026-08-28 11:44 CEST)
+
+**Operator ruling.** Canonical current text:
+`docs/architecture/claude-subscription-oauth-policy.md`. Spec pointer:
+`docs/2026-08-07-agent-runtime-architecture.html` §2 (amended the same day).
+
+Older docs, audits, and source comments that say Claude subscription OAuth is ToS-prohibited
+on the Agent SDK, or that Claude is terminal-only, are **historical**. Do not relitigate them
+and do not rewrite `results.tsv` or evidence reports to match.
+
+**Current stance, in the words later agents must not drift from:**
+
+- The persistent Claude Agent SDK path **may use the managed subscription credential**
+  (`claudeAiOauth`, `claude setup-token` / `CLAUDE_CODE_OAUTH_TOKEN`, `managed:claude-oauth`)
+  under an **explicit acknowledgement** during rollout. Do not silently flip every Claude
+  session, and do not silently spend the operator's live login.
+- **Claude headless is first-class / high-priority.** Schedule `claude-sdk` acceptance as a
+  column, not as leftover terminal work.
+- **PTY (`claude-pty`) is the permanent fallback** — SDK unavailable, declined, logged out,
+  or a human who wants the wheel. Do not delete it.
+- **Third-party reuse stays barred.** Anthropic subscription tokens in opencode or any other
+  third-party tool remain ToS-prohibited.
+- **Credential-safety is unchanged** (see the 17:09 / 17:53 entries): no mint, no rotate, no
+  superseded refresh token in a rig home, no `PODIUM_RUNTIME_DRIVER` to fake a binding.
+  Copy existing unexpired; confirm the product sees it.
+
+**Acceptance and testing expectations for the coordinator and future agents:**
+
+- Do not skip Claude SDK cells because an older spec row said "terminal only" or because
+  the 2026-08-19 gap audit marked embedded rework a plan non-goal. That non-goal is
+  superseded as policy.
+- If a drive or implementation is blocked, the blocker is a product defect, a missing
+  acknowledgement, or the credential-safety boundary — not "subscription OAuth is
+  prohibited."
+- Leave historical readings historical. Append; do not edit old rows.
+- Source comments in `packages/harness/src/manifests/claude-code.ts` that still omit
+  subscription from the embedded auth list are implementation lag, not a rule. Changing
+  them is a code lane.
+- This documentation change does not run provider or heavy tests. Future SDK drives still
+  follow every other rule in this brief (three-part pin, `test:heavy` for RAM, never merge
+  main into the epic branch).

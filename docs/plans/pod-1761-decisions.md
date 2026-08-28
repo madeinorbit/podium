@@ -851,3 +851,24 @@ fix and no artificial second arm were made.
 56/69 because this replaces an older A3 reading rather than adding a cell. Decision 22 still limits
 the supported claim to the clauses actually scored, and the queue-position, A1c/A9 scorer, and Grok
 work still must finish before the final release decision.
+
+## Decision 26 — Claude subscription OAuth on the Agent SDK is allowed (2026-08-28 11:44 CEST)
+
+**Status: AUTHORIZED.** Operator ruling, recorded for the coordinator and future agents.
+Canonical text: `docs/architecture/claude-subscription-oauth-policy.md`.
+
+The persistent Claude Agent SDK path may use the managed subscription credential under an
+explicit acknowledgement during rollout. Claude headless is first-class / high-priority.
+PTY (`claude-pty`) is the permanent fallback. Anthropic subscription tokens in *third-party*
+tools (opencode, etc.) remain ToS-prohibited.
+
+This does **not** lift Decision 14's credential-safety boundary: do not mint, rotate, or
+present a superseded refresh token from a rig home. Copying an existing unexpired credential
+and confirming the product sees it is still the allowed setup.
+
+**What happens either way is now settled:**
+- Coordinator and later agents treat Claude SDK cells as in-scope high-priority work, not
+  "terminal-only / no testing burden."
+- Historical evidence, `results.tsv`, and audit-time SA4/LD8 classifications stay historical.
+- Source comments that still omit subscription from the embedded auth list are implementation
+  lag, not a policy veto.

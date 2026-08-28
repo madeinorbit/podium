@@ -1,7 +1,16 @@
 # Agent Runtime implementation plan (POD-1761 epic)
 
-Spec: `docs/2026-08-07-agent-runtime-architecture.html` (rev 9, review-hardened — in this branch).
+Spec: `docs/2026-08-07-agent-runtime-architecture.html` (rev 9, review-hardened — in this branch;
+Claude subscription-OAuth row amended 2026-08-28).
 Read the spec **before** starting any work item; each item below names the spec sections it implements.
+
+**Policy amendment, 2026-08-28 11:44 CEST:** the explicit non-goal "No embedded (Claude SDK)
+driver rework" is superseded as *policy*. Claude headless is first-class / high-priority, and
+the persistent Agent SDK path may use the managed subscription credential under an explicit
+acknowledgement. PTY remains the fallback. This file's original non-goals list is left as
+the historical plan text; current rule is
+`docs/architecture/claude-subscription-oauth-policy.md`. Implementation of the SDK driver
+is a code lane, not this documentation change.
 
 ## Goal and non-goals
 
