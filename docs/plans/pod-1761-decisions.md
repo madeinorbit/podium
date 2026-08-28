@@ -1245,7 +1245,12 @@ new subscriber**, not that the workdir-keyed JSONL resolver found it.
 | `sessions.read` items at that same moment | **0** |
 | durable clause | true |
 
-**One record on the stream and zero on the read, in a single measurement.** The
+**One record on the stream and zero on the read, within one function call,
+milliseconds apart.** (POD-3047's own correction to my first wording: `interruptRecords`
+reads `chat.items` synchronously from memory and then *awaits* `transcript(sid)` over the
+network, so the two numbers are adjacent, not simultaneous. Nothing writes a record in that
+gap and the stream count was already 1 before the read returned 0 — but "same instant" is a
+stronger word than the instrument earns.) The
 SDK path *was* affected — the bug is visible **inside a passing cell**, on the
 plane I predicted, at the same instant.
 
