@@ -514,6 +514,8 @@ export class SessionInbox {
   private readonly activeDrains = new Set<SessionId>()
   /** Generation fence for timers and contract receipts that outlive a bind. */
   private readonly drainGenerations = new Map<SessionId, number>()
+  /** A fresh server bind must not trust the previous process state projection. */
+  private readonly unobservedServerBinds = new Set<SessionId>()
   /** Recovery answers may queue while a failed session is being woken. */
   private readonly recoveryDrains = new Set<SessionId>()
   /**
@@ -571,6 +573,7 @@ export class SessionInbox {
   dispose(): void {
     this.disposed = true
     this.activeDrains.clear()
+    this.unobservedServerBinds.clear()
   }
 
   isDraining(sessionId: SessionId): boolean {
@@ -624,6 +627,7 @@ export class SessionInbox {
     this.invalidateDrain(sessionId)
     const session = this.deps.getSession(sessionId)
     if (!session) return
+    this.unobservedServerBinds.add(sessionId)
     this.inputReadySessions.delete(session)
     this.boundAtMs.set(session, this.deps.now())
   }
@@ -1456,6 +1460,7 @@ export class SessionInbox {
           stop()
           return
         }
+        this.unobservedServerBinds.delete(sessionId)
         void contractDeliver({
           sessionId,
           turnId: head.sourceMessageId ?? head.id,
@@ -1618,7 +1623,9 @@ export class SessionInbox {
            * to abandon typing into a PTY that never became ready, and applying
            * it here stranded rows behind any turn longer than 25 seconds.
            */
-          const phase = current.agentState?.phase
+          const phase = this.unobservedServerBinds.has(sessionId)
+            ? undefined
+            : current.agentState?.phase
           if (phase === undefined || phase === 'idle') {
             deliverNext()
             return

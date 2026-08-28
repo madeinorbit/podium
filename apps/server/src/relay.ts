@@ -1405,6 +1405,7 @@ export class SessionRegistry {
       events: this.store.events,
       issues,
       sessions: sessionsSvc,
+      runtimeContractActive: (sessionId) => sessionsSvc.receiptSender.onContract(sessionId),
       mirrorIssueMail: (row) => funnel.run({ write: () => this.store.issues.addIssueMessage(row) }),
       mirrorMarkIssueMailRead: (issueId, ids) =>
         funnel.run({
@@ -1437,6 +1438,9 @@ export class SessionRegistry {
       messagesSvc.onQueuedInputInjected(messageId, sessionId)
     queuedApplyHooks.abandoned = ({ sessionId, turnIds, reason }) =>
       messagesSvc.onQueueDrainAbandoned(sessionId, turnIds, reason)
+    // A live busy send can be in the message ledger without a SessionInbox row.
+    // The exit event is the real boundary that hands that row to the durable FIFO.
+    this.bus.on('session.exited', ({ sessionId }) => messagesSvc.onSessionExited(sessionId))
     this.bus.on('message.deadLettered', ({ messageId, reason }) =>
       messagesSvc.notifyQueuedInputRejected(messageId, reason),
     )

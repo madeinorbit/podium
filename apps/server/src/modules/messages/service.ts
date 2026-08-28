@@ -248,6 +248,8 @@ export interface MessageDeliveryDeps {
       onReceipt?: (receipt: TurnReceipt) => void,
     ): { ok: boolean; queued?: boolean; reason?: string; position?: number }
   }
+  /** Server-only fact for the live runtime contract. It is not part of the client session projection. */
+  runtimeContractActive?(sessionId: SessionId): boolean
   /** Legacy mailbox mirror (store.issues.addIssueMessage) — issue-addressed
    *  sends dual-write so inbox/claim/pending keep working (drop with the table). */
   mirrorIssueMail?(row: IssueMessageRow): void
@@ -480,6 +482,8 @@ export class MessageDeliveryService {
   /** needs-attention already emitted per `${messageId}|${reason}` — the sweep
    *  re-attempts every 60s and must not spam the event log / notify path. */
   private readonly attentionEmitted = new Set<string>()
+  /** Direct live sends that were held outside SessionInbox until an exit. */
+  private readonly liveQueuedForExit = new Map<SessionId, Set<string>>()
 
   private readonly notificationArbiter: NotificationArbiter
   /** Envelope/pointer rendering and the confirmation mode that follows from it
@@ -597,6 +601,48 @@ export class MessageDeliveryService {
         { kind: 'issue', id: nextIssueId },
         this.mayDrainIssueMail(asIssueId(nextIssueId), preferred),
       )
+    }
+  }
+
+  /**
+   * A direct send can be accepted while a live Grok ACP session is busy. Such a
+   * row lives in the message ledger, not in SessionInbox, so ordinary exit
+   * recovery cannot see it. Move only those rows into the same durable FIFO after
+   * the real exit event; parked wait sends never enter this set.
+   */
+  onSessionExited(sessionId: SessionId): void {
+    const messageIds = this.liveQueuedForExit.get(sessionId)
+    if (!messageIds) return
+    this.liveQueuedForExit.delete(sessionId)
+
+    const session = this.targetOf(sessionId)
+    if (
+      !session ||
+      session.status !== 'exited' ||
+      session.archived ||
+      session.resume === undefined ||
+      !this.canTrackGrokExit(sessionId, session)
+    )
+      return
+
+    for (const messageId of messageIds) {
+      const message = this.deps.messages.getMessage(messageId)
+      if (
+        !message ||
+        message.status !== 'queued' ||
+        message.injectedAt != null ||
+        message.deliveredTo != null
+      )
+        continue
+
+      // Re-authorize at the new apply boundary. The send was accepted before the
+      // child exit, but its delegated rights may have changed since then.
+      const auth = this.applyAuth(message)
+      if (!auth.ok) {
+        this.deadLetter(message, auth.reason, { notifySender: true })
+        continue
+      }
+      this.injectAndMark('queue', message, sessionId, 'queued')
     }
   }
 
@@ -764,6 +810,7 @@ export class MessageDeliveryService {
     this.scheduler.dispose()
     this.brakes.dispose()
     this.sessionIssueTargets.clear()
+    this.liveQueuedForExit.clear()
   }
 
   private queueDeliveryTarget(
@@ -782,6 +829,52 @@ export class MessageDeliveryService {
       this.scheduler.recordTriggerFailure(`prepare message ${message.id}`, error)
       return false
     }
+  }
+
+  private canTrackGrokExit(sessionId: SessionId, session: SessionMeta): boolean {
+    return (
+      session.agentKind === 'grok' &&
+      session.driverId === 'grok-acp' &&
+      this.deps.runtimeContractActive?.(sessionId) === true
+    )
+  }
+
+  private rememberLiveQueuedForExit(
+    message: MessageRow,
+    target: SessionMeta | undefined,
+    outcome: DeliveryOutcome,
+  ): void {
+    if (
+      message.toKind !== 'session' ||
+      !target ||
+      target.status !== 'live' ||
+      !outcome.queued ||
+      !this.canTrackGrokExit(target.sessionId, target)
+    )
+      return
+
+    const current = this.deps.messages.getMessage(message.id)
+    if (
+      !current ||
+      current.status !== 'queued' ||
+      current.injectedAt != null ||
+      current.deliveredTo != null
+    )
+      return
+
+    let messageIds = this.liveQueuedForExit.get(target.sessionId)
+    if (!messageIds) {
+      messageIds = new Set<string>()
+      this.liveQueuedForExit.set(target.sessionId, messageIds)
+    }
+    messageIds.add(message.id)
+  }
+
+  private forgetLiveQueuedForExit(sessionId: SessionId, messageId: string): void {
+    const messageIds = this.liveQueuedForExit.get(sessionId)
+    if (!messageIds) return
+    messageIds.delete(messageId)
+    if (messageIds.size === 0) this.liveQueuedForExit.delete(sessionId)
   }
 
   private deliveryTargetOf(message: MessageRow): DeliveryTarget | null {
@@ -1002,6 +1095,7 @@ export class MessageDeliveryService {
     }
 
     const outcome = this.attemptDelivery(message)
+    this.rememberLiveQueuedForExit(message, targetSession, outcome)
     // A busy-turn row can remain in the message ledger without entering the
     // SessionInbox FIFO. Conversely, a wake/boot push may already be in that
     // FIFO and have an exact driver-facing position. Fill the common result
@@ -2051,6 +2145,7 @@ export class MessageDeliveryService {
   private markInjected(message: MessageRow, sessionId: SessionId): void {
     const at = this.deps.now()
     if (this.deps.messages.markInjected(message.id, sessionId, at)) {
+      this.forgetLiveQueuedForExit(sessionId, message.id)
       // The injected message triggers the receiver's next turn — anything it
       // sends within that turn chains at hop + 1 (cleared when it goes idle).
       this.turnHop.set(sessionId, message.hop)
@@ -2242,6 +2337,7 @@ export class MessageDeliveryService {
     const at = this.deps.now()
     this.requeueCounts.delete(message.id)
     if (this.deps.messages.markDelivered(message.id, sessionId, at)) {
+      this.forgetLiveQueuedForExit(sessionId, message.id)
       // Delivery consumes the legacy issue_messages mirror row too, or
       // mailPending's legacy fallback keeps the stop-hook nagging ("You have
       // mail") until the agent runs `podium issue mail inbox`.

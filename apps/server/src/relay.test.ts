@@ -28,6 +28,8 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
+import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
@@ -3947,6 +3949,153 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
     expect(daemon.some((message) => message.type === 'spawn')).toBe(false)
     reg.dispose()
+  })
+
+  it('hands a live busy Grok ledger send to exit recovery and the next bind', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'grok',
+        cwd: '/w',
+      })
+      const initialSpawn = daemon.find(
+        (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+          message.type === 'spawn' && message.sessionId === sessionId,
+      )
+      const initialGeneration = initialSpawn?.observationGeneration
+      expect(initialGeneration).toEqual(expect.any(Number))
+      if (initialGeneration === undefined) throw new Error('initial spawn was not fenced')
+
+      const grokBind = {
+        ...bind(sessionId),
+        cmd: 'grok agent stdio (grok-acp)',
+        agentKind: 'grok',
+        runtimeContract: true,
+        driverId: 'grok-acp',
+      } as const
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: 'grok-session', value: 'grok-ledger-exit-resume' },
+      })
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'grok-ledger-bootstrap',
+        sessionId,
+        event: {
+          t: 'state',
+          change: { kind: 'prompt_submitted' },
+          at: '2026-08-23T00:00:00.000Z',
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 1 } },
+          observerGeneration: initialGeneration,
+          turnEpoch: 0,
+        },
+      })
+      daemon.length = 0
+
+      const result = await dispatchSessionCommand(
+        sessionCommandCtx(reg.modules, userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin').capability),
+        'sendText',
+        { sessionId, text: 'accepted while Grok was busy' },
+      )
+      expect(result).toEqual({
+        ok: true,
+        queued: true,
+        position: 1,
+        disposition: 'queued',
+      })
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
+      const message = reg.sessionStore.messages
+        .listLedger({ sessionId })
+        .find((row) => row.body === 'accepted while Grok was busy')
+      expect(message).toBeDefined()
+      if (!message) throw new Error('command send did not create a ledger row')
+      expect(message).toMatchObject({
+        status: 'queued',
+        injectedAt: null,
+        deliveredTo: null,
+      })
+
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'grok-ledger-process-exit',
+        sessionId,
+        event: {
+          t: 'process',
+          ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+          at: '2026-08-23T00:00:01.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 2 } },
+          observerGeneration: initialGeneration,
+          turnEpoch: 0,
+        },
+      })
+
+      expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+      expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+      expect(reg.sessionStore.messages.getMessage(message.id)).toMatchObject({
+        status: 'queued',
+        injectedAt: expect.any(String),
+        deliveredTo: sessionId,
+      })
+
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId,
+        code: 137,
+        observerGeneration: initialGeneration,
+      })
+      expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
+      // The server retains the dead process's final working phase; the fresh
+      // bind must let the runtime contract, not that stale projection, decide.
+      expect(reg.modules.sessions.listSessions()[0]?.agentState?.phase).toBe('working')
+      await vi.waitFor(() =>
+        expect(
+          daemon.some(
+            (entry) =>
+              entry.type === 'runtimeSendRequest' &&
+              entry.sessionId === sessionId &&
+              entry.turnId === message.id,
+          ),
+        ).toBe(true),
+      )
+      const request = daemon.find(
+        (entry) =>
+          entry.type === 'runtimeSendRequest' &&
+          entry.sessionId === sessionId &&
+          entry.turnId === message.id,
+      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      expect(request).toBeDefined()
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: request!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'when-ready',
+          provenBy: 'protocol-ack',
+          at: '2026-08-23T00:00:02.000Z',
+        },
+      })
+      await vi.waitFor(() =>
+        expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(0),
+      )
+      expect(reg.sessionStore.messages.getMessage(message.id)).toMatchObject({
+        status: 'delivered',
+        deliveredTo: sessionId,
+      })
+    } finally {
+      reg.dispose()
+    }
   })
 
   it('resumes a Grok row admitted just before its child exit reaches the server', async () => {
