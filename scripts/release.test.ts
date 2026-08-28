@@ -10,6 +10,7 @@ import {
   parseArtifactOverrides,
   parseReleaseArgs,
   readDefinedMigrations,
+  writeClientBuildRecord,
 } from './release'
 
 describe('buildHeadlessManifest', () => {
@@ -263,5 +264,49 @@ describe('parseArtifactOverrides', () => {
         ['darwin-aarch64', '/tmp/b.tar.gz'],
       ]),
     )
+  })
+})
+
+describe('the client half of the build ledger', () => {
+  const evidence = {
+    clientRootDigest: 'a'.repeat(64),
+    sourceCommit: 'dc0a8cf',
+    version: '0.1.1-dev.15+dc0a8cf',
+    sites: { web: 'w', mobile: 'm' },
+    taskHashes: { '@podium/web#build': 'h1', '@podium/mobile#build': 'h2' },
+    cache: { '@podium/web#build': 'HIT', '@podium/mobile#build': 'MISS' },
+  } as const
+
+  it('states the digest, the commit, the version and each task hit or miss', () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'podium-record-')), 'nested')
+    writeClientBuildRecord(dir, evidence)
+    expect(JSON.parse(readFileSync(join(dir, 'client.json'), 'utf8'))).toEqual({
+      rootDigest: 'a'.repeat(64),
+      sourceCommit: 'dc0a8cf',
+      version: '0.1.1-dev.15+dc0a8cf',
+      tasks: {
+        '@podium/web#build': { hash: 'h1', cache: 'HIT' },
+        '@podium/mobile#build': { hash: 'h2', cache: 'MISS' },
+      },
+    })
+  })
+
+  it('records no tasks when the dist was verified without a lane run', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-record-'))
+    writeClientBuildRecord(dir, {
+      clientRootDigest: 'a'.repeat(64),
+      sourceCommit: 'dc0a8cf',
+      version: '0.1.1',
+      sites: { web: 'w', mobile: 'm' },
+    })
+    expect(
+      (JSON.parse(readFileSync(join(dir, 'client.json'), 'utf8')) as { tasks: unknown }).tasks,
+    ).toEqual({})
+  })
+
+  it('is reachable from the command line: --record takes the record directory', () => {
+    const args = parseReleaseArgs(['--prepare-cross', '--record', '/var/state/builds/b1'])
+    expect(args.value('--record')).toBe('/var/state/builds/b1')
+    expect(parseReleaseArgs(['--prepare-cross']).value('--record')).toBeUndefined()
   })
 })

@@ -33,20 +33,21 @@ import {
 } from '../packages/protocol/src/update/target'
 import { HEADLESS_PLATFORMS, type HeadlessPlatform, isHeadlessPlatform } from './abduco-cross'
 import {
-  beginFreshClientPackagingSession,
   BUN_TARGETS,
+  beginFreshClientPackagingSession,
   bunTargetForPlatform,
-  packageHeadlessForFreshClients,
+  type FreshClientPackagingSession,
   type PackagedHeadlessBundle,
+  packageHeadlessForFreshClients,
 } from './build-bun'
 import { extractRelease } from './changelog'
 import {
   assertNoCallerSuppliedClientRootDigest,
   CLIENT_ROOT_DIGEST_FILE,
 } from './client-build-root-digest'
-import { buildManifest } from './release-manifest'
 import { validateReferencedDesktopManifest } from './desktop-release'
 import { verifyCandidateSnapshot } from './release-candidate-snapshot'
+import { buildManifest } from './release-manifest'
 
 /** Every platform a release publishes a headless bundle for. */
 export const RELEASE_PLATFORMS: readonly HeadlessPlatform[] = HEADLESS_PLATFORMS
@@ -179,6 +180,7 @@ const RELEASE_OPTIONS = {
   '--min-required': 'value',
   '--platform': 'repeated',
   '--artifact': 'repeated',
+  '--record': 'value',
   '--critical': 'flag',
   '--prepare-cross': 'flag',
 } as const satisfies Record<`--${string}`, OptionKind>
@@ -351,6 +353,41 @@ export function parseArtifactOverrides(values: readonly string[]): Map<HeadlessP
   return overrides
 }
 
+/** The record file the coordinator child writes; the publisher folds it into the record. */
+export const CLIENT_BUILD_RECORD_FILE = 'client.json'
+
+/**
+ * State what the client build proved, for the ledger.
+ *
+ * Taken verbatim off the branded `ClientBuildEvidence` rather than recomputed: the
+ * digest is the provenance M1 minted, and the per-task hash and HIT/MISS are the only
+ * durable answer to "did this release rebuild the clients or restore them?" — a
+ * question the Turbo summary can answer once, in this process, and nowhere afterwards.
+ */
+export function writeClientBuildRecord(
+  recordDir: string,
+  session: FreshClientPackagingSession,
+): void {
+  mkdirSync(recordDir, { recursive: true })
+  const tasks: Record<string, { hash: string; cache: 'HIT' | 'MISS' }> = {}
+  for (const [id, hash] of Object.entries(session.taskHashes ?? {})) {
+    tasks[id] = { hash, cache: session.cache?.[id] ?? 'MISS' }
+  }
+  writeFileSync(
+    join(recordDir, CLIENT_BUILD_RECORD_FILE),
+    `${JSON.stringify(
+      {
+        rootDigest: session.clientRootDigest,
+        sourceCommit: session.sourceCommit,
+        version: session.version,
+        tasks,
+      },
+      null,
+      2,
+    )}\n`,
+  )
+}
+
 /**
  * Build every requested platform from THIS Linux runner and stage them for publish.
  *
@@ -367,6 +404,7 @@ export async function prepareHeadlessCross(
   platforms: readonly HeadlessPlatform[] = RELEASE_PLATFORMS,
   outDir = 'dist-bun/release',
   artifacts: ReadonlyMap<HeadlessPlatform, string> = new Map(),
+  recordDir?: string,
 ): Promise<PreparedHeadless[]> {
   if (process.platform !== 'linux') {
     throw new Error(
@@ -382,6 +420,12 @@ export async function prepareHeadlessCross(
   const session = await beginFreshClientPackagingSession([])
   mkdirSync(outDir, { recursive: true })
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
+  // The CLIENT HALF of the build ledger, written the moment the clients have been
+  // verified and before a single platform is packaged. That ordering is the point: if
+  // this child dies while cross-building, the caller finds a `client.json` and knows
+  // the clients passed, so the attempt it records is `failed:package` rather than the
+  // vaguer `failed:verify` (apps/server/src/modules/updates/build-record.ts).
+  if (recordDir) writeClientBuildRecord(recordDir, session)
 
   const prepared: PreparedHeadless[] = []
   for (const platform of platforms) {
@@ -748,6 +792,7 @@ async function main(): Promise<void> {
       requested.length > 0 ? (requested as HeadlessPlatform[]) : RELEASE_PLATFORMS,
       undefined,
       parseArtifactOverrides(args.repeated('--artifact')),
+      args.value('--record'),
     )
     return
   }
