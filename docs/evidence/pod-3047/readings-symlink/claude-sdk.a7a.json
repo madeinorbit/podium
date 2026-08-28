@@ -2,12 +2,12 @@
   "cell": "A7A",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a7a",
-  "at": "2026-08-28T16:44:47.252Z",
+  "at": "2026-08-28T17:03:27.512Z",
   "pin": {
     "cell": "A7A",
-    "at": "2026-08-28T16:44:47.272Z",
+    "at": "2026-08-28T17:03:27.535Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "dd599f66ab65fb9ee5e47f4963b27741707714f0",
+    "checkoutSha": "2b78f7d94c272db0303c735dca3d4f49a81e93ac",
     "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "dd599f6",
+      "headShort": "2b78f7d",
       "appsWebIdentical": true
     },
-    "serverPid": "1989048",
-    "daemonPid": "2021175",
+    "serverPid": "2082067",
+    "daemonPid": "2082155",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "19083996 kB",
-      "SwapFree": "41213340 kB"
+      "MemAvailable": "19166840 kB",
+      "SwapFree": "41214284 kB"
     },
-    "rootFreeKiB": 81960676,
-    "load1m": 2.56,
+    "rootFreeKiB": 82626856,
+    "load1m": 1.24,
     "credential": {
       "live": {
         "present": true,
@@ -64,7 +64,7 @@
     "instanceAgentHome": {
       "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a7a",
       "exists": true,
-      "files": 2
+      "files": 1
     },
     "operatorHome": {
       "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a7a",
@@ -81,34 +81,37 @@
   },
   "evidence": [
     "BASELINE          user=true reply=true",
-    "RESTART           {\"oldPid\":\"2021175\",\"newPid\":\"2028082\",\"out\":\"OLD_DAEMON_PID=2021175\\nNEW_DAEMON_PID=2028082 sha=ad02520c22a9cba42db7fc1dd8c44620f29f4509 tos=1\\n\"}",
-    "POST PIN          2028082 ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "RESTART           {\"oldPid\":\"2082155\",\"newPid\":\"2082837\",\"out\":\"OLD_DAEMON_PID=2082155\\nNEW_DAEMON_PID=2082837 sha=ad02520c22a9cba42db7fc1dd8c44620f29f4509 tos=1\\n\"}",
+    "POST PIN          2082837 ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "RECALL            {\"ok\":true,\"disposition\":\"delivered\"} assistant=true",
-    "STATUS            {\"sessionId\":\"4cf3ce06-ec24-4749-9fa0-a33e7e906e71\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
+    "SETTLED           true in 3178ms",
+    "STATUS            {\"sessionId\":\"0b72432c-7852-48cb-8adb-8576689a79d9\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a"
   ],
   "data": {
-    "sid": "4cf3ce06-ec24-4749-9fa0-a33e7e906e71",
-    "secret": "P3047-A7A-MTD6MKXA",
+    "sid": "0b72432c-7852-48cb-8adb-8576689a79d9",
+    "secret": "P3047-A7A-MTD7ALCO",
     "restart": {
-      "oldPid": "2021175",
-      "newPid": "2028082",
-      "out": "OLD_DAEMON_PID=2021175\nNEW_DAEMON_PID=2028082 sha=ad02520c22a9cba42db7fc1dd8c44620f29f4509 tos=1\n"
+      "oldPid": "2082155",
+      "newPid": "2082837",
+      "out": "OLD_DAEMON_PID=2082155\nNEW_DAEMON_PID=2082837 sha=ad02520c22a9cba42db7fc1dd8c44620f29f4509 tos=1\n"
     },
     "got": {
       "ok": true,
-      "ms": 13,
+      "ms": 24,
       "items": [
         {
           "role": "user",
-          "text": "Remember this codeword: P3047-A7A-MTD6MKXA. Reply with exactly P3047-A7A-MTD6MKXA. Do not use tools.",
-          "ts": "2026-08-28T16:44:50.725Z"
+          "text": "Remember this codeword: P3047-A7A-MTD7ALCO. Reply with exactly P3047-A7A-MTD7ALCO. Do not use tools.",
+          "ts": "2026-08-28T17:03:30.890Z"
         },
         {
           "role": "assistant",
-          "text": "P3047-A7A-MTD6MKXA",
-          "ts": "2026-08-28T16:44:52.475Z"
+          "text": "P3047-A7A-MTD7ALCO",
+          "ts": "2026-08-28T17:03:32.718Z"
         }
       ]
-    }
+    },
+    "settledAfterRestart": true,
+    "settledMs": 3178
   }
 }

@@ -97,6 +97,14 @@ persisted — **before the turn closes**.
 | A2a | read the phase the instant the needle appeared, caught it still `working` | waits for the turn to close — the criterion says *idle AFTER end* |
 | A7b | hibernated mid-turn, got the correct refusal *"agent is working"*, scored it as lost context | waits for idle; a refusal the product explains is BLOCKED, not FAIL |
 | A1b | assumed the busy condition still held at the send | samples the phase at the send; a condition that evaporated is BLOCKED |
+| A7a | recorded `phase: working` beside a PASS, having sampled status the instant the recall landed | settles first (bounded); the row now quotes `idle`, reached in 3178ms |
+| A7b | same, after wake | settles first (bounded); quotes `idle`, reached in 3109ms |
+
+**No instantaneous check was turned into a pass.** Every settle above is a
+*bounded* wait — 60s ceiling — so a turn that genuinely never closes still fails
+and still shows it. The verdicts for A7a and A7b never rested on the status
+sample (they rest on the codeword returning); what changed is that the evidence
+line no longer contradicts the verdict it sits next to.
 
 And two that were wrong independently of any fix:
 

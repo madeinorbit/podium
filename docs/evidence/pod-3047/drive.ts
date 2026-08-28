@@ -1512,6 +1512,13 @@ async function runA7a() {
       text: 'What codeword did I ask you to remember? Reply with exactly ' + secret + '. Do not use tools.',
     })
     const got = await waitForNeedle(sid, resumed, secret, 'assistant', REPLY_MS)
+    // SETTLE BEFORE SCORING, and before RECORDING. The verdict rests on the
+    // codeword coming back, which is sound — but the status this row quotes was
+    // sampled the instant the needle appeared, and since POD-3057 repaired the
+    // reader that can be before the turn closes. The row therefore showed
+    // phase=working next to a PASS, which reads like a contradiction even though
+    // the verdict was right. Bounded, so a turn that never closes still shows it.
+    const settledAfterRestart = await waitPhase(sid, (phase) => phase !== 'working', 60_000, 500)
     const pass = got.ok === true
     const v = await verdictOrAuthBlock(
       pass,
@@ -1524,8 +1531,8 @@ async function runA7a() {
       v.verdict,
       v.summary,
       control,
-      ['BASELINE          user=' + user.ok + ' reply=' + reply.ok, 'RESTART           ' + short(restart), 'POST PIN          ' + postPin.daemonPid + ' ' + postPin.daemonSha, 'RECALL            ' + short(recallSent.result?.data ?? recallSent.error ?? null) + ' assistant=' + got.ok, 'STATUS            ' + short(await status(sid))],
-      { sid, secret, restart, got },
+      ['BASELINE          user=' + user.ok + ' reply=' + reply.ok, 'RESTART           ' + short(restart), 'POST PIN          ' + postPin.daemonPid + ' ' + postPin.daemonSha, 'RECALL            ' + short(recallSent.result?.data ?? recallSent.error ?? null) + ' assistant=' + got.ok, 'SETTLED           ' + settledAfterRestart.ok + ' in ' + settledAfterRestart.ms + 'ms', 'STATUS            ' + short(settledAfterRestart.row ?? (await status(sid)))],
+      { sid, secret, restart, got, settledAfterRestart: settledAfterRestart.ok, settledMs: settledAfterRestart.ms },
     )
     await resumed.close()
     return out
@@ -1568,6 +1575,7 @@ async function runA7b() {
       text: 'Recall the codeword ' + secret + '; reply exactly ' + secret + '. Do not use tools.',
     })
     const recalled = await waitForNeedle(sid, fresh, secret, 'assistant', REPLY_MS)
+    const settledAfterWake = await waitPhase(sid, (phase) => phase !== 'working', 60_000, 500)
     const pass = parked.ok && live.ok && recalled.ok
     // A refusal the product EXPLAINS is not a failure of hibernate; it means the
     // condition was never created, so there is nothing to score.
@@ -1595,7 +1603,7 @@ async function runA7b() {
       v.verdict,
       v.summary,
       control,
-      ['HIBERNATE         ' + short(hibernated), 'PARKED            ' + parked.ok, 'RESURRECT         ' + short(resurrected), 'LIVE              ' + live.ok, 'RECALLED          ' + recalled.ok, 'STATUS            ' + short(await status(sid))],
+      ['HIBERNATE         ' + short(hibernated), 'PARKED            ' + parked.ok, 'RESURRECT         ' + short(resurrected), 'LIVE              ' + live.ok, 'RECALLED          ' + recalled.ok, 'SETTLED           ' + settledAfterWake.ok + ' in ' + settledAfterWake.ms + 'ms', 'STATUS            ' + short(settledAfterWake.row ?? (await status(sid)))],
       { sid, secret, hibernated, parked, resurrected, live, recalled: recalled.ok, recall },
     )
     await fresh.close()
