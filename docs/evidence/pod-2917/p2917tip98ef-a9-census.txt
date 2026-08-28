@@ -1,0 +1,31 @@
+# A9 independent /proc CWD census
+
+Time: 2026-08-28 13:16:00 CEST
+Root free: 82G
+Instance: p2917tip0828
+Rig root: /tmp/pod-2917-tip0828
+Product state root: /home/mgw/.local/state/podium/p2917tip0828
+Worktree: /home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven
+
+Method: iterate numeric /proc entries only; for each PID read
+readlink /proc/<pid>/cwd and compare exact CWD equality or subtree membership for the
+worktree, rig root, and state root. No pgrep -f or generic command-line matching was used.
+
+The shell A9 driver had already recorded target PID 322525 (PPID 322524, /bin/bash) before
+kill, zero in all ten immediate samples, and zero after the 300000ms wait.
+
+At the independent scan, six PIDs had CWD under the worktree:
+- 243087 and 244430: the operator Codex session and code-mode host (instance=default).
+- 313388 and 360484: the persistent rig launcher and its sleep helper.
+- 313446: expected named p2917tip0828 server.
+- 321233: expected named p2917tip0828 daemon.
+
+No PID had CWD equal to or below /tmp/pod-2917-tip0828 or
+/home/mgw/.local/state/podium/p2917tip0828. Thus no shell session process or orphan server
+remained in either isolated runtime root after the five-minute observation.
+
+
+Final teardown scan at 2026-08-28 13:23:06 CEST used the same numeric /proc/readlink
+method: worktree CWDs were only the operator Codex PID 243087 and code-mode host PID
+244430; rig=0 and state=0. The exact server PID 313446 and daemon PID 321233 were both
+dead, and root had 82G free.

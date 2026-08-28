@@ -1,0 +1,66 @@
+{
+  "cell": "A7A",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2917-tip0828/probes/shell-a7a",
+  "at": "2026-08-28T11:09:14.686Z",
+  "pin": {
+    "cell": "A7A",
+    "at": "2026-08-28T11:09:14.703Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "checkoutSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "serverSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "daemonSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T10:35:29.926Z",
+      "appVersion": "dev+98ef8d6",
+      "sourceSha": "98ef8d6",
+      "bundleVersion": "bundle+Dbh-P3IM"
+    },
+    "serverPid": "313446",
+    "daemonPid": "313566",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "20391332 kB",
+      "SwapFree": "41942992 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "daemon restart retained the same live conversation and codeword",
+  "control": {
+    "fired": true,
+    "what": "pre-restart shell codeword echo",
+    "detail": "{\"echo\":true,\"echoMs\":500}"
+  },
+  "evidence": [
+    "BASELINE          {\"echo\":true,\"echoMs\":500}",
+    "POST RESTART PIN   98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "RECALL            {\"echo\":true,\"ms\":500}",
+    "STATUS            {\"sessionId\":\"72a2ae40-4f7d-437e-b038-c02157936518\",\"agentKind\":\"shell\",\"harness\":\"shell\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":null,\"err",
+    "SCREEN TAIL       \"mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a7a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a7a$ printf \\\"%s\\\\n\\\" \\\"$POD2874_CODE\\\"\\nP2874-A7A-MTCUN38Q\\nmgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a7a$\""
+  ],
+  "data": {
+    "sid": "72a2ae40-4f7d-437e-b038-c02157936518",
+    "secret": "P2874-A7A-MTCUN38Q",
+    "base": {
+      "echo": true,
+      "echoMs": 500
+    },
+    "recall": {
+      "echo": true,
+      "ms": 500
+    }
+  }
+}
