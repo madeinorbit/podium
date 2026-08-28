@@ -54,15 +54,16 @@ Result:  SCORER CONTROLS PASS
 VALIDATION GATE COUNTS
 ----------------------
 The gate runs used PODIUM_TEST_WORKERS=1.
-Lean gate: GREEN — 4 of 1040 collected unit files, 80 tests executed.
-Typecheck: 25 successful / 25 total tasks; 22 cached / 25 total tasks.
+Lean gate: GREEN — 4 of 1042 collected unit files, 80 tests executed.
+Typecheck: 25 successful / 25 total tasks; 21 cached / 25 total tasks.
 Services shard: 97 passed / 104 files; 1839 passed / 1873 tests; 7 files and
 34 tests failed in unrelated session machine-probing, handoff, upload,
 attribution, stop, and oracle baseline areas. No changed message-path test
 failed.
 
-The fix was replayed cleanly as 39243e2db5e2b3d70e754418ceb609f912766de2
-on coordinator tip f76f698cecc8aeb5021803902579a17d7a0852dc. No main landing,
+The fix was replayed cleanly as 1a4664665b0d808e8b6a2e348eedb4c39556e92c
+on current coordinator tip 350da768eb5dcee92e77a72365e5f1b9c9769910,
+which contains requested tip f76f698cecc8aeb5021803902579a17d7a0852dc. No main landing,
 results.tsv edit, or ledger edit was performed. The exact server-family main
 provider comparator remains unavailable; Claude PTY main is a documented
 longstanding A1c failure, so regression classification is unresolved.
