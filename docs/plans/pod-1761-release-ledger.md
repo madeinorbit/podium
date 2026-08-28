@@ -5748,3 +5748,19 @@ The last measured matrix snapshot remains 69 cells (54 PASS, 3 confirmed FAIL,
 12 qualified/blocked), but it is provisional while the two server-path A1c
 cells are re-driven at the integrated tip. The operator sandbox remains stopped;
 no shared gate lease is held.
+
+
+## FOREST — append-only acceptance-row format copies 2026-08-28 10:02:36 CEST
+
+The coordinator corrected the earlier maintenance mistake: the original 19 nine-field acceptance
+rows remain untouched as historical append-only records. For each malformed row, an eight-field
+copy was appended with a format-only timestamp in its what field; the copied verdict, commit pin,
+control/alone evidence, measurement timestamp, and issue reference are unchanged. These copies
+repair machine-readable consumption without rewriting or deleting evidence.
+
+The results file now contains 297 eight-field rows plus the 19 preserved historical nine-field
+rows; the standing parser for missing fields remains clean, and the nine-field rows are explicitly
+retained rather than treated as new measurements. The acceptance snapshot remains provisional at
+69 cells (54 PASS, 3 confirmed FAIL, 12 qualified/blocked). No runtime drive was performed; the
+operator sandbox remains stopped and host admission is still closed below the 5 GiB disk/swap
+floor.
