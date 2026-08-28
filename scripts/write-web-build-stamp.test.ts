@@ -41,7 +41,7 @@ const EXPORTED_PHONE_INDEX =
 
 describe('webBuildStamp', () => {
   it('stamps the product version, not the chunk hash, as appVersion', () => {
-    const stamp: BuildStamp = webBuildStamp(BUILT_INDEX, new Date(), '47a01e3')
+    const stamp: BuildStamp = webBuildStamp(BUILT_INDEX, '47a01e3')
     expect(stamp.appVersion).toBe('dev+47a01e3')
     expect(stamp.sourceSha).toBe('47a01e3')
     expect(stamp.bundleVersion).toBe('bundle+DHMkD0wf')
@@ -50,25 +50,24 @@ describe('webBuildStamp', () => {
   })
 
   it('uses the packaged channel version when one is declared', () => {
-    const stamp = webBuildStamp(BUILT_INDEX, new Date(), '47a01e3', '0.4.2')
+    const stamp = webBuildStamp(BUILT_INDEX, '47a01e3', '0.4.2')
     expect(stamp.appVersion).toBe('0.4.2')
     expect(stamp.sourceSha).toBe('47a01e3')
     expect(stamp.bundleVersion).toBe('bundle+DHMkD0wf')
   })
 
   it('leaves the wire-schema stamp it already carried intact', () => {
-    const stamp = webBuildStamp(BUILT_INDEX, new Date('2026-08-13T00:00:00.000Z'), '47a01e3')
+    const stamp = webBuildStamp(BUILT_INDEX, '47a01e3')
     expect(stamp.wireSchemaDigest).toEqual(expect.any(String))
     expect(stamp.wireSchemaDigest).not.toBe('')
     expect(stamp.wireVersion).toEqual(expect.any(Number))
-    expect(stamp.builtAt).toBe('2026-08-13T00:00:00.000Z')
+    expect('builtAt' in stamp).toBe(false)
   })
 
   it('gives two bundles two forensic identities without changing the product version', () => {
-    const first = webBuildStamp(BUILT_INDEX, new Date(), '47a01e3')
+    const first = webBuildStamp(BUILT_INDEX, '47a01e3')
     const second = webBuildStamp(
       BUILT_INDEX.replace('index-DHMkD0wf.js', 'index-99999999.js'),
-      new Date(),
       '47a01e3',
     )
     expect(first.appVersion).toBe(second.appVersion)
@@ -85,7 +84,6 @@ describe('webBuildStamp', () => {
   it('records no bundleVersion when the html has no hashed entry', () => {
     const stamp = webBuildStamp(
       '<!doctype html><html><head><script type="module" src="/src/main.tsx"></script></head></html>',
-      new Date(),
       '47a01e3',
     )
     expect(stamp.appVersion).toBe('dev+47a01e3')
@@ -98,7 +96,7 @@ describe('webBuildStamp', () => {
       join(dir, 'index.html'),
       '<!doctype html><html><head><script type="module" src="/src/main.tsx"></script></head></html>',
     )
-    expect(() => writeWebBuildStamp(dir, new Date(), '47a01e3')).toThrow(/no hashed entry/)
+    expect(() => writeWebBuildStamp(dir, '47a01e3')).toThrow(/no hashed entry/)
   })
 
   // The phone shell is `expo export -p web`, not vite: a classic script tag and
@@ -107,7 +105,7 @@ describe('webBuildStamp', () => {
   it('stamps the phone export with the same checkout the desktop dist carries', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-phone-'))
     writeFileSync(join(dir, 'index.html'), EXPORTED_PHONE_INDEX)
-    const stamp = writeWebBuildStamp(dir, new Date('2026-08-13T00:00:00.000Z'), '47a01e3')
+    const stamp = writeWebBuildStamp(dir, '47a01e3')
     expect(stamp.appVersion).toBe('dev+47a01e3')
     expect(stamp.sourceSha).toBe('47a01e3')
     expect(stamp.bundleVersion).toBe('bundle+a074e4f437a1ee92fdb168054dc07da9')
@@ -124,7 +122,7 @@ describe('webBuildStamp', () => {
   it('writes the product version into the stamp and the html together', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-'))
     writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
-    const stamp = writeWebBuildStamp(dir, new Date('2026-08-13T00:00:00.000Z'), '47a01e3', '0.4.2')
+    const stamp = writeWebBuildStamp(dir, '47a01e3', '0.4.2')
     expect(stamp.appVersion).toBe('0.4.2')
     const written = JSON.parse(readFileSync(join(dir, 'podium-build.json'), 'utf8')) as BuildStamp
     expect(written.appVersion).toBe('0.4.2')
@@ -134,27 +132,23 @@ describe('webBuildStamp', () => {
     )
   })
 
-  it('manifests the exact completed files, stamp, and source commit', () => {
+  it('manifests the exact completed files, stamp, source commit and count — and nothing per-run', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-manifest-'))
     const asset = 'console.log("built client")\n'
     writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
     writeFileSync(join(dir, 'asset.txt'), asset)
 
-    const stamp = writeWebBuildStamp(
-      dir,
-      new Date('2026-08-13T00:00:00.000Z'),
-      '47a01e3',
-      '0.4.2',
-      'packaging-invocation-123',
-    )
+    const stamp = writeWebBuildStamp(dir, '47a01e3', '0.4.2')
     const manifest = JSON.parse(
       readFileSync(join(dir, CLIENT_BUILD_MANIFEST_FILE), 'utf8'),
     ) as ClientBuildManifest
 
-    expect(manifest.manifestVersion).toBe(1)
+    expect(manifest.manifestVersion).toBe(2)
     expect(manifest.sourceCommit).toBe('47a01e3')
-    expect(manifest.buildInvocation).toBe('packaging-invocation-123')
     expect(manifest.buildStamp).toEqual(stamp)
+    expect('builtAt' in manifest.buildStamp).toBe(false)
+    expect('buildInvocation' in manifest).toBe(false)
+    expect(manifest.fileCount).toBe(3)
     expect(Object.keys(manifest.files).sort()).toEqual(
       ['asset.txt', 'index.html', 'podium-build.json'].sort(),
     )
@@ -165,6 +159,21 @@ describe('webBuildStamp', () => {
           .digest('hex'),
       )
     }
+  })
+
+  // Nothing per-run may reach the bytes: this is what lets a build system reuse a
+  // dist it built earlier (spec 2026-08-28-cached-release-build-design §4.3).
+  it('writes byte-identical output for the same input, run twice', () => {
+    const build = (): string[] => {
+      const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-det-'))
+      writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
+      writeFileSync(join(dir, 'asset.txt'), 'x\n')
+      writeWebBuildStamp(dir, '47a01e3', '0.4.2')
+      return ['index.html', 'asset.txt', 'podium-build.json', CLIENT_BUILD_MANIFEST_FILE].map((f) =>
+        readFileSync(join(dir, f), 'utf8'),
+      )
+    }
+    expect(build()).toEqual(build())
   })
 
   it('refuses to certify a dist whose source commit is unknown', () => {
@@ -187,7 +196,7 @@ describe('writeWebBuildStamp and pre-compressed index.html', () => {
     writeFileSync(join(dir, 'index.html.br'), brotliCompressSync(Buffer.from(BUILT_INDEX)))
     writeFileSync(join(dir, 'index.html.gz'), gzipSync(Buffer.from(BUILT_INDEX)))
 
-    writeWebBuildStamp(dir, new Date(), '47a01e3', '0.4.2')
+    writeWebBuildStamp(dir, '47a01e3', '0.4.2')
 
     const html = readFileSync(join(dir, 'index.html'), 'utf8')
     expect(html).toContain('<meta name="podium-version" content="0.4.2">')
@@ -201,7 +210,7 @@ describe('writeWebBuildStamp and pre-compressed index.html', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-'))
     writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
 
-    writeWebBuildStamp(dir, new Date(), '47a01e3')
+    writeWebBuildStamp(dir, '47a01e3')
 
     expect(existsSync(join(dir, 'index.html.br'))).toBe(false)
     expect(existsSync(join(dir, 'index.html.gz'))).toBe(false)
