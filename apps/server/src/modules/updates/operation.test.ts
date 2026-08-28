@@ -2627,6 +2627,7 @@ describe('the fleet bridge', () => {
         recordProgress,
         admitDeferred,
         recordDeferred: () => Promise.resolve(),
+        history: () => [],
         reensure: () => Promise.resolve(),
         recordDetails: () => undefined,
       },
@@ -2948,6 +2949,119 @@ describe('the fleet bridge', () => {
     } as Operation
 
     expect(supersededDeferredPlaces(restated, details, h.updates)).toBeUndefined()
+  })
+
+  /**
+   * THE ALL-OFFLINE FLEET, END TO END (POD-3040) — and it is the common shape,
+   * not an edge one.
+   *
+   * Every behind machine asleep plans NO wave at all: `planUpdateOperation`
+   * puts them all in `deferred` and creates no machines step, so the operation
+   * is terminal within a tick. Its promise — "laptop will update when it
+   * reconnects" — then outlives it by days. When a newer release supersedes the
+   * one it was made against, that sentence is simply false, and the operation
+   * nothing is driving any more is exactly the thing that cannot correct it on
+   * its own. The target change is what corrects it.
+   */
+  it('restates an all-offline update promise once a newer target supersedes it', async () => {
+    const fleet = [machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // No wave, no steps, already finished — with the promise standing.
+    expect(h.read().steps ?? []).toEqual([])
+    expect(h.read().state).toBe('done')
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    const finishedAt = h.read().finishedAt
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+
+    // Retention will sweep this operation's tarballs under the ordinary window.
+    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+    // Restating a note is not reanimating an operation.
+    expect(h.read().state).toBe('done')
+    expect(h.read().finishedAt).toBe(finishedAt)
+    expect(h.read().steps ?? []).toEqual([])
+
+    // …and when it finally wakes, nothing grants it the old target under this
+    // operation's name. The ordinary reconciler owns it from here.
+    fleet[0] = machine({ id: 'laptop' })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+    expect(h.sent).toEqual([])
+    expect(h.read().deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+  })
+
+  it('restates the same promise as unavailable when the channel is withdrawn instead', async () => {
+    const fleet = [machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+
+    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-unavailable' },
+    ])
+    expect(h.read().state).toBe('done')
+  })
+
+  it('leaves the promise alone while the operation\'s own target is still the published one', async () => {
+    const fleet = [machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+
+    // A re-resolve of the SAME version also fires the target hook. The machine
+    // really will update when it reconnects, so the note must not be touched.
+    h.updates.setTarget('dev', packedTarget())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
   it('refuses to admit a deferred place while the channel is offering nothing', () => {
@@ -3807,6 +3921,7 @@ describe('a wave whose canary arrived without an attach', () => {
         recordProgress,
         admitDeferred: async () => {},
         recordDeferred: async () => {},
+        history: () => [],
         reensure,
         recordDetails: () => undefined,
       },

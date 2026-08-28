@@ -2282,6 +2282,12 @@ export function createUpdateFleetBridge(deps: {
     reensure(id: string, stepId: string, patch?: StepProgressPatch): Promise<void>
     /** Where this bridge writes the wave rounds it just watched happen (POD-2754). */
     recordDetails(id: string, patch: Record<string, unknown>): unknown
+    /**
+     * The most recent operations, newest first — how {@link onTargetChanged}
+     * reaches an update that has already FINISHED. That is the common case for
+     * a deferred promise, not an edge one (POD-3040).
+     */
+    history(kind?: string, limit?: number): { id: string; kind: string; operation: Operation | null }[]
   }
   updates: UpdatesService
   /**
@@ -2292,8 +2298,50 @@ export function createUpdateFleetBridge(deps: {
    * which is what the composition root's engine uses.
    */
   now?: () => number
-}): { onFleetChanged: () => void } {
-  return {
+}): { onFleetChanged: () => void; onTargetChanged: () => void } {
+  /**
+   * THE UPDATE WHOSE DEFERRED PROMISE IS STILL STANDING.
+   *
+   * The active one if there is one; otherwise the most recent, BECAUSE A
+   * FINISHED OPERATION IS THE COMMON CASE HERE (POD-3040). A fleet whose behind
+   * machines were all asleep plans no wave at all — `planUpdateOperation` puts
+   * every one of them in `deferred` and creates no machines step — so the
+   * operation is terminal within a tick while its promise ("they will update
+   * when they reconnect") has years left to run. An update that only ever
+   * looked at the ACTIVE row could never correct the sentence it is commonest
+   * for.
+   */
+  const promisingOperation = ():
+    | { id: string; kind: string; operation: Operation | null }
+    | undefined => {
+    const active = deps.engine.active(LIFECYCLE_EXCLUSION_GROUP)
+    if (active?.kind === UPDATE_OPERATION_KIND) return active
+    return deps.engine.history(UPDATE_OPERATION_KIND, 1)[0]
+  }
+
+  const bridge = {
+    /**
+     * THE TARGET MOVED, so a deferred promise made against the old one may have
+     * stopped being true (POD-3040).
+     *
+     * This is the only event that can falsify it — a fleet event cannot change
+     * what is published — which is why the restatement lives here and not in
+     * `onFleetChanged`. It fires on all three of publication, re-resolution and
+     * withdrawal, and it corrects the note WITHOUT holding any rollout open:
+     * nothing is granted, no step is entered, and a finished operation stays
+     * finished (see {@link OperationEngine.recordDeferred}).
+     */
+    onTargetChanged: () => {
+      const row = promisingOperation()
+      const details = row?.operation ? updateOperationDetails(row.operation) : undefined
+      if (row?.operation && details) {
+        const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
+        if (restated) void deps.engine.recordDeferred(row.id, restated)
+      }
+      // …and then the ordinary fleet pass, which is what a target change has
+      // always driven: an active wave still has to be projected against it.
+      bridge.onFleetChanged()
+    },
     onFleetChanged: () => {
       const row = deps.engine.active(LIFECYCLE_EXCLUSION_GROUP)
       if (!row || row.kind !== UPDATE_OPERATION_KIND || !row.operation) return
@@ -2317,12 +2365,6 @@ export function createUpdateFleetBridge(deps: {
       // so its first appearance in the payload is already inside the step's
       // places and its own progress — never as a place the panel has to
       // discover in a later frame.
-      // Before admission, because the two are the same question asked of the
-      // same fact: an operation whose exact target is gone admits nobody, and
-      // the places it was holding open are owed the reason (POD-3040).
-      const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
-      if (restated) void deps.engine.recordDeferred(row.id, restated)
-
       const admitted = admissibleDeferredPlaces(row.operation, details, deps.updates)
       if (admitted.length > 0) {
         const places = [...(step.places ?? []), ...admitted]
@@ -2426,6 +2468,7 @@ export function createUpdateFleetBridge(deps: {
       void deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, projected)
     },
   }
+  return bridge
 }
 
 const isArrived = (place: StepPlace): boolean => place.state === 'current'

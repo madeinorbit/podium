@@ -455,6 +455,52 @@ describe('operationView — the seven states', () => {
     expect(JSON.stringify(result)).not.toMatch(/everywhere/)
   })
 
+  /**
+   * "…will update when it reconnects" stops being true the moment the package
+   * it would have taken is replaced or withdrawn (POD-3040). A finished
+   * operation keeps showing its deferred note, so the note has to stop
+   * promising delivery it can no longer make.
+   */
+  it('stops promising a reconnect once the deferred target was superseded', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [{ id: 'machines', title: 'Updating your machines', state: 'done' }],
+      deferred: [{ id: 'm_laptop', name: 'laptop', reason: 'target-superseded' }],
+    })
+    const result = view(payload)
+    expect(result.deferredNote).toMatch(/replaced by a newer one/i)
+    expect(result.deferredNote).toMatch(/will take the current update instead/i)
+    expect(result.deferredNote).not.toMatch(/when it reconnects/i)
+  })
+
+  it('says withdrawn rather than replaced when the channel is offering nothing', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [{ id: 'machines', title: 'Updating your machines', state: 'done' }],
+      deferred: [{ id: 'm_laptop', name: 'laptop', reason: 'target-unavailable' }],
+    })
+    const result = view(payload)
+    expect(result.deferredNote).toMatch(/withdrawn/i)
+    expect(result.deferredNote).not.toMatch(/when it reconnects/i)
+  })
+
+  it('keeps the reconnect promise for machines whose target is still on offer', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [{ id: 'machines', title: 'Updating your machines', state: 'done' }],
+      deferred: [
+        { id: 'm_laptop', name: 'laptop', reason: 'target-superseded' },
+        { id: 'm_mac', name: 'macbook', reason: 'offline' },
+      ],
+    })
+    const result = view(payload)
+    expect(result.deferredNote).toMatch(/laptop did not come back/i)
+    expect(result.deferredNote).toMatch(/macbook will update when it reconnects/i)
+  })
+
   it('keeps asking a straggler tab to reload after the operation itself finished', () => {
     const result = view(operationPayload({ state: 'done', finishedAt: NOW }), { local: BEHIND })
     expect(result.state).toBe('waiting-you')

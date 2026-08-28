@@ -2395,7 +2395,11 @@ export class SessionRegistry {
       engine: operationsModule.engine,
       updates: updatesService,
     })
-    targetChanged = () => updateFleetBridge.onFleetChanged()
+    // A PUBLISH, A RE-RESOLVE OR A WITHDRAWAL, all three (POD-3040). It does the
+    // ordinary fleet pass and, before it, corrects any deferred promise the
+    // moved target has just falsified — including one left by an update that
+    // already finished, which is what an all-offline fleet always leaves.
+    targetChanged = () => updateFleetBridge.onTargetChanged()
     /**
      * THE STANDING RECONCILIATION (§3.6, POD-2105). Offline machines are
      * `deferred` at plan time so an update can finish without them; this is what

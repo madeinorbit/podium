@@ -343,6 +343,21 @@ export class OperationEngine {
    * a deferred place's reason changed, never what the reason means. It does NOT
    * drive — restating a note adds no work to any step, so there is nothing for
    * a runner to do about it.
+   *
+   * AND IT WRITES TO A FINISHED OPERATION, which is the one place this engine
+   * does. That is not an exception grudgingly made; it is what `deferred` IS.
+   * Every other field records what HAPPENED, and history may not be edited. A
+   * deferred place records what is still GOING to happen — "2 machines will
+   * update when they reconnect" — and an operation reaching `done` is precisely
+   * what does not settle that sentence: §3.6's whole point is that the
+   * operation finishes without them. The commonest shape is a fleet whose
+   * behind machines were ALL asleep, which plans no wave at all, is terminal
+   * within a tick, and leaves the promise standing for days.
+   *
+   * So the state, the steps and the outcome of a finished operation are copied
+   * through untouched and only the promise is corrected. Nothing reanimates: no
+   * runner is entered, no deadline armed, and `history` orders by `createdAt`,
+   * so a restated row does not jump the list either.
    */
   async recordDeferred(
     operationId: string,
@@ -350,7 +365,7 @@ export class OperationEngine {
   ): Promise<void> {
     await this.enqueue(operationId, async () => {
       const operation = this.deps.store.get(operationId)?.operation
-      if (!operation || isTerminalOperationState(operation.state)) return
+      if (!operation) return
       this.persist({ ...operation, deferred: [...deferred] } as PersistedOperation, this.now())
     })
   }
