@@ -951,3 +951,53 @@ The brief's general no-override rule now carries the exception explicitly,
 because the rule is right for an epic arm and wrong for a main arm and it never
 said so. POD-3042 re-runs the two baselines on the default instance under the
 `instance:default` lock.
+
+## Decision 29 — the matrix conflated a new driver with the shipping one (2026-08-28 14:52 CEST)
+
+**A column of this matrix is an AGENT, but an agent now has more than one
+driver, and scoring "newest row wins" silently let a new driver overwrite the
+shipping one.** `claude-sdk` is mid-bring-up under POD-3036. `claude-pty` is
+what ships today. On A3 they disagree: claude-pty PASSES (2026-08-27, Decision
+25), claude-sdk FAILS (2026-08-28). Taking the newest across both reported a
+catastrophic Claude regression **that does not exist**, and would have
+re-declared the blocker Decision 25 retired.
+
+**Rule: the release bar is the SHIPPING drivers.** `claude-sdk` is scored as its
+own separate bring-up (14 cells: 8 PASS, 3 FAIL, 3 BLOCKED) and is NOT part of
+the "at least as good as main" number. Corrected position on the shipping
+drivers: **70/70 driven, 55 PASS, 6 FAIL, 6 PARTIAL, 3 BLOCKED.**
+
+The denominator also moved 69 → 70: **A10/claude is no longer n/a.** The SDK
+driver gives claude a driver identity distinct from the PTY path, so the cell
+became meaningful and POD-3036 drove it on both. A matrix's n/a set is not
+constant — new work can make a dead cell live.
+
+### And the A1c cluster is not what I said it was
+
+I briefed POD-3044 that A1c fails on claude/codex/grok and passes on opencode,
+so copy opencode. **That was wrong, and wrong the same way.** Newest row per
+DRIVER:
+
+| driver | A1c |
+| --- | --- |
+| codex-app-server, opencode-server, grok-acp | **FAIL** |
+| codex-headless, opencode-headless, shell-native | **PASS** |
+| claude-pty | FAIL |
+| **claude-pty-on-main** | **FAIL** |
+
+**The split is by driver FAMILY, not by agent.** Every server-family driver
+fails; headless and native pass. I quoted the opencode-*headless* row as if it
+were opencode's verdict — the same overclaim the A6b probe made in Decision 28,
+committed by me, into a brief a session was already acting on.
+
+**And a main baseline already existed and I missed it:** `claude-pty-on-main`
+FAILS A1c. So on claude this is a longstanding gap, **not a regression**, and it
+does not block on the "at least as good as main" bar. Whether the *server-family*
+failure is a regression is genuinely open, because those drivers are new here and
+main may have no comparable arm — and **absence of a main row is not a passing
+main.** Both sessions corrected in flight.
+
+**Three of my last four errors are one error:** a classifier looser than the
+thing classified (`NF<8`), a summary trusted over its clauses (A6b), and now a
+column that silently merged two drivers. **Before quoting a number, ask what it
+is grouping and whether every member of that group is the same thing.**
