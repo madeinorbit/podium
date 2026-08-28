@@ -69,6 +69,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     process.execPath,
     opts.sourceRoot,
   )
+  log.info('daemon process start', {
+    pid: process.pid,
+    appVersion: build.appVersion,
+    wireSchemaDigest: build.wireSchemaDigest,
+    installKind: build.installKind,
+    serverUrl: opts.serverUrl,
+    topology: opts.localLink ? 'local-link' : 'remote-websocket',
+    supervised: process.env.PODIUM_DESKTOP_SUPERVISED === '1',
+    underParent: process.env.PODIUM_UNDER_PARENT === '1',
+    stateDir: process.env.PODIUM_STATE_DIR,
+    installDir,
+  })
   /**
    * THE EXIT SEAM, DISARMED WHERE EXITING IS FATAL (POD-2210).
    *
@@ -126,7 +138,28 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     onTerminal: host.close,
     restartAfterUpdate: options.restartAfterUpdate,
   })
-  await connection.start()
+  const startedAt = Date.now()
+  log.info('daemon connection start', {
+    pid: process.pid,
+    serverUrl: options.serverUrl,
+    topology: options.localLink ? 'local-link' : 'remote-websocket',
+  })
+  try {
+    await connection.start()
+    log.info('daemon connection start settled', {
+      pid: process.pid,
+      state: connection.state,
+      elapsedMs: Date.now() - startedAt,
+    })
+  } catch (error) {
+    log.error('daemon connection start rejected', {
+      pid: process.pid,
+      state: connection.state,
+      elapsedMs: Date.now() - startedAt,
+      err: error,
+    })
+    throw error
+  }
 
   return {
     hookPort: host.hookPort,

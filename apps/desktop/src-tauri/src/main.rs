@@ -432,6 +432,43 @@ fn process_executable(_pid: u32) -> Option<std::path::PathBuf> {
     None
 }
 
+/// Render the complete child termination fact that matters to supervision. `ExitStatus::code()`
+/// alone loses the most useful distinction here: a daemon killed by a signal is not the same
+/// event as one that deliberately returned the terminal-refusal code. Keep this helper platform
+/// neutral so the same record shape is available in Linux, macOS, and Windows diagnostics.
+fn exit_status_details(status: Option<&std::process::ExitStatus>) -> String {
+    let Some(status) = status else {
+        return "status=unavailable code=None signal=None".to_string();
+    };
+    let signal = {
+        #[cfg(unix)]
+        {
+            std::os::unix::process::ExitStatusExt::signal(status)
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    };
+    format!(
+        "status={status:?} code={:?} signal={signal:?} success={} raw={:?}",
+        status.code(),
+        status.success(),
+        status,
+    )
+}
+
+/// Include the PID and the executable the kernel says that PID is actually running. The launch
+/// path knows which file it asked for, but an atomic payload swap can make that path stale by the
+/// time a respawn occurs; `/proc`/`proc_pidpath` is the evidence of what really ran.
+fn child_details(child: &std::process::Child) -> String {
+    let pid = child.id();
+    let executable = process_executable(pid)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<unavailable>".to_string());
+    format!("pid={pid} executable={executable}")
+}
+
 #[cfg(unix)]
 fn process_is_alive(pid: u32) -> bool {
     unsafe extern "C" {
@@ -567,10 +604,21 @@ fn await_child_exit(
             let mut guard = child_state.lock().unwrap();
             match guard.as_mut() {
                 Some(child) => match child.try_wait() {
-                    Ok(Some(status)) => return Some(Some(status)),
+                    Ok(Some(status)) => {
+                        log::info!(
+                            "supervised backend child exited; pid={} {}",
+                            child.id(),
+                            exit_status_details(Some(&status)),
+                        );
+                        return Some(Some(status));
+                    }
                     Ok(None) => {}
                     Err(error) => {
-                        log::warn!("cannot poll the supervised backend: {error}");
+                        log::error!(
+                            "cannot poll the supervised backend; pid={} executable={:?}: {error}",
+                            child.id(),
+                            process_executable(child.id()),
+                        );
                         return Some(None);
                     }
                 },
@@ -608,6 +656,7 @@ fn spawn_respawn_monitor<F, S, D>(
     D: Fn() -> bootstrap::BackendExitDecision + Send + 'static,
 {
     std::thread::spawn(move || {
+        log::info!("native backend monitor started; label={label}");
         let mut backoff_ms: u64 = 500;
         let mut transferred_server_url: Option<String> = None;
         let mut paused_exit_pid: Option<u32> = None;
@@ -626,14 +675,26 @@ fn spawn_respawn_monitor<F, S, D>(
                 local_restart.as_ref(),
             )
             else {
+                log::info!("native backend monitor stopped: child slot is empty; label={label}");
                 break;
             };
+            log::warn!(
+                "native backend exit observed; label={label} observed_pid={observed_pid:?} executable={:?} {}",
+                observed_pid.and_then(process_executable),
+                exit_status_details(exited.as_ref()),
+            );
 
             if shutting_down.load(Ordering::Acquire) {
+                log::info!("native backend monitor stopping during shell shutdown; label={label}");
                 break;
             }
 
             let exit_code = exited.as_ref().and_then(std::process::ExitStatus::code);
+            log::info!(
+                "native backend exit classification; label={label} code={exit_code:?} respawn={} status={}",
+                should_respawn_backend(exit_code),
+                exit_status_details(exited.as_ref()),
+            );
             if !should_respawn_backend(exit_code) {
                 log::warn!(
                     "backend exited {DAEMON_BLOCKED_EXIT_CODE} after a terminal server refusal; \
@@ -644,6 +705,10 @@ fn spawn_respawn_monitor<F, S, D>(
             }
 
             let successor_file = successor.file.lock().ok().and_then(|path| path.clone());
+            log::info!(
+                "native backend successor marker; label={label} path={successor_file:?} exists={}",
+                successor_file.as_ref().is_some_and(|path| path.exists()),
+            );
             if let Some((path, pid)) = successor_file
                 .as_deref()
                 .and_then(|path| take_live_successor_pid(path).map(|pid| (path, pid)))
@@ -662,6 +727,7 @@ fn spawn_respawn_monitor<F, S, D>(
             } else {
                 exit_decision()
             };
+            log::info!("native backend exit decision; label={label} decision={decision:?}");
             let intentional_transfer = match decision {
                 bootstrap::BackendExitDecision::Respawn => false,
                 bootstrap::BackendExitDecision::Retarget {
@@ -713,12 +779,23 @@ fn spawn_respawn_monitor<F, S, D>(
                 break;
             }
 
+            let spawn_kind = if transferred_server_url.is_some() {
+                "daemon-after-transfer"
+            } else {
+                "original-topology"
+            };
+            log::info!(
+                "native backend respawn attempt; label={label} kind={spawn_kind} target={:?} backoff_ms={backoff_ms}",
+                transferred_server_url.as_deref().unwrap_or("<local>"),
+            );
             let spawned = match transferred_server_url.as_deref() {
                 Some(server_url) => spawn_daemon_fn(server_url),
                 None => spawn_fn(),
             };
             match spawned {
                 Ok(mut new_child) => {
+                    let spawned_details = child_details(&new_child);
+                    log::info!("native backend respawn spawn succeeded; label={label} {spawned_details}");
                     // Shutdown can begin between the check above and this store. By then the
                     // exit handlers have already emptied the slot, so a child parked here now
                     // would outlive the app and keep holding its port. Re-check under the lock
@@ -729,9 +806,10 @@ fn spawn_respawn_monitor<F, S, D>(
                         break;
                     }
                     *guard = Some(new_child);
+                    log::info!("native backend child slot stored; label={label} {spawned_details}");
                     backoff_ms = 500;
                 }
-                Err(e) => log::error!("respawn failed: {e}"),
+                Err(error) => log::error!("native backend respawn failed; label={label} kind={spawn_kind} error={error}"),
             }
         }
     });
@@ -1301,6 +1379,7 @@ fn main() {
                                         payload_start_error = Some(reason);
                                     }
                                     Ok(child) => {
+                                        log::info!("native backend initial host spawn succeeded; {}", child_details(&child));
                                         *child_state.lock().unwrap() = Some(child);
 
                                         // Supervise only a child that actually started. A failed
@@ -1345,7 +1424,7 @@ fn main() {
                                                     &transition_action,
                                                 )
                                             },
-                                            format!("on port {port}"),
+                                            format!("on port {port}; executable={}", runnable.display()),
                                         );
                                     }
                                 }
@@ -1385,6 +1464,7 @@ fn main() {
                                         payload_start_error = Some(reason);
                                     }
                                     Ok(child) => {
+                                        log::info!("native backend initial daemon spawn succeeded; {}", child_details(&child));
                                         *child_state.lock().unwrap() = Some(child);
                                         let runnable2 = runnable.clone();
                                         let runnable_daemon = runnable.clone();
@@ -1411,7 +1491,7 @@ fn main() {
                                                 .spawn()
                                             },
                                             || bootstrap::BackendExitDecision::Respawn,
-                                            "(daemon)".to_string(),
+                                            format!("(daemon); executable={}", runnable.display()),
                                         );
                                     }
                                 }

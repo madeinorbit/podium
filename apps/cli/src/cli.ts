@@ -1265,6 +1265,7 @@ async function runInProcess(
         ? {
             onBlocked: async ({ type, reason }: { type: string; reason: string }) => {
               const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
+              console.error(`podium daemon: blocked-exit hook invoked pid=${process.pid} type=${type} reason=${reason}`)
               console.error(
                 `podium daemon: blocked by the server (${type}: ${reason}) — exiting ${DAEMON_BLOCKED_EXIT_CODE}. Run \`podium status\` for recovery steps.`,
               )
