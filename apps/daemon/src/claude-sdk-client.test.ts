@@ -419,6 +419,21 @@ describe('the daemon reads back what the host did with an interrupt', () => {
     expect(ack).toMatchObject({ detail: expect.stringContaining('exited') })
   }, 20_000)
 
+  it('reports an unconfirmed interrupt when a live host simply never answers', async () => {
+    // The OTHER way a verdict fails to arrive, and a different code path from
+    // the death above: the host is alive and holding the pipe open, it just
+    // never says what the provider did. Waiting forever would strand the
+    // operator's stop in the one state they cannot see; the deadline turns it
+    // into a truthful "we do not know" instead.
+    const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      spawnHost: fakeHost(emitsThenHangs(say({ t: 'session', harnessSessionId: 'sess-mute' }))),
+    })
+    ignoreTeardown(handle)
+    const ack = await handle.requestInterrupt()
+    expect(ack.outcome).toBe('unconfirmed')
+    expect(ack).toMatchObject({ detail: expect.stringContaining('in time') })
+  }, 20_000)
+
   it('answers each interrupt separately when two are outstanding', async () => {
     // One press must not consume another's receipt: the ids are what keep two
     // stops from collapsing into one answer.
