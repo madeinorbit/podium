@@ -31,6 +31,16 @@ export type ClientBuildEvidence = Readonly<{
   version: string
   sourceCommit: string
   sites: { web: string; mobile: string }
+  /**
+   * How the dist that was just verified came to be, when the caller built it through
+   * the Turbo lane: each client task's cache key and whether the output was RESTORED
+   * rather than produced. It is provenance about the run, not about the bytes — the
+   * bytes are already proved by clientRootDigest — and it is what makes a release's
+   * timing legible after the fact ("both restored" vs "both rebuilt"). Absent when a
+   * caller verified a dist it did not build through the lane.
+   */
+  taskHashes?: Readonly<Record<string, string>>
+  cache?: Readonly<Record<string, 'HIT' | 'MISS'>>
 }>
 
 export interface VerifyClientBuildInput {
@@ -38,6 +48,8 @@ export interface VerifyClientBuildInput {
   mobile: string
   sourceCommit: string
   version: string
+  /** The Turbo run that produced these sites, when there was one. */
+  run?: { tasks: Record<string, { hash: string; cache: 'HIT' | 'MISS' }> }
 }
 
 /** Evidence is minted here or it is not evidence. A caller cannot forge membership
@@ -98,11 +110,18 @@ export function verifyClientBuild(input: VerifyClientBuildInput): ClientBuildEvi
   // Exact inventory + per-file hash check lives in clientBuildRootDigestFromSites
   // (packages/runtime/src/client-build-provenance.ts); it throws on any drift.
   const clientRootDigest = clientBuildRootDigestFromSites({ web: input.web, mobile: input.mobile })
+  const tasks = input.run ? Object.entries(input.run.tasks) : []
   const evidence: ClientBuildEvidence = Object.freeze({
     clientRootDigest,
     version: input.version,
     sourceCommit: input.sourceCommit,
     sites: { web: input.web, mobile: input.mobile },
+    ...(input.run
+      ? {
+          taskHashes: Object.freeze(Object.fromEntries(tasks.map(([id, t]) => [id, t.hash]))),
+          cache: Object.freeze(Object.fromEntries(tasks.map(([id, t]) => [id, t.cache]))),
+        }
+      : {}),
   })
   minted.add(evidence)
   return evidence

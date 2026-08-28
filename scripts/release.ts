@@ -319,10 +319,10 @@ function stagePrepared(p: {
  * path the compiled binary embeds its helper from — so running them concurrently would
  * race to leave the wrong architecture's abduco inside a bundle. See scripts/build-bun.ts.
  */
-export function prepareHeadlessCross(
+export async function prepareHeadlessCross(
   platforms: readonly HeadlessPlatform[] = RELEASE_PLATFORMS,
   outDir = 'dist-bun/release',
-): PreparedHeadless[] {
+): Promise<PreparedHeadless[]> {
   if (process.platform !== 'linux') {
     throw new Error(
       `headless cross-builds run on linux only; this runner is ${process.platform}/${process.arch}`,
@@ -334,7 +334,7 @@ export function prepareHeadlessCross(
   // each platform bundle by build-bun; dev-host units never belong on this path.
   // Stamp the fresh client output with the FINAL product version before capturing
   // its process-local root; packaging is forbidden from restamping after this point.
-  const session = beginFreshClientPackagingSession([])
+  const session = await beginFreshClientPackagingSession([])
   mkdirSync(outDir, { recursive: true })
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
 
@@ -362,10 +362,10 @@ export function prepareHeadlessCross(
  * stages under the SAME asset name as the cross build, so the two legs must be uploaded
  * to different directories — the publisher rejects two descriptors claiming one platform.
  */
-export function prepareHeadlessArchitecture(
+export async function prepareHeadlessArchitecture(
   arch: HeadlessArch,
   outDir = 'dist-bun/release',
-): PreparedHeadless {
+): Promise<PreparedHeadless> {
   const config = HEADLESS_ARCH[arch]
   if (process.platform !== 'linux' || process.arch !== config.nodeArch) {
     throw new Error(
@@ -374,7 +374,7 @@ export function prepareHeadlessArchitecture(
     )
   }
 
-  const session = beginFreshClientPackagingSession([])
+  const session = await beginFreshClientPackagingSession([])
   mkdirSync(outDir, { recursive: true })
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
   const packaged = packageHeadlessForFreshClients(session, [])
@@ -695,7 +695,7 @@ async function main(): Promise<void> {
         )
       }
     }
-    prepareHeadlessCross(
+    await prepareHeadlessCross(
       requested.length > 0 ? (requested as HeadlessPlatform[]) : RELEASE_PLATFORMS,
     )
     return
@@ -704,7 +704,7 @@ async function main(): Promise<void> {
     if (prepareArch !== 'x64' && prepareArch !== 'arm64') {
       throw new Error(`unknown headless architecture ${prepareArch}`)
     }
-    prepareHeadlessArchitecture(prepareArch)
+    await prepareHeadlessArchitecture(prepareArch)
     return
   }
   if (publishDir) {
@@ -725,7 +725,7 @@ async function main(): Promise<void> {
     throw new Error('publishing requires the multi-platform --publish-dir workflow')
   }
   const nativeArch: HeadlessArch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  const prepared = prepareHeadlessArchitecture(nativeArch)
+  const prepared = await prepareHeadlessArchitecture(nativeArch)
   publishPreparedHeadless({
     channel,
     tag,

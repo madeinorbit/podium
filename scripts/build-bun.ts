@@ -63,6 +63,7 @@ import {
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
 import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
+import { buildClients } from './build-clients'
 import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigestFromSites,
@@ -72,10 +73,7 @@ import {
   isClientBuildEvidence,
   verifyClientBuild,
 } from './verify-client-build'
-import {
-  releaseBuildTimingEnabled,
-  timeReleaseBuildSync,
-} from '@podium/runtime/release-build-timing'
+import { timeReleaseBuildSync } from '@podium/runtime/release-build-timing'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -222,9 +220,9 @@ function packageVersion(root: string): string {
  * evidence minted by that verification, so stale output or a caller-computed digest is
  * not provenance (spec 2026-08-28-cached-release-build-design §5).
  */
-export function beginFreshClientPackagingSession(
+export async function beginFreshClientPackagingSession(
   argv: readonly string[] = [],
-): FreshClientPackagingSession {
+): Promise<FreshClientPackagingSession> {
   if (arguments.length > 1) {
     throw new Error('build-bun: caller-supplied environment is forbidden for client freshness')
   }
@@ -237,15 +235,12 @@ export function beginFreshClientPackagingSession(
     )
   }
   const version = packageVersion(root)
-  const packageClients = releaseBuildTimingEnabled() ? 'package:clients:timed' : 'package:clients'
-  execFileSync(process.execPath, ['run', packageClients], {
-    cwd: root,
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      PODIUM_APP_VERSION: version,
-    },
-  })
+  // Through the Turbo lane (POD-3053), so a client this host has already built for
+  // this commit and version is RESTORED rather than rebuilt — the same three
+  // per-platform client builds a cross-compiled release used to pay for in full.
+  // Freshness does not weaken by restoring: what packaging accepts is the checksum
+  // evidence below, which reads the dist that is actually on disk.
+  const run = await buildClients(root, [], { ...process.env, PODIUM_APP_VERSION: version })
   const sourceCommit = developmentSourceSha(root)
   if (!sourceCommit) {
     throw new Error('build-bun: cannot name HEAD, so the client build cannot be verified')
@@ -255,6 +250,7 @@ export function beginFreshClientPackagingSession(
     mobile: `${root}apps/mobile/dist`,
     sourceCommit,
     version,
+    run,
   })
 }
 

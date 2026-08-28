@@ -271,7 +271,7 @@ describe('assert-headless-bundle production layout', () => {
     )
   })
 
-  it('refuses to mint a session when PATH replaces the running Bun with a no-op', () => {
+  it('refuses to mint a session when PATH replaces the running Bun with a no-op', async () => {
     const fakeBin = scratch()
     const fakeBun = join(fakeBin, process.platform === 'win32' ? 'bun.exe' : 'bun')
     writeFileSync(fakeBun, '#!/bin/sh\nexit 0\n')
@@ -279,7 +279,11 @@ describe('assert-headless-bundle production layout', () => {
     const originalPath = process.env.PATH
     process.env.PATH = `${fakeBin}${delimiter}${originalPath ?? ''}`
     try {
-      expect(() => beginFreshClientPackagingSession([])).toThrow(
+      // REJECTS, not throws: the session became async when the client build moved
+      // behind the Turbo lane (POD-3053). A `.toThrow()` on an async function passes
+      // for the wrong reason — nothing is thrown synchronously — so this guard would
+      // have gone green against a build that had stopped refusing entirely.
+      await expect(beginFreshClientPackagingSession([])).rejects.toThrow(
         /PATH resolves bun to .* not the running interpreter/,
       )
     } finally {
@@ -288,15 +292,15 @@ describe('assert-headless-bundle production layout', () => {
     }
   })
 
-  it('refuses the reviewer attack that passes a no-op PATH as a second argument', () => {
-    expect(() =>
+  it('refuses the reviewer attack that passes a no-op PATH as a second argument', async () => {
+    await expect(
       (
         beginFreshClientPackagingSession as unknown as (
           argv: readonly string[],
           env: NodeJS.ProcessEnv,
-        ) => FreshClientPackagingSession
+        ) => Promise<FreshClientPackagingSession>
       )([], { ...process.env, PATH: '/tmp/pod2540-noop-bun' }),
-    ).toThrow(/caller-supplied environment is forbidden for client freshness/)
+    ).rejects.toThrow(/caller-supplied environment is forbidden for client freshness/)
   })
 
   it('packaging accepts only evidence minted by verifyClientBuild', () => {
@@ -525,11 +529,11 @@ describe('the gate and the signing step name the same JIT keys', () => {
     const packageHeadless = readFileSync(join(repoRoot, 'scripts/package-headless.ts'), 'utf8')
     const packageJson = readFileSync(join(repoRoot, 'package.json'), 'utf8')
     const windowsSmoke = readFileSync(join(repoRoot, '.github/workflows/windows-smoke.yml'), 'utf8')
-    expect(release).toContain('const session = beginFreshClientPackagingSession([])')
+    expect(release).toContain('const session = await beginFreshClientPackagingSession([])')
     expect(release).toContain('packageHeadlessForFreshClients(')
     expect(buildBun).toContain('isClientBuildEvidence(session)')
-    expect(buildBun).toContain("execFileSync(process.execPath, ['run', packageClients]")
-    expect(buildBun).toContain('const packageClients = releaseBuildTimingEnabled()')
+    expect(buildBun).toContain('await buildClients(root')
+    expect(buildBun).not.toContain('package:clients')
     expect(buildBun).toContain('verifyClientBuild({')
     expect(buildBun).not.toContain('PODIUM_CLIENT_BUILD_INVOCATION')
     expect(buildBun).toContain('direct headless packaging is forbidden')
@@ -553,10 +557,9 @@ describe('the gate and the signing step name the same JIT keys', () => {
       'expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
     )
     expect(mobile.scripts['build:web']).toBeUndefined()
-    expect(packageJson).toContain(
-      '"package:clients": "bun run --filter @podium/web build && bun run --filter @podium/mobile build"',
-    )
-    expect(packageJson).toContain('"package:clients:timed"')
+    expect(packageJson).not.toContain('package:clients')
+    expect(packageJson).toContain('"build": "bun scripts/build-clients.ts --workspace"')
+    expect(packageJson).toContain('"build:clients": "bun scripts/build-clients.ts"')
     expect(windowsSmoke).not.toContain('bun scripts/build-bun.ts')
     // LAST on purpose (POD-3058): this expectation is red — windows-smoke.yml has no
     // such step — and an early failure in a single `it` makes every assertion after it

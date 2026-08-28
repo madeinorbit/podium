@@ -887,15 +887,20 @@ describe('test lane configuration', () => {
     expect(lane, 'lane must export mobile web for phone projects').toMatch(
       /@podium\/mobile['"],\s*['"]build['"]/,
     )
-    // Root `bun run build` is packages/* then @podium/web; packages/* includes
-    // model before protocol alphabetically only by workspace graph — the
-    // historical order guarantee was model-before-protocol in one shell string.
-    // The root build script is the order of record for the lane.
+    // Root `bun run build` used to be a hand-written `--filter` chain, and its order
+    // was the order of record for this lane. It is a Turbo task graph now (POD-3053):
+    // the ordering guarantee moved from a shell string into `dependsOn`, where it is
+    // derived rather than remembered, and the lane gets it by delegating. What this
+    // still has to pin is that the root script IS that delegation — a chain creeping
+    // back would be a second order of record, and the one this lane does not read.
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    expect(pkg.scripts.build).toMatch(/packages\/\*/)
-    expect(pkg.scripts.build).toMatch(/@podium\/web/)
+    expect(pkg.scripts.build).toBe('bun scripts/build-clients.ts --workspace')
+    const buildClients = readFileSync(new URL('./build-clients.ts', import.meta.url), 'utf8')
+    expect(buildClients, 'the lane must run turbo run build, never a bare turbo build').toContain(
+      "'run',\n    'build',",
+    )
 
     for (const playwright of [browserConfig, phase3BrowserConfig]) {
       const command = webServerCommand(playwright)

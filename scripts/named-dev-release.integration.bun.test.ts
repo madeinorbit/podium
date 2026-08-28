@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url'
 import type { UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
 import { Hono } from 'hono'
-import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { registerDevFeedRoutes } from '../apps/server/src/modules/updates/artifact-route'
 import { withDevBuildSnapshot } from '../apps/server/src/modules/updates/dev-build-snapshot'
 import {
@@ -46,30 +45,31 @@ function git(root: string, ...args: string[]): string {
 
 /**
  * Exercise the source-writing part of the real package recipe without paying for two client
- * compilers. The client commands only write ignored dist trees; the systemd command is different:
- * for a named instance it writes new, untracked unit names into the checkout under test.
+ * compilers.
+ *
+ * The question this answers has not changed: does packaging write anything into the CHECKOUT
+ * that a named instance would then trip over? A step that renders systemd units would — for a
+ * named instance it writes new, untracked unit names. The client builds do not: they write
+ * ignored dist trees.
+ *
+ * What changed is where the answer is written down. Packaging used to run a `package:clients`
+ * shell chain, so the guard read that string and refused a step it did not recognise. The
+ * clients are Turbo tasks now (POD-3053) and there is no chain to read; the equivalent
+ * statement is each task's declared `outputs`. A task that started writing somewhere else
+ * would have to say so there, and this refuses anything but `dist/**`.
  */
-function replayClientPackagingRecipe(snapshotRoot: string): void {
-  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
-    scripts?: Record<string, string>
+function assertClientPackagingWritesOnlyDist(): void {
+  const turbo = JSON.parse(readFileSync(join(ROOT, 'turbo.json'), 'utf8')) as {
+    tasks?: Record<string, { outputs?: string[] } | undefined>
   }
-  const recipe = pkg.scripts?.['package:clients']
-  if (!recipe) throw new Error('package:clients is missing')
-  for (const command of recipe.split(' && ')) {
-    if (
-      command === 'bun run --filter @podium/web build' ||
-      command === 'bun run --filter @podium/mobile build'
-    ) {
-      continue
+  for (const task of ['@podium/web#build', '@podium/mobile#build']) {
+    const outputs = turbo.tasks?.[task]?.outputs
+    if (outputs === undefined) throw new Error(`${task} is not a turbo task any more`)
+    if (outputs.length !== 1 || outputs[0] !== 'dist/**') {
+      throw new Error(
+        `named release regression does not recognize ${task} outputs: ${JSON.stringify(outputs)}`,
+      )
     }
-    if (command === 'bun run systemd:render') {
-      writeSystemdFiles(join(snapshotRoot, 'scripts/systemd'), {
-        profile: 'dev',
-        instanceId: INSTANCE_ID,
-      })
-      continue
-    }
-    throw new Error(`named release regression does not recognize package:clients step: ${command}`)
   }
 }
 
@@ -112,8 +112,8 @@ describe('named-instance development releases', () => {
               return result
             },
           ),
-        prepareWebDist: async (_headSha, _explicit, snapshotRoot) => {
-          replayClientPackagingRecipe(snapshotRoot)
+        prepareWebDist: async () => {
+          assertClientPackagingWritesOnlyDist()
         },
         lock: {
           acquire: async () => true,

@@ -7,10 +7,10 @@
  */
 import { beginFreshClientPackagingSession, packageHeadlessForFreshClients } from './build-bun'
 
-function main(): void {
+async function main(): Promise<void> {
   const argv = process.argv.slice(2)
-  const session = beginFreshClientPackagingSession(argv)
+  const session = await beginFreshClientPackagingSession(argv)
   packageHeadlessForFreshClients(session, argv)
 }
 
-if (import.meta.main) main()
+if (import.meta.main) void main()
