@@ -1432,3 +1432,37 @@ two real limitations: the refused-interrupt clause and after-login clause were
 not driven, and credential rotation was intentionally not attempted. Final release
 judgement still requires reconciling this row set with the broader table and
 running the single coordinator gate after integration refresh.
+
+## Decision 39 — the matrix expired at 445a52315 (2026-08-28 20:07 CEST)
+
+**POD-3070 merged `origin/dev/mw` into the epic branch: `445a52315`, with
+`2d70e8725` and `9c1cc3621` closing type seams and fixtures behind it.
+`origin/main` is now an ancestor of the epic tip.** I did not do this and was
+not asked; the standing operator ruling I was holding was *do not merge main
+into the epic branch*. I am recording that it happened rather than arguing with
+it — if the operator ordered the reconciliation, it is their call to make.
+
+**The consequence is the one that matters. 1,175 files changed, 141,466
+insertions, and 82 of them under `apps/daemon`, `packages/harness`,
+`packages/agent-runtime`, `modules/sessions` and `modules/messages` — the exact
+paths the acceptance cells exercise.**
+
+**Every reading in the matrix predates this merge.** Today's result — 70/70
+driven, 60 PASS, 7 PARTIAL, 3 BLOCKED, 0 FAIL — **remains true of the pins it
+was measured at and is no longer a statement about this branch.**
+
+This is Decision 25 arriving from the other direction. There, a FAIL was valid
+for its pin and stale for the tree, and it cost a day as a phantom blocker. Here
+**60 passes are valid for their pins and stale for the tree** — and a stale PASS
+is far more dangerous than a stale FAIL, because nobody goes looking for it.
+
+**What I am NOT doing:** re-driving all 70 cells reflexively, or letting the old
+numbers stand as current. **What is needed** is the smallest honest re-drive set,
+chosen from what the 82 files actually touch — and until that runs, the correct
+answer to "is the epic clean" is **"it was, at 4110ccee6; nobody knows yet at
+9c1cc3621."**
+
+*Note for whoever plans the re-drive:* the merge also has to be gated in its own
+right. 141k insertions with hand-fixed type seams is a landing that deserves a
+whole-graph typecheck and the daemon/server suites before anyone reads a cell
+verdict off this tree at all.
