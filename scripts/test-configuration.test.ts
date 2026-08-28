@@ -35,6 +35,7 @@ import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements
 import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
+import { CLIENT_DIST_DIRS } from './build-clients'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 import { runWithHeavyTestLease } from './test-heavy'
 import scriptsConfig from './vitest.config'
@@ -918,6 +919,39 @@ describe('test lane configuration', () => {
     expect(lane).toMatch(/buildOnly|BUILD_ONLY/)
     expect(lane, 'lane must expose --suite selection').toContain('--suite')
     expect(lane).toMatch(/resolveSelectedSuites|suiteSelectors/)
+  })
+
+  it('stamps both client dists after turbo, with no cache-state branch [POD-3072][POD-3082]', () => {
+    // WHAT RESTS ON THIS. Since POD-3082 the phone's build task no longer names
+    // PODIUM_APP_VERSION in its cache key, so a release whose clients did not change
+    // RESTORES apps/mobile/dist — stamped with whichever version and commit first built
+    // those inputs. The only thing that makes the released dist name THIS release is
+    // stampClients running after the turbo call, for every run, HIT and MISS alike.
+    //
+    // That is why the shape is asserted and not just the behaviour: an `if (cache ===
+    // 'MISS')` slipped in between the build and the stamp would leave every cold-build
+    // test green and only a restored release wrong — the exact failure POD-3072 was.
+    expect(CLIENT_DIST_DIRS, 'both client dists must be stamped').toEqual([
+      'apps/web/dist',
+      'apps/mobile/dist',
+    ])
+
+    const source = readFileSync(new URL('./build-clients.ts', import.meta.url), 'utf8')
+    for (const name of ['buildClients', 'buildWorkspace']) {
+      const start = source.indexOf(`export async function ${name}(`)
+      expect(start, `${name} is not exported from build-clients.ts`).toBeGreaterThan(-1)
+      const end = source.indexOf('\n}\n', start)
+      const body = source.slice(start, end)
+
+      const built = body.indexOf('runTurboBuild(')
+      const stamped = body.indexOf('stampClients(')
+      expect(built, `${name} no longer runs the turbo build`).toBeGreaterThan(-1)
+      expect(stamped, `${name} must stamp AFTER turbo returns`).toBeGreaterThan(built)
+      expect(
+        body.slice(built, stamped),
+        `${name} decides whether to stamp; the stamp must be unconditional`,
+      ).not.toMatch(/\b(if|switch|cache|HIT|MISS)\b|\?/)
+    }
   })
 
   it('keeps webServer budget for harness boot only [POD-535]', () => {

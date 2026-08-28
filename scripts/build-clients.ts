@@ -17,8 +17,9 @@
  *      run's dist in place for packaging to pick up.
  *   3. THE REFUSAL OF AN UNEXPLAINED --force. `decideForce` again — a forced client
  *      build is minutes of CPU on a host that is also serving a live Podium.
- *   4. THE COMMIT THE DIST NAMES (POD-3072). Turbo's key is the inputs plus
- *      PODIUM_APP_VERSION; the commit SHA is in no part of it, and that is on purpose —
+ *   4. THE COMMIT THE DIST NAMES (POD-3072). Turbo's key is the inputs (plus
+ *      PODIUM_APP_VERSION for web only, POD-3082); the commit SHA is in no part of it,
+ *      and the version is in no part of the phone's — that is on purpose —
  *      putting it in would make every commit a MISS and there would be nothing left to
  *      cache. But the stamp the build writes DOES name the commit, so a restore hands
  *      back a dist stamped with whichever commit first built those inputs, and
@@ -132,8 +133,12 @@ function summaryWrittenSince(root: string, since: number): string {
  * Build both clients through Turbo. Throws on refusal or a non-zero turbo exit.
  *
  * `env` names the variables the BUILD is parameterised by — in practice only
- * PODIUM_APP_VERSION, which the stamp writes into index.html and the manifest and
- * which turbo.json lists in the tasks' `env` so it is hashed rather than filtered.
+ * PODIUM_APP_VERSION, which the stamp writes into index.html and the manifest. It is
+ * hashed rather than filtered for `@podium/web#build`, which lists it in turbo.json;
+ * `@podium/mobile#build` deliberately lists nothing, because the phone reads the
+ * variable nowhere and the re-stamp below puts the version into a RESTORED dist just
+ * as well as a freshly built one (POD-3082, and `REQUIRED_BUILD_ENV` in
+ * scripts/client-build-inputs.ts for why the asymmetry is not an oversight).
  * Everything else comes from this process via `turboEnv`.
  */
 export async function buildClients(
@@ -204,12 +209,16 @@ export function stampCommandFor(root: string, distDir: string): string[] {
  * the restored bytes carry whichever commit first built these inputs, so this runs the
  * same script again, afterwards, unconditionally.
  *
- * WHY THIS DOES NOT WEAKEN THE PROVENANCE M1 CHECKS. The manifest's per-file inventory
- * (write-web-build-stamp.ts) SKIPS both `podium-build-manifest.json` and
- * `podium-build.json`, so rewriting the two stamp files invalidates no hashed file: the
- * inventory that `verifyClientBuild` checks byte for byte still describes exactly the
- * bytes on disk, and it is recomputed here from that disk rather than carried over. The
- * commit is re-stated; nothing about the content claim is taken on trust.
+ * WHY THIS DOES NOT WEAKEN THE PROVENANCE M1 CHECKS. It is ORDERING, not restraint: the
+ * re-stamp DOES rewrite a hashed file. `index.html` is in the inventory, and the stamp
+ * rewrites it (the `podium-version` meta) along with its `.br`/`.gz` siblings. What
+ * keeps the inventory honest is that `clientBuildManifest()` re-hashes every file from
+ * DISK after those writes, so the inventory `verifyClientBuild` checks byte for byte
+ * describes exactly the bytes now on disk rather than anything carried over from the
+ * restored manifest. (The two stamp files themselves — `podium-build-manifest.json` and
+ * `podium-build.json` — are skipped by the inventory, which is why writing them last
+ * cannot invalidate it either.) The commit is re-stated; nothing about the content
+ * claim is taken on trust.
  *
  * It is also a no-op on a MISS. The stamp is a pure function of the dist bytes, the
  * source commit and PODIUM_APP_VERSION (spec §4.3), and all three are the same as they

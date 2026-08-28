@@ -135,6 +135,47 @@ export function declaredBuildInputs(root: string, task: ClientBuildTaskId): stri
   return turbo.tasks?.[task]?.inputs ?? []
 }
 
+/**
+ * THE TWO CLIENT TASKS DECLARE DIFFERENT `env`, ON PURPOSE (POD-3082).
+ *
+ * `@podium/web#build` names PODIUM_APP_VERSION; `@podium/mobile#build` names nothing.
+ * That asymmetry looks like an oversight and is not one, so it is written here, and
+ * asserted in `client-build-inputs.test.ts`, rather than left as a comment in
+ * turbo.json — Turbo refuses an unknown key there and every reader in this repository
+ * parses that file as strict JSON, so it has nowhere to put a note.
+ *
+ * NOTHING IN apps/mobile READS THE VARIABLE. The version reaches the mobile dist only
+ * through `scripts/write-web-build-stamp.ts`, which injects the `podium-version` meta
+ * and refreshes index.html's `.br`/`.gz` siblings — and `scripts/build-clients.ts`
+ * re-runs that stamp over BOTH client dists after Turbo returns, unconditionally, on
+ * HIT as well as MISS (POD-3072). Naming the variable in the mobile key therefore
+ * bought nothing and cost everything: it forced a MISS on every release, for a value
+ * the cached output does not depend on.
+ *
+ * Web keeps its entry while POD-3083 settles a service-worker question; its build also
+ * runs `archive-web-sourcemaps.ts` and `web-bundle-budget.ts`, which were not audited
+ * for this. So: do not "restore consistency" by adding the variable back to mobile, and
+ * do not remove it from web on the strength of this note.
+ *
+ * What proves the removal SAFE rather than merely currently-true is
+ * "restores the phone app across a version change, stamped with the new version"
+ * (scripts/named-dev-release.integration.bun.test.ts), which builds the phone at one
+ * version, rebuilds at another, and requires both a HIT and a dist naming the new
+ * version — meta, manifest and compressed siblings.
+ */
+export const REQUIRED_BUILD_ENV: Record<ClientBuildTaskId, readonly string[]> = {
+  '@podium/web#build': ['PODIUM_APP_VERSION'],
+  '@podium/mobile#build': [],
+}
+
+/** What `turbo.json` declares as the task's `env` today. */
+export function declaredBuildEnv(root: string, task: ClientBuildTaskId): string[] {
+  const turbo = JSON.parse(readFileSync(join(root, 'turbo.json'), 'utf8')) as {
+    tasks?: Record<string, { env?: string[] } | undefined>
+  }
+  return turbo.tasks?.[task]?.env ?? []
+}
+
 if (import.meta.main) {
   const root = join(import.meta.dir, '..')
   for (const app of ['apps/web', 'apps/mobile'] as const) {

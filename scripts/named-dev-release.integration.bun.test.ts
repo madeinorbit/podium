@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brotliDecompressSync, gunzipSync } from 'node:zlib'
 import type { UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
 import { Hono } from 'hono'
@@ -363,6 +364,62 @@ describe('named-instance development releases', () => {
     }
     expect(second.summaryPath).not.toBe(first.summaryPath)
   }, 900_000)
+
+  /**
+   * A NEW RELEASE VERSION IS NOT A NEW PHONE APP (POD-3082).
+   *
+   * `apps/mobile` reads PODIUM_APP_VERSION nowhere. The version reaches its dist only
+   * through the stamp, and the lane re-runs that stamp over both client dists after
+   * Turbo returns, on HIT and MISS alike (POD-3072). So the mobile build task must not
+   * declare the variable in its `env`: doing so makes every release a MISS for a value
+   * the cached output does not depend on.
+   *
+   * Nothing else in the repository tests a version across a cache RESTORE —
+   * write-web-build-stamp.test.ts, served-build.test.ts and dist-patched.test.ts all
+   * look at a dist that was just built. This does the thing that can actually go wrong:
+   * build the phone at version A, build it again at version B, and require BOTH that the
+   * second run restored (same hash, HIT) and that the restored dist nevertheless names
+   * version B everywhere a reader looks — the meta the page reads, the manifest the
+   * update panel reads, and the precompressed siblings the server serves in preference
+   * to the original.
+   *
+   * Web is deliberately not asserted here. It keeps its `env` entry while POD-3083
+   * settles a service-worker question, so it legitimately MISSes on the version change.
+   */
+  it('restores the phone app across a version change, stamped with the new version', async () => {
+    assertClientPackagingWritesOnlyDist()
+
+    const first = await buildClients(ROOT, [], {
+      ...process.env,
+      PODIUM_APP_VERSION: '0.0.0-version-a',
+    })
+    const version = '0.0.0-version-b'
+    const second = await buildClients(ROOT, [], { ...process.env, PODIUM_APP_VERSION: version })
+
+    const mobile = '@podium/mobile#build'
+    expect(second.tasks[mobile].cache, 'phone rebuilt for a version it does not read').toBe('HIT')
+    expect(second.tasks[mobile].hash, 'phone restored under a different hash').toBe(
+      first.tasks[mobile].hash,
+    )
+
+    // The restored dist still has to NAME the release. A HIT that handed back version A
+    // would be a faster wrong answer, not a fix.
+    const dist = join(ROOT, 'apps', 'mobile', 'dist')
+    const indexPath = join(dist, 'index.html')
+    const html = readFileSync(indexPath, 'utf8')
+    expect(html).toContain(`<meta name="podium-version" content="${version}">`)
+    expect(html.match(/<meta\s+name=["']podium-version["']/gi) ?? []).toHaveLength(1)
+    const manifest = JSON.parse(readFileSync(join(dist, 'podium-build.json'), 'utf8')) as {
+      appVersion: string
+    }
+    expect(manifest.appVersion).toBe(version)
+
+    // The server prefers these off disk (apps/server/src/static-web.ts), so a stale
+    // sibling is the version the page actually reports being one release old.
+    const raw = readFileSync(indexPath)
+    expect(brotliDecompressSync(readFileSync(`${indexPath}.br`)).equals(raw)).toBe(true)
+    expect(gunzipSync(readFileSync(`${indexPath}.gz`)).equals(raw)).toBe(true)
+  }, 1_800_000)
 
   /**
    * THE COORDINATOR BUILDS THE CLIENTS ONCE, NOT ONCE PER PLATFORM (POD-3054).
