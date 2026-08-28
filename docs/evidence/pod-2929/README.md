@@ -72,3 +72,9 @@ returns **PASS**. See `readings/a9-opencode-2e1648.json`.
 The terminal arm was held at the admission gate when root free space reached
 `5228788 KiB`, below the `5242880 KiB` (5 GiB) floor; no terminal process or
 unverified result was started.
+### A1c — OpenCode terminal arm
+
+The terminal-arm admission gate measured root free space at `5228788 KiB`,
+below the `5242880 KiB` 5 GiB floor. It refused before any server, daemon,
+named session, positive control, or PID attribution; see
+`readings/a1c-terminal-floor-blocked-2e1648.json`.
