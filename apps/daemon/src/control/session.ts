@@ -277,25 +277,31 @@ export function reconcileNativeClientTerminal(
         // back to Chat would take the lease behind their back.
         ctx.nativeClientRetries?.delete(sessionId)
         /**
-         * TEARDOWN IS UNCONDITIONAL, AND CODEX IS WHY (POD-2823).
+         * REVOKING THE WRITER IS THE OBLIGATION; KILLING THE CLIENT WAS ONE WAY
+         * OF MEETING IT (POD-2823, POD-3045).
          *
-         * The stock TUI owns a direct WebSocket to the Codex Unix listener.
-         * Releasing the lease must revoke that writer before another client can
-         * take control; leaving it warm would let queued keystrokes bypass the
-         * daemon's lease gate. The next Native view starts a fresh client.
+         * The obligation is codex's. Its stock TUI owns a direct WebSocket to
+         * the Codex Unix listener, so releasing the lease must revoke that
+         * writer before another client can take control — and for a writer the
+         * daemon does not hold, ending the process is the only revocation there
+         * is. That is why this arm used to close every client terminal outright.
          *
-         * This used to pass `'codex'` when the binding's driver was the codex
-         * one, which read as "codex is torn down differently". It never was.
-         * `close()` reclaims the record's own label whatever kind it is given,
-         * and on a release straight after an attach there is ALWAYS a record —
-         * so the argument only ever narrowed the no-record probe, and narrowing
-         * it is not something the obligation above wants. Without a kind the
-         * probe asks every harness that declares a client terminal, which is
-         * both the safer answer and one this arm cannot get wrong for a driver
-         * that does not exist yet. The capability stays real by being applied to
-         * everyone, rather than declared as a flag no code reads.
+         * WHAT WAS WRONG WAS READING THAT AS A RULE ABOUT VIEW SWITCHES. It is
+         * a fact about one harness's client, and applied to opencode it cost
+         * the CLI its keyboard: every switch back into Native cold-started
+         * `opencode attach`, whose startup discards stdin part-way through, so
+         * a viewer who switched and typed got no echo from a terminal that was
+         * visibly painting (POD-3045). The client's only writer there is the
+         * daemon's own handle.
+         *
+         * So `release()` asks the harness — `clientTerminal.parkOnRelease` —
+         * and closes exactly where the answer is no. It is still not asked
+         * WHICH harness this is: the attachment remembers its own kind, so this
+         * arm cannot get it wrong for a driver that does not exist yet, and a
+         * fourth harness has to answer the question rather than inherit an
+         * answer nobody chose.
          */
-        await ctx.clientTerminals?.close(sessionId)
+        await ctx.clientTerminals?.release(sessionId)
         await handle.lease.release(nativeClientHolder(sessionId))
       }
       applied = wanted

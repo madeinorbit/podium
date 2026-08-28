@@ -239,6 +239,16 @@ export const grokManifest: AgentManifest = {
        */
       clientTerminal: supported({
         labelToken: 'gk',
+        /**
+         * NOT PARKED, and deliberately as today's behaviour rather than as a
+         * claim. Grok's TUI reaches its conversation through the native store
+         * rather than through a writer to the running engine, so parking it may
+         * well be safe — but nothing has driven it, and a harness whose client
+         * has never been left running unattended is not one to grant that on
+         * the strength of an argument. POD-3045 changed opencode, which is
+         * where the defect and the evidence are.
+         */
+        parkOnRelease: false,
         launch: ({ cwd, conversation }) =>
           grokManifest.launch({ cwd, resume: { kind: 'grok-session', value: conversation } }),
       }),

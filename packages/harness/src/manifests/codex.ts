@@ -411,6 +411,15 @@ export const codexManifest: AgentManifest = {
        */
       clientTerminal: supported({
         labelToken: 'cx',
+        /**
+         * NEVER PARKED: the obligation the block above states. The stock TUI
+         * holds its own writer to the per-session Unix listener, so a client
+         * left warm after the control lease is released could push queued
+         * keystrokes straight past the daemon's lease gate. Dropping the
+         * daemon's handle would not revoke that writer; only ending the process
+         * does.
+         */
+        parkOnRelease: false,
         launch: ({ cwd, conversation, endpoint }) => {
           const spec = codexManifest.launch({
             cwd,

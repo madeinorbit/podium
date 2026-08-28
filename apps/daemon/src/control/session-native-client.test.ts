@@ -14,8 +14,10 @@ const CODEX = 'codex-app-server' as const
 /**
  * The driver matters because only codex can issue the `busy`/`needs_user`
  * refusals the retry tests drive. It no longer changes the release arm: that arm
- * used to ask which driver this was, and POD-2823 established the teardown is
- * owed to every one of them.
+ * used to ask which driver this was, and POD-2823 established the obligation is
+ * owed to every one of them. What POD-3045 changed is WHICH verb discharges it —
+ * `release()`, which parks or closes according to the harness's own declaration
+ * — not who it is owed to, and this arm still never asks a driver's name.
  */
 function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server') {
   const attach = vi.fn(async () => ({
@@ -29,6 +31,7 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     attach: vi.fn(),
     adopt: vi.fn(),
     close: vi.fn(async () => {}),
+    release: vi.fn(async () => {}),
     viewers: vi.fn(),
     input: vi.fn(() => false),
     resize: vi.fn(() => false),
@@ -103,7 +106,11 @@ describe('server-family native client control', () => {
       nativeView: false,
     })
     await vi.waitFor(() => expect(release).toHaveBeenCalledWith(`podium-native:${SESSION}`))
-    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION)
+    // Not `close`: a switch to Chat is the viewer leaving, not the session
+    // going away, and which of the two that means for the client process is the
+    // harness's to declare (POD-3045).
+    expect(clientTerminals.release).toHaveBeenCalledWith(SESSION)
+    expect(clientTerminals.close).not.toHaveBeenCalled()
     expect(clientTerminals.viewers).toHaveBeenLastCalledWith(SESSION, false)
   })
 
@@ -264,6 +271,7 @@ describe('a native attach the session refused', () => {
     nativeClientInteractionAnswered(ctx, SESSION)
     await settled(ctx)
     expect(attach).not.toHaveBeenCalled()
+    expect(clientTerminals.release).not.toHaveBeenCalled()
     expect(clientTerminals.close).not.toHaveBeenCalled()
     expect(release).not.toHaveBeenCalled()
   })
@@ -345,7 +353,7 @@ describe('a native attach the session refused', () => {
   ] as const)('takes the client down before releasing the lease (%s)', async (driver) => {
     const order: string[] = []
     const { ctx, clientTerminals, release } = world(driver)
-    clientTerminals.close.mockImplementation(async () => {
+    clientTerminals.release.mockImplementation(async () => {
       order.push('close')
     })
     release.mockImplementation(async () => {
@@ -357,9 +365,11 @@ describe('a native attach the session refused', () => {
     openNative(ctx, false)
     await settled(ctx)
 
-    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION)
+    expect(clientTerminals.release).toHaveBeenCalledWith(SESSION)
     // A lease released while the stock TUI still holds its own writer lets
-    // queued keystrokes bypass the gate entirely.
+    // queued keystrokes bypass the gate entirely. `release()` revokes the
+    // writer either way — by ending the client where the harness says it must,
+    // and by dropping the daemon's only handle to it where it may be parked.
     expect(order).toEqual(['close', 'release'])
   })
 

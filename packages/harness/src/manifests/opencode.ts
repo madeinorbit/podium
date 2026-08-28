@@ -236,6 +236,27 @@ export const opencodeManifest: AgentManifest = {
        */
       clientTerminal: supported({
         labelToken: 'oc',
+        /**
+         * PARKED ON A SWITCH BACK TO CHAT, NOT KILLED (POD-3045).
+         *
+         * `opencode attach` reaches its engine over the same authenticated
+         * loopback HTTP the driver uses, and the only thing that can type into
+         * it is the daemon's own client handle. Dropping that handle already
+         * revokes the writer the control lease cares about, so the process does
+         * not have to die for the lease to mean something — which is the
+         * distinction codex's `parkOnRelease: false` is making right next door.
+         *
+         * KILLING IT COST THE CLI ITS KEYBOARD. Every switch into Native then
+         * cold-started this TUI, and opencode's own startup DISCARDS whatever
+         * arrives at stdin part-way through it: typed at ~1.2–1.5s after the
+         * client PTY exists — which is exactly when a viewer who just switched
+         * types — the bytes are swallowed and never echo, while the fresh
+         * interface paints tens of KB and makes the terminal look alive. A
+         * parked master is past that window, so the reconnect adopts a TUI that
+         * is already listening, and it keeps its scrollback because an adopted
+         * generation is not reset.
+         */
+        parkOnRelease: true,
         launch: ({ cwd, conversation, endpoint, env }) => ({
           cmd: resolveOpencodeBin(undefined, env),
           args: ['attach', endpoint.address ?? '', '--session', conversation],

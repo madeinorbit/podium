@@ -239,6 +239,31 @@ export interface OpencodeClientTerminals {
    *  strictly subordinate: stop/hibernate/kill the session and its client dies. */
   close(sessionId: SessionId, kind?: ClientTerminalKind): Promise<void>
   /**
+   * THE VIEWER WENT BACK TO CHAT — which is not the session going away, and
+   * that difference is the whole of POD-3045.
+   *
+   * This used to be `close()`, so every switch out of Native reclaimed the
+   * master and every switch back in cold-started the harness's TUI. For
+   * opencode that silently cost the CLI its keyboard: its startup discards
+   * stdin part-way through, so the keystrokes of a viewer who has just switched
+   * land in the window where they are swallowed — no echo, on a terminal that
+   * is visibly painting a fresh interface.
+   *
+   * So the harness decides, through `clientTerminal.parkOnRelease`. Parking
+   * drops the daemon's client handle and leaves the master and its TUI running;
+   * the next attach reconnects to that same generation, past its startup and
+   * with its scrollback intact. Where the harness says its client may NOT
+   * outlive the view — codex, whose TUI holds a direct writer to the engine —
+   * this is exactly the old unconditional teardown.
+   *
+   * A PARKED CLIENT HAS NO WRITER. `input`, `resize` and `redraw` all answer
+   * from `record.session`, which the park clears, so the lease obligation is
+   * met by there being nothing to type into rather than by ending the process.
+   * The warm clock is (re)armed on the way out, so a parked client is still
+   * reaped rather than resident.
+   */
+  release(sessionId: SessionId): Promise<void>
+  /**
    * A session's viewers arrived or left — the idle clock this module runs on.
    *
    * Fed by the daemon's `sessionPriority` handler, which is the server's
@@ -310,6 +335,10 @@ export interface OpencodeClientTerminalPorts {
 interface Attachment {
   streamId: string
   label: string
+  /** Which harness's client this is — the registry key `release()` asks about
+   *  parking. Remembered rather than re-derived, because the record outlives
+   *  the attach request that carried the target. */
+  kind: ClientTerminalKind
   /** The client PTY. Absent between the master being adopted and a viewer's
    *  first attach — and after the client exits while the master lives on. */
   session?: AgentSession
@@ -607,6 +636,45 @@ export function createOpencodeClientTerminals(
     for (const label of labels) await reclaim(label)
   }
 
+  /**
+   * The viewer left Native. See {@link OpencodeClientTerminals.release} for why
+   * this is not `close()` for every harness.
+   */
+  async function release(sessionId: SessionId): Promise<void> {
+    const record = attachments.get(sessionId)
+    if (!record || clientTerminalFor(record.kind)?.parkOnRelease !== true) {
+      await close(sessionId)
+      return
+    }
+    /**
+     * A START IN FLIGHT IS STILL A CLIENT TO PARK. `record.session` is only set
+     * once `start()` returns, so parking around it would leave the finished
+     * client attached — streaming a TUI into a browser that has gone back to
+     * Chat, with a writer the release was supposed to revoke. The reconcile
+     * serialises attach against release for one session, so this normally does
+     * not wait at all; a rejected start needs nothing parked.
+     */
+    if (record.starting) {
+      try {
+        await record.starting
+      } catch {
+        // the client never started: there is nothing attached to park
+      }
+    }
+    const client = record.session
+    // Cleared BEFORE the dispose, so no input, resize or redraw can find a
+    // handle that is on its way out.
+    record.session = undefined
+    try {
+      client?.dispose()
+    } catch {
+      // the client is already gone; the master it left behind is what parks
+    }
+    // Nobody is watching a parked client by definition, so this starts the warm
+    // window rather than merely re-arming it.
+    arm(sessionId, record)
+  }
+
   return {
     async attach({ sessionId, target }) {
       let record = attachments.get(sessionId)
@@ -620,6 +688,7 @@ export function createOpencodeClientTerminals(
           // parent Podium session rather than an orphan UUID (POD-2108).
           streamId: sessionId,
           label,
+          kind: target.kind,
           // Born knowing whether anyone is looking: see `watchedSessions`.
           watched: watchedSessions.has(sessionId),
         }
@@ -674,6 +743,7 @@ export function createOpencodeClientTerminals(
       const record: Attachment = {
         streamId: sessionId,
         label,
+        kind,
         watched: watchedSessions.has(sessionId),
       }
       attachments.set(sessionId, record)
@@ -682,6 +752,8 @@ export function createOpencodeClientTerminals(
     },
 
     close,
+
+    release,
 
     viewers(sessionId, watched) {
       // RECORDED FIRST, AND WHETHER OR NOT THERE IS AN ATTACHMENT. The frame

@@ -648,6 +648,150 @@ describe('warm-parking', () => {
     expect(reclaimed).toEqual([opencodeAttachLabel(SESSION), opencodeAttachLabel(SESSION)])
   })
 
+  /**
+   * SWITCHING BACK TO CHAT AND RETURNING (POD-3045).
+   *
+   * The defect these rows exist for is not visible in any single verb: attach
+   * was right, close was right, and the switch made of the two lost the CLI's
+   * keyboard. Every switch out of Native reclaimed the abduco master, so every
+   * switch back in cold-started `opencode attach` — and that TUI DISCARDS stdin
+   * part-way through its own startup, which is exactly when a viewer who has
+   * just switched types. Driven against the real binary under abduco, a nonce
+   * typed 1.2s and 1.5s after the client PTY appeared never echoed, while the
+   * fresh interface painted ~16 KB; the same nonce typed into a client that had
+   * been PARKED and reconnected echoed at the same 1.5s, with `adopted` true.
+   *
+   * So what is pinned here is that a release parks where the harness allows it,
+   * that a parked client cannot be typed into, and that the return reconnects
+   * rather than restarts.
+   */
+  const CODEX_TARGET = {
+    kind: 'codex',
+    conversation: 'thread-9',
+    endpoint: { address: '/run/user/1000/codex-9.sock' },
+    workdir: '/home/agent/work',
+  } as const
+
+  it('parks the opencode client on a switch to Chat, rather than reclaiming its master', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+
+    await terminals.release(SESSION)
+
+    // The master is what "warm" means. Reclaiming it here is what forced the
+    // cold start whose startup window ate the keystrokes.
+    expect(state.reclaimed).toEqual([])
+    // The daemon's own handle IS the writer the lease release has to revoke, and
+    // dropping it is how a park revokes it without ending the process.
+    expect(state.clients[0]?.disposed).toBe(true)
+  })
+
+  it('leaves a parked client with no writer at all, which is the lease obligation', async () => {
+    const { terminals } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    await terminals.release(SESSION)
+
+    // Not "refuses to type": there is nothing to type into. Same answer for the
+    // other two directions, so nothing can drive a parked TUI.
+    expect(terminals.input(SESSION, 'aGVsbG8=')).toBe(false)
+    expect(terminals.resize(SESSION, 101, 37)).toBe(false)
+    expect(terminals.redraw(SESSION)).toBe(false)
+  })
+
+  it('reconnects the returning viewer to the SAME generation, keeping its scrollback', async () => {
+    // The second spawn adopts, because the park left the master running. An
+    // adopted generation must not be reset: `[3J` would delete the surviving
+    // TUI's history from the browser and the replay log both.
+    const spawns: string[] = []
+    const clients: ReturnType<typeof fakeClient>[] = []
+    const frames: { streamId: string; data: string }[] = []
+    const terminals = createOpencodeClientTerminals({
+      frames: (streamId, data) => frames.push({ streamId, data }),
+      spawn: async (o) => {
+        spawns.push(o.label)
+        const client = fakeClient()
+        clients.push(client)
+        // A park leaves the master holding the label, so the NEXT spawn finds it.
+        return spawns.length === 1 ? client : { ...client, adopted: true }
+      },
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+
+    await terminals.attach({ sessionId: SESSION, target })
+    await terminals.release(SESSION)
+    await terminals.attach({ sessionId: SESSION, target })
+
+    const resets = frames
+      .map((frame) => Buffer.from(frame.data, 'base64').toString('latin1'))
+      .filter((data) => data.includes('\x1b[3J'))
+    expect(resets).toHaveLength(1)
+    // And the keyboard is back, on the reconnected client rather than the parked one.
+    expect(terminals.input(SESSION, 'aGVsbG8=')).toBe(true)
+    expect(clients[1]?.writes).toEqual(['aGVsbG8='])
+    expect(clients[0]?.writes).toEqual([])
+  })
+
+  it('closes the client of a harness that says its client may not outlive the view', async () => {
+    // Codex's stock TUI holds a direct writer to the engine's Unix listener, so
+    // dropping the daemon's handle would revoke nothing. Its declaration says
+    // so, and this arm honours it — the old unconditional teardown, kept exactly
+    // where the obligation is real.
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target: CODEX_TARGET })
+
+    await terminals.release(SESSION)
+
+    expect(state.reclaimed).toEqual([codexAttachLabel(SESSION)])
+  })
+
+  it('starts the warm window on the park, so a parked client is not resident forever', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    terminals.viewers(SESSION, false)
+    await terminals.release(SESSION)
+
+    state.fire()
+
+    await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
+  })
+
+  it('parks a client that was still STARTING when the viewer switched away', async () => {
+    // `record.session` is only set once the spawn returns. Parking around an
+    // in-flight start would leave the finished client attached — streaming into
+    // a browser that has gone back to Chat, with the writer the release was
+    // meant to revoke.
+    let release: (() => void) | undefined
+    const started = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const clients: ReturnType<typeof fakeClient>[] = []
+    const terminals = createOpencodeClientTerminals({
+      frames: () => {},
+      spawn: async () => {
+        await started
+        const client = fakeClient()
+        clients.push(client)
+        return client
+      },
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+
+    const attaching = terminals.attach({ sessionId: SESSION, target })
+    const parking = terminals.release(SESSION)
+    release?.()
+    await attaching
+    await parking
+
+    expect(clients[0]?.disposed).toBe(true)
+    expect(terminals.input(SESSION, 'aGVsbG8=')).toBe(false)
+  })
+
   it('reaps the client when the warm window closes', async () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
@@ -961,6 +1105,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
         },
         adopt: () => {},
         close: async () => {},
+        release: async () => {},
         viewers: () => {},
         input: () => false,
         resize: () => false,

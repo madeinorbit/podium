@@ -784,6 +784,31 @@ export interface ClientTerminalSpec {
    * whether per-session server credentials ride in the env.
    */
   launch(opts: ClientTerminalLaunchOptions): LaunchSpec
+  /**
+   * MAY THIS CLIENT KEEP RUNNING WHILE THE VIEWER IS IN CHAT?
+   *
+   * A server-family session shows its CLI through a separate stock TUI that the
+   * daemon starts on the switch INTO Native. What happens on the switch back out
+   * is the question this answers, and it is a fact about the harness's client
+   * rather than a policy this layer gets to pick:
+   *
+   *   `false` — the client must be torn down, because it holds a writer to the
+   *     engine that would outlive the control lease. Codex's TUI dials the
+   *     per-session Unix listener directly; leaving it warm would let queued
+   *     keystrokes bypass the daemon's lease gate.
+   *   `true` — the client may be PARKED: its abduco client is dropped, its
+   *     master and TUI keep running, and the next switch back in RECONNECTS to
+   *     the same generation. Nothing can type into a parked client, because the
+   *     only writer is the daemon's own handle and that is exactly what the park
+   *     drops — so the lease obligation is met by having no writer at all,
+   *     rather than by killing the process.
+   *
+   * REQUIRED, so a fourth harness has to answer it. The alternative — an
+   * optional flag defaulting to "tear it down" — is how the safe-looking answer
+   * becomes the one nobody chose. Spec §5 asks for parking; this is the per
+   * harness fact that says where it is allowed.
+   */
+  parkOnRelease: boolean
 }
 
 /** The harness ships a library; the runtime hosts the loop in a worker child it
