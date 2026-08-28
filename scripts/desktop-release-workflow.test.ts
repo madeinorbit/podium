@@ -514,7 +514,12 @@ describe('desktop release workflow', () => {
     // No matrix: reintroducing one would mean an architecture decided where a bundle
     // was built again, which is exactly what cross-compilation removed.
     expect(parsed.jobs?.headless?.strategy).toBeUndefined()
-    expect(headlessWorkflow).toContain('--prepare-cross')
+    // The ONE release entry, shared with the development publisher (POD-3054): it
+    // builds or restores the clients once and packages every platform from that
+    // single output. A job that reached past it for a per-platform packaging entry
+    // would be paying for the client build once per platform again.
+    expect(headlessWorkflow).toContain('bun run release:prepare')
+    expect(headlessWorkflow).not.toContain('package-headless.ts')
     // All four platforms, named. A build that quietly stopped minting one would
     // otherwise publish a release the missing platform's machines cannot resolve.
     for (const asset of ['linux-x64', 'linux-arm64', 'darwin-arm64', 'darwin-x64']) {

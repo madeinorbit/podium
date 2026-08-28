@@ -50,7 +50,7 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: headless-cross-${{ hashFiles('bun.lock') }}
-      # The client build cache (POD-3053). `--prepare-cross` builds web and mobile ONCE
+      # The client build cache (POD-3053). `release:prepare` builds web and mobile ONCE
       # for the whole platform set through scripts/build-clients.ts; with this restored,
       # a re-run for a commit CI has already built restores both instead. Same key shape
       # as the ci.yml typecheck lane, with its own task suffix so the two never evict
@@ -69,7 +69,7 @@ jobs:
       - name: Build four signed headless bundles
         env:
           PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
-        run: bun scripts/release.ts --channel "$PODIUM_RELEASE_CHANNEL" --prepare-cross
+        run: bun run release:prepare -- --channel "$PODIUM_RELEASE_CHANNEL"
       # Interrogate what will actually be uploaded, not the build tree it came from.
       # A wrong-architecture helper, a lost Darwin signature or a stub binary fails HERE,
       # before anything reaches a release page.
