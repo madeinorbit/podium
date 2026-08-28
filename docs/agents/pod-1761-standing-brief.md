@@ -1779,3 +1779,32 @@ touches only `claude-sdk` files, its one outside importer dispatches by driver
 id, and no exported signature changed — so it cannot reach `claude-pty`, the
 shipping driver. *Confined* is a claim to check, not assume: check the import
 edge, not just the changed-file list.
+
+### `opencode` is not on PATH
+
+The binary is real — `/home/mgw/.opencode/bin/opencode`, 184MB — but a bare
+`opencode` fails with `No such file or directory`. Use the absolute path. This
+box has form here: `bunx` is a dangling symlink into another user's home, and a
+wrapper printing `exit=$?` has reported the *echo's* status rather than the
+binary's, making a suite that never ran look green. **When you shell out to an
+agent binary, check the exit status of the binary itself.**
+
+Found while diagnosing why two consecutive sessions on POD-3046 — the release
+blocker — produced no commits, no evidence and no comment. Not proven to be the
+cause, and I am recording it as a trap rather than as the explanation.
+
+### Check for the drive's own rows BEFORE you transcribe
+
+Twice today I transcribed a drive's verdicts into `results.tsv` and the drive
+had already written its own rows despite a brief telling it not to. POD-2929 and
+POD-3038 both did it. The duplicates agreed on every verdict, so nothing was
+analytically wrong — but I had four rows at one batch timestamp and an inferred
+pin sitting beside four rows with real per-drive times and the drive's own pin.
+**Theirs were better.** A drive knows when it ran and what it ran against;
+a transcriber is reconstructing both.
+
+    grep -c "POD-<id>" docs/plans/pod-1761-results.tsv   # BEFORE appending
+
+If rows exist, read them, and only add what they are missing. If they are wrong,
+correct them in place and say so — do not append a competing row. And when the
+drive's row and yours disagree on a pin, **the drive's is the one to trust.**
