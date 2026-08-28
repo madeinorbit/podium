@@ -1108,3 +1108,45 @@ branch, so "unlanded" as reported by a child is not reliable, and my own commits
 can silently ratify someone else's. Before believing anything is unlanded:
 `git log --oneline -4 issue/1761-agent-runtime` and look at what your own tip's
 parent actually is.
+
+## Decision 32 — a transcript-read bug may have manufactured our "no marker" cells (2026-08-28 17:09 CEST)
+
+POD-3059 landed `ccdea1f93`. Its own completion note says **"post-fix Claude
+acceptance re-drive remains required before release evidence is final"**, and it
+is right, but the implication is wider than Claude.
+
+**The bug:** on a **named instance**, the headless child wrote its JSONL under
+the operator account home while the transcript reader resolved it under
+`<state>/<instance>/agent-home`, so **every `sessions.read` came back empty**.
+Fixed in `durable-headless.ts` and `headless-drivers.ts` — the shared headless
+path (`claude-sdk`, `codex-json`, `resume-exec`).
+
+**Why this matters to the matrix: every acceptance drive on this epic uses a
+NAMED instance. That is my own standing rule.** So any cell scored on "was the
+marker in the transcript" before `ccdea1f93` was asking a reader that may have
+been structurally incapable of returning anything.
+
+**The suspect cells all share one sentence — "turn stopped, but no transcript
+interrupt marker":**
+
+| cell | driver | pin | issue |
+| --- | --- | --- | --- |
+| A3 | codex-app-server | `5fe951f2f` | POD-3038 |
+| A3 | opencode-server | — | POD-2919 |
+| A3 | claude-sdk | `c71b896a9` | POD-3036 |
+
+**THE DIRECTION IS ONE-WAY AND THAT IS THE SAVING GRACE.** An empty read can
+only make a cell look WORSE — a false FAIL or PARTIAL. It cannot manufacture a
+PASS. **So no passing cell is at risk and the release bar cannot be flattered by
+this.** Only the reds need re-reading.
+
+**WHAT I AM NOT CLAIMING.** I do not know that `codex-app-server` travels the
+patched path. The fix names the headless family, and `codex-app-server` is a
+*server* driver; the A3/codex PARTIAL may be a genuine product gap that survives
+the re-drive. **This is a hypothesis with a clear test, not a finding**, and the
+re-drive is how it gets settled. POD-3064 owns it.
+
+Also worth noting against myself: POD-3042's main baseline saw the same missing
+marker on the DEFAULT instance, which is *not* obviously affected. If the
+re-drive clears the epic cells but main still shows no marker, that inverts the
+A3 story rather than closing it.
