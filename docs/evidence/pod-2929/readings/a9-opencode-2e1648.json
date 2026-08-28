@@ -1,0 +1,103 @@
+{
+  "cell": "A9",
+  "arm": "headless",
+  "harness": "opencode",
+  "verdict": "PASS",
+  "summary": "At the exact current epic tip, the stamped OpenCode session process was gone at both checkpoints with no PID rebound and infrastructure intact.",
+  "evidence": [
+    "drive-verify passed immediately before the probe; server, daemon, and reused unchanged web bundle were pinned",
+    "control reply=ALIVE-BESWKC; exactStamped=1",
+    "stamp uuid=76892e82-1eaf-4ccb-93cf-ce66401a71a0 source=/home/mgw/.local/state/podium/p2929z/instance.json",
+    "original identity pid=4000972 start=23195700",
+    "15s directOriginalAlive=0 rebounds=0 stamped=0",
+    "300s directOriginalAlive=0 rebounds=0 stamped=0",
+    "infrastructure server=3995884 daemon=3996014 alive=2/2; full 300s window=true"
+  ],
+  "data": {
+    "controlFired": true,
+    "stampProof": true,
+    "instanceUuid": "76892e82-1eaf-4ccb-93cf-ce66401a71a0",
+    "uuidSource": "/home/mgw/.local/state/podium/p2929z/instance.json",
+    "sessionId": "5853d17d-5f59-42ed-9180-7981c4b10c18",
+    "before": [
+      {
+        "pid": 4000972,
+        "startTimeTicks": 23195700,
+        "cwd": "/tmp/pod-2929-rig-z/repo",
+        "cmd": "/home/mgw/.opencode/bin/opencode serve --port 41391 --hostname 127.0.0.1",
+        "instanceUuid": "76892e82-1eaf-4ccb-93cf-ce66401a71a0",
+        "sessionId": "5853d17d-5f59-42ed-9180-7981c4b10c18"
+      }
+    ],
+    "kill": {
+      "verb": "sessions.kill",
+      "returned": null,
+      "rowStatus": "(row gone)"
+    },
+    "after15s": {
+      "directOriginalAlive": 0,
+      "survivors": 0,
+      "rebounds": 0,
+      "stamped": 0
+    },
+    "after300s": {
+      "directOriginalAlive": 0,
+      "survivors": 0,
+      "rebounds": 0,
+      "stamped": 0
+    },
+    "infrastructureAlive": 2,
+    "infrastructureExpected": 2,
+    "fullWindowMs": 300000
+  },
+  "targetCwd": "/tmp/pod-2929-rig-z/repo",
+  "instance": "p2929z",
+  "codePin": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42",
+  "pin": {
+    "codeSha": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42",
+    "codeShort": "2e1648c",
+    "server": {
+      "pid": 3995884,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2929-lost-message-rebound-scorers",
+      "sha": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42"
+    },
+    "daemon": {
+      "pid": 3996014,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2929-lost-message-rebound-scorers",
+      "sha": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42"
+    },
+    "bundleSourceSha": "b3343f3",
+    "bundleReuseSource": "/tmp/pod-2929-product",
+    "bundleUnchangedThrough": "2e1648ca",
+    "expectedDriver": "opencode-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "hostAdmissionSnapshot": {
+    "capturedAt": "2026-08-28T04:40:31Z",
+    "rootFreeKb": 5387600,
+    "floorKb": 5242880,
+    "loadAverage": ["4.54", "5.23", "5.40"],
+    "memAvailableKb": 6516496,
+    "swapUsedKb": 5092568,
+    "vmstatLaterSwapInKbPerSec": [0, 0],
+    "vmstatLaterSwapOutKbPerSec": [0, 0]
+  },
+  "lease": "test:heavy acquired without queueing immediately before bring-up and released after the rig was stopped",
+  "recordedAt": "2026-08-28T04:52:25Z",
+  "error": "",
+  "log": [
+    "PINJSON {\"want\":\"2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42\",\"short\":\"2e1648c\",\"spawnedSha\":\"2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42\",\"serverPid\":3995884,\"daemonPid\":3996014,\"webSourceSha\":\"b3343f3\",\"contract\":\"1\",\"streaming\":\"1\",\"driver\":\"\"}",
+    "BOUND DRIVER opencode-server family=server",
+    "turn before kill replied with ALIVE-BESWKC",
+    "CONTROL reply=true exactStamped=1",
+    "PRE pid=4000972 start=23195700 cwd=/tmp/pod-2929-rig-z/repo",
+    "sessions.kill returned null; row says status=(row gone)",
+    "after 15s directOriginalAlive=0 rebounds=0 stamped=0",
+    "after 300s directOriginalAlive=0 rebounds=0 stamped=0",
+    "rig intact 2/2 infrastructure processes still alive",
+    "A9 PASS: stamp proof=true; original survivors=0; rebound=0 at both checkpoints"
+  ]
+}

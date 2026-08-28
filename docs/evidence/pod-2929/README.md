@@ -62,3 +62,13 @@ send returned `ok=true, disposition=delivered`, but no typed refusal, resume
 offer, or assistant nonce arrived through the full 120-second delayed window:
 the tightened scorer returns **FAIL**. See
 `readings/a1c-opencode-2e1648.json`.
+### A9 — OpenCode headless
+
+The exact current-daemon UUID and session stamp identified one original
+process, `4000972:23195700`. It was gone at both 15 and 300 seconds, with zero
+stamped PID rebounds and infrastructure alive `2/2`: the tightened scorer
+returns **PASS**. See `readings/a9-opencode-2e1648.json`.
+
+The terminal arm was held at the admission gate when root free space reached
+`5228788 KiB`, below the `5242880 KiB` (5 GiB) floor; no terminal process or
+unverified result was started.
