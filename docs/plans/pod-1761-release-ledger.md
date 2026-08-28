@@ -5724,3 +5724,27 @@ Codex cells remain honestly blocked rather than guessed. The operator sandbox
 is stopped, `test:heavy` and `integration:1761` are free, and the only active
 production investigation is POD-2980's bounded Grok recovery repair; no fresh
 Grok drive is authorized until that candidate is reviewed and landed.
+
+## FOREST — post-repair admission hold ( 2026-08-28 08:52 CEST )
+
+POD-2980's recovery candidate is now integrated on the coordinator at exact
+tip `4be9b92c11030bb9d6c78f38992668a8301030eb` (commit time
+`2026-08-28 08:05:43 +0200`). The code delta since the last Grok A1c reading
+at `6e50dbc1c0945324f96f149ed28a1dfa7ef8c5f4` is four server files
+(`messages/service.ts`, `sessions/inbox.ts`, `relay.ts`, and `relay.test.ts`),
+so that earlier A1c result is retained as historical evidence but is not a
+current-tip acceptance verdict. The same server-path staleness applies to the
+OpenCode A1c reading at `2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42`.
+
+POD-2927's Luna-max exact-tip retry was admitted only to preflight and then
+stopped before a runtime start: `/` had `2,128,232 KiB` free and the host was
+swapping, below the standing `5,242,880 KiB` floor. No server, daemon, web
+bundle, named instance, or provider session was started, and no acceptance row
+was added. POD-2980 is reopened for a bounded production audit of the real
+exit-event/queue callback; no new drive is authorized until that review and a
+safe host window complete.
+
+The last measured matrix snapshot remains 69 cells (54 PASS, 3 confirmed FAIL,
+12 qualified/blocked), but it is provisional while the two server-path A1c
+cells are re-driven at the integrated tip. The operator sandbox remains stopped;
+no shared gate lease is held.
