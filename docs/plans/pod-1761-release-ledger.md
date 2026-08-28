@@ -5674,3 +5674,21 @@ unmeasured clauses remain listed. Grok now has one confirmed product FAIL
 the corrected explicit-permission PASS. The operator sandbox is stopped and no
 heavy or integration lease is held. The release decision remains open pending
 the Grok A1c production repair/re-drive and the outstanding non-Grok gaps.
+
+## FOREST — exact-tip review-drive correction (2026-08-28 06:29 CEST)
+
+POD-2913's earlier five-row append `ccce8b4c2` is retained as historical
+context only: its runtime probes pin `b3343f39a`, not the required current
+tip. The correction commit `0ca40d951a` leaves those rows untouched and adds
+five superseding rows pinned to exact tip
+`eee8b18cf3ccce848ef6e54b46cafa738fc7db7b0`.
+
+The exact-tip host gate recorded only `5,222,456 KiB` free on `/` (about
+4.98 GiB, 98% used), below the standing approximately 5 GiB runtime-drive
+floor. No server, daemon, web bundle, named instance, or provider session was
+started. Consequently the three pre-`ab9d698ab` parent-launch checks
+(POD-2604, POD-2637, POD-2761) are current-tip `BLOCKED`, and both POD-2773
+streaming arms (OpenCode and Grok) are current-tip `UNMEASURED`; the older
+streaming PASS rows are not counted. Static ancestry confirms the parent
+boundaries, but does not substitute for a runtime control. The matrix counts
+therefore remain unchanged until the disk gate permits fresh streaming drives.
