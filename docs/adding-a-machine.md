@@ -177,5 +177,3 @@ Run `podium join-config <TOKEN>` as that user first so the daemon has its config
   server's port isn't reachable on the tailnet interface, either bind the server to the tailnet
   address (or `0.0.0.0`), or put the server's `/daemon` WebSocket behind your reverse proxy so
   the daemon's `wss://…/daemon` URL resolves.
-</content>
-</invoke>

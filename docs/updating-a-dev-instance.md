@@ -432,7 +432,7 @@ The isolated rehearsal started from missing persistence and proved the dangerous
 installed `0.1.1-edge.2` authority in 3.63 seconds through stop-write-start. Ludovico's current
 systemd-persistence shape removes the persistence change, but not the required stop or mode change.
 
-## Three things that stop later updates
+## Four things that stop later updates
 
 **A dirty checkout publishes nothing.** Untracked files count; check `git status`.
 
@@ -440,3 +440,18 @@ systemd-persistence shape removes the persistence change, but not the required s
 
 **Going backwards is refused.** After newer migrations run, recover from a database backup or roll
 forward; see [Data and upgrades](data-and-upgrades.md).
+
+**An installed binary older than the checkout cannot build it.** The installed process spawns the
+client build by *script name*, so once a release renames one, a binary from before that rename asks
+for a name the checkout no longer has and `bun` exits 1 immediately. It surfaces as
+`development bundle unavailable: … the web build finished but apps/web/dist is not stamped at
+<sha>`, with `apps/web: bun exited with status 1` and the same for `apps/mobile`.
+
+The tell is that both client steps fail *at once*, the log carries no compiler output at all, and
+running `bun run --filter @podium/web build` by hand in the checkout succeeds. Do not chase it as a
+build failure — the build is fine, only the caller is stale. Rebuild and reinstall the binary from
+that same checkout so the two match ([Boundary 1](#boundary-1-stage-the-installed-build-while-source-remains-ready)),
+then restart.
+
+Expect this on any release that renames a client build script: the upgrade path is, by definition,
+an old binary building a new tree.
