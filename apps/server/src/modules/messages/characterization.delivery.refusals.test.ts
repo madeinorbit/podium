@@ -67,6 +67,38 @@ const chat = async (h: ReturnType<typeof mailHarness>, body: string): Promise<st
   return r.id
 }
 
+describe('contract-backed blocking sends return receipt refusals (POD-3044)', () => {
+  it('waits for a not-running receipt and returns the typed dead letter', async () => {
+    let h!: ReturnType<typeof mailHarness>
+    h = mailHarness({
+      receipts: { defer: true, answer: () => refused('not_running') },
+      runtimeContractActive: () => true,
+      awaitPollMs: 1,
+      onPoll: (poll) => {
+        if (poll === 1) h.settleReceipts()
+      },
+    })
+    const issue = h.createIssue({ title: 'target' })
+    h.put({ sessionId: TARGET, issueId: issue.id, phase: 'idle' })
+
+    const result = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
+      to: TARGET,
+      body: 'anyone there?',
+      urgency: 'next-turn',
+    })) as { id: string; ok: boolean; reason?: string; disposition: string }
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'dead-lettered: delivery-failed',
+      disposition: 'dead_letter',
+    })
+    expect(h.svc.message(result.id)).toMatchObject({
+      status: 'dead_letter',
+      deliveryDeferredReason: 'delivery-failed',
+    })
+  })
+})
+
 /** Every undelivered-notice the sender was actually handed. */
 const notices = (h: ReturnType<typeof mailHarness>): string[] =>
   h.store.messages

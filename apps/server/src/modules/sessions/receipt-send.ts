@@ -19,11 +19,11 @@
  * would break the messages module's own wire contract, whose `DeliveryOutcome`
  * is returned synchronously to CLI and tool callers.
  *
- * So a migrated caller still gets its answer synchronously, and the receipt
- * arrives later through `onReceipt` to RECONCILE what the caller recorded. That
- * is not a workaround for the contract; it is the policy this item was given —
- * mail and steward reconcile to delivered-unconfirmed (ledger-visible, never a
- * blind retry), chat keeps its optimistic bubble and reconciles on the echo.
+ * The sender seam still answers synchronously, and callers that only need
+ * dispatch continue to reconcile the later receipt. The message service's
+ * blocking caller is the deliberate exception: for a contract-backed session it
+ * waits on that same callback so a refusal can reach the sender before its budget
+ * expires; legacy-driven sessions retain their optimistic chat response.
  *
  * ---------------------------------------------------------------------------
  * WHAT ACTUALLY FLIPS
@@ -197,8 +197,9 @@ function attachmentMatchesSession(
 export class ReceiptSender {
   constructor(private readonly ports: ReceiptSenderPorts) {}
 
-  /** Whether this session's sends produce receipts. Callers use it to decide
-   *  whether a reconciliation is coming, never to decide delivery. */
+  /** Whether this session's sends produce receipts. Callers use it to select the
+   *  receipt-aware blocking path and to decide whether reconciliation is coming;
+   *  the driver still owns the delivery result. */
   onContract(sessionId: SessionId): boolean {
     return this.ports.onContract(sessionId)
   }

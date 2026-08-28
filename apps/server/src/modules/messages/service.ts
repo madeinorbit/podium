@@ -76,7 +76,13 @@ import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
-import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
+import type {
+  MessageSender,
+  MessageSendInput,
+  MessageSendOptions,
+  MessageSendResult,
+  SendDisposition,
+} from './types'
 import { SUPERAGENT_AGENT_IDENTITY } from './types'
 
 export { INTERRUPT_DELIVERY_CEILING_MS, NEXT_TURN_DELIVERY_BUDGET_MS } from './mailbox'
@@ -85,6 +91,7 @@ export type {
   MessageSender,
   MessageSenderIdentity,
   MessageSendInput,
+  MessageSendOptions,
   MessageSendResult,
   SendDisposition,
 } from './types'
@@ -530,7 +537,7 @@ export class MessageDeliveryService {
               deps.mirrorMarkIssueMailRead?.(issueId, ids),
           }
         : {}),
-      send: (from, input) => this.send(from, input),
+      send: (from, input, opts) => this.send(from, input, opts),
       cancelQueuedInput: (message) => {
         const sessionId =
           message.deliveredTo ?? (message.toKind === 'session' ? message.toId : null)
@@ -889,7 +896,11 @@ export class MessageDeliveryService {
    * Clamps/brakes downgrade the axes BEFORE the row is written, so the row
    * always holds the effective values and `clamped_from` the requested ones.
    */
-  send(from: MessageSender, input: MessageSendInput): MessageSendResult {
+  send(
+    from: MessageSender,
+    input: MessageSendInput,
+    opts?: MessageSendOptions,
+  ): MessageSendResult {
     const issues = this.deps.issues
     // Resolve an issue recipient ref (#N / seq / id) to the canonical id up
     // front so the stored to_id is stable.
@@ -1094,7 +1105,10 @@ export class MessageDeliveryService {
       this.deps.mirrorIssueMail?.(legacy)
     }
 
-    const outcome = this.attemptDelivery(message)
+    const outcome = this.attemptDelivery(
+      message,
+      opts?.awaitReceipt ? { awaitReceipt: true } : undefined,
+    )
     this.rememberLiveQueuedForExit(message, targetSession, outcome)
     // A busy-turn row can remain in the message ledger without entering the
     // SessionInbox FIFO. Conversely, a wake/boot push may already be in that
@@ -1136,7 +1150,10 @@ export class MessageDeliveryService {
    * share, and no caller can reintroduce the per-page cost by forgetting to
    * pass one.
    */
-  private attemptDelivery(message: MessageRow, opts?: { viaSweep?: boolean }): DeliveryOutcome {
+  private attemptDelivery(
+    message: MessageRow,
+    opts?: { viaSweep?: boolean; awaitReceipt?: boolean },
+  ): DeliveryOutcome {
     // A dead-letter found at SEND time returns synchronously to a watching sender
     // (no async notice); one found LATER (sweep) must tell the sender once.
     const notifySender = opts?.viaSweep === true
@@ -1285,7 +1302,7 @@ export class MessageDeliveryService {
     const state = this.stateOf(target)
     if (state === 'idle') {
       // idle/live: inject now, every urgency.
-      return this.injectAndMark('now', message, target.sessionId, 'delivered')
+      return this.injectAndMark('now', message, target.sessionId, 'delivered', opts)
     }
     if (state === 'running') {
       if (message.urgency === 'fyi') {
@@ -1295,12 +1312,12 @@ export class MessageDeliveryService {
       if (message.urgency === 'interrupt') {
         // The intended mid-turn path. interruptText sends ESC first, which
         // visibly cancels an open AskUserQuestion menu before the text lands.
-        return this.injectAndMark('interrupt', message, target.sessionId, 'delivered')
+        return this.injectAndMark('interrupt', message, target.sessionId, 'delivered', opts)
       }
       // next-turn. A 'starting' session has no turn in flight and nothing on
       // screen — ride the durable boot queue; it types once the agent binds.
       if (target.status === 'starting') {
-        return this.injectAndMark('queue', message, target.sessionId, 'queued')
+        return this.injectAndMark('queue', message, target.sessionId, 'queued', opts)
       }
       // Busy live agent: HOLD for the turn boundary. queueText's immediate
       // drain types mid-turn (#471), and its submitting CR auto-answers an
@@ -1326,7 +1343,7 @@ export class MessageDeliveryService {
     }
     // record the wake against the cooldown window.
     this.recordWake(message, target)
-    const injected = this.injectAndMark('queue', message, target.sessionId, 'queued')
+    const injected = this.injectAndMark('queue', message, target.sessionId, 'queued', opts)
     if (injected.ok) return injected
     if (injected.reason === 'no resume ref') {
       // Unresumable → spawn-on-wake. The resume attempt was already gated on
@@ -1349,14 +1366,17 @@ export class MessageDeliveryService {
    * `via` picks the transport; `okDisposition` is what a successful dispatch means
    * to the sender. Crucially it marks the row `injected` (bytes dispatched,
    * awaiting the transcript echo), NOT `delivered` — except an unwrapped operator
-   * body, which carries no id to echo and so is confirmed on injection. This is
-   * the fix for the POD-495 defect-B lie: an enqueue is no longer a delivery.
+   * body, which carries no id to echo and so is confirmed on injection. A
+   * contract-backed blocking caller keeps even that row queued until the driver's
+   * receipt accepts it, so a late refusal can correct the optimistic record. This
+   * is the fix for the POD-495 defect-B lie: an enqueue is no longer a delivery.
    */
   private injectAndMark(
     via: 'now' | 'queue' | 'interrupt',
     message: MessageRow,
     sessionId: SessionId,
     okDisposition: SendDisposition,
+    opts?: { awaitReceipt?: boolean },
   ): DeliveryOutcome {
     const sessions = this.deps.sessions
     const principal = this.inboxPrincipal(message)
@@ -1385,10 +1405,27 @@ export class MessageDeliveryService {
     // durable-queue branch of `receiptSend` refuses SYNCHRONOUSLY, from inside the
     // call below — its receipt is recorded, and the `ok: false` return underneath
     // is what handles it [POD-2298].
+    const awaitReceipt =
+      opts?.awaitReceipt === true &&
+      sessions.receiptSend !== undefined &&
+      this.deps.runtimeContractActive?.(sessionId) === true
+    const confirmed = this.render.confirmedOnInjection(message)
     let recorded = false
+    const pendingReceipts: TurnReceipt[] = []
+    const settleReceipt = (receipt: TurnReceipt, afterRecord: boolean): void => {
+      this.reconcileReceipt(
+        message.id,
+        sessionId,
+        receipt,
+        afterRecord,
+        awaitReceipt && confirmed && via !== 'queue',
+      )
+    }
     const r = sessions.receiptSend
       ? sessions.receiptSend(via, input, (receipt) => {
-          this.reconcileReceipt(message.id, sessionId, receipt, recorded)
+          if (recorded) settleReceipt(receipt, true)
+          else if (awaitReceipt) pendingReceipts.push(receipt)
+          else settleReceipt(receipt, false)
         })
       : via === 'now'
         ? sessions.sendText(input)
@@ -1401,13 +1438,17 @@ export class MessageDeliveryService {
     // reports THIS push attempt failed. The one caller whose ok:false carries a
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
-    if (!r.ok) return { ...r, disposition: 'queued' }
+    if (!r.ok) {
+      for (const receipt of pendingReceipts) settleReceipt(receipt, false)
+      return { ...r, disposition: 'queued' }
+    }
     // A live session can still be inside the harness's startup window. The
     // legacy inbox redirects that `now` send into its durable FIFO; preserve
     // that queued state instead of marking the message delivered on enqueue.
     if (via !== 'queue' && r.queued === true) {
       this.markInjected(message, sessionId)
       recorded = true
+      for (const receipt of pendingReceipts) settleReceipt(receipt, true)
       return { ...r, disposition: 'queued' }
     }
     // A boot/busy queue acceptance is not delivery. Keep the ledger row queued
@@ -1418,10 +1459,10 @@ export class MessageDeliveryService {
     if (via === 'queue') {
       this.markInjected(message, sessionId)
       recorded = true
+      for (const receipt of pendingReceipts) settleReceipt(receipt, true)
       return { ...r, disposition: okDisposition }
     }
-    const confirmed = this.render.confirmedOnInjection(message)
-    if (confirmed) {
+    if (confirmed && !awaitReceipt) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification) — the injection IS the
       // delivery [POD-834, POD-853].
@@ -1432,6 +1473,7 @@ export class MessageDeliveryService {
       this.markInjected(message, sessionId)
     }
     recorded = true
+    for (const receipt of pendingReceipts) settleReceipt(receipt, true)
     // Honest sync disposition [spec:SP-cb9f] [POD-854]. The optimistic `delivered`
     // disposition is only ever passed for a LIVE-PTY push (via 'now' / 'interrupt',
     // sendText/interruptText) — the bytes are on screen now — so it is honest only
@@ -1442,7 +1484,10 @@ export class MessageDeliveryService {
     // durable boot-queue push ('queue') keeps its `queued`/`spawning` disposition
     // untouched — the message rides the resume queue, delivered when the session binds.
     if (okDisposition === 'delivered') {
-      return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
+      return {
+        ...r,
+        disposition: confirmed && !awaitReceipt ? 'delivered' : 'queued',
+      }
     }
     return { ...r, disposition: okDisposition }
   }
@@ -2171,11 +2216,14 @@ export class MessageDeliveryService {
    * it would fire hardest on a slow agent (the case most likely to have received
    * the text and be working on it).
    *
-   * So a receipt moves no row and triggers no push. It records `message.receipt`
-   * beside the transitions the row already emitted, which is what "ledger-visible
-   * delivered-unconfirmed" means here. The paths that DO advance a row are
-   * unchanged and remain the only ones: the transcript echo confirms it
-   * (`markDelivered` via 'echo'), an inbox read confirms a pointer, and the
+   * For non-blocking sends and unverified receipts, a receipt moves no row and
+   * triggers no push. It records `message.receipt` beside the transitions the row
+   * already emitted, which is what "ledger-visible delivered-unconfirmed" means
+   * here. The receipt-aware blocking caller is the explicit exception: an
+   * accepted non-queue receipt settles its own injected row so its bounded wait
+   * can return delivered; refusals still use the correction table below. The
+   * other paths that advance a row are unchanged: the transcript echo confirms
+   * it (`markDelivered` via 'echo'), an inbox read confirms a pointer, and the
    * existing sweep remains the backstop for a row whose echo never came. The
    * sweep is not a blind retry — it is the same time-based backstop as before the
    * migration, and this item does not get to change delivery semantics while
@@ -2214,6 +2262,7 @@ export class MessageDeliveryService {
     sessionId: SessionId,
     receipt: TurnReceipt,
     afterRecord: boolean,
+    confirmAccepted = false,
   ): void {
     const message = this.deps.messages.getMessage(messageId)
     // Already settled by the echo, read or a cancellation while the window was
@@ -2241,6 +2290,12 @@ export class MessageDeliveryService {
           }
         : {}),
     })
+    if (receipt.outcome === 'accepted' && confirmAccepted && receipt.deliveredAs !== 'queue') {
+      const current = this.deps.messages.getMessage(messageId)
+      if (current?.status === 'queued' && current.injectedAt && current.deliveredTo === sessionId) {
+        this.markDelivered(current, sessionId, 'injection')
+      }
+    }
     if (receipt.outcome !== 'refused') return
     if (afterRecord && this.correctRefusedPush(message, sessionId, receipt.refusal.reason)) return
     // A SYNCHRONOUS REFUSAL ANSWERS A PUSH THAT NEVER REACHED A STAMP [POD-2574].

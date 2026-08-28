@@ -50,11 +50,12 @@ export async function sendHandler(
   // 'accepted', fyi at queued — so the sender is never handed a bare 'queued'
   // that provably vanished.
   //
-  // The session chat path (`sessions.sendText` / `resumeAndSend`) reaches this
-  // same handler in `immediate` mode: everything above this line — resolution
-  // under the ceiling, the target gate, the sender stamped from the capability —
-  // is what it came here FOR, and the blocking wait is the part that belongs to
-  // the CLI surface alone. See {@link MailDeliveryMode}.
+  // Legacy session chat reaches this same handler in `immediate` mode, preserving
+  // its pinned queued response. A session with an active runtime contract is
+  // selected into `confirm` mode by the composition root so its existing receipt
+  // can refuse a send after the process disappears. Everything above this line —
+  // resolution under the ceiling, the target gate, and the sender stamped from
+  // the capability — is shared in either mode. See {@link MailDeliveryMode}.
   const { sleep, awaitPollMs } = deps
   const nowIso = deps.now
   const from = senderFromPrincipal(caller.principal)

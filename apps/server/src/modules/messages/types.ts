@@ -77,6 +77,13 @@ export interface MessageSendInput {
   notificationFact?: { factKey: string; target: string }
 }
 
+/** Internal delivery option used by the blocking caller. Legacy callers keep
+ * the optimistic send path; contract-backed callers opt into waiting for the
+ * driver's already-existing receipt. */
+export interface MessageSendOptions {
+  awaitReceipt?: boolean
+}
+
 export interface MessageSendResult {
   message: MessageRow
   /** sendText/queueText-compatible outcome (existing CLI/tool wire shapes). */

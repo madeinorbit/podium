@@ -18,7 +18,7 @@ import {
   machineUseDecision,
   ownershipFromMachines,
 } from '../../machine-access'
-import { spawnedByParentSessionId } from '@podium/model'
+import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
 import {
   SessionCommandCtx,
@@ -88,25 +88,29 @@ export function sessionCommandCtx(
     //
     // The capability is closed over HERE, at the composition root, so no handler
     // takes a principal as an argument and none can invent one — the same rule
-    // the rest of this function follows. `immediate` is the delivery mode, set
-    // by the server: `mailSendInput` has no field for it, so a client cannot ask
-    // a send not to be confirmed. See MailDeliveryMode for why the chat path
-    // needs it (POD-379 pins `disposition: 'queued'`; blocking would say
-    // `accepted`).
+    // the rest of this function follows. The server selects the delivery mode
+    // from the target session's reported contract binding: active contract
+    // sessions use the existing receipt-aware confirmation path, while
+    // legacy-driven sessions retain `immediate`. `mailSendInput` has no field
+    // for it, so a client cannot choose either mode.
     //
     // The non-null assertion is safe by the same argument the router's makes: a
     // `undefined` here would mean `mail.send` does not name this transport, and
     // both transports that build this context are in its exposure set.
-    mailSend: (input) =>
-      modules.messageGate.dispatch(
+    mailSend: (input) => {
+      const deliveryMode = sessions.receiptSender.onContract(asSessionId(input.to))
+        ? 'confirm'
+        : 'immediate'
+      return modules.messageGate.dispatch(
         capability,
         overrideScope,
         'send',
         input,
         transport,
-        'immediate',
+        deliveryMode,
         input.correlationId,
-      )!,
+      )!
+    },
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       issues.createDraftFor(repoPath, agentKind, issueId, ownership),
     discardUnlaunchedDraft: (issueId) => issues.discardUnlaunchedDraft(issueId),
