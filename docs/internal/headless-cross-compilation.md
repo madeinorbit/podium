@@ -126,11 +126,14 @@ Three scripts, deliberately separate:
 
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
-build tree can be right while the archive is wrong. Client continuity is checked
-by the packaging entry point itself: the same process resolves its own Bun executable,
-generates a random invocation nonce, and requires both completed client manifests to echo
-that nonce before it brands the session in memory. It then packages, extracts the resulting
-tarball, and compares the packaged entry set to that process-local value. Direct
+build tree can be right while the archive is wrong. Client provenance is checked by
+`scripts/verify-client-build.ts`: the exact inventory and per-file SHA-256 in each site's
+manifest, the manifest's source commit and version against the packaging invocation's, and
+a file-count floor. The result is a module-branded evidence object; packaging refuses
+anything else. Under the snapshot updater freshness comes from the detached worktree, not
+from a per-run nonce (spec 2026-08-28-cached-release-build-design §5). The same process
+still resolves its own Bun executable, then packages, extracts the resulting tarball, and
+compares the packaged entry set to that process-local digest. Direct
 `build-bun.ts` invocation refuses, caller-supplied build environments refuse, and no
 expected digest is accepted from a flag, environment variable, sidecar, or the archive
 itself. This catches
