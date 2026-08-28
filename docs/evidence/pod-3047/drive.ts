@@ -557,14 +557,37 @@ async function runA1c() {
   const { sid, chat } = await create()
   try {
     const base = await baselineReply(sid, chat, 'A1C-CONTROL')
-    const before = [...sessionProcesses(cwd), ...instanceProcesses().filter((row) => /claude|claude-sdk-host/i.test(row.cmd))]
-    const agent = before.find((row) => /claude(?:-code)?(?:\s|$|\/)|claude-sdk-host/i.test(row.cmd))
+    // ASSERT ON THE MECHANISM, NOT ON THE WORD "claude".
+    //
+    // The first run of this cell matched `/home/mgw/.local/bin/claude auth
+    // status` — a transient credential check that happened to be alive in the
+    // session's directory — killed it, sent, got a reply, and reported PASS. The
+    // session had never been dead. A dead-session cell that kills a bystander is
+    // the most comfortable wrong answer available here, because everything after
+    // the kill behaves exactly as a healthy session should.
+    //
+    // The only process that IS this session's agent on the SDK path is the
+    // claude-sdk-host child, and it is spawned PER TURN: between turns there is
+    // nothing to kill. So an empty set is a structural fact about the path, not
+    // a rig failure, and it is reported as one.
+    const before = [...sessionProcesses(cwd), ...instanceProcesses()].filter((row) => /claude-sdk-host/.test(row.cmd))
+    const agent = before.find((row) => /claude-sdk-host/.test(row.cmd))
     const control: Control = {
       fired: (base.user.ok || base.assistant.ok) && Boolean(agent),
-      what: 'a baseline prompt/reply and the exact Claude child PID appearing before death',
-      detail: 'baseline user=' + base.user.ok + '; baseline reply=' + base.assistant.ok + '; agentPid=' + String(agent?.pid ?? '(none)'),
+      what: 'a baseline prompt/reply and the exact claude-sdk-host child PID appearing before death',
+      detail: 'baseline user=' + base.user.ok + '; baseline reply=' + base.assistant.ok + '; claudeSdkHostPid=' + String(agent?.pid ?? '(none)'),
     }
-    if (!control.fired) return result('BLOCKED', 'baseline control did not fire', control, ['BASELINE          ' + short(base), 'PROCS             ' + short(before, 1800)], { sid, before })
+    if (!control.fired) {
+      return result(
+        'BLOCKED',
+        !agent
+          ? 'no claude-sdk-host child exists between turns — the SDK path spawns its model host per turn, so this cell has no persistent agent process to kill. Killing anything else would test a bystander.'
+          : 'baseline control did not fire',
+        control,
+        ['BASELINE          ' + short(base), 'HOST CHILDREN     ' + short(before, 1800), 'ALL IN CWD        ' + short(sessionProcesses(cwd), 1800)],
+        { sid, before, allInCwd: sessionProcesses(cwd) },
+      )
+    }
     let killed = false
     let killError = ''
     try {
@@ -1358,21 +1381,44 @@ async function runA8() {
 async function runA9() {
   const { sid, chat } = await create()
   try {
-    await wait(3_000)
-    const before = [...sessionProcesses(cwd), ...instanceProcesses().filter((row) => row.cmd.includes(sid) || /claude|claude-sdk-host/i.test(row.cmd))]
+    // A KILL CELL WITH NOTHING RUNNING CANNOT FAIL.
+    //
+    // Scored on an idle session this cell asked "are there zero processes after
+    // the kill" of a path that has zero processes between turns anyway, and the
+    // control was satisfied by the session merely having a driverId. Both halves
+    // were free. So the cell now puts a turn IN FLIGHT first, which is what
+    // spawns the claude-sdk-host child, and requires that child in the control:
+    // an orphan is only observable if something was there to orphan.
+    await mutate('sessions.sendText', {
+      sessionId: sid,
+      text: 'Count from 1 to 220, one sentence per line, without tools.',
+    })
+    await waitPhase(sid, (phase) => phase === 'working', 20_000, 250)
+    let before: ProcessRow[] = []
+    for (let i = 0; i < 20 && before.length === 0; i++) {
+      before = [...sessionProcesses(cwd), ...instanceProcesses()].filter((row) => /claude-sdk-host/.test(row.cmd))
+      if (before.length === 0) await wait(500)
+    }
     const control: Control = {
-      fired: before.length > 0 || Boolean((await status(sid))?.driverId),
-      what: 'target session process tree existing before kill',
-      detail: 'processes=' + before.length + '; screenBytes=' + chat.screenBytes,
+      fired: before.length > 0,
+      what: 'a claude-sdk-host child alive in the session before the kill — without one there is nothing that could be orphaned',
+      detail: 'hostChildren=' + before.length + ' pids=' + JSON.stringify(before.map((x) => x.pid)) + '; screenBytes=' + chat.screenBytes,
+    }
+    if (!control.fired) {
+      return result('BLOCKED', 'no claude-sdk-host child was observed in flight, so the kill had no process tree to remove', control, ['ALL IN CWD        ' + short(sessionProcesses(cwd), 1800)], { sid, before })
     }
     const killed = await mutate('sessions.kill', { sessionId: sid })
+    const survivors = () =>
+      [...sessionProcesses(cwd), ...instanceProcesses()].filter(
+        (row) => /claude-sdk-host/.test(row.cmd) && before.some((b) => b.pid === row.pid),
+      )
     const immediate: ProcessRow[][] = []
     for (let i = 0; i < 10; i++) {
       await wait(500)
-      immediate.push(sessionProcesses(cwd))
+      immediate.push(survivors())
     }
     await wait(300_000)
-    const after = sessionProcesses(cwd)
+    const after = [...survivors(), ...sessionProcesses(cwd)]
     const pass = control.fired && after.length === 0
     return result(
       !control.fired ? 'BLOCKED' : pass ? 'PASS' : 'FAIL',
