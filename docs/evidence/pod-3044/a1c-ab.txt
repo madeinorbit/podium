@@ -69,12 +69,13 @@ No merge or landing onto main was performed.
 
 VALIDATION COUNTS
 -----------------
-Lean gate: GREEN — 4 of 1040 collected unit files, 80 tests executed.
+Final gate rerun at the rebased tip with PODIUM_TEST_WORKERS=1.
+Lean gate: GREEN — 4 of 1042 collected unit files, 80 tests executed.
   packages/runtime/src/boot.test.ts             16
   apps/server/src/router.setup.test.ts          19
   apps/daemon/src/connection-state.test.ts      12
   scripts/test-configuration.test.ts            33
-Typecheck: 25 successful / 25 total tasks; 22 cached / 25 total tasks.
+Typecheck: 25 successful / 25 total tasks; 21 cached / 25 total tasks.
 Services shard: 97 passed / 104 files; 1839 passed / 1873 tests; 7 files and
-34 tests failed in pre-existing session machine-probing, handoff, upload,
+34 tests failed in unrelated session machine-probing, handoff, upload,
 attribution, stop, and oracle failures. No changed message-path test failed.
