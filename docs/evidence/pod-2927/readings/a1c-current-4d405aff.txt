@@ -1,0 +1,66 @@
+2026-08-28 02:37:17 CEST — fresh current-tip Grok A1c reading
+
+ADMISSION
+  named instance     grok2927x
+  unique CWD         /tmp/pod-2927-grok-x/repo
+  state root         /home/mgw/.local/state/podium/grok2927x
+  state preparation  root was absent before this drive; product preflight created only runtime/tmux;
+                     PODIUM_ADOPT_STATE=1 intentionally adopted those product-created directories;
+                     no PODIUM_STATE_DIR, ABDUCO_SOCKET_DIR, TMUX_TMPDIR, or HOME override
+  test:heavy         held by this session through the build and drive; released after capture
+  concurrent probe   none (canonical verifier passed)
+
+PIN VERIFIER
+  ok  no other probe is driving this rig
+  ok  server pid=3642930 cwd=/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column spawned at 4d405af
+  ok  daemon pid=3642986 cwd=/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column spawned at 4d405af
+  ok  exactly one daemon (pid 3642986) on instance 'grok2927x'
+  ok  worktree at 4d405afffe234d020557921e6240c053c706f783; product tree clean
+  ok  server answers on :19928 (not the operator's 19797)
+  ok  web bundle served from :19928 was built at 4d405af
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+  PINJSON {"want":"4d405afffe234d020557921e6240c053c706f783","short":"4d405af","spawnedSha":"4d405afffe234d020557921e6240c053c706f783","serverPid":3642930,"daemonPid":3642986,"webSourceSha":"4d405af","contract":"1","streaming":"1","driver":""}
+
+PROBE
+==============================================================================
+A1b / A1c  sending when the session cannot take it now   harness=grok
+selected row      a1c
+==============================================================================
+
+A1b  send while busy
+------------------------------------------------------------------------------
+
+A1c  send to a DEAD session
+------------------------------------------------------------------------------
+  session 9273cf05-8806-4101-b196-d90de7db9e2a
+  product driver   grok-acp family=server
+  CONTROL          a send to this session WHILE ALIVE was answered: true
+  target stamp     uuid=347d60c2-2ebf-4de5-83d8-6cc986784558 source=/home/mgw/.local/state/podium/grok2927x/instance.json
+  target processes 1 exact stamped PID(s) before kill
+                     pid=3643299 cwd=/tmp/pod-2927-grok-x/repo cmd=/home/mgw/.local/bin/grok agent stdio
+  SIGKILL target   pid=3643299 sent=true
+  after child kill row: status=live
+  exact PID gone   true; remaining stamped target PIDs=(none)
+  dead confirmed   true
+  send to dead     {"ok":true,"queued":true,"position":1,"disposition":"queued"}
+  typed refusal    false
+  offers resume    false
+  accepted         true
+  delayed outcome  LOST after <=120s
+
+  A1c FAIL
+      FAIL: the send was accepted, but the assistant nonce never reached a
+      delayed terminal outcome. A durable user row is not delivery; this is the
+      accepted-then-lost message the row exists to forbid.
+
+==============================================================================
+A1b  SKIPPED
+A1c  FAIL
+==============================================================================
+
+HOST SNAPSHOT (captured 2026-08-28 02:36:33 CEST, after the drive)
+  load1             2.84
+  MemAvailable      6497792 kB
+  SwapFree          36810960 kB
+  root free         5494944 kB
+  vmstat si/so      1191/1346, 0/0, 4/0 kB/s (final two samples settled)
