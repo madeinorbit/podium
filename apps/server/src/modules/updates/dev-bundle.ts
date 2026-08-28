@@ -686,8 +686,13 @@ export interface DevBundleMetadata {
   keyFingerprint: string
   /**
    * Which platform's bundle this describes. Optional because a sidecar written before
-   * a build minted more than one platform has no such field, and `readMetadata` must
-   * keep reading those rather than treating them as corrupt.
+   * a build minted more than one platform has no such field.
+   *
+   * The server no longer READS this file: the build record says everything it used to
+   * be consulted for, and says it about the whole publish rather than one file at a
+   * time. It is still written because it travels WITH the tarball, and the
+   * out-of-band repair path (`scripts/repair-stranded-update.sh`) has nothing but the
+   * three copied files to verify against.
    */
   platform?: string
 }
@@ -1113,25 +1118,6 @@ async function readOptionalText(fs: DevBundleFs, path: string): Promise<string |
     return await fs.readText(path)
   } catch {
     return undefined
-  }
-}
-
-async function readMetadata(fs: DevBundleFs, path: string): Promise<DevBundleMetadata | null> {
-  const raw = await readOptionalText(fs, path + DEV_BUNDLE_METADATA_SUFFIX)
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw) as Partial<DevBundleMetadata>
-    if (
-      typeof parsed.version !== 'string' ||
-      typeof parsed.digest !== 'string' ||
-      typeof parsed.size !== 'number' ||
-      typeof parsed.keyFingerprint !== 'string'
-    ) {
-      return null
-    }
-    return parsed as DevBundleMetadata
-  } catch {
-    return null
   }
 }
 
