@@ -80,6 +80,29 @@ const FULL = quotaLedger([
   ),
 ])
 
+/** MIXED LENGTHS — the case POD-1743 exists for. A pool that reset after one
+ *  day, two days, then a full week must show three visibly different widths. */
+const MIXED = quotaLedger(
+  (
+    [
+      [7, 88],
+      [7, 61],
+      [2, 34],
+      [1, 12],
+      [3, 55],
+      [7, 91],
+    ] as const
+  ).map(([days, peak], i) =>
+    row({
+      accountKey: 'codex::a@b.c',
+      agent: 'codex',
+      resetsAt: new Date(Date.parse('2026-08-24T07:00:00.000Z') - (5 - i) * WEEK_MS).toISOString(),
+      windowMinutes: days * 24 * 60,
+      peakPercent: peak,
+    }),
+  ),
+)
+
 /** One pool, two weeks — the shape a fresh install has after a fortnight. */
 const SPARSE = quotaLedger([
   row({ accountKey: 'grok::a@b.c', agent: 'grok', resetsAt: week(1), peakPercent: 93 }),
@@ -154,6 +177,9 @@ function Shell(): JSX.Element {
       </Panel>
       <Panel title="Several pools · Paper" theme="paper">
         <QuotaLedger ledger={FULL} cold={false} />
+      </Panel>
+      <Panel title="Mixed window lengths" theme="dark">
+        <QuotaLedger ledger={MIXED} cold={false} />
       </Panel>
       <Panel title="One pool, two weeks" theme="dark">
         <QuotaLedger ledger={SPARSE} cold={false} />

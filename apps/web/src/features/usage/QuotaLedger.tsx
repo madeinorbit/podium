@@ -34,10 +34,15 @@ import type { QuotaLedgerFeed } from './useQuotaLedger'
 /** Where the "well used" hairline sits. Above it, a window earned its keep. */
 const TARGET_PERCENT = 85
 
+/** Days a column is drawn as when the provider reported no duration. See below. */
+const UNKNOWN_DAYS = 7
+
 function Column({ column }: { column: QuotaLedgerColumn }): JSX.Element {
   const percent = Math.max(0, Math.min(100, column.peakPercent))
+  const days = column.durationDays
   const title = [
     column.spanLabel,
+    days === undefined ? null : `${days < 1.5 ? days.toFixed(1) : Math.round(days)} days long`,
     `${percent.toFixed(0)}% of plan spent`,
     column.partial ? 'joined mid-window — start not observed' : null,
     column.closed ? null : 'still running',
@@ -51,6 +56,15 @@ function Column({ column }: { column: QuotaLedgerColumn }): JSX.Element {
       data-partial={column.partial || undefined}
       data-now={column.closed ? undefined : true}
       data-plan-break={column.planBreak || undefined}
+      // WIDTH IS THE WINDOW'S LENGTH, linearly: seven days is drawn seven times
+      // one day. `--days` feeds a flex-basis, so the ratio survives the strip
+      // being squeezed — flex shrinks in proportion to basis.
+      //
+      // A window with no reported duration gets the nominal week and says so
+      // through `data-unknown-length`, rather than defaulting to something short
+      // and inventing a fact the provider never gave us.
+      data-unknown-length={days === undefined || undefined}
+      style={{ '--days': days ?? UNKNOWN_DAYS } as React.CSSProperties}
       title={title}
     >
       {/* A 1.5% floor so a window that was barely touched still shows a mark
@@ -102,7 +116,9 @@ function Strip({ strip }: { strip: QuotaLedgerStrip }): JSX.Element {
       <div className="quota-pool-head">
         <span className="quota-mark">{strip.mark}</span>
         <span className="quota-pool-name">{strip.agentLabel}</span>
-        <span className="quota-pool-window">{strip.windowLabel}</span>
+        {/* Nothing at all when too few windows have closed to know the rhythm —
+            a hedge would still be a claim. */}
+        {strip.windowLabel && <span className="quota-pool-window">{strip.windowLabel}</span>}
         <span className="quota-pool-stat">
           {strip.completedCount === 0
             ? 'no completed window yet'
@@ -125,8 +141,16 @@ function Strip({ strip }: { strip: QuotaLedgerStrip }): JSX.Element {
         </div>
         <div className="quota-strip-days">
           {strip.columns.map((column) => (
-            <span key={`${column.windowKey}:${column.resetsAt}`} title={column.spanLabel}>
-              {column.endLabel}
+            <span
+              key={`${column.windowKey}:${column.resetsAt}`}
+              // The label track mirrors the plot's flex basis exactly, or the
+              // dates stop sitting under the columns they name.
+              style={{ '--days': column.durationDays ?? UNKNOWN_DAYS } as React.CSSProperties}
+              title={column.spanLabel}
+            >
+              {/* Inner element so the container query below can hide the text on a
+                  column too narrow to hold it. */}
+              <b>{column.endLabel}</b>
             </span>
           ))}
         </div>
