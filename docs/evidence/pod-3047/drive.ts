@@ -701,15 +701,33 @@ async function runA2b() {
  *               available. See A3NEG for the control that makes this clause
  *               capable of failing.
  */
-async function interruptRecords(sid: string): Promise<{
+/**
+ * WHICH PLANE THE RECORD LIVES ON, measured rather than assumed.
+ *
+ * The first version of this read `sessions.read` and found ZERO records — and
+ * zero of everything else too, including the user turn the probe had just
+ * watched land. `sessions.read` for a claude-sdk session resolves through
+ * `rpc.readTranscript` into the Claude CLI's OWN store keyed by workdir; the
+ * runtime's published items never enter it. A count of zero taken there is a
+ * fact about the plane, not about the repair, and it would have been recorded
+ * as a product red.
+ *
+ * The plane the daemon forwards published items onto is the session stream, so
+ * that is what is scored: `chat.items`, upserted by id. `sessions.read` is still
+ * dumped alongside as a second plane, because its emptiness is a finding of its
+ * own and the reader should be able to see both numbers next to each other.
+ */
+async function interruptRecords(sid: string, chat: Chat): Promise<{
   items: Item[]
+  serverItems: Item[]
   stop: Item[]
   confirmed: Item[]
   unconfirmed: Item[]
   refused: Item[]
   idle: Item[]
 }> {
-  const items = await transcript(sid)
+  const items = chat.items as unknown as Item[]
+  const serverItems = await transcript(sid)
   const idIs = (x: Item, prefix: string) => typeof x.id === 'string' && x.id.startsWith(prefix)
   const CONFIRMED = 'Turn interrupted by the operator.'
   const UNCONFIRMED = 'Turn interrupted by the operator; the model host did not confirm'
@@ -724,7 +742,7 @@ async function interruptRecords(sid: string): Promise<{
   const unconfirmed = items.filter((x) => textOf(x.text).trim().startsWith(UNCONFIRMED))
   const refused = items.filter((x) => textOf(x.text).trim().startsWith(REFUSED) || idIs(x, `claude-sdk-interrupt-refused-${sid}-`))
   const idle = items.filter((x) => textOf(x.text).trim() === IDLE || idIs(x, `claude-sdk-interrupt-idle-${sid}-`))
-  return { items, stop: [...confirmed, ...unconfirmed], confirmed, unconfirmed, refused, idle }
+  return { items, serverItems, stop: [...confirmed, ...unconfirmed], confirmed, unconfirmed, refused, idle }
 }
 
 function hostChildren(probeCwd: string): ProcessRow[] {
@@ -750,7 +768,7 @@ async function interruptTurn(freezeHost: boolean) {
     })
     const user = await waitForNeedle(sid, chat, needle, 'user', 5_000)
     const working = await waitPhase(sid, (phase) => phase === 'working', 15_000, 250)
-    const before = await interruptRecords(sid)
+    const before = await interruptRecords(sid, chat)
     const hosts = hostChildren(cwd)
     const control: Control = {
       fired: (user.ok || working.ok || Boolean((sent.result?.data as { ok?: boolean } | undefined)?.ok)) && before.stop.length === 0,
@@ -787,7 +805,7 @@ async function interruptTurn(freezeHost: boolean) {
     const after = await waitPhase(sid, (phase) => phase !== 'working', 40_000, 500)
     const stopMs = after.ms
     await wait(4_000)
-    const live = await interruptRecords(sid)
+    const live = await interruptRecords(sid, chat)
     // DURABILITY. The record has to be in the persisted transcript, not only on
     // the socket that watched it happen — so drop the viewer, take a new one,
     // and read it back.
@@ -795,8 +813,7 @@ async function interruptTurn(freezeHost: boolean) {
     const reloaded = new Chat(sid)
     await reloaded.open()
     await wait(2_000)
-    const persisted = await interruptRecords(sid)
-    await reloaded.close()
+    const persisted = await interruptRecords(sid, reloaded)
 
     // The IDLE arm: an interrupt with nothing to interrupt, pressed twice. One
     // receipt per epoch is the claim, so two presses must leave one receipt.
@@ -805,7 +822,8 @@ async function interruptTurn(freezeHost: boolean) {
     await wait(1_000)
     await mutate('sessions.interrupt', { sessionId: sid }).catch(() => null)
     await wait(3_000)
-    const afterIdle = await interruptRecords(sid)
+    const afterIdle = await interruptRecords(sid, reloaded)
+    await reloaded.close()
 
     const payload = interrupted.result?.data ?? interrupted.error ?? null
     const typedRefusal = Boolean(interrupted.error) || /refus|unsupported|cannot|not available/i.test(JSON.stringify(payload))
@@ -851,6 +869,12 @@ async function interruptTurn(freezeHost: boolean) {
         'IDLE RECEIPTS     before=' + idleBefore + ' afterTwoPresses=' + afterIdle.idle.length + ' onePerEpoch=' + idleOnce,
         'TYPED REFUSAL     ' + typedRefusal,
         'CLAUSES           ' + clauses,
+        // AN ABSENCE CLAIM IS A CLAIM ABOUT THE WHOLE SURFACE. A count of zero
+        // records is only worth reading next to everything the transcript did
+        // hold, so the full item list goes in the reading rather than a filter
+        // over it.
+        'SERVER READ ITEMS ' + afterIdle.serverItems.length + ' (sessions.read; empty on this path — see the note on interruptRecords)',
+        'ALL ITEMS         ' + short(afterIdle.items.map((x) => ({ id: x.id, role: x.role, event: x.event, text: textOf(x.text).slice(0, 120) })), 4000),
       ],
       {
         sid,
@@ -875,6 +899,9 @@ async function interruptTurn(freezeHost: boolean) {
         persistedStop: persisted.stop,
         persistedRefused: persisted.refused,
         persistedIdle: afterIdle.idle,
+        allItems: afterIdle.items,
+        serverReadItems: afterIdle.serverItems,
+        statusAfter: await status(sid),
       },
     )
   } finally {
