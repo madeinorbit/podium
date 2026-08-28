@@ -781,10 +781,15 @@ export type DevBuildSpawnResult =
 
 export interface DevBundleBuildDeps {
   lock: DevBundleLock
-  /** Immutable build source. Artifacts may be written back to `artifactRoot`. */
+  /**
+   * Immutable build source — a detached snapshot for an approved build.
+   *
+   * There is no longer an `artifactRoot` beside it. Artifacts used to be written back
+   * into the LIVE checkout while the build ran from a snapshot of it; they now go into
+   * the build record under the state directory, which no snapshot owns and no checkout
+   * can take with it.
+   */
   root?: string
-  /** Persistent checkout root that owns `dist-bun`; defaults to `root`. */
-  artifactRoot?: string
   headSha?: string
   spawnBuild?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
   build?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
@@ -2092,7 +2097,6 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
           buildDevBundle({
             ...deps,
             root: buildRoot,
-            artifactRoot: liveRoot,
             headSha,
             platforms,
             ...(approved ? { releaseVersion: approved.version } : {}),
@@ -2174,6 +2178,21 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
                 fs.remove(artifact.path + DEV_BUNDLE_METADATA_SUFFIX),
               ]),
             )
+            // And the ledger stops calling it signed. A record naming bytes that have
+            // just been deleted is worse than no record: the next restart would read it,
+            // fail to verify, and have no idea why the files were missing.
+            try {
+              advanceOutcome(
+                deps.publisherStateDir ?? stateDir(),
+                approvedBuilt.buildId,
+                'failed:identity',
+              )
+            } catch (recordError) {
+              log.warn('could not record the identity refusal for a development build', {
+                buildId: approvedBuilt.buildId,
+                err: recordError,
+              })
+            }
           }
           throw error
         })

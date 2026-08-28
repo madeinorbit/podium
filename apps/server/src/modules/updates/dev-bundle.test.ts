@@ -1156,6 +1156,120 @@ describe('buildDevBundle', () => {
     )
   })
 
+  it('records what the attempt did — the clients it verified, restored or rebuilt', async () => {
+    const { bytes, signature, signingKey } = signedFixture()
+    const store = memoryFs()
+    const seams = publisherSeams()
+    const built = await buildDevBundle({
+      ...seams,
+      root: '/repo/podium',
+      headSha: 'aaaaaaa',
+      signingKey,
+      fs: store.fs,
+      lock: lockFixture([]),
+      now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+      spawnBuild: async ({ artifacts, recordDir }) => {
+        // What the coordinator child writes before it packages anything.
+        writeFileSync(
+          join(recordDir, 'client.json'),
+          JSON.stringify({
+            rootDigest: 'c'.repeat(64),
+            sourceCommit: 'aaaaaaa',
+            version: '0.1.0-dev.1+aaaaaaa',
+            tasks: {
+              '@podium/web#build': { hash: 'h1', cache: 'HIT' },
+              '@podium/mobile#build': { hash: 'h2', cache: 'HIT' },
+            },
+          }),
+        )
+        for (const { artifactPath } of artifacts) {
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(artifactPath + '.sig', signature + '\n')
+        }
+      },
+    })
+
+    const record = readBuildRecord(seams.publisherStateDir, built.buildId)
+    expect(record?.client?.rootDigest).toBe('c'.repeat(64))
+    // BOTH RESTORED. This is the only durable place that says so: the Turbo summary
+    // exists once, inside the child, and nowhere after it exits.
+    expect(record?.client?.tasks).toEqual({
+      '@podium/web#build': { hash: 'h1', cache: 'HIT' },
+      '@podium/mobile#build': { hash: 'h2', cache: 'HIT' },
+    })
+    expect(record?.signingKeyFingerprint).toBe(devBundleKeyFingerprint(signingKey))
+  })
+
+  it('names the step that refused, so a failed attempt is still evidence', async () => {
+    const seams = publisherSeams()
+    const buildId = mintBuildId('20260812T182015Z', 'aaaaaaa')
+    const attempt = (spawnBuild: Parameters<typeof buildDevBundle>[0]['spawnBuild']) =>
+      buildDevBundle({
+        ...seams,
+        root: '/repo/podium',
+        headSha: 'aaaaaaa',
+        fs: stubFs(),
+        lock: lockFixture([]),
+        now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+        ...(spawnBuild ? { spawnBuild } : {}),
+      })
+
+    // The child died before it could say the clients passed.
+    await expect(
+      attempt(async () => {
+        throw new Error('client verification failed')
+      }),
+    ).rejects.toThrow('client verification failed')
+    expect(readBuildRecord(seams.publisherStateDir, buildId)?.outcome).toBe('failed:verify')
+    expect(readBuildRecord(seams.publisherStateDir, buildId)?.artifacts).toEqual([])
+  })
+
+  it('distinguishes a packaging failure from one where the clients never passed', async () => {
+    const seams = publisherSeams()
+    const buildId = mintBuildId('20260812T182015Z', 'aaaaaaa')
+    await expect(
+      buildDevBundle({
+        ...seams,
+        root: '/repo/podium',
+        headSha: 'aaaaaaa',
+        fs: stubFs(),
+        lock: lockFixture([]),
+        now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+        spawnBuild: async ({ recordDir }) => {
+          writeFileSync(
+            join(recordDir, 'client.json'),
+            JSON.stringify({ rootDigest: 'c', sourceCommit: 'aaaaaaa', version: 'v', tasks: {} }),
+          )
+          throw new Error('cross-build failed for darwin-aarch64')
+        },
+      }),
+    ).rejects.toThrow('cross-build failed')
+    expect(readBuildRecord(seams.publisherStateDir, buildId)?.outcome).toBe('failed:package')
+  })
+
+  it('records an unsigned bundle as failed:sign rather than leaving the directory mute', async () => {
+    const { bytes } = signedFixture()
+    const store = memoryFs()
+    const seams = publisherSeams()
+    const buildId = mintBuildId('20260812T182015Z', 'aaaaaaa')
+    await expect(
+      buildDevBundle({
+        ...seams,
+        root: '/repo/podium',
+        headSha: 'aaaaaaa',
+        fs: store.fs,
+        lock: lockFixture([]),
+        now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
+        spawnBuild: async ({ artifacts }) => {
+          for (const { artifactPath } of artifacts) store.blobs.set(artifactPath, bytes)
+        },
+      }),
+    ).rejects.toThrow(/unsigned/)
+    const record = readBuildRecord(seams.publisherStateDir, buildId)
+    expect(record?.outcome).toBe('failed:sign')
+    expect(record?.artifacts).toEqual([])
+  })
+
   it('refuses the whole build when one platform comes back unsigned', async () => {
     // An unsigned bundle is one every machine would reject AFTER downloading it. The
     // refusal has to name the platform, or the operator is left guessing which compile
@@ -2350,6 +2464,34 @@ describe('the dev feed manifest the publisher writes', () => {
     // The resolver stamps the trust root and REFUSES a manifest that names one,
     // so a publisher that wrote one would make its own releases unresolvable.
     expect(parsed.trust).toBeUndefined()
+  })
+
+  it('advances the record to published only once the manifests are on disk', async () => {
+    const store = memoryFs()
+    const ledger = publisherDir()
+    const publisher = publisherFor(
+      store,
+      () => 'aaaaaaa',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ledger,
+    )
+    const built = await publisher.requestBuild(true)
+    expect(built).not.toBeNull()
+    const buildId = built?.buildId as string
+
+    // Signed, and not yet claiming anything about publication.
+    expect(readBuildRecord(ledger, buildId)?.outcome).toBe('signed')
+
+    expect(await publisher.publishFeed()).toBe(true)
+
+    expect(readBuildRecord(ledger, buildId)?.outcome).toBe('published')
+    // And the state file points the retention sweep at it: this is the release the
+    // fleet is being served, and its bytes must survive whatever else ages out.
+    expect(readDevPublisherState(ledger)?.lastPublishedBuildId).toBe(buildId)
   })
 
   it('names integrity when published artifact bytes change after publication', async () => {

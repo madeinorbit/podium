@@ -69,7 +69,10 @@ jobs:
       - name: Build four signed headless bundles
         env:
           PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
-        run: bun run release:prepare -- --channel "$PODIUM_RELEASE_CHANNEL"
+        # --record: the build ledger's client half, uploaded with the assets so a
+        # release page's provenance -- which client build, restored or rebuilt, under
+        # which Turbo hashes -- survives the runner it was produced on.
+        run: bun run release:prepare -- --channel "$PODIUM_RELEASE_CHANNEL" --record dist-bun/release/record
       # Interrogate what will actually be uploaded, not the build tree it came from.
       # A wrong-architecture helper, a lost Darwin signature or a stub binary fails HERE,
       # before anything reaches a release page.
