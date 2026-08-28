@@ -764,14 +764,9 @@ export interface DevBundleLock {
 /** The transient unit role for the headless compile; see `build-scope.ts`. */
 export const DEV_BUNDLE_BUILD_ROLE = 'dev-bundle-build'
 
-export interface DevBuildSpawnContext {
-  root: string
-  version: string
-  /** Where the build must write the tarball. Carries the build-time stamp. */
-  artifactPath: string
-  signingKey?: string
-  /** Names the transient build unit, so two instances cannot share one. */
-  instanceId?: string
+/** One platform's slot in a publish: what to compile, and where its tarball goes. */
+export interface DevBuildArtifactRequest {
+  platform: string
   /**
    * Which platform this bundle is for, as a `bun build --compile` target.
    *
@@ -782,17 +777,45 @@ export interface DevBuildSpawnContext {
    * path nothing tests until release day.
    */
   bunTarget: string
+  /** Where the build must write the tarball. Carries the build-time stamp. */
+  artifactPath: string
+}
+
+export interface DevBuildSpawnContext {
+  root: string
+  version: string
+  /**
+   * EVERY platform of this publish, in build order, host first.
+   *
+   * One context, not one per platform, because one publish is now ONE build. The
+   * clients are built (or restored) once by the coordinator and every platform is
+   * packaged from that single output — which is what makes the bundles of one publish
+   * share a web digest, and what makes an approval whose clients did not change build
+   * nothing at all. Handing the spawn one platform at a time is how the publisher used
+   * to pay for the client build N times over.
+   */
+  artifacts: readonly DevBuildArtifactRequest[]
+  signingKey?: string
+  /** Names the transient build unit, so two instances cannot share one. */
+  instanceId?: string
   /** Opt-in evidence context inherited by the detached build command. */
   timingEnv?: NodeJS.ProcessEnv
 }
 
+/**
+ * What the spawn reports back, if anything.
+ *
+ * `undefined` is the production answer: the coordinator wrote each tarball to the path
+ * this side named, and this side reads the signature from disk beside it. The array
+ * form lets a seam name a different path or hand the signature back in memory.
+ */
 export type DevBuildSpawnResult =
   | undefined
-  | string
-  | {
+  | ReadonlyArray<{
+      platform: string
       path?: string
       signature?: string
-    }
+    }>
 
 export interface DevBundleBuildDeps {
   lock: DevBundleLock
@@ -1067,30 +1090,60 @@ function developmentSigningKey(root: string): string {
  * and falls back to exactly the spawn above wherever systemd-run cannot create
  * one (macOS, Windows, a container without a user manager). See `build-scope.ts`.
  */
-async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
+/**
+ * The command line ONE release child is given for a whole publish.
+ *
+ * `scripts/release.ts --prepare-cross` is the coordinator both this publisher and the
+ * CI release job run. It builds (or restores) the clients once through the Turbo lane
+ * and then packages every platform named here from that one output, in process.
+ * Spawning it per platform is what used to make an approval pay for the client build
+ * once per platform — and calling build-bun directly refuses, so this path cannot
+ * package an old approved-SHA dist by accident.
+ *
+ * `--platform` for EVERY platform, this host's own included, so the dev host exercises
+ * the exact path that produces what ships rather than a nearby one — including the
+ * cross-compiled abduco helper, which is the part of a bundle a native build would have
+ * got from somewhere else. `--artifact` because this side owns the artifacts' lifecycle:
+ * the build stamp in each name is what retention later sorts on, and the paths must be
+ * absolute because the coordinator runs in the snapshot worktree, which is deleted
+ * afterwards.
+ *
+ * Exported so a test can read the ACTUAL argument vector rather than grep the source
+ * for a string that no longer has to mean anything.
+ */
+export function devReleaseBuildArgs(
+  artifacts: readonly DevBuildArtifactRequest[],
+): string[] {
+  return [
+    'scripts/release.ts',
+    '--prepare-cross',
+    ...artifacts.flatMap((artifact) => [
+      '--platform',
+      artifact.platform,
+      '--artifact',
+      `${artifact.platform}=${artifact.artifactPath}`,
+    ]),
+  ]
+}
+
+async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<undefined> {
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
+  const platforms = ctx.artifacts.map((artifact) => artifact.platform)
   await runLowTierBuild({
     unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
-    description: `Podium development bundle build (${ctx.version}, ${ctx.bunTarget})`,
+    description: `Podium development release build (${ctx.version}, ${platforms.join(', ')})`,
     command: devBuildCommand(process.env),
-    // `--target` on EVERY build, this host's own included. The release job passes it
-    // too, so the dev host exercises the exact path that produces what ships rather
-    // than a nearby one — including the cross-compiled abduco helper, which is the part
-    // of a bundle a native build would have got from somewhere else.
-    // package-headless owns the fresh-build session. Calling build-bun directly
-    // refuses, so this path cannot accidentally package an old approved-SHA dist.
-    args: ['scripts/package-headless.ts', `--target=${ctx.bunTarget}`],
+    // ONE child for the whole publish; see devReleaseBuildArgs.
+    args: devReleaseBuildArgs(ctx.artifacts),
     cwd: ctx.root,
     env: {
       ...process.env,
       ...ctx.timingEnv,
       PODIUM_APP_VERSION: ctx.version,
-      // The caller names the artifact, because the caller owns its lifecycle:
-      // the stamp in the name is what retention later sorts on.
-      PODIUM_BUNDLE_ARTIFACT: ctx.artifactPath,
       PODIUM_UPDATE_SIGNING_KEY: signingKey,
     },
   })
+  return undefined
 }
 
 /**
@@ -1335,9 +1388,6 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       sourceSha: sha,
     })
 
-    // Host first, then whatever else the fleet needs. Host first matters: if a later
-    // platform's compile fails, the host has already produced the bundle this machine
-    // itself converges on, and the error names the platform that failed.
     const platforms = devBuildPlatforms(deps.platforms)
     const artifactNames = platforms.map((platform) => devBundleFileName(version, stamp, platform))
     // Remember the WHOLE publish before building it. The allowlist is what stops the
@@ -1348,24 +1398,36 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
     })
 
-    const artifacts: DevBundleArtifact[] = []
-    for (const [index, platform] of platforms.entries()) {
-      const requestedPath = join(
+    // Host first, then whatever else the fleet needs. Host first matters: if a later
+    // platform's compile fails, the host has already produced the bundle this machine
+    // itself converges on, and the error names the platform that failed. The
+    // coordinator packages in the order it is given them.
+    const requests: DevBuildArtifactRequest[] = platforms.map((platform, index) => ({
+      platform,
+      bunTarget: bunTargetForPlatform(platform),
+      artifactPath: join(
         devBundleDirectory(deps.artifactRoot ?? root),
         artifactNames[index] as string,
-      )
-      const result = await spawnBuild({
-        root,
-        version,
-        artifactPath: requestedPath,
-        bunTarget: bunTargetForPlatform(platform),
-        ...(Object.keys(timingEnv).length > 0 ? { timingEnv } : {}),
-        ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
-        ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
-      })
-      await renewal
-      if (renewalError) throw renewalError
+      ),
+    }))
 
+    // ONE build for the whole publish. The clients are built or restored once inside it
+    // and every platform is packaged from that single output.
+    const result = await spawnBuild({
+      root,
+      version,
+      artifacts: requests,
+      ...(Object.keys(timingEnv).length > 0 ? { timingEnv } : {}),
+      ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
+      ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
+    })
+    await renewal
+    if (renewalError) throw renewalError
+
+    const artifacts: DevBundleArtifact[] = []
+    for (const request of requests) {
+      const platform = request.platform
+      const requestedPath = request.artifactPath
       await timeReleaseBuildTask(
         {
           phase: 'artifact-publication',
@@ -1376,11 +1438,10 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
           target: platform,
         },
         async () => {
-          const resultObject = typeof result === 'object' && result !== null ? result : undefined
-          const artifactPath =
-            (typeof result === 'string' ? result : resultObject?.path) ?? requestedPath
+          const reported = result?.find((entry) => entry.platform === platform)
+          const artifactPath = reported?.path ?? requestedPath
           const signature =
-            resultObject?.signature ??
+            reported?.signature ??
             (await readOptionalText(fs, artifactPath + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
           // Unsigned is not "publish it anyway with a warning": a daemon verifies before it
           // swaps, so an unsigned bundle is one every machine would refuse after

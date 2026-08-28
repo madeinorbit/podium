@@ -24,6 +24,7 @@ import {
   type DevBundleLock,
   decideDevBuild,
   devBuildPlatforms,
+  devReleaseBuildArgs,
   devBundleFileName,
   devBundleKeyFingerprint,
   devBundleStamp,
@@ -846,11 +847,40 @@ describe('buildDevBundle', () => {
     ).rejects.toThrow(/caller-supplied clientRootDigest is forbidden/)
   })
 
-  it('routes the production spawn through the fresh-build packaging entry point', () => {
+  it('gives ONE release child the whole publish, naming every platform and its output', () => {
+    // The coordinator both this publisher and the CI release job run. One command line
+    // for every platform is what makes the clients build once: a child per platform is
+    // a client build per platform.
+    expect(
+      devReleaseBuildArgs([
+        {
+          platform: 'linux-x86_64',
+          bunTarget: 'bun-linux-x64',
+          artifactPath: '/repo/dist-bun/a.tar.gz',
+        },
+        {
+          platform: 'darwin-aarch64',
+          bunTarget: 'bun-darwin-arm64',
+          artifactPath: '/repo/dist-bun/b.tar.gz',
+        },
+      ]),
+    ).toEqual([
+      'scripts/release.ts',
+      '--prepare-cross',
+      '--platform',
+      'linux-x86_64',
+      '--artifact',
+      'linux-x86_64=/repo/dist-bun/a.tar.gz',
+      '--platform',
+      'darwin-aarch64',
+      '--artifact',
+      'darwin-aarch64=/repo/dist-bun/b.tar.gz',
+    ])
+  })
+
+  it('never spawns build-bun directly, which would package whatever dist was lying about', () => {
     const source = readFileSync(new URL('./dev-bundle.ts', import.meta.url), 'utf8')
-    expect(source).toContain("args: ['scripts/package-headless.ts', `--target=${ctx.bunTarget}`]")
-    expect(source).toContain('package-headless owns the fresh-build session')
-    expect(source).not.toContain("args: ['scripts/build-bun.ts'")
+    expect(source).not.toContain("'scripts/build-bun.ts'")
   })
 
   it('builds a signed dev target and releases the lease after describing the artifact', async () => {
@@ -865,10 +895,12 @@ describe('buildDevBundle', () => {
       lock: lockFixture(events),
       renewIntervalMs: 60_000,
       now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
-      spawnBuild: async ({ version, artifactPath }) => {
+      spawnBuild: async ({ version, artifacts }) => {
         events.push('build:' + version)
-        store.blobs.set(artifactPath, bytes)
-        store.text.set(artifactPath + '.sig', signature + '\n')
+        for (const { artifactPath } of artifacts) {
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(artifactPath + '.sig', signature + '\n')
+        }
       },
     })
 
@@ -941,10 +973,11 @@ describe('buildDevBundle', () => {
       headSha: '123456789abcdef',
       fs: store.fs,
       lock: lockFixture([]),
-      spawnBuild: async ({ artifactPath }) => {
-        store.blobs.set(artifactPath, big)
-        return { signature: 'signed' }
-      },
+      spawnBuild: async ({ artifacts }) =>
+        artifacts.map(({ platform, artifactPath }) => {
+          store.blobs.set(artifactPath, big)
+          return { platform, signature: 'signed' }
+        }),
     })
 
     // The descriptor is metadata; there is nowhere for a payload to hide in it.
@@ -977,10 +1010,11 @@ describe('buildDevBundle', () => {
         fs: store.fs,
         lock: lockFixture([]),
         now: () => at,
-        spawnBuild: async ({ artifactPath }) => {
-          store.blobs.set(artifactPath, new Uint8Array([1, 2, 3, 4]))
-          return { signature: 'signed' }
-        },
+        spawnBuild: async ({ artifacts }) =>
+          artifacts.map(({ platform, artifactPath }) => {
+            store.blobs.set(artifactPath, new Uint8Array([1, 2, 3, 4]))
+            return { platform, signature: 'signed' }
+          }),
       })
       built.push(bundle.path)
     }
@@ -1010,9 +1044,11 @@ describe('buildDevBundle', () => {
       fs: store.fs,
       lock: lockFixture([]),
       now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
-      spawnBuild: async ({ artifactPath }) => {
-        store.blobs.set(artifactPath, bytes)
-        store.text.set(artifactPath + '.sig', signature + '\n')
+      spawnBuild: async ({ artifacts }) => {
+        for (const { artifactPath } of artifacts) {
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(artifactPath + '.sig', signature + '\n')
+        }
       },
     })
 
@@ -1046,9 +1082,11 @@ describe('buildDevBundle', () => {
       fs: store.fs,
       lock: lockFixture([]),
       now: () => Date.UTC(2026, 7, 12, 18, minute, 0),
-      spawnBuild: async ({ artifactPath }) => {
-        store.blobs.set(artifactPath, bytes)
-        store.text.set(artifactPath + '.sig', signature + '\n')
+      spawnBuild: async ({ artifacts }) => {
+        for (const { artifactPath } of artifacts) {
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(artifactPath + '.sig', signature + '\n')
+        }
       },
     })
 
@@ -1069,6 +1107,7 @@ describe('buildDevBundle', () => {
     const { bytes, signature, signingKey } = signedFixture()
     const store = memoryFs()
     const targets: string[] = []
+    let spawns = 0
     const built = await buildDevBundle({
       ...publisherSeams(),
       root: '/repo/podium',
@@ -1078,14 +1117,24 @@ describe('buildDevBundle', () => {
       lock: lockFixture([]),
       now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
       platforms: ['linux-x86_64', 'darwin-aarch64'],
-      spawnBuild: async ({ artifactPath, bunTarget }) => {
-        targets.push(bunTarget)
-        store.blobs.set(artifactPath, bytes)
-        store.text.set(artifactPath + '.sig', signature + '\n')
+      spawnBuild: async ({ artifacts }) => {
+        spawns++
+        for (const { artifactPath, bunTarget } of artifacts) {
+          targets.push(bunTarget)
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(artifactPath + '.sig', signature + '\n')
+        }
       },
     })
 
-    // Each platform is a SEPARATE compile with its own bun target — the same flag
+    // ONE build for the whole publish, not one per platform. That is the M3 claim:
+    // the clients are built or restored once inside the coordinator and every platform
+    // is packaged from that single output. A second spawn here would be the publisher
+    // paying for the client build again.
+    expect(spawns).toBe(1)
+    // Host first, then whatever else the fleet needs — the order the coordinator
+    // packages in, so a later platform's failure still leaves this machine its bundle.
+    // Each platform is still a SEPARATE compile with its own bun target — the same flag
     // scripts/release.ts passes, which is what makes the dev host exercise the release
     // path rather than one that merely resembles it.
     expect(targets).toEqual(['bun-linux-x64', 'bun-darwin-arm64'])
@@ -1135,9 +1184,11 @@ describe('buildDevBundle', () => {
         lock: lockFixture([]),
         now: () => Date.UTC(2026, 7, 12, 18, minute, 0),
         platforms: ['linux-x86_64', 'darwin-aarch64'],
-        spawnBuild: async ({ artifactPath }) => {
-          store.blobs.set(artifactPath, bytes)
-          store.text.set(artifactPath + '.sig', signature + '\n')
+        spawnBuild: async ({ artifacts }) => {
+          for (const { artifactPath } of artifacts) {
+            store.blobs.set(artifactPath, bytes)
+            store.text.set(artifactPath + '.sig', signature + '\n')
+          }
         },
       })
     }
@@ -1171,10 +1222,12 @@ describe('buildDevBundle', () => {
         lock: lockFixture([]),
         now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
         platforms: ['linux-x86_64', 'darwin-aarch64'],
-        spawnBuild: async ({ artifactPath, bunTarget }) => {
-          store.blobs.set(artifactPath, bytes)
-          if (bunTarget !== 'bun-darwin-arm64') {
-            store.text.set(artifactPath + '.sig', signature + '\n')
+        spawnBuild: async ({ artifacts }) => {
+          for (const { artifactPath, bunTarget } of artifacts) {
+            store.blobs.set(artifactPath, bytes)
+            if (bunTarget !== 'bun-darwin-arm64') {
+              store.text.set(artifactPath + '.sig', signature + '\n')
+            }
           }
         },
       }),
@@ -1206,16 +1259,21 @@ describe('buildDevBundle', () => {
       lock: lockFixture([]),
       now: () => Date.UTC(2026, 7, 12, 19, 0, 0),
       fleetPlatforms: () => ['linux-x86_64', 'darwin-aarch64'],
-      spawnBuild: async ({ artifactPath }) => {
+      spawnBuild: async ({ artifacts }) => {
         builds++
-        store.blobs.set(artifactPath, bytes)
-        store.text.set(artifactPath + '.sig', signature + '\n')
+        for (const { artifactPath } of artifacts) {
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(artifactPath + '.sig', signature + '\n')
+        }
       },
     })
 
     const built = await publisher.requestBuild(true)
 
-    expect(builds).toBe(2)
+    // The build ran rather than the short bundle being restored — ONCE, for both
+    // platforms. It used to be one spawn per platform, and so one client build per
+    // platform; the coordinator now builds the clients once and packages both from it.
+    expect(builds).toBe(1)
     expect(built?.artifacts.map((artifact) => artifact.platform)).toEqual([
       'linux-x86_64',
       'darwin-aarch64',
@@ -1253,9 +1311,9 @@ describe('buildDevBundle', () => {
       signingKey,
       fs: store.fs,
       lock: lockFixture([]),
-      spawnBuild: async () => {
+      spawnBuild: async ({ artifacts }) => {
         builds++
-        return { signature }
+        return artifacts.map(({ platform }) => ({ platform, signature }))
       },
     })
 
@@ -1315,9 +1373,9 @@ describe('buildDevBundle', () => {
       signingKey,
       fs: store.fs,
       lock: lockFixture([]),
-      spawnBuild: async () => {
+      spawnBuild: async ({ artifacts }) => {
         builds++
-        return { signature }
+        return artifacts.map(({ platform }) => ({ platform, signature }))
       },
     })
 
@@ -1393,10 +1451,12 @@ describe('buildDevBundle', () => {
         signingKey,
         fs: store.fs,
         lock: lockFixture([]),
-        spawnBuild: async ({ artifactPath }) => {
+        spawnBuild: async ({ artifacts }) => {
           builds++
-          store.blobs.set(artifactPath, bytes)
-          return { signature }
+          return artifacts.map(({ platform, artifactPath }) => {
+            store.blobs.set(artifactPath, bytes)
+            return { platform, signature }
+          })
         },
       })
 
@@ -1419,10 +1479,14 @@ describe('buildDevBundle', () => {
       fs: stubFs(),
       lock: lockFixture(events),
       now: () => 100_000,
-      spawnBuild: async ({ version }) => {
+      spawnBuild: async ({ version, artifacts }) => {
         attempts++
         if (attempts === 2) throw new Error('second compile failed')
-        return { path: '/stage/' + version, bytes, signature }
+        return artifacts.map(({ platform }) => ({
+          platform,
+          path: '/stage/' + version,
+          signature,
+        }))
       },
     })
 
@@ -1460,9 +1524,13 @@ describe('buildDevBundle', () => {
       prepareWebDist: async (headSha) => {
         order.push('web:' + headSha)
       },
-      spawnBuild: async ({ version }) => {
+      spawnBuild: async ({ version, artifacts }) => {
         order.push('bundle')
-        return { path: '/stage/' + version, bytes, signature }
+        return artifacts.map(({ platform }) => ({
+          platform,
+          path: '/stage/' + version,
+          signature,
+        }))
       },
     })
 
@@ -1494,9 +1562,13 @@ describe('buildDevBundle', () => {
         seen.push(explicit)
         if (!explicit) throw new Error('the website has not been built for this commit')
       },
-      spawnBuild: async ({ version }) => {
+      spawnBuild: async ({ version, artifacts }) => {
         builds++
-        return { path: '/stage/' + version, bytes, signature }
+        return artifacts.map(({ platform }) => ({
+          platform,
+          path: '/stage/' + version,
+          signature,
+        }))
       },
     })
 
@@ -1562,9 +1634,9 @@ describe('buildDevBundle', () => {
         },
       },
       lock: lockFixture([]),
-      spawnBuild: async () => {
+      spawnBuild: async ({ artifacts }) => {
         builds++
-        return { signature }
+        return artifacts.map(({ platform }) => ({ platform, signature }))
       },
     })
 
@@ -1615,10 +1687,8 @@ describe('buildDevBundle', () => {
       readIgnoredSourceInputs: () => '',
       fs: stubFs(),
       lock: lockFixture([]),
-      spawnBuild: async ({ version }) => ({
-        path: '/stage/' + version,
-        signature,
-      }),
+      spawnBuild: async ({ version, artifacts }) =>
+        artifacts.map(({ platform }) => ({ platform, path: '/stage/' + version, signature })),
     })
 
     await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
@@ -1658,11 +1728,15 @@ describe('buildDevBundle', () => {
       readIgnoredSourceInputs: async () => '',
       fs: stubFs(),
       lock: lockFixture([]),
-      spawnBuild: async ({ version }) => {
+      spawnBuild: async ({ version, artifacts }) => {
         builds++
         resolveBuildStarted()
         await buildDone
-        return { path: '/stage/' + version, bytes, signature }
+        return artifacts.map(({ platform }) => ({
+          platform,
+          path: '/stage/' + version,
+          signature,
+        }))
       },
     })
 
@@ -1692,9 +1766,13 @@ describe('development bundle readiness', () => {
       fs: stubFs(),
       lock: lockFixture([]),
       now: () => 100_000,
-      spawnBuild: async ({ version }) => {
+      spawnBuild: async ({ version, artifacts }) => {
         if (fail) throw new Error(fail)
-        return { path: '/stage/' + version, bytes, signature }
+        return artifacts.map(({ platform }) => ({
+          platform,
+          path: '/stage/' + version,
+          signature,
+        }))
       },
     })
     return {
@@ -1842,9 +1920,13 @@ describe('development bundle readiness', () => {
       onAdmitted: () => {
         announceAdmitted()
       },
-      spawnBuild: async ({ version }) => {
+      spawnBuild: async ({ version, artifacts }) => {
         await buildDone
-        return { path: '/stage/' + version, bytes, signature }
+        return artifacts.map(({ platform }) => ({
+          platform,
+          path: '/stage/' + version,
+          signature,
+        }))
       },
     })
 
@@ -1877,9 +1959,9 @@ describe('ignored source inputs gate the build', () => {
       readIgnoredSourceInputs: () => nul('apps/server/src/local-override.ts'),
       fs: stubFs(),
       lock: lockFixture([]),
-      spawnBuild: async () => {
+      spawnBuild: async ({ artifacts }) => {
         builds++
-        return { signature }
+        return artifacts.map(({ platform }) => ({ platform, signature }))
       },
     })
 
@@ -1906,10 +1988,8 @@ describe('ignored source inputs gate the build', () => {
         nul('apps/server/node_modules/left-pad/index.js', 'apps/web/shot.png'),
       fs: stubFs(),
       lock: lockFixture([]),
-      spawnBuild: async ({ version }) => ({
-        path: '/stage/' + version,
-        signature,
-      }),
+      spawnBuild: async ({ version, artifacts }) =>
+        artifacts.map(({ platform }) => ({ platform, path: '/stage/' + version, signature })),
     })
 
     await publisher.requestBuild(true)
@@ -2140,9 +2220,11 @@ describe('the dev feed manifest the publisher writes', () => {
           : { raw }
       },
       now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
-      spawnBuild: async ({ artifactPath }) => {
-        store.blobs.set(artifactPath, bytes)
-        store.text.set(`${artifactPath}.sig`, `${signature}\n`)
+      spawnBuild: async ({ artifacts }) => {
+        for (const { artifactPath } of artifacts) {
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(`${artifactPath}.sig`, `${signature}\n`)
+        }
       },
     })
   }
@@ -2287,9 +2369,11 @@ describe('the dev feed manifest the publisher writes', () => {
       fs: store.fs,
       lock: lockFixture([]),
       platform: 'linux-x86_64',
-      spawnBuild: async ({ root: snapshotRoot, artifactPath }) => {
-        store.blobs.set(artifactPath, bytes)
-        store.text.set(`${artifactPath}.sig`, `${signature}\n`)
+      spawnBuild: async ({ root: snapshotRoot, artifacts }) => {
+        for (const { artifactPath } of artifacts) {
+          store.blobs.set(artifactPath, bytes)
+          store.text.set(`${artifactPath}.sig`, `${signature}\n`)
+        }
         writeFileSync(
           join(snapshotRoot, 'approved-source.ts'),
           'export const bytes = "mutated during compile"\n',
