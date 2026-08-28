@@ -1,0 +1,106 @@
+{
+  "cell": "A9",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3036n/probes/claude-sdk-a9",
+  "at": "2026-08-28T12:02:37.988Z",
+  "pin": {
+    "cell": "A9",
+    "at": "2026-08-28T12:02:38.015Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "checkoutSha": "b736dd8df0f602e7f5c9ebd00459ff6fa0d7d70c",
+    "pinSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "serverSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "daemonSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b736dd8",
+      "appsWebIdentical": true
+    },
+    "serverPid": "536616",
+    "daemonPid": "578876",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "20290188 kB",
+      "SwapFree": "41657880 kB"
+    },
+    "rootFreeKiB": 85200332,
+    "load1m": 9.76,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3036n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "session process tree was gone immediately and after five minutes",
+  "control": {
+    "fired": true,
+    "what": "target session process tree existing before kill",
+    "detail": "processes=2; screenBytes=0"
+  },
+  "evidence": [
+    "KILL              {\"result\":{}}",
+    "BEFORE            [{\"pid\":590844,\"ppid\":0,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance\",\"cmd\":\"bash /home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance/docs/evidence/pod-3036/run-cell.sh A9 claude-sdk\"},{\"pid\":590867,\"ppid\":0,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance\",\"cmd\":\"bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance/docs/evidence/pod-3036/drive.ts A9 claude-sdk\"}]",
+    "AFTER 5 MIN       []"
+  ],
+  "data": {
+    "sid": "9680a3a1-3ea6-4c95-bd2c-32253a7a4db1",
+    "before": [
+      {
+        "pid": 590844,
+        "ppid": 0,
+        "cwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+        "cmd": "bash /home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance/docs/evidence/pod-3036/run-cell.sh A9 claude-sdk"
+      },
+      {
+        "pid": 590867,
+        "ppid": 0,
+        "cwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+        "cmd": "bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance/docs/evidence/pod-3036/drive.ts A9 claude-sdk"
+      }
+    ],
+    "killed": {
+      "result": {}
+    },
+    "immediate": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "after": [],
+    "waitedMs": 300000
+  }
+}

@@ -2,6 +2,8 @@
 # Sequential cells. One instance. Failures do not stop the batch.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=drive-env.sh
+. "$HERE/drive-env.sh"
 DRIVER="${1:?driver}"
 shift
 for cell in "$@"; do

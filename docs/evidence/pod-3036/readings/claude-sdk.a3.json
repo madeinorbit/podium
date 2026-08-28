@@ -1,0 +1,143 @@
+{
+  "cell": "A3",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3036n/probes/claude-sdk-a3",
+  "at": "2026-08-28T11:57:43.281Z",
+  "pin": {
+    "cell": "A3",
+    "at": "2026-08-28T11:57:43.303Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "checkoutSha": "b736dd8df0f602e7f5c9ebd00459ff6fa0d7d70c",
+    "pinSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "serverSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "daemonSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b736dd8",
+      "appsWebIdentical": true
+    },
+    "serverPid": "536616",
+    "daemonPid": "536844",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19793164 kB",
+      "SwapFree": "41657080 kB"
+    },
+    "rootFreeKiB": 84980164,
+    "load1m": 1.87,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3036n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "interrupt returned without a stopping record",
+  "control": {
+    "fired": true,
+    "what": "the turn send delivering and an observed working phase before interrupt",
+    "detail": "user=true; working=true"
+  },
+  "evidence": [
+    "INTERRUPT         {\"ok\":true,\"requested\":\"protocol\"}",
+    "STOPPED           true in 1564ms",
+    "MARKER           false",
+    "TYPED REFUSAL     false"
+  ],
+  "data": {
+    "sid": "66abf8b9-98b5-404a-b7a1-597c62c9c6f7",
+    "payload": {
+      "ok": true,
+      "requested": "protocol"
+    },
+    "after": {
+      "ok": true,
+      "ms": 1564,
+      "row": {
+        "sessionId": "66abf8b9-98b5-404a-b7a1-597c62c9c6f7",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-sdk",
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "errored",
+        "machine": "flatblock",
+        "model": null,
+        "effort": null,
+        "contextUsagePercent": null,
+        "account": "native:claude-code",
+        "error": {
+          "class": "interrupted",
+          "retryable": true,
+          "detail": "claude turn failed: error_during_execution: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null"
+        },
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [
+          "4be0253 probe seed"
+        ],
+        "files": [
+          "## main"
+        ],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 28,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 541,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 1052,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 1564,
+          "phase": "errored",
+          "status": "live",
+          "driverId": "claude-sdk"
+        }
+      ]
+    },
+    "hasMarker": false,
+    "typedRefusal": false
+  }
+}
