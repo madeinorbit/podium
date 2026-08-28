@@ -1001,3 +1001,41 @@ main.** Both sessions corrected in flight.
 thing classified (`NF<8`), a summary trusted over its clauses (A6b), and now a
 column that silently merged two drivers. **Before quoting a number, ask what it
 is grouping and whether every member of that group is the same thing.**
+
+## Decision 30 — the first worse-than-main candidate, and what "same as main" means (2026-08-28 14:59 CEST)
+
+POD-3042 drove the two missing baselines on the DEFAULT instance and both
+answers turn on the same fact: **main has neither an `opencode-server` nor a
+`codex-app-server` driver.** Those drivers are new in this epic, so an exact
+same-driver comparator cannot exist. The drive was right to say so rather than
+manufacture one.
+
+**A3 / codex — SETTLED, NOT A REGRESSION.** Main's legacy generic-PTY route
+accepts the interrupt, stops output, ends at `idle.interrupted`, and shows **no
+`event:'interrupt'` transcript marker** — the identical gap the epic shows. The
+epic's PARTIAL is pre-existing behaviour, not something we broke.
+
+**A6b / opencode — THE FIRST GENUINE WORSE-THAN-MAIN CANDIDATE.** Main's legacy
+PTY route PASSED chat-CLI switching, no-restart, correct size, and both
+post-switch actions. The epic's `opencode-server` FAILS the CLI plane after the
+switches. Not an exact same-driver regression — but that framing is the trap.
+
+**A user does not experience a driver, they experience OpenCode.** On main,
+switching between chat and CLI on OpenCode worked. On the epic it does not.
+That the two runs went through different drivers is an implementation detail of
+ours, and "we replaced the driver underneath you" is not a defence a user can
+use. **The whole point of this epic is to REPLACE the headed drivers; if the
+replacement is worse at the provider level, it has failed at exactly the thing
+it exists to do.**
+
+**So I am scoring this as a release blocker on the provider-level reading**, and
+POD-3045 owns the fix. If the operator wants the stricter same-driver reading
+instead — under which this is not a blocker because main has no comparator —
+that is their call to make and it flips this one cell. I am flagging it rather
+than deciding it silently, but I am not going to sit on it in the meantime.
+
+**A caution for every remaining server-family cell:** the same "main has no such
+driver" answer will recur for codex-app-server, opencode-server and grok-acp.
+The comparator that matters there is **what the provider did on main by whatever
+route it took**, not what the identical driver did — because the identical
+driver never existed.
