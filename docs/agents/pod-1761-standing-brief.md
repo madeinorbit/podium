@@ -30,7 +30,15 @@ everything general lives here so it stops being re-typed one session at a time.
 ## Rigs
 
 - **Run as a NAMED instance.** Even the default is named `default` now.
-- **Set no override the product would otherwise derive.** Not `ABDUCO_SOCKET_DIR`, not
+- **THE ONE EXCEPTION IS THE INSTANCE NAME ON A MAIN OR PRE-FIX ARM.** A named
+  instance needs ~113 bytes of `sun_path` against a 108-byte kernel limit, so it
+  CANNOT START and you get `create-session: File name too long`. The DEFAULT
+  instance fits at 71. **A main/pre-fix comparator arm therefore runs on the
+  DEFAULT instance** — see the sun_path section below. POD-3038 lost all four of
+  its main comparators to this because the brief it was given said "take the
+  named instance, not the default"; that instruction is correct for an epic arm
+  and wrong for a main arm.
+- **Otherwise set no override the product would otherwise derive.** Not `ABDUCO_SOCKET_DIR`, not
   `PODIUM_STATE_DIR`, and **not `HOME`** — a named instance derives its state root from
   `$HOME`, so a daemon under an isolated agent-home lands on a state root nested inside
   itself, silently if the directory is empty. *If a rig needs an override to work, the
