@@ -224,3 +224,10 @@ evidence that nothing changed.
 Guard armed: with both `livingRecords()` filters reverted, the new test fails
 (`expected [ …(3) ] to deeply equal [ Array(1) ]`). Reverting only one of them is not enough —
 the other still cleans up — which is why the check is asserted on the catalogue's contents.
+
+## Outcome
+
+POD-2462 approved `2a4150014` for integration after re-review, confirming the
+legacy-discovery, machine-only-start, shutdown-cancellation and catalogue-retention fixes are
+intact and the regression guards armed. Integration is the parent's to do; this branch was
+not merged, rebased or published from here.
