@@ -1039,3 +1039,47 @@ driver" answer will recur for codex-app-server, opencode-server and grok-acp.
 The comparator that matters there is **what the provider did on main by whatever
 route it took**, not what the identical driver did — because the identical
 driver never existed.
+
+## Decision 31 — A6b/OpenCode is per-harness, and my evidence pairing was not a control (2026-08-28 16:13 CEST)
+
+**Two corrections, both mine, both from POD-3045, both verified against our own
+files before acceptance.**
+
+**1. There is no shared server-family switch bug.** I claimed one because
+POD-3045's diff touches `codex.ts` and `grok.ts`. It touches them because the
+new declaration is **required** on `ClientTerminalSpec`, so every harness must
+answer it — codex and grok answer `false`, which is today's behaviour, byte-for-
+byte unchanged. And our own `docs/evidence/pod-3038/README.md` scores A6b/codex
+**`CLI still echoes after switching | true, +11109 bytes | PASS`**. Codex
+cold-starts its TUI on the same shared path and echoes fine. That is the control
+that kills the theory, and it was already in the matrix when I asserted the
+opposite.
+
+**The actual defect: `opencode` 1.18.16 discards stdin part-way through its own
+startup** — echo at 0/300/800ms, none at 1200/1500/2000ms, back at 6000ms. The
+shared close/recreate is the **amplifier**, re-entering that window on every
+switch; it is not the cause. Hence a per-harness declaration rather than a change
+to the shared mechanism. POD-3045 also ruled out the attach-readiness discard
+branch POD-3046 proposed: an abduco client PTY is up in 40–71ms and echoes
+immediately, so at the probe's 1500ms it is never reached. Whether codex's or
+grok's TUIs eat early stdin is **unmeasured and not claimed**.
+
+**2. Epic-FAIL vs main-PASS is NOT a patch-level control, and I offered it as
+one.** I handed POD-3045 our epic failure and main baseline as its
+failing-without / passing-with pairing. Main has no `opencode-server` driver at
+all, so that pairing shows **the feature is new-and-broken** — it says nothing
+about whether *this commit* fixes it. Those are different claims and only the
+second reviews the patch. **I substituted a cell-level regression argument for a
+patch-level control, which is exactly what the bar exists to prevent.** POD-3045
+refused the substitution and asked for the instance drive instead. Authorised:
+named instance, pinned to `b5a3aa870`, canonical A6b, control fired, every clause
+scored, PARTIAL if scrollback stays unmeasured.
+
+**The recurring error, now four for four today:** I reasoned from a proxy — the
+files a diff touched — instead of the mechanism, while the per-clause reading
+that refuted me sat in the matrix I maintain. `NF<8`; the A6b aggregate; the
+merged claude column; and now a diff's file list. **Every one produced a
+confident wrong claim rather than an error.**
+
+POD-3044 corrected too: its A1c pattern stands on its own evidence, but A6b is
+**not** corroboration for it and must not be used as such.
