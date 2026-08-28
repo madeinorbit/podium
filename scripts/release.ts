@@ -309,18 +309,6 @@ function stagePrepared(p: {
 }
 
 /**
- * Build every requested platform from THIS Linux runner and stage them for publish.
- *
- * The client apps are built ONCE and then packed into all four bundles. That is what
- * makes `loadPreparedHeadless`'s "one web digest across every platform" check something
- * a build can actually satisfy, and it means a Mac user and a Linux user on the same
- * release are served byte-identical web assets.
- *
- * The per-platform builds run in SEQUENCE. They share dist-bun/abduco.bin — the fixed
- * path the compiled binary embeds its helper from — so running them concurrently would
- * race to leave the wrong architecture's abduco inside a bundle. See scripts/build-bun.ts.
- */
-/**
  * Read `--artifact <platform>=<absolute path>` into the map {@link prepareHeadlessCross}
  * packages against.
  *
@@ -367,6 +355,18 @@ export function parseArtifactOverrides(
   return overrides
 }
 
+/**
+ * Build every requested platform from THIS Linux runner and stage them for publish.
+ *
+ * The client apps are built ONCE and then packed into all four bundles. That is what
+ * makes `loadPreparedHeadless`'s "one web digest across every platform" check something
+ * a build can actually satisfy, and it means a Mac user and a Linux user on the same
+ * release are served byte-identical web assets.
+ *
+ * The per-platform builds run in SEQUENCE. They share dist-bun/abduco.bin — the fixed
+ * path the compiled binary embeds its helper from — so running them concurrently would
+ * race to leave the wrong architecture's abduco inside a bundle. See scripts/build-bun.ts.
+ */
 export async function prepareHeadlessCross(
   platforms: readonly HeadlessPlatform[] = RELEASE_PLATFORMS,
   outDir = 'dist-bun/release',
