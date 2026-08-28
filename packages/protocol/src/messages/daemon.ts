@@ -48,6 +48,7 @@ import {
   RuntimeEventMessage,
   RuntimeFineEventMessage,
   RuntimeInteractionAskedMessage,
+  RuntimeConfigureResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeQueueDrainAbandonedMessage,
   RuntimeStageAttachmentResultMessage,
@@ -252,5 +253,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RuntimeSnapshotResultMessage,
   RuntimeEventMessage,
   RuntimeFineEventMessage,
+  /** The outcome of a sticky configure (POD-3081), appended at the END so the
+   *  golden corpus's index-sampled arms stay byte-identical. */
+  RuntimeConfigureResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

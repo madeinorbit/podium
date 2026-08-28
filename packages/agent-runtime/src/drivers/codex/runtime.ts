@@ -70,6 +70,11 @@ import type {
   SessionHealth,
   UsageSnapshot,
 } from '../../capabilities.js'
+import {
+  type ConfigureValueChecks,
+  decideConfigure,
+  noWhitespaceCheck,
+} from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import type { ProcessEvent } from '../../errors.js'
 import {
@@ -122,6 +127,27 @@ import {
   type CodexTurnId,
   DELTA_NOTIFICATIONS,
 } from './protocol.js'
+
+/**
+ * WHAT CODEX CAN TAKE, structurally.
+ *
+ * DELIBERATELY NOT AN ALLOWLIST OF MODEL NAMES. The authoritative catalog of
+ * which models and effort levels exist for an account is the server's — it is
+ * fetched from the harness's own CLI and it changes without this file changing —
+ * and a second, staler copy down here would refuse a model the operator can see
+ * in the picker. `session-start.ts` already rejects an unlisted model before a
+ * session is launched; the same check guards the configure route, at the layer
+ * that has the catalog.
+ *
+ * What the driver checks is what the driver knows: a value with whitespace in it
+ * is never a model or an effort on any codex build, and letting one through
+ * writes an unusable string into the session's durable policy where every
+ * subsequent turn fails against it.
+ */
+const CODEX_CONFIGURE_CHECKS: ConfigureValueChecks = {
+  model: noWhitespaceCheck('a codex model name'),
+  effort: noWhitespaceCheck('a codex reasoning effort'),
+}
 
 // ---------------------------------------------------------------------------
 // The host port
@@ -1824,11 +1850,52 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         },
       },
 
-      async configure(_request: ConfigureRequest) {
-        return {
-          reason: 'unsupported' as const,
-          detail: 'model and effort are set at thread start and per turn on this driver',
+      /**
+       * STICKY MODEL AND EFFORT, and the mechanism is the one `deliver()`
+       * already has.
+       *
+       * This driver sends `model` and `effort` on EVERY `turn/start` from
+       * `session.spec.model` — that is not an implementation detail, it is why a
+       * sticky configure is expressible here at all. Writing the new policy onto
+       * the spec and journalling it makes every subsequent turn carry it, and
+       * makes it survive the two things a per-turn override cannot: a reload,
+       * which reads the policy back out of the journal, and a supervisor
+       * adoption, which binds `adoptedSpec` from the same field.
+       *
+       * The earlier refusal here read that codex has no sticky-configuration RPC
+       * and concluded the verb was unimplementable. The first half is still
+       * true; the second was the wrong conclusion. What the contract's split
+       * asks is that a sticky change and a one-turn override be
+       * DISTINGUISHABLE, and they are: the override lives on one `TurnInput` and
+       * is gone with it, while this writes durable session state. `deliver()`
+       * spells the precedence out in one line — `overrides?.model ?? modelOf(spec)`
+       * — so a turn carrying an override still wins for that turn, and the turn
+       * after it is back on whatever was configured. Nothing leaks either way.
+       *
+       * AN OPEN TURN KEEPS THE MODEL IT STARTED WITH, which is why the
+       * capability declares `next-turn`. Codex has no frame that changes a
+       * running turn's model, and this call does not interrupt one to fake the
+       * appearance of immediacy — a stop the operator did not ask for is a worse
+       * surprise than a setting that takes effect on the next message.
+       */
+      async configure(request: ConfigureRequest) {
+        const declared = capabilities.configure
+        if (!declared.supported) {
+          return { reason: 'unsupported' as const, detail: declared.reason }
         }
+        if (session.disposed) {
+          return { reason: 'not_running' as const, detail: 'this codex session has ended' }
+        }
+        const decision = decideConfigure({
+          declared: declared.value,
+          request,
+          policy: session.spec.model,
+          checks: CODEX_CONFIGURE_CHECKS,
+        })
+        if (!('ok' in decision)) return decision
+        session.spec = { ...session.spec, model: decision.policy }
+        persist(session)
+        return { ok: true as const }
       },
 
       async usage(): Promise<UsageSnapshot | Refusal> {

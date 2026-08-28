@@ -449,6 +449,38 @@ const continueSession: CommandDef = {
  * visible as a residue the session-surface audit counts and names, rather than as
  * an exposure this contract silently claims to cover.
  */
+/**
+ * CHANGE A RUNNING SESSION'S MODEL OR EFFORT (POD-3081).
+ *
+ * A PATCH, and both fields are optional for that reason: changing the effort
+ * must not restate — and thereby reset — a model the caller was not asked about.
+ * At least one is required, and the refinement says so here rather than letting
+ * an empty request travel two hops to be refused by a driver: this is the layer
+ * that knows the request is malformed without knowing anything about harnesses.
+ */
+const configureInput = z
+  .object({
+    sessionId: SessionIdField,
+    model: z.string().min(1).max(200).optional(),
+    effort: z.string().min(1).max(64).optional(),
+  })
+  .refine((value) => value.model !== undefined || value.effort !== undefined, {
+    message: 'name a model or an effort to change',
+  })
+
+const configure: CommandDef = {
+  input: configureInput,
+  action: 'write',
+  policy: executes,
+  visibility: PERSONAL,
+  exposure: OPERATOR,
+  offline: 'online-only',
+  redaction: { fields: [], note: 'a model name and an effort tier are not secrets' },
+  conflict: 'cmd',
+  decision:
+    "Sticky model/effort on a session that is ALREADY RUNNING, routed through the runtime contract to the driver's own configure() (POD-3081). It is DIRECT-ONLY and never queued, like interrupt and for a sharper version of the same reason: a setting change applied later would land on a different turn than the operator was looking at when they chose it. WHAT `ok` MEANS: the DRIVER accepted the change and said WHEN it takes effect — `next-turn` for the three headless drivers, which carry the session's policy on every request they construct, and `immediate` where a harness has a real RPC. It never means the session is answering as the new model already, and the reply carries `effective` so a caller can say which of the two it has instead of guessing. A REFUSAL IS AN OUTCOME, not an error, and the typed reason is the whole point: `unsupported` is a terminal session whose model is an argv fact and whose caller should stop offering the control, while `invalid_value` is a real control given a value this harness cannot take and whose caller should offer another one. `permissionMode` is deliberately NOT in this input even though the contract's ConfigureRequest carries it: a permission mode is sourced from the session's authorization, and letting a settings command rewrite it would put an escalation behind a picker. OPERATOR exposure only — an agent changing its own model mid-run is a different decision with a different authorization story, and is not this contract's to grant.",
+}
+
 const stopInput = z.object({ sessionId: SessionIdField, force: z.boolean().optional() })
 
 const stop: CommandDef = {
@@ -541,6 +573,7 @@ const uploadImage: CommandDef = {
 /** `sessions.*` — the command plane (POD-381). Presence is POD-380's table. */
 export const sessionCommandPlane = defineCommands('sessions', {
   answerAskUserQuestion,
+  configure,
   continue: continueSession,
   create,
   hibernate,
@@ -579,6 +612,7 @@ export function commandPlaneContract(key: string): CommandDef | undefined {
  */
 export const sessionCommandPlaneInputs = {
   answerAskUserQuestion: answerInput,
+  configure: configureInput,
   continue: targetInput,
   create: createInput,
   hibernate: targetInput,

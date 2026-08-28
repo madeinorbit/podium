@@ -136,6 +136,7 @@ export const REFUSAL_REASONS = [
   'staging_failed',
   'busy',
   'no_archive_yet',
+  'invalid_value',
 ] as const satisfies readonly RefusalReason[]
 
 /**

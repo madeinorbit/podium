@@ -99,6 +99,7 @@ export type SessionCommandServices = Pick<
   | 'killSession'
   | 'hibernateSession'
   | 'interruptTurn'
+  | 'configureSession'
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
@@ -621,6 +622,25 @@ export const SESSION_COMMAND_HANDLERS = {
       ...input,
       principal: inboxPrincipalFromCommand(ctx.principal),
     })
+  },
+
+  /**
+   * STICKY MODEL / EFFORT ON A RUNNING SESSION (POD-3081).
+   *
+   * The driver's answer travels back UNFLATTENED: `{ ok, effective }` on a
+   * grant, and `{ reason, detail }` on a refusal. A boolean here would throw
+   * away the two things the caller needs — whether to say "switched" or "from
+   * your next message", and whether the refusal means "pick another value" or
+   * "this session cannot do this at all".
+   */
+  configure: (
+    ctx: SessionCommandCtx,
+    input: { sessionId: SessionId; model?: string; effort?: string },
+  ) => {
+    if (!ctx.target(input.sessionId, 'sessions.configure')) {
+      return Promise.resolve({ reason: 'not_running' as const, detail: 'unknown session' })
+    }
+    return ctx.sessions.configureSession(input)
   },
 
   resurrect: (ctx: SessionCommandCtx, input: TargetInput) =>

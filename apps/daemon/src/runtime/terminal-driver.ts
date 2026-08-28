@@ -1577,8 +1577,20 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         },
       },
 
+      /**
+       * REFUSES, and the capability says the same thing for the same reason —
+       * see `drivers/terminal/capabilities.ts`. POD-3081 made model and effort
+       * sticky on the three headless drivers by writing the session's policy and
+       * letting the next request carry it; there is no next request here to
+       * carry anything, only a CLI that read its model from argv. Typing
+       * `/model` into the PTY would be a change this driver could not observe,
+       * confirm, or report, which is the one thing a refusal is cheaper than.
+       */
       async configure(_request: ConfigureRequest) {
-        return refuse('unsupported', 'a TUI takes its model and permission mode at launch')
+        return refuse(
+          'unsupported',
+          'a TUI reads its model and effort from argv at launch; changing them is a relaunch',
+        )
       },
 
       async usage() {

@@ -54,6 +54,11 @@ import type {
   SessionHealth,
   UsageSnapshot,
 } from '../../capabilities.js'
+import {
+  type ConfigureValueChecks,
+  decideConfigure,
+  noWhitespaceCheck,
+} from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import type { ProcessEvent } from '../../errors.js'
 import {
@@ -100,6 +105,31 @@ import {
   eventSessionId,
   eventTimeMs,
 } from './protocol.js'
+
+/**
+ * WHAT OPENCODE CAN TAKE.
+ *
+ * The slash rule is a PROTOCOL requirement, not a house style: a prompt's model
+ * is `{ providerID, modelID }` and a bare id has no provider to send it to.
+ * `modelFor` handles a bare id by sending no model at all and letting opencode
+ * fall back to its own default — which is right for a launch spec assembled
+ * elsewhere and wrong for an explicit configure, because the operator asked for
+ * a specific model and would be told it was set while every turn ran on the
+ * default. So the same string that is silently ignored on a prompt is REFUSED
+ * here, with the shape it needed.
+ *
+ * Which providers and models exist is the server's catalog, not this file's —
+ * see the note on the codex checks for why a second copy would be worse than
+ * none.
+ */
+const OPENCODE_CONFIGURE_CHECKS: ConfigureValueChecks = {
+  model: (value) =>
+    noWhitespaceCheck('an opencode model name')(value) ??
+    (value === 'auto' || value.indexOf('/') > 0
+      ? undefined
+      : `opencode names a model "provider/model" (for example "anthropic/claude-sonnet-4-5"); ${JSON.stringify(value)} has no provider`),
+  effort: noWhitespaceCheck('an opencode variant'),
+}
 
 // ---------------------------------------------------------------------------
 // The host port
@@ -1069,7 +1099,14 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         })),
       ],
       ...(model ? { model } : {}),
-      ...(session.spec.model.effort ? { variant: session.spec.model.effort } : {}),
+      // THE OVERRIDE IS READ HERE TOO, and it used not to be. `modelFor` gave
+      // `input.overrides` precedence for the model and this line read the spec
+      // directly, so a caller who asked for one turn at a different effort got
+      // the new model at the OLD effort — a half-applied override, silently, on
+      // the one field where the difference is invisible in the transcript.
+      // POD-3081 made the sticky half real, which makes the two halves of the
+      // precedence rule worth stating identically.
+      ...(effortFor(session.spec, input) ? { variant: effortFor(session.spec, input) } : {}),
     })
     // The 204 IS the acceptance, and it is also the moment the turn opens as far
     // as this driver is concerned. opencode's `session.status: busy` confirms it
@@ -1128,6 +1165,22 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     // provider to send it to, so it is left to opencode's own default.
     if (slash <= 0) return undefined
     return { providerID: raw.slice(0, slash), modelID: raw.slice(slash + 1) }
+  }
+
+  /**
+   * Per-turn effort override, or the session's sticky policy. The same
+   * precedence as {@link modelFor}, spelled the same way on purpose: the two
+   * fields travel together on every surface a user sees, and a rule that held
+   * for one of them and not the other is the kind of asymmetry nobody finds by
+   * reading.
+   *
+   * `auto` means opencode's own default, so it sends no `variant` at all rather
+   * than a variant literally named "auto".
+   */
+  function effortFor(spec: SessionSpec, input: TurnInput): string | undefined {
+    const override = input.overrides?.supported ? input.overrides.value.effort : undefined
+    const raw = override ?? spec.model.effort
+    return raw && raw !== 'auto' ? raw : undefined
   }
 
   /**
@@ -1756,11 +1809,45 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         },
       },
 
-      async configure(_request: ConfigureRequest) {
-        return {
-          reason: 'unsupported' as const,
-          detail: 'model and permission mode are set at create and per turn on this driver',
+      /**
+       * STICKY MODEL AND EFFORT, out of the same field every prompt already
+       * reads (POD-3081).
+       *
+       * `deliver()` sends `model` and `variant` on EVERY prompt from
+       * `session.spec.model`, so writing the new policy there and journalling it
+       * is the whole mechanism — and it is durable in the two ways that
+       * distinguish it from a per-turn override: `POST /session` recorded a
+       * model at create time and the journal carries the policy across a reload
+       * and an adoption.
+       *
+       * The previous refusal cited opencode's sticky-switch ROUTES being v2-only
+       * and unexercised against a live server, and that remains true — none is
+       * called here. This implementation needs no route: the prompt already
+       * carries the model, and what changes is which model the driver puts on
+       * it. Nothing is sent to opencode by this call at all, which is also why
+       * it declares `next-turn` rather than pretending an open turn moved.
+       *
+       * `permissionMode` refuses: opencode takes its permission config at create
+       * and the driver has no live route to it.
+       */
+      async configure(request: ConfigureRequest) {
+        const declared = capabilities.configure
+        if (!declared.supported) {
+          return { reason: 'unsupported' as const, detail: declared.reason }
         }
+        if (session.disposed) {
+          return { reason: 'not_running' as const, detail: 'this opencode session has ended' }
+        }
+        const decision = decideConfigure({
+          declared: declared.value,
+          request,
+          policy: session.spec.model,
+          checks: OPENCODE_CONFIGURE_CHECKS,
+        })
+        if (!('ok' in decision)) return decision
+        session.spec = { ...session.spec, model: decision.policy }
+        persist(session)
+        return { ok: true as const }
       },
 
       async usage(): Promise<UsageSnapshot | Refusal> {

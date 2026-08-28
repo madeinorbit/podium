@@ -30,15 +30,18 @@ function makeGateway(
     machineOf?: (sessionId: SessionId) => MachineId | undefined
     queue?: Partial<RuntimeDurableQueuePort>
     forwarded?: Parameters<RuntimeDaemonRpcPort['runtimeSend']>[0][]
+    configureResult?: Awaited<ReturnType<RuntimeDaemonRpcPort['runtimeConfigure']>>['result']
   } = {},
 ): {
   gateway: SessionRuntimeGateway
   forwarded: Parameters<RuntimeDaemonRpcPort['runtimeSend']>[0][]
   staged: Parameters<RuntimeDaemonRpcPort['runtimeStageAttachment']>[0][]
+  configured: Parameters<RuntimeDaemonRpcPort['runtimeConfigure']>[0][]
   enqueued: Parameters<RuntimeDurableQueuePort['enqueue']>[0][]
 } {
   const forwarded = overrides.forwarded ?? []
   const staged: Parameters<RuntimeDaemonRpcPort['runtimeStageAttachment']>[0][] = []
+  const configured: Parameters<RuntimeDaemonRpcPort['runtimeConfigure']>[0][] = []
   const rpc: RuntimeDaemonRpcPort = {
     runtimeSend: async (input) => {
       forwarded.push(input)
@@ -65,6 +68,10 @@ function makeGateway(
     runtimeInterrupt: async () => ({ result: { ok: true } }),
     runtimeAnswer: async () => ({ ok: true }),
     runtimeLifecycle: async () => ({ result: { ok: true } }),
+    runtimeConfigure: async (input) => {
+      configured.push(input)
+      return { result: overrides.configureResult ?? { ok: true as const, effective: 'next-turn' as const } }
+    },
   }
   const enqueued: Parameters<RuntimeDurableQueuePort['enqueue']>[0][] = []
   const queue: RuntimeDurableQueuePort = {
@@ -96,6 +103,7 @@ function makeGateway(
     }),
     forwarded,
     staged,
+    configured,
     enqueued,
   }
 }
@@ -315,6 +323,57 @@ describe('the event sink', () => {
       since: 'POD-2293',
       activation: 'subscriber-driven',
       plane: 'turn-preview',
+    })
+  })
+})
+
+/**
+ * THE GATEWAY'S HALF OF A STICKY CONFIGURE (POD-3081): route the PATCH to the
+ * owning machine, and carry back exactly what the driver said.
+ *
+ * The two failures these pin are the ones this layer is uniquely able to
+ * introduce — a session with no machine answered optimistically, and a driver's
+ * typed refusal flattened into a generic one on the way up.
+ */
+describe('configure', () => {
+  it('forwards only the fields the caller named, and reports when the change bites', async () => {
+    const { gateway, configured } = makeGateway()
+
+    const result = await gateway.configure({ sessionId: SESSION, effort: 'high' })
+
+    expect(result).toEqual({ ok: true, effective: 'next-turn' })
+    // A PATCH, NOT A POLICY. Sending `model: undefined` alongside would be the
+    // same bytes as "set the model to nothing"; sending the server's belief
+    // about the model would overwrite a value the machine may have changed since.
+    expect(configured).toEqual([{ sessionId: SESSION, effort: 'high' }])
+  })
+
+  it('REFUSES `not_running` for a session no machine owns, without asking anyone', async () => {
+    const { gateway, configured } = makeGateway({ machineOf: () => undefined })
+
+    expect(await gateway.configure({ sessionId: SESSION, model: 'gpt-5-codex' })).toEqual({
+      reason: 'not_running',
+      detail: 'no machine',
+    })
+    // Nothing was asked, which is the point: a hopeful `{ok:true}` here would
+    // record a requested model against a session nothing is driving.
+    expect(configured).toEqual([])
+  })
+
+  it('carries the driver\'s typed refusal up verbatim', async () => {
+    const { gateway } = makeGateway({
+      configureResult: { reason: 'invalid_value', detail: 'effort "ludicrous" is not one' },
+    })
+
+    /**
+     * REASON AND DETAIL BOTH SURVIVE. `invalid_value` and `unsupported` send a
+     * caller in opposite directions — pick another value, versus stop offering
+     * the control — and the detail is the sentence a person reads to know which
+     * other value to pick.
+     */
+    expect(await gateway.configure({ sessionId: SESSION, effort: 'ludicrous' })).toEqual({
+      reason: 'invalid_value',
+      detail: 'effort "ludicrous" is not one',
     })
   })
 })

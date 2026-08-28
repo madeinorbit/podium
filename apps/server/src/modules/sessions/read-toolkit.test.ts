@@ -325,3 +325,66 @@ describe('session recap (tier 3)', () => {
     expect(watermarks.get('parent-1|s1')).toBe('c3')
   })
 })
+
+/**
+ * THE THIRD ARM OF THE MODEL READ (POD-3081).
+ *
+ * `status` answers with ONE model, so it answers the question it is asked —
+ * WHAT IS ANSWERING — and the observation keeps precedence. The runtime request
+ * sits between the observation and the launch value, and it earns its place in
+ * exactly one window: a session reconfigured before anything was ever observed,
+ * where the launch value would otherwise name a model nobody is on.
+ */
+describe('the runtime-requested model (tier 1)', () => {
+  it('prefers the runtime request over the LAUNCH value when nothing is observed yet', async () => {
+    const { toolkit } = harness({
+      sessions: [
+        session({
+          issueId: ISSUE.id,
+          model: 'gpt-5-codex',
+          effort: 'medium',
+          requestedModel: 'gpt-5.1-codex-max',
+          requestedEffort: 'high',
+        }),
+      ],
+    })
+
+    expect(await toolkit.status('s1', 'operator')).toMatchObject({
+      model: 'gpt-5.1-codex-max',
+      effort: 'high',
+    })
+  })
+
+  it('still lets the OBSERVATION win, because that is what is answering', async () => {
+    const { toolkit } = harness({
+      sessions: [
+        session({
+          issueId: ISSUE.id,
+          model: 'gpt-5-codex',
+          requestedModel: 'gpt-5.1-codex-max',
+          observedModel: 'gpt-5-codex',
+        }),
+      ],
+    })
+
+    /**
+     * NOT AN OVERSIGHT. `configure` is `next-turn` on every headless driver, so
+     * a session mid-turn genuinely IS still on the old model; answering with the
+     * new one would be the change-looks-applied misreport. `SessionMeta` carries
+     * both halves for a consumer that wants to show the difference.
+     */
+    expect(await toolkit.status('s1', 'operator')).toMatchObject({ model: 'gpt-5-codex' })
+  })
+
+  it('changes nothing for a session nobody has reconfigured', async () => {
+    const { toolkit } = harness({
+      sessions: [session({ issueId: ISSUE.id, model: 'gpt-5-codex', effort: 'medium' })],
+    })
+
+    // The arm is ADDITIVE: absent `requestedModel` must read exactly as before.
+    expect(await toolkit.status('s1', 'operator')).toMatchObject({
+      model: 'gpt-5-codex',
+      effort: 'medium',
+    })
+  })
+})

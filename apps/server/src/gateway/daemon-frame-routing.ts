@@ -141,6 +141,7 @@ export const DAEMON_FRAME_PORTS = {
   runtimeStageAttachmentResult: ['rpc'],
   runtimeSendResult: ['rpc'],
   runtimeLifecycleResult: ['rpc'],
+  runtimeConfigureResult: ['rpc'],
   runtimeAnswerResult: ['rpc'],
   /** The correlated reply to a snapshot request — the observation bootstrap a
    *  server re-reads after a stream gap (POD-2023). Same correlator, no new

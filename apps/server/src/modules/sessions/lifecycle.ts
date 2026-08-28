@@ -237,6 +237,7 @@ export class SessionLifecycle {
   readonly sendText!: SessionInbox['sendText']
   readonly interruptText!: SessionInbox['interruptText']
   readonly interruptTurn!: SessionInbox['interruptTurn']
+  readonly configureSession!: SessionInbox['configureSession']
   readonly queueText!: SessionInbox['queueText']
   readonly cancelQueuedMessage!: SessionInbox['cancelQueuedMessage']
   readonly hasQueuedMessage!: SessionInbox['hasQueuedMessage']

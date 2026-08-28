@@ -192,18 +192,30 @@ export function codexAppServerCapabilities(): DriverCapabilities {
      *  there is no scrape to be honest about. */
     draft: supported({ read: true, write: true }),
     /**
-     * UNSUPPORTED, and narrowly so. `turn/start` takes per-turn `model`/`effort`
-     * overrides and its doc comment says they apply "for this turn AND
-     * SUBSEQUENT turns" — which would make `configure()` implementable. It is
-     * not claimed because the contract's split is a spec RULE: `TurnInput
-     * .overrides` is this-turn-only and `configure()` is session-sticky, and a
-     * verb whose only implementation is "send a turn override and hope the next
-     * turn inherits it" cannot honour that split. Claiming it would make the two
-     * indistinguishable at the one layer that exists to keep them apart.
+     * MODEL AND EFFORT, STICKY, FROM THE NEXT TURN (POD-3081).
+     *
+     * This axis used to declare UNSUPPORTED, on the reasoning that codex has no
+     * sticky-configuration RPC and that "send a turn override and hope the next
+     * turn inherits it" cannot honour the spec's sticky-vs-one-turn split. The
+     * premise was right and the conclusion was not. The driver does not rely on
+     * codex inheriting anything: it sends `model` and `effort` on EVERY
+     * `turn/start` out of `session.spec.model`, so the sticky value lives in
+     * state this driver owns and journals, and it is read afresh for each turn.
+     * That is exactly the property the split asks for — a per-turn override is
+     * gone with its turn, this survives the turn, the reload and the adoption —
+     * and `runtime.configure()` documents the precedence line that keeps them
+     * apart.
+     *
+     * `permissionMode` is NOT here, and that is the honest half: codex takes its
+     * approval policy at thread start and exposes no route to change it on a
+     * live thread, so the field refuses `unsupported` rather than being accepted
+     * and dropped.
+     *
+     * `next-turn` because a turn already generating cannot be moved to another
+     * model, and saying so beats reporting a switch the open turn will not
+     * honour.
      */
-    configure: unsupported(
-      'model and effort are set at thread start and per turn on this driver; codex has no sticky-configuration RPC that is distinguishable from a per-turn override',
-    ),
+    configure: supported({ fields: ['model', 'effort'], effective: 'next-turn' }),
     /** Per turn, from `thread/tokenUsage/updated` — which Codex sends unprompted
      *  and which carries the model's context window, so this is the one driver
      *  that can report the used-percent without a second lookup. */

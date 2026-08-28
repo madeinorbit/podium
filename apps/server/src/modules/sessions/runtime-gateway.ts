@@ -94,6 +94,18 @@ export interface RuntimeDurableQueuePort {
   }): { ok: true; position: number } | { ok: false; reason: Refusal['reason']; detail?: string }
 }
 
+/**
+ * WHAT A CONFIGURE ANSWERS (POD-3081): the change was made and here is when it
+ * bites, or here is the typed reason it was not.
+ *
+ * `effective` is not optional on the grant arm. A caller that gets `{ok:true}`
+ * has to render something to a person, and "switched" over a turn still
+ * answering on the old model is exactly the silent misreport this axis exists to
+ * stop — so the shape does not let a producer omit the half that decides the
+ * wording.
+ */
+export type ConfigureOutcome = { ok: true; effective: 'immediate' | 'next-turn' } | Refusal
+
 /** The four verbs that reach a machine. Structurally satisfied by
  *  `DaemonRpcService`; named here so this module depends on what it uses.
  *  `attach` and `snapshot` are contract verbs the DRIVER implements and no
@@ -129,6 +141,10 @@ export interface RuntimeDaemonRpcPort {
     input: { sessionId: SessionId; verb: 'stop' | 'hibernate' | 'kill' },
     machineId: MachineId,
   ): Promise<{ result: { ok: true } | Refusal }>
+  runtimeConfigure(
+    input: { sessionId: SessionId; model?: string; effort?: string; permissionMode?: string },
+    machineId: MachineId,
+  ): Promise<{ result: ConfigureOutcome }>
 }
 
 export interface SessionRuntimeGatewayPorts {
@@ -277,6 +293,27 @@ export class SessionRuntimeGateway {
     const machineId = this.ports.machineOf(input.sessionId)
     if (!machineId) return { ok: false, reason: 'unknown-interaction' }
     return this.ports.rpc.runtimeAnswer(input, machineId)
+  }
+
+  /**
+   * CHANGE A RUNNING SESSION'S STICKY MODEL / EFFORT (POD-3081).
+   *
+   * `effective` travels back with the grant rather than being inferred here. The
+   * server cannot know it: `next-turn` versus `immediate` is a fact about the
+   * driver holding the session, and this class is two hops away from it. The
+   * caller needs it to tell a person whether the model they just picked is
+   * answering now or from their next message — and inventing an answer to that
+   * is the "requested, not yet observed" lie in a new place.
+   */
+  async configure(input: {
+    sessionId: SessionId
+    model?: string
+    effort?: string
+    permissionMode?: string
+  }): Promise<ConfigureOutcome> {
+    const machineId = this.ports.machineOf(input.sessionId)
+    if (!machineId) return { reason: 'not_running', detail: 'no machine' }
+    return (await this.ports.rpc.runtimeConfigure(input, machineId)).result
   }
 
   async lifecycle(

@@ -50,7 +50,7 @@ turn a viewer joined never streamed at all.
 | turn id carried, never minted — at-least-once, absent-means-absent | wired | wired | wired | wired | no driver invents a fallback id; an id-less turn is reported `unattributed`, never dropped (`turns.ts:29-68`); driver-local dedupe is POD-2497 |
 | **queue abandonment** — accepted input never vanishes | pinned | pinned | pinned | pinned | POD-2297: after custody transfer a `queued` receipt is the server's last durable record; abandonment reported even for id-less turns, even across adoption and supervisor restart (codex `runtime.test.ts:827-963`, grok/opencode `queue-abandonment.test.ts`, terminal drain ports) |
 | a queued turn keeps its **sender's principal** through the queue | wired | wired | wired | wired | W3 shipped the bug this prevents: a deferred turn re-authorized as a system default (`turns.ts:117-136`) |
-| per-turn model/effort **override stays one turn** (vs sticky `configure`) | declared | declared | declared | declared | the failure: a "just this once" model change silently becoming permanent (`turns.ts:75`); no conformance property |
+| per-turn model/effort **override stays one turn** (vs sticky `configure`) | pinned | pinned | pinned | — | conformance: *does not let a ONE-TURN override leak into the sticky policy* (POD-3081). Overrides BOTH fields and asserts both revert, which is what caught opencode reading `input.overrides` for the model and `spec.model.effort` for the effort — a half-applied override, invisible in the transcript. Terminal sends no per-turn override at all |
 | `origin` (chat, mail, steward, auto-continue) rides onto `turn/started` | wired | wired | wired | wired | one verb, many origins — replaces `typeText`/`queueText`/`sendTextWhenReady`/`interruptText` |
 | turn **verdict comes from the provider**, never inferred | pinned | — | — | — | `done \| question \| approval \| open_todos \| interrupted` (codex `map.test.ts:181,187`); other drivers unchecked |
 | turn failure typed with a **disposition**; unrecognizable = retryable, never fatal | pinned | pinned | pinned | — | `rate-limit \| auth-expired \| context-overflow \| provider-error \| timeout \| interrupted` × `retryable \| needs-human \| fatal` (codex `map.test.ts:207`, grok/opencode conformance) |
@@ -153,9 +153,9 @@ turn a viewer joined never streamed at all.
 
 | behaviour | codex | grok-acp | opencode | terminal | notes |
 |---|---|---|---|---|---|
-| **switch model** mid-session | declared | declared | declared | declared | `configure.fields` includes `model`; **no conformance property**; today every production driver refuses sticky configure, and the only mid-thread picker in the UI is the superagent path |
-| **switch effort** | declared | declared | declared | declared | same |
-| **switch permission mode** | declared | declared | declared | declared | same; grok's ACP `session/set_mode` flips it per session over the protocol — the driver controls it, not the user's config file; claude is PTY-`/model`-only |
+| **switch model** mid-session | pinned | absent | pinned | absent | POD-3081. codex/opencode/claude-sdk declare `supported({fields:['model','effort'], effective:'next-turn'})` and MEAN it: each already sends the session's policy on every request it constructs, so a configure writes `spec.model` + the journal and the next turn carries it. Grok is `absent` for a reason no wiring fixes — it sends no model on `session/new` OR `session/prompt`, so there is nothing to change; terminal reads argv at launch. Conformance: *makes a declared model change STICK across turns, not just the next one*, *a sticky change survives the reload…*, *REFUSES a field it did not declare* |
+| **switch effort** | pinned | absent | pinned | absent | same three drivers, same mechanism, and the conformance property *leaves the OTHER fields alone — a configure is a patch, not a replacement* is what stops one field's change resetting the other's |
+| **switch permission mode** | absent | **wired** | absent | absent | grok's ACP `session/set_mode` flips it per session over the protocol and is the ONE `effective: 'immediate'` arm in the tree. Nothing else claims it and the claude-sdk case is a refusal on purpose (POD-3081): the SDK does take a permission mode per query, but `spec.permissionMode` is sourced from the session's authorization, and letting a settings verb rewrite it puts an escalation behind a picker. `sessions.configure` carries no `permissionMode` field at all for the same reason |
 | usage reported per turn | declared | declared | declared | declared | tokens, cost, context percent. Grok ACP carries `_meta.usage` incl. `costUsdTicks` per turn (the reference doc's "no cost" entry is wrong on this path); opencode computes+persists cost; codex exposes tokens but needs a price table; `handle.usage()` reaches **no client surface** today |
 | title / accent colour | declared | declared | declared | declared | `title.source: osc \| transcript \| synthetic` is the discriminator consumers branch on; codex OSC titles are suppressed (cwd+spinner noise) and the real title comes from the rollout |
 | **hidden instruction channel**, attributed, re-primed after compaction | declared | declared | declared | declared | `SessionSpec.instructions` (`--append-system-prompt`, `developer_instructions`, `--rules`, opencode config merge); the re-prime obligation has no consumer or conformance property |
@@ -303,6 +303,18 @@ conformance target for "capable frontend agent".
 work.** Send-on-stop, rich harness state, provider error vocabulary, attachment
 retention policy and process ownership are each one design away from being four
 implementations away.
+
+**SUPERSEDED, 2026-08-28 (POD-3081) — the correction below was right about the
+facts and both of them have now changed.** Sticky `configure` is implemented on
+codex, opencode and the Claude SDK; `sessions.configure` is a real command with a
+tRPC route, a daemon frame and a driver call behind it; and the conformance
+corpus has a nine-case `configure` block that holds every driver to what it
+declared in BOTH directions. The paragraph's closing lesson — "`declared` is the
+column to distrust, because a declaration is a claim about behaviour and only a
+test makes it a fact" — is what the block was written to discharge, and the rows
+above now read `pinned` because a test says so rather than because a driver says
+so. What the drive found is preserved below because the shape of the error is
+still worth reading.
 
 **CORRECTION, 2026-08-25 — I had this backwards, and it was the wrong way to be
 wrong.** I wrote that `configure` announces every driver can switch model, effort

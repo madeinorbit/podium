@@ -163,6 +163,10 @@ function makeWorld(): {
     },
     model: {
       policy: () => ({ model: 'claude-sonnet-4-5', effort: 'high' }),
+      // A DIFFERENT model in the same vocabulary, for the configure properties.
+      // The effort differs too, so a driver that carried one field and dropped
+      // the other cannot pass by moving the half the assertion happens to read.
+      alternate: () => ({ model: 'claude-opus-4-1', effort: 'medium' }),
       requested: (sessionId) => runtime?.requestedModel(sessionId),
     },
     restartSupervisor() {

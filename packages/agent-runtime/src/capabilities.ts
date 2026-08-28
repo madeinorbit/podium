@@ -24,6 +24,45 @@ export interface ConfigureRequest {
   effort?: string
 }
 
+/**
+ * WHEN a granted `configure()` starts to bite.
+ *
+ * `immediate` is a driver that told the provider, over the protocol, right then
+ * — grok's `session/set_mode` is one call and the mode is different the instant
+ * it returns.
+ *
+ * `next-turn` is the honest answer for the three headless drivers that carry
+ * their session's model policy on EVERY request they make: codex re-sends
+ * `model`/`effort` on each `turn/start`, opencode sends `model`/`variant` on each
+ * prompt, and the Claude SDK adapter reads `spec.model` on each `startTurn`. That
+ * makes the change genuinely sticky — it survives the turn, the reload and the
+ * adoption, which is exactly what a per-turn override does not — and it also
+ * makes it unable to reach INSIDE a turn that has already opened. A provider is
+ * generating against the model it was given; there is no frame that swaps it
+ * mid-stream, and a driver that returned `{ok:true}` while the open turn ran on
+ * the old model would be reporting a change that has not happened.
+ *
+ * The distinction exists so a consumer can say which it got. A UI that renders
+ * "switched" over a turn still answering on the old model is the exact silent
+ * lie the requested-vs-observed split exists to prevent — and with this field it
+ * can render "from the next turn" instead of guessing.
+ */
+export type ConfigureEffective = 'immediate' | 'next-turn'
+
+/**
+ * WHAT `configure()` CAN ACTUALLY CHANGE on this driver, and when.
+ *
+ * `fields` is EXHAUSTIVE and it is a promise, not a hint: a field listed here
+ * must be accepted for a valid value, and a field NOT listed must be refused
+ * `unsupported` rather than silently dropped. The conformance suite reads both
+ * halves, because a declaration nothing checks is how this axis spent the epic
+ * announcing a verb every production driver refused.
+ */
+export interface ConfigureCapability {
+  fields: readonly (keyof ConfigureRequest)[]
+  effective: ConfigureEffective
+}
+
 export interface UsageSnapshot {
   inputTokens?: number
   outputTokens?: number
@@ -213,7 +252,7 @@ export interface DriverCapabilities {
 
   // ---- EXTENDED ----
   draft: Declared<{ read: boolean; write: boolean }>
-  configure: Declared<{ fields: readonly (keyof ConfigureRequest)[] }>
+  configure: Declared<ConfigureCapability>
   usage: Declared<{ perTurn: boolean }>
   openUrl: Declared<{ intents: readonly ('login' | 'link')[] }>
   title: Declared<{ source: 'osc' | 'transcript' | 'synthetic' }>

@@ -26,7 +26,14 @@ export function claudeSdkCapabilities(): DriverCapabilities {
     resumeRefTiming: 'spawn',
     placement: 'dedicated',
     draft: unsupported('the embedded SDK has no harness-owned composer'),
-    configure: unsupported('model and permission policy are pinned per SDK turn'),
+    /**
+     * MODEL AND EFFORT, STICKY, FROM THE NEXT TURN (POD-3081). Each turn opens
+     * its own `query()` built from `spec.model`, so a write to the session's
+     * policy is read by every turn after it. `permissionMode` is deliberately
+     * NOT here — see `runtime.configure()` for why a permission field must not
+     * be reachable through a settings verb.
+     */
+    configure: supported({ fields: ['model', 'effort'], effective: 'next-turn' }),
     usage: unsupported('the current SDK result mapping does not retain normalized usage'),
     openUrl: unsupported('the SDK host does not publish browser-open intents'),
     title: unsupported('the SDK host does not publish a session title'),

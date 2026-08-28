@@ -16,6 +16,7 @@ import { headlessInterruptMark } from '../../headless-interrupt.js'
 import type {
   AgentSessionHandle,
   AttachmentStageResult,
+  ConfigureRequest,
   EventStreamStart,
   InteractionAnswerOutcome,
   InteractionAskSpec,
@@ -39,8 +40,23 @@ import type {
   WatchLevel,
 } from '../../index.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
+import {
+  type ConfigureValueChecks,
+  decideConfigure,
+  noWhitespaceCheck,
+} from '../../configure.js'
 import { claudeSdkCapabilities } from './capabilities.js'
 import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
+
+/**
+ * WHAT THE SDK CAN TAKE, structurally. Which model aliases and effort levels
+ * exist for an account is the server's live catalog — see the note on the codex
+ * checks for why the driver does not keep a second copy.
+ */
+const CLAUDE_SDK_CONFIGURE_CHECKS: ConfigureValueChecks = {
+  model: noWhitespaceCheck('a Claude model name'),
+  effort: noWhitespaceCheck('a Claude reasoning effort'),
+}
 
 export const CLAUDE_SDK_DRIVER_ID = 'claude-sdk' as const
 
@@ -995,8 +1011,45 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
           return refuse('unsupported', 'the embedded SDK has no composer')
         },
       },
-      async configure() {
-        return refuse('unsupported', 'SDK configuration is pinned per turn')
+      /**
+       * STICKY MODEL AND EFFORT, read fresh on every `startTurn` (POD-3081).
+       *
+       * "Pinned per turn" was the old refusal, and it described the SDK
+       * accurately while drawing the wrong conclusion from it. Each turn here
+       * opens its own `query()`, and `claude-sdk-driver.ts` builds that query's
+       * options from `input.spec.model` with `input.turn.overrides` taking
+       * precedence. So a sticky change is a write to `core.spec.model`: the next
+       * turn's query is constructed with it, the one after that too, and a
+       * per-turn override still wins for exactly its own turn.
+       *
+       * `next-turn` is the literal truth on this driver rather than a
+       * conservative label. A turn in flight is an open `query()` whose options
+       * were fixed when it was constructed; nothing can move it, and this call
+       * does not cancel it to make the change look instant.
+       *
+       * `permissionMode` refuses. The SDK does take one per query, so it would
+       * be easy to accept — and that is the trap: `spec.permissionMode` is the
+       * daemon host's field, sourced from the session's authorization, and
+       * letting the runtime contract rewrite it would put a permission
+       * escalation behind a settings control. It stays out until it has an
+       * authorization story, and until then the honest answer is that this verb
+       * does not change it.
+       */
+      async configure(request: ConfigureRequest) {
+        const declared = claudeSdkCapabilities().configure
+        if (!declared.supported) return refuse('unsupported', declared.reason)
+        if (!core.alive || core.disposed) {
+          return refuse('not_running', 'this Claude SDK session has ended')
+        }
+        const decision = decideConfigure({
+          declared: declared.value,
+          request,
+          policy: core.spec.model,
+          checks: CLAUDE_SDK_CONFIGURE_CHECKS,
+        })
+        if (!('ok' in decision)) return decision
+        core.spec = { ...core.spec, model: decision.policy }
+        return { ok: true as const }
       },
       async usage() {
         return refuse('unsupported', 'SDK usage is not normalized')

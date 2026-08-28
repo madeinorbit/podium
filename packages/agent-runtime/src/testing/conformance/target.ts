@@ -148,6 +148,24 @@ export interface ConformanceControl {
    */
   model?: {
     policy(): ModelPolicy
+    /**
+     * A SECOND policy, different from {@link policy} in BOTH fields, for the
+     * properties that have to watch a change happen (POD-3081).
+     *
+     * `configure` cannot be proved by asking for the value the session already
+     * has: the assertion passes whether the call worked or did nothing at all.
+     * So the corpus needs somewhere to move to, and the target supplies it for
+     * the same reason it supplies `policy` — opencode's `provider/model` and
+     * codex's bare id are not interchangeable, and a string this file invented
+     * would be testing its own guess.
+     *
+     * REQUIRED, not optional, and inside the optional group on purpose: a target
+     * that sends a model at all can name two of them, and making this optional
+     * would let a fixture opt out of every configure property by omitting one
+     * field — which is the silent-no-op shape the group's own doc comment was
+     * written about.
+     */
+    alternate(): ModelPolicy
     requested(sessionId: SessionId): ModelPolicy | undefined
   }
   restartSupervisor(): void

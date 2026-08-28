@@ -29,6 +29,7 @@
 import { supported, unsupported } from '@podium/harness'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
+import { decideConfigure, noWhitespaceCheck } from '../configure.js'
 import { DriverRefusalError } from '../errors.js'
 import type {
   AgentSessionHandle,
@@ -45,6 +46,7 @@ import type {
   InteractionAnswerOutcome,
   InteractionKind,
   InteractionSource,
+  ModelPolicy,
   PendingInteraction,
   ProcessEvent,
   Refusal,
@@ -243,6 +245,13 @@ export interface FakeControl {
   /** How many times this session's text has reached the agent — see
    *  `ConformanceControl.textDeliveries` for the four counting rules. */
   textDeliveries(sessionId: SessionId): number
+  /** The model policy one to ask for, a second to move to, and what the last
+   *  delivery actually went out on — see `ConformanceControl.model`. */
+  model: {
+    policy(): ModelPolicy
+    alternate(): ModelPolicy
+    requested(sessionId: SessionId): ModelPolicy | undefined
+  }
   /** Simulate a supervisor restart: every handle is dropped, the survivor
    *  registry is not. */
   restartSupervisor(): void
@@ -307,6 +316,9 @@ interface SessionCore {
    *  directly that an unprovable send is not re-delivered — and that a queued
    *  one is not delivered until it drains. */
   textDeliveries: number
+  /** The policy the LAST delivery went out on — the fake's stand-in for reading
+   *  a request off a real harness. See `recordDelivery`. */
+  requestedModel: ModelPolicy | undefined
   /** Only ever read by `connectWithoutSecret`. Never in argv, never logged —
    *  the fake keeps the discipline the real one must (spec §6). */
   connectSecret: string | null
@@ -482,7 +494,18 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     resumeRefTiming,
     placement: 'dedicated',
     draft: supported({ read: true, write: true }),
-    configure: supported({ fields: ['model', 'effort', 'permissionMode'] }),
+    /**
+     * `permissionMode` USED TO BE DECLARED HERE AND IS GONE (POD-3081).
+     *
+     * `SessionSpec` has no permission-mode field, so the fake had nowhere to put
+     * one — it accepted the field, wrote nothing, and answered `{ok:true}`. That
+     * is the exact "declared, accepted, changed nothing" shape the new
+     * conformance block was written to catch, sitting in the reference driver
+     * the block is run against. Removing it also gives the corpus an undeclared
+     * field to probe on this target, which is why the fake now EXERCISES the
+     * refusal property instead of skipping it.
+     */
+    configure: supported({ fields: ['model', 'effort'], effective: 'next-turn' }),
     usage: supported({ perTurn: true }),
     openUrl: supported({ intents: ['login', 'link'] }),
     title: supported({ source: 'synthetic' }),
@@ -539,8 +562,25 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
    * control surface (`emitItem`), where every other provider act in this fake
    * lives. This is the one part of the store the driver itself authors.
    */
-  function recordDelivery(core: SessionCore, text: string): void {
+  function recordDelivery(core: SessionCore, text: string, input?: TurnInput): void {
     core.textDeliveries += 1
+    /**
+     * WHAT MODEL THIS DELIVERY WENT OUT ON, resolved the same way the three
+     * headless drivers resolve it: a per-turn override wins for this turn, and
+     * the session's sticky policy is the fallback.
+     *
+     * Recorded HERE rather than at `send()` for the reason the counter beside it
+     * is: a queued turn's model is whatever the policy says AT THE DRAIN, not
+     * what it said when the words were accepted. A configure between the two is
+     * a real sequence and this is the moment that decides which model it lands
+     * on.
+     */
+    const overrides = input?.overrides?.supported ? input.overrides.value : undefined
+    core.requestedModel = {
+      ...core.spec.model,
+      ...(overrides?.model !== undefined ? { model: overrides.model } : {}),
+      ...(overrides?.effort !== undefined ? { effort: overrides.effort } : {}),
+    }
     const item: TranscriptItem = {
       id: `item-${core.sessionId}-${core.nextId++}`,
       role: 'user',
@@ -783,7 +823,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
             )
           }
           // Rule 1: the keystrokes went out, only the proof did not come back.
-          recordDelivery(core, input.text)
+          recordDelivery(core, input.text, input)
           return {
             outcome: 'unverified',
             deliveredAs,
@@ -796,7 +836,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           if (core.turnOpen) {
             closeTurn(core, { ev: 'completed', turnEpoch: core.turnEpoch, verdict: 'interrupted' })
           }
-          recordDelivery(core, input.text)
+          recordDelivery(core, input.text, input)
           return {
             outcome: 'accepted',
             turnEpoch: openTurn(core, options.origin),
@@ -814,7 +854,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           // that against their codex fixture).
           if (steerImpostor) core.queue.push(input.text)
           if (!steerImpostor || steerImpostor === 'queues-and-counts') {
-            recordDelivery(core, input.text)
+            recordDelivery(core, input.text, input)
           }
           return {
             outcome: 'accepted',
@@ -837,7 +877,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           }
         }
 
-        recordDelivery(core, input.text)
+        recordDelivery(core, input.text, input)
         return {
           outcome: 'accepted',
           turnEpoch: openTurn(core, options.origin),
@@ -990,14 +1030,32 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         },
       },
 
+      /**
+       * THE REFERENCE IMPLEMENTATION, and it must go through the same decision
+       * function the production drivers do (POD-3081).
+       *
+       * It used to write whatever it was given: no undeclared-field refusal, no
+       * value check, and `permissionMode` declared and silently dropped — which
+       * is precisely the shape the new conformance block exists to catch. A fake
+       * that is more permissive than the drivers it stands in for is a corpus
+       * that passes on the fake and fails in production, so the rules live in
+       * one place and this calls it.
+       */
       async configure(request: ConfigureRequest) {
         const declared = capabilities().configure
         if (!declared.supported) return refuse('unsupported', declared.reason)
-        // STICKY for the session — per-turn overrides ride TurnInput instead.
-        if (request.model)
-          core.spec = { ...core.spec, model: { ...core.spec.model, model: request.model } }
-        if (request.effort)
-          core.spec = { ...core.spec, model: { ...core.spec.model, effort: request.effort } }
+        if (!core.alive) return refuse('not_running', 'this fake session has ended')
+        const decision = decideConfigure({
+          declared: declared.value,
+          request,
+          policy: core.spec.model,
+          checks: {
+            model: noWhitespaceCheck('a fake model name'),
+            effort: noWhitespaceCheck('a fake effort'),
+          },
+        })
+        if (!('ok' in decision)) return decision
+        core.spec = { ...core.spec, model: decision.policy }
         return { ok: true as const }
       },
 
@@ -1046,6 +1104,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       oomEvents: 0,
       failNextVerification: false,
       textDeliveries: 0,
+      requestedModel: undefined,
       connectSecret: requiresConnectSecret ? `secret-${sessionId}` : null,
       watchers: new Map(),
       usage: {},
@@ -1140,6 +1199,11 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     textDeliveries(sessionId) {
       return coreFor(sessionId).textDeliveries
     },
+    model: {
+      policy: () => ({ model: 'fake-model-a', effort: 'high' }),
+      alternate: () => ({ model: 'fake-model-b', effort: 'medium' }),
+      requested: (sessionId) => coreFor(sessionId).requestedModel,
+    },
     restartSupervisor() {
       // Handles die; survivors do not. The observer generation bump happens on
       // ADOPT, not here — a restart nobody adopted through has not re-observed
@@ -1230,6 +1294,23 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       // EXACT identity only. A prefix or heuristic match adopts the wrong
       // process, which is worse than not adopting at all.
       if (!core) throw new Error(`fake: no surviving process for ${binding.process.key}`)
+      /**
+       * ADOPTION MAKES THE SESSION LIVE AGAIN, and this line used to be missing
+       * (found by POD-3081's configure properties).
+       *
+       * `hibernate()` sets `alive = false`; nothing set it back. So every
+       * `send()` after an adopt was refused `not_running` — and because the
+       * corpus's post-wake sends were followed by assertions that the model was
+       * UNCHANGED, the refusal read as a pass. `wakes on the SAME model and
+       * effort it was parked on` was therefore vacuous on this target for as
+       * long as it has existed: it compared two readings taken before the wake.
+       *
+       * The rule this restores is the one `adopt()` is for: it rebinds a
+       * SURVIVING process tree, and a survivor is by definition still running.
+       * The core is in `SURVIVORS` — that is what we just matched on — so
+       * reporting it dead is the fake contradicting its own registry.
+       */
+      core.alive = true
       core.binding = { ...core.binding, bindingVersion: core.binding.bindingVersion + 1 }
       core.observerGeneration += 1
       push(core, {

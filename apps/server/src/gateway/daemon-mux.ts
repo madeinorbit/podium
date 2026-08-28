@@ -231,6 +231,7 @@ const DISPATCH: Dispatcher = {
   runtimeStageAttachmentResult: toRpc,
   runtimeSendResult: toRpc,
   runtimeLifecycleResult: toRpc,
+  runtimeConfigureResult: toRpc,
   runtimeAnswerResult: toRpc,
   runtimeSnapshotResult: toRpc,
   // ---- headless ----

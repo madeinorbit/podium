@@ -33,7 +33,23 @@ export function grokAcpCapabilities(): DriverCapabilities {
     placement: 'dedicated',
 
     draft: supported({ read: true, write: true }),
-    configure: supported({ fields: ['permissionMode'] }),
+    /**
+     * PERMISSION MODE ONLY, AND IMMEDIATELY (POD-3081).
+     *
+     * `session/set_mode` is a real RPC: it returns and the mode is different, so
+     * this axis is `immediate` rather than the `next-turn` its headless
+     * siblings declare.
+     *
+     * MODEL AND EFFORT ARE ABSENT ON PURPOSE, and the reason is stronger than
+     * "no RPC for it": this driver never sends a model AT ALL. `session/new`
+     * carries `cwd` and `mcpServers` and nothing else, and `session/prompt`
+     * carries the prompt. There is no launch-time value for a configure to
+     * replace and no per-turn field for it to ride, so accepting either field
+     * could only write a number into driver state that never reaches Grok.
+     * `unsupported` is the true answer and the conformance property holds us to
+     * it.
+     */
+    configure: supported({ fields: ['permissionMode'], effective: 'immediate' }),
     usage: supported({ perTurn: true }),
     openUrl: unsupported('Grok ACP publishes no core browser-open notification'),
     title: supported({ source: 'transcript' }),

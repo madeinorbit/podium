@@ -43,6 +43,7 @@ import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
 import {
   RuntimeAnswerRequestMessage,
+  RuntimeConfigureRequestMessage,
   RuntimeInterruptRequestMessage,
   RuntimeLifecycleRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
@@ -170,5 +171,9 @@ export const ControlMessage = z.discriminatedUnion('type', [
   /** The desired watch level for a session's live observation (POD-2293).
    *  Uncorrelated: it carries a state, not an increment — see the frame. */
   RuntimeWatchMessage,
+  /** Sticky model/effort for a running session (POD-3081). Appended at the END
+   *  of this union for the same reason it is appended at the end of
+   *  `RuntimeCommandMessage`: the golden corpus samples arms by index. */
+  RuntimeConfigureRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

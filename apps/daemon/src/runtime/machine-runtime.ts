@@ -58,6 +58,10 @@ export type DaemonDriverResolution =
   | { ok: true; driverId: DriverId; capabilities: DriverCapabilities }
 
 export interface DaemonMachineRuntime extends MachineAgentRuntime {
+  /** The live driver's declaration for one session, read off its BINDING — see
+   *  `capabilitiesFor` below for why the binding and not a family guess. The
+   *  configure handler reports `configure.effective` from it (POD-3081). */
+  capabilitiesFor(sessionId: SessionId): DriverCapabilities | undefined
   observe(message: DaemonMessage): void
   onHookPayload(sessionId: SessionId, payload: unknown): void
   bindTerminal(
@@ -268,6 +272,7 @@ export function createDaemonMachineRuntime(input: {
 
   return {
     ...runtime,
+    capabilitiesFor,
     observe(message) {
       input.terminal.observe(message)
     },

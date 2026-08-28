@@ -488,10 +488,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // there is no PTY; this is what a session with no PTY is interrupted
     // through. Late-bound for the same reason `contractDeliver` is.
     contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),
+    // Late-bound for the same reason the two above it are.
+    contractConfigure: (input) => bag.runtimeGateway.configure(input),
   })
   bag.sendText = (input: any) => bag.inbox.sendText(input)
   bag.interruptText = (input: any) => bag.inbox.interruptText(input)
   bag.interruptTurn = (input: any) => bag.inbox.interruptTurn(input)
+  bag.configureSession = (input: any) => bag.inbox.configureSession(input)
   bag.queueText = (input: any) => bag.inbox.queueText(input)
   bag.cancelQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.cancelQueuedMessage(sessionId, sourceMessageId)

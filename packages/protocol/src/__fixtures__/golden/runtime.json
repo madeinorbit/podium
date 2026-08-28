@@ -1762,6 +1762,86 @@
       "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\",\"outcome\":\"rejected\",\"rejectionReason\":\"rejectionReason\"}"
     },
     {
+      "schema": "RuntimeConfigureRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeConfigureRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeConfigureRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeConfigureRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "model": "model",
+        "effort": "effort",
+        "permissionMode": "permissionMode"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"model\":\"model\",\"effort\":\"effort\",\"permissionMode\":\"permissionMode\"}"
+    },
+    {
+      "schema": "RuntimeConfigureResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeConfigureResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "ok": true,
+          "effective": "immediate"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true,\"effective\":\"immediate\"}}"
+    },
+    {
+      "schema": "RuntimeConfigureResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeConfigureResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "ok": true,
+          "effective": "immediate"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true,\"effective\":\"immediate\"}}"
+    },
+    {
+      "schema": "RuntimeConfigureResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeConfigureResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "lease_held",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+    },
+    {
       "schema": "RuntimeDaemonMessage",
       "variant": "minimal",
       "wire": {

@@ -281,7 +281,13 @@ describe('machine scope and the writer class', () => {
     // one behind ITS table at 31 against 32 — the same silent drift the note
     // above records for `githubCliResult`, which is why this is counted off
     // `DAEMON_FRAME_PORTS` and not off the previous number.
-    expect(rpcFrames.length).toBe(37)
+    //
+    // 38 with `runtimeConfigureResult` (POD-3081) — the sixth contract reply, a
+    // sticky model/effort change answering back from the driver that granted or
+    // refused it. It takes the same correlator as its five siblings for the same
+    // reason: it is a correlated request/reply whose caller is waiting, not a
+    // new port.
+    expect(rpcFrames.length).toBe(38)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

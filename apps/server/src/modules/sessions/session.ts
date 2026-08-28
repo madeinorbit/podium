@@ -177,6 +177,8 @@ export interface SessionDurableState {
   agentColor: string | undefined
   observedModel: string | undefined
   observedEffort: string | undefined
+  requestedModel: string | undefined
+  requestedEffort: string | undefined
   contextUsagePercent: number | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
@@ -311,6 +313,11 @@ export class Session {
   /** The effort tier OBSERVED on assistant turns (transcript top-level `effort`),
    *  learned alongside observedModel. */
   observedEffort: string | undefined
+  /** The model/effort this session was last ASKED for through `sessions.configure`
+   *  (POD-3081). Undefined until someone changes it, and then the launch pair
+   *  above is still the record of how it started — see `SessionLiveOverlay`. */
+  requestedModel: string | undefined
+  requestedEffort: string | undefined
   /** Latest exact harness-reported context-window usage, if this harness exposes it. */
   contextUsagePercent: number | undefined
   /** Count of durable queued messages awaiting delivery (queued_messages table).
@@ -652,6 +659,29 @@ export class Session {
     return true
   }
 
+  /**
+   * Record a sticky change the DRIVER GRANTED (POD-3081). Returns true when it
+   * actually moved, so the caller can skip a redundant broadcast.
+   *
+   * CALLED ONLY AFTER `{ok:true}`. A requested model written before the driver
+   * answered would show a person the model they picked while the session went on
+   * answering as something else — which is the requested-vs-observed split
+   * lying in the one place it exists to tell the truth.
+   */
+  setRequestedModel(input: { model?: string; effort?: string }): boolean {
+    const nextModel = input.model?.trim() || undefined
+    const nextEffort = input.effort?.trim() || undefined
+    // A PATCH, like the request that produced it: naming only the effort leaves
+    // the requested model exactly where it was.
+    const changed =
+      (nextModel !== undefined && nextModel !== this.requestedModel) ||
+      (nextEffort !== undefined && nextEffort !== this.requestedEffort)
+    if (!changed) return false
+    if (nextModel !== undefined) this.requestedModel = nextModel
+    if (nextEffort !== undefined) this.requestedEffort = nextEffort
+    return true
+  }
+
   setContextUsagePercent(percent: number): boolean {
     if (!Number.isFinite(percent)) return false
     const next = Math.min(100, Math.max(0, percent))
@@ -737,6 +767,8 @@ export class Session {
       agentColor: this.agentColor,
       observedModel: this.observedModel,
       observedEffort: this.observedEffort,
+      requestedModel: this.requestedModel,
+      requestedEffort: this.requestedEffort,
       contextUsagePercent: this.contextUsagePercent,
       queuedMessageCount: this.queuedMessageCount,
       handoffTarget: this.handoffTarget,
@@ -783,6 +815,8 @@ export class Session {
     this.agentColor = state.agentColor
     this.observedModel = state.observedModel
     this.observedEffort = state.observedEffort
+    this.requestedModel = state.requestedModel
+    this.requestedEffort = state.requestedEffort
     this.contextUsagePercent = state.contextUsagePercent
     this.queuedMessageCount = state.queuedMessageCount
     if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
@@ -925,6 +959,8 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.observedModel ? { observedModel: this.observedModel } : {}),
       ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
+      ...(this.requestedModel ? { requestedModel: this.requestedModel } : {}),
+      ...(this.requestedEffort ? { requestedEffort: this.requestedEffort } : {}),
       ...(this.contextUsagePercent !== undefined
         ? { contextUsagePercent: this.contextUsagePercent }
         : {}),

@@ -115,8 +115,8 @@ export class SessionReadToolkit {
           ...(child.displayRef ? { displayRef: child.displayRef } : {}),
           parentSessionId,
           harness: child.agentKind,
-          model: child.observedModel ?? child.model ?? null,
-          effort: child.observedEffort ?? child.effort ?? null,
+          model: child.observedModel ?? child.requestedModel ?? child.model ?? null,
+          effort: child.observedEffort ?? child.requestedEffort ?? child.effort ?? null,
           contextUsagePercent: child.contextUsagePercent ?? null,
           status: child.status,
           phase: this.phaseOf(child),
@@ -185,8 +185,27 @@ export class SessionReadToolkit {
       status: target.status,
       phase,
       machine: target.machineName || target.machineId || null,
-      model: target.observedModel ?? target.model ?? null,
-      effort: target.observedEffort ?? target.effort ?? null,
+      /**
+       * OBSERVED, THEN REQUESTED, THEN LAUNCHED (POD-3081).
+       *
+       * ONE FIELD CANNOT SAY "asked for Y, still answering as X", so this read
+       * answers the question it is actually asked — WHAT IS ANSWERING — and the
+       * observation keeps precedence even right after a sticky configure. That
+       * is not a gap: `configure` on every headless driver is `next-turn`, so a
+       * session mid-turn genuinely IS still on the old model, and reporting the
+       * new one here would be the change-looks-applied misreport this whole axis
+       * exists to stop. The next assistant turn re-stamps `observedModel` and
+       * the two agree again.
+       *
+       * The REQUESTED arm is what makes the window between them honest rather
+       * than blank: a session configured before it has ever been observed has no
+       * observation to fall back on, and the launch value — the weakest of the
+       * three claims — would otherwise name a model nobody is on any more.
+       * Consumers that need to show BOTH halves read `requestedModel` and
+       * `observedModel` off `SessionMeta`; this is the single-value read.
+       */
+      model: target.observedModel ?? target.requestedModel ?? target.model ?? null,
+      effort: target.observedEffort ?? target.requestedEffort ?? target.effort ?? null,
       contextUsagePercent: target.contextUsagePercent ?? null,
       account: target.accountId ?? null,
       error,

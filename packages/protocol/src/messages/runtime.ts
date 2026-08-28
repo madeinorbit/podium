@@ -111,6 +111,11 @@ export const RefusalReason = z.enum([
   // `min(arm, len-1)` over arms 0..7, so a ninth member added at the END leaves
   // every existing sample byte-identical. See __fixtures__/sampler.ts.
   'no_archive_yet',
+  // APPENDED for the same reason, and behind `no_archive_yet` for the same
+  // arithmetic: a tenth member at the END leaves every existing golden sample
+  // byte-identical. `configure()` with a value the harness cannot take
+  // (POD-3081) — the field is real, the value is not.
+  'invalid_value',
 ])
 export type RefusalReason = z.infer<typeof RefusalReason>
 
@@ -422,6 +427,33 @@ export const RuntimeLifecycleRequestMessage = z.object({
 export type RuntimeLifecycleRequestMessage = z.infer<typeof RuntimeLifecycleRequestMessage>
 
 /**
+ * server → daemon: change a RUNNING session's sticky settings (POD-3081).
+ *
+ * ONE FIELD AT A TIME IS NOT REQUIRED, and every field is optional, because the
+ * contract's `ConfigureRequest` is a PATCH: naming only `effort` must leave the
+ * model alone. A frame that carried the whole policy would make "change the
+ * effort" indistinguishable from "set the model to whatever the server last
+ * believed it was", and the server's belief can be stale — the daemon is the
+ * side that owns the live session.
+ *
+ * `permissionMode` rides the same frame as the other two even though no driver
+ * on the product path accepts it today, because leaving it out would mean a new
+ * frame the day one does — and grok's `session/set_mode` already implements it
+ * behind the contract. The daemon forwards whatever it is given and the DRIVER
+ * decides; a frame that filtered fields would be a second, staler copy of every
+ * driver's capability declaration.
+ */
+export const RuntimeConfigureRequestMessage = z.object({
+  type: z.literal('runtimeConfigureRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  model: z.string().min(1).optional(),
+  effort: z.string().min(1).optional(),
+  permissionMode: z.string().min(1).optional(),
+})
+export type RuntimeConfigureRequestMessage = z.infer<typeof RuntimeConfigureRequestMessage>
+
+/**
  * ATTACH STILL HAS NO FRAME. SNAPSHOT NOW DOES (POD-2023, discharging the W5
  * precondition recorded above).
  *
@@ -590,6 +622,10 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeQueueDrainAbandonedAckMessage,
   RuntimeEventAckMessage,
   RuntimeWatchMessage,
+  // APPENDED, and the position matters: the golden corpus samples union arms by
+  // index, so a new arm at the END leaves every existing sample byte-identical
+  // while one inserted mid-list re-indexes the ones after it.
+  RuntimeConfigureRequestMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -703,6 +739,41 @@ export const RuntimeLifecycleResultMessage = z.object({
 })
 export type RuntimeLifecycleResultMessage = z.infer<typeof RuntimeLifecycleResultMessage>
 
+/**
+ * daemon → server: the outcome of one {@link RuntimeConfigureRequestMessage}.
+ *
+ * ITS OWN FRAME RATHER THAN A REUSE OF THE LIFECYCLE RESULT, which is what
+ * `runtimeInterruptRequest` does. The lifecycle result is right for interrupt
+ * because both frames answer the same tiny question — accepted, or refused — and
+ * correlating on `requestId` is enough. This one carries `effective`, which no
+ * lifecycle verb has: the server has to tell a person whether the model they
+ * picked is in force NOW or from their next message, and it cannot know that
+ * without the driver's answer. Folding a second shape into the lifecycle result
+ * would make every existing reader parse a field that means nothing for stop or
+ * hibernate.
+ *
+ * A refusal is an OUTCOME, not an error. `unsupported` is a terminal session
+ * saying its model is an argv fact; `invalid_value` is a real control given a
+ * value this harness cannot take. A caller retries exactly one of them, which is
+ * the whole reason the reason is typed.
+ */
+export const RuntimeConfigureResultMessage = z.object({
+  type: z.literal('runtimeConfigureResult'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  result: z.union([
+    z.object({
+      ok: z.literal(true),
+      /** WHEN it bites, straight from the driver's capability. The three headless
+       *  drivers carry the policy on their next request and say `next-turn`;
+       *  grok's `session/set_mode` returns having already done it. */
+      effective: z.enum(['immediate', 'next-turn']),
+    }),
+    Refusal,
+  ]),
+})
+export type RuntimeConfigureResultMessage = z.infer<typeof RuntimeConfigureResultMessage>
+
 export const RuntimeAnswerResultMessage = z.object({
   type: z.literal('runtimeAnswerResult'),
   requestId: z.string(),
@@ -757,6 +828,9 @@ export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   RuntimeSnapshotResultMessage,
   RuntimeEventMessage,
   RuntimeFineEventMessage,
+  // APPENDED for the same reason as the command union's last arm: the golden
+  // corpus samples by index, so the end is the one position that costs nothing.
+  RuntimeConfigureResultMessage,
 ])
 export type RuntimeDaemonMessage = z.infer<typeof RuntimeDaemonMessage>
 
@@ -781,6 +855,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeInterruptRequest',
   'runtimeAnswerRequest',
   'runtimeLifecycleRequest',
+  'runtimeConfigureRequest',
   'runtimeSnapshotRequest',
   'runtimeQueueDrainAbandonedAck',
   'runtimeEventAck',
@@ -789,6 +864,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeSendResult',
   'runtimeQueueDrainAbandoned',
   'runtimeLifecycleResult',
+  'runtimeConfigureResult',
   'runtimeAnswerResult',
   'runtimeInteractionAsked',
   'runtimeSnapshotResult',

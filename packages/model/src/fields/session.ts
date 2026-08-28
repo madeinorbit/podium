@@ -463,6 +463,27 @@ export const SessionLiveOverlay = z.object({
   handoffTarget: z.string().optional(),
   titleLocked: z.boolean().optional(),
   agentColor: z.string().optional(),
+  /**
+   * THE MODEL THIS SESSION WAS LAST *ASKED* FOR (POD-3081), as distinct from the
+   * one it was LAUNCHED with and the one OBSERVED answering.
+   *
+   * `Session.model` is the launch configuration and is immutable for the row's
+   * life — it is the record of how this session started, and a sticky configure
+   * must not overwrite it or the answer to "what was this launched as" is lost
+   * the first time anyone changes their mind.
+   *
+   * So a runtime change lands here instead, and the three fields read as a
+   * sequence a person can follow: launched as X, asked for Y, currently
+   * answering as Z. Absent means nobody has changed it, and the launch value is
+   * the requested one.
+   *
+   * Live-overlay for the same reason `observedModel` is: the durable record of
+   * the change is the driver's own journal on the session's machine, which is
+   * what actually survives a restart. A column here would be a second copy that
+   * can disagree with it.
+   */
+  requestedModel: z.string().optional(),
+  requestedEffort: z.string().optional(),
   observedModel: z.string().optional(),
   observedEffort: z.string().optional(),
   transcriptAvailable: z.boolean().optional(),

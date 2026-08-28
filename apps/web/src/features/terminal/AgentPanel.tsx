@@ -101,8 +101,17 @@ const EFFORT_SHORT: Record<string, string> = {
 /**
  * The header's model token [POD-121]: "fable 5 · med". The model is the
  * transcript-OBSERVED one when known (`observedModel` — resolves a spawn-time
- * `auto` and follows `/model` switches), else the spawn selection — including
- * an explicit "auto", shown literally until observation resolves it [POD-158].
+ * `auto` and follows `/model` switches), then the one last REQUESTED at runtime
+ * (`requestedModel`, POD-3081), then the spawn selection — including an explicit
+ * "auto", shown literally until observation resolves it [POD-158].
+ *
+ * THE MIDDLE ARM IS WHY THE ORDER IS THREE AND NOT TWO. A sticky configure on a
+ * headless session takes effect on the NEXT turn, so between the change and the
+ * next assistant message there is no observation of the new model — and without
+ * this arm the token would fall all the way through to the SPAWN selection and
+ * show a model two changes out of date. It sits BELOW the observation because
+ * the observation is the stronger claim: during that window the session really
+ * is still answering as the old model, and the dotted rule below says so.
  * Effort renders even before any model is known ("· med"→ effort-only label).
  * Null only when neither a model nor an effort is known.
  *
@@ -113,10 +122,12 @@ const EFFORT_SHORT: Record<string, string> = {
 export function modelToken(session: {
   observedModel?: string
   observedEffort?: string
+  requestedModel?: string
+  requestedEffort?: string
   model?: string
   effort?: string
 }): string | null {
-  const raw = session.observedModel ?? session.model
+  const raw = session.observedModel ?? session.requestedModel ?? session.model
   let label: string | undefined
   if (raw === 'auto') {
     label = 'auto'
@@ -138,6 +149,7 @@ export function modelToken(session: {
   }
   const rawEffort =
     session.observedEffort ??
+    session.requestedEffort ??
     (session.effort && session.effort !== 'auto' ? session.effort : undefined)
   const effort = rawEffort ? (EFFORT_SHORT[rawEffort] ?? rawEffort) : undefined
   if (!label) return effort ?? null
@@ -870,7 +882,14 @@ export function AgentPanel({
                 title={
                   session.observedModel
                     ? `Observed — the model this agent is actually running, read from its transcript. The harness owns this; Podium reports it.${session.effort ? ' Effort is the spawn request.' : ''}`
-                    : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.'
+                    : session.requestedModel
+                      ? // POD-3081: a RUNTIME change, not a spawn one, and the
+                        // difference is the whole reason the wording branches —
+                        // a sticky configure on a headless session takes effect
+                        // on the next message, so "not yet seen" here means
+                        // "not yet asked", not "the harness ignored you".
+                        'Requested — you changed this on the running session. It applies from its next message, and this becomes Observed once a turn answers on it.'
+                      : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.'
                 }
               >
                 {/* Brand mark for harnesses that have one — a table lookup, so a new

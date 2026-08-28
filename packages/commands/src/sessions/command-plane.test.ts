@@ -23,16 +23,19 @@ const defs = Object.entries(sessionCommandPlane.defs)
 const OFFLINE_ELIGIBLE_EXCEPTION = 'resumeAndSend'
 
 describe('the command-plane table', () => {
-  it('covers exactly the twelve command-plane procs, and neither handoff nor ask', () => {
+  it('covers exactly the thirteen command-plane procs, and neither handoff nor ask', () => {
     // NINE were POD-381's. `stop` and `uploadImage` were added by POD-382, which had
     // to delete the last hand-written session mutations from router.ts and could only
-    // do that by giving them contracts. `ask` was briefly here too and was REMOVED at
+    // do that by giving them contracts. `configure` is POD-3081's, the first command
+    // in this table that changes a running session's SETTINGS rather than its
+    // lifecycle or its input. `ask` was briefly here too and was REMOVED at
     // the integration merge: POD-729 cut it over to the mail table, and two contracts
     // for one command is a fork. The list is exact rather than a `toContain` so a
-    // twelfth arrival has to edit this line — and so a command silently REMOVED from
-    // the table cannot pass either.
+    // fourteenth arrival has to edit this line — and so a command silently REMOVED
+    // from the table cannot pass either.
     expect(commandPlaneNames().sort()).toEqual([
       'sessions.answerAskUserQuestion',
+      'sessions.configure',
       'sessions.continue',
       'sessions.create',
       'sessions.hibernate',

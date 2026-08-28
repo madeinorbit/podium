@@ -126,9 +126,21 @@ export function opencodeServerCapabilities(): DriverCapabilities {
     /** Read AND write: it is our own state, held beside the binding journal, so
      *  there is no scrape to be honest about. */
     draft: supported({ read: true, write: true }),
-    configure: unsupported(
-      'model and permission mode are pinned at session create and per turn; the sticky switch routes are v2-only and were not exercised against a live server, so this driver does not claim them',
-    ),
+    /**
+     * MODEL AND EFFORT, STICKY, FROM THE NEXT PROMPT (POD-3081).
+     *
+     * The old refusal here named opencode's v2-only sticky-switch routes and
+     * said this driver would not claim what it had not exercised against a live
+     * server. Still true, and still not called: this implementation touches no
+     * route. Every prompt already carries `model` and `variant` out of
+     * `session.spec.model`, so the sticky value is state this driver owns and
+     * journals, and a configure is a write to it.
+     *
+     * `permissionMode` is absent: opencode takes its permission config at create
+     * and this driver has no live route to it, so the field refuses rather than
+     * being accepted and dropped.
+     */
+    configure: supported({ fields: ['model', 'effort'], effective: 'next-turn' }),
     /** Per assistant message, from the tokens/cost opencode puts on the message
      *  itself. `contextUsedPercent` is absent: it needs the model's context
      *  limit, which this driver does not read. */

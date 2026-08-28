@@ -428,6 +428,10 @@ function makeWorld(options: WorldOptions = {}): {
       // effort, and it travels beside the model rather than inside it, so a
       // wake could lose either one alone.
       policy: () => ({ model: 'anthropic/claude-sonnet-4', effort: 'thinking' }),
+      // KEEPS THE `provider/model` SHAPE. A bare id here would make the
+      // configure properties fail for the reason the driver refuses it, not for
+      // the reason they are testing.
+      alternate: () => ({ model: 'anthropic/claude-opus-4-1', effort: 'high' }),
       // READ OFF THE SERVER: the prompt body it actually received.
       requested: (sessionId) => {
         const body = serverFor(sessionId).lastPrompt(opencodeIdFor(sessionId))

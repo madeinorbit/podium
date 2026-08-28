@@ -99,6 +99,8 @@ export const HOST_EDGE_FRAMES = [
   'runtimeAnswerResult',
   'runtimeLifecycleRequest',
   'runtimeLifecycleResult',
+  'runtimeConfigureRequest',
+  'runtimeConfigureResult',
   'runtimeSnapshotRequest',
   'runtimeSnapshotResult',
   'runtimeInteractionAsked',

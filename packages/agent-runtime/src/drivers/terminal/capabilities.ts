@@ -156,8 +156,32 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
         // now would promise a verb this driver does not implement.
         supported({ read: true, write: false })
       : unsupported('composer sync is not running for this session'),
+    /**
+     * UNSUPPORTED, AND STILL THE RIGHT ANSWER AFTER POD-3081 MADE THE THREE
+     * HEADLESS DRIVERS SUPPORT IT.
+     *
+     * What makes it work there is that each of them CONSTRUCTS every request to
+     * the provider and can put a different model on the next one. This family
+     * does not construct anything: it types bytes at an interactive CLI that
+     * read its model from argv when it started. The only thing resembling a
+     * route is typing a slash command into the composer, and that is exactly the
+     * fake this issue was told not to build — `/model` exists on some harnesses
+     * and not others, it takes a different argument on each, it opens an
+     * interactive picker rather than accepting a value on several, it is
+     * indistinguishable at the PTY from the user typing the same characters, and
+     * NOTHING it does comes back as a confirmation this driver could report. A
+     * `configure()` built on it would return `{ok:true}` for keystrokes that may
+     * have landed in a prompt box, changed nothing, or been swallowed by a menu.
+     *
+     * There is no effort slash command on any of them at all, so even the
+     * optimistic version of that story covers one of the two fields.
+     *
+     * The honest product answer is the one the reason gives: changing a TUI
+     * session's model is a relaunch, and the control should say so rather than
+     * offering a switch that silently does not throw.
+     */
     configure: unsupported(
-      'a TUI takes its model and permission mode at launch; changing them is a relaunch',
+      'a TUI reads its model and effort from argv at launch; there is no route that changes them on a running session and no confirmation a driver could report, so changing them is a relaunch',
     ),
     usage: input.reportsContextPercent
       ? supported({ perTurn: false })

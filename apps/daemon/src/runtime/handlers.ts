@@ -22,6 +22,7 @@
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
 import type {
+  RuntimeConfigureResultMessage,
   RuntimeSnapshotResultMessage,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
@@ -77,6 +78,7 @@ export const runtimeHandlers: Pick<
   | 'runtimeInterruptRequest'
   | 'runtimeAnswerRequest'
   | 'runtimeLifecycleRequest'
+  | 'runtimeConfigureRequest'
   | 'runtimeSnapshotRequest'
   | 'runtimeQueueDrainAbandonedAck'
   | 'runtimeEventAck'
@@ -287,6 +289,63 @@ export const runtimeHandlers: Pick<
         answer('ok' in result ? { ok: true } : { reason: result.reason as 'no_resume_ref' })
       })
       .catch(() => answer({ reason: 'not_running' }))
+  },
+
+  /**
+   * CHANGE A RUNNING SESSION'S STICKY SETTINGS (POD-3081).
+   *
+   * NOTHING IS DECIDED HERE, and that is the whole design of this handler. The
+   * daemon does not filter fields it thinks a driver cannot take, does not
+   * pre-empt a refusal, and does not translate one into a friendlier reason. It
+   * forwards the patch and returns what the handle said. Each of those
+   * temptations would put a second, staler copy of a driver's capability
+   * declaration on the machine side of the wire — and this axis spent the epic
+   * being exactly that: a declaration nobody checked against the behaviour.
+   *
+   * The one capability READ is `effective`, and it is a report rather than a
+   * decision: the server has to tell a person whether the model they picked is
+   * live now or from their next message, and only the driver knows which. It is
+   * read AFTER the driver granted the change, off the live binding, so it
+   * describes the driver that actually holds the session.
+   */
+  runtimeConfigureRequest: (ctx, msg) => {
+    const handle = handleFor(ctx, msg.sessionId)
+    const answer = (result: RuntimeConfigureResultMessage['result']): void => {
+      ctx.send({
+        type: 'runtimeConfigureResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result,
+      })
+    }
+    if (!handle) {
+      answer({ reason: 'not_running', detail: 'session is not behind the runtime contract' })
+      return
+    }
+    const declared = ctx.agentRuntime?.capabilitiesFor(msg.sessionId)?.configure
+    void handle
+      .configure({
+        ...(msg.model !== undefined ? { model: msg.model } : {}),
+        ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+        ...(msg.permissionMode !== undefined ? { permissionMode: msg.permissionMode } : {}),
+      })
+      .then((result) => {
+        if (!('ok' in result)) {
+          answer(result)
+          return
+        }
+        answer({
+          ok: true,
+          // A driver that granted the change has a supported declaration by
+          // construction; `next-turn` is the conservative reading if one somehow
+          // did not, because it promises the caller less.
+          effective: declared?.supported ? declared.value.effective : 'next-turn',
+        })
+      })
+      // A THROW IS `not_running`, NOT A CRASH REPORT. The handle's transport
+      // dying mid-call is the same fact from the caller's side as the session
+      // being gone, and it is the one this reason exists for.
+      .catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
   },
 
   /**

@@ -36,6 +36,7 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
     killSession: sessions.killSession.bind(sessions),
     hibernateSession: sessions.hibernateSession.bind(sessions),
     interruptTurn: sessions.interruptTurn,
+    configureSession: sessions.configureSession,
     answerAskUserQuestion: sessions.answerAskUserQuestion,
     continueSession: sessions.continueSession.bind(sessions),
     listSessions: sessions.listSessions.bind(sessions),

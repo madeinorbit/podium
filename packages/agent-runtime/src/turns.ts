@@ -177,6 +177,23 @@ export type RefusalReason =
    * wrong answer and stops retrying something that would have succeeded.
    */
   | 'no_archive_yet'
+  /**
+   * THE VERB IS IMPLEMENTED, THE FIELD IS DECLARED, AND THE VALUE IS NOT ONE
+   * THE HARNESS CAN TAKE (POD-3081).
+   *
+   * `configure({ effort: 'ludicrous' })` on codex, or a bare `gpt-5` where
+   * opencode's protocol requires `provider/model`. It is deliberately NOT
+   * `unsupported`: that reason says the DRIVER cannot do this at all and a
+   * caller who reads it correctly stops offering the control. This one says the
+   * control is real and this particular value is not, which is a message a user
+   * can act on by picking another value.
+   *
+   * A driver must reject rather than pass a bad value through. The failure it
+   * prevents is silent and durable: an unusable model name accepted here becomes
+   * the session's sticky policy, and every subsequent turn fails at the provider
+   * with an error that names the model but not who set it.
+   */
+  | 'invalid_value'
 
 export interface Refusal {
   reason: RefusalReason

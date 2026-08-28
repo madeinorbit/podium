@@ -49,3 +49,50 @@ describe('modelToken', () => {
     )
   })
 })
+
+/**
+ * THE RUNTIME-REQUEST ARM (POD-3081).
+ *
+ * A sticky configure changes what the session was ASKED for without changing
+ * what it was LAUNCHED as and without — yet — changing what is OBSERVED. These
+ * pin the order those three are read in, which is the only thing that decides
+ * whether the header shows a model two changes out of date during the window
+ * between a change and the next turn.
+ */
+describe('the runtime-requested model', () => {
+  it('shows the runtime request over the SPAWN selection', () => {
+    expect(modelToken({ model: 'gpt-5-codex', requestedModel: 'claude-opus-4-8' })).toBe('opus 4.8')
+  })
+
+  it('still lets an OBSERVATION win, because the old model is what is answering', () => {
+    /**
+     * NOT AN OVERSIGHT. `configure` is `next-turn` on every headless driver, so
+     * a session mid-turn genuinely IS still on the model it started that turn
+     * with. Showing the new one here would be the change-looks-applied misreport
+     * this whole axis exists to stop; the dotted-rule provenance is what carries
+     * "and you asked for something else".
+     */
+    expect(
+      modelToken({ observedModel: 'claude-fable-5', requestedModel: 'claude-opus-4-8' }),
+    ).toBe('fable 5')
+  })
+
+  it('reads the requested effort the same way, so the two halves cannot disagree', () => {
+    expect(modelToken({ requestedModel: 'claude-opus-4-8', requestedEffort: 'medium' })).toBe(
+      'opus 4.8 · med',
+    )
+    // The runtime request beats the spawn effort for the same reason the model
+    // does — and a driver that carried one field and dropped the other is
+    // exactly the half-applied change this pairing exists to catch.
+    expect(
+      modelToken({ requestedModel: 'claude-opus-4-8', requestedEffort: 'medium', effort: 'high' }),
+    ).toBe('opus 4.8 · med')
+  })
+
+  it('leaves an untouched session reading exactly as it did before', () => {
+    // The arm is ADDITIVE: absent `requestedModel` must change nothing, or every
+    // session that has never been reconfigured is a regression.
+    expect(modelToken({ observedModel: 'claude-fable-5', model: 'opus' })).toBe('fable 5')
+    expect(modelToken({ model: 'auto' })).toBe('auto')
+  })
+})

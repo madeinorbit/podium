@@ -1806,6 +1806,295 @@ export function describeDriverConformance(target: ConformanceTarget): void {
     })
 
     /**
+     * CONFIGURE — THE AXIS THAT SPENT THE EPIC BEING A DECLARATION (POD-3081).
+     *
+     * The capability catalogue's own correction is the reason this block exists.
+     * `configure` was read as announcing that every driver could switch model and
+     * effort with nothing checking the announcement; a drive read
+     * `capabilities.ts` and found the opposite — every production driver refused
+     * — and the lesson recorded was that "`declared` is the column to distrust,
+     * because a declaration is a claim about behaviour and only a test makes it a
+     * fact." Both readings were possible because there was no property here. A
+     * third reading is now possible and is the one these cases exist to prevent:
+     * a driver that declares the fields, returns `{ok:true}`, and changes
+     * nothing.
+     *
+     * So every case below joins the DECLARATION to an OBSERVATION off the
+     * harness. A driver is held to what it announced in both directions — a
+     * declared field must really change, an undeclared one must really refuse —
+     * and the sticky/one-turn split is checked from both sides, because the
+     * failure the split exists to prevent is symmetric: a "just this once"
+     * override that becomes permanent, and a permanent change that lasts one
+     * turn.
+     */
+    describe('configure — sticky settings on a running session', () => {
+      /** The declared capability, or undefined when this driver refuses the verb. */
+      const declaredConfigure = (
+        driver: ReturnType<ConformanceTarget['createDriver']>['driver'],
+      ): { fields: readonly string[]; effective: string } | undefined => {
+        const declared = driver.capabilities().configure
+        return declared.supported ? declared.value : undefined
+      }
+
+      it('REFUSES `unsupported` when it declares the verb unsupported', async () => {
+        const { handle, driver } = setup()
+        if (declaredConfigure(driver)) return
+        const session = await handle
+        const result = await session.configure({ model: 'anything' })
+        /**
+         * The refusal must be `unsupported` and not something vaguer. A caller
+         * reading it decides whether to STOP OFFERING THE CONTROL — which is
+         * right for a TUI whose model is an argv fact, and wrong for a driver
+         * that is merely not running just now.
+         */
+        expect(result).toEqual(expect.objectContaining({ reason: 'unsupported' }))
+      })
+
+      it('REFUSES a field it did not declare, rather than dropping it', async () => {
+        const { handle, driver } = setup()
+        const declared = declaredConfigure(driver)
+        if (!declared) return
+        const undeclared = (['model', 'effort', 'permissionMode'] as const).find(
+          (field) => !declared.fields.includes(field),
+        )
+        // A driver that declares all three has no undeclared field to probe, and
+        // that is a complete driver rather than a gap in the corpus.
+        if (!undeclared) return
+        const session = await handle
+        const result = await session.configure({ [undeclared]: 'something' })
+        /**
+         * SILENTLY DROPPING IS THE FAILURE. `{ok:true}` for a field this driver
+         * cannot change is the exact shape of the bug the catalogue's correction
+         * warned about: the control renders as applied, the setting is what it
+         * always was, and nothing anywhere says so.
+         */
+        expect(result).toEqual(expect.objectContaining({ reason: 'unsupported' }))
+      })
+
+      it('REFUSES a request that asks for nothing', async () => {
+        const { handle, driver } = setup()
+        if (!declaredConfigure(driver)) return
+        const session = await handle
+        // Not `{ok:true}`: an empty configure is a caller that lost its payload,
+        // and answering "done" to it is how that bug reaches production wearing
+        // a green result.
+        expect(await session.configure({})).toEqual(
+          expect.objectContaining({ reason: 'invalid_value' }),
+        )
+      })
+
+      it('REFUSES a value the harness cannot take, and changes nothing', async () => {
+        const { control, driver, spec } = setup()
+        const declared = declaredConfigure(driver)
+        if (!declared?.fields.includes('model') || !control.model) return
+        const policy = control.model.policy()
+        const session = await driver.create({ ...spec, model: policy })
+        await session.send({ text: 'before' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        const asked = control.model.requested(session.binding.sessionId)
+        expect(asked).toEqual(expect.objectContaining({ model: policy.model }))
+
+        /**
+         * A MODEL NAME WITH A SPACE IN IT is the one probe every harness here
+         * rejects for the same structural reason, so it is the value the corpus
+         * can use without guessing at any provider's catalog. Which models
+         * EXIST is a live, per-account fact the server owns; a driver checking
+         * that would hold a staler copy than the picker.
+         */
+        const result = await session.configure({ model: 'not a model name' })
+        expect(result).toEqual(expect.objectContaining({ reason: 'invalid_value' }))
+
+        await session.send({ text: 'after' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        /**
+         * THE REFUSAL MUST BE TOTAL. A driver that validated after writing would
+         * refuse and still have poisoned the session's policy — and the symptom
+         * is not a failed configure, it is every turn from here on failing at the
+         * provider against a model nobody chose.
+         */
+        expect(control.model.requested(session.binding.sessionId)).toEqual(asked)
+      })
+
+      it('makes a declared model change STICK across turns, not just the next one', async () => {
+        const { control, driver, spec } = setup()
+        const declared = declaredConfigure(driver)
+        if (!declared?.fields.includes('model') || !control.model) return
+        const policy = control.model.policy()
+        const next = control.model.alternate()
+        const session = await driver.create({ ...spec, model: policy })
+        await session.send({ text: 'one' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        // The launch value really is in force, or "it changed" below is a
+        // comparison against a value that was never there.
+        expect(control.model.requested(session.binding.sessionId)).toEqual(
+          expect.objectContaining({ model: policy.model }),
+        )
+
+        expect(await session.configure({ model: next.model as string })).toEqual({ ok: true })
+
+        await session.send({ text: 'two' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        expect(control.model.requested(session.binding.sessionId)).toEqual(
+          expect.objectContaining({ model: next.model }),
+        )
+
+        /**
+         * THE SECOND TURN IS THE WHOLE POINT. A driver that implemented
+         * `configure` by stashing a one-shot override would pass every
+         * assertion above and fail here — and "sticky" versus "applies once" is
+         * precisely the distinction `ConfigureRequest`'s doc comment calls a
+         * spec rule rather than a convention.
+         */
+        await session.send({ text: 'three' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        expect(control.model.requested(session.binding.sessionId)).toEqual(
+          expect.objectContaining({ model: next.model }),
+        )
+      })
+
+      it('leaves the OTHER fields alone — a configure is a patch, not a replacement', async () => {
+        const { control, driver, spec } = setup()
+        const declared = declaredConfigure(driver)
+        if (!declared?.fields.includes('model') || !declared.fields.includes('effort')) return
+        if (!control.model) return
+        const policy = control.model.policy()
+        const next = control.model.alternate()
+        // Only a policy that names BOTH fields can show one surviving the other
+        // being set.
+        if (!policy.effort || !next.model) return
+        const session = await driver.create({ ...spec, model: policy })
+
+        expect(await session.configure({ model: next.model })).toEqual({ ok: true })
+        await session.send({ text: 'after' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+
+        /**
+         * The launch effort must still be there. A control that changes the model
+         * and silently resets the effort to the harness default is worse than one
+         * that refuses: the operator sees the field they touched do the right
+         * thing and has no reason to check the one they did not.
+         */
+        expect(control.model.requested(session.binding.sessionId)).toEqual(
+          expect.objectContaining({ model: next.model, effort: policy.effort }),
+        )
+      })
+
+      it('does not let a ONE-TURN override leak into the sticky policy', async () => {
+        const { control, driver, spec } = setup()
+        const declared = declaredConfigure(driver)
+        if (!declared?.fields.includes('model') || !control.model) return
+        const policy = control.model.policy()
+        const next = control.model.alternate()
+        const session = await driver.create({ ...spec, model: policy })
+
+        /**
+         * BOTH FIELDS RIDE THE OVERRIDE, because a driver can carry one of them
+         * and drop the other and no assertion about the model alone would see
+         * it. That was not hypothetical: opencode read `input.overrides` for the
+         * model and `spec.model.effort` for the effort, so a one-turn override
+         * arrived half-applied — the new model at the old effort — and the
+         * transcript names neither.
+         */
+        await session.send(
+          {
+            text: 'just this once',
+            overrides: { supported: true, value: { model: next.model, effort: next.effort } },
+          },
+          { origin: 'human', delivery: 'when-ready' },
+        )
+        await control.completeTurn(session.binding.sessionId)
+        // The override really did apply, or the next assertion proves nothing:
+        // an override that never worked also "does not leak".
+        expect(control.model.requested(session.binding.sessionId)).toEqual(
+          expect.objectContaining({ model: next.model, ...(next.effort ? { effort: next.effort } : {}) }),
+        )
+
+        await session.send({ text: 'and back' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        /**
+         * THE FAILURE `ConfigureRequest` NAMES IN ITS FIRST SENTENCE: a "just
+         * this once" model change silently becoming permanent. It is invisible
+         * from the outside — the transcript does not say which model answered —
+         * so the only way anyone learns is that the work is different.
+         */
+        expect(control.model.requested(session.binding.sessionId)).toEqual(
+          expect.objectContaining({
+            model: policy.model,
+            ...(policy.effort ? { effort: policy.effort } : {}),
+          }),
+        )
+      })
+
+      it('a sticky change survives the reload that a one-turn override does not', async () => {
+        const { control, driver, spec } = setup()
+        const declared = declaredConfigure(driver)
+        if (driver.family !== 'server' || !declared?.fields.includes('model') || !control.model) {
+          return
+        }
+        const policy = control.model.policy()
+        const next = control.model.alternate()
+        const session = await driver.create({ ...spec, model: policy })
+        await session.send({ text: 'before' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        expect(await session.configure({ model: next.model as string })).toEqual({ ok: true })
+
+        const binding = session.binding
+        const parked = await session.hibernate()
+        // A family that cannot park has this property unreachable by
+        // construction; `hibernate REFUSES without a resume ref` owns that case.
+        if (!('ok' in parked)) return
+        const woken = await driver.adopt(binding)
+        await woken.send({ text: 'after' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(binding.sessionId)
+
+        /**
+         * THE DURABILITY HALF OF STICKY. `wakes on the SAME model and effort it
+         * was parked on` proves a LAUNCH policy survives adoption; this proves a
+         * policy set at RUNTIME does — which is a different write, to the same
+         * journal, and a driver could easily do one and not the other. A
+         * configure that evaporates on the next daemon restart is the same
+         * silent-reversion bug POD-2775 fixed, arriving through a new door.
+         */
+        expect(control.model.requested(binding.sessionId)).toEqual(
+          expect.objectContaining({ model: next.model }),
+        )
+      })
+
+      it('declaring `next-turn` means the OPEN turn keeps the model it started on', async () => {
+        const { control, driver, spec } = setup()
+        const declared = declaredConfigure(driver)
+        if (declared?.effective !== 'next-turn') return
+        if (!declared.fields.includes('model') || !control.model) return
+        const policy = control.model.policy()
+        const next = control.model.alternate()
+        const session = await driver.create({ ...spec, model: policy })
+
+        // A turn is OPEN and deliberately not completed before the configure.
+        await session.send({ text: 'running' }, { origin: 'human', delivery: 'when-ready' })
+        expect(await session.configure({ model: next.model as string })).toEqual({ ok: true })
+        /**
+         * THE IN-FLIGHT TURN IS UNTOUCHED, and `next-turn` is the driver saying
+         * so out loud. A provider is generating against the model it was handed;
+         * there is no frame that swaps it mid-stream, so a driver reporting the
+         * change as live would be describing something that has not happened to
+         * the work currently being done.
+         */
+        expect(control.model.requested(session.binding.sessionId)).toEqual(
+          expect.objectContaining({ model: policy.model }),
+        )
+        await control.completeTurn(session.binding.sessionId)
+
+        await session.send({ text: 'next' }, { origin: 'human', delivery: 'when-ready' })
+        await control.completeTurn(session.binding.sessionId)
+        // …and it is genuinely queued rather than dropped: the turn after the
+        // open one carries it.
+        expect(control.model.requested(session.binding.sessionId)).toEqual(
+          expect.objectContaining({ model: next.model }),
+        )
+      })
+    })
+
+    /**
      * THE ARCHIVE GUARANTEE, PINNED AS FAR AS IT CAN BE PINNED TODAY (POD-2703).
      *
      * `export()` is core because handoff, cloud migration, disaster recovery and

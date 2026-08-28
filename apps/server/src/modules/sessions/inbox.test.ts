@@ -66,6 +66,9 @@ function harness(
      *  port is ABSENT — the bare-fixture shape, and the case a server-family
      *  session must refuse rather than confirm (POD-2792). */
     contractInterrupt?: { ok: true } | { reason: string; detail?: string }
+    contractConfigure?:
+      | { ok: true; effective: 'immediate' | 'next-turn' }
+      | { reason: string; detail?: string }
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
@@ -73,6 +76,7 @@ function harness(
   const contractCalls: unknown[] = []
   const contractResolvers: Array<(receipt: TurnReceipt) => void> = []
   const contractInterrupts: SessionId[] = []
+  const contractConfigures: { sessionId: SessionId; model?: string; effort?: string }[] = []
   const resurrections: Array<{ sessionId: SessionId; principal: InboxPrincipalReference }> = []
   const rejected: unknown[] = []
   const answered: unknown[] = []
@@ -106,6 +110,12 @@ function harness(
       since: '2026-08-15T00:00:00.000Z',
       ...(options.stateObservedAt ? { stateObservedAt: options.stateObservedAt } : {}),
     },
+    // POD-3081: the launch record, and the sticky write the inbox performs on it.
+    // A recorder rather than a reimplementation — what THIS suite decides is
+    // WHETHER and WITH WHAT the inbox writes; the patch semantics of the write
+    // itself are `Session`'s and are pinned in `session-requested-model.test.ts`.
+    model: 'gpt-5-codex',
+    setRequestedModel: vi.fn(() => true),
     terminal: {
       lastOutputAtMs: 0,
       transcriptItems: () => transcript,
@@ -189,6 +199,14 @@ function harness(
     ...(options.serverDriven !== undefined
       ? { serverDriven: () => options.serverDriven === true }
       : {}),
+    ...(options.contractConfigure
+      ? {
+          contractConfigure: (input: { sessionId: SessionId; model?: string; effort?: string }) => {
+            contractConfigures.push(input)
+            return Promise.resolve(options.contractConfigure as never)
+          },
+        }
+      : {}),
     ...(options.contractInterrupt
       ? {
           contractInterrupt: (sessionId: SessionId) => {
@@ -226,6 +244,7 @@ function harness(
     contractCalls,
     contractResolvers,
     contractInterrupts,
+    contractConfigures,
     resurrections,
     rejected,
     answered,
@@ -2262,5 +2281,86 @@ describe('queued input that nothing would come back for [POD-1703]', () => {
       h.inbox as unknown as { deps: { queue: Record<string, unknown> } }
     ).deps.queue.sessionsWithPending = undefined
     expect(() => h.inbox.sweepQueuedInputs()).not.toThrow()
+  })
+})
+
+/**
+ * STICKY MODEL / EFFORT FROM THE PRODUCT CONTROL (POD-3081).
+ *
+ * The inbox owns one decision the layers under it cannot make: WHEN to record
+ * that the session's requested model changed. `Session.model` is the launch
+ * configuration and is immutable, so the change lands on `requestedModel` — and
+ * it must land only after the driver granted it, because the whole point of
+ * separating requested from observed is that a person can trust what each one
+ * says.
+ */
+describe('configureSession', () => {
+  const requestedWrites = (h: ReturnType<typeof harness>): unknown[] =>
+    (h.session.setRequestedModel as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(
+      (call) => call[0],
+    )
+
+  it('records the requested model only AFTER the driver granted the change', async () => {
+    const h = harness({
+      agentKind: 'codex',
+      serverDriven: true,
+      contractConfigure: { ok: true, effective: 'next-turn' },
+    })
+
+    const result = await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5.1-codex-max' })
+
+    expect(result).toEqual({ ok: true, effective: 'next-turn' })
+    expect(h.contractConfigures).toEqual([{ sessionId: SID, model: 'gpt-5.1-codex-max' }])
+    /**
+     * THE WRITE IS A PATCH, and it names only what the caller named. Passing the
+     * effort through as `undefined` would be indistinguishable at `Session` from
+     * a caller asking to change it, and the launch effort would be cleared by a
+     * request that never mentioned it.
+     */
+    expect(requestedWrites(h)).toEqual([{ model: 'gpt-5.1-codex-max' }])
+  })
+
+  it('records NOTHING when the driver refused, and reports the typed reason', async () => {
+    const h = harness({
+      agentKind: 'codex',
+      serverDriven: true,
+      contractConfigure: { reason: 'invalid_value', detail: 'that is not a codex effort' },
+    })
+
+    const result = await h.inbox.configureSession({ sessionId: SID, effort: 'ludicrous' })
+
+    expect(result).toEqual({ reason: 'invalid_value', detail: 'that is not a codex effort' })
+    /**
+     * THE FAILURE THIS PINS. A requested value written before — or regardless of
+     * — the grant shows a person the effort they picked over a session that
+     * refused it, and every read that falls back to `requestedEffort` then
+     * reports a setting nothing is running.
+     */
+    expect(requestedWrites(h)).toEqual([])
+  })
+
+  it('REFUSES when this server has no runtime connection, rather than confirming', async () => {
+    const h = harness({ agentKind: 'codex', serverDriven: true })
+
+    const result = await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5-codex' })
+
+    // Unwired refuses, exactly like `contractInterrupt`: a setting change that
+    // could not be delivered is not a setting change.
+    expect(result).toMatchObject({ reason: 'not_running' })
+    expect(requestedWrites(h)).toEqual([])
+  })
+
+  it('REFUSES a session that is not running, and asks the machine nothing', async () => {
+    const h = harness({
+      agentKind: 'codex',
+      status: 'exited',
+      serverDriven: true,
+      contractConfigure: { ok: true, effective: 'next-turn' },
+    })
+
+    expect(await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5-codex' })).toMatchObject({
+      reason: 'not_running',
+    })
+    expect(h.contractConfigures).toEqual([])
   })
 })

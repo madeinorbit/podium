@@ -30,6 +30,7 @@ import type {
   SessionHealth,
   UsageSnapshot,
 } from '../../capabilities.js'
+import { decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import { DriverRefusalError } from '../../errors.js'
 import {
@@ -1694,22 +1695,43 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         },
       },
 
+      /**
+       * PERMISSION MODE, IMMEDIATELY. Model and effort refuse, and this driver
+       * is the one where that refusal is unarguable: it sends no model on
+       * `session/new` and none on `session/prompt`, so there is no value for a
+       * configure to change and nothing that would carry one to Grok.
+       *
+       * Routed through {@link decideConfigure} (POD-3081) rather than
+       * hand-branching, so the three rules that used to differ here are the same
+       * as everywhere else: an undeclared field answers `unsupported` BEFORE its
+       * value is looked at, an empty request is named as the caller bug it is
+       * rather than answered `{ok:true}`, and an empty-string mode is
+       * `invalid_value` instead of being sent to Grok to be rejected there.
+       *
+       * A FAILED `session/set_mode` IS NO LONGER `unsupported`. The verb is
+       * supported — the call failed — and typing a transport failure as a
+       * permanent capability gap tells a caller to stop offering a control that
+       * would work on the next attempt.
+       */
       async configure(request: ConfigureRequest) {
-        if (request.model !== undefined || request.effort !== undefined) {
-          return {
-            reason: 'unsupported' as const,
-            detail: 'Grok ACP exposes no sticky model/effort RPC',
-          }
+        const declared = capabilities.configure
+        if (!declared.supported) {
+          return { reason: 'unsupported' as const, detail: declared.reason }
         }
-        if (request.permissionMode !== undefined) {
-          try {
-            await session.client.call(GROK_ACP_METHODS.sessionSetMode, {
-              sessionId: session.grokSessionId,
-              modeId: request.permissionMode,
-            })
-          } catch (error) {
-            return { reason: 'unsupported' as const, detail: String(error) }
-          }
+        const decision = decideConfigure({
+          declared: declared.value,
+          request,
+          policy: session.spec.model,
+          checks: { permissionMode: noWhitespaceCheck('a Grok ACP mode id') },
+        })
+        if (!('ok' in decision)) return decision
+        try {
+          await session.client.call(GROK_ACP_METHODS.sessionSetMode, {
+            sessionId: session.grokSessionId,
+            modeId: request.permissionMode,
+          })
+        } catch (error) {
+          return { reason: 'not_running' as const, detail: String(error) }
         }
         return { ok: true as const }
       },

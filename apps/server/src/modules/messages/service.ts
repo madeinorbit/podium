@@ -476,6 +476,17 @@ const REFUSAL_CORRECTION: Record<
    *  would have made it speak, so a requeue waits on itself. The visible
    *  correction is the one a sender can act on. */
   no_archive_yet: { correct: 'dead-letter', as: 'delivery-failed' },
+  /** CONFIGURE-ONLY TODAY (POD-3081): a `configure()` given a value the harness
+   *  cannot take. Here for the same reason the two arms above it are — no send
+   *  path produces it, and the exhaustive Record is what makes that a decision
+   *  rather than a fall-through.
+   *
+   *  Dead-letter, and the choice is easy for once: a value the harness rejected
+   *  is rejected identically on every retry, so requeueing would spin the sweep
+   *  forever over a message that can never land. The sender sees it once and can
+   *  send it again with something else — the visible correction this table's
+   *  header asks for. */
+  invalid_value: { correct: 'dead-letter', as: 'delivery-failed' },
 }
 
 export class MessageDeliveryService {

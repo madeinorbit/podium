@@ -51,6 +51,7 @@ import type {
 } from '@podium/protocol'
 import type {
   RuntimeAttachmentRef,
+  RuntimeConfigureResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
   RuntimeStageAttachmentResultMessage,
@@ -238,6 +239,7 @@ const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
  *  carries — a snapshot, or the typed refusal for a session that is not behind
  *  the contract. */
 const RUNTIME_SNAPSHOT = daemonRequestKind<Payload<RuntimeSnapshotResultMessage>>('rn')
+const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessage>>('rc')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
@@ -364,6 +366,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(RUNTIME_ANSWER, msg.requestId, machineId, msg.outcome),
   runtimeSnapshotResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_SNAPSHOT, msg.requestId, machineId, payloadOf(msg)),
+  runtimeConfigureResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_CONFIGURE, msg.requestId, machineId, payloadOf(msg)),
 }
 
 /**
@@ -869,6 +873,36 @@ export class DaemonRpcService {
         sessionId: input.sessionId,
         interactionId: input.interactionId,
         answer: input.answer,
+      }),
+      machineId,
+    )
+  }
+
+  /**
+   * CHANGE A RUNNING SESSION'S STICKY MODEL / EFFORT (POD-3081).
+   *
+   * A TIMEOUT IS `not_running`, matching every runtime verb above it, and here
+   * the choice carries a little more weight than usual: this reply is what the
+   * server writes the session's REQUESTED model from. Defaulting a lost reply to
+   * anything optimistic would record a change the machine may never have made,
+   * and the requested-vs-observed split would then be showing a requested value
+   * that was never requested of anything.
+   */
+  runtimeConfigure(
+    input: { sessionId: SessionId; model?: string; effort?: string; permissionMode?: string },
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeConfigureResultMessage>> {
+    return this.request(
+      RUNTIME_CONFIGURE,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({
+        type: 'runtimeConfigureRequest',
+        requestId,
+        sessionId: input.sessionId,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.effort !== undefined ? { effort: input.effort } : {}),
+        ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
       }),
       machineId,
     )

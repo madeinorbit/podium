@@ -329,6 +329,9 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       // because Codex takes them as two separate turn parameters and a wake
       // could drop either one alone.
       policy: () => ({ model: 'gpt-5-codex', effort: 'high' }),
+      // The other side of every configure property: a model an operator could
+      // really pick here, differing from `policy` in both fields.
+      alternate: () => ({ model: 'gpt-5.1-codex-max', effort: 'medium' }),
       // READ OFF THE SERVER, not remembered from what the driver was told. What
       // the corpus is asking is what the harness RECEIVED.
       requested: (sessionId) => servers.get(sessionId)?.lastTurnModel,

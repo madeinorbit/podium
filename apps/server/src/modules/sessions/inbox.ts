@@ -41,6 +41,7 @@ import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
 import type { HarnessComposerReadiness, HarnessInterrupt } from '../../harness-manifest'
 import { injectionPayload } from './paste'
+import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session } from './session'
 
 /**
@@ -368,6 +369,21 @@ export interface SessionInboxDeps {
    * than confirming: a stop that cannot be delivered must say so.
    */
   contractInterrupt?(sessionId: SessionId): Promise<{ ok: true } | Refusal>
+  /**
+   * CHANGE a running session's sticky model / effort through the runtime
+   * contract (POD-3081).
+   *
+   * Optional only as a fixture affordance, and the missing case REFUSES rather
+   * than confirming — the same rule as {@link contractInterrupt}, for the same
+   * reason: a setting change that could not be delivered must say so, because
+   * the alternative is a control that renders as applied over a session nobody
+   * told.
+   */
+  contractConfigure?(input: {
+    sessionId: SessionId
+    model?: string
+    effort?: string
+  }): Promise<ConfigureOutcome>
 }
 
 /**
@@ -867,6 +883,51 @@ export class SessionInbox {
       ok: false,
       reason: result.detail ? `${result.reason}: ${result.detail}` : result.reason,
     }
+  }
+
+  /**
+   * CHANGE THE MODEL OR EFFORT OF A SESSION THAT IS ALREADY RUNNING (POD-3081).
+   *
+   * WHY THIS LIVES BESIDE `interruptTurn` RATHER THAN ANYWHERE ELSE: the two
+   * face the same split. A terminal-family session reads its model from argv at
+   * launch and there is no route that changes it, so this refuses with the
+   * driver's own reason instead of typing a slash command at a TUI and hoping —
+   * the same shape as an interrupt that must not be sent to an idle codex. A
+   * server-family session has a driver that constructs every request it makes,
+   * so the change is real and goes down the contract.
+   *
+   * WHAT `ok` MEANS: the DRIVER accepted the change and said when it takes
+   * effect. It does not mean the session is answering as the new model yet, and
+   * `effective` is how the caller tells a person which of the two they have.
+   *
+   * THE REQUESTED VALUE IS WRITTEN ONLY AFTER THE GRANT. Recording it first
+   * would show a person the model they picked over a session that refused it,
+   * which is the one failure this whole verb exists to avoid.
+   */
+  async configureSession(input: {
+    sessionId: SessionId
+    model?: string
+    effort?: string
+  }): Promise<ConfigureOutcome> {
+    const session = this.deps.getSession(input.sessionId)
+    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
+      return { reason: 'not_running', detail: 'session is not running' }
+    }
+    const request = this.deps.contractConfigure
+    if (!request) {
+      return {
+        reason: 'not_running',
+        detail: `${this.deps.harnessName(session.agentKind)} is running with no runtime connection to this server, so the change could not be delivered`,
+      }
+    }
+    const result = await request(input)
+    if ('ok' in result) {
+      session.setRequestedModel({
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      })
+    }
+    return result
   }
 
   /**

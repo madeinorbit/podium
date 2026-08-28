@@ -446,6 +446,13 @@ export const SessionMetaEntity = z.object({
   /** The reasoning-effort tier OBSERVED on assistant turns (transcript top-level
    *  `effort`) — the observed counterpart of the spawn-time `effort` request. */
   observedEffort: z.string().optional(),
+  /** The model/effort this session was last ASKED for at RUNTIME, through
+   *  `sessions.configure` (POD-3081). Absent until someone changes it, and then
+   *  `model`/`effort` above still record how the session was LAUNCHED — three
+   *  distinct facts a reader can follow in order: launched as, asked for,
+   *  answering as. See `SessionLiveOverlay` for why none of them is a column. */
+  requestedModel: z.string().optional(),
+  requestedEffort: z.string().optional(),
   /** Latest exact harness-reported context-window usage. Absent when the
    * harness transcript does not expose both used tokens and window capacity. */
   contextUsagePercent: z.number().finite().min(0).max(100).optional(),
