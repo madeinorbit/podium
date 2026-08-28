@@ -33,6 +33,17 @@ the pinned old code. A separate control-backed legacy generic-PTY reading is
 This is not an exact-main PASS or FAIL and does not establish a regression for
 the epic's missing marker.
 
+## Exact coordinator rows
+
+These are the two rows for coordinator transcription. They describe the
+provider-level main baseline and keep the exact-driver limitation in the
+verdict rather than silently converting it into a same-driver comparison.
+
+```text
+A6b chat-CLI switch both directions twice (POD-3042 MAIN baseline)	generic-pty-on-main	PARTIAL main has NO opencode-server driver; measured on main's native legacy generic-PTY fallback: switching, no-restart, size and both post-switch actions PASSED; scrollback corruption UNMEASURED. Provider-level baseline, not an exact same-driver comparator	0bd90092c3a926b9305da34547fcc51b1e19b0a7	yes chat answered and CLI nonce echoed before switching	yes DEFAULT instance	2026-08-28 14:58:38 CEST	POD-3042
+A3 interrupt mid-turn (POD-3042 MAIN baseline)	generic-pty-on-main	PARTIAL main has NO codex-app-server driver, so there is NO exact comparator; main's legacy generic-PTY reading: interrupt accepted, output stopped, final row idle.interrupted, but NO event:interrupt transcript marker -- the SAME missing marker the epic shows	0bd90092c3a926b9305da34547fcc51b1e19b0a7	yes post-prime PTY output grew while phase=working	yes DEFAULT instance	2026-08-28 14:58:38 CEST	POD-3042
+```
+
 ## Pins and rig
 
 ### Product pins
@@ -43,7 +54,9 @@ the epic's missing marker.
 | main subject | `Test rigs use named instances` |
 | main checkout | `/tmp/pod-3042-main` (clean detached checkout) |
 | main served web bundle | `sourceSha=0bd9009`, `appVersion=dev+0bd9009`, `bundleVersion=bundle+_NeGkVql` |
-| current epic ref checked for this report | `issue/1761-agent-runtime` → `5fe951f2fe5ff3300330d64a3a5b0a4df3a76fe` |
+| coordinator review-base tip | `8ff570165ff4dc28a8d20c5ca416e6477d956631` |
+| current epic ref at appendix commit | `issue/1761-agent-runtime` → `cfb96fe179fbcc44d7421a058db69d6abb043327` |
+| POD-3042 evidence merge | `35178b58ce94ebce1fa87110d0526dd6d462e0b1` |
 | scored epic pin for the comparison readings | `38a2d1a7ab9aa75550aff089cb632ce3f1aee368` |
 | scored epic evidence | `docs/evidence/pod-3038/README.md` |
 
@@ -165,6 +178,10 @@ old TUI and required an independent, post-prime control: the row had to report
 least one second after the prompt, and the sample could not be a trust/hooks
 modal. This avoids counting first-run prompts or repaint noise as an
 in-flight-turn control.
+
+This timing gate was tightened before the valid run: `phase=unknown` samples
+could not fire the control, the control sample had to be at least `1000ms`
+after the prompt, and the interrupt was sent on the first following sample.
 
 Run window: `2026-08-28 14:43:14–14:44:33 CEST`.
 
