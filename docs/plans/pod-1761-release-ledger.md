@@ -6035,3 +6035,19 @@ POD-2777's session E replay block is now landed at `a7ea0eebe9153bba6b8d4831b929
 The headless streaming readings are full PASSes. The terminal streaming readings are BLOCKED because that arm has no preview surface; its positive durable control still fired. The interrupt probe's phase-stop subcheck passed on all four arms, but the Tier-A cell remains PARTIAL on every arm because no durable transcript item records the operator interrupt. OpenCode's raw numbers are materially different despite both verdicts being phase-stop PASS: headless stopped in 9ms with no output after the request; terminal took 28,902ms and produced 20,582 additional transcript characters. Codex stopped in 525ms versus 512ms.
 
 The same drive also found two harness defects and fixed them before the evidence run: the concurrency verifier was rejecting its own parent drive (fixed by ancestry, not an argv exemption), and a product-only pin failed to notice a swapped Codex binary (the harness binary is now explicitly pinned). The stock shared Codex path is 0.150.1, outside the exercised 0.147.x-0.149.x app-server range, so the default operator path correctly falls back to generic-pty; the drive refused those degraded headless cells rather than misreporting terminal evidence as headless. No full matrix claim is made: all non-replay-seam cells remain unconfirmed at the current tip.
+
+## FOREST — 2026-08-28 22:17 CEST — broad re-drive deferred
+
+The operator chose to wait for the next integration refresh before spending the
+full acceptance re-drive. A single Opus 5 medium worker rebased its clean drive
+branch onto `5eff0948e`, started the named `p2777` rig, and produced an isolated
+Codex headless checkpoint; the worker was stopped before that unconfirmed
+checkpoint was transcribed or committed. The exact p2777 server, daemon, and
+Codex children were then terminated and verified absent, with ports closed and
+no worktree changes.
+
+The eight post-integration replay/stream rows already landed remain the only
+current-tip readings. No additional rows are promoted. The next drive starts
+from the final integration tip and must still cover the logical matrix; this
+deferral does not waive the known catalogue gaps or the current A3 durable
+interrupt-marker `PARTIAL`.

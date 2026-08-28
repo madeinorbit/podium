@@ -1584,3 +1584,25 @@ The decision is deliberately mixed:
 The stock operator Codex binary is 0.150.1, outside the app-server driver's exercised range, and therefore correctly demotes to generic-pty. The acceptance harness pinned the supported 0.149.1 binary for this measurement and did not move the shared symlink. The harness's own self-detection and binary-pin fixes are included in the landed evidence; they do not change product behavior. The remaining matrix stays unconfirmed under Decision 42, and no Tier-A release green is claimed.
 
 *Podium-Issue: POD-1761*
+
+## Decision 44 — defer the broad re-drive until the next integration tip (2026-08-28 22:17 CEST)
+
+The operator chose to defer the broad current-tip acceptance re-drive until the
+next integration refresh, because another integration is expected before the
+release decision. The short-lived Opus 5 medium acceptance worker rebased onto
+`5eff0948e`, started a named `p2777` rig, and was stopped before its unconfirmed
+Codex checkpoint was committed; the rig's server, daemon, and child processes
+were then verified gone. The eight landed post-integration replay/stream rows
+remain the only current-tip acceptance readings and no additional rows are
+promoted.
+
+This deferral does **not** waive known capability gaps. The catalogue still
+records absent runtime surfaces (inventory/quota/usage/accounts/login/import,
+view park/reconnect, fork/checkpoint/rewind, and several client transcript
+surfaces); model/effort configure is unsupported; and the fresh A3 block is
+`PARTIAL` on every arm because phase-stop has no durable interrupt marker.
+Claude SDK's logged-out posture still has no login interaction path, while its
+PTY fallback does. These are separate from the many behavior cells that are
+merely unconfirmed after integration and must be re-driven at the final tip.
+
+*Podium-Issue: POD-1761*
