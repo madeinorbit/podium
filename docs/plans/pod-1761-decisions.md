@@ -914,3 +914,40 @@ bullets described one plane, the verdict scored both.** Read to the verdict.
 **The same dummy-cwd probe should now be pointed at grok, and the claude
 `defaultMode` rewrite is worth one attempt at a version pin** — those are the
 next A4 moves, not a rewrite of the harness.
+
+## Decision 28 — a probe that prints PASS while a clause is unmeasured (2026-08-28 14:05 CEST)
+
+POD-3038 re-drove the four stale pins. The headline is not any single cell, it
+is this: **the A6b probe printed an aggregate `A6b PASS` for codex while its own
+output said the no-scrollback-corruption clause was never measured.** The cell
+had been sitting in the matrix as a PASS on that basis. It is now PARTIAL.
+
+That is a *downgrade in recorded status and an upgrade in knowledge*, and it is
+the same defect shape as the `NF<8` validator from Decision 27: **an instrument
+that can only report success is not reporting.** Anywhere the A6b probe's
+aggregate line was trusted, the cell is suspect until someone reads the clause
+list underneath it. Score against every clause; never against the summary line.
+
+Results, all four transcribed at the drive's own verdicts:
+
+| cell | was | now |
+| --- | --- | --- |
+| A6b codex | PASS (aggregate) | **PARTIAL** — scrollback clause unmeasured |
+| A6b opencode | UNMEASURED | **FAIL** — chat plane passed, CLI plane failed after the switches |
+| A3 codex | REFUSED | **PARTIAL** — turn stopped, transcript marker absent |
+| A8 opencode | PARTIAL | PARTIAL, better characterised |
+
+**Neither the A6b/opencode FAIL nor the A3/codex PARTIAL is called a
+regression**, because all four main comparators were discarded: every one died
+with `abduco create-session: File name too long` before binding a driver. The
+drive was right to discard them — a comparator whose control never fired is not
+a baseline — and right to refuse a worse-than-main claim without one.
+
+**That gap is mine.** It is the 108-byte `sun_path` limit: a named instance needs
+~113 bytes, the default fits at 71. My own handover documents it under a heading
+I wrote, *"A pre-fix parent arm may need the DEFAULT instance"*, and the brief I
+then handed POD-3038 ended with **"Take the named instance, not the default."**
+The brief's general no-override rule now carries the exception explicitly,
+because the rule is right for an epic arm and wrong for a main arm and it never
+said so. POD-3042 re-runs the two baselines on the default instance under the
+`instance:default` lock.
