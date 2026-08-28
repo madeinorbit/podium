@@ -1466,3 +1466,43 @@ answer to "is the epic clean" is **"it was, at 4110ccee6; nobody knows yet at
 right. 141k insertions with hand-fixed type seams is a landing that deserves a
 whole-graph typecheck and the daemon/server suites before anyone reads a cell
 verdict off this tree at all.
+
+## Decision 40 — the podium CLI is bricked by a marker upgrade; OPERATOR ACTION (2026-08-28 20:08 CEST)
+
+**Every `podium` command now fails:**
+
+    podium: invalid Podium instance marker at /home/mgw/.podium/instance.json
+
+**Diagnosis, verified rather than guessed:**
+
+| fact | value |
+| --- | --- |
+| `~/.podium/instance.json` | `{version: 2, instanceId: "default", instanceUuid: ...}`, **rewritten 19:55** |
+| installed `podium-cli` bundle | 112 MB, **built 18:11** — one hour BEFORE the marker changed |
+| does that bundle know v2? | **no** — it carries the marker check (6 sites) but not the `version 2 requires instanceUuid` message |
+| does the merged source know v2? | **yes** — `packages/runtime/src/instance.ts:429` |
+
+So something running the **newly merged source** upgraded the operator's instance
+marker to v2, and the **installed CLI predates the merge** and refuses it. The
+code comment at that very site predicts this: *"An UNKNOWN version is a marker
+written by a NEWER Podium. Refusing is the only safe reading."* **The refusal is
+correct behaviour; the sequencing is what broke.** This is a direct consequence
+of `445a52315` — the same merge that expired the matrix in Decision 39.
+
+**I have NOT fixed it, deliberately.** The two available fixes are (a) rebuild and
+reinstall the operator's `podium-cli` from the merged source, or (b) hand-edit
+`instance.json` back to v1. **(b) is unsafe** — that file is, in the source's own
+words, *"the address of every process we own"*, and a v2-aware daemon may already
+be running against it; dropping the newer field on the next write is exactly what
+the guard exists to prevent. **(a) is a reinstall of the operator's own tool.**
+Neither is mine to do unasked.
+
+**Blast radius while it stands: total loss of coordination.** No `issue state`,
+no mail, no `issue start`, no artifact attach. Git still works, which is why this
+is written here rather than into the issue panel — **the issue panel cannot be
+updated, so the panel the operator reads is stale and will stay stale.**
+
+**Recommended order when someone picks this up:** reinstall the CLI from the
+merged source first, confirm `podium issue show 1761` answers, and only then look
+at the marker. If the reinstall makes it work, nothing was wrong with the marker
+at all.
