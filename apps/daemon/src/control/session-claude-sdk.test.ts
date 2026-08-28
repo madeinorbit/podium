@@ -2,6 +2,7 @@ import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { configureFieldsForDriver } from '@podium/agent-runtime'
 import { emitClaudeBinding } from '../runtime/claude-sdk-driver'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './session'
@@ -164,6 +165,12 @@ describe('Claude SDK reattach control', () => {
       geometry: { cols: 80, rows: 24 },
       runtimeContract: true,
       driverId: 'claude-sdk',
+      // POD-3087: what this driver can change on a running session, read off its
+      // own capabilities. Spelled out rather than matched loosely because this
+      // assertion is deliberately EXACT — it is the one place the whole bind
+      // frame's shape is pinned, so a field silently appearing or vanishing on a
+      // reattach bind has to be noticed here.
+      configureFields: [...configureFieldsForDriver('claude-sdk')],
     })
     expect(w.sent).toContainEqual({
       type: 'agentState',

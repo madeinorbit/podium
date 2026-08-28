@@ -376,6 +376,23 @@ export class Session {
   /** Manifest-default or machine-wide server preference that degraded to
    * driverId. Transient and re-established by daemon bind/reattach. */
   requestedDriverId: string | undefined = undefined
+  /**
+   * WHAT THIS SESSION'S LIVE DRIVER CAN CHANGE ON A RUNNING SESSION (POD-3087),
+   * as its `configure.fields` declare — reported by the daemon on bind.
+   *
+   * TRANSIENT, EXACTLY LIKE `driverId`, and for the same reason stated a
+   * different way: this describes a LIVE HANDLE, and a value that outlived the
+   * process that made it would offer a model control for a driver that is gone.
+   * Re-established by every bind.
+   *
+   * UNDEFINED vs EMPTY is the distinction consumers must keep. Undefined = we
+   * have not been told (an older daemon, or a row that has not bound yet), so a
+   * client falls back to its previous behaviour. Empty = the daemon DID tell us
+   * and the answer is "nothing" — a TUI, whose model is an argv fact. Only the
+   * second licenses hiding a control; treating undefined as "cannot" would hide
+   * it on every session during a rolling upgrade.
+   */
+  configureFields: readonly string[] | undefined = undefined
   /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
    *  agent offers the user as next steps. Lives in its own `offers` table (not
    *  toRow()); the registry seeds it at load and on set/clear. undefined = none.
@@ -562,6 +579,9 @@ export class Session {
     // exited row as a driver family that never ran.
     this.selectedDriverId = undefined
     this.driverId = undefined
+    // …and the capability that came with the handle. Same reason: an exited row
+    // must not describe what a driver that never ran could have changed.
+    this.configureFields = undefined
     this.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
     this.agentState = undefined
     // Terminal transition — same stop metadata as onExit [spec:SP-6144].
@@ -975,6 +995,10 @@ export class Session {
       ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
       ...(this.requestedModel ? { requestedModel: this.requestedModel } : {}),
       ...(this.requestedEffort ? { requestedEffort: this.requestedEffort } : {}),
+      // POD-3087. Published even when EMPTY, because empty is an answer — "this
+      // driver changes nothing" — and a client that could not tell it from
+      // "nobody told me" would hide the control on both.
+      ...(this.configureFields ? { configureFields: [...this.configureFields] } : {}),
       ...(this.contextUsagePercent !== undefined
         ? { contextUsagePercent: this.contextUsagePercent }
         : {}),

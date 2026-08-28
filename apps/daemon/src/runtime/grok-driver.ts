@@ -1,5 +1,6 @@
 /** Daemon frame adapter for Grok's ACP RuntimeDriver. */
 import {
+  configureFieldsForDriver,
   type AgentSessionHandle,
   createGrokAcpRuntime,
   GROK_ACP_DRIVER_ID,
@@ -184,6 +185,10 @@ export function createDaemonGrokRuntime(deps: {
         geometry: { cols: 120, rows: 40 },
         runtimeContract: true,
         driverId: handle.binding.driver,
+        // POD-3087: what this driver's configure() can change. Grok's answer is
+        // `permissionMode` alone — it never sends a model — and reporting that
+        // precisely is the case this field exists for.
+        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
       })
       deps.send({
         type: 'agentState',

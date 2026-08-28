@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { modelToken } from './AgentPanel'
+import { canConfigureModel, modelToken } from './AgentPanel'
 
 // The header's model token [POD-121]: observed model beats the spawn selection,
 // a spawn-time `auto` shows literally until observed [POD-158], effort renders
@@ -94,5 +94,42 @@ describe('the runtime-requested model', () => {
     // session that has never been reconfigured is a regression.
     expect(modelToken({ observedModel: 'claude-fable-5', model: 'opus' })).toBe('fable 5')
     expect(modelToken({ model: 'auto' })).toBe('auto')
+  })
+})
+
+/**
+ * WHETHER THE MODEL CONTROL MAY BE OFFERED (POD-3087).
+ *
+ * The three-valued answer is the point. A boolean would have to fold "we have
+ * not been told" into one of the two real answers, and folding it into `false`
+ * hides the control on every session in a fleet whose daemons are mid-upgrade —
+ * silently, because a hidden control raises no error anywhere.
+ */
+describe('canConfigureModel', () => {
+  it('says YES when the driver reported that it can change the model', () => {
+    expect(canConfigureModel({ configureFields: ['model', 'effort'] })).toBe('yes')
+  })
+
+  it('says NO for a driver that reported an empty set', () => {
+    // A TUI: the daemon DID answer, and the answer is that it changes nothing.
+    // This is the only shape that licenses hiding the control.
+    expect(canConfigureModel({ configureFields: [] })).toBe('no')
+  })
+
+  it('says NO for grok, which reports a field but not THAT field', () => {
+    /**
+     * The case this whole wire path exists for. grok-acp is driverFamily
+     * 'server' like opencode, and declares configure for permissionMode alone —
+     * it sends no model on session/new or session/prompt. A picker gated on the
+     * family is offered here and can only ever refuse.
+     */
+    expect(canConfigureModel({ configureFields: ['permissionMode'] })).toBe('no')
+  })
+
+  it('says UNKNOWN when nothing was reported, and does NOT say no', () => {
+    // The rolling-upgrade rule. `toBe('no')` here would pass a naive
+    // implementation and hide the control across the fleet.
+    expect(canConfigureModel({})).toBe('unknown')
+    expect(canConfigureModel({ configureFields: undefined })).toBe('unknown')
   })
 })

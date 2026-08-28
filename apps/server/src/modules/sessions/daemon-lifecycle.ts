@@ -351,6 +351,12 @@ export class SessionDaemonLifecycle {
           // The resolved driver comes from the daemon's live handle binding, not
           // from the requested override. Older daemons and legacy sessions omit it.
           s.driverId = msg.driverId
+          // …and what that driver can change on a running session (POD-3087).
+          // Assigned unguarded, like `driverId` itself: a bind describes the
+          // handle that exists NOW, so an older daemon's silence must clear a
+          // previous daemon's answer rather than leave a stale capability
+          // standing for a driver this one may not even have bound.
+          s.configureFields = msg.configureFields
           /**
            * …and the DURABLE record follows the binding, not the plan (POD-2290
            * round 2). Normally they agree. Where they can differ — a launch that

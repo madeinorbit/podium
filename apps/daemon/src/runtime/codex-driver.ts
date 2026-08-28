@@ -32,6 +32,7 @@
 
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import {
+  configureFieldsForDriver,
   CODEX_APP_SERVER_DRIVER_ID,
   type CodexJournal,
   type CodexRuntime,
@@ -321,6 +322,9 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
          */
         runtimeContract: true,
         driverId: handle.binding.driver,
+        // POD-3087: what this driver's configure() can change, read off its own
+        // declaration so no consumer has to keep a second copy of it.
+        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
       })
       // …and the first state, so the badge is right before the first event
       // rather than after it.

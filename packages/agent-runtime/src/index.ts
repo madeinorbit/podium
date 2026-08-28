@@ -66,6 +66,7 @@ export * from './attach.js'
 export * from './binding.js'
 export * from './capabilities.js'
 export * from './configure.js'
+export * from './configure-catalog.js'
 export * from './driver.js'
 /** The codex app-server driver, WHOLE (POD-1761 W6). Same split as the opencode
  *  driver: everything here is JSON-RPC and bookkeeping, and the one thing a

@@ -515,6 +515,29 @@ export const SessionMetaEntity = z.object({
    * that has one, so this side fails open instead.
    */
   driverFamily: z.enum(['server', 'embedded', 'terminal']).optional(),
+  /**
+   * WHAT THIS SESSION'S LIVE DRIVER CAN CHANGE WHILE IT RUNS (POD-3087) — the
+   * `configure.fields` its capabilities declare, reported by the daemon on bind.
+   *
+   * It exists because `driverFamily` above CANNOT answer this, and the gap is
+   * not academic: `grok-acp` is family `server` and declares `configure` for
+   * `permissionMode` alone — it sends no model on `session/new` or
+   * `session/prompt` — so a model picker gated on the family is offered on a
+   * session that can only refuse it.
+   *
+   * TRANSIENT, exactly like `driverId` and `driverFamily`, which it travels
+   * with: it describes a live handle, and one that outlived its process would
+   * offer a control for a driver that is gone.
+   *
+   * ABSENT vs EMPTY, and every consumer must branch on the difference. **Absent
+   * means UNKNOWN** — an older daemon, or a row that has not bound yet — and a
+   * client must keep its previous behaviour rather than read it as "cannot".
+   * **Empty means NOTHING** — the daemon answered, and this driver changes no
+   * setting on a running session. Only the second licenses hiding a control;
+   * reading absent as empty hides it on every session during a rolling upgrade,
+   * which is the failure this comment exists to prevent.
+   */
+  configureFields: z.array(z.string().min(1)).optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
    *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like
    *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the

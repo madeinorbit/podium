@@ -119,6 +119,32 @@ const EFFORT_SHORT: Record<string, string> = {
  * "claude-haiku-4-5-20251001" → "haiku 4.5" (date suffix dropped, consecutive
  * numeric parts join as a dotted version).
  */
+/**
+ * MAY A CLIENT OFFER A MODEL / EFFORT CONTROL ON THIS RUNNING SESSION?
+ * (POD-3087.)
+ *
+ * The one fact that answers it is `configureFields`, reported by the daemon on
+ * bind out of the live driver's own `configure.fields`. Nothing else on
+ * `SessionMeta` can: `driverFamily` is the nearest, and it is wrong here —
+ * `grok-acp` is family `server` and declares `configure` for `permissionMode`
+ * alone, so a family-gated picker appears on a session that can only refuse it.
+ *
+ * ABSENT IS NOT "NO", and this function exists as much for that rule as for the
+ * lookup. Undefined means we have not been told — an older daemon mid-upgrade,
+ * or a session that has not bound yet — and reading it as "cannot" would hide
+ * the control on every session in the fleet during a rolling upgrade, silently.
+ * So absent answers `unknown`, and the caller decides; only an EMPTY array,
+ * which is a daemon that answered "nothing", is a real no.
+ */
+export type ConfigurableVerdict = 'yes' | 'no' | 'unknown'
+
+export function canConfigureModel(session: {
+  configureFields?: readonly string[]
+}): ConfigurableVerdict {
+  if (session.configureFields === undefined) return 'unknown'
+  return session.configureFields.includes('model') ? 'yes' : 'no'
+}
+
 export function modelToken(session: {
   observedModel?: string
   observedEffort?: string
@@ -880,7 +906,13 @@ export function AgentPanel({
                 className="model-token hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
                 data-provenance={session.observedModel ? 'observed' : 'requested'}
                 title={
-                  session.observedModel
+                  // POD-3087: whether the model can be changed HERE is now a
+                  // reported fact rather than a guess, so the readout can say so.
+                  // Appended to whichever provenance sentence applies, because
+                  // "what is running" and "can I change it" are two different
+                  // questions and collapsing them is how a readout starts
+                  // implying it is a control.
+                  (session.observedModel
                     ? `Observed — the model this agent is actually running, read from its transcript. The harness owns this; Podium reports it.${session.effort ? ' Effort is the spawn request.' : ''}`
                     : session.requestedModel
                       ? // POD-3081: a RUNTIME change, not a spawn one, and the
@@ -889,7 +921,16 @@ export function AgentPanel({
                         // on the next message, so "not yet seen" here means
                         // "not yet asked", not "the harness ignored you".
                         'Requested — you changed this on the running session. It applies from its next message, and this becomes Observed once a turn answers on it.'
-                      : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.'
+                      : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.') +
+                  (canConfigureModel(session) === 'yes'
+                    ? ' This session can be moved to another model while it runs.'
+                    : canConfigureModel(session) === 'no'
+                      ? ' This harness takes its model at launch; changing it is a relaunch.'
+                      : // UNKNOWN says nothing at all. A sentence claiming either
+                        // answer for a session whose daemon has not reported would
+                        // be an invention, and silence is the honest shape of "we
+                        // have not been told".
+                        '')
                 }
               >
                 {/* Brand mark for harnesses that have one — a table lookup, so a new

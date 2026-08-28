@@ -634,6 +634,34 @@ export const BindMessage = z.object({
   /** Manifest-default or machine-wide server preference that degraded to
    * `driverId`. Per-spawn server preferences refuse instead. */
   requestedDriverId: z.string().min(1).optional(),
+  /**
+   * WHAT THIS SESSION'S DRIVER CAN CHANGE ON A RUNNING SESSION (POD-3087) —
+   * the `configure.fields` its capabilities declare, carried so a CLIENT can
+   * decide whether to offer a model or effort control.
+   *
+   * IT CANNOT BE DERIVED FROM `driverId` ON THE FAR SIDE, and that is the whole
+   * reason it is on the wire. The server and the web client would each need
+   * their own copy of every driver's capability declaration to answer it, which
+   * is the drift pair this axis has already been burned by once. The daemon has
+   * the live driver; it answers, and nobody downstream guesses.
+   *
+   * NOR FROM `driverFamily`, the nearest fact already published, which is too
+   * coarse in a way that matters: `grok-acp` is family `server` and declares
+   * `configure` for `permissionMode` ALONE — it sends no model on `session/new`
+   * or `session/prompt`, so a model change has nothing to change there. Gating a
+   * picker on the family offers it on a session that can only refuse.
+   *
+   * APPENDED AT THE END, like every additive field before it: the golden wire
+   * corpus samples this frame, and a member added last leaves the existing
+   * samples byte-identical.
+   *
+   * ABSENT vs EMPTY, and the difference is real. Absent = an older daemon that
+   * does not report this, and a client must fall back to its previous behaviour
+   * rather than concluding "cannot". EMPTY = a daemon that DID report, and the
+   * answer is that this driver changes nothing — a TUI, whose model is an argv
+   * fact. Only the second licenses hiding the control.
+   */
+  configureFields: z.array(z.string().min(1)).optional(),
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),
