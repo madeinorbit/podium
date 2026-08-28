@@ -942,6 +942,7 @@ export class SessionRegistry {
       applied?: (messageId: string, sessionId: SessionId) => void
       injected?: (messageId: string, sessionId: SessionId) => void
       interrupted?: (messageId: string) => void
+      interruptedPending?: (sessionId: SessionId) => void
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
@@ -964,6 +965,7 @@ export class SessionRegistry {
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
       interruptQueuedMessage: (messageId) => queuedApplyHooks.interrupted?.(messageId),
+      interruptPendingMessage: (sessionId) => queuedApplyHooks.interruptedPending?.(sessionId),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
@@ -1429,6 +1431,14 @@ export class SessionRegistry {
         messagesSvc.cancel(messageId)
       } catch {
         // A concurrent echo or explicit retraction already made the row final.
+      }
+    }
+    queuedApplyHooks.interruptedPending = (sessionId) => {
+      try {
+        messagesSvc.cancelPendingOperatorMessage(sessionId)
+      } catch {
+        // A concurrent boundary delivery or explicit retraction already made
+        // the row final.
       }
     }
     this.bus.on('message.deadLettered', ({ messageId, reason }) =>

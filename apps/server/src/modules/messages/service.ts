@@ -1708,6 +1708,17 @@ export class MessageDeliveryService {
     return this.mailbox.cancel(messageId)
   }
 
+  /** Retract the next chat send owned by the durable ledger rather than the PTY
+   * inbox. It is the same FIFO head SessionInbox would otherwise receive. */
+  cancelPendingOperatorMessage(sessionId: SessionId): MessageRow | null {
+    const pending = this.deps.messages
+      .pendingForPage({ kind: 'session', id: sessionId }, { limit: 500 })
+      .filter((message) => message.fromKind === 'operator')
+    const message = pending[0]
+    if (!message) return null
+    return this.cancel(message.id)
+  }
+
   // ---- clamp matrix / relationships ----
 
   private relationship(
