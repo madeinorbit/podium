@@ -50,13 +50,30 @@ the daemon, no `PODIUM_STATE_DIR` / `PODIUM_AGENT_HOME` / `ABDUCO_SOCKET_DIR` /
 | TOS on daemon | True | True |
 | isolated credential present | False | False |
 
-The live credential's mtime is `2026-08-28T14:15:35.225Z` in BOTH pins —
-identical across the two arms, so the drive did not touch it. It differs from
-the earlier superseded run's `2026-08-28T06:20:34.463Z` because the operator's
-own Claude session refreshed its token at 14:15:35Z, two minutes BEFORE this
-rig started at 14:17:12Z — outside both arms' lifetimes. Nothing here copies,
-prints, refreshes or rotates a credential; the SDK reads the account home the
-daemon already had.
+### The live credential's mtime, which moved between runs
+
+It reads `2026-08-28T14:15:35.225Z`, size 962, where the superseded `d8f0bd899`
+run recorded `06:20:34.463Z`, size 962. A moved mtime on a credential file is
+exactly the thing a reader should not have to take on trust, so here is the
+whole timeline rather than an assurance.
+
+- The FIRST arm's pin was taken at **14:17:18.540Z**, and it already read
+  `14:15:35.225Z`. The mtime was therefore in its final state BEFORE either
+  arm's session existed — no arm can have caused it.
+- Both pins read the SAME mtime and the same size, 51 seconds apart with a real
+  SDK turn and a tool call in between. Neither arm moved it.
+- It still reads `14:15:35.225Z`, size 962, right now, after both arms and after
+  teardown. The drive left it exactly as it found it.
+- No p3050 process was alive at 14:15:35Z: the previous rig was torn down at
+  14:04:06Z (`drive-down.sh`) and this one started at 14:17:12Z
+  (`drive-up.sh`). The change falls in a 13-minute gap with no rig at all.
+
+What moved it is the machine's ordinary Claude login refreshing its own token in
+place — the size is unchanged and only the mtime advanced. This rig never reads,
+copies, prints, refreshes or rotates that file; it stats it, and the SDK reads
+the account home the daemon already had. The isolated agent home is asserted
+credential-FREE before every arm, and the cell refuses outright if a credential
+file has appeared there.
 
 ## What this drive does NOT show, and why
 
