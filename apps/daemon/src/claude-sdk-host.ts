@@ -141,7 +141,8 @@ export interface ClaudeSdkHostIo {
  */
 export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
   let spec: HeadlessTurnSpec | undefined
-  let interrupt: (() => void) | undefined
+  /** Resolves when the SDK has answered — see `answerInterrupt` below. */
+  let interrupt: (() => Promise<void>) | undefined
   type CanUseTool = NonNullable<Options['canUseTool']>
   type PermissionResult = Awaited<ReturnType<CanUseTool>>
   type PermissionSuggestions = Parameters<CanUseTool>[2]['suggestions']
@@ -164,6 +165,26 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
     }
   }
   let pendingInterrupt = false
+  /**
+   * Interrupt requests that arrived before the SDK query existed. They are held
+   * rather than dropped BECAUSE THE RACE IS REAL AND ONE-SIDED: `startTurn` is
+   * async, so an operator who interrupts in the first few milliseconds of a turn
+   * used to have their request stored as a bare boolean and answered to nobody.
+   * The id rides along so the answer, whenever it comes, names the request it
+   * belongs to.
+   */
+  const deferredInterrupts: (string | undefined)[] = []
+  /**
+   * Acknowledgements still being produced.
+   *
+   * Awaited before this function returns, because the turn settling and the
+   * interrupt being answered are two different events and the first routinely
+   * wins: an accepted interrupt ENDS the turn, so the `done` frame and the host
+   * shutting down are both racing the acknowledgement of the very request that
+   * caused them. Dropping the ack there would restore the original silence for
+   * exactly the case that matters most — the interrupt that worked.
+   */
+  const acksInFlight = new Set<Promise<void>>()
   let finish: () => void = () => {}
   // Resolves when the turn settles — NOT when stdin closes. The daemon keeps the
   // command pipe open for the whole turn so it can interrupt, so waiting on the
@@ -188,8 +209,24 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
         spec = cmd.spec
         startTurn()
       } else if (cmd.t === 'interrupt') {
-        if (interrupt) interrupt()
-        else pendingInterrupt = true
+        if (interrupt) answerInterrupt(interrupt, cmd.requestId)
+        else if (spec) {
+          // A turn is starting but its query does not exist yet. Answer when it
+          // does; answering "no" here would be a guess, and answering nothing at
+          // all is the defect this frame was added to fix.
+          pendingInterrupt = true
+          deferredInterrupts.push(cmd.requestId)
+        } else {
+          // No turn was ever sent. This is the one case the host can answer on
+          // its own authority, and it is a REFUSAL WITH A REASON rather than
+          // silence, so the daemon can say why instead of implying it worked.
+          io.send({
+            t: 'interrupt-ack',
+            ...(cmd.requestId ? { requestId: cmd.requestId } : {}),
+            accepted: false,
+            detail: 'no turn was in flight to interrupt',
+          })
+        }
       } else if (cmd.t === 'answer') {
         const pending = pendingPermissions.get(cmd.interactionId)
         if (!pending) continue
@@ -224,7 +261,10 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
       finish()
       return
     }
-    if (interrupt) interrupt()
+    // Deliberately unacknowledged: this is teardown on the daemon's own death,
+    // not an operator request, and there is nobody left on the pipe to read an
+    // acknowledgement anyway.
+    if (interrupt) void interrupt().catch(() => {})
     denyPendingPermissions()
     // Give the SDK a moment to end the turn cleanly, then go regardless: a host
     // that refuses to die on its parent's death is the orphan we are avoiding.
@@ -232,6 +272,39 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
     grace.unref?.()
   })()
   commandLoop.catch(() => finish())
+
+  /**
+   * Ask the SDK to interrupt, and REPORT WHAT IT SAID.
+   *
+   * The single line this replaces was `void q.interrupt().catch(() => {})`. That
+   * swallow is the whole defect: an SDK that threw — no turn to interrupt, a
+   * transport already closed, a version without interrupt support — produced
+   * exactly the same observable behaviour as one that stopped the turn, and the
+   * operator was shown a stop that had not happened.
+   */
+  function answerInterrupt(ask: () => Promise<void>, requestId: string | undefined): void {
+    const settling = answerInterruptNow(ask, requestId)
+    acksInFlight.add(settling)
+    void settling.finally(() => acksInFlight.delete(settling))
+  }
+
+  async function answerInterruptNow(
+    ask: () => Promise<void>,
+    requestId: string | undefined,
+  ): Promise<void> {
+    const id = requestId ? { requestId } : {}
+    try {
+      await ask()
+      io.send({ t: 'interrupt-ack', ...id, accepted: true })
+    } catch (err) {
+      io.send({
+        t: 'interrupt-ack',
+        ...id,
+        accepted: false,
+        detail: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
 
   function startTurn(): void {
     void (async () => {
@@ -270,10 +343,16 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
           turnSpec.structuredPermissions ? canUseTool : undefined,
         ),
       })
-      interrupt = () => {
-        void q.interrupt().catch(() => {})
+      interrupt = () => q.interrupt()
+      if (pendingInterrupt) {
+        pendingInterrupt = false
+        // Answer every request that arrived during the startup gap, each under
+        // its own id. Draining the array (rather than replaying it) is what
+        // keeps one request to one answer.
+        const deferred = deferredInterrupts.splice(0, deferredInterrupts.length)
+        if (deferred.length === 0) deferred.push(undefined)
+        for (const requestId of deferred) answerInterrupt(interrupt, requestId)
       }
-      if (pendingInterrupt) interrupt()
 
       try {
         for await (const msg of q) {
@@ -356,6 +435,8 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
   }
 
   await settled
+  // Never return with an unanswered interrupt request outstanding.
+  while (acksInFlight.size > 0) await Promise.all([...acksInFlight])
 }
 
 async function main(): Promise<void> {

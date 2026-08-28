@@ -11,6 +11,7 @@
 // walking the import graph rather than by trusting this sentence.
 
 import { type ChildProcess, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { createLogger } from '@podium/logger'
 import {
@@ -32,6 +33,37 @@ const log = createLogger('daemon:claude-sdk')
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
 /** How long a politely-interrupted host gets to wind down before it is killed. */
 const INTERRUPT_GRACE_MS = 15_000
+/**
+ * How long the host gets to say what the provider did with an interrupt.
+ *
+ * Deliberately far shorter than the kill grace above: this bounds a REPORT, not
+ * the wind-down. The operator is owed an answer about their stop request while
+ * they are still looking at it, and `unconfirmed` is a truthful answer — waiting
+ * the full grace to say "we do not know" would only make the silence longer.
+ */
+const INTERRUPT_ACK_MS = 5_000
+
+/**
+ * What the provider did with one interrupt request.
+ *
+ * THE THIRD ARM IS THE POINT. `accepted` and `rejected` are the provider's own
+ * verdicts; `unconfirmed` is the honest answer when the host died, was killed
+ * after its grace, or simply never replied. Collapsing it into either of the
+ * other two is how a stop that may not have happened gets reported as one that
+ * did — the failure this type exists to make unrepresentable.
+ */
+export type ClaudeSdkInterruptAck =
+  | { outcome: 'accepted' }
+  | { outcome: 'rejected'; detail: string }
+  | { outcome: 'unconfirmed'; detail: string }
+
+/** The child handle, plus the acknowledged interrupt the generic headless shape
+ *  has no room for. `interrupt()` stays exactly as it was for teardown callers
+ *  that neither want nor wait for an answer. */
+export interface ClaudeSdkChildHandle extends HeadlessTurnHandle {
+  /** Request an interrupt and resolve with what the provider said about it. */
+  requestInterrupt(): Promise<ClaudeSdkInterruptAck>
+}
 
 export interface ClaudeSdkChildOptions {
   /** Injected in tests so the framing can be exercised without a real SDK. */
@@ -58,7 +90,7 @@ export function runClaudeSdkChildTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   opts: ClaudeSdkChildOptions = {},
-): HeadlessTurnHandle {
+): ClaudeSdkChildHandle {
   const child = opts.spawnHost ? opts.spawnHost() : spawnDefaultHost(spec)
 
   /** The last session id the host reported. Kept OUTSIDE the frame loop because
@@ -91,6 +123,25 @@ export function runClaudeSdkChildTurn(
       // A dead child's stdin is not an error path of its own — the exit handler
       // below is what reports the death, once, with the real reason.
     }
+  }
+
+  /**
+   * Interrupt requests waiting on the host's verdict, by id.
+   *
+   * Each entry resolves EXACTLY ONCE, from whichever comes first: the host's
+   * `interrupt-ack`, the child dying, or the ack deadline. `settleAck` is the
+   * only way in, so a host that answers twice — or answers a request the close
+   * handler has already given up on — cannot produce two receipts for one stop.
+   */
+  const pendingAcks = new Map<string, (ack: ClaudeSdkInterruptAck) => void>()
+  const settleAck = (requestId: string, ack: ClaudeSdkInterruptAck): void => {
+    const resolve = pendingAcks.get(requestId)
+    if (!resolve) return
+    pendingAcks.delete(requestId)
+    resolve(ack)
+  }
+  const settleAllAcks = (ack: ClaudeSdkInterruptAck): void => {
+    for (const requestId of [...pendingAcks.keys()]) settleAck(requestId, ack)
   }
 
   let killTimer: ReturnType<typeof setTimeout> | undefined
@@ -131,6 +182,14 @@ export function runClaudeSdkChildTurn(
       case 'event':
         emit(frame.event)
         break
+      case 'interrupt-ack':
+        settleAck(
+          frame.requestId ?? '',
+          frame.accepted
+            ? { outcome: 'accepted' }
+            : { outcome: 'rejected', detail: frame.detail || 'the provider refused the interrupt' },
+        )
+        break
       case 'permission':
         opts.onPermission?.({
           id: frame.interactionId,
@@ -166,6 +225,13 @@ export function runClaudeSdkChildTurn(
     clearTimeout(timer)
     if (killTimer) clearTimeout(killTimer)
     frames.close()
+    // The host is gone, so every interrupt still waiting on it is now waiting on
+    // nothing. Say what is true — the request went out and was never answered —
+    // rather than leaving the caller to time out into the same conclusion.
+    settleAllAcks({
+      outcome: 'unconfirmed',
+      detail: 'the Claude model host exited before it confirmed the interrupt',
+    })
     if (settled) return
     // THE CASE THIS WHOLE SPLIT EXISTS FOR. The host is gone and never answered:
     // OOM-killed, crashed inside the SDK, or killed by us after a timeout. Say so
@@ -190,6 +256,22 @@ export function runClaudeSdkChildTurn(
     interrupt: () => {
       send({ t: 'interrupt' })
       killAfterGrace()
+    },
+    requestInterrupt: () => {
+      const requestId = randomUUID()
+      const answered = new Promise<ClaudeSdkInterruptAck>((res) => {
+        pendingAcks.set(requestId, res)
+      })
+      const deadline = setTimeout(() => {
+        settleAck(requestId, {
+          outcome: 'unconfirmed',
+          detail: 'the Claude model host did not confirm the interrupt in time',
+        })
+      }, INTERRUPT_ACK_MS)
+      deadline.unref?.()
+      send({ t: 'interrupt', requestId })
+      killAfterGrace()
+      return answered.finally(() => clearTimeout(deadline))
     },
     answerPermission: (interactionId, answer) => {
       send({

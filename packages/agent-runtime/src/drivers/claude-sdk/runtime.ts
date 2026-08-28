@@ -55,9 +55,31 @@ export interface ClaudeSdkTurnResult {
   itemId?: string
 }
 
+/**
+ * What the provider did with one interrupt request.
+ *
+ * `unconfirmed` is not a failure to model the world; it IS the world. A host
+ * killed while winding down never reports back, and the driver's capability
+ * claim is `fenceOnProviderConfirmation` — so a verdict we did not receive must
+ * stay distinguishable from one we did, or the fence is manufactured.
+ */
+export type ClaudeSdkInterruptAck =
+  | { outcome: 'accepted' }
+  | { outcome: 'rejected'; detail: string }
+  | { outcome: 'unconfirmed'; detail: string }
+
 export interface ClaudeSdkTurnHandle {
   done: Promise<ClaudeSdkTurnResult>
+  /** Teardown's interrupt: fire and forget, deliberately unacknowledged. */
   interrupt(): void | Promise<void>
+  /**
+   * The OPERATOR's interrupt, which owes an answer.
+   *
+   * Optional because not every host can offer one. A host without it is treated
+   * as `unconfirmed` rather than as success — the absence of a confirmation
+   * channel is exactly the situation where a confirmation must not be assumed.
+   */
+  requestInterrupt?(): Promise<ClaudeSdkInterruptAck>
   answerPermission(
     interactionId: string,
     answer: { decision: 'allow-once' | 'allow-always' | 'deny'; feedback?: string },
@@ -121,6 +143,16 @@ interface SessionCore {
   watchers: Map<WatchLevel, number>
   active?: ClaudeSdkTurnHandle
   interruptRequested: boolean
+  /** What the provider said about the interrupt that closed this turn, kept so
+   *  the durable record can distinguish a confirmed stop from an assumed one. */
+  interruptConfirmation?: 'accepted' | 'unconfirmed'
+  /** Interrupt requests outstanding for the open turn. A second press while the
+   *  first is in flight must not mint a second record for one stop. */
+  interruptsInFlight: number
+  /** The last turn epoch that has already been told, durably, that there was
+   *  nothing to interrupt. Bounds the idle-interrupt receipt to one per epoch so
+   *  a repeatedly-pressed button cannot bury the transcript. */
+  idleInterruptNotedEpoch: number
   partialText: string
   partialItemId: string
   handleGeneration: number
@@ -202,6 +234,39 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
     push(core, { t: 'item', item: { kind: 'complete', item } })
   }
 
+  /** A system transcript item is the operator's copy of the record. The runtime
+   *  event stream is the machine's; both are pushed, and neither substitutes for
+   *  the other — the daemon forwards `complete` items to the durable transcript,
+   *  which is where a human looking at a stopped turn actually goes. */
+  function publishSystemNote(core: SessionCore, id: string, text: string): void {
+    publishItem(core, { id, role: 'system', text, ts: host.now() })
+  }
+
+  /**
+   * THE DURABLE RECORD OF A STOPPED TURN, and the defect this issue is about.
+   *
+   * A turn that ended because the operator interrupted it used to close with a
+   * verdict and nothing else: no transcript item, no explanation, nothing a
+   * human reading the conversation back could see. The turn simply stopped
+   * mid-sentence, which is indistinguishable from the model losing its nerve.
+   *
+   * Exactly-once is inherited from the caller rather than re-implemented here:
+   * `closeTurn` fences its epoch before doing anything, and returns early on an
+   * epoch already in `core.fenced`, so every path into this function runs at
+   * most once per turn. The item id carries the epoch too, so even a replayed
+   * log cannot present two records as two separate stops.
+   */
+  function publishInterruptRecord(core: SessionCore, epoch: number): void {
+    const confirmed = core.interruptConfirmation === 'accepted'
+    publishSystemNote(
+      core,
+      `claude-sdk-interrupt-${core.sessionId}-${epoch}`,
+      confirmed
+        ? 'Turn interrupted by the operator.'
+        : 'Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended.',
+    )
+  }
+
   function closeTurn(core: SessionCore, result: 'done' | 'interrupted' | Error): void {
     const epoch = core.turnEpoch
     if (!core.turnOpen || core.fenced.has(epoch)) return
@@ -238,7 +303,9 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       // non-process event once the epoch is closed, so the error class has to
       // land on state (and the transcript) first.
       foldState(core, change)
-      if (!interrupted) {
+      if (interrupted) {
+        publishInterruptRecord(core, epoch)
+      } else {
         const error = {
           class: failure.errorClass,
           retryable: failure.retryable,
@@ -263,10 +330,70 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       })
     } else {
       foldState(core, { kind: 'turn_completed', verdict: { kind: result } })
+      if (result === 'interrupted') publishInterruptRecord(core, epoch)
       push(core, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: result } })
     }
     core.interruptRequested = false
+    core.interruptConfirmation = undefined
+    core.interruptsInFlight = 0
     void drain(core)
+  }
+
+  /**
+   * Request an interrupt from the provider and record what came back.
+   *
+   * The contract's `interrupt()` resolves `void` and says to watch the stream,
+   * so the stream is where every one of these outcomes has to land. Before this
+   * existed the request was a write with no read at all: the flag was set, the
+   * child was poked, and whether the provider stopped anything was never asked
+   * and never told.
+   *
+   * ONE STOP, ONE RECORD. `interruptsInFlight` covers the operator pressing the
+   * button twice; the epoch fence inside `closeTurn` covers the record itself.
+   * A REJECTION UNSETS THE FLAG, which is what keeps late completion honest: a
+   * turn whose interrupt the provider declined goes on to finish normally, and
+   * must be reported as the completion it is rather than as a stop that never
+   * happened.
+   */
+  async function requestInterrupt(core: SessionCore): Promise<void> {
+    const epoch = core.turnEpoch
+    const active = core.active
+    core.interruptRequested = true
+    core.interruptsInFlight += 1
+    let ack: ClaudeSdkInterruptAck
+    try {
+      if (active?.requestInterrupt) {
+        ack = await active.requestInterrupt()
+      } else {
+        await active?.interrupt()
+        ack = {
+          outcome: 'unconfirmed',
+          detail: 'this Claude SDK host offers no interrupt confirmation channel',
+        }
+      }
+    } catch (error) {
+      ack = {
+        outcome: 'unconfirmed',
+        detail: error instanceof Error ? error.message : String(error),
+      }
+    }
+    core.interruptsInFlight -= 1
+    // The turn moved on while we were asking. Its own close already wrote the
+    // record; adding another here would describe a turn that no longer exists.
+    if (!core.turnOpen || core.turnEpoch !== epoch) return
+    if (ack.outcome === 'rejected') {
+      // Only the LAST outstanding request may clear the flag: an earlier press
+      // that the provider accepted must not be undone by a later one it refused.
+      if (core.interruptsInFlight === 0) core.interruptRequested = false
+      publishSystemNote(
+        core,
+        `claude-sdk-interrupt-refused-${core.sessionId}-${epoch}`,
+        `Interrupt refused by the model provider: ${ack.detail} The turn is still running.`,
+      )
+      return
+    }
+    core.interruptConfirmation =
+      ack.outcome === 'accepted' ? 'accepted' : (core.interruptConfirmation ?? 'unconfirmed')
   }
 
   function openPermission(core: SessionCore, request: ClaudeSdkPermissionRequest): void {
@@ -579,10 +706,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
             : options.delivery
         if (core.turnOpen) {
           core.queue.push({ input, options })
-          if (options.delivery === 'interrupt') {
-            core.interruptRequested = true
-            await core.active?.interrupt()
-          }
+          if (options.delivery === 'interrupt') await requestInterrupt(core)
           return {
             outcome: 'queued',
             position: core.queue.length,
@@ -603,9 +727,22 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       },
       async interrupt() {
         assertCurrent()
-        if (!core.turnOpen) return
-        core.interruptRequested = true
-        await core.active?.interrupt()
+        if (!core.turnOpen) {
+          // AN INTERRUPT WITH NOTHING TO INTERRUPT IS STILL AN ANSWER. Silence
+          // here read to the operator as a stop that had worked, on a session
+          // that had never been running. One receipt per epoch, so holding the
+          // button down cannot bury the transcript under its own refusals.
+          if (core.alive && core.idleInterruptNotedEpoch !== core.turnEpoch) {
+            core.idleInterruptNotedEpoch = core.turnEpoch
+            publishSystemNote(
+              core,
+              `claude-sdk-interrupt-idle-${core.sessionId}-${core.turnEpoch}`,
+              'Interrupt refused: no turn was in flight.',
+            )
+          }
+          return
+        }
+        await requestInterrupt(core)
       },
       async answer(interactionId, answer, options): Promise<InteractionAnswerOutcome> {
         assertCurrent()
@@ -787,6 +924,8 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       oomEvents: 0,
       watchers: new Map(),
       interruptRequested: false,
+      interruptsInFlight: 0,
+      idleInterruptNotedEpoch: -1,
       partialText: '',
       partialItemId: '',
       handleGeneration: 0,

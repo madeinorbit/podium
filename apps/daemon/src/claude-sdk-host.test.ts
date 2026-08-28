@@ -10,6 +10,9 @@ import type { ClaudeSdkHostFrame } from './claude-sdk-protocol.js'
 
 const sdk = vi.hoisted(() => ({
   interruptCalled: false,
+  /** Set to make `query.interrupt()` reject — the case whose answer used to be
+   *  discarded, and which is therefore the case worth being able to stage. */
+  interruptError: null as string | null,
   endStream: undefined as (() => void) | undefined,
   scripted: null as unknown[] | null,
 }))
@@ -24,15 +27,21 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
         },
         interrupt: async () => {
           sdk.interruptCalled = true
+          if (sdk.interruptError) throw new Error(sdk.interruptError)
         },
       }
     }
     let done = false
     const waiters: (() => void)[] = []
-    sdk.endStream = () => {
+    // Closes THIS query's stream, not whichever query happened to be created
+    // last. It used to be read back off the shared `sdk.endStream` slot, so a
+    // late interrupt from a finished test ended the NEXT test's turn instead —
+    // a turn that stopped before its own interrupt command ever arrived.
+    const endStream = () => {
       done = true
       for (const w of waiters.splice(0)) w()
     }
+    sdk.endStream = endStream
     return {
       async *[Symbol.asyncIterator]() {
         yield { type: 'system', subtype: 'init', session_id: 'sess-stub' }
@@ -40,7 +49,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
       },
       interrupt: async () => {
         sdk.interruptCalled = true
-        sdk.endStream?.()
+        if (sdk.interruptError) throw new Error(sdk.interruptError)
+        endStream()
       },
     }
   },
@@ -50,6 +60,7 @@ const { runClaudeSdkHost } = await import('./claude-sdk-host.js')
 
 afterEach(() => {
   sdk.interruptCalled = false
+  sdk.interruptError = null
   sdk.endStream = undefined
   sdk.scripted = null
 })
@@ -107,6 +118,74 @@ describe('the SDK host when its daemon disappears', () => {
       send: (f) => frames.push(f),
     })
     expect(sdk.interruptCalled).toBe(true)
+  }, 10_000)
+})
+
+// THE SILENCE THIS ISSUE WAS FILED ABOUT. `q.interrupt()` was called as
+// `void q.interrupt().catch(() => {})` — the SDK's answer, including its
+// refusals, went into a swallow. Nothing downstream could tell a turn that had
+// been stopped from one that had declined to stop, so the daemon reported both
+// as success and the operator was shown a stop that had not happened.
+describe('the SDK host answers the interrupt it was asked for', () => {
+  const ackOf = (frames: ClaudeSdkHostFrame[]) =>
+    frames.filter(
+      (f): f is Extract<ClaudeSdkHostFrame, { t: 'interrupt-ack' }> => f.t === 'interrupt-ack',
+    )
+
+  it('acknowledges acceptance only once the provider has actually answered', async () => {
+    const frames: ClaudeSdkHostFrame[] = []
+    await runClaudeSdkHost({
+      commands: commandsThenEof([TURN, JSON.stringify({ t: 'interrupt', requestId: 'req-1' })]),
+      send: (f) => frames.push(f),
+    })
+    expect(ackOf(frames)).toEqual([{ t: 'interrupt-ack', requestId: 'req-1', accepted: true }])
+  }, 10_000)
+
+  it("reports a refused interrupt as refused, with the provider's reason", async () => {
+    sdk.interruptError = 'stream is already closed'
+    const frames: ClaudeSdkHostFrame[] = []
+    await runClaudeSdkHost({
+      commands: commandsThenEof([TURN, JSON.stringify({ t: 'interrupt', requestId: 'req-2' })]),
+      send: (f) => frames.push(f),
+    })
+    expect(ackOf(frames)).toEqual([
+      {
+        t: 'interrupt-ack',
+        requestId: 'req-2',
+        accepted: false,
+        detail: 'stream is already closed',
+      },
+    ])
+  }, 10_000)
+
+  it('refuses an interrupt with nothing to interrupt instead of staying silent', async () => {
+    const frames: ClaudeSdkHostFrame[] = []
+    await runClaudeSdkHost({
+      commands: commandsThenEof([JSON.stringify({ t: 'interrupt', requestId: 'req-3' })]),
+      send: (f) => frames.push(f),
+    })
+    expect(ackOf(frames)).toEqual([
+      {
+        t: 'interrupt-ack',
+        requestId: 'req-3',
+        accepted: false,
+        detail: 'no turn was in flight to interrupt',
+      },
+    ])
+    expect(sdk.interruptCalled).toBe(false)
+  }, 10_000)
+
+  it('answers an interrupt that raced the turn it was meant to stop', async () => {
+    // The request arrives in the gap between `turn` and the SDK query existing.
+    // It used to become a bare boolean that was replayed at nobody.
+    const frames: ClaudeSdkHostFrame[] = []
+    async function* raced(): AsyncGenerator<string> {
+      yield TURN
+      yield JSON.stringify({ t: 'interrupt', requestId: 'req-4' })
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    await runClaudeSdkHost({ commands: raced(), send: (f) => frames.push(f) })
+    expect(ackOf(frames)).toEqual([{ t: 'interrupt-ack', requestId: 'req-4', accepted: true }])
   }, 10_000)
 })
 

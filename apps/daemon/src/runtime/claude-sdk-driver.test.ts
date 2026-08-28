@@ -1,11 +1,12 @@
-import type { HeadlessTurnHandle, HeadlessTurnSpec } from '../headless-drivers'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import type { ClaudeSdkChildHandle } from '../claude-sdk-client'
 import { runClaudeSdkChildTurn } from '../claude-sdk-client'
-import type { TerminalRuntimeHost } from './terminal-driver'
+import type { HeadlessTurnSpec } from '../headless-drivers'
 import { createDaemonClaudeSdkRuntime } from './claude-sdk-driver'
 import { createDaemonMachineRuntime } from './machine-runtime'
+import type { TerminalRuntimeHost } from './terminal-driver'
 
 vi.mock('../claude-sdk-client', () => ({
   runClaudeSdkChildTurn: vi.fn(),
@@ -31,10 +32,7 @@ const WITNESS: TranscriptItem[] = [
 
 function host(reads: Array<{ resumeValue: string; limit: number }>): TerminalRuntimeHost {
   return {
-    readTranscript: async (
-      session: { resume?: { value?: string } },
-      range: { limit: number },
-    ) => {
+    readTranscript: async (session: { resume?: { value?: string } }, range: { limit: number }) => {
       reads.push({ resumeValue: session.resume?.value ?? '', limit: range.limit })
       return WITNESS.slice(-range.limit)
     },
@@ -71,9 +69,10 @@ describe('Claude SDK daemon host adapter', () => {
           output: 'the next answer',
         }),
         interrupt: vi.fn(),
+        requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
         answerPermission: vi.fn(),
         dispose: vi.fn(),
-      } satisfies HeadlessTurnHandle
+      } satisfies ClaudeSdkChildHandle
     })
 
     const runtime = createDaemonClaudeSdkRuntime({
@@ -200,9 +199,10 @@ describe('Claude SDK daemon host adapter', () => {
         ({
           done: new Promise(() => {}),
           interrupt: vi.fn(),
+          requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
           dispose: vi.fn(),
-        }) satisfies HeadlessTurnHandle,
+        }) satisfies ClaudeSdkChildHandle,
     )
 
     const runtime = createDaemonClaudeSdkRuntime({
@@ -241,9 +241,10 @@ describe('Claude SDK daemon host adapter', () => {
         ({
           done: Promise.reject(new Error('not logged in — run /login')),
           interrupt: vi.fn(),
+          requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
           dispose: vi.fn(),
-        }) satisfies HeadlessTurnHandle,
+        }) satisfies ClaudeSdkChildHandle,
     )
 
     const runtime = createDaemonClaudeSdkRuntime({
@@ -306,9 +307,10 @@ describe('Claude SDK daemon host adapter', () => {
             new Error('the Claude model host process exited with code 1 before the turn finished'),
           ),
           interrupt: vi.fn(),
+          requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
           dispose: vi.fn(),
-        }) satisfies HeadlessTurnHandle,
+        }) satisfies ClaudeSdkChildHandle,
     )
 
     const runtime = createDaemonClaudeSdkRuntime({

@@ -231,7 +231,15 @@ describe('a Claude turn in a child process', () => {
         process.stdout.write(JSON.stringify({ t: 'session', harnessSessionId: 'sess-cut' }) + '\\n')
         process.stdin.on('data', (d) => {
           buf += d
-          if (!buf.includes('interrupt')) return
+          const lines = buf.split('\\n')
+          buf = lines.pop() ?? ''
+          // PARSE the command rather than searching the bytes for a word. The
+          // turn frame carries the session's cwd, and a checkout whose path
+          // happened to contain "interrupt" made this host answer the turn
+          // command as though it were the interrupt — the turn then "completed"
+          // before its own deadline and this test failed on the directory it was
+          // run from.
+          if (!lines.some((l) => l.trim() && JSON.parse(l).t === 'interrupt')) return
           // Exactly what a gracefully-interrupted SDK stream does.
           process.stdout.write(JSON.stringify({
             t: 'done', harnessSessionId: 'sess-cut', output: 'half an ans',
@@ -337,4 +345,107 @@ describe('a Claude turn in a child process', () => {
     await expect(handle.done).rejects.toThrow('Claude model host process exited')
     expect(child?.signalCode).toBe('SIGKILL')
   })
+})
+
+// THE DAEMON'S HALF OF THE INTERRUPT RECEIPT.
+//
+// `interrupt()` was a write with no read: a line went down the pipe and nothing
+// ever came back, so the daemon could not tell an interrupt the provider had
+// honoured from one it had refused from one that had reached a host already
+// dead. All three surfaced to the operator as the same silent success.
+//
+// These run against real child processes for the same reason the rest of this
+// file does — the interesting cases are a pipe closing and a process dying, and
+// a mock that resolves a promise proves nothing about either.
+describe('the daemon reads back what the host did with an interrupt', () => {
+  /** These cases are about the interrupt receipt, not the turn; the turn is
+   *  ended by afterEach's SIGKILL, and that rejection is expected. */
+  const ignoreTeardown = (handle: { done: Promise<unknown> }): void => {
+    handle.done.catch(() => {})
+  }
+
+  /** Answers one interrupt with `ack`, then stays up. */
+  const hostAnswering = (ack: Record<string, unknown>) => `
+    let buf = ''
+    process.stdout.write(JSON.stringify({ t: 'session', harnessSessionId: 'sess-i' }) + '\\n')
+    process.stdin.on('data', (d) => {
+      buf += d
+      const lines = buf.split('\\n')
+      buf = lines.pop() ?? ''
+      const line = lines.find((l) => l.trim() && JSON.parse(l).t === 'interrupt')
+      if (!line) return
+      const cmd = JSON.parse(line)
+      process.stdout.write(JSON.stringify({ ...${JSON.stringify(ack)}, requestId: cmd.requestId }) + '\\n')
+    })
+    setInterval(() => {}, 1000)
+  `
+
+  it('reports an accepted interrupt as accepted, under the id it asked with', async () => {
+    const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      spawnHost: fakeHost(hostAnswering({ t: 'interrupt-ack', accepted: true })),
+    })
+    ignoreTeardown(handle)
+    await expect(handle.requestInterrupt()).resolves.toEqual({ outcome: 'accepted' })
+  }, 20_000)
+
+  it("reports a refused interrupt as refused, carrying the provider's reason", async () => {
+    const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      spawnHost: fakeHost(
+        hostAnswering({ t: 'interrupt-ack', accepted: false, detail: 'no turn to interrupt' }),
+      ),
+    })
+    ignoreTeardown(handle)
+    await expect(handle.requestInterrupt()).resolves.toEqual({
+      outcome: 'rejected',
+      detail: 'no turn to interrupt',
+    })
+  }, 20_000)
+
+  it('reports an unanswered interrupt as unconfirmed when the host dies', async () => {
+    // NOT `rejected` and NOT `accepted`. The request went out and was never
+    // answered; claiming either verdict here would be inventing one.
+    let child: ChildProcess | undefined
+    const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      spawnHost: () => {
+        child = fakeHost(emitsThenHangs(say({ t: 'session', harnessSessionId: 'sess-d' })))()
+        return child
+      },
+    })
+    ignoreTeardown(handle)
+    const answered = handle.requestInterrupt()
+    child?.kill('SIGKILL')
+    const ack = await answered
+    expect(ack.outcome).toBe('unconfirmed')
+    expect(ack).toMatchObject({ detail: expect.stringContaining('exited') })
+  }, 20_000)
+
+  it('answers each interrupt separately when two are outstanding', async () => {
+    // One press must not consume another's receipt: the ids are what keep two
+    // stops from collapsing into one answer.
+    const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      spawnHost: fakeHost(`
+        let buf = ''
+        process.stdin.on('data', (d) => {
+          buf += d
+          const lines = buf.split('\\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.trim()) continue
+            const cmd = JSON.parse(line)
+            if (cmd.t !== 'interrupt') continue
+            process.stdout.write(JSON.stringify({
+              t: 'interrupt-ack', requestId: cmd.requestId, accepted: true,
+            }) + '\\n')
+          }
+        })
+        setInterval(() => {}, 1000)
+      `),
+    })
+    ignoreTeardown(handle)
+    const [first, second] = await Promise.all([
+      handle.requestInterrupt(),
+      handle.requestInterrupt(),
+    ])
+    expect([first, second]).toEqual([{ outcome: 'accepted' }, { outcome: 'accepted' }])
+  }, 20_000)
 })

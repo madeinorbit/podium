@@ -30,8 +30,15 @@ export const CLAUDE_SDK_HOST_ENTRY = 'apps/daemon/src/claude-sdk-host.ts'
 /** daemon -> host, one JSON object per line on the child's stdin. */
 export type ClaudeSdkHostCommand =
   | { t: 'turn'; spec: HeadlessTurnSpec }
-  /** Ask the SDK to wind the turn down gracefully (timeout, or a user interrupt). */
-  | { t: 'interrupt' }
+  /**
+   * Ask the SDK to wind the turn down gracefully (timeout, or a user interrupt).
+   *
+   * `requestId` is what makes the answer attributable. Without it an interrupt
+   * was a write with no read: the daemon learned nothing about whether the
+   * provider had accepted, refused, or never been asked, and every one of those
+   * reached the operator as the same silent success.
+   */
+  | { t: 'interrupt'; requestId?: string }
   | {
       t: 'answer'
       interactionId: string
@@ -58,6 +65,21 @@ export type ClaudeSdkHostFrame =
       input?: unknown
       suggestions?: readonly unknown[]
     }
+  /**
+   * THE PROVIDER'S ANSWER TO ONE `interrupt` COMMAND, and the reason this
+   * protocol has a reverse direction for interrupts at all.
+   *
+   * `accepted` is the SDK's own verdict, never the host's optimism: it is true
+   * only once `query.interrupt()` has RESOLVED. A rejection carries `detail`
+   * because an interrupt that declined to act is a thing the operator has to be
+   * told — a turn that keeps running after a refused stop looks exactly like a
+   * turn that ignored them.
+   *
+   * Absence of this frame is itself meaningful and is NOT the same as
+   * `accepted: false`: a host killed mid-wind-down never answers, and the daemon
+   * records that as unconfirmed rather than manufacturing either verdict.
+   */
+  | { t: 'interrupt-ack'; requestId?: string; accepted: boolean; detail?: string }
   | { t: 'done'; harnessSessionId: string; output: string }
   | { t: 'error'; message: string; harnessSessionId?: string }
 

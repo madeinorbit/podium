@@ -120,6 +120,10 @@ export function createDaemonClaudeSdkRuntime(deps: {
           output: outcome.output,
         })),
         interrupt: child.interrupt,
+        // The acknowledged form, kept separate from `interrupt` above so
+        // teardown keeps its fire-and-forget poke and the operator's stop gets
+        // the provider's actual answer.
+        requestInterrupt: child.requestInterrupt,
         answerPermission(interactionId, answer) {
           if (!child.answerPermission) throw new Error('SDK child has no permission answer channel')
           child.answerPermission(interactionId, answer)
