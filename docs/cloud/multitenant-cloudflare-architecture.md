@@ -182,9 +182,13 @@ tenants (dedicated VM tier) remains open.
 5. **Fixed ports assumption** — hook-ingest :45777 etc. are per-container so no clashes,
    but the daemon's "hooks bake the port into settings files" constraint must hold across
    sleep/wake (same container ⇒ same ports; fine).
-6. **ToS**: subscription-auth agent CLIs (Claude Pro/Max OAuth) on cloud hardware is a
-   provider-ToS question for phase 3 — API-key agents are the safe default there
-   (see memory: subscription-auth-providers-tos).
+6. **ToS**: Claude Code's own Agent SDK may use the managed subscription credential
+   under an explicit rollout acknowledgement
+   ([policy](../architecture/claude-subscription-oauth-policy.md)); that is not a
+   terminal-only constraint. Hosting a *consumer* Claude Pro/Max OAuth login on
+   Podium cloud hardware remains a provider-ToS question for phase 3 — API-key
+   agents are the safe default there. Third-party reuse of an Anthropic
+   subscription token stays barred.
 7. **Cloudflare lock-in** — phase 1 is plain containers + S3-compatible storage, so the
    design ports to Fly.io/Railway/Hetzner if pricing shifts; phase 2 (Workers/DO port)
    is where lock-in actually begins. Sequence accordingly.
