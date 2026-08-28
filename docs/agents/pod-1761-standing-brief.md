@@ -1693,3 +1693,30 @@ a word anywhere in a sentence. Each one produced a confident wrong number rather
 than an error, which is why none of them announced itself.
 
 **Check your check against a case it must REJECT, not only one it must accept.**
+
+### `done` is not proof that anything was done
+
+POD-3046 — a release blocker — was started, its agent exited about two minutes
+later while still `phase=working`, its worktree was freed, and **the issue was
+left at stage `done` with ZERO commits and no evidence directory.** Nothing
+announced this. The completion notification said "exited without reporting",
+which is a different event from "finished (done)" and is the only clue you get.
+
+**A stage is a claim, not a receipt.** Before believing any child is finished:
+
+    git log --oneline issue/1761-agent-runtime..issue/<branch> | wc -l   # unlanded
+    ls docs/evidence/pod-<id> 2>/dev/null | wc -l                        # evidence
+    podium issue show <id> --json                                        # comments/state
+
+A child with stage `done`, no commits, no evidence and no comment did not do the
+work — it died. Reopen it with `podium issue update --id <id> --stage
+in_progress` and restart. When I audited every recent child this way only
+POD-3046 was affected, so this is rare rather than systemic — but it is silent,
+and the one it hit was the highest-priority issue on the board.
+
+**The inverse trap is more common and lives in the section above:** a child in
+`review` with its worktree freed may hold unlanded evidence nobody transcribed.
+Between them: **never read a stage as a statement about work. Read the commits.**
+
+Host resources were fine when this happened (79G free, 17% inodes, load 5.5),
+so do not assume the 5 GiB admission floor is the cause — check before blaming it.
