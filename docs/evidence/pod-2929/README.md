@@ -102,3 +102,49 @@ root free space was `5228788 KiB`, below the `5242880 KiB` 5 GiB floor. See
 The current-tip Codex A9 arm was refused before bring-up at the same disk
 gate: root free space was `5228788 KiB`, below the `5242880 KiB` 5 GiB floor.
 See `readings/a9-codex-floor-blocked-2e1648.json`.
+## Codex re-drive at current tip c860611 (2026-08-28 14:20-14:29 CEST)
+
+The two stale Codex cells were re-driven after POD-2917 entered review. The
+issue branch was clean and pinned to c860611a5d516c7ade492c2df2687cb5efff09d3,
+rebased onto exact root 5fe951f2fe5ff3300330d64a3a5b0a4df3a76fe2 before the
+runs. The server, scored daemon, and served web bundle each passed
+drive-verify.sh at that exact commit. Root had 84,342,624 KiB free at A1c
+preflight and 83,806,964 KiB free at A9 preflight, both above the 5,242,880
+KiB floor.
+
+The standard bring-up first exposed the machine's default Codex 0.150.1,
+which the daemon correctly rejects as outside its exercised 0.147.x-0.149.x
+app-server range. The scored daemon for each named instance was restarted
+with the already-installed 0.149.1-x86_64-unknown-linux-musl/bin/codex; no
+product runtime or path override was changed. The product-derived named roots
+were p2929f1 and p2929f9, and no test:heavy lease was acquired or queued.
+
+### A1c - Codex app-server
+
+Reading: readings/a1c-codex-c860611.json. The live positive control fired, the
+session bound codex-app-server/server, and exact stamped target PID 693767
+under daemon UUID cc8148b2-bce8-4b0c-9277-840987cfbbe4 was killed and confirmed
+gone. The dead-session send returned ok=true, disposition=delivered, but
+typedRefusal=false, resumeOffer=false, and no assistant nonce arrived in the
+full 120-second delayed window. Verdict: FAIL.
+
+Measured clauses were the live control, expected driver/family binding, exact
+UUID+session attribution, confirmed target death, accepted-send
+classification, and delayed assistant-nonce observation. The failed clause
+was the required terminal outcome for an accepted send; the acknowledgment
+was not treated as delivery.
+
+### A9 - Codex app-server
+
+Reading: readings/a9-codex-c860611.json. The live control answered ALIVE-QOVAXF;
+the session bound codex-app-server/server; and PID 715580 with start time
+1218561 carried the exact UUID/session stamp before sessions.kill. Direct
+original-PID liveness was zero at both 15s and 300s. The independent
+stamped-PID rebound census was also zero at both checkpoints, stamped target
+count was zero at both, and infrastructure stayed 2/2. Verdict: PASS.
+
+Measured clauses were the live control, expected driver/family binding, exact
+stamp proof, direct original PID+start-time liveness at 15s and 300s,
+stamped-PID rebound census at 15s and 300s, and infrastructure preservation.
+The aggregate A9 PASS line was used only after every clause was measured; none
+was upgraded from did-not-fail to measured.
