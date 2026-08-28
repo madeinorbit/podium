@@ -6015,3 +6015,23 @@ are stale by bytes even where the behavior may be unchanged, and are not silentl
 promoted. The acceptance worker prepared a fresh never-approved Codex A4 fixture
 but did not run it while `test:heavy` was held by another issue. No new verdict
 rows exist yet; the operator sandbox remains stopped.
+
+
+## FOREST — 2026-08-28 21:52 CEST — replay seam re-drive landed
+
+POD-2777's session E replay block is now landed at `a7ea0eebe9153bba6b8d4831b929095557a30d61` and pushed to `origin/issue/1761-agent-runtime`. The eight fresh rows in `docs/plans/pod-1761-results.tsv` are the first post-integration readings; they are timestamped from the four result files, not reconstructed from the commit time. The rig was named `p2777`, had no concurrent driver, never acquired or queued `test:heavy`, and verified server, daemon, and web at `15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f`. Product bytes under `apps/`, `packages/`, and `scripts/` are identical to the named product tip `9c1cc3621`; the intervening changes are evidence/harness docs only.
+
+| cell | driver | fresh reading | overall treatment |
+| --- | --- | --- | --- |
+| A2a streaming/status while working | codex-app-server | 212 preview frames, monotonic 1201->6506 chars | PASS |
+| A2a streaming/status while working | opencode-server | 62 preview frames, monotonic 1731->6858 chars | PASS |
+| A2a streaming/status while working | generic-pty (Codex) | no preview plane, 0 frames at late join | BLOCKED, not a failure |
+| A2a streaming/status while working | generic-pty (OpenCode) | no preview plane, 0 frames at late join | BLOCKED, not a failure |
+| A3 interrupt | codex-app-server | stopped in 525ms; no durable interrupt marker | PARTIAL |
+| A3 interrupt | opencode-server | stopped in 9ms; no durable interrupt marker | PARTIAL |
+| A3 interrupt | generic-pty (Codex) | stopped in 512ms; no durable interrupt marker | PARTIAL |
+| A3 interrupt | generic-pty (OpenCode) | stopped in 28,902ms and emitted 20,582 chars after request; no marker | PARTIAL |
+
+The headless streaming readings are full PASSes. The terminal streaming readings are BLOCKED because that arm has no preview surface; its positive durable control still fired. The interrupt probe's phase-stop subcheck passed on all four arms, but the Tier-A cell remains PARTIAL on every arm because no durable transcript item records the operator interrupt. OpenCode's raw numbers are materially different despite both verdicts being phase-stop PASS: headless stopped in 9ms with no output after the request; terminal took 28,902ms and produced 20,582 additional transcript characters. Codex stopped in 525ms versus 512ms.
+
+The same drive also found two harness defects and fixed them before the evidence run: the concurrency verifier was rejecting its own parent drive (fixed by ancestry, not an argv exemption), and a product-only pin failed to notice a swapped Codex binary (the harness binary is now explicitly pinned). The stock shared Codex path is 0.150.1, outside the exercised 0.147.x-0.149.x app-server range, so the default operator path correctly falls back to generic-pty; the drive refused those degraded headless cells rather than misreporting terminal evidence as headless. No full matrix claim is made: all non-replay-seam cells remain unconfirmed at the current tip.

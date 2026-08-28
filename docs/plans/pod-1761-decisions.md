@@ -1568,3 +1568,19 @@ overwritten — that was POD-2777's call and it is the right one.
 *Host at the time of the audit: 18.6 GiB available, 79 GiB free on `/`, swap-in
 0, load 1.46 — all above the floor. The "root filesystem 100% full" report still
 in circulation is two nights old and no longer true.*
+
+
+## Decision 43 — replay seam re-drive is partial, not a release green (2026-08-28 21:52 CEST)
+
+The first post-integration acceptance block is complete and landed in `a7ea0eebe9153bba6b8d4831b929095557a30d61`. Session E drove `stream` and `interrupt` on Codex and OpenCode, headless and terminal, with every positive control firing. The runtime pin was `15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f`; the product paths are byte-identical to `9c1cc3621`, so this is a current-product reading rather than a stale-doc claim.
+
+The decision is deliberately mixed:
+
+- Headless streaming is PASS: Codex delivered 212 monotonic preview frames and OpenCode 62.
+- Terminal streaming is BLOCKED, not FAIL: the terminal driver has no preview plane, and the late-join probe saw zero frames after the durable control had fired.
+- Interrupt phase-stop passed on all four arms, but A3 is PARTIAL overall because no durable transcript item carries the interrupt marker. This is an equal product gap, not evidence that headless is worse.
+- OpenCode's arm comparison is significant even though the phase verdict matches: headless stopped in 9ms with no output after the request; terminal took 28,902ms and produced 20,582 additional transcript characters. Codex stopped in 525ms versus 512ms.
+
+The stock operator Codex binary is 0.150.1, outside the app-server driver's exercised range, and therefore correctly demotes to generic-pty. The acceptance harness pinned the supported 0.149.1 binary for this measurement and did not move the shared symlink. The harness's own self-detection and binary-pin fixes are included in the landed evidence; they do not change product behavior. The remaining matrix stays unconfirmed under Decision 42, and no Tier-A release green is claimed.
+
+*Podium-Issue: POD-1761*

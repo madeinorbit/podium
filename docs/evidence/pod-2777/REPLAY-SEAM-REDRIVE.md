@@ -1,4 +1,4 @@
-# The replay seam, re-driven at the product tip (2026-08-28 21:xx CEST, session E)
+# The replay seam, re-driven at the product tip (2026-08-28 21:34 CEST, session E)
 
 Decision 42 left the matrix reading **70/70 driven, 0 confirmed at the current
 tip**, and named the re-drive order: *substance-stale first — the cells that read
