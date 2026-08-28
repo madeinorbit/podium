@@ -191,6 +191,17 @@ export default defineConfig(({ mode }) => {
            * that lands and an update that half-lands.
            */
           clientsClaim: true,
+          // NO SOURCEMAP FOR THE GENERATED WORKER. workbox builds sw.js in a
+          // randomly-named temp directory and writes that path into sw.js.map's
+          // `sources`, so the map differed between two builds of one commit — the
+          // only per-run byte left in the dist, and the one thing standing between
+          // this build and being cacheable (spec
+          // 2026-08-28-cached-release-build-design §4.3). Nothing was lost with it:
+          // the path it named is deleted when the build ends, and the code it maps
+          // is workbox's own glue, not ours. App-code maps are unaffected — they
+          // come from vite's `sourcemap: 'hidden'` below and are archived by
+          // scripts/archive-web-sourcemaps.ts.
+          sourcemap: false,
           // Precache the built shell so an installed app cold-starts instantly.
           globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
           // The main app chunk has grown past workbox's 2 MiB default; without a
