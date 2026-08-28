@@ -1720,3 +1720,27 @@ Between them: **never read a stage as a statement about work. Read the commits.*
 
 Host resources were fine when this happened (79G free, 17% inodes, load 5.5),
 so do not assume the 5 GiB admission floor is the cause — check before blaming it.
+
+### `close` does not stop the session, and stopped sessions respawn
+
+`podium issue close` sets the stage. **It does not stop the running agent.** A
+session left live on a closed issue goes idle, the daemon re-creates it, and
+creating a session flips the stage back to `in_progress` — so the issue you
+closed is open again with an agent redoing finished work. POD-3042 completed at
+12:57, was closed, and was found an hour later at `in_progress` with a live
+session re-driving baselines already landed and transcribed.
+
+**Close a child in this order, and verify:**
+
+    podium issue update --id <id> --stage done   # stage FIRST -- a stop while
+    podium issue stop   --id <id>                # in_progress just respawns
+    podium issue show   <id> --json              # confirm live == 0
+
+Sweeping every child I had closed found **four stray sessions across three
+issues**. POD-2929 alone had three, though `issue show --json` listed only one
+live — **the session list undercounts; trust the count `stop` reports back.**
+
+This is the third face of the same coordinator problem: `review` can hide
+unlanded evidence, `done` can hide work that never happened, and a closed issue
+can hide an agent still running. **The tracker records intent. Verify against
+commits and process state.**
