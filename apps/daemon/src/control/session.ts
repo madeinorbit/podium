@@ -2034,7 +2034,7 @@ export function dispatchInputBytes(
   if (
     !bridge &&
     ctx.nativeClientRequests?.has(metadata.sessionId) &&
-    ctx.clientTerminals?.input(metadata.sessionId, Buffer.from(bytes).toString('base64'))
+    ctx.clientTerminals?.input(metadata.sessionId, bytes)
   ) {
     ctx.composerEngine.onInputByte(metadata.sessionId)
     return

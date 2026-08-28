@@ -145,6 +145,8 @@ describe('daemon connection credential state machine', () => {
       sendApplicationFrame: vi.fn(),
       onConnected: vi.fn(),
       onTerminal: vi.fn(),
+      queueDrainOutbox: createQueueDrainOutbox(temp()),
+      runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     })
 
     await state.start()
@@ -167,6 +169,8 @@ describe('daemon connection credential state machine', () => {
       sendApplicationFrame: vi.fn(),
       onConnected: () => ({ convergedVersion: '2.0.0' }),
       onTerminal: vi.fn(),
+      queueDrainOutbox: createQueueDrainOutbox(temp()),
+      runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     })
 
     await state.start()
@@ -414,6 +418,8 @@ function remoteHarness() {
     receiveApplicationFrame,
     receiveBinaryInput,
     sendApplicationFrame,
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => socket,
@@ -616,6 +622,8 @@ it('clears accepted binary selection before a reconnect handshake', async () => 
     identity: { token: 'token' },
     receiveApplicationFrame: vi.fn(),
     sendApplicationFrame,
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
     openSocket: () => sockets[socketIndex++] as FakeSocket,

@@ -156,7 +156,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     sessionId: SessionId,
     secret: string,
   ): Promise<{ bytes: string; streamId: string }> => {
-    const frames: string[] = []
+    const frames: Uint8Array[] = []
     const terminals = createOpencodeClientTerminals({
       frames: (_streamId, frame) => frames.push(frame),
     })
@@ -171,7 +171,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     })
     const deadline = Date.now() + HANDSHAKE_WINDOW_MS
     const read = (): string =>
-      Buffer.concat(frames.map((f) => Buffer.from(f, 'base64'))).toString('utf8')
+      Buffer.concat(frames.map((f) => Buffer.from(f))).toString('utf8')
     // BOTH cases run the SAME window to the same end condition — "the client
     // said something". A shorter or differently-terminated wait for the negative
     // case would make its verdict a statement about timing rather than auth.

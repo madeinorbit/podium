@@ -85,6 +85,7 @@ async function createCloseHost(
       build: buildReport({}, undefined, 'test'),
       installDir: undefined,
       send: (message) => void sent.push(message),
+      sendOutput: () => {},
       acknowledgeQueueDrainReport: () => {},
       acknowledgeRuntimeEvent: () => {},
       testAgentRuntime: runtime,

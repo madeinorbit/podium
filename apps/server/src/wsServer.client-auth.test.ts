@@ -188,7 +188,7 @@ describe('/client WS auth gate', () => {
     const url = await startNotReady()
     const response = await rejectedHandshake(url)
     expect(response.status).toBe(503)
-    expect(await response.json()).toEqual({
+    expect(JSON.parse(response.body)).toEqual({
       error: 'server_not_ready',
       readiness: {
         state: 'activation_pending',

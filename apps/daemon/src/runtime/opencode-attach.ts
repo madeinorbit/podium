@@ -272,7 +272,7 @@ export interface OpencodeClientTerminals {
    */
   viewers(sessionId: SessionId, watched: boolean): void
   /** Route the browser terminal transport to the attached harness client. */
-  input(sessionId: SessionId, dataBase64: string): boolean
+  input(sessionId: SessionId, data: Uint8Array): boolean
   resize(sessionId: SessionId, cols: number, rows: number): boolean
   redraw(sessionId: SessionId): boolean
   /**
@@ -296,7 +296,7 @@ export interface OpencodeClientTerminalPorts {
    * The endpoint's stream id equals the parent Podium session id, so the server
    * resolves the same row its browser terminal is already attached to.
    */
-  frames(streamId: string, frameBase64: string): void
+  frames(streamId: string, frame: Uint8Array): void
   /** Drop this stream's coalescing state when the attachment ends. Without it a
    *  daemon accumulates one pending entry per attachment for its whole life, and
    *  every live session. */
@@ -576,7 +576,7 @@ export function createOpencodeClientTerminals(
      * reset test, so the replay log re-anchors with the browser.
      */
     if (!session.adopted)
-      ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET).toString('base64'))
+      ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
     session.onFrame((frame) => ports.frames(record.streamId, frame.data))
     record.session = session
     session.onExit(() => {
@@ -770,10 +770,10 @@ export function createOpencodeClientTerminals(
       arm(sessionId, record)
     },
 
-    input(sessionId, dataBase64) {
+    input(sessionId, data) {
       const session = attachments.get(sessionId)?.session
       if (!session) return false
-      session.write(dataBase64)
+      session.writeBytes(data)
       return true
     },
 

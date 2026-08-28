@@ -44,7 +44,6 @@ import {
 } from '@podium/runtime/instance'
 import { encodeJoin } from '@podium/runtime/join'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import type { AppRouter } from '../apps/server/src/router'
 import { SessionStore } from '../apps/server/src/store'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'

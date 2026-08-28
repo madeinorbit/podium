@@ -1099,7 +1099,6 @@ describe('updates tRPC', () => {
     // (POD-2198). A bundle-only remote is the place this test says is waiting on
     // packaging; without it there is correctly no prepare step anymore.
     const bundleMachine = asMachineId('bundle-machine')
-    const grants: unknown[] = []
     registry.sessionStore.machines.upsertMachine({
       id: bundleMachine,
       name: 'Bundle machine',

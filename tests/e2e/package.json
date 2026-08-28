@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@podium/agent-runtime": "workspace:*",
     "@podium/client-core": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/logger": "workspace:*",

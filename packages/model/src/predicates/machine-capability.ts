@@ -308,6 +308,13 @@ export function machineRejectionMessage(
       return `machine '${name}' runs no Podium daemon and cannot ${action}`
     case 'offline':
       return `machine '${name}' is offline — bring its daemon online, then retry`
+    // The two PROBE-STATE members the agent-runtime epic added (POD-3070 merge).
+    // Both are "not yet known", not "no" — the sentence has to say that, because
+    // the advice is to wait or retry rather than to install anything.
+    case 'inventory-unavailable':
+      return `machine '${name}' has not reported what it can run yet — wait for its probe, then retry`
+    case 'harness-probe-timed-out':
+      return `could not determine whether machine '${name}' can ${action} — its probe timed out; retry`
     case 'harness-missing':
       return `machine '${name}' does not have the agent installed to ${action}`
     case 'logged-out':

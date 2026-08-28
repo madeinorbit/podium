@@ -8,7 +8,7 @@ import type {
 import { chatSendRoute, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/viewmodels'
 import { asMutationId } from '@podium/model'
 import { formatAgentError } from '@podium/model/browser'
-import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model/browser'
+import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
@@ -92,10 +92,20 @@ export interface UseChatSendOptions {
    *  {@link OPTIMISTIC_SEND_CEILING_MS}; `offer.createdAt` is what a plain send
    *  retires optimistically, because the server retires it on any user turn.
    *  `agentState.error` is what a terminal provider failure is read from. */
+  /** Structural rather than `Pick<SessionMeta, …>`: this hook reads four fields
+   *  and its callers include fixtures that build only those, so widening to the
+   *  full entity would tighten them for nothing. */
   session:
-    | (Pick<SessionMeta, 'agentState'> & {
+    | {
+        agentState?:
+          | {
+              phase?: string
+              since?: string
+              error?: { class: string; retryable: boolean; detail?: string }
+            }
+          | undefined
         offer?: { createdAt: string } | null | undefined
-      })
+      }
     | undefined
   headlessTurn: Pick<UseHeadlessTurnResult, 'sendTurn'>
   /** Re-pin the scroller: a send always follows its own message. */

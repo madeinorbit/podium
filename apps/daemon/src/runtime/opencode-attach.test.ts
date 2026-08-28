@@ -81,6 +81,9 @@ function fakeClient(
     write(data: string) {
       client.writes.push(data)
     },
+    writeBytes(data: Uint8Array) {
+      client.writes.push(Buffer.from(data).toString('utf8'))
+    },
     resize(cols: number, rows: number) {
       client.sizes.push({ cols, rows })
     },
@@ -93,7 +96,7 @@ function fakeClient(
       client.disposed = true
     },
     emit(data: string) {
-      for (const cb of frameCbs) cb({ seq: seq++, data })
+      for (const cb of frameCbs) cb({ seq: seq++, data: Buffer.from(data, 'latin1') })
     },
   }
   return client
@@ -110,7 +113,7 @@ interface HarnessOptions {
   redrawFrame?: string
   subscribeFrame?: string
   /** Browser/replay history already owned by a master that survived the daemon. */
-  priorFrames?: { streamId: string; data: string }[]
+  priorFrames?: { streamId: string; data: Uint8Array }[]
   spawnError?: Error
 }
 
@@ -124,7 +127,7 @@ interface Harness {
   }[]
   reclaimed: string[]
   released: string[]
-  frames: { streamId: string; data: string }[]
+  frames: { streamId: string; data: Uint8Array }[]
   clients: ReturnType<typeof fakeClient>[]
   fire(): void
   armed: number
@@ -257,11 +260,11 @@ describe('the client terminal a server-family attach produces', () => {
   it('streams the client’s frames on the daemon’s own relay, under the minted stream id', async () => {
     const { terminals, state } = harness()
     const endpoint = await terminals.attach({ sessionId: SESSION, target })
-    state.clients[0]?.emit('ZnJhbWU=')
+    state.clients[0]?.emit('frame')
     // The generation reset leads every client's output — see the cold-start rows.
-    expect(state.frames.filter((frame) => frame.data === 'ZnJhbWU=')).toEqual([
-      { streamId: endpoint.streamId, data: 'ZnJhbWU=' },
-    ])
+    expect(
+      state.frames.filter((frame) => Buffer.from(frame.data).toString('latin1') === 'frame'),
+    ).toEqual([{ streamId: endpoint.streamId, data: Buffer.from('frame', 'latin1') }])
     expect(state.frames.every((frame) => frame.streamId === endpoint.streamId)).toBe(true)
     expect(endpoint.streamId).toBe(SESSION)
   })
@@ -281,7 +284,7 @@ describe('the client terminal a server-family attach produces', () => {
     const { terminals, state } = harness({ subscribeFrame: paint })
     await terminals.attach({ sessionId: SESSION, target })
     const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data, 'base64').toString('latin1'),
+      Buffer.from(frame.data).toString('latin1'),
     )
     expect(decoded[0]).toContain('\x1b[2J')
     expect(decoded[0]).toContain('\x1b[3J')
@@ -304,7 +307,7 @@ describe('the client terminal a server-family attach produces', () => {
     await terminals.attach({ sessionId: SESSION, target })
     state.clients[1]?.emit('c2Vjb25k')
     const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data, 'base64').toString('latin1'),
+      Buffer.from(frame.data).toString('latin1'),
     )
     const resets = decoded.filter((data) => data.includes('\x1b[2J') && data.includes('\x1b[3J'))
     expect(resets).toHaveLength(2)
@@ -363,8 +366,8 @@ describe('the client terminal a server-family attach produces', () => {
       true,
     ],
   ] as const)('%s %s client anchors only new generations before initial paint', async (_harnessKind, _startKind, paintTarget, clientKind, adopted) => {
-    const initialPaint = Buffer.from('\x1b[2Jopencode ready').toString('base64')
-    const priorHistory = Buffer.from('older scrollback').toString('base64')
+    const initialPaint = '\x1b[2Jopencode ready'
+    const priorHistory = 'older scrollback'
     const { terminals, state } = harness({
       redrawFrame: initialPaint,
       // `hasMaster` seeds `adopt()`, which holds no session and must still probe
@@ -372,7 +375,7 @@ describe('the client terminal a server-family attach produces', () => {
       // is decided on.
       hasMaster: () => adopted,
       adopted,
-      priorFrames: adopted ? [{ streamId: SESSION, data: priorHistory }] : [],
+      priorFrames: adopted ? [{ streamId: SESSION, data: Buffer.from(priorHistory, 'latin1') }] : [],
     })
 
     if (adopted) {
@@ -392,7 +395,7 @@ describe('the client terminal a server-family attach produces', () => {
     // master already owns a running TUI and browser history: its viewport redraw
     // follows that history without a scrollback-clearing reset between them.
     const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data, 'base64').toString('latin1'),
+      Buffer.from(frame.data).toString('latin1'),
     )
     const resets = decoded.filter((data) => data.includes('\x1b[2J') && data.includes('\x1b[3J'))
     expect(resets).toHaveLength(adopted ? 0 : 1)
@@ -402,7 +405,10 @@ describe('the client terminal a server-family attach produces', () => {
     } else {
       expect(decoded[0]).toContain('\x1b[3J')
     }
-    expect(state.frames.at(-1)).toEqual({ streamId: endpoint.streamId, data: initialPaint })
+    expect(state.frames.at(-1)).toEqual({
+      streamId: endpoint.streamId,
+      data: Buffer.from(initialPaint, 'latin1'),
+    })
     expect(state.frames.every((frame) => frame.streamId === endpoint.streamId)).toBe(true)
     expect(state.clients[0]?.redraws).toBe(1)
   })
@@ -418,20 +424,20 @@ describe('the client terminal a server-family attach produces', () => {
    * fake was always self-consistent, so the divergence had nowhere to appear.
    */
   it('withholds the reset when the SPAWN adopted, even where a label probe is blind', async () => {
-    const priorHistory = Buffer.from('older scrollback').toString('base64')
+    const priorHistory = 'older scrollback'
     const { terminals, state } = harness({
       redrawFrame: Buffer.from('\x1b[2Jcodex ready').toString('base64'),
       // The live master is invisible to a probe reading the wrong socket root —
       // exactly what the default `hasMaster` did to an agent home.
       hasMaster: () => false,
       adopted: true,
-      priorFrames: [{ streamId: SESSION, data: priorHistory }],
+      priorFrames: [{ streamId: SESSION, data: Buffer.from(priorHistory, 'latin1') }],
     })
 
     await terminals.attach({ sessionId: SESSION, target })
 
     const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data, 'base64').toString('latin1'),
+      Buffer.from(frame.data).toString('latin1'),
     )
     // A reset here is destructive, not cosmetic: `[3J` drops the surviving TUI's
     // scrollback from the browser AND the replay log, and the reattach's resize
@@ -454,7 +460,7 @@ describe('the client terminal a server-family attach produces', () => {
     await terminals.attach({ sessionId: SESSION, target })
 
     const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data, 'base64').toString('latin1'),
+      Buffer.from(frame.data).toString('latin1'),
     )
     expect(decoded.filter((data) => data.includes('\x1b[3J'))).toHaveLength(1)
     expect(decoded[0]).toContain('\x1b[3J')
@@ -463,13 +469,13 @@ describe('the client terminal a server-family attach produces', () => {
   it('routes browser input, geometry, and redraw back to the attached TUI', async () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
-    expect(terminals.input(SESSION, 'aGVsbG8=')).toBe(true)
+    expect(terminals.input(SESSION, Buffer.from('hello'))).toBe(true)
     expect(terminals.resize(SESSION, 101, 37)).toBe(true)
     expect(terminals.redraw(SESSION)).toBe(true)
-    expect(state.clients[0]?.writes).toEqual(['aGVsbG8='])
+    expect(state.clients[0]?.writes).toEqual(['hello'])
     expect(state.clients[0]?.sizes).toEqual([{ cols: 101, rows: 37 }])
     expect(state.clients[0]?.redraws).toBe(2)
-    expect(terminals.input(asSessionId('not-attached'), 'eA==')).toBe(false)
+    expect(terminals.input(asSessionId('not-attached'), Buffer.from('x'))).toBe(false)
   })
 
   /**
@@ -693,7 +699,7 @@ describe('warm-parking', () => {
 
     // Not "refuses to type": there is nothing to type into. Same answer for the
     // other two directions, so nothing can drive a parked TUI.
-    expect(terminals.input(SESSION, 'aGVsbG8=')).toBe(false)
+    expect(terminals.input(SESSION, Buffer.from('hello'))).toBe(false)
     expect(terminals.resize(SESSION, 101, 37)).toBe(false)
     expect(terminals.redraw(SESSION)).toBe(false)
   })
@@ -704,7 +710,7 @@ describe('warm-parking', () => {
     // TUI's history from the browser and the replay log both.
     const spawns: string[] = []
     const clients: ReturnType<typeof fakeClient>[] = []
-    const frames: { streamId: string; data: string }[] = []
+    const frames: { streamId: string; data: Uint8Array }[] = []
     const terminals = createOpencodeClientTerminals({
       frames: (streamId, data) => frames.push({ streamId, data }),
       spawn: async (o) => {
@@ -725,12 +731,12 @@ describe('warm-parking', () => {
     await terminals.attach({ sessionId: SESSION, target })
 
     const resets = frames
-      .map((frame) => Buffer.from(frame.data, 'base64').toString('latin1'))
+      .map((frame) => Buffer.from(frame.data).toString('latin1'))
       .filter((data) => data.includes('\x1b[3J'))
     expect(resets).toHaveLength(1)
     // And the keyboard is back, on the reconnected client rather than the parked one.
-    expect(terminals.input(SESSION, 'aGVsbG8=')).toBe(true)
-    expect(clients[1]?.writes).toEqual(['aGVsbG8='])
+    expect(terminals.input(SESSION, Buffer.from('hello'))).toBe(true)
+    expect(clients[1]?.writes).toEqual(['hello'])
     expect(clients[0]?.writes).toEqual([])
   })
 
@@ -789,7 +795,7 @@ describe('warm-parking', () => {
     await parking
 
     expect(clients[0]?.disposed).toBe(true)
-    expect(terminals.input(SESSION, 'aGVsbG8=')).toBe(false)
+    expect(terminals.input(SESSION, Buffer.from('hello'))).toBe(false)
   })
 
   it('reaps the client when the warm window closes', async () => {

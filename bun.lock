@@ -560,6 +560,7 @@
       "name": "@podium/e2e",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/agent-runtime": "workspace:*",
         "@podium/client-core": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
