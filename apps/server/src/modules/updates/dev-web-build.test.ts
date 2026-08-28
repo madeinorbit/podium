@@ -70,10 +70,14 @@ describe('when the served website may be rewritten', () => {
 })
 
 describe('development web build', () => {
-  it('rebuilds the stamped website, not the landing size ratchet', () => {
+  it('runs the one production build script of each client', () => {
+    // POD-3053: `build` is the single recipe per client and a Turbo task, so a dest
+    // rebuild produces exactly the bytes a release packages — including the landing
+    // size ratchet, which no caller routes around any more.
     const web = DEV_WEB_BUILD_STEPS.find((step) => step.role === 'dev-web-build')
-    expect(web?.args).toEqual(['run', '--filter', '@podium/web', 'build:dist'])
-    expect(web?.args).not.toContain('build')
+    expect(web?.args).toEqual(['run', '--filter', '@podium/web', 'build'])
+    const mobile = DEV_WEB_BUILD_STEPS.find((step) => step.role === 'dev-mobile-build')
+    expect(mobile?.args).toEqual(['run', '--filter', '@podium/mobile', 'build'])
   })
 
   it('recognises a dist built from this commit', () => {
@@ -229,7 +233,7 @@ describe('development web build', () => {
 
   it('reads the phone export where the export step actually writes it', () => {
     // The seam the unit tests above stub. `bun run --filter @podium/mobile
-    // build:web` writes `apps/mobile/dist/{index.html,podium-build.json}`
+    // build` writes `apps/mobile/dist/{index.html,podium-build.json}`
     // relative to the source root, and a reader pointed one directory off
     // would report "absent" — which reads as NOT behind, so the defect would
     // come back silently and this file's other tests would still pass.

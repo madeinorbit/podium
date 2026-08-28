@@ -537,11 +537,31 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(packageHeadless).toContain('beginFreshClientPackagingSession(argv)')
     expect(packageHeadless).toContain('packageHeadlessForFreshClients(session, argv)')
     expect(packageJson).toContain('"package:headless": "bun scripts/package-headless.ts"')
-    expect(windowsSmoke).toContain('run: bun run package:headless')
+    // Each client has exactly one production build script, and it is a Turbo task
+    // (spec §4.1). No root script chains them; `package:clients` is gone.
+    const web = JSON.parse(readFileSync(join(repoRoot, 'apps/web/package.json'), 'utf8')) as {
+      scripts: Record<string, string | undefined>
+    }
+    const mobile = JSON.parse(readFileSync(join(repoRoot, 'apps/mobile/package.json'), 'utf8')) as {
+      scripts: Record<string, string | undefined>
+    }
+    expect(web.scripts.build).toBe(
+      'vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-budget.ts dist --check',
+    )
+    expect(web.scripts['build:dist']).toBeUndefined()
+    expect(mobile.scripts.build).toBe(
+      'expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
+    )
+    expect(mobile.scripts['build:web']).toBeUndefined()
     expect(packageJson).toContain(
-      '"package:clients": "bun run --filter @podium/web build && bun run --filter @podium/mobile build:web"',
+      '"package:clients": "bun run --filter @podium/web build && bun run --filter @podium/mobile build"',
     )
     expect(packageJson).toContain('"package:clients:timed"')
     expect(windowsSmoke).not.toContain('bun scripts/build-bun.ts')
+    // LAST on purpose (POD-3058): this expectation is red — windows-smoke.yml has no
+    // such step — and an early failure in a single `it` makes every assertion after it
+    // unreachable, so a red here silently stopped guarding everything below. Fixing it
+    // belongs to POD-3058; keeping it at the end is what stops it hiding the rest.
+    expect(windowsSmoke).toContain('run: bun run package:headless')
   })
 })

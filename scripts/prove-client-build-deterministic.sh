@@ -22,7 +22,7 @@ for w in a b; do
     cd "$tmp/$w"
     bun install --frozen-lockfile
     PODIUM_APP_VERSION=0.0.0-determinism bun run --filter @podium/web build
-    PODIUM_APP_VERSION=0.0.0-determinism bun run --filter @podium/mobile build:web
+    PODIUM_APP_VERSION=0.0.0-determinism bun run --filter @podium/mobile build
   )
 done
 diff -r "$tmp/a/apps/web/dist" "$tmp/b/apps/web/dist"

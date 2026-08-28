@@ -58,7 +58,7 @@ function replayClientPackagingRecipe(snapshotRoot: string): void {
   for (const command of recipe.split(' && ')) {
     if (
       command === 'bun run --filter @podium/web build' ||
-      command === 'bun run --filter @podium/mobile build:web'
+      command === 'bun run --filter @podium/mobile build'
     ) {
       continue
     }

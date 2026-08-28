@@ -885,7 +885,7 @@ describe('test lane configuration', () => {
     const lane = readFileSync(new URL('./browser-lane.ts', import.meta.url), 'utf8')
     expect(lane, 'lane must run the workspace build').toMatch(/run\('bun', \['run', 'build'\]/)
     expect(lane, 'lane must export mobile web for phone projects').toMatch(
-      /@podium\/mobile['"],\s*['"]build:web['"]/,
+      /@podium\/mobile['"],\s*['"]build['"]/,
     )
     // Root `bun run build` is packages/* then @podium/web; packages/* includes
     // model before protocol alphabetically only by workspace graph — the

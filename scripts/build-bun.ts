@@ -491,7 +491,7 @@ export function packageHeadlessForFreshClients(
   const mobileDist = `${root}apps/mobile/dist`
   if (!existsSync(`${mobileDist}/index.html`)) {
     throw new Error(
-      'build-bun: apps/mobile/dist not built - run `bun run --filter @podium/mobile build:web` first',
+      'build-bun: apps/mobile/dist not built - run `bun run --filter @podium/mobile build` first',
     )
   }
   let mobileStamp: { sourceSha?: string; appVersion?: string } | null = null

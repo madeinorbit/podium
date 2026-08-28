@@ -230,9 +230,17 @@ describe('writeWebBuildStamp and pre-compressed index.html', () => {
 // interactive tier, every time the export is rebuilt — which is now every commit.
 // Pre-compressing it moves that cost into the batch-tier build scope where the
 // rest of the build already runs.
+//
+// A step MAY follow the stamp if it writes nothing into dist. `web-bundle-budget
+// --check` is the only such step (POD-3053: it moved into `build` when `build:dist`
+// was deleted); it reads dist and either passes or fails the command. The
+// allow-list is deliberately literal — a new trailing step has to be justified
+// here, in front of the reason, rather than slipped in behind a loose pattern.
+const READS_ONLY = /web-bundle-budget\.ts .*--check\s*$/
+
 describe.each([
-  { pkg: 'apps/web', scripts: ['build:dist', 'build:dev'] },
-  { pkg: 'apps/mobile', scripts: ['build:web'] },
+  { pkg: 'apps/web', scripts: ['build', 'build:dev'] },
+  { pkg: 'apps/mobile', scripts: ['build'] },
 ])('$pkg build script ordering', ({ pkg, scripts: names }) => {
   const scripts = (
     JSON.parse(
@@ -249,10 +257,12 @@ describe.each([
   }
 
   for (const name of names) {
-    it(`writes the build stamp as the last step of \`${name}\``, () => {
+    it(`writes the build stamp after the last writing step of \`${name}\``, () => {
       const steps = stepsOf(name)
-      expect(steps.at(-1)).toContain('write-web-build-stamp.ts')
+      const stamp = steps.findIndex((step) => step.includes('write-web-build-stamp.ts'))
+      expect(stamp).toBeGreaterThanOrEqual(0)
       expect(steps.filter((step) => step.includes('write-web-build-stamp.ts'))).toHaveLength(1)
+      for (const step of steps.slice(stamp + 1)) expect(step).toMatch(READS_ONLY)
     })
 
     it(`pre-compresses \`${name}\` before stamping it complete`, () => {

@@ -69,15 +69,18 @@ export const DEV_WEB_BUILD_STEPS = [
   {
     role: 'dev-web-build',
     label: 'apps/web',
-    // `build` ends with the landing size ratchet. Dest rebuilds need the stamped
-    // website even when that ratchet is red (measured: dest+59ba485, eager
-    // 2,202,513 / 2,200,000). `build:dist` stops after the stamp.
-    args: ['run', '--filter', '@podium/web', 'build:dist'],
+    // One build script per client, and it is a Turbo task (POD-3053): an unchanged
+    // client is restored from the shared cache instead of rebuilt. The landing size
+    // ratchet is part of `build` now, so a red ratchet is a red build here too — the
+    // dest-rebuild exemption `build:dist` used to grant is gone. The floor lives in
+    // scripts/web-bundle-budget.ts and is raised by that script's own process; a dest
+    // that trips it is telling the truth about what it would land.
+    args: ['run', '--filter', '@podium/web', 'build'],
   },
   {
     role: 'dev-mobile-build',
     label: 'apps/mobile',
-    args: ['run', '--filter', '@podium/mobile', 'build:web'],
+    args: ['run', '--filter', '@podium/mobile', 'build'],
   },
 ] as const
 
