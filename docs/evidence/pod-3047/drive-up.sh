@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/drive-env.sh"
 
 LOGS="$PODIUM_DRIVE_BASE/logs"
-PIN_SHA="${P3047_PIN_SHA:-942a0397dd0d30614d5424061a27cdc95c8a460e}"
+PIN_SHA="${P3047_PIN_SHA:-ad02520c22a9cba42db7fc1dd8c44620f29f4509}"
 if ! git -C "$PODIUM_DRIVE_REPO" merge-base --is-ancestor "$PIN_SHA" HEAD; then
   echo "refusing: pin $PIN_SHA is not an ancestor of HEAD" >&2
   exit 2
@@ -69,9 +69,43 @@ export PODIUM_WEB_DIR="$PODIUM_DRIVE_REPO/apps/web/dist"
 AGENT_HOME="$PODIUM_RIG_STATE_ROOT/agent-home"
 mkdir -p "$AGENT_HOME/.claude" "$PODIUM_DRIVE_BASE/probes"
 chmod 700 "$AGENT_HOME" "$AGENT_HOME/.claude"
-if [ -e "$AGENT_HOME/.claude/.credentials.json" ]; then
-  echo "refusing: isolated credential present at $AGENT_HOME/.claude/.credentials.json" >&2
-  exit 2
+# CREDENTIAL POSTURE. Two of them, and the rig must say which it is in.
+#
+# Until POD-3057 the SDK child ran in the OPERATOR home, so a credential-free
+# agent home was irrelevant to it and the column drove authenticated. After the
+# fix the child runs HERE, so a credential-free home means every SDK turn is
+# genuinely logged out and most of the column is unmeasurable.
+#
+#   P3047_CREDENTIAL=absent   (default) no credential. The honest no-copy rig.
+#   P3047_CREDENTIAL=symlink  SYMLINK to the operator existing credential, on
+#                             the coordinator explicit authorisation.
+#
+# SYMLINK, NEVER COPY, and the reason is not style. A copy can go stale, and
+# presenting a superseded refresh token can be treated as replay and revoke the
+# whole family - logging the operator out of their own tool. A symlink cannot
+# diverge, so that failure mode does not exist for it. Nothing is minted,
+# rotated, or printed either way.
+CREDENTIAL_POSTURE="${P3047_CREDENTIAL:-absent}"
+LIVE_CRED="$HOME/.claude/.credentials.json"
+ISOLATED_CRED="$AGENT_HOME/.claude/.credentials.json"
+
+if [ "$CREDENTIAL_POSTURE" = "symlink" ]; then
+  [ -e "$LIVE_CRED" ] || { echo "refusing: no operator credential to link at $LIVE_CRED" >&2; exit 2; }
+  if [ -e "$ISOLATED_CRED" ] && [ ! -L "$ISOLATED_CRED" ]; then
+    echo "refusing: $ISOLATED_CRED exists and is NOT a symlink; this rig never copies" >&2
+    exit 2
+  fi
+  # A rig must not carry a credential it did not check. Read-only; value never printed.
+  python3 "$PODIUM_DRIVE_REPO/docs/evidence/pod-3047/credential-check.py" "$LIVE_CRED" || exit 2
+  ln -sfn "$LIVE_CRED" "$ISOLATED_CRED"
+  echo "credential posture: SYMLINK $ISOLATED_CRED -> $LIVE_CRED (no copy, no mint, no rotate)"
+  stat -c "live credential mtime=%y size=%s" "$LIVE_CRED"
+else
+  if [ -e "$ISOLATED_CRED" ]; then
+    echo "refusing: isolated credential present at $ISOLATED_CRED but posture is absent" >&2
+    exit 2
+  fi
+  echo "credential posture: ABSENT (no-copy rig; after POD-3057 the SDK child is logged out here)"
 fi
 
 # Trust/onboarding only. No credential copy.

@@ -9,7 +9,7 @@
  * an explicit per-spawn runtimeContract=claude-sdk. No token values are logged.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { loadavg } from 'node:os'
 import { join } from 'node:path'
 import { claudeProjectSlug } from '@podium/harness'
@@ -165,7 +165,7 @@ function daemonTos(): boolean {
 
 async function pinFor(label: string): Promise<Pin> {
   const checkoutSha = outputOf('git', ['-C', ROOT, 'rev-parse', 'HEAD'])
-  const pinSha = process.env.P3047_PIN_SHA ?? '942a0397dd0d30614d5424061a27cdc95c8a460e'
+  const pinSha = process.env.P3047_PIN_SHA ?? 'ad02520c22a9cba42db7fc1dd8c44620f29f4509'
   const server = pidInfo(join(BASE, 'server.pid'))
   const daemon = pidInfo(join(BASE, 'daemon.pid'))
   const serverSha = existsSync(join(BASE, 'server.sha')) ? readFileSync(join(BASE, 'server.sha'), 'utf8').trim() : ''
@@ -190,6 +190,11 @@ async function pinFor(label: string): Promise<Pin> {
     appsWebIdentical: reuse.status === 0,
   }
   const isolatedCred = join(AGENT_HOME, '.claude/.credentials.json')
+  const credentialPosture = !existsSync(isolatedCred)
+    ? 'absent'
+    : lstatSync(isolatedCred).isSymbolicLink()
+      ? 'symlink'
+      : 'COPY (refused)'
   const pin: Pin = {
     cell: label,
     at: stamp(),
@@ -210,15 +215,19 @@ async function pinFor(label: string): Promise<Pin> {
     freeMemory: memInfo(),
     rootFreeKiB: rootFreeKiB(),
     load1m: loadavg()[0],
-    credential: credentialMeta(),
+    credential: { ...credentialMeta(), posture: credentialPosture },
     forbiddenOverrides,
   }
   mkdirSync(PIN_DIR, { recursive: true })
   writeFileSync(join(PIN_DIR, driver + '-' + label.toLowerCase() + '.json'), JSON.stringify(pin, null, 2) + '\n')
   const overrides = Object.entries(forbiddenOverrides).filter(([, value]) => value !== null)
   const webOk = webMatchesHead || reuse.status === 0
-  if (existsSync(isolatedCred)) {
-    throw new Error('isolated credential present; no-copy fence ' + isolatedCred)
+  // The fence is against a COPY, not against a credential. A symlink cannot go
+  // stale, so it is the posture the coordinator authorised; a regular file here
+  // would be a copy this rig never makes. The posture goes in the pin either way,
+  // because a reader must be able to tell which arm a row came from.
+  if (existsSync(isolatedCred) && !lstatSync(isolatedCred).isSymbolicLink()) {
+    throw new Error('isolated credential present as a REGULAR FILE; this rig never copies: ' + isolatedCred)
   }
   if (
     pinSha.length !== 40 ||

@@ -12,7 +12,7 @@ export PODIUM_PORT="$PODIUM_PORT"
 export PODIUM_HOST="$PODIUM_HOST"
 export PODIUM_DRIVE_BASE="$PODIUM_DRIVE_BASE"
 export P3047_STATE_ROOT="$PODIUM_RIG_STATE_ROOT"
-export P3047_PIN_SHA="${P3047_PIN_SHA:-942a0397dd0d30614d5424061a27cdc95c8a460e}"
+export P3047_PIN_SHA="${P3047_PIN_SHA:-ad02520c22a9cba42db7fc1dd8c44620f29f4509}"
 unset PODIUM_WEB_DIR PODIUM_STATE_DIR PODIUM_AGENT_HOME ABDUCO_SOCKET_DIR TMUX_TMPDIR
 cd "$PODIUM_DRIVE_REPO"
 echo "=== $(date --iso-8601=seconds) $DRIVER $CELL ==="
@@ -21,9 +21,13 @@ free -h | awk 'NR==2{print}'
 uptime
 stat -c 'live_cred_mtime=%y size=%s' "$HOME/.claude/.credentials.json"
 ISOLATED="$PODIUM_RIG_STATE_ROOT/agent-home/.claude/.credentials.json"
-if [ -e "$ISOLATED" ]; then
-  echo "refusing: isolated credential present at $ISOLATED" >&2
+if [ -e "$ISOLATED" ] && [ ! -L "$ISOLATED" ]; then
+  echo "refusing: isolated credential present AND NOT A SYMLINK at $ISOLATED" >&2
   exit 2
 fi
-echo "isolated_credential=absent"
+if [ -L "$ISOLATED" ]; then
+  echo "isolated_credential=symlink -> $(readlink "$ISOLATED")"
+else
+  echo "isolated_credential=absent"
+fi
 bun --conditions=@podium/source "$HERE/drive.ts" "$CELL" "$DRIVER"
