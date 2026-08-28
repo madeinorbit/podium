@@ -149,7 +149,6 @@ import hashlib
 import json
 import re
 import sys
-from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 site = Path(sys.argv[1])
@@ -175,7 +174,7 @@ except (OSError, json.JSONDecodeError) as error:
     reject(f'has invalid build provenance JSON: {error}')
 if not isinstance(stamp, dict) or not isinstance(manifest, dict):
     reject('build stamp or provenance manifest is not an object')
-if manifest.get('manifestVersion') != 1:
+if manifest.get('manifestVersion') != 2:
     reject(f'has unsupported build provenance manifestVersion {manifest.get("manifestVersion")!r}')
 if manifest.get('buildStamp') != stamp:
     reject('build provenance stamp does not exactly match podium-build.json')
@@ -187,12 +186,8 @@ if not re.fullmatch(r'[0-9a-f]{16}', stamp.get('wireSchemaDigest', '')):
     reject('build stamp has no 16-hex wireSchemaDigest')
 if not re.fullmatch(r'bundle\+(?:[A-Za-z0-9_-]{8}|[0-9a-f]{32})', stamp.get('bundleVersion', '')):
     reject('build stamp has no valid bundleVersion')
-try:
-    built_at = datetime.fromisoformat(stamp.get('builtAt', '').replace('Z', '+00:00'))
-    if built_at.tzinfo is None:
-        reject('build stamp builtAt has no timezone')
-except (AttributeError, TypeError, ValueError):
-    reject('build stamp builtAt is not an ISO-8601 timestamp')
+if 'builtAt' in stamp:
+    reject('build stamp carries a per-run builtAt, so this dist is not reproducible')
 
 source_commit = manifest.get('sourceCommit', '')
 if not isinstance(source_commit, str) or not re.fullmatch(r'[0-9a-f]{7,40}', source_commit):
@@ -207,6 +202,9 @@ if not release_commit.startswith(source_commit):
 files = manifest.get('files')
 if not isinstance(files, dict) or not files:
     reject('build provenance has no file inventory')
+file_count = manifest.get('fileCount')
+if not isinstance(file_count, int) or isinstance(file_count, bool) or file_count != len(files):
+    reject(f'build provenance fileCount {file_count!r} disagrees with its inventory of {len(files)}')
 for name, digest in files.items():
     path = PurePosixPath(name) if isinstance(name, str) else None
     if (

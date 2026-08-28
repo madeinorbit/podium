@@ -15,8 +15,13 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { clientBuildRootDigestFromSites } from './client-build-root-digest'
-import { CLIENT_BUILD_MANIFEST_FILE, type ClientBuildManifest } from './write-web-build-stamp'
+import {
+  CLIENT_BUILD_MANIFEST_FILE,
+  clientBuildRootDigestFromSites,
+} from './client-build-root-digest'
+// Type-only: write-web-build-stamp imports the protocol (and through it @podium/model),
+// which a packaging entry point spawned from a scratch cwd must not have to resolve.
+import type { ClientBuildManifest } from './write-web-build-stamp'
 
 /** From today's builds (510 web / 42 mobile). Revisit when a genuine build trips it. */
 export const CLIENT_FILE_FLOOR = { web: 400, mobile: 30 } as const
