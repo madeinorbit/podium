@@ -90,3 +90,9 @@ Codex was not re-driven below the same current-tip disk floor, Claude was not
 started without credentials in the standard isolated rig, and Grok remains
 excluded while POD-2980-D owns its active work. These are remaining admission
 gaps, not product-runtime edits.
+
+### A1c — Codex headless arm
+
+The current-tip Codex arm was refused before bring-up at the same disk gate:
+root free space was `5228788 KiB`, below the `5242880 KiB` 5 GiB floor. See
+`readings/a1c-codex-floor-blocked-2e1648.json`.
