@@ -5,8 +5,13 @@ empty session. `sessions.read` answered `items: []`; `sessions.recap` said *"No
 transcript items found for this session."* The session stream — what a viewer
 watches live — had the whole thing.
 
-Driven on `p3057n`, a rig of this issue's own, because `p3047n` was up and being
-driven by the acceptance session at the same moment.
+Driven on `p3057n`, a NAMED instance and a rig of this issue's own, because
+`p3047n` was up and being driven by the acceptance session at the same moment.
+The instance is what makes the defect reachable at all: only a named instance
+has an agent home distinct from the daemon's, so on the default instance reader
+and child already agree and there is nothing to split. Both arms ran there —
+`state=/home/mgw/.local/state/podium/p3057n`, `PODIUM_INSTANCE=p3057n`, and each
+reading records the agent home it resolved against.
 
 ## The two arms
 
@@ -98,9 +103,29 @@ the operator's real file. That is not a regression of this rig — before the fi
 the child ran IN the operator home and already wrote there — but it is the
 reason the choice is a symlink to the real file rather than a second copy of it.
 
+## The rig posture, and how to read a red taken on it
+
+**This rig's agent home is LOGGED IN, by symlink.** POD-3047's is credential-free
+by its own brief. That difference changes what a red means once the child really
+runs in the instance home, so it is stated here rather than left to be inferred:
+a BLOCKED-on-auth cell on a no-copy rig is a condition never validly created,
+not a product failure. No token value is printed or committed anywhere in this
+directory; the credential appears only as a path.
+
 ## What the tests assert
 
-Two halves of one chain, so neither can pass by restating the other:
+**First, the failure mode they are built against.** A test asserting *"the claude
+child runs under the instance-owned HOME"* already existed and PASSED throughout
+this defect — `durable-headless.test.ts:292`. It was correct about the spawn it
+pinned, the durable headless one, and that is simply not the spawn an embedded
+`claude-sdk` session uses. Green on both sides of a broken product, because
+nothing tied an assertion to the site that was broken.
+
+That is also true of a helper test taken alone: asserting `claudeSdkHostEnv`
+composes the right environment proves nothing about whether `spawnDefaultHost`
+still calls it. Measured, not assumed — see the fourth mutation below.
+
+Three claims, each pinned somewhere a different mistake would show:
 
 - `runtime/claude-sdk-driver.test.ts` — the instance home reaches the turn spec
   the child is built from, and OUTRANKS a spawn frame that names another home
@@ -110,6 +135,11 @@ Two halves of one chain, so neither can pass by restating the other:
   prints the `HOME` and `CLAUDE_CONFIG_DIR` it actually ran under. The claim is
   about a process's environment, and a test that re-read the merge expression
   would be asserting the fix against itself.
+- `claude-sdk-spawn-site.test.ts` — the CALL SITE, not a helper it happens to
+  use today: the real `runClaudeSdkChildTurn` with no injected host,
+  `node:child_process.spawn` intercepted, and the assertion made on the options
+  that spawn actually received. Its second case holds the default instance
+  still: no home on the spec, no home invented.
 
 Mutations, each applied alone and reverted after:
 
@@ -118,6 +148,7 @@ Mutations, each applied alone and reverted after:
 | restore the pre-fix `env: { ...input.spec.env }` | RED — `runs the SDK child under the instance agent home, over the spawn frame env` |
 | let the spawn frame win (`{ ...instanceEnv, ...input.spec.env }`) | RED — `expected { HOME: '/home/operator', … }` |
 | strip `HOME` in `claudeSdkHostEnv` | RED — `expected 'undefined\|…' to be '/state/p3057/agent-home\|…'` |
+| the call site stops routing the spec env (`env: { ...process.env, ...launch.env }` in `spawnDefaultHost`) | RED — `expected '/home/mgw' to be '/state/p3057/agent-home'`, from the spawn-site test **while the `claudeSdkHostEnv` test stayed green**. That green is the point: it reproduces, against my own earlier test, exactly the way this defect survived a passing suite |
 
 ## Lanes
 
@@ -127,14 +158,15 @@ taken without saying which it was is not comparable to one that was.
 
 **Typecheck** — `bun run typecheck`: 25 successful, 25 total.
 
-**Focused** — `runtime/claude-sdk-driver.test.ts` + `claude-sdk-client.test.ts`,
-which is where all three new tests live, the real-child spawn among them
-(*spawns the host under the HOME the turn spec names* runs an actual process and
-reads its `HOME`/`CLAUDE_CONFIG_DIR` back off stdout):
+**Focused** — `runtime/claude-sdk-driver.test.ts`, `claude-sdk-client.test.ts`
+and `claude-sdk-spawn-site.test.ts`, where all five new tests live: the
+real-child spawn (*spawns the host under the HOME the turn spec names*, which
+runs an actual process and reads its `HOME`/`CLAUDE_CONFIG_DIR` back off stdout)
+and the intercepted real spawn call among them.
 
 ```
- Test Files  2 passed (2)
-      Tests  26 passed (26)
+ Test Files  3 passed (3)
+      Tests  28 passed (28)
 ```
 
 Re-run unchanged after rebasing onto the coordinator tip.
