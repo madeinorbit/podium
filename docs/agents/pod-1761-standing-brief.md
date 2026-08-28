@@ -1808,3 +1808,38 @@ a transcriber is reconstructing both.
 If rows exist, read them, and only add what they are missing. If they are wrong,
 correct them in place and say so — do not append a competing row. And when the
 drive's row and yours disagree on a pin, **the drive's is the one to trust.**
+
+### `stop` frees the worktree and DISCARDS uncommitted work
+
+`podium issue stop` reports the untracked files it is about to lose — as a
+`??` line in its output — and then frees the worktree anyway. I stopped
+POD-3046 and its `docs/evidence/pod-3046/` went with it, uncommitted and
+unrecoverable. The branch is kept, so anything COMMITTED survives; nothing else
+does.
+
+**Before stopping any session:**
+
+    git -C /home/mgw/src/podium/.worktrees/issue-<id>-* status --porcelain
+
+If that prints anything, commit it to the child branch first, or copy it out.
+A session that has been working for an hour and has not committed is exactly
+the one whose work you are about to destroy.
+
+### Do not write an issue ref before the create returns it
+
+Twice I wrote a predicted issue number into durable text before running
+`podium issue create`, and both times the real number differed:
+
+- Decision 30 says "POD-3045 owns the fix". I created **POD-3046**.
+- My reply to POD-3043 said "POD-3047 owns the live A3 drive". I created
+  **POD-3048**, and POD-3047 was a real, unrelated, active issue.
+
+**A wrong ref does not look wrong.** It points at a real issue someone else is
+working, so neither end sees a broken link — the reader just acts on the wrong
+thing. Create first, then paste the number the tool gave you.
+
+And **before filing a fix issue at all, check whether the defect is already
+owned.** POD-3045 already existed and already had the fix. I filed POD-3046 for
+the same defect and restarted it three times when its sessions produced nothing.
+
+    podium issue ready ; podium issue show <parent> --json   # scan open children
