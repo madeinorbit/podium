@@ -67,16 +67,18 @@ import {
  * It is the spec's own §3.1 example order, and each adjacency has a reason:
  *
  *  - `prepare` first because everything downstream consumes what it packs. In
- *    the development flow `requestDestBundle()` is an EXPLICIT build, and an
- *    explicit build rebuilds `apps/web/dist` before it packs the tarball
- *    (`decideWebDist`) — so preparing is also what makes the website current.
+ *    the development flow `requestDestBundle()` is an EXPLICIT build.
  *  - `machines` before `server` because this server restarting is what ends this
  *    process. The old choreography expressed the same ordering as a 250 ms poll
  *    loop with a 60-minute backstop; here it is simply the order of the plan.
  *  - `web` last because on an INSTALLED server the served dist arrives with the
- *    server's own swap, and in the development flow `prepare` has already built
- *    it — so by the time the step is reached its reality check usually passes
- *    without acting, which is exactly what a reality-first runner should do.
+ *    server's own swap. In the development flow `prepare` no longer makes the
+ *    LIVE website current as a side effect — since POD-3054 the release build
+ *    runs entirely inside the approved commit's snapshot and never writes
+ *    `apps/web/dist` — so this step does that work itself, where an operator has
+ *    already confirmed the update and a restart follows. It is not a second
+ *    client build: `prepare` populated the Turbo cache for this commit's clients,
+ *    so the rebuild here restores rather than compiles.
  *
  * WHAT DOES NOT LIVE HERE: the wave planner, the grant protocol, the dev
  * publisher, the daemon swap. Those are the muscle and they are untouched. This

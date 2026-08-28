@@ -7,7 +7,6 @@ import {
   createDevWebBuilder,
   DEV_WEB_BUILD_STEPS,
   type DevWebBuildStamp,
-  decideWebDist,
   phoneDistBehindHead,
   readDevPhoneDist,
   webDistMatchesHead,
@@ -45,28 +44,6 @@ function builder(opts: {
 const temps: string[] = []
 afterAll(() => {
   for (const dir of temps) rmSync(dir, { recursive: true, force: true })
-})
-
-describe('when the served website may be rewritten', () => {
-  it('does nothing when the website is already this commit', () => {
-    expect(decideWebDist({ current: true, explicit: false })).toBe('ready')
-    expect(decideWebDist({ current: true, explicit: true })).toBe('ready')
-  })
-
-  it('REFUSES rather than rebuilds on a request that does not move the server', () => {
-    // The regression this exists to prevent: `/version` used to ask for a
-    // build on every read while this process serves apps/web/dist to browsers
-    // and is still running the commit it booted with. Rebuilding there marched the
-    // page ahead of the server — measured live, one server on dev+e10795a
-    // rebuilt the website six times for five commits it was not running, and
-    // every open tab got the out-of-sync banner.
-    expect(decideWebDist({ current: false, explicit: false })).toBe('refuse')
-  })
-
-  it('rebuilds when the request is the server arriving at that commit', () => {
-    // Start-up, and an operator update that restarts the server straight after.
-    expect(decideWebDist({ current: false, explicit: true })).toBe('rebuild')
-  })
 })
 
 describe('development web build', () => {

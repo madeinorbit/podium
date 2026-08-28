@@ -15,37 +15,33 @@
  * refused on the web-dist stamp, and because `/version` re-asks every 60 s a
  * stale dist spun that loop — 29 attempts in one hour on 2026-08-13 alone.
  *
- * Here the web build is a STEP the publisher awaits — on the requests where it
- * may run at all, see below — so "the dist is at HEAD" is established by the
- * same code path that then depends on it, rather than hoped for. Both steps run
- * in the batch tier (see `build-scope.ts`), which the unit never did — it sat at
- * the systemd default of CPUWeight=100 and outranked every agent session 2:1.
+ * WHAT THIS BUILDER IS FOR NOW, WHICH IS NARROWER THAN IT ONCE WAS (POD-3054).
  *
- * WHEN IT MAY RUN, which is narrower than "whenever the website is stale".
+ * The RELEASE build no longer comes through here. `scripts/release.ts
+ * --prepare-cross` — the one coordinator the development publisher and the CI
+ * release job both run — builds or restores web and mobile through the Turbo lane
+ * inside the approved commit's snapshot worktree, and packages every platform from
+ * that one output. It never touches the live `apps/web/dist`.
  *
- * The server SERVES this dist to browsers AND desktop webviews (all-in-one /
- * client / daemon shells load the connected server's origin — updater-convergence
- * spec §2.1 / gap 22). Writing the dist changes what every open consumer will
- * load next — while the server itself keeps running the commit it booted with.
- * The first version of this sequenced the web build on the `/version` path, which
- * used to ask for a build on every read: the website was then rebuilt each time
- * main moved and the page ran AHEAD of the server, wire schema digests disagreed,
- * and the out-of-sync banner appeared on a host where nothing automatically
- * restarts the server (one server on dev+e10795a was measured rebuilding the
- * website six times for five commits it was not running).
+ * That is what retired the refuse/rebuild decision this file used to own. The
+ * server SERVES this dist to browsers AND desktop webviews (all-in-one / client /
+ * daemon shells load the connected server's origin — updater-convergence spec §2.1
+ * / gap 22), so writing it changes what every open consumer loads next while the
+ * server keeps running the commit it booted with. The first version of this
+ * sequenced the web build on the `/version` path, which asked for a build on every
+ * read: the website was rebuilt each time main moved, the page ran AHEAD of the
+ * server, wire schema digests disagreed, and the out-of-sync banner appeared on a
+ * host where nothing automatically restarts the server (one server on dev+e10795a
+ * was measured rebuilding the website six times for five commits it was not
+ * running). Packing a release no longer asks, so there is nothing left to refuse.
  *
- * So the website only moves during an operator-driven update / restart. On the
- * polling and start-up paths a stale website merely leaves the identity target
- * unpacked — see `prepareWebDist` in `dev-bundle.ts`. A page ahead of its server
- * costs every open browser tab and every desktop webview; waiting for confirmation
- * costs no CPU. Desktop consumers do not widen that blast radius: they join
- * browsers as readers of the same served dist.
+ * What remains is the LIVE dist, and only an operator moves it. Both steps run in
+ * the batch tier (see `build-scope.ts`), which the unit never did — it sat at the
+ * systemd default of CPUWeight=100 and outranked every agent session 2:1.
  *
  * WHAT COVERS WHAT THE UNIT COVERED:
  * - Boot (`WantedBy=default.target`): observes the existing dist and starts no
  *   build. A watchdog recovery must not turn a stall into a compile storm.
- * - Redeploy: the confirmed operation prepares the dist before it requests the
- *   server restart.
  * - The Update panel's "rebuild the website" (`createSourceWebRebuildRequest`):
  *   `requestRebuild()` below. It rebuilds for a stale PHONE export as readily as
  *   for a stale desktop one — see `phoneDistBehindHead` (POD-1989).
@@ -127,23 +123,6 @@ export function readDevPhoneDist(root: string): ServedWebIdentity {
   return servedWebIdentity(join(root, 'apps', 'mobile', 'dist'))
 }
 
-/**
- * WHETHER A BUILD REQUEST MAY WRITE THE SERVED WEBSITE.
- *
- * A table rather than a judgement at the call site, because the wrong answer is
- * invisible on this machine and catastrophic in the browser: `rebuild` on a
- * polling request is what put the page ahead of the server (see the note at the
- * top of this file). `refuse` is not a failure of the website — it is a refusal
- * to pack a TARBALL for a commit this server is not running, and it heals the
- * moment something restarts it.
- */
-export type DevWebDistDecision = 'ready' | 'rebuild' | 'refuse'
-
-export function decideWebDist(input: { current: boolean; explicit: boolean }): DevWebDistDecision {
-  if (input.current) return 'ready'
-  return input.explicit ? 'rebuild' : 'refuse'
-}
-
 export function readDevWebStamp(root: string): DevWebBuildStamp | null {
   try {
     const raw = JSON.parse(
@@ -166,14 +145,6 @@ export type DevWebBuildState =
   | { state: 'failed'; headSha: string; reason: string }
 
 export interface DevWebBuilder {
-  /**
-   * Is the served website already this commit's — BOTH halves? Two small file
-   * reads, so it is safe to ask on every `/version`. The caller decides what a
-   * NO means (see `decideWebDist`); it must be this same question the build
-   * itself asks, or a refusal and a rebuild would disagree about what "current"
-   * is.
-   */
-  isCurrent(headSha: string, appVersion?: string): boolean
   /**
    * Resolves once the website — `apps/web/dist` AND the phone export beside it
    * — is stamped at `headSha`, building it if it is not. Concurrent callers
@@ -333,7 +304,6 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
   }
 
   return {
-    isCurrent: websiteAtHead,
     ensure,
     requestRebuild: () => {
       const start = async (): Promise<void> => {

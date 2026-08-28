@@ -1506,107 +1506,6 @@ describe('buildDevBundle', () => {
     expect((await publisher.target())?.artifacts.headless).toBeUndefined()
   })
 
-  it('settles the website before the compile that requires it', async () => {
-    // The compile refuses a dev+<sha> tarball whose web half was built from
-    // another commit. While producing that dist belonged to a separate systemd
-    // unit, the refusal was a race — 28 of 112 attempts in the week to
-    // 2026-08-13 (POD-1985). Sequencing it here is what removes the race.
-    const { bytes, signature } = signedFixture()
-    const order: string[] = []
-    const publisher = createDevBundlePublisher({
-      ...publisherSeams(),
-      sourceCheckoutAvailable: true,
-      readSourceStatus: () => '',
-      readIgnoredSourceInputs: () => '',
-      headSha: () => 'aaaaaaa',
-      fs: stubFs(),
-      lock: lockFixture([]),
-      prepareWebDist: async (headSha) => {
-        order.push('web:' + headSha)
-      },
-      spawnBuild: async ({ version, artifacts }) => {
-        order.push('bundle')
-        return artifacts.map(({ platform }) => ({
-          platform,
-          path: '/stage/' + version,
-          signature,
-        }))
-      },
-    })
-
-    await publisher.requestBuild(true)
-    expect(order).toEqual(['web:aaaaaaa', 'bundle'])
-  })
-
-  it('tells the website step whether this request may move the served dist', async () => {
-    // THE REGRESSION THIS PINS. `/version` used to ask for a build on every
-    // read while the server serves apps/web/dist to browsers and is still
-    // running the commit it booted with. A first cut rebuilt the website there, so
-    // the page marched ahead of the server and every open tab got the
-    // out-of-sync banner. `explicit` is what lets the web step refuse instead.
-    const { bytes, signature } = signedFixture()
-    const seen: boolean[] = []
-    let builds = 0
-    const publisher = createDevBundlePublisher({
-      ...publisherSeams(),
-      sourceCheckoutAvailable: true,
-      readSourceStatus: () => '',
-      readIgnoredSourceInputs: () => '',
-      headSha: () => 'aaaaaaa',
-      fs: stubFs(),
-      lock: lockFixture([]),
-      debounceMs: 0,
-      // The wiring's real policy for a stale dist: refuse on a poll, rebuild
-      // on a request that is the server arriving at this commit.
-      prepareWebDist: async (_headSha, explicit) => {
-        seen.push(explicit)
-        if (!explicit) throw new Error('the website has not been built for this commit')
-      },
-      spawnBuild: async ({ version, artifacts }) => {
-        builds++
-        return artifacts.map(({ platform }) => ({
-          platform,
-          path: '/stage/' + version,
-          signature,
-        }))
-      },
-    })
-
-    await expect(publisher.requestBuild(false)).rejects.toThrow('has not been built')
-    expect(seen).toEqual([false])
-    // A refused poll costs nothing and leaves the served website alone.
-    expect(builds).toBe(0)
-
-    await publisher.requestBuild(true)
-    expect(seen).toEqual([false, true])
-    expect(builds).toBe(1)
-  })
-
-  it('does not compile when the website could not be settled', async () => {
-    let builds = 0
-    const publisher = createDevBundlePublisher({
-      ...publisherSeams(),
-      sourceCheckoutAvailable: true,
-      readSourceStatus: () => '',
-      readIgnoredSourceInputs: () => '',
-      headSha: () => 'aaaaaaa',
-      fs: stubFs(),
-      lock: lockFixture([]),
-      prepareWebDist: () => Promise.reject(new Error('vite blew up')),
-      spawnBuild: async () => {
-        builds++
-      },
-    })
-
-    await expect(publisher.requestBuild(true)).rejects.toThrow('vite blew up')
-    // The whole point of hoisting the precondition: nothing expensive runs.
-    expect(builds).toBe(0)
-    expect(await publisher.readiness()).toMatchObject({
-      state: 'failed',
-      headSha: 'aaaaaaa',
-    })
-  })
-
   it('refuses to build or restore anything from a dirty checkout', async () => {
     const { bytes, signature, signingKey } = signedFixture()
     const store = published({
@@ -2185,7 +2084,8 @@ describe('the dev feed manifest the publisher writes', () => {
       commits: [{ sha: headSha, summary: `Commit ${headSha}` }],
       addedMigrations: [],
     }),
-    prepareWebDist?: (headSha: string, explicit: boolean) => Promise<void>,
+    /** Lets a test hold the build open and observe the publisher mid-flight. */
+    holdBuild?: () => Promise<void>,
     fixture = signedFixture(),
     shells: Partial<Record<DesktopFeedChannel, unknown>> = {
       dev: devShellManifest,
@@ -2205,7 +2105,6 @@ describe('the dev feed manifest the publisher writes', () => {
       proposalRunningSha: '1111111',
       proposalFacts,
       snapshotBuild: async (_approvedSha, build) => build('/repo/podium-snapshot'),
-      ...(prepareWebDist ? { prepareWebDist } : {}),
       platform: 'linux-x86_64',
       signingKey,
       ...(timing ? { timing } : {}),
@@ -2221,6 +2120,7 @@ describe('the dev feed manifest the publisher writes', () => {
       },
       now: () => Date.UTC(2026, 7, 12, 18, 20, 15),
       spawnBuild: async ({ artifacts }) => {
+        await holdBuild?.()
         for (const { artifactPath } of artifacts) {
           store.blobs.set(artifactPath, bytes)
           store.text.set(`${artifactPath}.sig`, `${signature}\n`)
@@ -2364,7 +2264,6 @@ describe('the dev feed manifest the publisher writes', () => {
       }),
       snapshotBuild: (approvedSha, build) =>
         withDevBuildSnapshot({ sourceRoot: root, approvedSha, install: async () => {} }, build),
-      prepareWebDist: async () => {},
       signingKey,
       fs: store.fs,
       lock: lockFixture([]),

@@ -908,10 +908,10 @@ describe('updates tRPC', () => {
     /**
      * ORDER REVERSED, DELIBERATELY (POD-2098). The old choreography rebuilt the
      * website first and then packed around it. The operation packs first,
-     * because an EXPLICIT pack rebuilds `apps/web/dist` on its way to the
-     * tarball (`decideWebDist`) — so the website is a consequence of preparing,
-     * not a separate round, and the `web` step's reality check then usually
-     * passes without acting. One build instead of two.
+     * because everything downstream consumes what `prepare` packs. Since
+     * POD-3054 the pack runs entirely inside the approved commit's snapshot and
+     * does not write the live `apps/web/dist`; the `web` step does that, last,
+     * restoring this commit's clients from the cache the pack just filled.
      */
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     // Nothing is granted while the target is still a bare identity: the wave

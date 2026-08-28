@@ -1878,30 +1878,6 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * the length of a compile has to be told, and this is the telling.
    */
   onAdmitted?: () => void
-  /**
-   * Settle `apps/web/dist` before anything expensive happens — and REFUSE
-   * rather than rebuild it when this request is not explicit.
-   *
-   * That asymmetry is the whole point, and it was learned the hard way. The
-   * compile needs the dist stamped at this commit, so the obvious move is
-   * "build it whenever it is stale". But this server SERVES that dist to
-   * browsers, and `/version` used to ask for a build on every read — so
-   * building on that path rebuilt the website every time main moved, while the
-   * server itself stayed on the commit it booted with. The page then ran AHEAD
-   * of the server, their wire schema digests disagreed, and every open tab got the
-   * out-of-sync banner. Observed live: one server on dev+e10795a rebuilt the
-   * website six times for five commits it was not running.
-   *
-   * So the dist may only move during an operator-driven update, which restarts
-   * the server straight after. Polling and start-up leave it alone: an unpacked
-   * identity target costs nothing, a broken page costs every open tab.
-   */
-  prepareWebDist?: (
-    headSha: string,
-    explicit: boolean,
-    buildRoot: string,
-    releaseVersion?: string,
-  ) => Promise<void>
   /** Approved builds use a detached worktree; tests may supply an equivalent snapshot. */
   snapshotBuild?: DevBuildSnapshot
   /** Git proposal facts seam; production reads the checkout relative to the running server. */
@@ -2107,22 +2083,17 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       const platforms = devBuildPlatforms(deps.fleetPlatforms?.())
       const liveRoot = deps.root ?? SOURCE_ROOT
       const buildFrom = async (buildRoot: string): Promise<BuiltDevBundle> => {
-        // The website is built INSIDE the same immutable snapshot the platform
-        // compiles read. Nothing in an approved release reads the live checkout
-        // after admission.
-        await timeReleaseBuildTask(
-          {
-            phase: 'web-packaging',
-            task: 'prepare-web-dist',
-            channel: 'dev',
-            ...(approved?.version ? { version: approved.version } : {}),
-            sourceSha: headSha,
-          },
-          () =>
-            deps.prepareWebDist?.(headSha, explicit, buildRoot, approved?.version) ??
-            Promise.resolve(),
-          deps.timing,
-        )
+        // The clients are no longer built here. The release child owns them: it builds
+        // or RESTORES web and mobile through the Turbo lane inside the snapshot, once
+        // for the whole publish, and packages every platform from that one output.
+        //
+        // That also retires the refuse/rebuild asymmetry this used to need. The old
+        // step wrote the LIVE `apps/web/dist`, which this server serves to browsers, so
+        // a `/version` poll asking for a build marched the page ahead of the server it
+        // was talking to — one server on dev+e10795a rebuilt the website six times for
+        // five commits it was not running. The release build touches the live dist not
+        // at all, so a poll has nothing to refuse. The Update panel's explicit "rebuild
+        // the website" still owns live-dist rebuilds, through `createDevWebBuilder`.
         const build = () =>
           buildDevBundle({
             ...deps,
