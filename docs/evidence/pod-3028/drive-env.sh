@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PODIUM_INSTANCE=p3028q-8280953
+export PODIUM_DRIVE_BASE=/tmp/pod-3028-20260828T0953
+export PODIUM_PORT=33028
+export PODIUM_HOOK_PORT=47028
+export PODIUM_AGENT_RELAY_PORT=47029
+export PODIUM_HOST=127.0.0.1
+export PODIUM_PASSWORD=p3028-quota
+export PODIUM_DRIVE_REPO=/home/mgw/src/podium/.worktrees/issue-3028-claude-quota-reset-drive
+
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/rig-path-guard.sh"
+
+unset PODIUM_SESSION_ID PODIUM_SESSION_INSTANCE PODIUM_SESSION_RELAY PODIUM_AGENT_RELAY
+unset PODIUM_HOME PODIUM_WEB_DIR CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_SESSION_ID
+unset CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH
+unset PODIUM_RUNTIME_DRIVER PODIUM_RUNTIME_CONTRACT
+export PODIUM_NO_RELAY=1
+export PATH="/home/mgw/.bun/bin:/home/mgw/.local/bin:$PATH"
