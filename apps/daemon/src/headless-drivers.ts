@@ -121,6 +121,45 @@ export function headlessChildEnv(
   return env
 }
 
+/**
+ * The explicit overlay a headless turn hands {@link headlessChildEnv}.
+ *
+ * Three inputs, and the order between them is load-bearing:
+ *  - `commandEnv` — the machine's recovered command environment. Its `HOME` is
+ *    `commandEnvironment.machineHome`, the OPERATOR account home.
+ *  - `specEnv` — the instance-owned child environment (control/headless.ts).
+ *    It is built ON TOP of `commandEnv`, and the keys where the two differ are
+ *    the ones the instance decided: `HOME` (the named instance's agent home),
+ *    the agent-relay routing, the Podium CLI binding.
+ *  - `execEnv` — what the harness adapter bound for this exact invocation.
+ *    `bindHarnessExec` folds `commandEnv` into it (executable-runtime.ts
+ *    `effectiveEnv`), so it too carries the machine `HOME` alongside genuinely
+ *    per-turn keys like codex's MCP bearer (POD-1021).
+ *
+ * Letting `execEnv` win outright put the machine `HOME` back on the child. On a
+ * named instance the harness then wrote its transcript under the operator
+ * account home while the reader resolved the file under the instance's agent
+ * home (control/transcripts.ts `sourceForRead`), and every `sessions.read`
+ * answered empty — the whole conversation, prompt and answer included, not one
+ * item type (POD-3059). `claude-code` declares no `instanceHome` selector, so
+ * the trailing {@link harnessInstanceEnv} layer cannot catch it: for that
+ * harness `HOME` alone decides where the record lands.
+ *
+ * So the adapter contributes the keys the instance did not decide, and never
+ * overrides the ones it did.
+ */
+export function headlessSpawnEnv(input: {
+  specEnv?: Readonly<Record<string, string>>
+  execEnv?: Readonly<Record<string, string>>
+  commandEnv: Readonly<Record<string, string>>
+}): Record<string, string> {
+  const base = input.specEnv ?? input.commandEnv
+  const instanceOwned = Object.entries(base).filter(
+    ([key, value]) => input.commandEnv[key] !== value,
+  )
+  return { ...base, ...input.execEnv, ...Object.fromEntries(instanceOwned) }
+}
+
 /** Pure argv builder for the child-process drivers (codex/grok/opencode/cursor)
  *  so the exact invocation shape is unit-testable. `sessionId` is the pinned
  *  harness session id (pre-minted for grok/cursor; absent on a codex/opencode
@@ -240,9 +279,11 @@ function runCodexTurn(
     args,
     spec.cwd,
     spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
-    // codex's MCP bearer token rides an env var (POD-1021), merged over the
-    // turn's base env.
-    { ...spec.env, ...execEnv },
+    headlessSpawnEnv({
+      ...(spec.env ? { specEnv: spec.env } : {}),
+      ...(execEnv ? { execEnv } : {}),
+      commandEnv: snapshot.commandEnvironment.env,
+    }),
     async (child) => {
       const stderrTail = collectStderr(child)
       let threadId = spec.resumeValue ?? ''

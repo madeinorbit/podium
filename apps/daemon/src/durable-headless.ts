@@ -38,6 +38,7 @@ import {
   buildHeadlessExec,
   headlessChildEnv,
   type HeadlessEmit,
+  headlessSpawnEnv,
   HeadlessTurnError,
   type HeadlessTurnHandle,
   type HeadlessTurnOutcome,
@@ -254,10 +255,18 @@ function prepareInvocation(
   if (headless.driver === 'claude-sdk') {
     if (spec.mcpConfig && spec.toolPolicy !== 'none') writeAtomic(paths.mcp, spec.mcpConfig)
     const exec = buildClaudeDurableExec(spec, paths)
+    // NO `env` here. `spec.env` ALREADY carries this snapshot's command
+    // environment as its base layer (control/headless.ts builds it with
+    // `spawnEnv({ sessionEnv: snapshot.commandEnvironment.env, podiumEnv })`),
+    // with the instance-owned keys on top. Returning it again made it adapter
+    // env, and adapter env won at the spawn — so `HOME` reverted from the
+    // instance's agent home to `commandEnvironment.machineHome` and the SDK
+    // child wrote its transcript where the reader does not look (POD-3059).
+    // What belongs here is adapter-SPECIFIC env only, as codex's per-turn MCP
+    // bearer below is.
     return {
       ...exec,
       cmd: resolvedHarnessPath(snapshot, 'claude-code'),
-      env: { ...snapshot.commandEnvironment.env },
       knownSessionId: spec.resumeValue ?? spec.sessionUuid,
     }
   }
@@ -589,8 +598,13 @@ export function runDurableHeadlessTurn(
   const label = spec.durableLabel ?? `podium-${sessionId}`
   const { knownSessionId, env: execEnv } = writeRunner(spec, paths, snapshot)
   const spawnEnv = {
-    ...spec.env,
-    ...execEnv,
+    ...headlessSpawnEnv({
+      ...(spec.env ? { specEnv: spec.env } : {}),
+      ...(execEnv ? { execEnv } : {}),
+      commandEnv: snapshot.commandEnvironment.env,
+    }),
+    // Stays LAST: the harness-specific state selector must follow the instance
+    // home even against everything above it.
     ...harnessInstanceEnv(spec.agent, spec.env?.HOME),
   }
   let attachment: AgentSession | undefined

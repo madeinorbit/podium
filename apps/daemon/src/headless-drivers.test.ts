@@ -1,7 +1,12 @@
 import { asAccountId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildClaudeSdkOptions } from './claude-sdk-host.js'
-import { buildHeadlessExec, headlessChildEnv, runHeadlessTurn } from './headless-drivers.js'
+import {
+  buildHeadlessExec,
+  headlessChildEnv,
+  headlessSpawnEnv,
+  runHeadlessTurn,
+} from './headless-drivers.js'
 import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 
 const snapshot = testHarnessSnapshot()
@@ -262,5 +267,43 @@ describe('buildHeadlessExec argv shapes', () => {
       snapshot,
     )
     expect(args).not.toContain('--model')
+  })
+})
+
+describe('headlessSpawnEnv', () => {
+  // POD-3059. `bindHarnessExec` folds the machine command environment into every
+  // adapter's exec env, so `execEnv` carries the OPERATOR `HOME` even when the
+  // adapter only meant to contribute a bearer token. Letting it win reverted the
+  // child to the operator account home; on a named instance the harness then
+  // wrote its transcript where the reader does not look, and `sessions.read`
+  // answered empty for every item type.
+  const commandEnv = { PATH: '/opt:/usr/bin:/bin', HOME: '/home/operator' }
+
+  it('keeps the instance HOME when the adapter env carries the machine HOME', () => {
+    const env = headlessSpawnEnv({
+      specEnv: { ...commandEnv, HOME: '/state/blue/agent-home', PODIUM_SESSION_ID: 's1' },
+      execEnv: { ...commandEnv, PODIUM_MCP_BEARER_PODIUM: 'sekret' },
+      commandEnv,
+    })
+    expect(env.HOME).toBe('/state/blue/agent-home')
+    // ...and the adapter's own per-turn key still reaches the child (POD-1021).
+    expect(env.PODIUM_MCP_BEARER_PODIUM).toBe('sekret')
+    expect(env.PODIUM_SESSION_ID).toBe('s1')
+  })
+
+  it('lets an adapter override a key the instance did not decide', () => {
+    // PATH is the command environment's own value in specEnv — the instance
+    // never chose it — so an adapter that resolved a different one still wins.
+    const env = headlessSpawnEnv({
+      specEnv: { ...commandEnv, HOME: '/state/blue/agent-home' },
+      execEnv: { PATH: '/adapter/bin' },
+      commandEnv,
+    })
+    expect(env.PATH).toBe('/adapter/bin')
+    expect(env.HOME).toBe('/state/blue/agent-home')
+  })
+
+  it('falls back to the command environment when no child environment was supplied', () => {
+    expect(headlessSpawnEnv({ execEnv: { X: '1' }, commandEnv })).toEqual({ ...commandEnv, X: '1' })
   })
 })
