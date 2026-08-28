@@ -13,7 +13,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreHorizontal } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native'
+import { ScrollView, StyleSheet, View } from 'react-native'
 import {
   useBooting,
   useConnected,
@@ -51,7 +51,7 @@ import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
 import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
-import { useKeyboardVerticalOffset } from '../hooks/useKeyboardVerticalOffset'
+import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
@@ -174,7 +174,7 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
   const [error, setError] = useState<string | null>(null)
   const [sheet, setSheet] = useState<OpenSheet>(null)
   const [detailsOpen, detailsCollapsed] = useDetailsFold()
-  const keyboard = useKeyboardVerticalOffset()
+  const keyboardLift = useKeyboardLift()
 
   /** Run a mutation, surfacing any thrown error verbatim as an inline note. */
   const run: RunMutation = async (fn) => {
@@ -300,21 +300,13 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         </HeaderButton>
       }
     >
-      {/* The same keyboard contract the chat screens carry (SessionConversation
-          wraps its feed-plus-composer in exactly this view): on iOS the pinned
+      {/* The same keyboard contract the chat screens carry: on iOS the pinned
           composer otherwise sits UNDER the keyboard, so a comment was typed
-          blind — the field disappeared on focus. The offset is measured, not
-          assumed: the header above this view breaks the stock overlap math —
-          see useKeyboardVerticalOffset. The sheets stay outside: they are
-          modal layers and place themselves. */}
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={keyboard.offset}
-        onLayout={keyboard.onLayout}
-        testID="issue-keyboard-avoider"
-      >
-        {keyboard.anchor}
+          blind — the field disappeared on focus. The lift is the keyboard's own
+          overlap (see useKeyboardHeight), not an avoiding view's frame
+          arithmetic. The sheets stay outside: they are modal layers and place
+          themselves. */}
+      <View style={[styles.flex, { paddingBottom: keyboardLift }]} testID="issue-keyboard-avoider">
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
@@ -393,7 +385,7 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
           placeholder="Comment, or @mention an agent on this task…"
           onSend={(text) => commands.postComment(text, appendLocalComment)}
         />
-      </KeyboardAvoidingView>
+      </View>
 
       <ActionSheet
         visible={sheet?.kind === 'stage'}

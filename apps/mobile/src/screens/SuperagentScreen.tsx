@@ -8,7 +8,7 @@ import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { Eraser } from 'lucide-react-native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import {
   readTranscriptPage,
   useBooting,
@@ -29,7 +29,7 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
-import { useKeyboardVerticalOffset } from '../hooks/useKeyboardVerticalOffset'
+import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { humanizeSendFailure } from '../lib/send-failure'
@@ -128,7 +128,7 @@ export function SuperagentScreen() {
   // Each send re-pins the feed to its tail so the just-written turn is on
   // screen even if the operator had scrolled up (the web chat's pinToBottom).
   const [pinRequest, setPinRequest] = useState(0)
-  const keyboard = useKeyboardVerticalOffset()
+  const keyboardLift = useKeyboardLift()
   // Monotonic per-mount counter behind each optimistic row's id. Date.now()
   // alone collides when two sends land in the same millisecond.
   const turnSeq = useRef(0)
@@ -461,15 +461,9 @@ export function SuperagentScreen() {
       }
     >
       <View style={styles.column}>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          // Measured, not assumed: the large tab header above this view breaks
-          // the stock overlap math — see useKeyboardVerticalOffset.
-          keyboardVerticalOffset={keyboard.offset}
-          onLayout={keyboard.onLayout}
-        >
-          {keyboard.anchor}
+        {/* The composer rides the keyboard on the view's own bottom edge — see
+            useKeyboardHeight for why this is not a KeyboardAvoidingView. */}
+        <View style={[styles.flex, { paddingBottom: keyboardLift }]}>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <BootstrapCrossfade resolved={resolved} placeholder={<TranscriptSkeleton />}>
             <PullToRefreshBoundary
@@ -548,7 +542,7 @@ export function SuperagentScreen() {
               />
             }
           />
-        </KeyboardAvoidingView>
+        </View>
       </View>
     </Screen>
   )

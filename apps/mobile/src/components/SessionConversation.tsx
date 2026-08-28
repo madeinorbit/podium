@@ -11,7 +11,7 @@ import {
 import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
+import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import {
   readTranscriptPage,
@@ -23,7 +23,7 @@ import {
   useStoreActions,
   useTrpc,
 } from '../client/hooks'
-import { useKeyboardVerticalOffset } from '../hooks/useKeyboardVerticalOffset'
+import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { dropEchoedPendingTurns } from '../lib/pending-turns'
 import { humanizeSendFailure } from '../lib/send-failure'
@@ -241,7 +241,7 @@ export function SessionConversation({
   // Each send re-pins the feed to its tail, so the message just written is on
   // screen even if the operator had scrolled up (the web chat's pinToBottom).
   const [pinRequest, setPinRequest] = useState(0)
-  const keyboard = useKeyboardVerticalOffset()
+  const keyboardLift = useKeyboardLift()
   // Scroll-back paging state. Refs, not state: paging must not retrigger the
   // load/subscribe effect, and onEndReached can fire in bursts.
   const paging = useRef<{ head?: string; hasMore: boolean; loading: boolean }>({
@@ -570,24 +570,17 @@ export function SessionConversation({
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      // 'height', not 'padding': the composer floats in an ABSOLUTE layer
-      // anchored to this view's bottom edge, and Yoga places absolute children
-      // against the view box, not the padding box — with 'padding' the flow
-      // content rose over the keyboard while the composer stayed underneath it
-      // (verified on the 26.5 simulator). Shrinking the view's height moves
-      // the bottom edge itself, so the floating layer rides up with everything
-      // else.
-      behavior={Platform.OS === 'ios' ? 'height' : undefined}
-      // Measured, not assumed: the stock view subtracts a parent-relative frame
-      // from a window-coordinate keyboard, which only works with no chrome
-      // above. Both hosts (session screen, mission screen) have a header — see
-      // useKeyboardVerticalOffset.
-      keyboardVerticalOffset={keyboard.offset}
-      onLayout={keyboard.onLayout}
-    >
-      {keyboard.anchor}
+    /* THE VIEW NEVER RESIZES; THE COMPOSER RISES.
+       This used to be a `KeyboardAvoidingView` in 'height' mode, which shrank
+       the whole conversation so the absolute composer layer (anchored to this
+       view's bottom edge) would ride up with it. Backgrounding the app with the
+       keyboard open and returning left that arithmetic in a state where the view
+       collapsed to a sliver: the composer stranded at the top of a black screen
+       (2026-08-29, operator screenshot, reproduced on the simulator). The
+       keyboard's overlap is an absolute measurement — see useKeyboardHeight —
+       so the layer is lifted by it directly, and the feed pays for the same
+       distance in its bottom inset. Nothing here has a frame to remember. */
+    <View style={styles.flex}>
       <MobileSessionLifecycle
         session={session}
         hasTranscript={hasTranscript}
@@ -614,7 +607,7 @@ export function SessionConversation({
               pinRequest={pinRequest}
               onRetryPending={retry}
               onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
-              bottomInset={composerHeight + askHeight}
+              bottomInset={composerHeight + askHeight + keyboardLift}
               streaming={
                 activity?.tone === 'working' &&
                 items.at(-1)?.role === 'assistant' &&
@@ -672,7 +665,7 @@ export function SessionConversation({
       {/* The composer floats OVER the feed rather than ending it [POD-502]. The
           feed pays for it with the composer's own resting height. */}
       {readOnly && !hasTranscript ? null : (
-        <View style={styles.composerLayer} pointerEvents="box-none">
+        <View style={[styles.composerLayer, { bottom: keyboardLift }]} pointerEvents="box-none">
           {pendingQuestion ? (
             <View
               onLayout={(event) => setAskHeight(event.nativeEvent.layout.height)}
@@ -704,7 +697,7 @@ export function SessionConversation({
         onClose={() => setPeekIssue(null)}
         onOpenSession={() => setPeekIssue(null)}
       />
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 
@@ -712,8 +705,8 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  /** Anchored to the KeyboardAvoidingView's padding edge, so it rides the
-   *  keyboard without the feed underneath it having to move. */
+  /** Anchored to the conversation's bottom edge and lifted by the keyboard's
+   *  own overlap, so it rides the keyboard without the view resizing. */
   composerLayer: {
     position: 'absolute',
     left: 0,
