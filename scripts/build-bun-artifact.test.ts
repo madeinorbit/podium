@@ -87,9 +87,14 @@ describe('updateArtifactPath', () => {
     // each output on the call rather than through a process-wide variable it
     // cannot vary. An inherited env value must not win over that.
     expect(
-      updateArtifactPath('/repo/dist-bun', '1.0.0', ['--target=bun-linux-x64', '--artifact=/x/y.tar.gz'], {
-        PODIUM_BUNDLE_ARTIFACT: '/env.tar.gz',
-      }),
+      updateArtifactPath(
+        '/repo/dist-bun',
+        '1.0.0',
+        ['--target=bun-linux-x64', '--artifact=/x/y.tar.gz'],
+        {
+          PODIUM_BUNDLE_ARTIFACT: '/env.tar.gz',
+        },
+      ),
     ).toBe('/x/y.tar.gz')
   })
 

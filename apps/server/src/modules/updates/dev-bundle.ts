@@ -1111,9 +1111,7 @@ function developmentSigningKey(root: string): string {
  * Exported so a test can read the ACTUAL argument vector rather than grep the source
  * for a string that no longer has to mean anything.
  */
-export function devReleaseBuildArgs(
-  artifacts: readonly DevBuildArtifactRequest[],
-): string[] {
+export function devReleaseBuildArgs(artifacts: readonly DevBuildArtifactRequest[]): string[] {
   return [
     'scripts/release.ts',
     '--prepare-cross',

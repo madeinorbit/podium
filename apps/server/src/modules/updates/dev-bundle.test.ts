@@ -1466,7 +1466,7 @@ describe('buildDevBundle', () => {
   })
 
   it('keeps the previous bundle but stops advertising it after a later build fails', async () => {
-    const { bytes, signature } = signedFixture()
+    const { signature } = signedFixture()
     let head = 'aaaaaaa'
     let attempts = 0
     const events: string[] = []
@@ -1576,7 +1576,7 @@ describe('buildDevBundle', () => {
   })
 
   it('clears the diagnostic once the checkout is clean again', async () => {
-    const { bytes, signature } = signedFixture()
+    const { signature } = signedFixture()
     let porcelain = nul(' M apps/server/src/server.ts')
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
@@ -1613,7 +1613,7 @@ describe('buildDevBundle', () => {
     const buildStarted = new Promise<void>((resolve) => {
       resolveBuildStarted = resolve
     })
-    const { bytes, signature } = signedFixture()
+    const { signature } = signedFixture()
     let resolveBuild!: () => void
     const buildDone = new Promise<void>((resolve) => {
       resolveBuild = resolve
@@ -1653,7 +1653,7 @@ describe('buildDevBundle', () => {
 
 describe('development bundle readiness', () => {
   function readinessFixture(options: { porcelain?: () => string } = {}) {
-    const { bytes, signature } = signedFixture()
+    const { signature } = signedFixture()
     let head = 'aaaaaaa'
     let fail: string | null = null
     const publisher = createDevBundlePublisher({
@@ -1799,7 +1799,7 @@ describe('development bundle readiness', () => {
   })
 
   it('is preparing while a build for this HEAD is in flight', async () => {
-    const { bytes, signature } = signedFixture()
+    const { signature } = signedFixture()
     let resolveBuild!: () => void
     const buildDone = new Promise<void>((resolve) => {
       resolveBuild = resolve
@@ -1847,7 +1847,7 @@ describe('development bundle readiness', () => {
 
 describe('ignored source inputs gate the build', () => {
   it('refuses a checkout whose ignored files include importable source', async () => {
-    const { bytes, signature } = signedFixture()
+    const { signature } = signedFixture()
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
@@ -1877,7 +1877,7 @@ describe('ignored source inputs gate the build', () => {
   })
 
   it('builds when the ignored files are only outputs and evidence', async () => {
-    const { bytes, signature } = signedFixture()
+    const { signature } = signedFixture()
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
       sourceCheckoutAvailable: true,

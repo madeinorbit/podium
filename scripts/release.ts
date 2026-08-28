@@ -325,9 +325,7 @@ function stagePrepared(p: {
  * publisher would find nothing where it looked), and a platform given twice (the second
  * write would clobber the first and both descriptors would claim the surviving bytes).
  */
-export function parseArtifactOverrides(
-  values: readonly string[],
-): Map<HeadlessPlatform, string> {
+export function parseArtifactOverrides(values: readonly string[]): Map<HeadlessPlatform, string> {
   const overrides = new Map<HeadlessPlatform, string>()
   for (const value of values) {
     const equals = value.indexOf('=')
@@ -343,9 +341,7 @@ export function parseArtifactOverrides(
       )
     }
     if (!isAbsolute(path)) {
-      throw new Error(
-        `release: --artifact path for ${platform} must be absolute, got '${path}'`,
-      )
+      throw new Error(`release: --artifact path for ${platform} must be absolute, got '${path}'`)
     }
     if (overrides.has(platform)) {
       throw new Error(`release: --artifact for ${platform} given twice`)
