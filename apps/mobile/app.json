@@ -18,8 +18,11 @@
     },
     "ios": {
       "bundleIdentifier": "dev.podium.mobile",
+      "appleTeamId": "Z5A2ZC8STN",
+      "buildNumber": "10",
       "supportsTablet": true,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Scan a one-time code to connect this phone to your Podium server.",
         "NSMicrophoneUsageDescription": "Dictate prompts privately using Apple's on-device speech model.",
         "NSLocalNetworkUsageDescription": "Connect to a Podium server you run on your local network.",
@@ -63,7 +66,8 @@
           "recordAudioAndroid": false
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/with-sqlite-header-link"
     ]
   }
 }
