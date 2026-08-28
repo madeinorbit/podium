@@ -1308,3 +1308,50 @@ wrong. Second, the reason it was refutable at all is that POD-3065 recorded
 showed the opposite case: POD-3047's cell passed on the stream while the read
 returned zero, and only reporting both numbers exposed it. **Say which plane you
 read.**
+
+## Decision 36 — the divergence, and a credential rule that must not be got wrong (2026-08-28 17:45 CEST)
+
+**Why `ccdea1f93` never took, found by reading and verified by me:**
+
+    apps/daemon/src/headless-drivers.ts:111   headlessChildEnv(agent, explicit)
+        { ...process.env, ...explicit, ...harnessInstanceEnv(agent, explicit?.HOME) }
+    apps/daemon/src/claude-sdk-client.ts:322  spawnDefaultHost
+        env: { ...headlessChildEnv(spec.agent, spec.env), ...launch.env }
+
+The embedded `claude-sdk` child calls the **old two-argument** `headlessChildEnv`
+directly. HOME comes from `process.env` — the daemon's — unless `spec.env`
+carries one, and `harnessInstanceEnv` then receives `explicit?.HOME` as
+`undefined`. **POD-3059's overlay builder, the thing its unit test exercises, is
+never reached from this site.**
+
+POD-3047's framing is the part worth keeping: the comment above that spawn says
+*"what it inherits here is the daemon's environment plus the same per-turn
+overrides."* **Inheriting is INTENDED at this site.** It is not a mistake — it is
+a site whose design predates the instance-home rule. That is why nobody caught
+it, and it is the seventh instrument of the day: **a test that passes for the
+case it names while the live path never arrives there.**
+
+**POD-3057 already owns the fix** — `96f53857e`, *"Keep the SDK child in the home
+its transcript is read from"*, 166 lines across the same three files, with a
+before/after showing `sessions.read` going from empty to the real conversation.
+Not landed. **POD-3067 was my third duplicate of the day** (after POD-3046 and
+POD-3048) and is closed. **I keep filing fix issues without first checking
+whether the seam is owned; the check is cheap and I keep skipping it.**
+
+### The credential consequence — OPERATOR DECISION, and one option is unsafe
+
+Once the child really runs in the instance agent home, a **no-copy** rig has a
+credential-free home, so **every SDK cell needing a model reply becomes
+BLOCKED-on-auth**. Two rigs currently disagree: POD-3047 keeps the isolated
+credential absent by brief; POD-3057 **symlinks** the agent home to the operator
+credential so the arms differ in the home and not the account.
+
+**If we go that way, it must be the SYMLINK, never a copy.** POD-3047's reason,
+and it is right: a copy can go **stale**, and presenting a superseded refresh
+token can be treated as **replay and revoke the whole family — logging the
+operator out of their own tool.** A symlink cannot diverge. This matches the
+credential rule already standing on this epic: never copy, never print, and
+delete every copy at teardown.
+
+I am not deciding the rig posture under a green. Flagging it for the operator
+with the safety asymmetry stated.
