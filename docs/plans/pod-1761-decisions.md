@@ -1144,7 +1144,7 @@ this.** Only the reds need re-reading.
 patched path. The fix names the headless family, and `codex-app-server` is a
 *server* driver; the A3/codex PARTIAL may be a genuine product gap that survives
 the re-drive. **This is a hypothesis with a clear test, not a finding**, and the
-re-drive is how it gets settled. POD-3064 owns it.
+re-drive is how it gets settled. POD-3065 owns it (I first wrote POD-3064 here, which is an unrelated mobile bootstrap issue -- my third wrong ref today).
 
 Also worth noting against myself: POD-3042's main baseline saw the same missing
 marker on the DEFAULT instance, which is *not* obviously affected. If the
@@ -1223,3 +1223,51 @@ codex, grok and opencode. POD-3044 owns it. And the honest status of the
 cleared and epic/main are at parity there; no cell is *known* to be worse than
 main; and **three cells have no main comparison at all and cannot yet be called
 either way.** That is a materially weaker statement and it is the true one.
+
+## Decision 34 — POD-3059's fix does not fix it, and my passing cell proved it (2026-08-28 17:42 CEST)
+
+POD-3047 pinned down the question I asked it and the answer is worse than the
+question. **`ccdea1f93` does NOT fix the home split for `claude-sdk`.**
+
+**First, why its A3 PASS was never evidence of immunity.** The durability clause
+does not use `sessions.read` at all — it opens a **fresh websocket attach** and
+scores the replayed items on `chat.items`
+(`docs/evidence/pod-3047/drive.ts:848-851`). `sessions.read` is fetched in the
+same function but only **reported alongside, never scored**. So *"present in a
+viewer opened after the first was dropped"* means **the server replayed it to a
+new subscriber**, not that the workdir-keyed JSONL resolver found it.
+
+**The same measurement carries both numbers**, from `readings/claude-sdk.a3.json`:
+
+| quantity | value |
+| --- | --- |
+| stream stop records via the fresh Chat | **1** |
+| `sessions.read` items at that same moment | **0** |
+| durable clause | true |
+
+**One record on the stream and zero on the read, in a single measurement.** The
+SDK path *was* affected — the bug is visible **inside a passing cell**, on the
+plane I predicted, at the same instant.
+
+**So do not read its ten PASSes as evidence the SDK path escaped.** Read them as
+evidence that the interrupt record lives on a plane the resolver never touches.
+Different claims; only the second is supported.
+
+**And the fix has not reached it.** POD-3047 re-drove at `90ebca7d9`, which I
+confirmed **contains `ccdea1f93`** (one docs commit ahead). `sessions.read` is
+**still empty**. Three measurements: the `claude-sdk-host` child runs with
+`HOME=/home/mgw` read from `/proc` on a named instance; the JSONL lands in the
+operator home while the instance agent home has **no `projects` directory at
+all**; and `sessions.read` returns `items: []` on a session whose reply had just
+arrived on the stream.
+
+**POD-3059 was closed on a fix that does not work for this path.** POD-3066
+owns it. This does not move the release bar — `claude-sdk` is not on it — but it
+does mean Decision 32's re-read premise is wrong for the SDK column, and
+POD-3065 has been told directly.
+
+*Third wrong ref of the day, also mine:* Decision 32 said POD-3064 owned the
+re-read. **POD-3064 is an unrelated mobile bootstrap issue**; the right one is
+POD-3065. Corrected in place. Three times now I have written a ref that pointed
+at a real, unrelated, active issue — the failure mode where nothing looks broken
+from either end.
