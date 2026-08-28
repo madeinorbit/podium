@@ -60,6 +60,8 @@ function harness(
     /** Receipts the fake contract port answers with, in order; when omitted
      *  entirely the port itself is absent (the bare-fixture shape). */
     contractReceipts?: TurnReceipt[]
+    /** Keep every fake contract delivery pending until the test resolves it. */
+    contractPending?: boolean
     /** What the fake runtime-interrupt port answers. Omitted entirely means the
      *  port is ABSENT — the bare-fixture shape, and the case a server-family
      *  session must refuse rather than confirm (POD-2792). */
@@ -69,6 +71,7 @@ function harness(
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
   const sent: unknown[] = []
   const contractCalls: unknown[] = []
+  const contractResolvers: Array<(receipt: TurnReceipt) => void> = []
   const contractInterrupts: SessionId[] = []
   const resurrections: Array<{ sessionId: SessionId; principal: InboxPrincipalReference }> = []
   const rejected: unknown[] = []
@@ -193,10 +196,13 @@ function harness(
           },
         }
       : {}),
-    ...(options.contractReceipts
+    ...(options.contractReceipts || options.contractPending
       ? {
           contractDeliver: (input: unknown) => {
             contractCalls.push(input)
+            if (options.contractPending) {
+              return new Promise<TurnReceipt>((resolve) => contractResolvers.push(resolve))
+            }
             return Promise.resolve(
               options.contractReceipts?.shift() ??
                 ({
@@ -217,6 +223,7 @@ function harness(
     rows,
     sent,
     contractCalls,
+    contractResolvers,
     contractInterrupts,
     resurrections,
     rejected,
@@ -2003,6 +2010,56 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).not.toHaveBeenCalled()
     expect(h.rows).toHaveLength(1)
     expect(h.sent).toEqual([])
+  })
+
+  it('hands a pending contract drain to the fresh bind after exit recovery', async () => {
+    vi.useFakeTimers()
+    const h = harness({
+      agentKind: 'grok',
+      serverDriven: true,
+      runtimeContract: true,
+      driverId: 'grok-acp',
+      contractPending: true,
+    })
+    const accepted: TurnReceipt = {
+      outcome: 'accepted',
+      turnEpoch: 1,
+      deliveredAs: 'when-ready',
+      provenBy: 'protocol-ack',
+      at: new Date().toISOString(),
+    }
+
+    expect(queueOne(h, 'srv-exit-bind', 'msg_srv_exit_bind')).toEqual({ ok: true, queued: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.inbox.isDraining(SID)).toBe(true)
+
+    // The first delivery is still awaiting its runtime reply when the child dies.
+    h.setStatus('exited')
+    expect(h.inbox.recoverQueuedAfterExit(SID)).toBe(true)
+    h.setStatus('live')
+    h.inbox.markSessionBound(SID)
+    h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(h.contractCalls).toHaveLength(2)
+    expect(h.inbox.isDraining(SID)).toBe(true)
+
+    // The stale receipt must not remove the row or stop the replacement drain.
+    h.contractResolvers[0]!(accepted)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    expect(h.inbox.isDraining(SID)).toBe(true)
+
+    // The replacement receipt owns the row exactly once.
+    h.contractResolvers[1]!(accepted)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.applied).toHaveBeenCalledTimes(1)
+    expect(h.inbox.isDraining(SID)).toBe(false)
   })
 
   it('waits out a busy turn — past the PTY drain deadline — and delivers at the boundary', async () => {

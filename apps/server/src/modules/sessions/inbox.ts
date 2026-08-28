@@ -512,6 +512,8 @@ function sessionSendRefusalReason(
 
 export class SessionInbox {
   private readonly activeDrains = new Set<SessionId>()
+  /** Generation fence for timers and contract receipts that outlive a bind. */
+  private readonly drainGenerations = new Map<SessionId, number>()
   /** Recovery answers may queue while a failed session is being woken. */
   private readonly recoveryDrains = new Set<SessionId>()
   /**
@@ -536,6 +538,11 @@ export class SessionInbox {
   private disposed = false
 
   constructor(private readonly deps: SessionInboxDeps) {}
+
+  private invalidateDrain(sessionId: SessionId): void {
+    this.drainGenerations.set(sessionId, (this.drainGenerations.get(sessionId) ?? 0) + 1)
+    this.activeDrains.delete(sessionId)
+  }
 
   /**
    * THE DRAIN IS A LOOP, AND A LOOP OUTLIVES THE REGISTRY THAT STARTED IT
@@ -605,6 +612,7 @@ export class SessionInbox {
     }
     const head = this.deps.queue.list(sessionId)[0]
     if (!head) return false
+    this.invalidateDrain(sessionId)
     this.deps.resurrect(sessionId, head.principal)
     return true
   }
@@ -613,6 +621,7 @@ export class SessionInbox {
    *  drain can tell a composer that has had an hour to mount from one that has
    *  had a second (POD-2836). */
   markSessionBound(sessionId: SessionId): void {
+    this.invalidateDrain(sessionId)
     const session = this.deps.getSession(sessionId)
     if (!session) return
     this.inputReadySessions.delete(session)
@@ -953,7 +962,12 @@ export class SessionInbox {
     if (this.activeDrains.has(sessionId)) return
     const session = this.deps.getSession(sessionId)
     if (!session || session.queuedMessageCount === 0) return
+    const drainGeneration = (this.drainGenerations.get(sessionId) ?? 0) + 1
+    this.drainGenerations.set(sessionId, drainGeneration)
     this.activeDrains.add(sessionId)
+    const isCurrent = (): boolean =>
+      this.drainGenerations.get(sessionId) === drainGeneration &&
+      this.activeDrains.has(sessionId)
     // A PTY we are watching come up — parked as this pass begins, or bound so
     // recently that the caller is telling us so. Its CLI has proven nothing yet,
     // and it is the only case whose readiness the quiet heuristic gets wrong.
@@ -986,8 +1000,13 @@ export class SessionInbox {
     const deadline = this.deps.now() + (woken ? WOKEN_DRAIN_DEADLINE_MS : QUEUE_DRAIN_DEADLINE_MS)
     let liveAtMs = 0
     let baseOutputMs = 0
-    const stop = () => this.activeDrains.delete(sessionId)
+    const stop = (): void => {
+      if (this.drainGenerations.get(sessionId) === drainGeneration) {
+        this.activeDrains.delete(sessionId)
+      }
+    }
     const removeHead = (current: Session, id: string): void => {
+      if (!isCurrent()) return
       this.deps.queue.delete(asSessionId(id))
       current.queuedMessageCount = Math.max(0, current.queuedMessageCount - 1)
       if (current.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
@@ -1007,6 +1026,7 @@ export class SessionInbox {
       head: QueuedInboxMessage,
       transcriptConfirmed = false,
     ): void => {
+      if (!isCurrent()) return
       if (transcriptConfirmed && this.needsInputReadiness(current)) {
         this.inputReadySessions.add(current)
       }
@@ -1019,6 +1039,7 @@ export class SessionInbox {
       afterHead(current)
     }
     const afterHead = (current: Session): void => {
+      if (!isCurrent()) return
       if (current.queuedMessageCount > 0) {
         setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
       } else stop()
@@ -1028,6 +1049,7 @@ export class SessionInbox {
       head: QueuedInboxMessage,
       reason: string,
     ): void => {
+      if (!isCurrent()) return
       if (!this.reportedPromptFailures.has(head.id)) {
         this.reportedPromptFailures.add(head.id)
         const initialPrompt = isInitialPromptRow(sessionId, head)
@@ -1080,6 +1102,7 @@ export class SessionInbox {
         this.deps.now() + (initialPrompt ? INITIAL_PROMPT_CONFIRM_TIMEOUT_MS : CONFIRM_TIMEOUT_MS)
       const heldUntil = this.deps.now() + HELD_CONFIRM_CEILING_MS
       const poll = (): void => {
+        if (!isCurrent()) return
         // A disposed registry has no store to read (see `dispose`): stand down.
         if (this.disposed) return
         if (this.deps.nativeViewActive?.(sessionId) === true) {
@@ -1173,6 +1196,7 @@ export class SessionInbox {
       setTimeout(poll, CONFIRM_POLL_MS).unref?.()
     }
     const attemptDelivery = (head: QueuedInboxMessage, attempt: number): void => {
+      if (!isCurrent()) return
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
       if (this.deps.nativeViewActive?.(sessionId) === true) {
@@ -1360,6 +1384,7 @@ export class SessionInbox {
       } else settleHead(current, head)
     }
     const deliverNext = (): void => {
+      if (!isCurrent()) return
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
       if (this.deps.nativeViewActive?.(sessionId) === true) {
@@ -1439,6 +1464,7 @@ export class SessionInbox {
           principal: head.principal,
         }).then(
           (receipt) => {
+            if (!isCurrent()) return
             const after = this.deps.getSession(sessionId)
             if (!after) {
               stop()
@@ -1508,7 +1534,9 @@ export class SessionInbox {
               setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
             } else stop()
           },
-          () => stop(),
+          () => {
+            if (isCurrent()) stop()
+          },
         )
         // The receipt continuation above owns pacing and stop; falling through
         // to the synchronous tail would drive the queue twice.
@@ -1548,6 +1576,7 @@ export class SessionInbox {
       return settled || now - liveAtMs >= READY_MAX_MS
     }
     const tick = (): void => {
+      if (!isCurrent()) return
       // A disposed registry has no store to read (see `dispose`): stand down.
       if (this.disposed) return
       if (this.deps.nativeViewActive?.(sessionId) === true) {
