@@ -75,10 +75,44 @@ fail() { echo "VERIFY FAILED: $*" >&2; exit 1; }
 # fix that matters is not the PATH, it is that the check now prints each pid's
 # /proc/<pid>/exe before drawing any conclusion, so an arm that tested nothing
 # cannot look like an arm that passed.
+# MY OWN ANCESTRY IS NOT A CONCURRENT PROBE, AND THIS COST A DRIVE.
+#
+# drive.ts shells out to THIS script, so the drive being gated is the PARENT of
+# the gate. With only the rig's own processes excluded, the very first real
+# invocation refused itself:
+#
+#   VERIFY FAILED: a probe is ALREADY driving this rig (pid(s):2434116)
+#
+# and 2434116 was the `bun drive.ts codex` that had just asked. The guard had
+# been mutation-checked against a STANDALONE bun probe, which has no parent in
+# common with the verifier, so the one call path that matters was never on the
+# test. It is this directory's own recurring shape one more time: the check ran,
+# produced an answer, and the answer was about something else.
+#
+# The fix is ancestry, not an argv exemption. Walk $$ up through
+# /proc/<pid>/stat's ppid field and skip any bun process on that chain — a
+# genuinely concurrent drive.ts is NOT an ancestor of this verify, so the guard
+# keeps its full force against the collision it exists to catch. An argv-based
+# exemption for `*drive.ts` would have been the weaker fix and would have
+# excluded the neighbouring drive too, which is precisely the case to catch.
+#
+# ppid is field 4 of /proc/<pid>/stat, and it is read with the comm field
+# stripped first: comm is the process name in parentheses and MAY CONTAIN
+# SPACES, so a plain `awk '{print $4}'` mis-indexes for any such process.
+ANCESTRY=" "
+_walk=$$
+while [ -n "$_walk" ] && [ "$_walk" != "0" ] && [ "$_walk" != "1" ]; do
+  ANCESTRY="$ANCESTRY$_walk "
+  _stat="$(cat "/proc/$_walk/stat" 2>/dev/null || true)"
+  [ -n "$_stat" ] || break
+  _walk="$(printf '%s' "${_stat#*) }" | cut -d' ' -f2)"
+done
+
 DRIVING=""
 for pid in $(pgrep -x bun 2>/dev/null || true); do
   cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
   [ "$cwd" = "$PODIUM_DRIVE_REPO" ] || continue
+  case "$ANCESTRY" in *" $pid "*) continue ;; esac   # me, or the drive that called me
   argv1="$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | sed -n '2p')"
   case "$argv1" in
     *scripts/server.ts|*scripts/daemon.ts|--conditions=*) continue ;;   # the rig itself
