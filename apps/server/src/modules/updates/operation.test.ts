@@ -21,7 +21,6 @@ import { DevBundleUnavailableError } from './dev-bundle'
 import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import {
   admissibleDeferredPlaces,
-  supersededDeferredPlaces,
   classifyMachineFailure,
   createUpdateFleetBridge,
   DESKTOP_INSTALL_ASK,
@@ -35,6 +34,7 @@ import {
   reconcileUpdateOperation,
   resetUpdateOperationState,
   STEP_HEARTBEAT_INTERVAL_MS,
+  supersededDeferredPlaces,
   UPDATE_BUDGETS,
   UPDATE_ERROR_CODES,
   UPDATE_NOT_INSTALLED_ERROR_CODE,
@@ -1203,6 +1203,7 @@ interface HarnessOptions {
   requestCoordinatorRestart?: () => void
   prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
+  prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
   hostMachineId?: string
@@ -1278,6 +1279,9 @@ function harness(options: HarnessOptions = {}) {
     createDatabaseSnapshot:
       options.createDatabaseSnapshot ??
       (() => '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-test'),
+    ...(options.prepareVerifiedDatabaseSnapshot
+      ? { prepareVerifiedDatabaseSnapshot: options.prepareVerifiedDatabaseSnapshot }
+      : {}),
     latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
     recordOperationDetails: (id, patch) => {
       driver().recordDetails(id, patch)
@@ -1690,6 +1694,107 @@ describe('the step runners', () => {
     expect(h.read().state).toBe('failed')
     expect(h.read().error?.message).toContain('Database snapshot failed')
     expect(h.read().error?.message).toContain('ENOSPC')
+  })
+
+  /**
+   * POD-3068. The safety check did not move OUT of the restart path when the
+   * quick_check left the request path — it moved into a child process that the
+   * restart path awaits. These four drills are the whole of that contract.
+   */
+  it('server: awaits the worker-backed snapshot proof and restarts on success', async () => {
+    const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-2026-08-28'
+    const order: string[] = []
+    const sync = vi.fn(() => '/state/podium.db.sync-path')
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      createDatabaseSnapshot: sync,
+      prepareVerifiedDatabaseSnapshot: async () => {
+        order.push('verify:start')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        order.push('verify:done')
+        return { ok: true, path: snapshotPath }
+      },
+      requestCoordinatorRestart: () => {
+        order.push('restart')
+      },
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // The proof completes BEFORE the restart is requested, and the synchronous
+    // seam is not used at all when the worker-backed one is wired.
+    expect(order).toEqual(['verify:start', 'verify:done', 'restart'])
+    expect(sync).not.toHaveBeenCalled()
+    expect(h.read().details?.databaseSnapshotPath).toBe(snapshotPath)
+  })
+
+  it('server: a verification timeout leaves the old server running', async () => {
+    const restart = vi.fn()
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareVerifiedDatabaseSnapshot: async () => ({
+        ok: false,
+        code: 'timeout',
+        detail: 'no result within 600000ms',
+      }),
+      requestCoordinatorRestart: restart,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(restart).not.toHaveBeenCalled()
+    expect(h.read().state).toBe('failed')
+    expect(h.read().error?.code).toBe('preparation-failed')
+    expect(h.read().error?.message).toContain('Database snapshot failed')
+    expect(h.read().error?.message).toContain('timeout')
+    expect(h.read().details?.databaseSnapshotPath).toBeUndefined()
+  })
+
+  it('server: a corrupt snapshot leaves the old server running', async () => {
+    const restart = vi.fn()
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareVerifiedDatabaseSnapshot: async () => ({
+        ok: false,
+        code: 'corrupt',
+        detail: 'quick_check answered *** in database main ***',
+      }),
+      requestCoordinatorRestart: restart,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(restart).not.toHaveBeenCalled()
+    expect(h.read().state).toBe('failed')
+    expect(h.read().error?.message).toContain('corrupt')
+  })
+
+  it('server: a machine-only plan never asks for a snapshot at all', async () => {
+    // The Ludovico outage was a MACHINE-ONLY plan that nevertheless paid for a
+    // full backup scan. No server step, no verifier — not even a slow one.
+    const prepare = vi.fn(async () => ({ ok: true as const, path: '/state/x' }))
+    const latest = vi.fn(() => undefined)
+    const h = harness({
+      machines: [machine({ id: 'vmi', version: '0.4.0' })],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+      prepareVerifiedDatabaseSnapshot: prepare,
+      latestDatabaseSnapshot: latest,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+
+    expect(prepare).not.toHaveBeenCalled()
   })
 
   it('server: a server already on the target does not restart', async () => {
@@ -2840,10 +2945,7 @@ describe('the fleet bridge', () => {
    * statement about the machines it actually addressed.
    */
   it('waves the online machines and defers the sleeping one without holding the operation open', async () => {
-    const fleet = [
-      machine({ id: 'vmi' }),
-      machine({ id: 'laptop', online: false }),
-    ]
+    const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
     const h = harness({
       machines: fleet,
       target: packedTarget(),
@@ -3032,9 +3134,7 @@ describe('the fleet bridge', () => {
     // op_1: every behind machine asleep. No wave, terminal, promise standing.
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read('op_1').deferred).toEqual([
-      { id: 'laptop', name: 'laptop', reason: 'offline' },
-    ])
+    expect(h.read('op_1').deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     // op_2: a later update with nothing to defer, which is what a naive
     // "newest operation" reader would find and pass over.
@@ -3095,7 +3195,7 @@ describe('the fleet bridge', () => {
     expect(h.read().state).toBe('done')
   })
 
-  it('leaves the promise alone while the operation\'s own target is still the published one', async () => {
+  it("leaves the promise alone while the operation's own target is still the published one", async () => {
     const fleet = [machine({ id: 'laptop', online: false })]
     const h = harness({
       machines: fleet,

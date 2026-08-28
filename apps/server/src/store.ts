@@ -45,9 +45,14 @@ import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
-import { backupDatabase, createLatestDatabaseBackupCache } from './migrations/backup'
+import { backupDatabase } from './migrations/backup'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations/index'
+import {
+  type SnapshotVerification,
+  SnapshotVerifier,
+  type SnapshotVerifierDeps,
+} from './migrations/snapshot-verifier'
 import { OperationStore } from './modules/operations/store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
@@ -63,8 +68,8 @@ import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { NotificationFactsRepository } from './store/notification-facts'
-import { QuotaHistoryRepository } from './store/quota-history'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
+import { QuotaHistoryRepository } from './store/quota-history'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { ServerSecretsRepository } from './store/server-secrets'
@@ -93,7 +98,8 @@ export function defaultDbPath(): string {
 
 export class SessionStore {
   private readonly db: SqlDatabase
-  private readonly databaseBackups: ReturnType<typeof createLatestDatabaseBackupCache>
+  /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
+  private readonly snapshotVerifier: SnapshotVerifier
   readonly repos: ReposRepository
   readonly sessions: SessionsRepository
   /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
@@ -177,12 +183,14 @@ export class SessionStore {
   constructor(
     private readonly path: string = defaultDbPath(),
     hostMachineId: MachineId = asMachineId(randomUUID()),
+    /** Verifier seam (POD-3068) — injected so a test never spawns a real child. */
+    snapshotVerifierDeps: SnapshotVerifierDeps = {},
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
-    this.databaseBackups = createLatestDatabaseBackupCache(path)
+    this.snapshotVerifier = new SnapshotVerifier(path, snapshotVerifierDeps)
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     // `openStoreDatabase` is `openDatabase` everywhere except under a test runner
     // that installed the pre-migrated fixture (see store-database.ts). The migration
@@ -422,22 +430,65 @@ export class SessionStore {
    */
   snapshotBeforeUpdate(fromVersion: string, targetVersion: string): string | undefined {
     if (this.path === ':memory:') return undefined
-    const safe = (version: string): string =>
-      version
-        .replace(/[^a-zA-Z0-9._-]+/g, '_')
-        .slice(0, 80)
+    const safe = (version: string): string => version.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
     const snapshot = backupDatabase(
       this.db,
       this.path,
       `update-${safe(fromVersion)}-to-${safe(targetVersion)}`,
+      undefined,
+      undefined,
+      () => this.snapshotVerifier.verifiedFallbackPath(),
     )
-    this.databaseBackups.record(snapshot)
+    // Staged, not proved. The record is published before anything can await the
+    // proof so a crash in between is legible as "staged and never verified".
+    if (snapshot) this.snapshotVerifier.recordStaged(snapshot, randomUUID())
     return snapshot
   }
 
-  /** Newest verified recovery point available for downgrade guidance. */
+  /**
+   * Stage a snapshot behind the database fence and PROVE it in a child process.
+   *
+   * The only caller is the update operation's server-replacement step, which may
+   * legitimately wait: awaiting this Promise leaves the event loop free, so
+   * health and read requests continue while the verifier scans (POD-3068).
+   */
+  async verifiedSnapshotBeforeUpdate(
+    fromVersion: string,
+    targetVersion: string,
+  ): Promise<SnapshotVerification> {
+    const staged = this.snapshotBeforeUpdate(fromVersion, targetVersion)
+    if (!staged) {
+      return {
+        ok: false,
+        code: 'no-snapshotable-file',
+        detail: 'the database has no snapshotable file',
+        durationMs: 0,
+      }
+    }
+    let expectedSchemaVersion: string | undefined
+    try {
+      expectedSchemaVersion = this.schemaVersionForTransfer()
+    } catch {
+      // A store with no migration identity still gets a quick_check proof; the
+      // schema comparison is the part that is skipped, not the verification.
+    }
+    return this.snapshotVerifier.verify(staged, expectedSchemaVersion)
+  }
+
+  /**
+   * Newest VERIFIED recovery point, read from metadata and a `stat` only.
+   *
+   * Deliberately cheap: this is called from update planning, which is a request
+   * path. It never opens a backup and never waits. `undefined` means nothing is
+   * proved right now — an honest answer — and queues at most one background
+   * verifier to change that for later callers.
+   */
   latestDatabaseSnapshot(): string | undefined {
-    return this.path === ':memory:' ? undefined : this.databaseBackups.latest()
+    if (this.path === ':memory:') return undefined
+    const verified = this.snapshotVerifier.verifiedFallbackPath()
+    if (verified) return verified
+    this.snapshotVerifier.queueBackgroundVerification()
+    return undefined
   }
 
   private transferFenceHeld = false
@@ -465,6 +516,7 @@ export class SessionStore {
   }
 
   close(): void {
+    this.snapshotVerifier.close()
     this.db.close()
   }
 
@@ -582,9 +634,10 @@ export class SessionStore {
    * and reruns update nothing. Ambiguous and contradictory rows remain countable
    * on every boot so the operator can see that the migration left work behind.
    */
-  migrateLegacyIssueWorktreeMachineIdentity(
-    hostMachineId: MachineId,
-  ): { backfilledByMachine: Record<string, number>; unresolved: number } {
+  migrateLegacyIssueWorktreeMachineIdentity(hostMachineId: MachineId): {
+    backfilledByMachine: Record<string, number>
+    unresolved: number
+  } {
     const result = this.transact(() => {
       const candidates = this.db
         .prepare(
@@ -621,10 +674,10 @@ export class SessionStore {
             ORDER BY attributed.id`,
         )
         .all(hostMachineId) as {
-          id: string
-          target_machine_id: string | null
-          contradictory_session: number
-        }[]
+        id: string
+        target_machine_id: string | null
+        contradictory_session: number
+      }[]
 
       const update = this.db.prepare(
         'UPDATE issues SET machine_id = ? WHERE id = ? AND machine_id IS NULL',
@@ -649,9 +702,7 @@ export class SessionStore {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([machineId, count]) => `${machineId}=${count}`)
         .join(', ') || 'none'
-    log.info(
-      `backfilled worktree rows by machine: ${counts}; left ${result.unresolved} unresolved`,
-    )
+    log.info(`backfilled worktree rows by machine: ${counts}; left ${result.unresolved} unresolved`)
     return result
   }
 }

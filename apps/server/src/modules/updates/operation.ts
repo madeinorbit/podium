@@ -1358,6 +1358,21 @@ export interface UpdateOperationContext {
   }
   /** Server-owned snapshot seam; daemon places deliberately have none. */
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
+  /**
+   * Worker-backed snapshot seam (POD-3068), preferred over the synchronous one
+   * above when both are present.
+   *
+   * The server step is the ONE place allowed to wait for a snapshot proof, and
+   * it waits on a Promise rather than on the event loop: the verification runs
+   * in a child process, so this host keeps answering health and read requests
+   * for the whole time it takes to scan a multi-hundred-megabyte file.
+   */
+  prepareVerifiedDatabaseSnapshot?: (
+    fromVersion: string,
+    targetVersion: string,
+  ) => Promise<
+    { ok: true; path: string; schemaVersion?: string } | { ok: false; code: string; detail: string }
+  >
   /** Verified recovery point to carry into a new operation's failure guidance. */
   latestDatabaseSnapshot?: () => string | undefined
   /**
@@ -2045,7 +2060,10 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         }),
       }
     }
-    if (!context.createDatabaseSnapshot || !context.recordOperationDetails) {
+    if (
+      (!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
+      !context.recordOperationDetails
+    ) {
       return {
         state: 'failed',
         error: describeUpdateOperationFailure({
@@ -2069,23 +2087,39 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         }
       }
     }
+    // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068). Verification left the
+    // request path, not the restart path: a timeout, a corrupt file or an
+    // identity mismatch here is a structured operation failure and the OLD
+    // SERVER KEEPS RUNNING. Only a proved snapshot reaches `requestCoordinatorRestart`.
+    const fromVersion = details.fromVersion ?? context.appVersion()
+    const snapshotFailure = (detail: string): StepOutcome => ({
+      state: 'failed',
+      error: describeUpdateOperationFailure({
+        code: 'preparation-failed',
+        detail: `Database snapshot failed; the server was not restarted: ${detail}`,
+      }),
+    })
     let databaseSnapshotPath: string | undefined
-    try {
-      databaseSnapshotPath = context.createDatabaseSnapshot(
-        details.fromVersion ?? context.appVersion(),
-        details.target.version,
-      )
-      if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
+    if (context.prepareVerifiedDatabaseSnapshot) {
+      let verification: Awaited<ReturnType<typeof context.prepareVerifiedDatabaseSnapshot>>
+      try {
+        verification = await context.prepareVerifiedDatabaseSnapshot(
+          fromVersion,
+          details.target.version,
+        )
+      } catch (error) {
+        return snapshotFailure(error instanceof Error ? error.message : String(error))
+      }
+      if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
+      databaseSnapshotPath = verification.path
       context.recordOperationDetails(operation.id, { databaseSnapshotPath })
-    } catch (error) {
-      return {
-        state: 'failed',
-        error: describeUpdateOperationFailure({
-          code: 'preparation-failed',
-          detail: `Database snapshot failed; the server was not restarted: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        }),
+    } else if (context.createDatabaseSnapshot) {
+      try {
+        databaseSnapshotPath = context.createDatabaseSnapshot(fromVersion, details.target.version)
+        if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
+        context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+      } catch (error) {
+        return snapshotFailure(error instanceof Error ? error.message : String(error))
       }
     }
     context.requestCoordinatorRestart()
@@ -2287,7 +2321,10 @@ export function createUpdateFleetBridge(deps: {
      * reaches an update that has already FINISHED. That is the common case for
      * a deferred promise, not an edge one (POD-3040).
      */
-    history(kind?: string, limit?: number): { id: string; kind: string; operation: Operation | null }[]
+    history(
+      kind?: string,
+      limit?: number,
+    ): { id: string; kind: string; operation: Operation | null }[]
   }
   updates: UpdatesService
   /**
