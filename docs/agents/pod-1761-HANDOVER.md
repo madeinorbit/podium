@@ -116,14 +116,17 @@ The previous one was `9140772c`; it will not survive.
 
 ## Reds
 
-**ONE CONFIRMED REGRESSION — A3 — AND IT BLOCKS THE RELEASE.** (Established 2026-08-27 08:47,
-after the body of this file was written. See Decision 24.) The others are instruments or
-behaviours main shares:
+**SUPERSEDED — see Decision 25. There is NO current confirmed worse-than-main cell.** I wrote
+"one confirmed regression, A3, blocks the release" at 08:47 on 2026-08-27. **POD-2924 then drove A3
+on the exact current tip `a010e6b88` and it PASSED both clauses** — the turn stopped and the
+transcript carried the marker. **My FAIL at `40c198eae` remains a valid reading for that older pin;
+product code changed in between, so it is stale rather than wrong.** Every red is an instrument or a
+behaviour main shares:
 
     A1b  claude  FAIL      INHERITED — fails identically on main (POD-2921 measured it)
     A1c  claude  FAIL      INHERITED — fails identically on main
-    A3   claude  FAIL      *** REGRESSION *** main PASSES it — stopped and transcript-marked.
-                            THE SOLE RELEASE BLOCKER. Fixable, needs an owner. Decision 24.
+    A3   claude  PASSES on the current tip (Decision 25). The older FAIL was pin-stale.
+                  NOT a blocker. Do not re-open it without a fresh current-tip reading.
     A3   codex   REFUSED   control never produced an in-flight turn
     A4a  codex   BLOCKED   STALE — see POD-2923
     A4a  claude  BLOCKED   claude-code 2.1.231 rewrites permissions.defaultMode; real instrument limit
@@ -168,11 +171,9 @@ session), POD-2922 (rig teardown leaves credentials behind).
 # 5. WHAT TO DO NEXT, IN PRIORITY ORDER
 
 1. **Recreate the cron** (see §1). Without it you get no ticks.
-2. **FIX A3 ON CLAUDE — THIS IS THE RELEASE BLOCKER.** The baseline is DONE: main PASSES, the epic
-   FAILS, so it is a genuine regression. The epic-side symptom is *"interrupt returned without a
-   stopping record"* — the call succeeds and the turn keeps running. **Both arms already exist as
-   controls**, so whoever fixes it has a pre-fix reading on the epic and a passing reference on
-   main. Staff this before grok.
+2. **A3 IS CLOSED — do not staff it.** POD-2924 reproduced at the current tip and got a PASS.
+   Decision 25 has the full reading. **This entry previously said the opposite; that was me, and it
+   was corrected within ninety minutes by the session that checked instead of accepting.**
 3. **Grok at 11:03 CEST — 14 cells unblock at once**, the largest single coverage jump left. Nobody
    is staffed. File a subissue and start it then. Grok has protocol-level turn receipts and is
    predicted to score BETTER than the others. **POD-2877's earlier grok pass bound `generic-pty`
@@ -403,7 +404,8 @@ main*. That distinction has decided three separate questions overnight, and it i
 baseline matters more than any amount of further driving on the epic branch.
 
 **A cell failing on the epic means nothing until you know what main does.** Two of the three claude
-reds turned out to be behaviours main shares — and **the third, A3, turned out to be a real
-regression once main was finally measured.** That baseline took four attempts across two days and
-three of them were rig failures rather than readings. **It was worth every one of them: without it,
-this epic would have shipped with a broken interrupt believing it had none.**
+reds are behaviours main shares. **The third, A3, looked like a regression once main was measured —
+and then did not reproduce on the current tip.** Both halves of that are the same lesson: a reading
+is about a PIN, not about a branch. My FAIL was real at `40c198eae`; product code moved; the claim
+expired. **Say which commit a verdict describes, and re-read before you act on one you did not take
+yourself.**
