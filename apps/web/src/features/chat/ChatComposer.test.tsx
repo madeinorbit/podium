@@ -61,6 +61,7 @@ async function mount(
     onDraftChange?: (draft: string) => void
     turnRunning?: boolean
     interruptError?: string | null
+    transcriptRefreshing?: boolean
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const taRef = createRef<HTMLTextAreaElement>()
@@ -86,6 +87,7 @@ async function mount(
         onOfferDismiss={async () => {}}
         session={undefined}
         turnError={opts.turnError ?? null}
+        transcriptRefreshing={opts.transcriptRefreshing ?? false}
         offlineAsOf={null}
         autoFocusKey="s1"
         transcriptSettled
@@ -404,6 +406,7 @@ describe('ChatComposer backend rail', () => {
           onOfferDismiss={async () => {}}
           session={undefined}
           turnError={null}
+          transcriptRefreshing={false}
           offlineAsOf={null}
           autoFocusKey="s1"
           transcriptSettled

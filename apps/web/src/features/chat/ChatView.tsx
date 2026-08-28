@@ -128,6 +128,7 @@ function ScopedChatComposer({
       onOfferDismiss={chat.dismissOffer}
       session={chat.session}
       turnError={chat.headlessTurn.turnError}
+      transcriptRefreshing={chat.refreshingFromCache && chat.offlineAsOf === null}
       offlineAsOf={chat.offlineAsOf}
       attached={chat.attached}
       autoFocusKey={sessionId}

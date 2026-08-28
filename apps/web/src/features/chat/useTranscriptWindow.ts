@@ -115,6 +115,8 @@ export interface UseTranscriptWindowResult {
   deepeningSearch: boolean
   /** False until the initial read resolves — gates the loader vs "No transcript yet". */
   initialLoaded: boolean
+  /** True until cached rows have been replaced by the first authoritative worker result. */
+  refreshingFromCache: boolean
   /** Non-null when the window is the replica's offline copy (epoch ms cached at). */
   offlineAsOf: number | null
   /** Reveal more above the current window: widen it over rows already held
@@ -157,6 +159,10 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // empty read.
   const [headCursor, setHeadCursor] = useState<string | undefined>(undefined)
   const [initialLoaded, setInitialLoaded] = useState(false)
+  // A cache-first paint is useful immediately but is not current until BOTH the
+  // authoritative read and the worker result built from it have landed. Keeping
+  // this as a latch avoids blinking the notice on later live-delta computes.
+  const [refreshingFromCache, setRefreshingFromCache] = useState(false)
   // Non-null when the rendered window is the replica's OFFLINE COPY (the read
   // failed / server unreachable): epoch ms of when that copy was cached, shown
   // as a subtle "offline copy — as of <time>" notice. Cleared by any successful
@@ -377,6 +383,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     setHasMoreOlder(true)
     setHeadCursor(undefined)
     setInitialLoaded(false)
+    setRefreshingFromCache(false)
     setOfflineAsOf(null)
     setLoadingOlder(false)
     setComputed(null)
@@ -416,7 +423,10 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     //   `windowHealthy` — a cached window has no live subscription behind it, so a
     //     later warm re-activation must still re-read rather than skip.
     const cachedSeed = replica?.transcriptWindow(sessionId)
-    if (cachedSeed !== undefined && cachedSeed.items.length > 0) setItems(cachedSeed.items)
+    if (cachedSeed !== undefined && cachedSeed.items.length > 0) {
+      setItems(cachedSeed.items)
+      setRefreshingFromCache(true)
+    }
 
     ;(async () => {
       const r = await readNewest(true)
@@ -703,6 +713,16 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // on every search keystroke even though its initial read is complete.
   const computeReady = computed !== null
 
+  // Do not clear the cache qualifier merely because the network read resolved.
+  // The previous worker graph stays on screen while it computes the new items,
+  // and clearing here early would recreate the same unexplained stale→fresh jump
+  // for that shorter, but still visible, part of the boundary.
+  useEffect(() => {
+    if (!refreshingFromCache || !initialLoaded) return
+    if (computed?.items !== effectiveItems) return
+    setRefreshingFromCache(false)
+  }, [computed, effectiveItems, initialLoaded, refreshingFromCache])
+
   // Switch-latency trace marks [POD-701] — both no-ops unless a switch to this
   // session is being traced. `chat:rows-built` stamps the commit in which the
   // derived rows landed.
@@ -892,6 +912,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     loadingOlder,
     deepeningSearch,
     initialLoaded,
+    refreshingFromCache,
     offlineAsOf,
     loadOlder,
     ensureSearchDepth,

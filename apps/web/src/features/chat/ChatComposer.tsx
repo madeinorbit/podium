@@ -1,6 +1,6 @@
 import type { SessionMeta } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
-import { ArrowUp, CloudOff, MessageSquareText, Paperclip, Square, X } from 'lucide-react'
+import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useReplicaIssues } from '@/app/store'
@@ -125,6 +125,7 @@ export function ChatComposer({
   onOfferDismiss,
   session,
   turnError,
+  transcriptRefreshing,
   offlineAsOf,
   attached,
   autoFocusKey,
@@ -160,6 +161,8 @@ export function ChatComposer({
   onOfferDismiss: (offerAt: string) => Promise<void>
   session: SessionMeta | undefined
   turnError: string | null
+  /** A saved transcript window is visible while its authoritative read runs. */
+  transcriptRefreshing: boolean
   offlineAsOf: number | null
   /** "Ask superagent (BTW)" (POD-1069): the session the NEXT turn will carry a
    *  transcript digest of. Null on every composer but the superagent's. */
@@ -480,6 +483,7 @@ export function ChatComposer({
       )}
       {(turnError !== null ||
         (interruptError !== null && interruptError !== undefined) ||
+        transcriptRefreshing ||
         offlineAsOf !== null ||
         attached) && (
         <div className="composer-notices" aria-live="polite">
@@ -524,6 +528,13 @@ export function ChatComposer({
             >
               <strong>Not stopped</strong>
               <span>{interruptError}</span>
+            </div>
+          )}
+          {transcriptRefreshing && (
+            <div className="composer-notice" data-notice="transcript-refreshing">
+              <RefreshCw size={12} aria-hidden="true" />
+              <strong>Updating transcript</strong>
+              <span>showing saved messages</span>
             </div>
           )}
           {offlineAsOf !== null && (
