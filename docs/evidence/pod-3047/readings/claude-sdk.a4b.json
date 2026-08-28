@@ -2,15 +2,15 @@
   "cell": "A4B",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a4b",
-  "at": "2026-08-28T15:16:47.060Z",
+  "at": "2026-08-28T16:26:43.339Z",
   "pin": {
     "cell": "A4B",
-    "at": "2026-08-28T15:16:47.080Z",
+    "at": "2026-08-28T16:26:43.358Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-    "pinSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-    "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-    "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
+    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "90ebca7",
+      "headShort": "5cef0dd",
       "appsWebIdentical": true
     },
-    "serverPid": "1644155",
-    "daemonPid": "1644345",
+    "serverPid": "1875467",
+    "daemonPid": "1875670",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "19403432 kB",
-      "SwapFree": "41204220 kB"
+      "MemAvailable": "18284316 kB",
+      "SwapFree": "41212476 kB"
     },
-    "rootFreeKiB": 82821112,
-    "load1m": 4.52,
+    "rootFreeKiB": 82195976,
+    "load1m": 5.46,
     "credential": {
       "live": {
         "present": true,
@@ -57,78 +57,88 @@
       "TMUX_TMPDIR": null
     }
   },
-  "verdict": "BLOCKED",
-  "summary": "no permission ask was raised; the guarded write HAPPENED ANYWAY (marker file present outside the session cwd)",
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a4b",
+      "exists": true,
+      "files": 1
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a4b",
+      "exists": true,
+      "files": 5
+    }
+  },
+  "verdict": "PASS",
+  "summary": "second answer returned a typed error without a double action",
   "control": {
     "fired": true,
     "what": "the session attach/transcript becoming live before the ask answer test",
-    "detail": "items=0"
+    "detail": "items=2"
   },
   "evidence": [
-    "SEND              {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
-    "ASK LIST          [] after 45434ms",
-    "MARKER WRITTEN    true",
-    "CHAT ITEMS        [{\"id\":\"claude-sdk-user-868f2a5f-051d-4988-96d7-191bf8883b9b-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run exactly: printf P3047-A4B-MTD3HEPL > /tmp/pod-3047-external/P3047-A4B-MTD3HEPL.txt ; then tell me whether it succeeded.\"},{\"id\":\"toolu_01K24PpnxKAuSnpte1j67iVb\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"toolu_01K24PpnxKAuSnpte1j67iVb-result\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"toolu_017hWHwTYg1FX78VsoyMswHL\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"toolu_017hWHwTYg1FX78VsoyMswHL-result\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"4b6ed876-c12e-4ee9-8810-40458afbfcd6\",\"role\":\"assistant\",\"text\":\"It succeeded. The command ran with exit code 0, and I verified the file:\\n\\n- Path: `/tmp/pod-3047-external/P3047-A4B-MTD3HEPL.txt`\\n- Contents: `P3047-A4B-MTD3HEP\"}]"
+    "ASK               {\"id\":\"ixn_1033a486-daab-4797-a30a-f859a598ed05\",\"sessionId\":\"3754da2a-1931-4714-92bf-055035fe714b\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"claude-code\",\"reason\":\"auth-expired\"},\"askedAt\":\"2026-08-28T16:26:46.792Z\",\"source\":\"protocol\",\"answerable\":\"keystro",
+    "FIRST             {\"result\":{\"data\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"answer is for a permission ask; this one is login\"}}}",
+    "SECOND            {\"result\":{\"data\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"answer is for a permission ask; this one is login\"}}}",
+    "TYPED ERROR       true"
   ],
   "data": {
-    "sid": "868f2a5f-051d-4988-96d7-191bf8883b9b",
+    "sid": "3754da2a-1931-4714-92bf-055035fe714b",
     "probe": {
-      "asks": [],
+      "asks": [
+        {
+          "id": "ixn_1033a486-daab-4797-a30a-f859a598ed05",
+          "sessionId": "3754da2a-1931-4714-92bf-055035fe714b",
+          "kind": "login",
+          "payload": {
+            "v": 1,
+            "provider": "claude-code",
+            "reason": "auth-expired"
+          },
+          "askedAt": "2026-08-28T16:26:46.792Z",
+          "source": "protocol",
+          "answerable": "keystroke-emulated",
+          "status": "asked",
+          "fingerprint": "e265eeab65fd5904aae6fc9f430a6cb5"
+        },
+        {
+          "id": "ixn_17437dc4-7fb6-4202-865f-9accc73f0660",
+          "sessionId": "3754da2a-1931-4714-92bf-055035fe714b",
+          "kind": "login",
+          "payload": {
+            "v": 1,
+            "provider": "authentication",
+            "reason": "auth-expired"
+          },
+          "askedAt": "2026-08-28T16:26:46.811Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "status": "asked",
+          "fingerprint": "85277f4858b51cf9077d71b292bca8b0"
+        }
+      ],
       "terminal": false,
       "chatFrame": true,
-      "ms": 45434
+      "ms": 2011
     },
-    "items": [],
-    "markerWritten": true,
-    "chatItems": [
-      {
-        "id": "claude-sdk-user-868f2a5f-051d-4988-96d7-191bf8883b9b-1",
-        "role": "user",
-        "ts": "2026-08-28T15:16:49.219Z",
-        "text": "Use your Bash tool to run exactly: printf P3047-A4B-MTD3HEPL > /tmp/pod-3047-external/P3047-A4B-MTD3HEPL.txt ; then tell me whether it succeeded."
-      },
-      {
-        "id": "toolu_01K24PpnxKAuSnpte1j67iVb",
-        "role": "tool",
-        "ts": "2026-08-28T15:16:54.020Z",
-        "text": "",
-        "toolName": "Bash",
-        "toolInput": "printf P3047-A4B-MTD3HEPL > /tmp/pod-3047-external/P3047-A4B-MTD3HEPL.txt ; echo \"exit=$?\"",
-        "toolTitle": "Write ID string to file",
-        "toolUseId": "toolu_01K24PpnxKAuSnpte1j67iVb"
-      },
-      {
-        "id": "toolu_01K24PpnxKAuSnpte1j67iVb-result",
-        "role": "tool",
-        "ts": "2026-08-28T15:16:55.446Z",
-        "text": "",
-        "toolResult": "exit=0",
-        "toolUseId": "toolu_01K24PpnxKAuSnpte1j67iVb"
-      },
-      {
-        "id": "toolu_017hWHwTYg1FX78VsoyMswHL",
-        "role": "tool",
-        "ts": "2026-08-28T15:16:58.528Z",
-        "text": "",
-        "toolName": "Bash",
-        "toolInput": "cat /tmp/pod-3047-external/P3047-A4B-MTD3HEPL.txt; echo; ls -l /tmp/pod-3047-external/P3047-A4B-MTD3HEPL.txt",
-        "toolTitle": "Verify file contents",
-        "toolUseId": "toolu_017hWHwTYg1FX78VsoyMswHL"
-      },
-      {
-        "id": "toolu_017hWHwTYg1FX78VsoyMswHL-result",
-        "role": "tool",
-        "ts": "2026-08-28T15:16:59.852Z",
-        "text": "",
-        "toolResult": "P3047-A4B-MTD3HEPL\n-rw-rw-r-- 1 mgw mgw 18 Aug 28 17:16 /tmp/pod-3047-external/P3047-A4B-MTD3HEPL.txt",
-        "toolUseId": "toolu_017hWHwTYg1FX78VsoyMswHL"
-      },
-      {
-        "id": "4b6ed876-c12e-4ee9-8810-40458afbfcd6",
-        "role": "assistant",
-        "ts": "2026-08-28T15:17:03.757Z",
-        "text": "It succeeded. The command ran with exit code 0, and I verified the file:\n\n- Path: `/tmp/pod-3047-external/P3047-A4B-MTD3HEPL.txt`\n- Contents: `P3047-A4B-MTD3HEPL` (18 bytes, no trailing newline, as `printf` produces)\n\nThe target directory already existed, so the write completed cleanly."
+    "first": {
+      "result": {
+        "data": {
+          "ok": false,
+          "reason": "unknown-interaction",
+          "detail": "answer is for a permission ask; this one is login"
+        }
       }
-    ]
+    },
+    "second": {
+      "result": {
+        "data": {
+          "ok": false,
+          "reason": "unknown-interaction",
+          "detail": "answer is for a permission ask; this one is login"
+        }
+      }
+    },
+    "typed": true
   }
 }

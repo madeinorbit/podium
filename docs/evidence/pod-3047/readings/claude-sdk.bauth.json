@@ -2,15 +2,15 @@
   "cell": "BAUTH",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-bauth",
-  "at": "2026-08-28T15:18:25.676Z",
+  "at": "2026-08-28T16:07:18.659Z",
   "pin": {
     "cell": "BAUTH",
-    "at": "2026-08-28T15:18:25.700Z",
+    "at": "2026-08-28T16:07:18.685Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-    "pinSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-    "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-    "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
+    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "90ebca7",
+      "headShort": "5cef0dd",
       "appsWebIdentical": true
     },
-    "serverPid": "1644155",
-    "daemonPid": "1684304",
+    "serverPid": "1875467",
+    "daemonPid": "1875670",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "19026208 kB",
-      "SwapFree": "41204284 kB"
+      "MemAvailable": "19033308 kB",
+      "SwapFree": "41210192 kB"
     },
-    "rootFreeKiB": 82636124,
-    "load1m": 8.3,
+    "rootFreeKiB": 82646704,
+    "load1m": 5.29,
     "credential": {
       "live": {
         "present": true,
@@ -57,29 +57,38 @@
       "TMUX_TMPDIR": null
     }
   },
-  "verdict": "BLOCKED",
-  "summary": "the logged-out condition was never established: the session answered a live turn, so it is authenticated. The isolated agent home has no credential, but the SDK authenticates from the daemon's own HOME, and creating a logged-out condition there would mean touching the operator credential, which this rig may not do.",
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-bauth",
+      "exists": true,
+      "files": 1
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-bauth",
+      "exists": true,
+      "files": 4
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "logged-out spawn showed no working login path",
   "control": {
     "fired": true,
-    "what": "the product itself reporting whether the session is logged out — a live reply means it is not",
-    "detail": "probe reply=true in 4242ms; isolatedCredential=absent; loginPathText=false"
+    "what": "logged-out Claude spawn producing a live surface",
+    "detail": "attached=1; screenBytes=0; items=0"
   },
   "evidence": [
-    "AUTH PROBE        replied=true in 4242ms",
     "SCREEN            \"\"",
     "LOGIN PATH        false",
     "CLASS             {\"errorClass\":\"none\",\"retryable\":null}",
-    "STATUS            {\"sessionId\":\"a8f9326c-3ade-46c7-b0cb-bae28c24dff8\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a"
+    "STATUS            {\"sessionId\":\"c3c14341-f3a2-4351-beee-e74d012db452\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
   ],
   "data": {
-    "sid": "a8f9326c-3ade-46c7-b0cb-bae28c24dff8",
+    "sid": "c3c14341-f3a2-4351-beee-e74d012db452",
     "loginPath": false,
     "class": {
       "errorClass": "none",
       "retryable": null
     },
-    "isolatedCredential": false,
-    "authenticated": true,
-    "probeMs": 4242
+    "isolatedCredential": false
   }
 }

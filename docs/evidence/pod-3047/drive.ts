@@ -165,7 +165,7 @@ function daemonTos(): boolean {
 
 async function pinFor(label: string): Promise<Pin> {
   const checkoutSha = outputOf('git', ['-C', ROOT, 'rev-parse', 'HEAD'])
-  const pinSha = process.env.P3047_PIN_SHA ?? '90ebca7d94d0e68f4744c6a8425eed30cf5b0b10'
+  const pinSha = process.env.P3047_PIN_SHA ?? '942a0397dd0d30614d5424061a27cdc95c8a460e'
   const server = pidInfo(join(BASE, 'server.pid'))
   const daemon = pidInfo(join(BASE, 'daemon.pid'))
   const serverSha = existsSync(join(BASE, 'server.sha')) ? readFileSync(join(BASE, 'server.sha'), 'utf8').trim() : ''
@@ -994,15 +994,36 @@ async function interruptTurn(freezeHost: boolean) {
     const truthful = outcome === expected
     const idleOnce = afterIdle.idle.length === idleBefore + 1
     const stopUnchangedByIdle = afterIdle.stop.length === persisted.stop.length
+    // I ARGUED THIS CELL DID NOT NEED THE LOGGED-OUT GUARD AND I WAS WRONG.
+    //
+    // The reasoning was that a logged-out session never reaches `working`, so the
+    // control refuses before anything is scored. Measured at the post-POD-3057
+    // pin, it does reach `working` — for 13ms — and then the turn dies on auth.
+    // The control fired, the cell went on to score, found no stop record, and
+    // reported FAIL. The transcript said exactly what had happened:
+    //
+    //   Provider authentication failed: ... Not logged in - Please run /login
+    //   Interrupt refused: no turn was in flight.
+    //
+    // The product was right twice over and my scorer called it a red. So the
+    // guard goes here too, and `hostChildren === 0` at interrupt time is carried
+    // as the corroborating signal: no model host existed, so there was no turn
+    // for an interrupt to stop.
+    const noRealTurn = hosts.length === 0 && persisted.stop.length === 0
+    const a3auth = persisted.stop.length === 0 ? await authCondition(sid, reloaded) : { blocked: false, detail: 'not consulted; a stop record exists' }
     const pass = control.fired && stopped && exactlyOne && durable && truthful
     const clauses =
       'stopped=' + stopped + ' exactlyOneStopRecord=' + exactlyOne + ' durableAfterReload=' + durable +
       ' outcome=' + outcome + ' expected=' + expected + ' truthful=' + truthful +
       ' idleReceiptOnePerEpoch=' + idleOnce + ' stopRecordUnchangedByIdlePresses=' + stopUnchangedByIdle
     return result(
-      !control.fired ? 'BLOCKED' : pass ? 'PASS' : 'FAIL',
+      !control.fired ? 'BLOCKED' : pass ? 'PASS' : a3auth.blocked ? 'BLOCKED' : 'FAIL',
       !control.fired
         ? 'interrupt control did not fire'
+        : a3auth.blocked && !pass
+          ? 'the harness reported itself not logged in, so no turn was ever really in flight and the interrupt had nothing to stop' +
+            (noRealTurn ? ' (no claude-sdk-host child existed at interrupt time)' : '') +
+            '. The product said so itself: ' + a3auth.detail
         : pass
           ? (freezeHost
               ? 'frozen host: the turn stopped and left exactly one durable record that says the interrupt was NOT confirmed'
@@ -1021,6 +1042,8 @@ async function interruptTurn(freezeHost: boolean) {
         'IDLE RECEIPTS     before=' + idleBefore + ' afterTwoPresses=' + afterIdle.idle.length + ' onePerEpoch=' + idleOnce,
         'TYPED REFUSAL     ' + typedRefusal,
         'CLAUSES           ' + clauses,
+        'AUTH CONDITION    blocked=' + a3auth.blocked + ' ' + a3auth.detail,
+        'NO REAL TURN      ' + noRealTurn + ' (hostChildren at interrupt=' + hosts.length + ')',
         // AN ABSENCE CLAIM IS A CLAIM ABOUT THE WHOLE SURFACE. A count of zero
         // records is only worth reading next to everything the transcript did
         // hold, so the full item list goes in the reading rather than a filter
@@ -1091,18 +1114,40 @@ async function runA3neg() {
   return interruptTurn(true)
 }
 
+/**
+ * A LOGIN PROMPT IS NOT A PERMISSION ASK, AND THIS PROBE ONCE SCORED IT AS ONE.
+ *
+ * `interactions.list` returns every open interaction, and on a logged-out rig
+ * the product raises `kind: 'login'`. The first version of this counted ANY
+ * interaction as the permission ask, so A4a and A4b reported
+ * "permission ask appeared and answering resolved it" — a PASS — on a session
+ * that had never run a tool and never written its marker. Two green cells for a
+ * measurement that did not happen.
+ *
+ * It is the same disease this drive has been correcting elsewhere all day: a
+ * check looser than the thing it checks, returning a confident number instead of
+ * an error. Keying on `kind` is the mechanism; the count of everything else is
+ * kept so a reader can see WHAT was open rather than only what was matched.
+ */
 async function permissionAsk(sid: string, chat: Chat, timeout = 45_000) {
   const started = Date.now()
   let asks: Record<string, unknown>[] = []
+  let otherKinds: Record<string, number> = {}
   while (Date.now() - started < timeout) {
     const r = await query('interactions.list', { sessionId: sid })
-    asks = (r.result?.data ?? []) as Record<string, unknown>[]
+    const all = (r.result?.data ?? []) as Record<string, unknown>[]
+    otherKinds = {}
+    for (const a of all) {
+      const k = textOf(a.kind) || '(none)'
+      if (k !== 'permission') otherKinds[k] = (otherKinds[k] ?? 0) + 1
+    }
+    asks = all.filter((a) => textOf(a.kind) === 'permission')
     if (asks.length) break
     await wait(1_000)
   }
   const terminal = /permission|allow|approve|outside|run|yes/i.test(chat.screenTail(5000))
   const chatFrame = [...chat.frameTypes.keys()].some((x) => /interaction|ask|approval/i.test(x))
-  return { asks, terminal, chatFrame, ms: Date.now() - started }
+  return { asks, otherKinds, terminal, chatFrame, ms: Date.now() - started }
 }
 
 async function answerAsk(a: Record<string, unknown>) {
@@ -1134,7 +1179,7 @@ async function runA4a() {
       // approval asked for. The marker file separates them, and only the second
       // is worth anyone's time.
       const wrote = existsSync(join(outside, marker + '.txt'))
-      return result('BLOCKED', 'no permission ask was raised; the guarded write ' + (wrote ? 'HAPPENED ANYWAY (marker file present outside the session cwd)' : 'did not happen, so the agent never attempted the tool'), control, ['SEND              ' + short(sent), 'ASK LIST          [] after ' + probe.ms + 'ms', 'TERMINAL          ' + probe.terminal, 'MARKER WRITTEN    ' + wrote + ' at ' + join(outside, marker + '.txt'), 'ITEMS             ' + short(items, 1200), 'CHAT ITEMS        ' + short((chat.items as unknown as Item[]).map((x) => ({ id: x.id, role: x.role, text: textOf(x.text).slice(0, 160) })), 2000)], { sid, probe, items, markerWritten: wrote, chatItems: chat.items })
+      return result('BLOCKED', 'no permission ask was raised; the guarded write ' + (wrote ? 'HAPPENED ANYWAY (marker file present outside the session cwd)' : 'did not happen, so the agent never attempted the tool'), control, ['SEND              ' + short(sent), 'ASK LIST          [] after ' + probe.ms + 'ms', 'OTHER KINDS OPEN  ' + JSON.stringify(probe.otherKinds) + '  <- login prompts are NOT permission asks', 'TERMINAL          ' + probe.terminal, 'MARKER WRITTEN    ' + wrote + ' at ' + join(outside, marker + '.txt'), 'ITEMS             ' + short(items, 1200), 'CHAT ITEMS        ' + short((chat.items as unknown as Item[]).map((x) => ({ id: x.id, role: x.role, text: textOf(x.text).slice(0, 160) })), 2000)], { sid, probe, items, markerWritten: wrote, chatItems: chat.items })
     }
     const answers = []
     for (const ask of probe.asks) answers.push(await answerAsk(ask))
@@ -1173,7 +1218,7 @@ async function runA4b() {
     if (!control.fired) return result('BLOCKED', 'answer-twice probe had no live-session control', control, ['SEND              ' + short(sent)], { sid })
     if (!probe.asks.length) {
       const wrote = existsSync(join(outside, marker + '.txt'))
-      return result('BLOCKED', 'no permission ask was raised; the guarded write ' + (wrote ? 'HAPPENED ANYWAY (marker file present outside the session cwd)' : 'did not happen, so the agent never attempted the tool'), control, ['SEND              ' + short(sent), 'ASK LIST          [] after ' + probe.ms + 'ms', 'MARKER WRITTEN    ' + wrote, 'CHAT ITEMS        ' + short((chat.items as unknown as Item[]).map((x) => ({ id: x.id, role: x.role, text: textOf(x.text).slice(0, 160) })), 2000)], { sid, probe, items, markerWritten: wrote, chatItems: chat.items })
+      return result('BLOCKED', 'no permission ask was raised; the guarded write ' + (wrote ? 'HAPPENED ANYWAY (marker file present outside the session cwd)' : 'did not happen, so the agent never attempted the tool'), control, ['SEND              ' + short(sent), 'ASK LIST          [] after ' + probe.ms + 'ms', 'OTHER KINDS OPEN  ' + JSON.stringify(probe.otherKinds), 'MARKER WRITTEN    ' + wrote, 'CHAT ITEMS        ' + short((chat.items as unknown as Item[]).map((x) => ({ id: x.id, role: x.role, text: textOf(x.text).slice(0, 160) })), 2000)], { sid, probe, items, markerWritten: wrote, chatItems: chat.items })
     }
     const first = await answerAsk(probe.asks[0])
     const second = await answerAsk(probe.asks[0])

@@ -1,11 +1,11 @@
 {
   "cell": "A1A",
-  "at": "2026-08-28T15:10:54.388Z",
+  "at": "2026-08-28T15:58:16.613Z",
   "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-  "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-  "pinSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-  "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-  "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+  "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
+  "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+  "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+  "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
   "web": {
     "wireSchemaDigest": "c847f4452ebd568b",
     "wireVersion": 2,
@@ -16,11 +16,11 @@
   },
   "webReuseProof": {
     "servedSourceSha": "4d405af",
-    "headShort": "90ebca7",
+    "headShort": "5cef0dd",
     "appsWebIdentical": true
   },
-  "serverPid": "1644155",
-  "daemonPid": "1644345",
+  "serverPid": "1875467",
+  "daemonPid": "1875670",
   "serverAlive": true,
   "daemonAlive": true,
   "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -28,11 +28,11 @@
   "tosOnDaemon": true,
   "freeMemory": {
     "MemTotal": "24603312 kB",
-    "MemAvailable": "19409000 kB",
-    "SwapFree": "41204184 kB"
+    "MemAvailable": "18781452 kB",
+    "SwapFree": "41209404 kB"
   },
-  "rootFreeKiB": 82855992,
-  "load1m": 8.13,
+  "rootFreeKiB": 82609452,
+  "load1m": 3.75,
   "credential": {
     "live": {
       "present": true,
