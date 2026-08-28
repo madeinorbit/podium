@@ -24,7 +24,7 @@ import type { TelemetryTier } from './schema'
 import { TELEMETRY_TIERS } from './schema'
 
 /** The baked-in default relay endpoint (D7 — first-party, IP-dropping). */
-export const DEFAULT_TELEMETRY_ENDPOINT = 'https://telemetry.podium.dev'
+export const DEFAULT_TELEMETRY_ENDPOINT = 'https://pulse.meetpodium.com/v1/u'
 
 /** A tier's resolved consent. 'absent' = never asked. */
 export type ConsentState = 'on' | 'off' | 'absent'

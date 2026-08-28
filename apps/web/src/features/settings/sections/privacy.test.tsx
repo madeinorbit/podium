@@ -36,7 +36,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve()
 }
 
-const OFF = { usage: 'absent', crash: 'absent', endpoint: 'https://telemetry.podium.dev' }
+const OFF = { usage: 'absent', crash: 'absent', endpoint: 'https://pulse.meetpodium.com/v1/u' }
 
 beforeEach(() => {
   trpcMock.state.mockResolvedValue(OFF)
@@ -126,7 +126,7 @@ describe('PrivacySection', () => {
   it('names what is never sent, and where reports go', async () => {
     const view = await renderSection()
     expect(view.getByText(/never sent:/i).textContent).toMatch(/repo names/i)
-    expect(view.getByText(/drops your IP/i).textContent).toContain('telemetry.podium.dev')
+    expect(view.getByText(/drops your IP/i).textContent).toContain('pulse.meetpodium.com/v1/u')
   })
 
   it('offers a reset only once an install id exists', async () => {
