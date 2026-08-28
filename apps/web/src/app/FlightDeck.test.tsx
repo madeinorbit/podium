@@ -6,12 +6,15 @@ import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-conte
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { DOUBLE_CLICK_MS } from './click-intent'
 import {
+  briefCutoffLayout,
   continuationPresenceLine,
   deckTaskUnread,
   defaultFolded,
   FlightDeck,
   isFolded,
+  readBriefCutoff,
   readFolds,
+  writeBriefCutoff,
   writeFolds,
 } from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
@@ -234,6 +237,35 @@ afterEach(() => {
 
 const chevron = (title: string): HTMLElement =>
   screen.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${title}$`) })
+
+describe('mission brief cutoff', () => {
+  const metrics = {
+    deckHeight: 800,
+    briefTop: 80,
+    endGap: 10,
+    contentHeight: 600,
+  }
+
+  it('uses the real deck height and keeps roster space on short screens', () => {
+    const tall = briefCutoffLayout(metrics, null)
+    const short = briefCutoffLayout({ ...metrics, deckHeight: 400 }, null)
+    const draggedLow = briefCutoffLayout({ ...metrics, deckHeight: 400 }, 0.9)
+
+    expect(tall).toMatchObject({ ratio: 0.4, limit: 230 })
+    expect(short).toMatchObject({ ratio: 0.4, limit: 70 })
+    expect(draggedLow.ratio).toBe(0.52)
+    expect(draggedLow.limit).toBe(118)
+  })
+
+  it('round-trips one normalized device preference and rejects corrupt values', () => {
+    expect(readBriefCutoff(null)).toBeNull()
+    expect(readBriefCutoff('')).toBeNull()
+    expect(readBriefCutoff('not-a-number')).toBeNull()
+    expect(readBriefCutoff('1.5')).toBeNull()
+    expect(readBriefCutoff(writeBriefCutoff(0.43789))).toBe(0.4379)
+    expect(writeBriefCutoff(null)).toBeNull()
+  })
+})
 
 describe('the cold deck (POD-1112)', () => {
   /** The composer's placeholder: a draft issue minted so a session has somewhere
