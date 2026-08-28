@@ -63,6 +63,11 @@ describe('issueCardStateSlots — rank', () => {
     expect(kinds).toEqual(['needs-human', 'labels', 'due', 'estimate'])
   })
 
+  it('uses the canonical working count when the caller resolved the session rows', () => {
+    const staleSummary = makeIssue({ sessionSummary: { total: 1, byPhase: { working: 1 } } })
+    expect(issueCardStateSlots(staleSummary, { badges, workingAgents: 0 })).toEqual([])
+  })
+
   it('keeps type OFF the state line — it is identity, and it costs a whole row', () => {
     const bug = makeIssue({ type: 'bug' })
     expect(issueCardStateSlots(bug, { badges })).toEqual([])
