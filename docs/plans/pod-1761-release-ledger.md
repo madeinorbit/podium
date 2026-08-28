@@ -5581,3 +5581,32 @@ focused test; it is not a user-visible recovery fix and is not landed. The
 heavy lease is free, no sandbox is running, and no final release gate is
 authorized until both defects have production fixes and fresh current-tip
 re-drives.
+
+## FOREST — corrected Grok A5 permission re-drive (2026-08-28 04:48:42 CEST)
+
+The preceding A5 FAIL is superseded as an unqualified reading. Its retained
+state showed a real protocol permission ask that the probe never answered, so
+it could not distinguish a parked Bash tool from a lost provider result. The
+fresh exact-tip run is recorded in
+docs/evidence/pod-3025/readings/a5-current-3cd8.json and
+docs/evidence/pod-3025/readings/a5-current-3cd8.txt.
+
+The named instance p2777a5g202608280240343852629 ran server, daemon, and
+served web all pinned to 3cd8fa16aadfb6741c88a157cdaa8ce825f93a75; the
+canonical verifier passed. A2b's positive control bound grok-acp/server.
+The observer saw interaction id 0 (source=protocol, kind=permission) and
+answered the offered allow-once, receiving ok=true. A5 then completed with
+four transcript items, two tool items, and four delta frames. The exact
+toolUseId call-f3cbfb0d-bca7-466b-bc3f-8afcaebb0c1b-0 had both call and result
+live; the provider result exit: 0 plus TRANSCRIPT-13DHO4 survived reload
+with zero missing items and exact history equality. The observer made 188
+polls and one typed answer; teardown found server PID 3852715, daemon PID
+3852928, and provider PID 3853328 all gone.
+
+This is a PASS for A5 on the current tip, and the old dded reading is retained
+for history but no longer blocks the release. The successful retry used
+PODIUM_ADOPT_STATE=1 only to adopt directories the product itself had just
+created; no state-root, socket, tmux, HOME, or runtime-driver path was
+overridden. The operator sandbox remains stopped. The remaining confirmed
+acceptance blocker is the current-tip Grok A1c dead-send failure, which still
+requires the landed recovery fix to be re-driven.
