@@ -280,7 +280,7 @@ describe('the client terminal a server-family attach produces', () => {
    * scrollback as well as the screen.
    */
   it('clears the screen and scrollback BEFORE a cold-started client can paint', async () => {
-    const paint = Buffer.from('paint').toString('base64')
+    const paint = 'paint'
     const { terminals, state } = harness({ subscribeFrame: paint })
     await terminals.attach({ sessionId: SESSION, target })
     const decoded = state.frames.map((frame) =>
@@ -302,10 +302,10 @@ describe('the client terminal a server-family attach produces', () => {
   it('re-anchors on EVERY generation, which is the one the duplicate came from', async () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
-    state.clients[0]?.emit('Zmlyc3Q=')
+    state.clients[0]?.emit('first')
     await terminals.close(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
-    state.clients[1]?.emit('c2Vjb25k')
+    state.clients[1]?.emit('second')
     const decoded = state.frames.map((frame) =>
       Buffer.from(frame.data).toString('latin1'),
     )
@@ -426,7 +426,7 @@ describe('the client terminal a server-family attach produces', () => {
   it('withholds the reset when the SPAWN adopted, even where a label probe is blind', async () => {
     const priorHistory = 'older scrollback'
     const { terminals, state } = harness({
-      redrawFrame: Buffer.from('\x1b[2Jcodex ready').toString('base64'),
+      redrawFrame: '\x1b[2Jcodex ready',
       // The live master is invisible to a probe reading the wrong socket root —
       // exactly what the default `hasMaster` did to an agent home.
       hasMaster: () => false,
@@ -452,7 +452,7 @@ describe('the client terminal a server-family attach produces', () => {
     // generation with no anchor, painting its whole interface below the last
     // one — the duplicated-interface report this issue was opened for.
     const { terminals, state } = harness({
-      redrawFrame: Buffer.from('\x1b[2Jcodex ready').toString('base64'),
+      redrawFrame: '\x1b[2Jcodex ready',
       hasMaster: () => true,
       adopted: false,
     })
