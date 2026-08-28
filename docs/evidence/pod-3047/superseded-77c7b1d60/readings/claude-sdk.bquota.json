@@ -1,0 +1,111 @@
+{
+  "cell": "BQUOTA",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-bquota",
+  "at": "2026-08-28T14:10:21.770Z",
+  "pin": {
+    "cell": "BQUOTA",
+    "at": "2026-08-28T14:10:21.798Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "4bb1585b808b7f2ec852859b3895685bfb9c33df",
+    "pinSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "serverSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "daemonSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "4bb1585",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1287233",
+    "daemonPid": "1346246",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "17806620 kB",
+      "SwapFree": "40945200 kB"
+    },
+    "rootFreeKiB": 83117768,
+    "load1m": 8.69,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "turn succeeded after reset; no quota/auth class",
+  "control": {
+    "fired": true,
+    "what": "a delivered send, reply needle, quota text, auth text, or structured error from a live session",
+    "detail": "user=true; assistant=true; class=none"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "CLASS             {\"errorClass\":\"none\",\"retryable\":null}",
+    "ERROR             null",
+    "ASSISTANT         true",
+    "SCREEN            \"\""
+  ],
+  "data": {
+    "sid": "3b44dc42-bfe1-4d81-ab85-5e03eedd5eeb",
+    "needle": "P3047-BQUOTA-MTD13ZXT",
+    "class": {
+      "errorClass": "none",
+      "retryable": null
+    },
+    "user": true,
+    "assistant": true,
+    "row": {
+      "sessionId": "3b44dc42-bfe1-4d81-ab85-5e03eedd5eeb",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-sdk",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "b448e0b probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

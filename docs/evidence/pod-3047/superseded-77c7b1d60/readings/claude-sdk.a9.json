@@ -1,0 +1,106 @@
+{
+  "cell": "A9",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
+  "at": "2026-08-28T14:11:17.708Z",
+  "pin": {
+    "cell": "A9",
+    "at": "2026-08-28T14:11:17.803Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "4bb1585b808b7f2ec852859b3895685bfb9c33df",
+    "pinSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "serverSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "daemonSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "4bb1585",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1287233",
+    "daemonPid": "1346246",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "17849540 kB",
+      "SwapFree": "40945084 kB"
+    },
+    "rootFreeKiB": 83116216,
+    "load1m": 8.48,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "session process tree was gone immediately and after five minutes",
+  "control": {
+    "fired": true,
+    "what": "a claude-sdk-host child alive in the session before the kill — without one there is nothing that could be orphaned",
+    "detail": "hostChildren=2 pids=[1353792,1353792]; screenBytes=0"
+  },
+  "evidence": [
+    "KILL              {\"result\":{}}",
+    "BEFORE            [{\"pid\":1353792,\"ppid\":1346246,\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a9\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"},{\"pid\":1353792,\"ppid\":0,\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a9\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"}]",
+    "AFTER 5 MIN       []"
+  ],
+  "data": {
+    "sid": "3def1c72-fb2c-4719-8a24-820ece4d6730",
+    "before": [
+      {
+        "pid": 1353792,
+        "ppid": 1346246,
+        "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
+        "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
+      },
+      {
+        "pid": 1353792,
+        "ppid": 0,
+        "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
+        "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
+      }
+    ],
+    "killed": {
+      "result": {}
+    },
+    "immediate": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "after": [],
+    "waitedMs": 300000
+  }
+}

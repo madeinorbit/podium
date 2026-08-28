@@ -1,0 +1,116 @@
+{
+  "cell": "A4B",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a4b",
+  "at": "2026-08-28T14:30:57.864Z",
+  "pin": {
+    "cell": "A4B",
+    "at": "2026-08-28T14:30:57.888Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b7da1db",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1434135",
+    "daemonPid": "1434316",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18963888 kB",
+      "SwapFree": "41118676 kB"
+    },
+    "rootFreeKiB": 83321072,
+    "load1m": 10.07,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "no permission ask was raised; the guarded write HAPPENED ANYWAY (marker file present outside the session cwd)",
+  "control": {
+    "fired": true,
+    "what": "the session attach/transcript becoming live before the ask answer test",
+    "detail": "items=0"
+  },
+  "evidence": [
+    "SEND              {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "ASK LIST          [] after 45828ms",
+    "MARKER WRITTEN    true",
+    "CHAT ITEMS        [{\"id\":\"claude-sdk-user-46a9f9d9-f945-447b-ae43-d03f9dd8712d-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run exactly: printf P3047-A4B-MTD1UHMN > /tmp/pod-3047-external/P3047-A4B-MTD1UHMN.txt ; then tell me whether it succeeded.\"},{\"id\":\"toolu_018SB6C4eWui47dRUC1yfwUR\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"toolu_018SB6C4eWui47dRUC1yfwUR-result\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"cd2a18e2-25fe-4b2f-bc38-653a015bcb1d\",\"role\":\"assistant\",\"text\":\"It succeeded. The command ran with exit code 0 and no errors, meaning the directory `/tmp/pod-3047-external/` already existed and the file `P3047-A4B-MTD1UHMN.t\"}]"
+  ],
+  "data": {
+    "sid": "46a9f9d9-f945-447b-ae43-d03f9dd8712d",
+    "probe": {
+      "asks": [],
+      "terminal": false,
+      "chatFrame": true,
+      "ms": 45828
+    },
+    "items": [],
+    "markerWritten": true,
+    "chatItems": [
+      {
+        "id": "claude-sdk-user-46a9f9d9-f945-447b-ae43-d03f9dd8712d-1",
+        "role": "user",
+        "ts": "2026-08-28T14:31:00.314Z",
+        "text": "Use your Bash tool to run exactly: printf P3047-A4B-MTD1UHMN > /tmp/pod-3047-external/P3047-A4B-MTD1UHMN.txt ; then tell me whether it succeeded."
+      },
+      {
+        "id": "toolu_018SB6C4eWui47dRUC1yfwUR",
+        "role": "tool",
+        "ts": "2026-08-28T14:31:06.424Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "printf P3047-A4B-MTD1UHMN > /tmp/pod-3047-external/P3047-A4B-MTD1UHMN.txt",
+        "toolTitle": "Write pod id to file",
+        "toolUseId": "toolu_018SB6C4eWui47dRUC1yfwUR"
+      },
+      {
+        "id": "toolu_018SB6C4eWui47dRUC1yfwUR-result",
+        "role": "tool",
+        "ts": "2026-08-28T14:31:08.043Z",
+        "text": "",
+        "toolResult": "(Bash completed with no output)",
+        "toolUseId": "toolu_018SB6C4eWui47dRUC1yfwUR"
+      },
+      {
+        "id": "cd2a18e2-25fe-4b2f-bc38-653a015bcb1d",
+        "role": "assistant",
+        "ts": "2026-08-28T14:31:11.499Z",
+        "text": "It succeeded. The command ran with exit code 0 and no errors, meaning the directory `/tmp/pod-3047-external/` already existed and the file `P3047-A4B-MTD1UHMN.txt` was written with the contents `P3047-A4B-MTD1UHMN`."
+      }
+    ]
+  }
+}
