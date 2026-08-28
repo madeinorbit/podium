@@ -1046,12 +1046,19 @@ async function runA5() {
     })
     const user = await waitForNeedle(sid, chat, 'transcript-fixture.txt', 'user', 5_000)
     const assistant = await waitForNeedle(sid, chat, marker, 'assistant', REPLY_MS)
-    const before = await transcript(sid)
+    // SAME PLANE CORRECTION AS A3. `transcript()` is sessions.read, which is
+    // empty for every claude-sdk session on this path, so scoring pairing there
+    // asks "did the agent call a tool" of a surface that never carries one and
+    // answers no whatever happened. The session stream is where published items
+    // land, so that is what is scored; sessions.read is reported beside it.
+    const before = [...(chat.items as unknown as Item[])]
+    const serverBefore = await transcript(sid)
     await chat.close()
     const reload = new Chat(sid)
     await reload.open()
     await wait(2_000)
-    const after = await transcript(sid)
+    const after = [...(reload.items as unknown as Item[])]
+    const serverAfter = await transcript(sid)
     const toolItems = before.filter((x) => x.role === 'tool' || x.toolName || /tool/i.test(textOf(x.event)))
     const resultItems = before.filter((x) => (x.role === 'tool' && !x.toolName) || x.role === 'tool_result' || /result/i.test(textOf(x.event)))
     const paired = toolItems.length > 0 && (resultItems.length > 0 || before.some((x) => Boolean(x.toolName)))
@@ -1063,18 +1070,38 @@ async function runA5() {
       what: 'the transcript fixture send delivering or a needle appearing',
       detail: 'user=' + user.ok + '; assistant=' + assistant.ok + '; items=' + before.length,
     }
+    // DID THE AGENT USE A TOOL, OR DID THE TRANSCRIPT JUST NOT SAY SO?
+    //
+    // "No tool items, therefore pairing was not exercised" is the comfortable
+    // reading and it is unfalsifiable: a transcript that publishes no tool items
+    // at all produces it whatever the agent did. The marker is the control that
+    // separates them. It is random per run, it is written ONLY into the fixture
+    // file, and it is never in the prompt — so an assistant reply carrying it is
+    // proof that a tool read that file. Tool ran and no tool item was published
+    // is an unmet clause, not an unexercised one.
+    const toolRan = assistant.ok
     const out = result(
-      !control.fired ? 'BLOCKED' : !toolItems.length ? 'BLOCKED' : paired && sameHistory && assistant.ok ? 'PASS' : 'FAIL',
+      !control.fired ? 'BLOCKED' : !toolRan ? 'BLOCKED' : !toolItems.length ? 'FAIL' : paired && sameHistory ? 'PASS' : 'FAIL',
       !control.fired
         ? 'transcript control did not fire'
-        : !toolItems.length
-          ? 'agent did not produce a tool call, so pairing was not exercised'
-          : paired && sameHistory && assistant.ok
-            ? 'tool call/result pair and reload history are intact'
-            : 'tool transcript pairing or reload history failed',
+        : !toolRan
+          ? 'the agent never returned the fixture marker, so no tool call is proven and pairing was not exercised'
+          : !toolItems.length
+            ? 'the agent DID read the fixture file — its reply carries a marker that exists only inside it — and the transcript published no tool call and no tool result at all'
+            : paired && sameHistory
+              ? 'tool call/result pair and reload history are intact'
+              : 'tool transcript pairing or reload history failed',
       control,
-      ['SEND              ' + short(sent.result?.data ?? sent.error ?? null), 'USER              ' + user.ok, 'ASSISTANT         ' + assistant.ok, 'TOOL ITEMS        ' + short(toolItems, 1200), 'RELOAD SAME       ' + sameHistory],
-      { sid, marker, before, after, toolItems, resultItems, paired, sameHistory },
+      [
+        'SEND              ' + short(sent.result?.data ?? sent.error ?? null),
+        'USER              ' + user.ok,
+        'ASSISTANT         ' + assistant.ok,
+        'TOOL ITEMS        ' + short(toolItems, 1200),
+        'RELOAD SAME       ' + sameHistory,
+        'STREAM ITEMS      ' + short(before.map((x) => ({ id: x.id, role: x.role, event: x.event, toolName: x.toolName, text: textOf(x.text).slice(0, 120) })), 3000),
+        'SERVER READ ITEMS before=' + serverBefore.length + ' after=' + serverAfter.length + ' (sessions.read, empty on this path)',
+      ],
+      { sid, marker, before, after, serverBefore, serverAfter, toolItems, resultItems, paired, sameHistory, toolRan },
     )
     await reload.close()
     return out
@@ -1087,7 +1114,12 @@ async function runA6a() {
   const { sid, chat: one, row } = await create()
   const two = new Chat(sid)
   try {
-    if (driver === 'claude-sdk' && row?.driverFamily && row.driverFamily !== 'terminal' && one.screenBytes === 0) {
+    // ASSERT ON THE MECHANISM. The old guard required a truthy `driverFamily`,
+    // and an SDK session reports it as null — so the guard never fired, the cell
+    // drove a terminal that does not exist, and reported a missing control
+    // instead of an inapplicable cell. `driverId` is the field that is actually
+    // populated and is what decides whether there is a client terminal at all.
+    if (driver === 'claude-sdk' && row?.driverId === 'claude-sdk' && row.driverFamily !== 'terminal' && one.screenBytes === 0) {
       const control: Control = { fired: Boolean(row.driverId), what: 'SDK session bound so terminal-applicability can be judged', detail: 'driverId=' + (row.driverId ?? '(none)') + '; family=' + (row.driverFamily ?? '(none)') }
       return result('BLOCKED', 'claude-sdk arm has no client terminal; A6a is not applicable', control, ['IDENTITY          ' + short(row), 'SCREEN BYTES      ' + one.screenBytes], { sid, applicable: false, row })
     }
@@ -1127,7 +1159,7 @@ async function runA6a() {
 async function runA6b() {
   const { sid, chat, row } = await create()
   try {
-    if (driver === 'claude-sdk' && row?.driverFamily && row.driverFamily !== 'terminal' && chat.screenBytes === 0) {
+    if (driver === 'claude-sdk' && row?.driverId === 'claude-sdk' && row.driverFamily !== 'terminal' && chat.screenBytes === 0) {
       const control: Control = { fired: Boolean(row.driverId), what: 'SDK session bound so chat/CLI-applicability can be judged', detail: short(row) }
       return result('BLOCKED', 'claude-sdk arm has no CLI terminal; A6b is not applicable', control, ['IDENTITY          ' + short(row)], { sid, applicable: false, row })
     }
