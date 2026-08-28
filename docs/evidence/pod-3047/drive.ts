@@ -1309,6 +1309,35 @@ async function runA8() {
     }
     const loginPath = LOGGED_OUT.test(text) || /log in|login|sign in|oauth|claude\.ai|authenticate|API key/i.test(text)
     const cls = classifyText(text)
+
+    // A SETUP STEP IS NOT A CONDITION UNTIL THE PRODUCT SAYS SO.
+    //
+    // This cell's premise is a LOGGED-OUT spawn, and its setup is the absence of
+    // a credential in the isolated agent home. On the SDK path that absence
+    // reaches nothing: the daemon runs under the operator's own HOME and the SDK
+    // authenticates from there, so the session is fully logged in. Scoring "no
+    // login path was offered" against a session that was never logged out is a
+    // vacuous red — the mirror of the vacuous pass this same cell produced on the
+    // terminal arm, and it is not attributable to the product.
+    //
+    // So the condition gets a control of its own, read from the product: send a
+    // turn. A reply means authenticated, and the cell REFUSES to score.
+    const probe = 'P3047-A8-AUTHED-' + Date.now().toString(36).toUpperCase()
+    await mutate('sessions.sendText', { sessionId: sid, text: 'Reply with exactly this word and nothing else: ' + probe + '. Do not use tools.' }).catch(() => null)
+    const replied = await waitForNeedle(sid, chat, probe, 'assistant', 60_000)
+    if (replied.ok) {
+      return result(
+        'BLOCKED',
+        'the logged-out condition was never established: the session answered a live turn, so it is authenticated. The isolated agent home has no credential, but the SDK authenticates from the daemon\'s own HOME, and creating a logged-out condition there would mean touching the operator credential, which this rig may not do.',
+        {
+          fired: true,
+          what: 'the product itself reporting whether the session is logged out — a live reply means it is not',
+          detail: 'probe reply=' + replied.ok + ' in ' + replied.ms + 'ms; isolatedCredential=absent; loginPathText=' + loginPath,
+        },
+        ['AUTH PROBE        replied=' + replied.ok + ' in ' + replied.ms + 'ms', 'SCREEN            ' + JSON.stringify(screen), 'LOGIN PATH        ' + loginPath, 'CLASS             ' + short(cls), 'STATUS            ' + short(await status(sid))],
+        { sid, loginPath, class: cls, isolatedCredential: false, authenticated: true, probeMs: replied.ms },
+      )
+    }
     return result(
       !control.fired ? 'BLOCKED' : loginPath ? 'BLOCKED' : 'FAIL',
       !control.fired
