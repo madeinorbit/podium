@@ -478,17 +478,33 @@ export class SessionStore {
   /**
    * Newest VERIFIED recovery point, read from metadata and a `stat` only.
    *
-   * Deliberately cheap: this is called from update planning, which is a request
-   * path. It never opens a backup and never waits. `undefined` means nothing is
-   * proved right now — an honest answer — and queues at most one background
-   * verifier to change that for later callers.
+   * Deliberately inert: this is called from update planning, which is a request
+   * path, and reached even by a machine-only plan that will never take a
+   * snapshot. It opens nothing, waits for nothing, writes nothing and STARTS
+   * NOTHING — an earlier revision queued a background verifier from here, which
+   * quietly reintroduced "planning an unrelated update spawns a disk scan".
+   * `undefined` means nothing is proved right now, which is an honest answer.
+   *
+   * {@link discoverDatabaseSnapshots} is what changes that, at boot.
    */
   latestDatabaseSnapshot(): string | undefined {
     if (this.path === ':memory:') return undefined
-    const verified = this.snapshotVerifier.verifiedFallbackPath()
-    if (verified) return verified
-    this.snapshotVerifier.queueBackgroundVerification()
-    return undefined
+    return this.snapshotVerifier.verifiedFallbackPath()
+  }
+
+  /**
+   * Boot/maintenance hook: reconcile the verification catalogue with the
+   * snapshots actually on disk and queue at most one background verifier.
+   *
+   * This is the ONLY caller allowed to start a verifier without an operation
+   * asking for one, and it is where 0.1.0 compatibility lives: an installation
+   * upgrading into the verifier has retained `<db>.backup-v*` files and no
+   * catalogue, and boot migrations stage snapshots without publishing records.
+   * Returns whether a background verification was started.
+   */
+  discoverDatabaseSnapshots(): boolean {
+    if (this.path === ':memory:') return false
+    return this.snapshotVerifier.discoverAndQueue()
   }
 
   private transferFenceHeld = false

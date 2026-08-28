@@ -71,6 +71,37 @@ describe('planning reads never scan the retained backups', () => {
     void dbPath
   })
 
+  it('an upgraded 0.1.0 state dir finds its existing backups at boot, not at a request', async () => {
+    // The 0.1.0 shape: the store's own boot migration stages `<db>.backup-v*`
+    // files (migrations/index.ts calls backupDatabase directly) and publishes no
+    // catalogue. Before POD-3068 the request path discovered them by opening
+    // every one of them; after it, nothing must discover them at request time
+    // and boot must still find them.
+    const runs: string[] = []
+    const { store, dbPath } = tmpStore(async (request) => {
+      runs.push(request.path)
+      return {
+        result: { ok: true, correlationId: request.correlationId, bytes: 1, durationMs: 1 },
+      }
+    })
+    const legacy = store.snapshotBeforeUpdate('0.1.0', '0.1.0') as string
+    // Erase the catalogue: this instance now looks exactly like one that was
+    // running before the verifier existed.
+    rmSync(`${dbPath}.snapshots.json`, { force: true })
+
+    // Update planning still answers honestly, and still starts nothing.
+    expect(store.latestDatabaseSnapshot()).toBeUndefined()
+    expect(runs).toEqual([])
+
+    // Boot is what reconciles the catalogue with the directory.
+    expect(store.discoverDatabaseSnapshots()).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(runs).toEqual([legacy])
+    expect(store.latestDatabaseSnapshot()).toBe(legacy)
+    store.close()
+  })
+
   it('serves the cached verified path without touching the file contents', () => {
     const { store, dbPath } = tmpStore()
     const staged = store.snapshotBeforeUpdate('0.4.1', '0.4.2') as string

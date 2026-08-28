@@ -129,3 +129,67 @@ Lanes run at end of task, and each red compared against the branch base in a det
 | `bun run lint:boundaries` | red, `console-ownership` only | same, pre-existing |
 
 Every red is identical to the base; the branch adds passing tests to each shard.
+
+## Review round 1 — POD-2462 required changes (all three accepted and fixed)
+
+All three findings were correct as written. Confirmed in the code before fixing.
+
+### 1. Stable/0.1.0 backups were invisible
+
+`latestDatabaseSnapshot()` read only the catalogue, and `queueBackgroundVerification()`
+only considered records already in it. With no `<db>.snapshots.json` — which is exactly
+what a 0.1.0 install has, and what `migrations/index.ts:225` still produces, since the boot
+migration calls `backupDatabase` without publishing a record — `records` stayed `[]`
+forever and existing `<db>.backup-v*` files were never queued, never verified, never offered.
+
+Fix: discovery now starts from the DIRECTORY. `retainedSnapshotPaths(dbPath)` in `backup.ts`
+lists published mains stat-only; `SnapshotVerifier.recordsIncludingLegacy()` merges them into
+the catalogue view as `pending`, dated by the FILE's mtime rather than by the discovery, so a
+pre-existing snapshot does not jump the retention queue merely because this boot first noticed
+it. No `quick_check` anywhere on that path.
+
+### 2. The production start path still queued a verifier
+
+`startUpdateOperation` → `contextFor(..., { includeDatabaseSnapshot: true })` →
+`planInputFrom` → `latestDatabaseSnapshot()`, which queued a background verifier when nothing
+was verified. That is the brief's "machine-only and all-offline plans must not invoke the
+verifier" rule, broken by the fix itself. The existing test only covered the step runner.
+
+Fix: `latestDatabaseSnapshot()` is now completely inert — it reads and stats, and starts
+nothing. Discovery and queueing moved to `SessionStore.discoverDatabaseSnapshots()`, called
+once from `server.ts` boot, after `adoptOnBoot` and off the readiness path.
+
+### 3. `close()` did not kill the in-flight child
+
+It only flipped a flag, so a shutdown could leave a `quick_check` child running for up to the
+ten-minute deadline and orphaned after the parent exited.
+
+Fix: `SnapshotChildRunner` now takes an `AbortSignal`; `SnapshotVerifier` owns an
+`AbortController` for its lifetime and `close()` aborts it, running the same
+SIGTERM → grace → SIGKILL escalation the deadline uses.
+
+### The new guard tests were proven armed
+
+Each was run against the defect it guards, not just against the fix:
+
+- machine-only start (`router.updates.test.ts`): with the queueing read restored, red —
+  `expected [ Array(1) ] to deeply equal []`. It also had to `await` a tick first, or it
+  could not see a *deferred* spawn at all; the first draft passed against the regression.
+- 0.1.0 discovery (verifier + store level) and the legacy record's date: with
+  `recordsIncludingLegacy()` reverted to `records()`, both red.
+- close-kills-the-child: with `close()` reverted to a flag flip, red.
+
+## Follow-up, now measured
+
+`verifiedSnapshotBeforeUpdate` still stages synchronously (`wal_checkpoint(TRUNCATE)` plus the
+copy) before awaiting the child. Measured on this box against a purpose-built 783 MiB SQLite
+file:
+
+    783 MiB staged in 1333 ms (~587 MiB/s)
+
+So the residual synchronous pause at Ludovico's file size is ~1.3 s, on the server-replacement
+path only — not on any request path — against the ~27 s per file that `quick_check` cost, and
+~80 s for the three of them. Roughly sixty times smaller than what was removed, and it happens
+once, during a restart the operator asked for. Left as it is deliberately: making the copy
+asynchronous means holding the database fence across an await, which is a different and larger
+change than this issue.

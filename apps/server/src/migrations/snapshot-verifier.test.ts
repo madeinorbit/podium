@@ -251,16 +251,59 @@ describe('spawnSnapshotVerifierChild', () => {
   })
 })
 
+describe('spawnSnapshotVerifierChild cancellation', () => {
+  it('SIGTERMs on abort and SIGKILLs a child that ignores it', async () => {
+    vi.useFakeTimers()
+    try {
+      const handlers = new Map<string, (...args: unknown[]) => void>()
+      const kills: Array<string | undefined> = []
+      const child = {
+        stdout: { on: () => {} },
+        stderr: { on: () => {} },
+        once: (event: string, fn: (...args: unknown[]) => void) => handlers.set(event, fn),
+        kill: (signal?: string) => {
+          kills.push(signal)
+        },
+      }
+      const controller = new AbortController()
+
+      const pending = spawnSnapshotVerifierChild(
+        {
+          path: '/state/a',
+          expected: { path: '/state/a', size: 1, mtimeMs: 2, sidecars: '' },
+          correlationId: 'corr',
+        },
+        600_000,
+        {
+          spawnProcess: (() => child) as never,
+          compiled: true,
+          killGraceMs: 500,
+          signal: controller.signal,
+        },
+      )
+
+      controller.abort()
+      expect(kills).toEqual(['SIGTERM'])
+      await vi.advanceTimersByTimeAsync(500)
+      expect(kills).toEqual(['SIGTERM', 'SIGKILL'])
+      await expect(pending).resolves.toMatchObject({ failure: { code: 'cancelled' } })
+      void handlers
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('SnapshotVerifier', () => {
   function verifierOver(
     dir: string,
     runChild: (request: { path: string; correlationId: string }) => Promise<SnapshotChildOutcome>,
-    extra: { keep?: number } = {},
+    extra: { keep?: number; schedule?: (fn: () => void) => void } = {},
   ): { dbPath: string; verifier: SnapshotVerifier } {
     const dbPath = join(dir, 'podium.db')
     const verifier = new SnapshotVerifier(dbPath, {
       runChild: (request) => runChild(request),
-      schedule: (fn) => fn(),
+      schedule: extra.schedule ?? ((fn) => fn()),
       ...(extra.keep !== undefined ? { keep: extra.keep } : {}),
     })
     return { dbPath, verifier }
@@ -436,6 +479,92 @@ describe('SnapshotVerifier', () => {
     ])
 
     expect(verifier.queueBackgroundVerification()).toBe(false)
+  })
+
+  it('discovers a 0.1.0 state dir that has backups and no catalogue at all', async () => {
+    // Exactly what an installation upgrading INTO the verifier looks like:
+    // retained `<db>.backup-v*` files, written by an older build or by the boot
+    // migration, and no `<db>.snapshots.json` anywhere.
+    const dir = tmpDir()
+    const older = sqliteFile(dir, 'podium.db.backup-vdrizzle-11-2026-08-01T00-00-00-000Z')
+    const newer = sqliteFile(dir, 'podium.db.backup-vdrizzle-12-2026-08-02T00-00-00-000Z')
+    const stamp = (path: string, when: string) => {
+      const at = new Date(when)
+      utimesSync(path, at, at)
+    }
+    stamp(older, '2026-08-01T00:00:00.000Z')
+    stamp(newer, '2026-08-02T00:00:00.000Z')
+    const runs: string[] = []
+    const { dbPath, verifier } = verifierOver(dir, async (request) => {
+      runs.push(request.path)
+      return {
+        result: { ok: true, correlationId: request.correlationId, bytes: 1, durationMs: 1 },
+      }
+    })
+
+    expect(readSnapshotCatalogue(dbPath)).toEqual([])
+    // The cheap read alone starts NOTHING — this is what update planning calls.
+    expect(verifier.verifiedFallbackPath()).toBeUndefined()
+    expect(runs).toEqual([])
+
+    // Boot is what discovers them, and it takes the NEWEST first.
+    expect(verifier.discoverAndQueue()).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    expect(runs).toEqual([newer])
+    expect(verifier.verifiedFallbackPath()).toBe(newer)
+    expect(
+      readSnapshotCatalogue(dbPath)
+        .map((row) => row.path)
+        .sort(),
+    ).toEqual([newer, older].sort())
+  })
+
+  it('dates a discovered legacy record by the file, not by the discovery', async () => {
+    const dir = tmpDir()
+    const legacy = sqliteFile(dir, 'podium.db.backup-vdrizzle-9-2026-01-01T00-00-00-000Z')
+    const at = new Date('2026-01-01T00:00:00.000Z')
+    utimesSync(legacy, at, at)
+    // The background run is queued but never released, so the assertion below
+    // sees the SEEDED record rather than the verification's own.
+    const { dbPath, verifier } = verifierOver(
+      dir,
+      async () => ({ failure: { code: 'crashed', detail: 'not reached' } }),
+      { schedule: () => {} },
+    )
+
+    verifier.discoverAndQueue()
+
+    // A pre-existing snapshot is as old as it is; if discovery restamped it,
+    // it would outrank every newer candidate in retention forever.
+    expect(readSnapshotCatalogue(dbPath)[0]?.recordedAtMs).toBe(at.getTime())
+  })
+
+  it('kills the in-flight child when the verifier is closed', async () => {
+    const dir = tmpDir()
+    const snapshot = sqliteFile(dir, 'podium.db.backup-va')
+    let observed: AbortSignal | undefined
+    const dbPath = join(dir, 'podium.db')
+    const verifier = new SnapshotVerifier(dbPath, {
+      runChild: (_request, _timeoutMs, signal) =>
+        new Promise((resolve) => {
+          observed = signal
+          // Stands in for the real child: it answers only when told to stop.
+          signal.addEventListener('abort', () =>
+            resolve({ failure: { code: 'cancelled', detail: 'the verifier was shut down' } }),
+          )
+        }),
+    })
+
+    const verification = verifier.verify(snapshot)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(observed?.aborted).toBe(false)
+
+    // A flag flip would leave a multi-minute quick_check running past shutdown.
+    verifier.close()
+
+    expect(observed?.aborted).toBe(true)
+    await expect(verification).resolves.toMatchObject({ ok: false, code: 'cancelled' })
   })
 
   it('keeps the catalogue finite without dropping the record in use', async () => {

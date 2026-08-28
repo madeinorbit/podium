@@ -169,6 +169,38 @@ export function backupDatabase(
 }
 
 /**
+ * Every published snapshot main file for `dbPath`, newest first. Stat-only.
+ *
+ * This is the naming convention's one reader outside retention, and the reason
+ * it exists is 0.1.0 compatibility: an installation that upgrades into the
+ * verifier has `<db>.backup-v*` files and no catalogue, and the migration path
+ * (`migrations/index.ts`) still stages snapshots without publishing a record.
+ * Discovery has to start from the DIRECTORY, not from the catalogue, or those
+ * files stay invisible forever.
+ */
+export function retainedSnapshotPaths(dbPath: string): string[] {
+  const dir = dirname(dbPath)
+  const dbFile = basename(dbPath)
+  try {
+    return readdirSync(dir)
+      .filter((name) => isBackupMain(name, dbFile))
+      .flatMap((name) => {
+        const path = join(dir, name)
+        try {
+          return [{ path, mtimeMs: statSync(path).mtimeMs }]
+        } catch {
+          return []
+        }
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs || b.path.localeCompare(a.path))
+      .map(({ path }) => path)
+  } catch (err) {
+    log.warn('database snapshot history could not be listed', { path: dbPath, err })
+    return []
+  }
+}
+
+/**
  * Keeps the newest snapshot sets by mtime, stat-only.
  *
  * `activeFallback` is the path the verifier currently advertises as the usable

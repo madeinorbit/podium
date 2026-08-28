@@ -25,6 +25,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { createLogger } from '@podium/logger'
+import { retainedSnapshotPaths } from './backup'
 import {
   readSnapshotCatalogue,
   retainSnapshotRecords,
@@ -59,12 +60,14 @@ export type SnapshotVerification =
 export interface SnapshotChildOutcome {
   result?: VerifySnapshotResult
   /** Set when the child itself failed — crash, timeout, unparsable output. */
-  failure?: { code: 'timeout' | 'crashed' | 'unreadable-output'; detail: string }
+  failure?: { code: 'timeout' | 'crashed' | 'unreadable-output' | 'cancelled'; detail: string }
 }
 
 export type SnapshotChildRunner = (
   request: VerifySnapshotRequest,
   timeoutMs: number,
+  /** Aborted when the owner shuts down; the child must not outlive it. */
+  signal: AbortSignal,
 ) => Promise<SnapshotChildOutcome>
 
 export interface SnapshotVerifierDeps {
@@ -93,6 +96,8 @@ export function spawnSnapshotVerifierChild(
     execPath?: string
     compiled?: boolean
     killGraceMs?: number
+    /** Shutdown seam: aborting terminates the child on the same escalation. */
+    signal?: AbortSignal
   } = {},
 ): Promise<SnapshotChildOutcome> {
   const spawnProcess = deps.spawnProcess ?? spawn
@@ -134,9 +139,11 @@ export function spawnSnapshotVerifierChild(
       clearTimeout(deadline)
       resolve(outcome)
     }
+    let detachAbort: () => void = () => {}
     const childGone = (): void => {
       if (killTimer) clearTimeout(killTimer)
       killTimer = undefined
+      detachAbort()
     }
 
     child.stdout?.on('data', (chunk: Buffer) => {
@@ -149,19 +156,38 @@ export function spawnSnapshotVerifierChild(
     // Ask first, then insist. A child mid-`quick_check` is inside a synchronous
     // native call and will not see SIGTERM until it returns, which is exactly
     // why this path exists as a process and not as a worker thread.
-    const deadline = setTimeout(() => {
+    const terminate = (): void => {
       try {
         child.kill('SIGTERM')
       } catch {}
+      if (killTimer) return
       killTimer = setTimeout(() => {
         try {
           child.kill('SIGKILL')
         } catch {}
       }, deps.killGraceMs ?? SNAPSHOT_VERIFY_KILL_GRACE_MS)
       killTimer.unref?.()
+    }
+
+    const deadline = setTimeout(() => {
+      terminate()
       finish({ failure: { code: 'timeout', detail: `no result within ${timeoutMs}ms` } })
     }, timeoutMs)
     deadline.unref?.()
+
+    // Shutdown uses the SAME escalation as the deadline. A server that stops
+    // while a verifier is scanning must not leave a multi-minute `quick_check`
+    // orphaned behind it.
+    const onAbort = (): void => {
+      terminate()
+      finish({ failure: { code: 'cancelled', detail: 'the verifier was shut down' } })
+    }
+    if (deps.signal?.aborted) {
+      onAbort()
+      return
+    }
+    deps.signal?.addEventListener('abort', onAbort, { once: true })
+    detachAbort = () => deps.signal?.removeEventListener('abort', onAbort)
 
     child.once('error', (error: Error) => {
       childGone()
@@ -207,6 +233,8 @@ export class SnapshotVerifier {
   private inFlight: Promise<SnapshotVerification> | undefined
   private backgroundQueued = false
   private closed = false
+  /** Aborted by {@link close}; the in-flight child dies with the server. */
+  private readonly lifetime = new AbortController()
 
   constructor(
     private readonly dbPath: string,
@@ -222,6 +250,41 @@ export class SnapshotVerifier {
   }
 
   /**
+   * The catalogue, plus a `pending` record for every retained snapshot the
+   * catalogue has never heard of. Stat-only, and it opens nothing.
+   *
+   * This is the 0.1.0 compatibility path. An installation that upgrades into the
+   * verifier has `<db>.backup-v*` files and no catalogue at all, and the boot
+   * migration (`migrations/index.ts`) still stages snapshots without publishing
+   * a record. Starting discovery from the catalogue alone would leave every one
+   * of those files permanently invisible — never verified, never offered, never
+   * even queued. So discovery starts from the DIRECTORY and the catalogue is
+   * what it converges on.
+   */
+  private recordsIncludingLegacy(): SnapshotRecord[] {
+    const records = this.records()
+    const known = new Set(records.map((row) => row.path))
+    const discovered = retainedSnapshotPaths(this.dbPath)
+      .filter((path) => !known.has(path))
+      .flatMap((path) => {
+        const identity = snapshotIdentity(path)
+        if (!identity) return []
+        return [
+          {
+            ...identity,
+            outcome: 'pending' as const,
+            correlationId: 'legacy-discovery',
+            // Dated by the FILE, not by the discovery: a pre-existing snapshot
+            // is as old as it is, and must not jump the retention queue merely
+            // because this boot was the first to notice it.
+            recordedAtMs: identity.mtimeMs,
+          },
+        ]
+      })
+    return [...records, ...discovered]
+  }
+
+  /**
    * The cheap read every boot, maintenance pass and request path uses: metadata
    * and `stat`, nothing else. `undefined` means "nothing verified is known
    * right now", which is an honest answer and never a reason to block.
@@ -229,6 +292,25 @@ export class SnapshotVerifier {
   verifiedFallbackPath(): string | undefined {
     if (this.closed) return undefined
     return verifiedFallback(this.records())?.path
+  }
+
+  /**
+   * Bring the catalogue up to date with the directory and queue at most one
+   * background verification. Called at boot and maintenance — NEVER from a
+   * request path, because seeding records writes a file and queueing starts a
+   * child, and update planning is allowed to do neither.
+   */
+  discoverAndQueue(): boolean {
+    if (this.closed) return false
+    const merged = this.recordsIncludingLegacy()
+    if (merged.length !== this.records().length) {
+      const active = verifiedFallback(merged)?.path
+      writeSnapshotCatalogue(
+        this.dbPath,
+        retainSnapshotRecords(merged, this.deps.keep ?? SNAPSHOT_RECORDS_TO_KEEP, active),
+      )
+    }
+    return this.queueBackgroundVerification()
   }
 
   /** The verified record itself, for callers that want its schema identity too. */
@@ -313,14 +395,15 @@ export class SnapshotVerifier {
 
     const timeoutMs = this.deps.timeoutMs ?? SNAPSHOT_VERIFY_TIMEOUT_MS
     const runChild =
-      this.deps.runChild ?? ((request, ms) => spawnSnapshotVerifierChild(request, ms))
+      this.deps.runChild ??
+      ((request, ms, signal) => spawnSnapshotVerifierChild(request, ms, { signal }))
     const request: VerifySnapshotRequest = {
       path,
       expected,
       correlationId,
       ...(expectedSchemaVersion ? { expectedSchemaVersion } : {}),
     }
-    const outcome = await runChild(request, timeoutMs)
+    const outcome = await runChild(request, timeoutMs, this.lifetime.signal)
     const durationMs = this.now() - startedAt
 
     // A result that names a different run, or that describes a candidate the
@@ -428,7 +511,7 @@ export class SnapshotVerifier {
    */
   queueBackgroundVerification(): boolean {
     if (this.closed || this.backgroundQueued || this.inFlight) return false
-    const candidate = verificationCandidates(this.records())[0]
+    const candidate = verificationCandidates(this.recordsIncludingLegacy())[0]
     if (!candidate) return false
     this.backgroundQueued = true
     const schedule = this.deps.schedule ?? ((fn: () => void) => void setImmediate(fn))
@@ -447,7 +530,17 @@ export class SnapshotVerifier {
     return true
   }
 
+  /**
+   * Stop verifying and take the child with us.
+   *
+   * Flipping a flag would not be a shutdown: a `quick_check` on a
+   * multi-hundred-megabyte file runs for minutes, so a verifier left alone here
+   * outlives the server that started it. Aborting the lifetime signal runs the
+   * same SIGTERM → grace → SIGKILL escalation the deadline uses.
+   */
   close(): void {
+    if (this.closed) return
     this.closed = true
+    this.lifetime.abort()
   }
 }

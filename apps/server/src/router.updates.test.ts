@@ -5,6 +5,7 @@ import { asMachineId, FIRST_ADMIN_USER_ID, type UpdateChannel } from '@podium/mo
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
+import type { SnapshotChildRunner } from './migrations/snapshot-verifier'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -73,9 +74,13 @@ const temporaryStores: Array<{ store: SessionStore; directory: string }> = []
  * intentionally cannot produce one, so restart-order tests use a disposable
  * file-backed store and keep the production gate armed.
  */
-function fileBackedStore(): SessionStore {
+function fileBackedStore(runChild?: SnapshotChildRunner): SessionStore {
   const directory = mkdtempSync(join(tmpdir(), 'podium-router-updates-'))
-  const store = new SessionStore(join(directory, 'podium.db'))
+  const store = new SessionStore(
+    join(directory, 'podium.db'),
+    undefined,
+    runChild ? { runChild } : {},
+  )
   temporaryStores.push({ store, directory })
   return store
 }
@@ -1518,6 +1523,67 @@ describe('the update operation', () => {
    * SAME operation rather than an error, which is what makes both tabs render
    * one panel instead of one of them reporting a conflict.
    */
+  /**
+   * POD-3068's regression, at the boundary that actually regressed.
+   *
+   * The Ludovico outage was `updates.start` planning a MACHINE-ONLY update — no
+   * server step, nothing that would ever take a snapshot — and paying ~79.9
+   * seconds for a full backup scan on the way. An earlier revision of this fix
+   * still queued a background verifier from the planning read, which is the same
+   * mistake wearing a different hat, so this asserts the production entry point
+   * rather than the step runner: `updates.start` must not start a verifier.
+   */
+  it('start: a machine-only plan never invokes the snapshot verifier', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const verifierRuns: string[] = []
+    const store = fileBackedStore(async (request) => {
+      verifierRuns.push(request.path)
+      return { failure: { code: 'crashed', detail: 'no verifier should run here' } }
+    })
+    // A snapshot exists on disk and is UNVERIFIED: the tempting case, where a
+    // background scan would look like a helpful thing to start.
+    store.snapshotBeforeUpdate('0.4.1', '0.4.2')
+    const { registry, caller } = harness({ store })
+    // The host is already on the target; only a daemon machine is behind.
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    const behind = asMachineId('behind-machine')
+    registry.sessionStore.machines.upsertMachine({
+      id: 'behind-machine',
+      name: 'Behind',
+      hostname: 'behind',
+      tokenHash: 'behind-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.gateway.attachDaemon(behind, () => {})
+    registry.modules.machines.setMachineBuild(
+      behind,
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.machines.setUpdateChannel(behind, 'dev')
+    registry.modules.updates.setTarget(target('0.4.2'))
+    const discover = vi.spyOn(registry.sessionStore, 'discoverDatabaseSnapshots')
+
+    const started = await caller.updates.start()
+    // Past the tick a background verifier would have been scheduled on: this
+    // assertion has to be able to SEE a deferred spawn, not just a sync one.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(started.operationId).toMatch(/^op_/)
+    // The plan has no server step, so nothing may have asked for a proof...
+    expect(started.operation?.steps?.map((step) => step.id)).not.toContain('server')
+    // ...and nothing may have started one in the background either.
+    expect(verifierRuns).toEqual([])
+    expect(discover).not.toHaveBeenCalled()
+    registry.dispose()
+  })
+
   it('gives two concurrent starts one operation id', async () => {
     const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
     const [first, second] = await Promise.all([caller.updates.start(), caller.updates.start()])
