@@ -281,13 +281,64 @@ already assumes signed artifacts. No coordinator change is needed.
 - CI: the release job runs `release:prepare --platforms all` and the existing bundle gates,
   unchanged; the `.turbo/runs/*.json` summary is uploaded with the artifacts.
 
-## 11. Rollout
+## 11. Milestones
 
-1. Determinism: strip `builtAt`/nonce, add `fileCount`, prove byte-identical rebuilds.
-2. Turbo tasks + input-derivation guard; root scripts delegate; `package:clients` deleted.
-3. `verifyClientBuild` + mutation harness successors; `build-bun.ts` loses the client build.
-4. Coordinator `release:prepare`; dev publisher and CI switch to it; per-platform spawn removed.
-5. State-dir build records; `dist-bun/` retired as artifact root; retention and timing follow.
-6. `stage-sidecar`, windows-smoke, verify-headless-update switch to the coordinator.
+Each milestone lands on its own, is green on its own, and leaves the release path working.
+Later milestones depend on earlier ones as noted; nothing is reordered.
 
-Each step lands green on its own; 1–3 are safe to land before 4.
+### M1 — Provenance by checksum (foundation, no speed change)
+
+Scope: §4.3 determinism + §5 verification. Strip `builtAt` and the nonce from the stamp and
+manifest, add `fileCount`, replace `beginFreshClientPackagingSession` with `verifyClientBuild`
+(manifest `sourceCommit`/`appVersion`, per-file SHA-256, inventory floor, module-branded
+evidence), retire every nonce mutation case with a successor. `build-bun.ts` still runs the
+client build itself — via the existing package scripts — so the release path is unchanged in
+shape.
+Gate: two builds of one commit in two fresh worktrees are byte-identical (`diff -r`, including
+`.br`/`.gz`); mutation harness refuses each new case for the right reason;
+`prove-headless-assertions-can-fail.sh` green; CI release job green.
+Why first: nothing can be cached while the output differs per run, and the gate change is the
+one piece that needs review on its own terms (§5) rather than mixed into a build-system change.
+
+### M2 — Turbo owns the client build (first speed win)
+
+Scope: §4.1–4.2. `@podium/web#build` and `@podium/mobile#build` as Turbo tasks with derived,
+test-guarded inputs; root `build`/`package:clients` replaced by `turbo run build`; `packages/*`
+`build` registered; `build-bun.ts` invokes `turbo run build --filter … --summarize` through the
+admission wrapper and feeds the summary to `verifyClientBuild` (M1).
+Effect on the dev path without any publisher change: the three per-approval builds become one
+build plus two cache restores (~175 s → ~95 s), and a second approval of an unchanged client
+restores all three (~50 s). Every issue worktree and CI share the cache.
+Gate: input-derivation test; `test:integration`/`test:e2e` on `turbo run build`; a warm second
+run reports `cache hit` for both tasks and no `vite`/`expo` process; CI release green.
+Depends on M1.
+
+### M3 — One coordinator for dev and CI (zero builds when unchanged)
+
+Scope: §3 + §7. `bun run release:prepare` as the single entry; `scripts/release.ts` becomes the
+coordinator (snapshot, one `turbo run build`, verify, N platforms in-process, sign); the dev
+publisher spawns one child instead of `prepareWebDist` + N × `package-headless`;
+`stage-sidecar`, `windows-smoke`, `verify-headless-update` and the human `package:headless`
+switch to it. `prepareWebDist` and the per-platform session are deleted.
+Effect: unchanged client → 0 builds (~40 s for two platforms); changed client → 1 build.
+Gate: `named-dev-release` integration test with the two-approval hit/miss assertions (§10); CI
+release job runs the same entry with `--platforms all`; desktop release workflow green.
+Depends on M2.
+
+### M4 — State-directory build ledger
+
+Scope: §6 + timing. `<stateDir>/builds/<buildId>/` records, `buildId` minted after verification,
+artifact root moved off `dist-bun/`, retention walks the records, timing records carry Turbo
+hit/miss, CI uploads the record.
+Effect: durable, machine-independent evidence of what was validated and published; `dist-bun/`
+retired as an artifact root.
+Gate: record schema test; retention walk test; a failed-verify approval leaves a
+`failed:verify` record and no signature; feed publisher reads the record.
+Depends on M3 (the coordinator is the only writer).
+
+### M5 — Remote cache (deferred, §9)
+
+Signed self-hosted cache; no coordinator change. Not scheduled.
+
+Suggested tracking: one sub-issue per milestone under this issue; M1 and M2 may be worked by one
+agent back-to-back, M3 by a second once M2 is merged, M4 after M3.
