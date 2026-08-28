@@ -1021,3 +1021,53 @@ spent, and a re-drive needs a fresh uniquely-named tree.
 Controls for these cells are unchanged: positive-turn, structured-ask,
 native-view, ordering, and the first-answer/second-answer pair. No result will be
 claimed unless the live control fires.
+
+### Decision 42, and the derived substantive set — 2026-08-28 20:40 CEST
+
+**Decision 42 (coordinator, recorded):** after the integration, every cell is
+UNCONFIRMED. No stale-by-bytes row is promoted to valid. The replay/streaming
+cells are driven first; the rest only when justified. This supersedes any reading
+of the audit above that treated the weaker class as still-good — it was left
+open there deliberately, and this is the answer.
+
+**What "substantive" means mechanically.** The integration's substantive change
+to driver behaviour is the trim-safe replay reader: buffers read by monotonic
+event sequence instead of array position, so a live stream cannot sleep forever
+when the oldest entry is trimmed. A cell is therefore substantively stale if its
+verdict depends on reading a live or replayed stream. That is a property of the
+probe, not a matter of taste, so it is derived rather than judged:
+
+| probe | reads previews / screen bytes / transcript items | substantive |
+|---|---|---|
+| `reply` | yes | YES |
+| `interrupt` | yes | YES |
+| `attach` | yes | YES |
+| `interaction` | yes | YES |
+| `stop` | no | no |
+| `modelSwitch` | no | no |
+| `a1`, `a2a`, `a2-a5-a10`, `a4`, `a6a`, `a6b`, `a7a`, `a7b`, `a9` | yes | YES |
+| `a8` | no | no |
+| `a3` | **no, at file level — and that reading is WRONG** | YES |
+
+**THE FILE-LEVEL GREP GOT `a3` BACKWARDS, AND a3 IS THE MOST STREAM-DEPENDENT
+CELL IN THE MATRIX.** `a3.ts` contains none of the stream tokens because it
+delegates to the `interrupt` probe in `probes.ts`, and that probe is where every
+preview frame and transcript character is counted. A grep over the file that
+*runs* the cell says "no"; the import edge says "yes, more than any other row".
+
+This is the same defect class this issue has hit repeatedly and it is worth
+naming again: a check that matches on a name rather than on the thing itself.
+The correct classification follows the import graph, not the file. Recorded
+because the wrong answer here would have dropped the one cell the wedge fix was
+made for from the re-drive set — the comfortable answer again.
+
+**So the substantive set is nearly the whole matrix**: everything except A2b,
+A8, and the stop/model-switch cells. "Smallest substantive set" turns out not to
+be small. That is a fact about how much of this product is a streaming product,
+not a scoping failure.
+
+**Commits confirmed on the coordinator tip.** `46f08ca8f` is an ancestor of
+`5972db7f2`; `a64d5b86c` is not — because `5972db7f2` IS its rebased twin. Checked
+by content rather than by matching subject lines: identical patch-id
+(`18f689288938f7fd11a75abae642c525729803ac`) and a byte-identical
+`TIER-A-REPORT.md`. Nothing of mine is missing from the coordinator branch.
