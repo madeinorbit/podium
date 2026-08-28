@@ -175,6 +175,14 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
+      # NO turbo cache on this job, deliberately. Every other build lane shares
+      # TURBO_CACHE_DIR so an unchanged client is restored instead of rebuilt; here that
+      # would destroy the proof. The two worktrees are the same commit with the same
+      # inputs, so they hash the same, so the second would RESTORE the first's output and
+      # the diff would be identical by construction — a green that says nothing about
+      # whether the build is deterministic. This job builds both clients twice, for real,
+      # through the package scripts rather than the cached lane. That is also what makes
+      # the caching everywhere else safe to trust (POD-3053).
       - name: two fresh worktrees build byte-identical clients
         run: bash scripts/prove-client-build-deterministic.sh
 

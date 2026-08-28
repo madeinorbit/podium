@@ -21,6 +21,7 @@ import {
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
 import { readOrCreateDevArtifactToken } from '../apps/server/src/modules/updates/signing-key'
 import { refreshTargetsOnBoot } from '../apps/server/src/modules/updates/target-refresh'
+import { CLIENT_BUILD_TASKS, buildClients } from './build-clients'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const INSTANCE_ID = 'update-e2e'
@@ -321,4 +322,33 @@ describe('named-instance development releases', () => {
       outcome: { status: 'ok' },
     })
   })
+
+  /**
+   * A SECOND APPROVAL OF AN UNCHANGED CLIENT COSTS NOTHING (POD-3053).
+   *
+   * This is the whole point of making the client builds Turbo tasks, and it is the one
+   * claim the unit tests cannot make: they check the shape of the command and the shape
+   * of a summary, not that this repository, at this commit, actually restores.
+   *
+   * So it runs the real lane twice, against the real checkout, exactly as
+   * beginFreshClientPackagingSession does when a development release is approved. The
+   * second run must report HIT for both clients, under the SAME hashes as the first —
+   * a HIT under a different hash would mean something restored, but not this build.
+   *
+   * It does not assert a duration. A wall-clock floor is a flake on a loaded box, and
+   * the cache status is the direct evidence anyway: a restored task did not run vite or
+   * expo, whatever the clock says.
+   */
+  it('restores both clients on a second approval of the same commit', async () => {
+    const version = '0.0.0-second-approval'
+    const first = await buildClients(ROOT, [], { ...process.env, PODIUM_APP_VERSION: version })
+    const second = await buildClients(ROOT, [], { ...process.env, PODIUM_APP_VERSION: version })
+
+    for (const task of CLIENT_BUILD_TASKS) {
+      expect(second.tasks[task].cache, task).toBe('HIT')
+      expect(second.tasks[task].hash, task).toBe(first.tasks[task].hash)
+    }
+    expect(second.summaryPath).not.toBe(first.summaryPath)
+  }, 900_000)
+
 })
