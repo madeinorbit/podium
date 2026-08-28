@@ -1188,3 +1188,38 @@ scored this cell a blocker on the provider-level reading; under the stricter
 same-driver reading it was never a blocker because main has no
 `opencode-server`. Both readings now agree it is not one. **The provider-level
 reading is what caused it to be fixed**, and I would make the same call again.
+
+### Decision 33a — correcting my own clean bill (2026-08-28 17:14 CEST)
+
+I wrote in Decision 33 that **"there is now no Tier-A cell known to be worse
+than main on the shipping drivers."** I was one command from announcing that
+with an unexamined FAIL sitting in the table.
+
+**A1a/claude-pty had gone PASS (2026-08-27, credentialed) → FAIL (2026-08-28,
+POD-3036), with no main arm at all** — and absence of a main row is not a
+passing main, which is my own rule from earlier today. Reading the row instead
+of the summary: `isolatedCred=absent`, `no-copy`, control `user=1 assistant=0`.
+The send landed; no assistant reply. POD-3047's evidence states outright that
+**the isolated home is logged out by design**, so every PTY cell needing a model
+reply is blocked on authentication. **A condition never validly created, not a
+product failure** — the identical correction I had already taken from POD-3047
+over POD-3036 on A8, now applied consistently instead of only where I noticed.
+
+**Corrected position: 70/70 — 55 PASS, 7 PARTIAL, 4 FAIL, 4 BLOCKED.**
+
+**The four FAILs are one defect**, A1c *send to a dead session*, on claude,
+codex, grok and opencode. POD-3044 owns it. And the honest status of the
+"worse than main" claim, cell by cell:
+
+- **A1c/claude — NOT a regression.** `claude-pty-on-main` also FAILs: *accepted
+  after child death*. Longstanding gap.
+- **A1c/codex, grok, opencode — UNESTABLISHED.** These are server-family drivers
+  main does not have, so there is no exact comparator, and per Decision 30 the
+  comparison that matters is what the **provider** did on main by whatever route
+  it took. **Nobody has measured that.** Absence of a main row is not a passing
+  main.
+
+**So the correct claim is narrower than Decision 33's:** the A6b blocker is
+cleared and epic/main are at parity there; no cell is *known* to be worse than
+main; and **three cells have no main comparison at all and cannot yet be called
+either way.** That is a materially weaker statement and it is the true one.
