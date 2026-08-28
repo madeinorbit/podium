@@ -2,15 +2,15 @@
   "cell": "A5",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a5",
-  "at": "2026-08-28T16:01:33.487Z",
+  "at": "2026-08-28T16:34:27.692Z",
   "pin": {
     "cell": "A5",
-    "at": "2026-08-28T16:01:33.523Z",
+    "at": "2026-08-28T16:34:27.717Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
-    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "checkoutSha": "53c44ea90152d4f3ccdc7e95e80ce4a1c63f874f",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "5cef0dd",
+      "headShort": "53c44ea",
       "appsWebIdentical": true
     },
-    "serverPid": "1875467",
-    "daemonPid": "1875670",
+    "serverPid": "1989048",
+    "daemonPid": "1989144",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "19053496 kB",
-      "SwapFree": "41209744 kB"
+      "MemAvailable": "18817856 kB",
+      "SwapFree": "41212932 kB"
     },
-    "rootFreeKiB": 82656200,
-    "load1m": 5.67,
+    "rootFreeKiB": 82155244,
+    "load1m": 5.24,
     "credential": {
       "live": {
         "present": true,
@@ -46,9 +46,12 @@
         "size": 962
       },
       "isolated": {
-        "present": false,
-        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-      }
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
     },
     "forbiddenOverrides": {
       "PODIUM_STATE_DIR": null,
@@ -61,7 +64,7 @@
     "instanceAgentHome": {
       "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a5",
       "exists": true,
-      "files": 1
+      "files": 2
     },
     "operatorHome": {
       "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a5",
@@ -69,89 +72,187 @@
       "files": 6
     }
   },
-  "verdict": "BLOCKED",
-  "summary": "the harness reported itself not logged in, so no turn ran and pairing was not exercised: class=authentication retryable=false error={\"class\":\"authentication\",\"retryable\":false,\"detail\":\"Claude Code returned an error result: Not logged in · Please run /login\"}",
+  "verdict": "PASS",
+  "summary": "tool call/result pair and reload history are intact",
   "control": {
     "fired": true,
     "what": "the transcript fixture send delivering or a needle appearing",
-    "detail": "user=true; assistant=false; items=2"
+    "detail": "user=true; assistant=true; items=4"
   },
   "evidence": [
     "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
     "USER              true",
-    "ASSISTANT         false",
-    "TOOL ITEMS        []",
+    "ASSISTANT         true",
+    "TOOL ITEMS        [{\"id\":\"toolu_018amhBfMzY4CfhUZFKaNSKz\",\"role\":\"tool\",\"ts\":\"2026-08-28T16:34:33.743Z\",\"text\":\"\",\"toolName\":\"Bash\",\"toolInput\":\"cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt\",\"toolTitle\":\"Read transcript fixture file\",\"toolUseId\":\"toolu_018amhBfMzY4CfhUZFKaNSKz\"},{\"id\":\"toolu_018amhBfMzY4CfhUZFKaNSKz-result\",\"role\":\"tool\",\"ts\":\"2026-08-28T16:34:33.891Z\",\"text\":\"\",\"toolResult\":\"transcript fixture test marker P3047-A5-MARKER-MTD69AWN\",\"toolUseId\":\"toolu_018amhBfMzY4CfhUZFKaNSKz\"}]",
     "RELOAD SAME       true",
-    "STREAM ITEMS      [{\"id\":\"claude-sdk-user-2c36df1e-ca0c-44b5-b0fe-144f0de96e8c-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the te\"},{\"id\":\"claude-sdk-error-2c36df1e-ca0c-44b5-b0fe-144f0de96e8c-1\",\"role\":\"system\",\"text\":\"Provider authentication failed: Claude Code returned an error result: Not logged in · Please run /login\"}]",
-    "SERVER READ ITEMS before=2 after=2 (sessions.read)",
-    "CHILD HOMES       [{\"pid\":1891051,\"home\":\"/home/mgw\",\"cmd\":\"bash /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/docs/evidence/pod-3047/run-cell.sh A5 claude-sdk\"},{\"pid\":1891070,\"home\":\"/home/mgw\",\"cmd\":\"bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/docs/evidence/pod-3047/drive.ts A5 claude-sdk\"}]  <- the process half",
-    "JSONL ON DISK     {\"instanceAgentHome\":{\"dir\":\"/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a5\",\"exists\":true,\"files\":1},\"operatorHome\":{\"dir\":\"/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a5\",\"exists\":true,\"files\":6}}  <- the disk half"
+    "STREAM ITEMS      [{\"id\":\"claude-sdk-user-581d78e2-1941-4df9-a6f4-1785df825b63-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the te\"},{\"id\":\"toolu_018amhBfMzY4CfhUZFKaNSKz\",\"role\":\"tool\",\"toolName\":\"Bash\",\"text\":\"\"},{\"id\":\"toolu_018amhBfMzY4CfhUZFKaNSKz-result\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"56d0450c-cabe-4864-9273-5dac9e15c16c\",\"role\":\"assistant\",\"text\":\"P3047-A5-MARKER-MTD69AWN\"}]",
+    "SERVER READ ITEMS before=5 after=5 (sessions.read)",
+    "CHILD HOMES       [{\"pid\":1993395,\"home\":\"/home/mgw\",\"cmd\":\"bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/docs/evidence/pod-3047/drive.ts A5 claude-sdk\"}]  <- the process half",
+    "JSONL ON DISK     {\"instanceAgentHome\":{\"dir\":\"/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a5\",\"exists\":true,\"files\":2},\"operatorHome\":{\"dir\":\"/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a5\",\"exists\":true,\"files\":6}}  <- the disk half"
   ],
   "data": {
-    "sid": "2c36df1e-ca0c-44b5-b0fe-144f0de96e8c",
-    "marker": "P3047-A5-MARKER-MTD52ZLW",
+    "sid": "581d78e2-1941-4df9-a6f4-1785df825b63",
+    "marker": "P3047-A5-MARKER-MTD69AWN",
     "before": [
       {
-        "id": "claude-sdk-user-2c36df1e-ca0c-44b5-b0fe-144f0de96e8c-1",
+        "id": "claude-sdk-user-581d78e2-1941-4df9-a6f4-1785df825b63-1",
         "role": "user",
-        "ts": "2026-08-28T16:01:35.698Z",
+        "ts": "2026-08-28T16:34:29.903Z",
         "text": "Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the test marker it contains."
       },
       {
-        "id": "claude-sdk-error-2c36df1e-ca0c-44b5-b0fe-144f0de96e8c-1",
-        "role": "system",
-        "ts": "2026-08-28T16:01:37.104Z",
-        "text": "Provider authentication failed: Claude Code returned an error result: Not logged in · Please run /login"
+        "id": "toolu_018amhBfMzY4CfhUZFKaNSKz",
+        "role": "tool",
+        "ts": "2026-08-28T16:34:33.743Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt",
+        "toolTitle": "Read transcript fixture file",
+        "toolUseId": "toolu_018amhBfMzY4CfhUZFKaNSKz"
+      },
+      {
+        "id": "toolu_018amhBfMzY4CfhUZFKaNSKz-result",
+        "role": "tool",
+        "ts": "2026-08-28T16:34:33.891Z",
+        "text": "",
+        "toolResult": "transcript fixture test marker P3047-A5-MARKER-MTD69AWN",
+        "toolUseId": "toolu_018amhBfMzY4CfhUZFKaNSKz"
+      },
+      {
+        "id": "56d0450c-cabe-4864-9273-5dac9e15c16c",
+        "role": "assistant",
+        "ts": "2026-08-28T16:34:35.850Z",
+        "text": "P3047-A5-MARKER-MTD69AWN"
       }
     ],
     "after": [
       {
-        "id": "claude-sdk-user-2c36df1e-ca0c-44b5-b0fe-144f0de96e8c-1",
+        "id": "claude-sdk-user-581d78e2-1941-4df9-a6f4-1785df825b63-1",
         "role": "user",
-        "ts": "2026-08-28T16:01:35.698Z",
+        "ts": "2026-08-28T16:34:29.903Z",
         "text": "Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the test marker it contains."
       },
       {
-        "id": "claude-sdk-error-2c36df1e-ca0c-44b5-b0fe-144f0de96e8c-1",
-        "role": "system",
-        "ts": "2026-08-28T16:01:37.104Z",
-        "text": "Provider authentication failed: Claude Code returned an error result: Not logged in · Please run /login"
+        "id": "toolu_018amhBfMzY4CfhUZFKaNSKz",
+        "role": "tool",
+        "ts": "2026-08-28T16:34:33.743Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt",
+        "toolTitle": "Read transcript fixture file",
+        "toolUseId": "toolu_018amhBfMzY4CfhUZFKaNSKz"
+      },
+      {
+        "id": "toolu_018amhBfMzY4CfhUZFKaNSKz-result",
+        "role": "tool",
+        "ts": "2026-08-28T16:34:33.891Z",
+        "text": "",
+        "toolResult": "transcript fixture test marker P3047-A5-MARKER-MTD69AWN",
+        "toolUseId": "toolu_018amhBfMzY4CfhUZFKaNSKz"
+      },
+      {
+        "id": "56d0450c-cabe-4864-9273-5dac9e15c16c",
+        "role": "assistant",
+        "ts": "2026-08-28T16:34:35.850Z",
+        "text": "P3047-A5-MARKER-MTD69AWN"
       }
     ],
     "serverBefore": [
       {
         "role": "user",
         "text": "Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the test marker it contains.",
-        "ts": "2026-08-28T16:01:36.705Z"
+        "ts": "2026-08-28T16:34:31.280Z"
       },
       {
         "role": "assistant",
-        "text": "Not logged in · Please run /login",
-        "ts": "2026-08-28T16:01:36.742Z"
+        "text": "I'll run that command.",
+        "ts": "2026-08-28T16:34:32.858Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt",
+        "ts": "2026-08-28T16:34:33.739Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-28T16:34:33.887Z"
+      },
+      {
+        "role": "assistant",
+        "text": "P3047-A5-MARKER-MTD69AWN",
+        "ts": "2026-08-28T16:34:35.305Z"
       }
     ],
     "serverAfter": [
       {
         "role": "user",
         "text": "Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the test marker it contains.",
-        "ts": "2026-08-28T16:01:36.705Z"
+        "ts": "2026-08-28T16:34:31.280Z"
       },
       {
         "role": "assistant",
-        "text": "Not logged in · Please run /login",
-        "ts": "2026-08-28T16:01:36.742Z"
+        "text": "I'll run that command.",
+        "ts": "2026-08-28T16:34:32.858Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt",
+        "ts": "2026-08-28T16:34:33.739Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-28T16:34:33.887Z"
+      },
+      {
+        "role": "assistant",
+        "text": "P3047-A5-MARKER-MTD69AWN",
+        "ts": "2026-08-28T16:34:35.305Z"
       }
     ],
-    "toolItems": [],
-    "resultItems": [],
-    "paired": false,
+    "toolItems": [
+      {
+        "id": "toolu_018amhBfMzY4CfhUZFKaNSKz",
+        "role": "tool",
+        "ts": "2026-08-28T16:34:33.743Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt",
+        "toolTitle": "Read transcript fixture file",
+        "toolUseId": "toolu_018amhBfMzY4CfhUZFKaNSKz"
+      },
+      {
+        "id": "toolu_018amhBfMzY4CfhUZFKaNSKz-result",
+        "role": "tool",
+        "ts": "2026-08-28T16:34:33.891Z",
+        "text": "",
+        "toolResult": "transcript fixture test marker P3047-A5-MARKER-MTD69AWN",
+        "toolUseId": "toolu_018amhBfMzY4CfhUZFKaNSKz"
+      }
+    ],
+    "resultItems": [
+      {
+        "id": "toolu_018amhBfMzY4CfhUZFKaNSKz-result",
+        "role": "tool",
+        "ts": "2026-08-28T16:34:33.891Z",
+        "text": "",
+        "toolResult": "transcript fixture test marker P3047-A5-MARKER-MTD69AWN",
+        "toolUseId": "toolu_018amhBfMzY4CfhUZFKaNSKz"
+      }
+    ],
+    "paired": true,
     "sameHistory": true,
-    "toolRan": false,
+    "toolRan": true,
     "transcriptsOnDisk": {
       "instanceAgentHome": {
         "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a5",
         "exists": true,
-        "files": 1
+        "files": 2
       },
       "operatorHome": {
         "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a5",

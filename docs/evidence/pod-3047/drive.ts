@@ -1261,6 +1261,21 @@ async function runA5() {
     // asks "did the agent call a tool" of a surface that never carries one and
     // answers no whatever happened. The session stream is where published items
     // land, so that is what is scored; sessions.read is reported beside it.
+    // SETTLE THE STREAM BEFORE SNAPSHOTTING IT, and this race did not exist
+    // until sessions.read started working. waitForNeedle returns when the needle
+    // appears on EITHER plane; with the server read repaired by POD-3057 it now
+    // often fires on the server plane first, so chat.items can still be one item
+    // short of the assistant reply at this line. The reload then legitimately has
+    // MORE items than the snapshot and sameHistory scored a FAIL for a transcript
+    // that had lost nothing at all.
+    //
+    // Waiting on the CHAT plane specifically is the fix. It bounds patience, not
+    // evidence: if the reply never reaches the stream, the wait expires and the
+    // comparison still runs on what is there.
+    for (let i = 0; i < 40; i++) {
+      if ((chat.items as unknown as Item[]).some((x) => textOf(x.text).includes(marker))) break
+      await wait(250)
+    }
     const before = [...(chat.items as unknown as Item[])]
     const serverBefore = await transcript(sid)
     await chat.close()
