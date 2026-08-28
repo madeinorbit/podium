@@ -38,10 +38,10 @@ describe('Claude SDK provider failure classification', () => {
     })
   })
 
-  it('keeps monthly-spend and auth text from an SDK result frame, redacted', () => {
+  it('keeps monthly-spend and auth text from SDKResultError.errors, redacted', () => {
     const spend = formatClaudeSdkResultFailure({
       subtype: 'error_during_execution',
-      result: "You've hit your monthly spend limit CLAUDE_CODE_OAUTH_TOKEN=oat_secret",
+      errors: ["You've hit your monthly spend limit CLAUDE_CODE_OAUTH_TOKEN=oat_secret"],
     })
     expect(spend).toMatch(/monthly spend limit/i)
     expect(spend).toMatch(/error_during_execution/)
@@ -50,10 +50,10 @@ describe('Claude SDK provider failure classification', () => {
 
     const expired = formatClaudeSdkResultFailure({
       subtype: 'error_during_execution',
-      error: '401 Unauthorized — access token is expired',
+      errors: ['401 Unauthorized — access token is expired'],
     })
     expect(classifyClaudeSdkFailure(expired).errorClass).toBe('authentication')
-    expect(formatClaudeSdkResultFailure({ subtype: 'error_during_execution' })).toBe(
+    expect(formatClaudeSdkResultFailure({ subtype: 'error_during_execution', errors: [] })).toBe(
       'claude turn failed: error_during_execution',
     )
   })

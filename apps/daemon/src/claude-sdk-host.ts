@@ -312,9 +312,16 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
             case 'result':
               if (msg.subtype === 'success') output = msg.result
               else {
+                // SDKResultError has `errors: string[]` and no `result`. Passing
+                // the whole message used to look like it preserved diagnostics
+                // while tests stuffed spend text on `result`, which production
+                // never sends. Read the error-shape fields by name.
                 io.send({
                   t: 'error',
-                  message: formatClaudeSdkResultFailure(msg),
+                  message: formatClaudeSdkResultFailure({
+                    subtype: msg.subtype,
+                    errors: msg.errors,
+                  }),
                   ...(sessionId ? { harnessSessionId: sessionId } : {}),
                 })
                 return

@@ -117,8 +117,8 @@ describe('SDK result error frames', () => {
       {
         type: 'result',
         subtype: 'error_during_execution',
-        result: "You've hit your monthly spend limit CLAUDE_CODE_OAUTH_TOKEN=oat_secret",
-        errors: ['rate_limit'],
+        is_error: true,
+        errors: ["You've hit your monthly spend limit CLAUDE_CODE_OAUTH_TOKEN=oat_secret"],
       },
     ]
     const frames: ClaudeSdkHostFrame[] = []
