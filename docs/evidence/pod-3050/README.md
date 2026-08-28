@@ -1,28 +1,32 @@
 # POD-3050 — the durable tool record for a headless Claude turn
 
 A5 driven for real on rig `p3050`, twice: once on the fix and once on a control
-commit whose product tree is byte-identical to the tip this issue branched from.
-Same instance, same cell, same prompt, same fixture — the commit is the only
-difference.
+commit whose product tree is byte-identical to the coordinator root
+`b5a3aa870`. Same instance, same cell, same prompt, same fixture — the commit is
+the only difference.
+
+Re-driven in full after the coordinator root advanced from `d8f0bd899` to
+`b5a3aa870` (the OpenCode park-on-view-switch landing). Both arms below are on
+the new root; the earlier pair on `d8f0bd899` is superseded and not kept.
 
 ## The two arms
 
 | Arm | Commit | Verdict | Plane items | Joined pairs | Reload identical |
 |---|---|---|---|---|---|
-| control (pre-fix) | `acdc2e4cd` | **FAIL** | 2 | 0 | true |
-| fix | `edc0ca822` | **PASS** | 4 | 1 | true |
+| control (root, no fix) | `e9ea0f17e` | **FAIL** | 2 | 0 | true |
+| fix | `2bf997732` | **PASS** | 4 | 1 | true |
 
 The control's agent DID run the tool. Its own harness JSONL
-(`~/.claude/projects/-tmp-pod-3050-probes-claude-sdk-a5-control/…jsonl`) holds
-`tool_use Bash toolu_016e4XEDekkSi6zXPzVkmCpn` and the matching `tool_result`,
-and the transcript kept neither. That is the defect, measured rather than
-argued: the red is "the record is missing", not "no tool ran".
+(`~/.claude/projects/-tmp-pod-3050-probes-claude-sdk-a5-control/d3e11124-….jsonl`)
+holds `tool_use Bash toolu_017v1M2CBm49BCBusZ2NwboD` and the matching
+`tool_result`, and the transcript kept neither. That is the defect, measured
+rather than argued: the red is "the record is missing", not "no tool ran".
 
 ## What the fix arm recorded
 
 ```
-TOOL CALLS        [{"id":"toolu_01DgXo5K31ivg6RB4wGnbCmE","role":"tool","ts":"2026-08-28T14:02:34.383Z","text":"","toolName":"Bash","toolInput":"cat /tmp/pod-3050/probes/claude-sdk-a5-fix/transcript-fixture.txt","toolTitle":"Read transcript fixture","toolUseId":"toolu_01DgXo5K31ivg6RB4wGnbCmE"}]
-TOOL RESULTS      [{"id":"toolu_01DgXo5K31ivg6RB4wGnbCmE-result","role":"tool","ts":"2026-08-28T14:02:34.719Z","text":"","toolResult":"transcript fixture test marker P3050-A5-MARKER-MTD0TUNC","toolUseId":"toolu_01DgXo5K31ivg6RB4wGnbCmE"}]
+TOOL CALLS        [{"id":"toolu_011Xg4QxzTAJoyZynU3b2LUm","role":"tool","ts":"2026-08-28T14:17:27.293Z","text":"","toolName":"Bash","toolInput":"cat /tmp/pod-3050/probes/claude-sdk-a5-fix/transcript-fixture.txt","toolTitle":"Read transcript fixture file","toolUseId":"toolu_011Xg4QxzTAJoyZynU3b2LUm"}]
+TOOL RESULTS      [{"id":"toolu_011Xg4QxzTAJoyZynU3b2LUm-result","role":"tool","ts":"2026-08-28T14:17:27.616Z","text":"","toolResult":"transcript fixture test marker P3050-A5-MARKER-MTD1CX9X","toolUseId":"toolu_011Xg4QxzTAJoyZynU3b2LUm"}]
 JOINED PAIRS      1 (call-before-result=true)
 RELOAD SAME       true
 ```
@@ -36,17 +40,23 @@ the session on a NEW connection replays exactly the same four items.
 Both arms verified before the cell ran: server and daemon each reporting the
 checked-out commit, a clean product tree, `PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1` on
 the daemon, no `PODIUM_STATE_DIR` / `PODIUM_AGENT_HOME` / `ABDUCO_SOCKET_DIR` /
-`TMUX_TMPDIR` override, and no credential file in the isolated agent home. The
-live credential's mtime is `2026-08-28T06:20:34.463Z` in BOTH pins —
-unchanged across the whole drive. Nothing was copied, printed, refreshed or
-rotated.
+`TMUX_TMPDIR` override, and no credential file in the isolated agent home.
 
 | | control | fix |
 |---|---|---|
-| serverSha | `acdc2e4cd` | `edc0ca822` |
-| daemonSha | `acdc2e4cd` | `edc0ca822` |
+| serverSha | `e9ea0f17e` | `2bf997732` |
+| daemonSha | `e9ea0f17e` | `2bf997732` |
+| product tree clean | True | True |
 | TOS on daemon | True | True |
 | isolated credential present | False | False |
+
+The live credential's mtime is `2026-08-28T14:15:35.225Z` in BOTH pins —
+identical across the two arms, so the drive did not touch it. It differs from
+the earlier superseded run's `2026-08-28T06:20:34.463Z` because the operator's
+own Claude session refreshed its token at 14:15:35Z, two minutes BEFORE this
+rig started at 14:17:12Z — outside both arms' lifetimes. Nothing here copies,
+prints, refreshes or rotates a credential; the SDK reads the account home the
+daemon already had.
 
 ## What this drive does NOT show, and why
 
