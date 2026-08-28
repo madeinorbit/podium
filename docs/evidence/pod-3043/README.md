@@ -20,7 +20,7 @@ the fix intends.
 **There was NO live positive control, because no live turn was driven.** This
 issue's brief forbade any provider drive; the epic bar requires one. That
 contradiction was resolved by the coordinator as Decision (b): land as a
-bring-up fix scored PARTIAL, and hand the live A3 drive to **POD-3047**, which
+bring-up fix scored PARTIAL, and hand the live A3 drive to **POD-3048**, which
 inherits this pin and this clause list.
 
 Do not promote this row to PASS on the strength of the mutants below. They are
