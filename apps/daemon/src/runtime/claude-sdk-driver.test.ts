@@ -233,4 +233,112 @@ describe('Claude SDK daemon host adapter', () => {
       }),
     ])
   })
+
+  it('publishes classified turn failures onto agentState and the transcript before closing the epoch', async () => {
+    const sent: DaemonMessage[] = []
+    vi.mocked(runClaudeSdkChildTurn).mockImplementation(
+      () =>
+        ({
+          done: Promise.reject(new Error('not logged in — run /login')),
+          interrupt: vi.fn(),
+          answerPermission: vi.fn(),
+          dispose: vi.fn(),
+        }) satisfies HeadlessTurnHandle,
+    )
+
+    const runtime = createDaemonClaudeSdkRuntime({
+      send: (message) => sent.push(message),
+      host: host([]),
+    })
+    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+    await handle.send({ id: 'prompt', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+
+    await vi.waitFor(() => {
+      expect(
+        sent.some(
+          (message) =>
+            message.type === 'agentState' &&
+            message.state.phase === 'errored' &&
+            message.state.error?.class === 'authentication',
+        ),
+      ).toBe(true)
+    })
+
+    const items = sent
+      .filter(
+        (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+          message.type === 'transcriptDelta',
+      )
+      .flatMap((message) => message.items)
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'user', text: 'hello' }),
+        expect.objectContaining({
+          role: 'system',
+          text: expect.stringMatching(/Provider authentication failed/i),
+        }),
+      ]),
+    )
+
+    const order: string[] = []
+    for (const message of sent) {
+      if (message.type !== 'runtimeEvent') continue
+      const event = message.event
+      if (event.t === 'turn' && event.ev.ev === 'failed') order.push('turn:failed')
+      else if (event.t === 'state' && event.change.kind === 'turn_failed') {
+        order.push('state:turn_failed')
+      } else if (event.t === 'item' && event.item.kind === 'complete') {
+        order.push(`item:${event.item.item.role}`)
+      }
+    }
+    expect(order).toEqual(['item:user', 'state:turn_failed', 'item:system', 'turn:failed'])
+
+    await handle.stop()
+    runtime.dispose()
+  })
+
+  it('publishes host death as its own class, not auth or quota', async () => {
+    const sent: DaemonMessage[] = []
+    vi.mocked(runClaudeSdkChildTurn).mockImplementation(
+      () =>
+        ({
+          done: Promise.reject(
+            new Error('the Claude model host process exited with code 1 before the turn finished'),
+          ),
+          interrupt: vi.fn(),
+          answerPermission: vi.fn(),
+          dispose: vi.fn(),
+        }) satisfies HeadlessTurnHandle,
+    )
+
+    const runtime = createDaemonClaudeSdkRuntime({
+      send: (message) => sent.push(message),
+      host: host([]),
+    })
+    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+    await handle.send({ id: 'prompt', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+
+    await vi.waitFor(() => {
+      expect(
+        sent.some(
+          (message) =>
+            message.type === 'agentState' &&
+            message.state.phase === 'errored' &&
+            message.state.error?.class === 'host_death',
+        ),
+      ).toBe(true)
+    })
+    expect(
+      sent.some(
+        (message) =>
+          message.type === 'transcriptDelta' &&
+          message.items.some(
+            (item) => item.role === 'system' && /Model host process died/i.test(item.text),
+          ),
+      ),
+    ).toBe(true)
+
+    await handle.stop()
+    runtime.dispose()
+  })
 })

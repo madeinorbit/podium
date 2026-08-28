@@ -36,6 +36,26 @@ describe('Claude SDK provider failure classification', () => {
       errorClass: 'authentication',
       retryable: false,
     })
+    expect(classifyClaudeSdkFailure('Claude Code is not logged in. Please run /login')).toEqual({
+      errorClass: 'authentication',
+      retryable: false,
+    })
+    expect(classifyClaudeSdkFailure('logged out: no credentials in this agent-home')).toEqual({
+      errorClass: 'authentication',
+      retryable: false,
+    })
+  })
+
+  it('classifies a dead or unstartable SDK host separately from auth and quota', () => {
+    expect(
+      classifyClaudeSdkFailure(
+        'the Claude model host process exited with code 1 before the turn finished',
+      ),
+    ).toEqual({ errorClass: 'host_death', retryable: true })
+    expect(classifyClaudeSdkFailure('claude sdk host could not start: ENOENT')).toEqual({
+      errorClass: 'host_death',
+      retryable: true,
+    })
   })
 
   it('keeps monthly-spend and auth text from SDKResultError.errors, redacted', () => {

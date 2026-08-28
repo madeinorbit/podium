@@ -209,6 +209,7 @@ const AGENT_ERROR_LABELS: Record<string, string> = {
   transcript_identity_unavailable: 'Transcript identity unavailable',
   network_error: 'Provider connection failed',
   context_overflow: 'Context window exceeded',
+  host_death: 'Model host process died',
 }
 
 /** Human-facing failure copy shared by chat, status badges and send refusals. */

@@ -1,4 +1,11 @@
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
+import {
+  formatAgentError,
+  type AgentRuntimeState,
+  type ResumeRef,
+  type SessionId,
+  type TranscriptItem,
+} from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
 import { PermissionAnswer } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
@@ -185,6 +192,16 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
     return core.turnEpoch
   }
 
+  function foldState(core: SessionCore, change: AgentStateEvent): void {
+    const at = host.now()
+    core.state = reduceAgentState(core.state, change, at)
+    push(core, { t: 'state', change })
+  }
+
+  function publishItem(core: SessionCore, item: TranscriptItem): void {
+    push(core, { t: 'item', item: { kind: 'complete', item } })
+  }
+
   function closeTurn(core: SessionCore, result: 'done' | 'interrupted' | Error): void {
     const epoch = core.turnEpoch
     if (!core.turnOpen || core.fenced.has(epoch)) return
@@ -211,6 +228,29 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
           : failure.retryable
             ? ('retryable' as const)
             : ('fatal' as const)
+      const change: AgentStateEvent = {
+        kind: 'turn_failed',
+        errorClass: failure.errorClass,
+        retryable: failure.retryable,
+        ...(detail ? { detail } : {}),
+      }
+      // Causal fold before the turn-close event: the durable gate rejects any
+      // non-process event once the epoch is closed, so the error class has to
+      // land on state (and the transcript) first.
+      foldState(core, change)
+      if (!interrupted) {
+        const error = {
+          class: failure.errorClass,
+          retryable: failure.retryable,
+          ...(detail ? { detail } : {}),
+        }
+        publishItem(core, {
+          id: `claude-sdk-error-${core.sessionId}-${epoch}`,
+          role: 'system',
+          text: formatAgentError(error),
+          ts: host.now(),
+        })
+      }
       push(core, {
         t: 'turn',
         ev: {
@@ -218,32 +258,12 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
           turnEpoch: epoch,
           reason,
           disposition,
-          detail,
-        },
-      })
-      core.state = {
-        ...core.state,
-        phase: 'errored',
-        since: host.now(),
-        error: {
-          class: failure.errorClass,
-          retryable: failure.retryable,
-          ...(detail ? { detail } : {}),
-        },
-      }
-      push(core, {
-        t: 'state',
-        change: {
-          kind: 'turn_failed',
-          errorClass: failure.errorClass,
-          retryable: failure.retryable,
           ...(detail ? { detail } : {}),
         },
       })
     } else {
+      foldState(core, { kind: 'turn_completed', verdict: { kind: result } })
       push(core, { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: result } })
-      core.state = { ...core.state, phase: 'idle', since: host.now() }
-      push(core, { t: 'state', change: { kind: 'turn_completed', verdict: { kind: result } } })
     }
     core.interruptRequested = false
     void drain(core)
@@ -354,6 +374,14 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       }
     }
     openTurn(core, options.origin)
+    if (input.text) {
+      publishItem(core, {
+        id: `claude-sdk-user-${core.sessionId}-${epoch}`,
+        role: 'user',
+        text: input.text,
+        ts: host.now(),
+      })
+    }
     core.textDeliveries += 1
     core.lastRequestedModel = input.overrides?.supported ? input.overrides.value : core.spec.model
     core.conversationStarted = true

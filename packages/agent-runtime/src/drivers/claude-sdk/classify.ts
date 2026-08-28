@@ -4,6 +4,7 @@ export type ClaudeSdkFailureClass =
   | 'usage_limit'
   | 'rate_limit'
   | 'authentication'
+  | 'host_death'
   | 'provider-error'
 
 export interface ClaudeSdkFailure {
@@ -70,11 +71,18 @@ export function classifyClaudeSdkFailure(detail: string): ClaudeSdkFailure {
     return { errorClass: 'rate_limit', retryable: true }
   }
   if (
-    /\b401\b|not logged in|unauthorized|access token (is )?expired|authentication (failed|required)|invalid.*(token|auth|credential)|please (log|sign)[ -]?in/.test(
+    /\b401\b|\b403\b|not logged in|logged[- ]out|unauthori[sz]ed|access token (is )?expired|authentication (failed|required)|invalid.*(token|auth|credential)|please (log|sign)[ -]?in|no credentials?|missing (?:api )?key|run \/login|oauth.*(required|expired)|not authenticated|login required/.test(
       text,
     )
   ) {
     return { errorClass: 'authentication', retryable: false }
+  }
+  if (
+    /claude (?:model )?host process exited|claude sdk host (?:could not start|died)|host process exited \S+ before the turn finished/.test(
+      text,
+    )
+  ) {
+    return { errorClass: 'host_death', retryable: true }
   }
   return { errorClass: 'provider-error', retryable: false }
 }
