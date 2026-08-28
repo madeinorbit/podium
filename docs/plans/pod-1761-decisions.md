@@ -1397,3 +1397,38 @@ from here. And it does **not** retroactively invalidate Decision 35: POD-3065
 re-read the three no-marker cells *before* this landed and found **items
 enumerated**, so those readings were never against an empty reader. Decision 35
 stands on its own evidence.
+
+
+## Decision 38 — Claude SDK is first-class, with posture and red cells kept explicit (2026-08-28 19:15 CEST)
+
+The operator's subscription-policy ruling is now reflected by a complete current-pin
+drive, not only by a document change. POD-3047's accepted evidence landed at
+`d8048399d`, pin `ad02520c22a9cba42db7fc1dd8c44620f29f4509`: 27 readings,
+25 exact eight-field rows, one named rig, and both Claude driver forms where the
+cell was safe to compare. The Agent SDK is therefore a first-class headless
+driver under the authorised Claude subscription posture.
+
+The drive needs two postures because POD-3057 moved the SDK child into the instance
+agent home. The supported posture symlinks that home to the operator's existing
+subscription credential; it never copies or prints a token, and the credential
+mtime stayed unchanged across the drive. The credential-free posture is required
+for a genuine logged-out measurement. A posture must be written on every row:
+results from those postures are not silently interchangeable.
+
+The measured matrix is **15 PASS, 1 PARTIAL, 2 FAIL, 7 BLOCKED**. A3 passes
+with a fired SIGSTOP negative control and exactly one durable confirmed receipt;
+A5 passes with the tool call/result pair live and after reload; A7a/A7b now record
+idle only after bounded settling. A1b is PARTIAL, not PASS or FAIL: the busy send
+survives reload and has `position:1`, but reports `queued:false` and
+`disposition:delivered`, an internally contradictory queue contract sent to
+POD-2920. A8 and B auth are genuine controlled FAILs in the absent posture:
+the product reports logged out, the SDK offers no login path, and the same-rig PTY
+control does show one. A4a/A4b are measured auto-approval blocks; A6a/A6b and
+A1c are not applicable to this SDK topology; PTY B quota was a real late
+`usage_limit` block. No BLOCKED reading is a pass.
+
+This evidence closes the Claude current-acceptance subtask but does not erase its
+two real limitations: the refused-interrupt clause and after-login clause were
+not driven, and credential rotation was intentionally not attempted. Final release
+judgement still requires reconciling this row set with the broader table and
+running the single coordinator gate after integration refresh.
