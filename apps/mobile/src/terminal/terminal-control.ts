@@ -30,6 +30,31 @@ export interface TerminalControlState {
   takeControl: () => void
 }
 
+/** The published state minus the action — what a renderer derives from a
+ *  ConnectionState alone (the pane adds `ready` + `takeControl` on publish). */
+export type TerminalControlView = Pick<TerminalControlState, 'role' | 'phase' | 'cols' | 'rows'>
+
+/**
+ * ConnectionState → the control view both panes publish. `requestedGeometry`
+ * non-null means a takeover/fit claim is pending server acknowledgment, so the
+ * UI must say "fitting" rather than claim the phone is driving that grid —
+ * regardless of which role the stale snapshot still reports.
+ */
+export function terminalControlView(
+  state: Pick<ConnectionState, 'role' | 'cols' | 'rows' | 'requestedGeometry'>,
+): TerminalControlView {
+  return {
+    role: state.role,
+    phase: state.requestedGeometry
+      ? 'fitting'
+      : state.role === 'controller'
+        ? 'controlling'
+        : 'spectating',
+    cols: state.cols,
+    rows: state.rows,
+  }
+}
+
 export interface TerminalControlCopy {
   /** Accessible label for the header action. HeaderButton has no hint slot, so
    *  the consequence is carried here — the label IS the warning. */

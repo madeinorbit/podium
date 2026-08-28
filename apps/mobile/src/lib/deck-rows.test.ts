@@ -1,6 +1,7 @@
 import type { FlightDeckRow } from '@podium/client-core/viewmodels'
 import { describe, expect, it } from 'vitest'
-import { applyFolds } from './deck-rows'
+import { BAND_H, STRIP_H } from '../components/spine'
+import { applyFolds, type DeckTally, deckContentHeight, deckPanelHeight } from './deck-rows'
 
 function row(id: string, depth: number): FlightDeckRow {
   return {
@@ -77,5 +78,74 @@ describe('applyFolds', () => {
     const child = row('hidden', 2)
     expect(ids(applyFolds([leaf, child], new Map()))).toEqual(['leaf'])
     expect(ids(applyFolds([leaf, child], new Map([['leaf', 'open']])))).toEqual(['leaf', 'hidden'])
+  })
+})
+
+const tally = (partial: Partial<DeckTally> = {}): DeckTally => ({
+  strips: 0,
+  bands: 0,
+  proposals: 0,
+  departures: 0,
+  signposts: 0,
+  sections: 0,
+  empty: false,
+  ...partial,
+})
+
+describe('deckContentHeight', () => {
+  it('charges each strip and band at the spine’s own row constants', () => {
+    const chrome = deckContentHeight(tally())
+    expect(deckContentHeight(tally({ strips: 3 }))).toBe(chrome + 3 * STRIP_H)
+    expect(deckContentHeight(tally({ bands: 2 }))).toBe(chrome + 2 * BAND_H)
+  })
+
+  it('charges the tail regions — sections, proposals, departures, signposts', () => {
+    const chrome = deckContentHeight(tally())
+    const proposed = deckContentHeight(tally({ sections: 1, proposals: 2 }))
+    expect(proposed).toBeGreaterThan(chrome)
+    // A second row costs a row, not a second section head.
+    expect(deckContentHeight(tally({ sections: 1, proposals: 3 })) - proposed).toBeLessThan(
+      proposed - chrome,
+    )
+    expect(deckContentHeight(tally({ signposts: 1 }))).toBeGreaterThan(chrome)
+    expect(deckContentHeight(tally({ sections: 1, departures: 1 }))).toBeGreaterThan(chrome)
+  })
+
+  it('an empty deck still charges for the EmptyState it renders', () => {
+    expect(deckContentHeight(tally({ empty: true }))).toBeGreaterThan(deckContentHeight(tally()))
+  })
+})
+
+describe('deckPanelHeight', () => {
+  const max = 523 // 62% of an 844pt window — the historical fixed height.
+
+  it('stands at the cap until the deck has reported', () => {
+    expect(deckPanelHeight(null, max)).toBe(max)
+  })
+
+  it('a two-item mission no longer claims two thirds of the screen', () => {
+    const twoItems = deckContentHeight(tally({ strips: 1, bands: 1 }))
+    const panel = deckPanelHeight(twoItems, max)
+    expect(panel).toBeLessThan(max)
+    // The grab edge rides below the deck, so the panel is taller than content.
+    expect(panel).toBeGreaterThan(twoItems)
+  })
+
+  it('never opens as a sliver: floored at the controls plus a couple of strips', () => {
+    const floor = deckPanelHeight(0, max)
+    expect(floor).toBeGreaterThan(2 * STRIP_H)
+    expect(deckPanelHeight(deckContentHeight(tally({ empty: true })), max)).toBeGreaterThanOrEqual(
+      floor,
+    )
+  })
+
+  it('caps a tall mission at the fraction and lets the deck scroll internally', () => {
+    const tall = deckContentHeight(tally({ strips: 12, bands: 12 }))
+    expect(tall).toBeGreaterThan(max)
+    expect(deckPanelHeight(tall, max)).toBe(max)
+  })
+
+  it('the cap wins even over the floor on an implausibly short window', () => {
+    expect(deckPanelHeight(0, 120)).toBe(120)
   })
 })

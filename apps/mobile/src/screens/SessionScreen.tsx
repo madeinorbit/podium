@@ -1,18 +1,19 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
-import { panelLabel, sessionTitle } from '@podium/client-core/viewmodels'
-import type { WorkState, SessionId } from '@podium/model'
+import { isDraftAgentVessel, panelLabel, sessionTitle } from '@podium/client-core/viewmodels'
+import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
-import { useLocalSearchParams, useRouter } from 'expo-router'
 import { issueDisplayRef } from '@podium/protocol'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
 import {
   useBooting,
   useIssue,
-  useMobileStore,
+  useReplica,
   useSession,
   useSessions,
   useSpawnPending,
+  useStoreActions,
 } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
@@ -22,9 +23,9 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
+import { issueAgentKind, modelLabel } from '../lib/agent-models'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { color } from '../theme/theme'
-import { issueAgentKind, modelLabel } from '../lib/agent-models'
 import { sessionAbsence, sessionAbsenceShowsLoader } from './session-absence'
 
 const WORK_STATES: (WorkState | null)[] = [
@@ -58,7 +59,10 @@ export function SessionScreen() {
   const backTarget = sessionBackTarget(params.backTo)
   const hasBackTarget = hasSessionBackTarget(params.backTo)
   const router = useRouter()
-  const store = useMobileStore()
+  // Actions + replica are identity-stable statics: this subscription never
+  // re-renders the screen on store publishes.
+  const store = useStoreActions()
+  const replica = useReplica()
   const allSessions = useSessions()
   const session = useSession(sessionId)
   const spawnPending = useSpawnPending(sessionId)
@@ -67,7 +71,6 @@ export function SessionScreen() {
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
-  const [findRequest, setFindRequest] = useState(0)
 
   const goBack = useCallback(() => {
     if (hasBackTarget) {
@@ -95,11 +98,24 @@ export function SessionScreen() {
 
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!session) return []
+    // A DRAFT'S CHAT GETS A DRAFT'S MENU (2026-08-27 device review). A draft
+    // vessel has no worktree and no lifecycle yet — every session-scoped verb
+    // below (archive, work state, snooze, next session) manages work that does
+    // not exist. The one decision a draft supports is discarding it, so the
+    // sheet is exactly Delete plus the standard Cancel.
+    if (issue && isDraftAgentVessel(issue, [session])) {
+      return [
+        {
+          label: 'Delete',
+          destructive: true,
+          onPress: () => {
+            void store.deleteIssue(issue.id).catch(() => {})
+            goBack()
+          },
+        },
+      ]
+    }
     const actions: SheetAction[] = [
-      {
-        label: 'Find in transcript',
-        onPress: () => setFindRequest((request) => request + 1),
-      },
       ...(issue
         ? [
             {
@@ -151,7 +167,7 @@ export function SessionScreen() {
       })
     }
     return actions
-  }, [issue, nextSession, store, session])
+  }, [goBack, issue, nextSession, store, session])
 
   if (!sessionId || !session) {
     // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
@@ -163,9 +179,7 @@ export function SessionScreen() {
     // state is terminal copy. Only the genuinely pending state moves: removed
     // and not-visible are settled facts, so animating either would imply that
     // waiting can change the answer.
-    const absence = sessionAbsence(sessionId, session, (id) =>
-      store.replica.exitKind?.('session', id),
-    )
+    const absence = sessionAbsence(sessionId, session, (id) => replica.exitKind?.('session', id))
     return (
       <Screen title="Session" onBack={goBack} safeBottom>
         <BootstrapCrossfade resolved={!booting} placeholder={<DetailSkeleton />}>
@@ -214,7 +228,7 @@ export function SessionScreen() {
         </>
       }
     >
-      <SessionConversation session={session} issue={issue} findRequest={findRequest} />
+      <SessionConversation session={session} issue={issue} />
       <ActionSheet
         visible={menuOpen}
         title={sessionTitle(session)}

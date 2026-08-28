@@ -21,7 +21,7 @@ import { useRouter } from 'expo-router'
 import { ChevronDown, ChevronRight } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useMobileStore } from '../client/hooks'
+import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
 import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
@@ -87,15 +87,13 @@ export function TaskSheet({
   /** Retarget the sheet at another task (a subtask row). Absent = navigate. */
   onOpenIssue?: (issue: IssueWire) => void
 }) {
-  const store = useMobileStore()
+  const trpc = useTrpc()
   const router = useRouter()
   const hex = issue ? (issueColorHex(issue.color) ?? FLOW_HEX) : FLOW_HEX
 
   const post = (body: string) => {
     if (!issue) return
-    void store.trpc.issues.addComment
-      .mutate({ id: issue.id, author: 'mobile', body })
-      .catch(() => {})
+    void trpc.issues.addComment.mutate({ id: issue.id, author: 'mobile', body }).catch(() => {})
   }
 
   return (
@@ -155,12 +153,13 @@ function SheetHead({
   hex: string
   onOpenSession: (session: SessionMeta) => void
 }) {
-  const store = useMobileStore()
+  const trpc = useTrpc()
+  const { updateIssue, closeIssue } = useStoreActions()
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const mine = useMemo(
-    () => withoutShells([...sessions]).filter((s) => s.issueId === issue.id && !s.archived),
+    () => withoutShells(sessions).filter((s) => s.issueId === issue.id && !s.archived),
     [sessions, issue.id],
   )
   const asking = mine.filter(sessionNeedsHuman)
@@ -216,7 +215,7 @@ function SheetHead({
           onPress={() => {
             const target = asking[0]
             if (target) return onOpenSession(target)
-            void store.trpc.issues.start.mutate({ id: issue.id }).catch(() => {})
+            void trpc.issues.start.mutate({ id: issue.id }).catch(() => {})
           }}
         >
           <Text style={styles.primaryText}>{asking.length > 0 ? 'Answer' : 'Run now'}</Text>
@@ -259,7 +258,7 @@ function SheetHead({
             const intent = parseIssueStatusValue(entry.value)
             if (!intent) return
             if (intent.kind === 'stage') {
-              void store.updateIssue(issue.id, { stage: intent.stage }).catch(() => {})
+              void updateIssue(issue.id, { stage: intent.stage }).catch(() => {})
               return
             }
             // The SAME guard the task page and the desktop raise (POD-1129),
@@ -269,7 +268,7 @@ function SheetHead({
               setCloseReason(intent.reason)
               return
             }
-            void store.closeIssue(issue.id, intent.reason).catch(() => {})
+            void closeIssue(issue.id, intent.reason).catch(() => {})
           },
         }))}
       />
@@ -279,7 +278,7 @@ function SheetHead({
         sessions={sessions}
         reason={closeReason}
         onConfirm={(reason) => {
-          void store.closeIssue(issue.id, reason).catch(() => {})
+          void closeIssue(issue.id, reason).catch(() => {})
         }}
         onClose={() => setCloseReason(null)}
       />
@@ -300,12 +299,12 @@ function SheetBody({
   onOpenSession: (s: SessionMeta) => void
   onOpenIssue: (issue: IssueWire) => void
 }) {
-  const children = useMemo(() => subIssuesOf([...issues], issue.id), [issues, issue.id])
+  const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
   const relations = useMemo(() => groupRelations(issue), [issue])
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const mine = useMemo(
     () =>
-      withoutShells([...sessions])
+      withoutShells(sessions)
         .filter((s) => s.issueId === issue.id && !s.archived)
         .sort((a, b) => {
           const an = sessionNeedsHuman(a)
@@ -315,7 +314,7 @@ function SheetBody({
         }),
     [sessions, issue.id],
   )
-  const store = useMobileStore()
+  const httpOrigin = useHttpOrigin()
   const artifacts = issue.panel?.artifacts ?? []
   const [openArtifact, setOpenArtifact] = useState<(typeof artifacts)[number] | null>(null)
   const git = issue.gitState
@@ -338,7 +337,7 @@ function SheetBody({
       {artifacts.length > 0 ? (
         <Part title="Artifacts" meta={String(artifacts.length)}>
           {artifacts.map((artifact) => {
-            const url = issueArtifactHref(issue, artifact, store.httpOrigin)
+            const url = issueArtifactHref(issue, artifact, httpOrigin)
             const label = issueArtifactLabel(artifact)
             return (
               <PressableScale
@@ -361,7 +360,7 @@ function SheetBody({
       ) : null}
       <ArtifactViewer
         artifact={openArtifact}
-        url={openArtifact ? issueArtifactHref(issue, openArtifact, store.httpOrigin) : null}
+        url={openArtifact ? issueArtifactHref(issue, openArtifact, httpOrigin) : null}
         onClose={() => setOpenArtifact(null)}
       />
 

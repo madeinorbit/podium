@@ -29,7 +29,7 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-vi.mock('../hooks/useTabBarInset', () => ({ useTabBarInset: () => 72 }))
+vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 72 }))
 vi.mock('lucide-react-native', () => ({
   AlertTriangle: () => null,
   ChevronDown: () => null,

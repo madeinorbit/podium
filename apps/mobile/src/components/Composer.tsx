@@ -19,7 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useReduceMotion } from '../hooks/useReduceMotion'
-import { type VoiceInput, useVoiceInput } from '../hooks/useVoiceInput'
+import { useVoiceInput, type VoiceInput } from '../hooks/useVoiceInput'
 import { onMediaPaste } from '../lib/composer-media'
 import { alpha } from '../theme/mix'
 import { color, font, leading, radius, sans, space, spring } from '../theme/theme'
@@ -275,9 +275,11 @@ export function Composer({
     if (atRest) onRestingHeight?.(e.nativeEvent.layout.height)
   }
 
-  // The keyboard covers the home indicator, so its inset stops existing the
-  // moment the keyboard is up; keeping it would float the composer in a gap.
-  const chrome = bottomInset > 0 ? bottomInset : keyboardVisible ? 0 : insets.bottom
+  // The keyboard covers the home indicator AND the floating tab bar, so both
+  // insets stop existing the moment the keyboard is up; keeping either would
+  // float the composer that far above the keyboard. (Web never reports a
+  // keyboard here — the visual-viewport root owns that geometry.)
+  const chrome = keyboardVisible ? 0 : bottomInset > 0 ? bottomInset : insets.bottom
   const voiceStatus = composerVoiceStatus(voice)
 
   const changeText = (next: string) => {
@@ -536,6 +538,9 @@ function SendButton({
       disabled={!ready}
       onPress={onPress}
       scaleTo={0.9}
+      // The one press in the capsule that commits something — it keeps the
+      // impact now that ordinary taps are silent (see PressableScale).
+      haptic
       style={styles.control}
     >
       <Animated.View

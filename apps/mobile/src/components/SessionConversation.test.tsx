@@ -54,15 +54,19 @@ vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 vi.mock('./Composer', () => ({ Composer: () => null }))
 
 /**
- * The transcript, reduced to the three facts these tests are about: the footer
- * (where the offer card lives), the optimistic rows, and the tail's tone.
+ * The transcript, reduced to the facts these tests are about: the footer
+ * (where the offer card lives), the optimistic rows, the tail's tone, and the
+ * empty state — rendered whenever it is passed, which is what the real
+ * FlatList does with an empty row array.
  */
 vi.mock('./TranscriptList', () => ({
   TranscriptList: ({
+    emptyComponent,
     footer,
     pendingTurns,
     tail,
   }: {
+    emptyComponent?: ReactNode
     footer?: ReactNode
     pendingTurns?: readonly PendingTurn[]
     tail?: { label: string; tone: string }
@@ -74,6 +78,7 @@ vi.mock('./TranscriptList', () => ({
           {turn.failed ? `failed:${turn.text}` : turn.text}
         </div>
       ))}
+      {emptyComponent}
       {footer}
     </div>
   ),
@@ -145,5 +150,60 @@ describe('offer accept is optimistic', () => {
     // The reason rides on the ROW, which also carries the retry — one error in
     // one place rather than a red card over a red bubble.
     expect(screen.getByTestId('pending').textContent).toBe('failed:merge it')
+  })
+})
+
+/**
+ * THE EMPTY FEED HAS TWO MOODS [2026-08-28 device feedback]. A session already
+ * computing has a transcript on the way, and the empty state must promise the
+ * stream — telling the operator to send a message under a working agent reads
+ * as the app not knowing what its own agent is doing. Only a genuinely idle
+ * empty session hands the next move to the operator.
+ */
+describe('empty transcript mood', () => {
+  const bare = {
+    sessionId: 'sess-2',
+    agentKind: 'claude-code',
+    cwd: '/repo',
+    status: 'live',
+    title: 'Agent',
+  } as unknown as SessionMeta
+
+  it('hands an idle empty session to the operator, mark at rest', async () => {
+    await renderWithMobileStore(<SessionConversation session={bare} issue={undefined} />, {
+      sessions: [bare],
+    })
+
+    await waitFor(() => expect(screen.getByTestId('transcript-empty')).toBeTruthy())
+    expect(screen.getByText('Nothing here yet')).toBeTruthy()
+    expect(screen.queryByTestId('working-mark')).toBeNull()
+    // The mark at rest is the SVG dot grid, not the ⣿ text glyph — the braille
+    // block rendered as a missing-glyph box on device.
+    expect(screen.getByTestId('resting-mark')).toBeTruthy()
+  })
+
+  it('promises the stream while the agent is computing', async () => {
+    const working = {
+      ...bare,
+      agentState: { phase: 'working', since: '2026-08-18T12:00:00.000Z' },
+    } as unknown as SessionMeta
+    await renderWithMobileStore(<SessionConversation session={working} issue={undefined} />, {
+      sessions: [working],
+    })
+
+    await waitFor(() => expect(screen.getByTestId('transcript-empty')).toBeTruthy())
+    expect(screen.getByText('The agent is on it')).toBeTruthy()
+    expect(screen.getByTestId('working-mark')).toBeTruthy()
+    expect(screen.queryByText('Nothing here yet')).toBeNull()
+  })
+
+  it('reads a booting agent as a transcript on its way, before agentState says anything', async () => {
+    const starting = { ...bare, status: 'starting' } as unknown as SessionMeta
+    await renderWithMobileStore(<SessionConversation session={starting} issue={undefined} />, {
+      sessions: [starting],
+    })
+
+    await waitFor(() => expect(screen.getByTestId('transcript-empty')).toBeTruthy())
+    expect(screen.getByText('The agent is on it')).toBeTruthy()
   })
 })

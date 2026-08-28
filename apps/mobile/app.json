@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Podium Mobile",
+    "name": "Podium",
     "slug": "podium-mobile",
     "version": "1.0.0",
     "scheme": "podium",
@@ -11,7 +11,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#16171a"
     },
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "experiments": {
       "baseUrl": "/mobile"

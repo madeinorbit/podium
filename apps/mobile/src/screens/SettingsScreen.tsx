@@ -10,18 +10,22 @@ import { Icon } from '../components/Icon'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 
 function openDesktop() {
   // The web shell is the default at / for every device now [spec:SP-902c]; /desktop is
   // just a stable link back, no opt-out cookie involved.
   if (typeof window !== 'undefined') {
-    window.location.assign('/desktop' + window.location.search)
+    window.location.assign(`/desktop${window.location.search}`)
   }
 }
 
 export function SettingsScreen() {
   const router = useRouter()
+  // The modal sheet reaches the physical bottom edge, so the last row still has
+  // to clear the home indicator (the hook is the plain safe-area inset here).
+  const bottomInset = useContentBottomInset()
   const { conversations, issues, outboxSize, replica, sessions, httpOrigin } = useMobileStore()
   const connected = useConnected()
   const { eraseLocalData } = useMobileShell()
@@ -151,7 +155,9 @@ export function SettingsScreen() {
 
   return (
     <Screen title="Settings" onBack={() => router.back()} backAs="text" backLabel="Done">
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + space.xl }]}
+      >
         {Platform.OS === 'web' ? (
           <PressableScale
             style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
@@ -301,7 +307,6 @@ function Row({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   content: {
     padding: space.lg,
-    paddingBottom: space.xxl,
   },
   action: {
     minHeight: 44,

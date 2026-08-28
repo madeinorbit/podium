@@ -16,10 +16,10 @@ import { StageGlyph } from '../components/StageGlyph'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState, Pill } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
-import { useTabBarInset } from '../hooks/useTabBarInset'
 import { stageFoldKey } from '../lib/fold-keys'
 import { buildScreeningQueue } from '../lib/screening'
 import { taskBoardSections } from '../lib/task-board'
@@ -46,7 +46,7 @@ export function IssuesScreen() {
   const booting = useBooting()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('issues')
-  const tabBarInset = useTabBarInset()
+  const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
 
   const board = useMemo(() => taskBoardSections(issues, { showDone }), [issues, showDone])
@@ -88,7 +88,7 @@ export function IssuesScreen() {
             refreshControl={refreshControl}
             refreshAccessibilityProps={refreshAccessibilityProps}
             minimizeOnScroll={minimizeOnScroll}
-            tabBarInset={tabBarInset}
+            bottomInset={bottomInset}
             booting={booting}
             proposals={proposals.length}
             onScreenProposals={() => router.push('/screen-proposed')}
@@ -127,7 +127,7 @@ function StageSections({
   refreshControl,
   refreshAccessibilityProps,
   minimizeOnScroll,
-  tabBarInset,
+  bottomInset,
   booting,
   proposals,
   onScreenProposals,
@@ -141,7 +141,7 @@ function StageSections({
   refreshControl: RefreshableTab['refreshControl']
   refreshAccessibilityProps: RefreshableTab['refreshAccessibilityProps']
   minimizeOnScroll: ReturnType<typeof useMinimizeTabBarOnScroll>
-  tabBarInset: number
+  bottomInset: number
   booting: boolean
   proposals: number
   onScreenProposals: () => void
@@ -184,7 +184,7 @@ function StageSections({
       keyExtractor={(row) => row.issue.id}
       stickySectionHeadersEnabled
       refreshControl={refreshControl}
-      contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+      contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
       {...refreshAccessibilityProps}
       {...minimizeOnScroll}
       ListHeaderComponent={
@@ -219,6 +219,10 @@ function StageSections({
         />
       )}
       renderItem={({ item }) => <TaskRow row={item} issues={issues} onOpen={onOpen} />}
+      // The inter-stage breath the header's marginTop used to (incorrectly)
+      // provide — footer space scrolls away with its section instead of
+      // travelling with the pinned bar.
+      renderSectionFooter={() => <View style={styles.sectionGap} />}
       ListEmptyComponent={
         // Guarded on `booting` even though the crossfade covers this screen:
         // ListEmptyComponent is rendered whenever the data is empty, with no
@@ -395,6 +399,9 @@ const styles = StyleSheet.create({
     gap: space.sm + 2,
     marginHorizontal: space.sm + 2,
     marginTop: space.sm,
+    // Owns the gap below itself now that the sticky header cannot carry a
+    // marginTop of its own.
+    marginBottom: space.sm,
     paddingHorizontal: 9,
     paddingVertical: 9,
     borderRadius: radius.md,
@@ -437,7 +444,11 @@ const styles = StyleSheet.create({
     gap: space.sm,
     paddingLeft: space.md + 2,
     paddingRight: space.sm,
-    marginTop: space.sm,
+    // NO EXTERNAL MARGIN — sticky geometry. Native pins a sticky header by
+    // translating the view to the viewport top, and a margin is layout the
+    // translation cannot take along: the pinned bar floated 8pt low with rows
+    // scrolling through the see-through strip above it. The breath between
+    // stages is the previous section's footer spacer instead.
     // OPAQUE, and the darkest tier the theme has — a sticky header shares no
     // ground with the rows travelling behind it.
     backgroundColor: color.bar,
@@ -479,6 +490,9 @@ const styles = StyleSheet.create({
   headerChevron: {
     width: 24,
     alignItems: 'center',
+  },
+  sectionGap: {
+    height: space.sm,
   },
   rowWrap: {
     flexDirection: 'row',

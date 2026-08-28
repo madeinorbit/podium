@@ -33,3 +33,48 @@ export function issueArtifactPreview(path: string): IssueArtifactPreview {
 export function issueArtifactLabel(artifact: IssuePanelArtifact): string {
   return artifact.title ?? basename(artifact.entry ?? artifact.path)
 }
+
+/**
+ * Anchor fetched artifact HTML before it renders from a `data:` document.
+ *
+ * The native app authenticates /files/* with a bearer header, and a WebView's
+ * own document request cannot carry one — so the HTML is fetched through the
+ * authenticated fetch path and handed to the WebView inline. A data: document
+ * has no base URL, which would silently break every relative src/href in an
+ * artifact bundle, so the artifact's own URL is injected as `<base>` unless the
+ * document already declares one. Insertion respects the parser: after `<head>`
+ * when present, after the doctype otherwise — prepending before `<!doctype>`
+ * would drop the page into quirks mode.
+ */
+export function htmlWithBase(html: string, baseUrl: string): string {
+  if (/<base[\s/>]/i.test(html)) return html
+  const tag = `<base href="${baseUrl.replace(/"/g, '&quot;')}">`
+  const insertAfter = (m: RegExpMatchArray | null): string | null => {
+    if (!m || m.index === undefined) return null
+    const at = m.index + m[0].length
+    return html.slice(0, at) + tag + html.slice(at)
+  }
+  return (
+    insertAfter(html.match(/<head(?:\s[^>]*)?>/i)) ??
+    insertAfter(html.match(/^\s*<!doctype[^>]*>/i)) ??
+    tag + html
+  )
+}
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+/** UTF-8 → base64 `data:text/html` URI. Hermes has neither Buffer nor btoa,
+ *  hence the hand-rolled (and hermetically testable) encoder. */
+export function htmlDataUri(html: string): string {
+  const bytes = new TextEncoder().encode(html)
+  let out = ''
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i] ?? 0
+    const b = bytes[i + 1] ?? 0
+    const c = bytes[i + 2] ?? 0
+    out += B64.charAt(a >> 2) + B64.charAt(((a & 3) << 4) | (b >> 4))
+    out += i + 1 < bytes.length ? B64.charAt(((b & 15) << 2) | (c >> 6)) : '='
+    out += i + 2 < bytes.length ? B64.charAt(c & 63) : '='
+  }
+  return `data:text/html;charset=utf-8;base64,${out}`
+}

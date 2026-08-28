@@ -7,7 +7,6 @@ import {
   issueDisplayTitle,
   missionProgress,
   pendingDecisionLabel,
-  planReorderKeys,
   rowAwaitsTuck,
   rowCanBringBack,
   rowHasWorkingSession,
@@ -29,7 +28,7 @@ import {
   issueReturnedFromDefer,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import {
   AlarmClock,
   ArrowDownToLine,
@@ -39,9 +38,19 @@ import {
   Search,
   X,
 } from 'lucide-react-native'
-import { useCallback, useMemo, useState } from 'react'
-import { SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ActivityIndicator,
+  Animated,
+  LayoutAnimation,
+  Platform,
+  SectionList,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
+import { useBooting, useIssues, useSessions, useStoreActions } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
@@ -49,28 +58,41 @@ import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { HeaderButton, Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
-import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu, type WorkIssueMenuTarget } from '../components/WorkIssueMenu'
 import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { useCollapsed } from '../hooks/useCollapsed'
+import { useCollapsedSet } from '../hooks/useCollapsedSet'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
-import { useTabBarInset } from '../hooks/useTabBarInset'
 import { sessionHref } from '../lib/session-route'
+import {
+  buildWorkSections,
+  foldWorkSections,
+  type WorkSection,
+  workGroupFoldKey,
+  workRowId,
+  workRowListKey,
+} from '../lib/work-sections'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
 
 /**
  * Work — the desktop sidebar, on the phone [POD-338, POD-724].
  *
  * The rows come from the PUBLISHED worklist slice the wide sidebar reads
- * (POD-331). Mobile adds one deliberate triage projection: asking rows lift
- * into Needs You, then pinned rows, then their project bands. Source order is
- * preserved inside each band, and reordering still writes in the original
- * project/pinned scope; tuck-away and the Snoozed / Closed folds stay shared.
+ * (POD-331). Mobile adds one deliberate triage projection, derived in
+ * `../lib/work-sections.ts`: pinned rows first, then every ask in Needs You —
+ * a pinned ask renders in BOTH bands, under a band-scoped list key — then the
+ * project bands. Source order is preserved inside each
+ * band, and reordering still writes in the original project/pinned scope;
+ * tuck-away and the Snoozed / Closed folds stay shared. Every band folds from
+ * its sticky header, and the fold replicates per-user like the desktop
+ * sidebar's section collapses.
  *
  * ONE FLAT ROW PER MISSION (POD-516 §1.1). This screen used to disagree with the
  * desk about that: it drew a disclosure twist per row, an AGENTS roster band
@@ -107,6 +129,42 @@ function foldedMarker(issue: IssueWire, lane: 'closed' | 'snoozed', now: number)
   return 'closed'
 }
 
+/**
+ * The collapse/expand transition — the cheapest smooth mechanism available:
+ * one LayoutAnimation frame committed alongside the fold's re-render, so rows
+ * ease away under the sticky header instead of vanishing a frame late. Reduce
+ * Motion snaps (the state flip alone), and react-native-web has no
+ * LayoutAnimation, so the web build snaps too rather than warn.
+ */
+function configureFoldAnimation(reduceMotion: boolean): void {
+  if (reduceMotion || Platform.OS === 'web') return
+  LayoutAnimation.configureNext(
+    LayoutAnimation.create(
+      220,
+      LayoutAnimation.Types.easeInEaseOut,
+      LayoutAnimation.Properties.opacity,
+    ),
+  )
+}
+
+/** Standard delay-before-show for the row's open loader: below this an open
+ *  reads as instant and a spinner would only be a flash. */
+const NAV_LOADER_DELAY_MS = 150
+
+/** True once `active` has held for `delayMs`; false the moment it drops. */
+function useDelayedFlag(active: boolean, delayMs: number): boolean {
+  const [on, setOn] = useState(false)
+  useEffect(() => {
+    if (!active) {
+      setOn(false)
+      return
+    }
+    const timer = setTimeout(() => setOn(true), delayMs)
+    return () => clearTimeout(timer)
+  }, [active, delayMs])
+  return on
+}
+
 /** Line 2's timer stamp — the desktop PhaseTimer's exact vocabulary: a running
  *  `m:ss` clock while working, a frozen "10h ago" while waiting, the `∑` compute
  *  total once done, and NOTHING while queued (the dimmed row already says it). */
@@ -123,117 +181,115 @@ function timeStamp(row: UnifiedWorkRow, now: number): string | null {
   return null
 }
 
-interface WorkSection {
-  key: string
-  label: string
-  kind: 'attention' | 'pinned' | 'project'
-  data: UnifiedWorkRow[]
-  snoozedRows: UnifiedIssueRow[]
-  closedRows: UnifiedIssueRow[]
-}
-
 export function WorkScreen() {
   const router = useRouter()
-  const store = useMobileStore()
+  // Actions only — identity-stable, so this subscription never re-renders the
+  // screen; the data below arrives through field-level selectors and slices.
+  const { markIssueRead, setIssueTucked } = useStoreActions()
   const sessionsAll = useSessions()
   const issues = useIssues()
   const booting = useBooting()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('work')
-  const tabBarInset = useTabBarInset()
+  const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   // THE SAME LIST THE DESKTOP SIDEBAR RENDERS, DERIVED ONCE (POD-331/POD-332):
   // one derivation per snapshot, carrying the clock it was derived against, so
   // the phone and the desk cannot disagree about whether a snooze has lapsed.
   const { pinned, groups, allWorktreePaths, now } = useSlice(worklistSlice)
-  const [peek, setPeek] = useState<IssueWire | null>(null)
   const [menuTarget, setMenuTarget] = useState<WorkIssueMenuTarget | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const titleSessions = useMemo(() => [...sessionsAll], [sessionsAll])
   const displayTitleFor = useCallback(
-    (issue: IssueNavigationModel) => issueDisplayTitle(issue, titleSessions, allWorktreePaths),
-    [allWorktreePaths, titleSessions],
+    // The slice arrays pass through UNSPREAD: `issueDisplayTitle` reads them
+    // and its memoization upstream is identity-keyed, so a defensive copy here
+    // would defeat the shared per-snapshot cache (POD round: cache-bust P0).
+    (issue: IssueNavigationModel) => issueDisplayTitle(issue, sessionsAll, allWorktreePaths),
+    [allWorktreePaths, sessionsAll],
   )
 
-  const { sections, orderingSections, issueCount, pinnedCount, attentionCount } = useMemo(() => {
-    const list: WorkSection[] = []
-    const ordering: WorkSection[] = []
-    const attentionRows = [...pinned, ...groups.flatMap((group) => group.rows)].filter(
-      (row) => rowWaitingCount(row) > 0,
-    )
-    if (attentionRows.length > 0) {
-      list.push({
-        key: 'needs-you',
-        label: 'Needs you',
-        kind: 'attention',
-        data: attentionRows,
-        snoozedRows: [],
-        closedRows: [],
-      })
-    }
-    if (pinned.length > 0) {
-      const section: WorkSection = {
-        key: 'pinned',
-        label: 'Pinned',
-        kind: 'pinned',
-        data: pinned.filter((row) => rowWaitingCount(row) === 0),
-        snoozedRows: [],
-        closedRows: [],
-      }
-      ordering.push({ ...section, data: pinned })
-      if (section.data.length > 0) list.push(section)
-    }
-    for (const group of groups) {
-      if (group.rows.length + group.snoozedRows.length + group.closedRows.length === 0) continue
-      const section: WorkSection = {
-        key: group.key,
-        label: group.label,
-        kind: 'project',
-        data: group.rows.filter((row) => rowWaitingCount(row) === 0),
-        snoozedRows: group.snoozedRows,
-        closedRows: group.closedRows,
-      }
-      ordering.push({ ...section, data: group.rows })
-      if (section.data.length + section.snoozedRows.length + section.closedRows.length > 0) {
-        list.push(section)
-      }
-    }
-    const open = [...pinned, ...groups.flatMap((g) => g.rows)]
-    return {
-      sections: list,
-      orderingSections: ordering,
-      issueCount: open.filter((row) => row.kind === 'issue').length,
-      pinnedCount: pinned.length,
-      attentionCount: attentionRows.length,
-    }
-  }, [pinned, groups])
+  const { sections, issueCount, pinnedCount, attentionCount } = useMemo(
+    () => buildWorkSections(pinned, groups),
+    [pinned, groups],
+  )
 
+  const searching = query.trim().length > 0
   const visibleSections = useMemo(() => {
     const needle = query.trim().toLowerCase()
     if (!needle) return sections
     return sections
-      .map((section) => ({
-        ...section,
-        data: section.data.filter((row) =>
+      .map((section) => {
+        const data = section.data.filter((row) =>
           workRowSearchText(row, now, displayTitleFor).includes(needle),
-        ),
-        snoozedRows: section.snoozedRows.filter((row) =>
-          `${issueDisplayRef(row.issue)} ${displayTitleFor(row.issue)}`
-            .toLowerCase()
-            .includes(needle),
-        ),
-        closedRows: section.closedRows.filter((row) =>
-          `${issueDisplayRef(row.issue)} ${displayTitleFor(row.issue)}`
-            .toLowerCase()
-            .includes(needle),
-        ),
-      }))
+        )
+        return {
+          ...section,
+          data,
+          // While searching, the header count is the MATCH count — a band
+          // saying "12" over two visible hits reads as ten hidden ones.
+          total: data.length,
+          snoozedRows: section.snoozedRows.filter((row) =>
+            `${issueDisplayRef(row.issue)} ${displayTitleFor(row.issue)}`
+              .toLowerCase()
+              .includes(needle),
+          ),
+          closedRows: section.closedRows.filter((row) =>
+            `${issueDisplayRef(row.issue)} ${displayTitleFor(row.issue)}`
+              .toLowerCase()
+              .includes(needle),
+          ),
+        }
+      })
       .filter(
         (section) =>
           section.data.length + section.snoozedRows.length + section.closedRows.length > 0,
       )
   }, [displayTitleFor, now, query, sections])
+
+  /**
+   * Per-band fold state, in the replicated `sidebar.section.*` family the
+   * desktop's section collapses live in. Not `useCollapsed`: the band list is
+   * DYNAMIC (one entry per project), and hooks cannot be called in a loop over
+   * it, so the keys are read as one set and looked up per band. The flip is
+   * optimistic and the ui-state write is deferred off the tap frame (see
+   * `useCollapsedSet` for why that ordering is the fix); an external write
+   * (the desk folding a band) still lands on the next ui-state tick.
+   */
+  const sectionKeys = useMemo(() => sections.map((section) => section.key), [sections])
+  const { collapsed: collapsedKeys, toggle: toggleCollapsed } = useCollapsedSet(
+    sectionKeys,
+    workGroupFoldKey,
+  )
+  const reduceMotion = useReduceMotion()
+  const toggleFold = useCallback(
+    (key: string) => {
+      configureFoldAnimation(reduceMotion)
+      toggleCollapsed(key)
+    },
+    [reduceMotion, toggleCollapsed],
+  )
+
+  /**
+   * ROW-LEVEL NAVIGATION FEEDBACK. Pushing /mission mounts a heavy first
+   * frame (conversation + deck — see MissionScreen), so a tap can sit visually
+   * unacknowledged past the pressed state. The tapped row shows a native
+   * ActivityIndicator, but only once the open has taken noticeably long
+   * (NAV_LOADER_DELAY_MS): a fast push never flashes it. The blur cleanup is
+   * the "navigation committed" signal, and the focus body clears any stale
+   * loader on the way back in.
+   */
+  const [pendingNav, setPendingNav] = useState<string | null>(null)
+  useFocusEffect(
+    useCallback(() => {
+      setPendingNav(null)
+      return () => setPendingNav(null)
+    }, []),
+  )
+
+  const displaySections = useMemo(
+    () => foldWorkSections(visibleSections, collapsedKeys, searching),
+    [collapsedKeys, searching, visibleSections],
+  )
 
   /**
    * A mission row opens its MISSION — the transcript of whoever is on it, with
@@ -243,65 +299,34 @@ export function WorkScreen() {
    */
   const openIssue = useCallback(
     (issue: IssueWire) => {
-      void store.markIssueRead(issue.id)
+      setPendingNav(issue.id)
       router.push(`/mission/${encodeURIComponent(issue.id)}`)
+      // Mark-read AFTER the push is dispatched: the outbox enqueue and its
+      // durable persist used to run inside the tap frame, ahead of the
+      // transition's first frame. A macrotask later is invisible to the badge
+      // and buys the navigation its whole frame budget.
+      setTimeout(() => void markIssueRead(issue.id), 0)
     },
-    [store.markIssueRead, router],
+    [router, markIssueRead],
   )
 
-  /** Desktop's context-menu Open goes to the task page. The row tap still opens
-   * the mission transcript; keeping those as separate verbs is why Peek remains
-   * useful on a phone rather than turning Open into a second name for the tap. */
-  const openIssuePage = useCallback(
-    (issue: IssueWire) => {
-      void store.markIssueRead(issue.id)
-      router.push(`/issue/${encodeURIComponent(issue.id)}`)
+  /** Session opens (draft vessels, worktree rows) get the same row loader —
+   *  keyed by the row's canonical id so both copies of a duplicated row agree. */
+  const openSessionFromRow = useCallback(
+    (sessionId: SessionId, rowKey: string) => {
+      setPendingNav(rowKey)
+      router.push(sessionHref(sessionId, '/work'))
     },
-    [router, store.markIssueRead],
+    [router],
   )
-
-  /**
-   * Manual order, from the phone, in the SHARED key space [POD-168].
-   *
-   * The desktop moves a row by dragging its grip; a thumb on a 44pt row cannot
-   * borrow that gesture without stealing the scroll, so the phone spends the
-   * long-press menu on it instead. What it writes is identical — fractional
-   * `sortKey` patches planned by `planReorderKeys`, the same function the drag
-   * uses — so an issue lifted to the top here is at the top of the desk's
-   * sidebar before the sheet has finished closing, and vice versa. The scope is
-   * the row's own section, which is the only place a key means anything.
-   */
-  const move = useCallback(
-    (issue: IssueWire, to: 'top' | 'up' | 'down') => {
-      const section = orderingSections.find((s) => s.data.some((r) => rowIssueId(r) === issue.id))
-      if (!section) return
-      const order = section.data.map(rowIssueId).filter((id): id is string => id !== null)
-      const from = order.indexOf(issue.id)
-      if (from < 0) return
-      const target = to === 'top' ? 0 : to === 'up' ? from - 1 : from + 1
-      if (target < 0 || target >= order.length) return
-      const next = [...order]
-      next.splice(from, 1)
-      next.splice(target, 0, issue.id)
-      const keyOf = (id: string) => issues.find((candidate) => candidate.id === id)?.sortKey
-      for (const patch of planReorderKeys(next, issue.id, keyOf)) {
-        void store.trpc.issues.update
-          .mutate({ id: patch.id, patch: { sortKey: patch.sortKey } })
-          .catch(() => {})
-      }
-    },
-    [issues, orderingSections, store.trpc],
+  const openRowMenu = useCallback(
+    (issue: IssueNavigationModel) => setMenuTarget({ issue, lane: 'live' }),
+    [],
   )
-
-  const menuMoves = useMemo(() => {
-    if (menuTarget?.lane !== 'live') return { top: false, up: false, down: false }
-    const section = orderingSections.find((candidate) =>
-      candidate.data.some((row) => rowIssueId(row) === menuTarget.issue.id),
-    )
-    const index = section?.data.findIndex((row) => rowIssueId(row) === menuTarget.issue.id) ?? -1
-    const length = section?.data.length ?? 0
-    return { top: index > 0, up: index > 0, down: index >= 0 && index < length - 1 }
-  }, [menuTarget, orderingSections])
+  const tuckIssue = useCallback(
+    (issueId: string) => void setIssueTucked(issueId, true),
+    [setIssueTucked],
+  )
 
   return (
     <Screen
@@ -358,53 +383,39 @@ export function WorkScreen() {
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
             ref={listRef as never}
-            sections={visibleSections}
-            keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
+            sections={displaySections}
+            // The list flattens its sections, so keys must stay unique even
+            // when a pinned ask renders in both Pinned and Needs you.
+            keyExtractor={workRowListKey}
             refreshControl={refreshControl}
-            contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+            contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
             {...refreshAccessibilityProps}
             {...minimizeOnScroll}
-            stickySectionHeadersEnabled={false}
+            // STICKY, and the header style must stay margin-free for it: native
+            // pins a sticky child by translating it to the viewport top, and an
+            // external margin stays in the layout — rows scroll through the gap
+            // above the pinned bar. The header is opaque `color.bar` for the
+            // same reason (see IssuesScreen's StageHeader note).
+            stickySectionHeadersEnabled
             renderSectionHeader={({ section }) => (
-              <View
-                style={[
-                  styles.groupLabel,
-                  section.kind === 'attention' && styles.groupLabelAttention,
-                ]}
-              >
-                {section.kind === 'attention' ? <View style={styles.attentionDot} /> : null}
-                {section.kind === 'pinned' ? (
-                  <Icon as={Pin} size={10} color={color.textFaint} />
-                ) : null}
-                <Text
-                  style={[
-                    styles.groupLabelText,
-                    section.kind === 'attention' && styles.groupLabelTextAttention,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {section.label}
-                </Text>
-                <View style={styles.rule} />
-                <Text style={styles.groupCount}>{section.data.length}</Text>
-              </View>
+              <GroupHeader
+                section={section}
+                collapsed={!searching && collapsedKeys.has(section.key)}
+                onToggle={() => toggleFold(section.key)}
+              />
             )}
-            renderItem={({ item, section }) => (
+            renderItem={({ item }) => (
               <WorkRow
                 row={item}
-                attention={section.kind === 'attention'}
                 issues={issues}
                 sessions={sessionsAll}
                 allWorktreePaths={allWorktreePaths}
                 now={now}
+                navPending={pendingNav !== null && pendingNav === workRowId(item)}
                 onOpenIssue={openIssue}
-                onOpenSession={(sessionId) => router.push(sessionHref(sessionId, '/work'))}
-                onLongPress={(issue) => setMenuTarget({ issue, lane: 'live' })}
-                onTuck={
-                  item.kind === 'issue' && rowAwaitsTuck(item, null, false, now)
-                    ? () => void store.setIssueTucked(item.issue.id, true)
-                    : undefined
-                }
+                onOpenSession={openSessionFromRow}
+                onLongPress={openRowMenu}
+                onTuckIssue={tuckIssue}
               />
             )}
             renderSectionFooter={({ section }) => (
@@ -463,25 +474,11 @@ export function WorkScreen() {
           />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
-      <TaskSheet
-        issue={peek}
-        issues={issues}
-        sessions={sessionsAll}
-        onClose={() => setPeek(null)}
-        onOpenSession={(session) => {
-          setPeek(null)
-          router.push(sessionHref(session.sessionId, '/work'))
-        }}
-      />
       {menuTarget ? (
         <WorkIssueMenu
           target={menuTarget}
           issues={issues}
           sessions={sessionsAll}
-          moves={menuMoves}
-          onOpen={openIssuePage}
-          onPeek={setPeek}
-          onMove={move}
           onClose={() => setMenuTarget(null)}
         />
       ) : null}
@@ -500,8 +497,68 @@ function workRowSearchText(
   return `${row.worktree.repoName ?? ''} ${row.worktree.branch ?? ''} ${rowStatusLine(row, now, 0)}`.toLowerCase()
 }
 
-function rowIssueId(row: UnifiedWorkRow): string | null {
-  return row.kind === 'issue' ? row.issue.id : null
+/**
+ * A band's sticky header — the whole bar is the fold control [POD-724].
+ *
+ * The count sits OUTSIDE the fold so a collapsed band still says how much is
+ * in it (compression, not concealment), and the chevron is the same
+ * spring-rotated disclosure the Tasks tab's StageHeader draws, snapping
+ * instantly under Reduce Motion.
+ */
+function GroupHeader({
+  section,
+  collapsed,
+  onToggle,
+}: {
+  section: WorkSection
+  collapsed: boolean
+  onToggle: () => void
+}) {
+  const reduceMotion = useReduceMotion()
+  const spin = useRef(new Animated.Value(collapsed ? 0 : 1)).current
+  useEffect(() => {
+    if (reduceMotion) {
+      spin.setValue(collapsed ? 0 : 1)
+      return
+    }
+    Animated.spring(spin, {
+      toValue: collapsed ? 0 : 1,
+      useNativeDriver: true,
+      ...spring.snappy,
+    }).start()
+  }, [collapsed, reduceMotion, spin])
+  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['-90deg', '0deg'] })
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+      // only the former, so the web build announced no state at all. [POD-1664]
+      accessibilityState={{ expanded: !collapsed }}
+      aria-expanded={!collapsed}
+      accessibilityLabel={`${section.label} · ${section.total}`}
+      accessibilityHint={collapsed ? 'Show this group' : 'Fold this group away'}
+      onPress={onToggle}
+      scaleTo={1}
+      style={({ pressed }) => [styles.groupLabel, pressed && styles.groupLabelPressed]}
+    >
+      {section.kind === 'attention' ? <View style={styles.attentionDot} /> : null}
+      {section.kind === 'pinned' ? <Icon as={Pin} size={10} color={color.textFaint} /> : null}
+      <Text
+        style={[
+          styles.groupLabelText,
+          section.kind === 'attention' && styles.groupLabelTextAttention,
+        ]}
+        numberOfLines={1}
+      >
+        {section.label}
+      </Text>
+      <View style={styles.rule} />
+      <Text style={styles.groupCount}>{section.total}</Text>
+      <Animated.View style={[styles.groupChevron, { transform: [{ rotate }] }]}>
+        <Icon as={ChevronDown} size={13} color={color.textFaint} />
+      </Animated.View>
+    </PressableScale>
+  )
 }
 
 /** A project-local disclosure (Snoozed / Closed): the collapsed default and the
@@ -526,6 +583,7 @@ function Fold({
   onLongPress: (row: UnifiedIssueRow) => void
 }) {
   const [collapsed, toggle] = useCollapsed(storageKey, true)
+  const reduceMotion = useReduceMotion()
   return (
     <View style={styles.fold}>
       <PressableScale
@@ -535,7 +593,10 @@ function Fold({
         accessibilityState={{ expanded: !collapsed }}
         aria-expanded={!collapsed}
         accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} ${label.toLowerCase()} · ${rows.length}`}
-        onPress={toggle}
+        onPress={() => {
+          configureFoldAnimation(reduceMotion)
+          toggle()
+        }}
         style={({ pressed }) => [styles.foldToggle, pressed && styles.pressed]}
       >
         <Icon as={collapsed ? ChevronRight : ChevronDown} size={11} color={color.textMicro} />
@@ -575,28 +636,36 @@ function Fold({
   )
 }
 
-function WorkRow({
+/**
+ * MEMOIZED, and the callbacks above are stable for exactly this reason: a fold
+ * toggle, a search keystroke or a row loader used to re-render every row in the
+ * list, which is most of why folding read as sluggish on a full board. With
+ * `memo`, local screen state touches only the rows whose props actually moved;
+ * a snapshot tick still repaints everything (its arrays and `now` are new).
+ */
+const WorkRow = memo(function WorkRow({
   row,
-  attention,
   issues,
   sessions: allSessions,
   allWorktreePaths,
   now,
+  navPending,
   onOpenIssue,
   onOpenSession,
   onLongPress,
-  onTuck,
+  onTuckIssue,
 }: {
   row: UnifiedWorkRow
-  attention: boolean
   issues: readonly IssueWire[]
   sessions: readonly SessionMeta[]
   allWorktreePaths: string[]
   now: number
+  /** This row's open is in flight — show the delayed native loader. */
+  navPending: boolean
   onOpenIssue: (issue: IssueWire) => void
-  onOpenSession: (sessionId: SessionId) => void
+  onOpenSession: (sessionId: SessionId, rowKey: string) => void
   onLongPress: (issue: IssueNavigationModel) => void
-  onTuck?: (() => void) | undefined
+  onTuckIssue: (issueId: string) => void
 }) {
   const issue = row.kind === 'issue' ? row.issue : undefined
   const worktree = row.kind === 'worktree' ? row.worktree : undefined
@@ -612,20 +681,35 @@ function WorkRow({
   // fleet reading as stopped (POD-703). Every working texture gates on this.
   const working = rowHasWorkingSession(row)
   const waiting = rowWaitingCount(row)
+  // The ask treatment follows the ROW, not the band it landed in: a waiting
+  // row stays put when pinned (see ../lib/work-sections.ts), so the tint, the
+  // count and the Answer/Review action must travel with the fact itself.
+  const attention = waiting > 0
   const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
-  const unread = rowUnreadEmphasized(row)
+  const rowUnread = rowUnreadEmphasized(row)
   // The row's own progress, at the scope it speaks for: its whole mission. The
   // deck's derivation, imported rather than restated — the two must never
   // disagree about how far a mission is.
+  // UNSPREAD ON PURPOSE: `missionProgress` memoizes in a WeakMap keyed on the
+  // ARRAY IDENTITIES of the slices, so passing the stable store arrays directly
+  // is what lets every visible row share one compute per snapshot. A defensive
+  // `[...]` copy here minted fresh identities per row per render and turned the
+  // memo into a guaranteed miss (O(board) per row).
   const progress = useMemo(
-    () => (issue ? missionProgress([...issues], [...allSessions], issue.id) : null),
+    () => (issue ? missionProgress(issues, allSessions, issue.id) : null),
     [allSessions, issue, issues],
   )
   // A draft vessel's only content is its agents — its row IS the agent, so it
   // clicks straight into the session (desktop POD-282).
   const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
+  // A freshly minted draft is not news to the person who just minted it: no
+  // unread dot or bold until its agent actually reports runtime state — the
+  // same gate the chats list applies (SessionCard's hidesDraftDot, round 2).
+  const draftQuiet =
+    draftOnly && !sessions[0]?.busy && (sessions[0]?.agentState?.phase ?? 'unknown') === 'unknown'
+  const unread = rowUnread && !draftQuiet
   const label = issue
-    ? issueDisplayTitle(issue, [...allSessions], allWorktreePaths)
+    ? issueDisplayTitle(issue, allSessions, allWorktreePaths)
     : `${worktree?.repoName ?? ''}${worktree?.branch ? ` · ${worktree.branch}` : ''}`
   const stamp = timeStamp(row, now)
   const statusLine =
@@ -636,14 +720,21 @@ function WorkRow({
   const origin = originDep ? issues.find((i) => i.id === originDep.id) : undefined
   const snoozed = issue ? isIssueDeferred(issue, now) : false
   const unsnoozed = issue ? issueReturnedFromDefer(issue, now) : false
+  // Computed here rather than passed as a closure so the memo above can work:
+  // an inline `onTuck` arrow from renderItem would be new every list render.
+  const onTuck =
+    issue && rowAwaitsTuck(row, null, false, now) ? () => onTuckIssue(issue.id) : undefined
+  // Native, theme-tinted, and DELAYED: feedback only when the open is actually
+  // taking a beat, so a fast push never flashes a spinner (standard ~150ms).
+  const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
 
   const press = () => {
     if (issue) {
-      if (draftOnly && sessions[0]) onOpenSession(sessions[0].sessionId)
+      if (draftOnly && sessions[0]) onOpenSession(sessions[0].sessionId, workRowId(row))
       else onOpenIssue(issue)
       return
     }
-    if (sessions[0]) onOpenSession(sessions[0].sessionId)
+    if (sessions[0]) onOpenSession(sessions[0].sessionId, workRowId(row))
   }
 
   return (
@@ -688,7 +779,7 @@ function WorkRow({
           </View>
           <View style={styles.rowStatusLine}>
             {issue ? <Text style={styles.rowRef}>{issueDisplayRef(issue)}</Text> : null}
-            {attention && waiting > 0 ? <Text style={styles.rowWaitCount}>{waiting}</Text> : null}
+            {attention ? <Text style={styles.rowWaitCount}>{waiting}</Text> : null}
             {issue?.pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}
             {draftOnly ? null : <FleetSummary sessions={fleetSessions} />}
             <Text
@@ -712,12 +803,22 @@ function WorkRow({
             ) : null}
             <View style={styles.spacer} />
             <View style={styles.rowDatum}>
-              {working ? <WorkingMark size={11} /> : null}
-              {stamp ? (
-                <Text style={styles.stamp} numberOfLines={1}>
-                  {stamp}
-                </Text>
-              ) : null}
+              {navLoader ? (
+                <ActivityIndicator
+                  accessibilityLabel="Opening"
+                  size="small"
+                  color={color.textDim}
+                />
+              ) : (
+                <>
+                  {working ? <WorkingMark size={11} /> : null}
+                  {stamp ? (
+                    <Text style={styles.stamp} numberOfLines={1}>
+                      {stamp}
+                    </Text>
+                  ) : null}
+                </>
+              )}
             </View>
           </View>
           {progress ? <RowProgressMeter progress={progress} working={working} /> : null}
@@ -752,7 +853,7 @@ function WorkRow({
       ) : null}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   headerAttention: {
@@ -783,18 +884,30 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
   },
+  // A sticky FOLD CONTROL now, not a passive label: 44pt for the thumb, opaque
+  // `color.bar` so rows travel BEHIND it, and — the sticky geometry rule — no
+  // external margin, because native pins a sticky header by translating it to
+  // the viewport top and any margin stays behind as a see-through gap.
   groupLabel: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    minHeight: 31,
+    minHeight: 44,
     paddingHorizontal: space.lg,
     backgroundColor: color.bar,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairlineBar,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.hairline,
+    overflow: 'hidden',
+    zIndex: 1,
   },
-  groupLabelAttention: {
-    backgroundColor: color.bar,
+  groupLabelPressed: {
+    backgroundColor: color.bgSunken,
+  },
+  groupChevron: {
+    width: 18,
+    alignItems: 'center',
   },
   attentionDot: {
     width: 6,
@@ -838,6 +951,11 @@ const styles = StyleSheet.create({
   rowAttention: {
     minHeight: 68,
     backgroundColor: alpha(color.needsYou, 0.05),
+    // The stock hairline DISAPPEARS on this tint: #24272d composites to about
+    // 1.06:1 against the bisque-washed ground (vs 1.16:1 on plain engraved).
+    // Deriving the seam from the tint itself — 16% bisque — lands it at about
+    // 1.4:1 on that ground, clearly above the plain list's own separator.
+    borderBottomColor: alpha(color.needsYou, 0.16),
   },
   rowQueued: {
     opacity: 0.72,

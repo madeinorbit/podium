@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets'
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { alpha } from '../theme/mix'
 import { color, elevation, radius, space, spring } from '../theme/theme'
 
@@ -106,6 +107,11 @@ export function BottomSheet({
   accessibilityLabel?: string
 }) {
   const insets = useSafeAreaInsets()
+  // The sheet lives in a Modal with absolute geometry — no KeyboardAvoidingView
+  // can reach it, so the keyboard's overlap is paid directly: detented sheets
+  // lift their footer (the comment composer) by padding, fit sheets rise
+  // bodily. [2026-08-28 device feedback: peek-task comments typed blind.]
+  const keyboardHeight = useKeyboardHeight()
   const screenH = Dimensions.get('window').height
   const top = insets.top + TOP_GAP
   const span = screenH - top
@@ -361,8 +367,11 @@ export function BottomSheet({
           styles.sheet,
           elevation.raised,
           mode === 'detented'
-            ? { top, height: span }
-            : { bottom: 0, paddingBottom: insets.bottom + space.md },
+            ? { top, height: span, paddingBottom: keyboardHeight }
+            : {
+                bottom: keyboardHeight,
+                paddingBottom: keyboardHeight > 0 ? space.md : insets.bottom + space.md,
+              },
           accent ? { borderTopColor: alpha(accent, 0.45), borderTopWidth: 1 } : null,
           sheetStyle,
         ]}

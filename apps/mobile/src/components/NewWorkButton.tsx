@@ -20,8 +20,11 @@ import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
-import { useMobileStore, useSessions } from '../client/hooks'
+// Namespace access, not a named import: react-native-web exports no
+// ActionSheetIOS (see ActionSheet.tsx, same pattern).
+import * as ReactNative from 'react-native'
+import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useMachines, useSessions, useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import {
@@ -41,6 +44,7 @@ import { reposOnMachine } from '../lib/new-work'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { type NativePickerOption, nativePickerSpec } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
@@ -87,7 +91,8 @@ const writeString = (value: string | null): string | null => value
 export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const store = useMobileStore()
+  const { spawnDraftAgent } = useStoreActions()
+  const machines = useMachines()
   const sessions = useSessions()
   const { sections } = useSlice(worklistSlice)
   const [step, setStep] = useState<PickerStep>(null)
@@ -121,7 +126,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   // the automations form and the execution-profile picker use. Two spellings of
   // "may I run here" is exactly how one surface comes to offer a machine
   // another refuses.
-  const machineViews = useMemo(() => machineViewsFromWire(store.machines), [store.machines])
+  const machineViews = useMemo(() => machineViewsFromWire(machines), [machines])
   const usable = useMemo(() => usableMachines(machineViews), [machineViews])
   const showMachine = machineViews.length > 1
   const machineId =
@@ -205,7 +210,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     const { worktree } = spawnTargetForRepo(repo, targetMachine)
     const selection = isShell ? {} : spawnSelection(effectiveModel, effort)
     setRepoPick(repo.path)
-    const { sessionId } = store.spawnDraftAgent({
+    const { sessionId } = spawnDraftAgent({
       target: worktree,
       agentKind: harness,
       ...(selection.model ? { model: selection.model } : {}),
@@ -284,6 +289,78 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     setStep('launch')
   }
 
+  /** iOS presents each field's picker as the real UIKit sheet OVER the open
+   *  launch sheet (2026-08-28 device feedback, following the backend rail);
+   *  the JS steps stay for web/Android — and for the model list's search box,
+   *  which UIKit cannot express and iOS therefore trades away. */
+  const openField = (field: 'model' | 'effort' | 'machine' | 'repo') => {
+    if (Platform.OS !== 'ios') {
+      setStep(field)
+      return
+    }
+    const picker =
+      field === 'model'
+        ? {
+            title: 'Model',
+            groups: groupedCatalogOptions(modelOptions),
+            selected: effectiveModel,
+            onPick: applyModel,
+          }
+        : field === 'effort'
+          ? {
+              title: 'Effort',
+              groups: [{ options: effortChoices }],
+              selected: effort,
+              onPick: (value: string) => setEffortPick(value),
+            }
+          : field === 'machine'
+            ? {
+                title: 'Machine',
+                groups: [
+                  {
+                    options: machineViews.map(
+                      (view): NativePickerOption => ({
+                        value: view.machine.id,
+                        label:
+                          view.availability === 'available'
+                            ? view.machine.name
+                            : `${view.machine.name} — ${
+                                view.availability === 'unauthorized' ? 'No access' : 'Offline'
+                              }`,
+                        disabled: view.availability !== 'available',
+                      }),
+                    ),
+                  },
+                ],
+                selected: machineId ?? undefined,
+                onPick: (value: string) => pickMachine(value as MachineId),
+              }
+            : {
+                title: 'Project',
+                groups: [
+                  {
+                    options: visibleRepos.map((repo) => ({
+                      value: repo.path,
+                      label: repo.name,
+                    })),
+                  },
+                ],
+                selected: selectedRepo?.path,
+                onPick: (value: string) => setRepoPick(value),
+              }
+    const { spec, values } = nativePickerSpec(picker)
+    ReactNative.ActionSheetIOS.showActionSheetWithOptions(
+      { ...spec, tintColor: color.accent, userInterfaceStyle: 'dark' },
+      (buttonIndex) => {
+        const value = buttonIndex >= 0 ? values[buttonIndex] : undefined
+        if (value === undefined) return
+        // Deferred like every native-sheet action: a presentation during
+        // UIKit's dismissal tail is silently dropped.
+        setTimeout(() => picker.onPick(value), 0)
+      },
+    )
+  }
+
   return (
     <>
       <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
@@ -320,13 +397,13 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
       >
         {step === 'launch' ? (
           <>
-            <FieldSelect label="Model" value={modelValue} onPress={() => setStep('model')} />
+            <FieldSelect label="Model" value={modelValue} onPress={() => openField('model')} />
 
             {effortChoices.length > 0 ? (
               <FieldSelect
                 label="Effort"
                 value={effortChoices.find((option) => option.value === effort)?.label ?? 'Auto'}
-                onPress={() => setStep('effort')}
+                onPress={() => openField('effort')}
               />
             ) : null}
 
@@ -334,7 +411,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
               <FieldSelect
                 label="Machine"
                 value={selectedMachine?.machine.name ?? 'Choose a machine'}
-                onPress={() => setStep('machine')}
+                onPress={() => openField('machine')}
               />
             ) : null}
 
@@ -346,7 +423,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
               value={selectedRepo?.name ?? 'No repositories available'}
               {...(onlyOneRepo || visibleRepos.length === 0
                 ? {}
-                : { onPress: () => setStep('repo') })}
+                : { onPress: () => openField('repo') })}
             />
 
             <PressableScale

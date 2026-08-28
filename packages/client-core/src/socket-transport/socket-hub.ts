@@ -95,6 +95,37 @@ export interface WebSocketLike {
   onerror?: ((ev: unknown) => void) | null
 }
 
+/**
+ * WHY a socket ended — observability only, threaded into the reconnect warn.
+ * Four reconnects in 30s used to be undiagnosable from client logs: a server
+ * 1006, a heartbeat timeout against a wedged event loop and a network drop all
+ * printed the identical 'socket closed — reconnecting'. The teardown path is
+ * shared (see {@link SocketHub.onSocketClosed}), so the cause rides in from
+ * whichever door the close came through.
+ */
+export type SocketCloseCause =
+  | { cause: 'close-event'; code: number; reason: string; wasClean: boolean }
+  | { cause: 'heartbeat-timeout'; silentForMs: number }
+  | { cause: 'wake' }
+  | { cause: 'fresh-world' }
+  | { cause: 'suspend' }
+
+/** Best-effort read of the CloseEvent fields off the seam's `unknown` event —
+ *  non-browser socket doubles may deliver nothing at all. */
+function closeEventCause(ev: unknown): SocketCloseCause {
+  const event = (typeof ev === 'object' && ev !== null ? ev : {}) as {
+    code?: unknown
+    reason?: unknown
+    wasClean?: unknown
+  }
+  return {
+    cause: 'close-event',
+    code: typeof event.code === 'number' ? event.code : 0,
+    reason: typeof event.reason === 'string' ? event.reason : '',
+    wasClean: event.wasClean === true,
+  }
+}
+
 export interface ConnectionViewport {
   cols: number
   rows: number
@@ -849,16 +880,18 @@ export class SocketHub {
       // connect is fatal — that's a wrong address or a server that isn't running.
       if (!this.everConnected) this.opts.onError?.('WebSocket connection failed', ev)
     }
-    socket.onclose = () => {
+    socket.onclose = (ev) => {
       if (!this.intentionalClose && !opened && !reportedError && !this.everConnected) {
         this.opts.onError?.('WebSocket connection closed before connecting')
       }
-      this.onSocketClosed()
+      // The CloseEvent is the only place the wire says WHY it ended — a server
+      // 1006 vs a clean 1000 vs a proxy 1011 are three different diagnoses.
+      this.onSocketClosed(closeEventCause(ev))
     }
   }
 
   /** Common teardown for any socket end: from onclose or a heartbeat force-close. */
-  private onSocketClosed(): void {
+  private onSocketClosed(cause?: SocketCloseCause): void {
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
@@ -878,7 +911,10 @@ export class SocketHub {
       // keeps losing its socket is the thing an operator most wants to see from
       // the outside, and it is invisible in the server's own logs. Logged AFTER
       // scheduling so it reports the delay actually armed, jitter included.
-      log.warn('socket closed — reconnecting', { retryInMs })
+      // The cause fields turn a reconnect storm into a one-log diagnosis:
+      // heartbeat-timeout points at a wedged server loop, close code/reason at
+      // the server or the path between.
+      log.warn('socket closed — reconnecting', { retryInMs, ...cause })
     }
   }
 
@@ -949,7 +985,7 @@ export class SocketHub {
     if (this.heartbeatDeadline !== undefined) return
     this.heartbeatDeadline = setTimeout(() => {
       this.heartbeatDeadline = undefined
-      this.forceClose()
+      this.forceClose({ cause: 'heartbeat-timeout', silentForMs: HEARTBEAT_TIMEOUT_MS })
     }, HEARTBEAT_TIMEOUT_MS)
   }
 
@@ -997,9 +1033,11 @@ export class SocketHub {
     this.heartbeatDeadline = undefined
   }
 
-  /** The heartbeat went unanswered. A half-open TCP connection may not deliver a
-   *  close event for minutes, so detach the handlers and run the close path now. */
-  private forceClose(): void {
+  /** The heartbeat went unanswered (or a caller needs the socket gone NOW). A
+   *  half-open TCP connection may not deliver a close event for minutes, so
+   *  detach the handlers and run the close path immediately, carrying WHICH
+   *  door forced it so the reconnect warn can say so. */
+  private forceClose(cause: SocketCloseCause): void {
     const socket = this.socket
     if (socket === undefined) return
     socket.onopen = null
@@ -1011,7 +1049,7 @@ export class SocketHub {
     } catch {
       // already dead — exactly the case we're cleaning up
     }
-    this.onSocketClosed()
+    this.onSocketClosed(cause)
   }
 
   /**
@@ -1024,7 +1062,7 @@ export class SocketHub {
    * socket takes the same path: one extra hello is cheaper than a frozen UI.
    */
   wake(): void {
-    if (this.socket !== undefined) this.forceClose()
+    if (this.socket !== undefined) this.forceClose({ cause: 'wake' })
     this.connect()
   }
 
@@ -1053,7 +1091,7 @@ export class SocketHub {
     // exactly the same thing from the reconnect that is already scheduled.
     this.wantWorld = true
     if (this.socket === undefined) return
-    this.forceClose()
+    this.forceClose({ cause: 'fresh-world' })
     this.scheduleReconnect()
   }
 
@@ -1082,7 +1120,7 @@ export class SocketHub {
     // be scheduled again for minutes. The teardown (heartbeat off, sink told it
     // is disconnected) has to be true the moment the app is backgrounded, not
     // whenever the platform gets round to it.
-    this.forceClose()
+    this.forceClose({ cause: 'suspend' })
   }
 
   attach(sessionId: SessionId, cb: SessionCallbacks = {}): SessionConnection {

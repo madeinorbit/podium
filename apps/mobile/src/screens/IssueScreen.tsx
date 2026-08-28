@@ -11,16 +11,17 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react-native'
+import { MoreHorizontal } from 'lucide-react-native'
 import { useCallback, useMemo, useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native'
 import {
   useBooting,
   useConnected,
   useIssue,
   useIssues,
-  useMobileStore,
   useSessions,
+  useStoreActions,
+  useTrpc,
 } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
@@ -50,10 +51,10 @@ import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
 import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
+import { useKeyboardVerticalOffset } from '../hooks/useKeyboardVerticalOffset'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
-import { taskBoardOrder, taskNeighbours } from '../lib/task-board'
 import { useIssueActivity } from '../lib/use-issue-detail'
 import { issueColorHex } from '../theme/issueColors'
 import { color, space } from '../theme/theme'
@@ -81,9 +82,8 @@ import { color, space } from '../theme/theme'
  * Each section is its own module under `../components/task-detail/`, chosen by
  * the question it answers; every mutation is a named command in
  * `../lib/issue-detail.ts`; the three lazy reads are one hook. What is LEFT here
- * is the state that genuinely spans sections — which sheet is open, the busy /
- * error pair, and the neighbour navigation — because pushing any of those down
- * would duplicate them.
+ * is the state that genuinely spans sections — which sheet is open and the
+ * busy / error pair — because pushing either of those down would duplicate them.
  *
  * THE COMPOSER IS PINNED, NOT APPENDED. A task with twenty artifacts and a day of
  * events puts the reply box thousands of pixels down the scroll, so replying
@@ -162,7 +162,11 @@ const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
 
 function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void }) {
   const router = useRouter()
-  const store = useMobileStore()
+  const trpc = useTrpc()
+  // The picked action set doubles as the page's IssueWriteActions — every
+  // field is identity-stable, so this subscription never re-renders the page.
+  const actions = useStoreActions()
+  const { resumeAndSend } = actions
   const issues = useIssues()
   const allSessions = useSessions()
 
@@ -170,6 +174,7 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
   const [error, setError] = useState<string | null>(null)
   const [sheet, setSheet] = useState<OpenSheet>(null)
   const [detailsOpen, detailsCollapsed] = useDetailsFold()
+  const keyboard = useKeyboardVerticalOffset()
 
   /** Run a mutation, surfacing any thrown error verbatim as an inline note. */
   const run: RunMutation = async (fn) => {
@@ -184,11 +189,11 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
     }
   }
   const commands = issueCommands({
-    trpc: store.trpc,
+    trpc,
     issue,
     sessions: allSessions,
     run,
-    actions: store,
+    actions,
     // Only reached when the shared derivation found something to say; a clean
     // close never gets this far (POD-1129).
     requestClose: (reason) => setSheet({ kind: 'confirm-close', reason }),
@@ -226,11 +231,6 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         .sort((a, b) => b.seq - a.seq),
     [issues, issue.repoPath, issue.id],
   )
-  const { prev, next } = useMemo(
-    () => taskNeighbours(taskBoardOrder(issues), issue.id),
-    [issues, issue.id],
-  )
-
   const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
@@ -295,119 +295,105 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         </PressableScale>
       }
       right={
-        <>
-          {/* An end-of-list neighbour renders as an INERT glyph rather than
-              vanishing: three controls that become two shift everything beside
-              them, and the first and last task on the board are exactly where an
-              operator is most likely to be aiming at the button that moved. */}
-          {prev ? (
-            <HeaderButton label="Previous task" onPress={() => openIssue(prev)}>
-              <Icon as={ChevronUp} size={17} color={color.text} />
-            </HeaderButton>
-          ) : (
-            <View
-              style={styles.headerInert}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
-              <Icon as={ChevronUp} size={17} color={color.textMicro} />
-            </View>
-          )}
-          {next ? (
-            <HeaderButton label="Next task" onPress={() => openIssue(next)}>
-              <Icon as={ChevronDown} size={17} color={color.text} />
-            </HeaderButton>
-          ) : (
-            <View
-              style={styles.headerInert}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
-              <Icon as={ChevronDown} size={17} color={color.textMicro} />
-            </View>
-          )}
-          <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
-            <Icon as={MoreHorizontal} size={17} color={color.text} />
-          </HeaderButton>
-        </>
+        <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
+          <Icon as={MoreHorizontal} size={17} color={color.text} />
+        </HeaderButton>
       }
     >
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+      {/* The same keyboard contract the chat screens carry (SessionConversation
+          wraps its feed-plus-composer in exactly this view): on iOS the pinned
+          composer otherwise sits UNDER the keyboard, so a comment was typed
+          blind — the field disappeared on focus. The offset is measured, not
+          assumed: the header above this view breaks the stock overlap math —
+          see useKeyboardVerticalOffset. The sheets stay outside: they are
+          modal layers and place themselves. */}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={keyboard.offset}
+        onLayout={keyboard.onLayout}
+        testID="issue-keyboard-avoider"
       >
-        <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
+        {keyboard.anchor}
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
 
-        {issue.needsHuman ? (
-          <View style={styles.question}>
-            <IssueQuestionCard
-              issue={issue}
-              onAnswer={
-                askingSession
-                  ? (answer) => store.resumeAndSend(askingSession.sessionId, answer)
-                  : undefined
-              }
-              onOpenSession={askingSession ? () => openSession(askingSession.sessionId) : undefined}
-              // The card awaits its resolver; the command is fire-and-forget
-              // through the page's runner, which already owns the busy/error pair.
-              onResolve={async () => commands.resolveNeedsHuman()}
-            />
-          </View>
-        ) : null}
+          {issue.needsHuman ? (
+            <View style={styles.question}>
+              <IssueQuestionCard
+                issue={issue}
+                onAnswer={
+                  askingSession
+                    ? (answer) => resumeAndSend(askingSession.sessionId, answer)
+                    : undefined
+                }
+                onOpenSession={
+                  askingSession ? () => openSession(askingSession.sessionId) : undefined
+                }
+                // The card awaits its resolver; the command is fire-and-forget
+                // through the page's runner, which already owns the busy/error pair.
+                onResolve={async () => commands.resolveNeedsHuman()}
+              />
+            </View>
+          ) : null}
 
-        <IssueTitle issue={issue} busy={busy} commands={commands} />
-        <StatusStrip issue={issue} />
-        <PropertyBar
-          issue={issue}
-          onStage={() => setSheet({ kind: 'stage' })}
-          onPriority={() => setSheet({ kind: 'priority' })}
-          onType={() => setSheet({ kind: 'type' })}
-        />
+          <IssueTitle issue={issue} busy={busy} commands={commands} />
+          <StatusStrip issue={issue} />
+          <PropertyBar
+            issue={issue}
+            onStage={() => setSheet({ kind: 'stage' })}
+            onPriority={() => setSheet({ kind: 'priority' })}
+            onType={() => setSheet({ kind: 'type' })}
+          />
 
-        <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
-        <IssueDescription issue={issue} busy={busy} commands={commands} />
-        <IssueBrief issue={issue} />
-        <LongFormFields issue={issue} busy={busy} commands={commands} />
-        <IssueAgentPanel issue={issue} />
-        <IssueSubIssues
-          issue={issue}
-          subIssues={children}
-          busy={busy}
-          commands={commands}
-          onOpen={openIssue}
-        />
-        <MailSection mail={mail} />
-        <IssueProperties
-          issue={issue}
-          sessions={sessions}
-          parent={parent}
-          busy={busy}
-          commands={commands}
-          open={detailsOpen}
-          onToggle={detailsCollapsed}
-          onOpenSession={openSession}
-          onOpenIssue={openIssue}
-          onPickParent={() => setSheet({ kind: 'parent' })}
-          onAddRelation={() => setSheet({ kind: 'relation-type' })}
-        />
-        <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
-      </ScrollView>
+          <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
+          <IssueDescription issue={issue} busy={busy} commands={commands} />
+          <IssueBrief issue={issue} />
+          <LongFormFields issue={issue} busy={busy} commands={commands} />
+          <IssueAgentPanel issue={issue} />
+          <IssueSubIssues
+            issue={issue}
+            subIssues={children}
+            busy={busy}
+            commands={commands}
+            onOpen={openIssue}
+          />
+          <MailSection mail={mail} />
+          <IssueProperties
+            issue={issue}
+            sessions={sessions}
+            parent={parent}
+            busy={busy}
+            commands={commands}
+            open={detailsOpen}
+            onToggle={detailsCollapsed}
+            onOpenSession={openSession}
+            onOpenIssue={openIssue}
+            onPickParent={() => setSheet({ kind: 'parent' })}
+            onAddRelation={() => setSheet({ kind: 'relation-type' })}
+          />
+          <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
+        </ScrollView>
 
-      {/* Pinned with the composer, not placed where the failing control was. A
+        {/* Pinned with the composer, not placed where the failing control was. A
           rebase fired from the Details fold at the bottom of a long page would
           otherwise report its error a full screen above the thumb that asked
           for it. */}
-      {error ? (
-        <View style={styles.errorBand}>
-          <ErrorNote message={error} />
-        </View>
-      ) : null}
+        {error ? (
+          <View style={styles.errorBand}>
+            <ErrorNote message={error} />
+          </View>
+        ) : null}
 
-      <Composer
-        placeholder="Comment, or @mention an agent on this task…"
-        onSend={(text) => commands.postComment(text, appendLocalComment)}
-      />
+        <Composer
+          placeholder="Comment, or @mention an agent on this task…"
+          onSend={(text) => commands.postComment(text, appendLocalComment)}
+        />
+      </KeyboardAvoidingView>
 
       <ActionSheet
         visible={sheet?.kind === 'stage'}
@@ -560,9 +546,9 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         hint: 'Spawns this task’s default agent on its own checkout.',
         onPress: commands.startWork,
       })
-    } else if (live) {
-      actions.push({ label: 'Add an agent', onPress: commands.addSession })
     }
+    // No "Add an agent" once one is running (2026-08-27 device review): a
+    // second agent launches from the mission's deck or its 3-dots menu.
     if (live) actions.push({ label: 'Add a shell', onPress: commands.addShell })
     if (live) {
       actions.push({
@@ -612,6 +598,9 @@ function useDetailsFold(): [boolean, () => void] {
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   content: {
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
@@ -626,12 +615,5 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.border,
     backgroundColor: color.dangerSoft,
-  },
-  headerInert: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.45,
   },
 })

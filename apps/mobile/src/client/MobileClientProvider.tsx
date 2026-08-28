@@ -94,19 +94,19 @@ import {
 // expo-router's SplashScreen, and the composition root has no business pulling
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
-import { installMobileMetadataStorage } from './mobile-metadata-storage'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
+import { installMobileMetadataStorage } from './mobile-metadata-storage'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
 import { createPlatformConnectivity } from './platform-connectivity'
-import { type MobileShell, MobileShellProvider } from './shell'
 import { useOptionalServerProfile } from './ServerProfileGate'
 import {
   completePendingProfileCleanup,
   loadPendingProfileCleanups,
-  profilePrincipal,
   type PendingProfileCleanup,
+  profilePrincipal,
 } from './server-profiles'
+import { type MobileShell, MobileShellProvider } from './shell'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
 // App-installation metadata must be available before a principal-scoped replica
@@ -699,19 +699,18 @@ function MobileHubAttach({
       if (document.visibilityState === 'hidden') onHide()
       else onShow()
     }
-    if (typeof window !== 'undefined') {
+    // Web only — and NOT `typeof window`: Hermes aliases `window` to the JS
+    // global, so it exists on a phone while `addEventListener` does not. On
+    // native the AppState controller above already answers hide/show.
+    if (Platform.OS === 'web') {
       window.addEventListener('pagehide', onHide)
       window.addEventListener('pageshow', onShow)
-    }
-    if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', onVisibility)
     }
     return () => {
-      if (typeof window !== 'undefined') {
+      if (Platform.OS === 'web') {
         window.removeEventListener('pagehide', onHide)
         window.removeEventListener('pageshow', onShow)
-      }
-      if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibility)
       }
     }
@@ -776,7 +775,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
     const onPageHide = () => {
       void replicaForCleanup?.store.settled()
     }
-    if (typeof window !== 'undefined') {
+    // Web only — Hermes has a `window` global without DOM listener methods, so
+    // an existence check passes on a phone and then dies calling the method.
+    if (Platform.OS === 'web') {
       window.addEventListener('pagehide', onPageHide)
     }
     // A boot that is still running may still succeed, so the watchdog only
@@ -897,7 +898,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       alive = false
       clearTimeout(stallTimer)
       closeReplica()
-      if (typeof window !== 'undefined') {
+      if (Platform.OS === 'web') {
         window.removeEventListener('pagehide', onPageHide)
       }
     }

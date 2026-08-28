@@ -21,9 +21,17 @@ type StyleArg = StyleProp<ViewStyle> | ((state: { pressed: boolean }) => StylePr
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
 /**
- * The app's one press affordance: a quick spring scale-down + light haptic.
- * Use for every card/button — consistent physical feedback is most of what
- * makes a UI feel native.
+ * The app's one press affordance: a quick spring scale-down. Use for every
+ * card/button — consistent physical feedback is most of what makes a UI feel
+ * native, and the scale IS that feedback.
+ *
+ * HAPTICS ARE OPT-IN, not the default. iOS reserves the impact vocabulary for
+ * physical thresholds — a drag hitting a detent, a swipe crossing its commit
+ * line, a consequential press like Send — and system buttons, list rows and
+ * tab bars are silent. This component used to buzz on every tap, which
+ * inverted that vocabulary app-wide and devalued the real signals (the sheet
+ * detent impact, the swipe-commit impact, the agent-outcome notifications).
+ * Pass `haptic` only where the press crosses a real threshold.
  *
  * A drop-in for `Pressable` [POD-366]: it accepts the same
  * `style={({ pressed }) => …}` callback form, so swapping a call site never
@@ -34,7 +42,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 export function PressableScale({
   children,
   style,
-  haptic = true,
+  haptic = false,
   hapticStyle = Haptics.ImpactFeedbackStyle.Light,
   scaleTo = 0.97,
   disabled,

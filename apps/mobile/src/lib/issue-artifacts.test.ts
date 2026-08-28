@@ -1,6 +1,11 @@
 import { asArtifactId, asIssueId, type IssuePanelArtifact, type IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { issueArtifactHref, issueArtifactPreview } from './issue-artifacts'
+import {
+  htmlDataUri,
+  htmlWithBase,
+  issueArtifactHref,
+  issueArtifactPreview,
+} from './issue-artifacts'
 
 function issue(overrides: Partial<IssueWire> = {}): IssueWire {
   return {
@@ -46,5 +51,55 @@ describe('issueArtifactPreview', () => {
     expect(issueArtifactPreview('notes.md')).toBe('markdown')
     expect(issueArtifactPreview('log.txt')).toBe('text')
     expect(issueArtifactPreview('blob.bin')).toBe('file')
+  })
+})
+
+describe('htmlWithBase', () => {
+  const href = 'https://podium.local/files/artifact/iss/art/deck.html'
+
+  it('injects <base> right after <head> so relative bundle refs resolve', () => {
+    const out = htmlWithBase('<html><head><title>d</title></head><body/></html>', href)
+    expect(out).toContain(`<head><base href="${href}"><title>`)
+  })
+
+  it('keeps the doctype first — a tag before it would trigger quirks mode', () => {
+    const out = htmlWithBase('<!DOCTYPE html><p>hi</p>', href)
+    expect(out.startsWith('<!DOCTYPE html><base href=')).toBe(true)
+  })
+
+  it('prepends when the document is a bare fragment', () => {
+    expect(htmlWithBase('<p>hi</p>', href)).toBe(`<base href="${href}"><p>hi</p>`)
+  })
+
+  it('respects a base the document already declares', () => {
+    const doc = '<head><base href="https://elsewhere/"></head>'
+    expect(htmlWithBase(doc, href)).toBe(doc)
+  })
+
+  it('escapes quotes so a hostile URL cannot break out of the attribute', () => {
+    const out = htmlWithBase('<p/>', 'https://x/a"onload="alert(1)')
+    expect(out).toContain('href="https://x/a&quot;onload=&quot;alert(1)"')
+  })
+})
+
+describe('htmlDataUri', () => {
+  it('base64-encodes UTF-8 the way the platform decoders expect', () => {
+    // atob sees the raw bytes; TextDecoder turns them back into the string.
+    const roundtrip = (s: string) => {
+      const uri = htmlDataUri(s)
+      const b64 = uri.slice(uri.indexOf(',') + 1)
+      return new TextDecoder().decode(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)))
+    }
+    expect(htmlDataUri('').startsWith('data:text/html;charset=utf-8;base64,')).toBe(true)
+    for (const doc of ['<p>a</p>', '<p>ab</p>', '<p>abc</p>', '<h1>héllo ⣿ 日本語</h1>']) {
+      expect(roundtrip(doc)).toBe(doc)
+    }
+  })
+
+  it('pads to a length divisible by four', () => {
+    for (const doc of ['a', 'ab', 'abc', 'abcd']) {
+      const b64 = htmlDataUri(doc).split(',')[1] ?? ''
+      expect(b64.length % 4).toBe(0)
+    }
   })
 })
