@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/drive-env.sh"
 
 LOGS="$PODIUM_DRIVE_BASE/logs"
-PIN_SHA="${P3047_PIN_SHA:-593e40ef55a2e0c68f68f7f9028def95dc18d507}"
+PIN_SHA="${P3047_PIN_SHA:-90ebca7d94d0e68f4744c6a8425eed30cf5b0b10}"
 if ! git -C "$PODIUM_DRIVE_REPO" merge-base --is-ancestor "$PIN_SHA" HEAD; then
   echo "refusing: pin $PIN_SHA is not an ancestor of HEAD" >&2
   exit 2

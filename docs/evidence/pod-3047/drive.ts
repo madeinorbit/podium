@@ -164,7 +164,7 @@ function daemonTos(): boolean {
 
 async function pinFor(label: string): Promise<Pin> {
   const checkoutSha = outputOf('git', ['-C', ROOT, 'rev-parse', 'HEAD'])
-  const pinSha = process.env.P3047_PIN_SHA ?? '593e40ef55a2e0c68f68f7f9028def95dc18d507'
+  const pinSha = process.env.P3047_PIN_SHA ?? '90ebca7d94d0e68f4744c6a8425eed30cf5b0b10'
   const server = pidInfo(join(BASE, 'server.pid'))
   const daemon = pidInfo(join(BASE, 'daemon.pid'))
   const serverSha = existsSync(join(BASE, 'server.sha')) ? readFileSync(join(BASE, 'server.sha'), 'utf8').trim() : ''

@@ -1,6 +1,6 @@
 # POD-3047 — Claude SDK acceptance at the current epic tip
 
-Written 2026-08-28 16:52 CEST. **Pin `593e40ef55a2e0c68f68f7f9028def95dc18d507`** — every
+Written 2026-08-28 17:38 CEST. **Pin `90ebca7d94d0e68f4744c6a8425eed30cf5b0b10`** — every
 row below was driven at that exact tip, both arms, one named rig, no credential
 copied.
 
@@ -12,10 +12,14 @@ between the two and this is its live confirmation. Nothing in the SDK column is
 red. Six cells are BLOCKED, each with the product's own readout as the reason,
 and none of them is counted as a pass.
 
+**One negative finding about landed work, and it gates somebody else:**
+**POD-3059 does not reach the claude-sdk path.** `sessions.read` is still empty
+here, measured three ways at this pin. See *What POD-3059 did and did not fix*.
+
 ## Results
 
 `rows.tsv` carries the same 24 rows tab-separated, validated at eight fields
-each, all citing pin `593e40ef5`. `docs/plans/pod-1761-results.tsv` and the
+each, all citing pin `90ebca7d9`. `docs/plans/pod-1761-results.tsv` and the
 release ledger are deliberately untouched — the coordinator transcribes.
 
 | cell | claude-sdk | claude-pty |
@@ -25,7 +29,7 @@ release ledger are deliberately untouched — the coordinator transcribes.
 | A1c | BLOCKED (no per-session host to kill) | not driven |
 | A2a | **PASS** (working <2s, no flicker) | not driven |
 | A2b | **PASS** | **PASS** |
-| A3 | **PASS** (one confirmed record, 572ms) | not driven |
+| A3 | **PASS** (one confirmed record, 538ms) | not driven |
 | A3NEG | **PASS** (negative control fired) | not driven |
 | A4a | BLOCKED (no ask; guarded write happened anyway) | not driven |
 | A4b | BLOCKED (same) | not driven |
@@ -54,7 +58,7 @@ clause, on the current tip:
 
 | clause | reading |
 |---|---|
-| turn stops | YES, 572ms after `sessions.interrupt`, from an observed in-flight `working` phase |
+| turn stops | YES, 538ms after `sessions.interrupt`, from an observed in-flight `working` phase |
 | exactly one durable record | YES, one item, id `claude-sdk-interrupt-<sid>-1`, role `system` |
 | what it says | `Turn interrupted by the operator.` — the wording used **only** when the provider confirmed |
 | **survives** | **YES** — still present in a viewer opened after the first was dropped. This is the clause POD-3043 could not close |
@@ -77,7 +81,7 @@ through the **5-second deadline** rather than through the close handler — the
 path `14de478a8` was written to pin. Same code, opposite sentence:
 
 ```
-A3      live host      stopped in  572ms   "Turn interrupted by the operator."
+A3      live host      stopped in  538ms   "Turn interrupted by the operator."
 A3NEG   frozen host    stopped in >10s     "…the model host did not confirm the
                                             interrupt before the turn ended."
 ```
@@ -106,25 +110,77 @@ reply — so a tool had read the file — while the session stream held exactly 
 items, the user turn and that reply, with no tool call and no tool result of any
 kind. Filed as POD-3056.
 
-At `593e40ef5` the same probe **passes**. The Bash call now appears as a tool
+At `90ebca7d9` the same probe **passes**. The Bash call now appears as a tool
 item carrying `toolName`, `toolInput` and `toolUseId`, paired to a
 `…-result` item carrying the file's contents, and the reload history matches.
 The pre-fix arm is preserved under `superseded-86d707d89/`.
 
+## What POD-3059 did and did not fix
+
+POD-3059 (`1b5ebc9c1`, `ccdea1f93`) landed to stop a headless child writing its
+JSONL under the operator account home while the transcript reader resolved it
+under the instance agent home — the bug that makes `sessions.read` answer with an
+empty page. It is the fix for POD-3057, which this drive filed. Decision 32 then
+reasons from it that a set of *"turn stopped, no transcript marker"* reds across
+three drivers may have been manufactured by that empty reader.
+
+**On the claude-sdk path, at this pin, it has not taken effect.** Measured three
+ways rather than argued:
+
+1. **The child's `HOME`, read from `/proc`.** A `claude-sdk-host` child (pid
+   1660624) spawned by the `p3047n` daemon at `90ebca7d9`, on a **named**
+   instance, runs with `HOME=/home/mgw` — the operator account home. The instance
+   agent home is `~/.local/state/podium/p3047n/agent-home`.
+2. **Where the JSONL lands.**
+   `/home/mgw/.claude/projects/-tmp-pod-3047n-probes-rawread/<uuid>.jsonl` exists.
+   The instance agent home has **no `projects` directory at all** — nothing was
+   ever written there.
+3. **`sessions.read`, raw response**, not through this rig's helper:
+   `{"sessionId":"2ad58d0d-…","items":[],"cursor":null,"hasMore":false,"truncated":false}`
+   on a session whose reply had just arrived on the stream (stream items: 2).
+
+**A pointer, labelled as a pointer rather than as the diagnosis.** POD-3059 fixed
+the *overlay* a headless turn hands to `headlessChildEnv`. But
+`apps/daemon/src/claude-sdk-client.ts:322` calls
+`headlessChildEnv(spec.agent, spec.env)` directly, and that function's own
+signature is unchanged — its `HOME` comes from `explicit?.HOME` with
+`process.env` spread underneath. So the claude-sdk child gets the instance home
+only if `spec.env` already carries it, and this reading says it does not. The
+other candidate is ruled out: `claudeSdkHostLaunch()` contributes only
+`{ CLAUDE_SDK_HOST_ENV: '1' }` and injects no `HOME`, so the trailing
+`...launch.env` spread is not overriding it. Where `spec.env` is built was not
+traced.
+
+**What this does to Decision 32.** Its one-way-direction argument is untouched
+and still right — an empty read can only make a cell look worse, never
+manufacture a PASS. But its premise, that the shared headless path is fixed for
+`claude-sdk`, is false as measured. A re-read that expects a working reader will
+see the claude-sdk row come back red and may record a confirmed product gap where
+the reader is still the same empty one. `/proc` `HOME` on the child is a
+ten-second check and is the one that cannot be argued with; `codex-json` and
+`resume-exec` are worth the same check.
+
+**None of this reaches the cells in this report**, because every count here is
+taken from the session stream — a choice forced by hitting this exact bug on the
+first A3 reading of the drive.
+
 ## Provenance
 
-Three pins in one drive, because the epic tip moved three times underneath it.
+Four pins in one drive, because the epic tip kept moving underneath it. The rule
+applied at each move was the standing brief's: compute the non-docs delta, and
+re-drive when — and only when — it lands on these cells.
 
 | tip | non-docs delta from the previous | what was done |
 |---|---|---|
-| `86d707d89` | — | full both-arm drive, 15:15–15:54 CEST. A5 FAIL |
+| `86d707d89` | — | full both-arm drive, 15:15–15:54 CEST. **A5 FAIL** |
 | `77c7b1d60` | **0 files** | full both-arm re-drive, 16:03–16:26 CEST. Every verdict identical — a same-code reconciliation that agreed. Plus the five-run A3 repeat |
-| `593e40ef5` | **18 files** including `drivers/claude-sdk/runtime.ts`, the whole `apps/daemon/src/claude-sdk-*` stack, `packages/transcript/src/claude.ts`, and a new `tool-transcript.test.ts` | full both-arm re-drive, 16:27–16:48 CEST. **A5 FAIL → PASS.** These are the rows reported |
+| `593e40ef5` | **18 files** including `drivers/claude-sdk/runtime.ts`, the whole `apps/daemon/src/claude-sdk-*` stack, `packages/transcript/src/claude.ts` and a new `tool-transcript.test.ts` | full both-arm re-drive, 16:27–16:48 CEST. **A5 FAIL → PASS** (POD-3050) |
+| `90ebca7d9` | **4 files**: `durable-headless.ts`, `headless-drivers.ts` and their tests — POD-3059, the headless spawn seam A8's verdict rests on | full both-arm re-drive, 17:10–17:34 CEST. Every verdict held. **These are the rows reported**, and this pass is what established the POD-3059 finding below |
 
-The first two sets are quarantined in place with a `QUARANTINE.md` each saying
-what they are and why they were kept. Only `593e40ef5` readings are current, and
+The first three sets are quarantined in place with a `QUARANTINE.md` each saying
+what they are and why they were kept. Only `90ebca7d9` readings are current, and
 a script check confirms **25 of 25 readings carry `serverSha = daemonSha =
-pinSha = 593e40ef5`, zero mismatches.**
+pinSha = 90ebca7d9`, zero mismatches.**
 
 **The middle re-drive was not waste and it was not evidence either.** Its value
 was the zero-delta reconciliation: identical code, independently re-driven,
@@ -162,6 +218,9 @@ reported rather than asserted away:**
 78 readings' pin files record it. Two distinct values, size 962 throughout:
   08:20:34 +0200  size 962   — 46 readings, up to and including A9 at 16:11:17
   16:15:35 +0200  size 962   — 32 readings, from PTY A10 at 16:16:43 onward
+
+At the CURRENT pin (90ebca7d9, 17:10–17:34) it did not move at all:
+  16:15:35 +0200  size 962   — all 26 current-pin readings, one distinct value
 ```
 
 The change falls in the window `16:11:17 – 16:16:43 CEST`. Size is identical, so
@@ -201,7 +260,7 @@ here.
 - **`sessions.read` is empty for SDK sessions (POD-3057)** and bounds what any
   transcript-shaped cell can be scored on. Reported as its own finding, not as
   the transcript verdict.
-- **PTY rows are at the same `593e40ef5` pin** as the SDK rows, but the PTY arm's
+- **PTY rows are at the same `90ebca7d9` pin** as the SDK rows, but the PTY arm's
   isolated home is logged out by design, so every PTY cell needing a model reply
   is unobtainable and recorded BLOCKED with the product's own readout.
 - **Every row is `[single]`** — one arm, one pin, no A/B against main.

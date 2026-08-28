@@ -2,15 +2,15 @@
   "cell": "BQUOTA",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-bquota",
-  "at": "2026-08-28T14:32:23.246Z",
+  "at": "2026-08-28T15:18:05.828Z",
   "pin": {
     "cell": "BQUOTA",
-    "at": "2026-08-28T14:32:23.272Z",
+    "at": "2026-08-28T15:18:05.858Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
-    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
-    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
-    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "pinSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "b7da1db",
+      "headShort": "90ebca7",
       "appsWebIdentical": true
     },
-    "serverPid": "1434135",
-    "daemonPid": "1453628",
+    "serverPid": "1644155",
+    "daemonPid": "1684304",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "18429292 kB",
-      "SwapFree": "41118756 kB"
+      "MemAvailable": "18828252 kB",
+      "SwapFree": "41204284 kB"
     },
-    "rootFreeKiB": 83262916,
-    "load1m": 8.95,
+    "rootFreeKiB": 82640832,
+    "load1m": 6,
     "credential": {
       "live": {
         "present": true,
@@ -72,8 +72,8 @@
     "SCREEN            \"\""
   ],
   "data": {
-    "sid": "08fdaed1-f18a-4472-b5b6-1b2771155c4e",
-    "needle": "P3047-BQUOTA-MTD1WBDW",
+    "sid": "0c87ebad-a126-40c1-9431-31bb2cf06999",
+    "needle": "P3047-BQUOTA-MTD3J3J7",
     "class": {
       "errorClass": "none",
       "retryable": null
@@ -81,7 +81,7 @@
     "user": true,
     "assistant": true,
     "row": {
-      "sessionId": "08fdaed1-f18a-4472-b5b6-1b2771155c4e",
+      "sessionId": "0c87ebad-a126-40c1-9431-31bb2cf06999",
       "agentKind": "claude-code",
       "harness": "claude-code",
       "driverId": "claude-sdk",
@@ -100,7 +100,7 @@
       "subagents": [],
       "issue": null,
       "commits": [
-        "88b94e3 probe seed"
+        "7796de4 probe seed"
       ],
       "files": [
         "## main"

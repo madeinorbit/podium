@@ -2,15 +2,15 @@
   "cell": "A9",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
-  "at": "2026-08-28T14:33:22.070Z",
+  "at": "2026-08-28T15:18:57.803Z",
   "pin": {
     "cell": "A9",
-    "at": "2026-08-28T14:33:22.111Z",
+    "at": "2026-08-28T15:18:57.831Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
-    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
-    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
-    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "pinSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "b7da1db",
+      "headShort": "90ebca7",
       "appsWebIdentical": true
     },
-    "serverPid": "1434135",
-    "daemonPid": "1453628",
+    "serverPid": "1644155",
+    "daemonPid": "1684304",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "18878712 kB",
-      "SwapFree": "41118756 kB"
+      "MemAvailable": "18569212 kB",
+      "SwapFree": "41204284 kB"
     },
-    "rootFreeKiB": 83265144,
-    "load1m": 13.59,
+    "rootFreeKiB": 82573644,
+    "load1m": 8.84,
     "credential": {
       "live": {
         "present": true,
@@ -62,24 +62,24 @@
   "control": {
     "fired": true,
     "what": "a claude-sdk-host child alive in the session before the kill — without one there is nothing that could be orphaned",
-    "detail": "hostChildren=2 pids=[1459116,1459116]; screenBytes=0"
+    "detail": "hostChildren=2 pids=[1692890,1692890]; screenBytes=0"
   },
   "evidence": [
     "KILL              {\"result\":{}}",
-    "BEFORE            [{\"pid\":1459116,\"ppid\":1453628,\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a9\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"},{\"pid\":1459116,\"ppid\":0,\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a9\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"}]",
+    "BEFORE            [{\"pid\":1692890,\"ppid\":1684304,\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a9\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"},{\"pid\":1692890,\"ppid\":0,\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a9\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"}]",
     "AFTER 5 MIN       []"
   ],
   "data": {
-    "sid": "0dad0a2d-093c-41d7-ae1e-52eaa9cb86fe",
+    "sid": "0f99093d-1208-4268-ad5c-cf6331abd89b",
     "before": [
       {
-        "pid": 1459116,
-        "ppid": 1453628,
+        "pid": 1692890,
+        "ppid": 1684304,
         "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
         "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
       },
       {
-        "pid": 1459116,
+        "pid": 1692890,
         "ppid": 0,
         "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
         "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"

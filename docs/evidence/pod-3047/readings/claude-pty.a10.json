@@ -2,15 +2,15 @@
   "cell": "A10",
   "driver": "claude-pty",
   "cwd": "/tmp/pod-3047n/probes/claude-pty-a10",
-  "at": "2026-08-28T14:38:53.938Z",
+  "at": "2026-08-28T15:24:23.655Z",
   "pin": {
     "cell": "A10",
-    "at": "2026-08-28T14:38:53.967Z",
+    "at": "2026-08-28T15:24:23.675Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
-    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
-    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
-    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "pinSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "b7da1db",
+      "headShort": "90ebca7",
       "appsWebIdentical": true
     },
-    "serverPid": "1434135",
-    "daemonPid": "1453628",
+    "serverPid": "1644155",
+    "daemonPid": "1684304",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "18845404 kB",
-      "SwapFree": "41118808 kB"
+      "MemAvailable": "18750964 kB",
+      "SwapFree": "41204488 kB"
     },
-    "rootFreeKiB": 83254728,
-    "load1m": 6.28,
+    "rootFreeKiB": 82299504,
+    "load1m": 5.79,
     "credential": {
       "live": {
         "present": true,
@@ -65,14 +65,14 @@
     "detail": "driverId=claude-pty; family=(none)"
   },
   "evidence": [
-    "STATUS            {\"sessionId\":\"bbe1e4fa-ee23-4468-a8d2-b57ec3f5907e\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
-    "SESSION ROW       {\"sessionId\":\"bbe1e4fa-ee23-4468-a8d2-b57ec3f5907e\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"✳ Claude Code\",\"cwd\":\"/tmp/pod-3047n/probes/claude-pty-a10\",\"status\":\"live\",\"controllerId\":\"c25\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,",
-    "FRAME TYPES       outputFrame=12 hostMetricsChanged=6 machinesChanged=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 sessionTitleChanged=1"
+    "STATUS            {\"sessionId\":\"7119ed86-cd43-4ee7-84b3-1234d45de6fe\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
+    "SESSION ROW       {\"sessionId\":\"7119ed86-cd43-4ee7-84b3-1234d45de6fe\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"✳ Claude Code\",\"cwd\":\"/tmp/pod-3047n/probes/claude-pty-a10\",\"status\":\"live\",\"controllerId\":\"c27\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,",
+    "FRAME TYPES       outputFrame=13 hostMetricsChanged=6 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 sessionTitleChanged=1"
   ],
   "data": {
-    "sid": "bbe1e4fa-ee23-4468-a8d2-b57ec3f5907e",
+    "sid": "7119ed86-cd43-4ee7-84b3-1234d45de6fe",
     "row": {
-      "sessionId": "bbe1e4fa-ee23-4468-a8d2-b57ec3f5907e",
+      "sessionId": "7119ed86-cd43-4ee7-84b3-1234d45de6fe",
       "agentKind": "claude-code",
       "harness": "claude-code",
       "driverId": "claude-pty",
@@ -91,7 +91,7 @@
       "subagents": [],
       "issue": null,
       "commits": [
-        "7cd2966 probe seed"
+        "602ca16 probe seed"
       ],
       "files": [
         "## main"
