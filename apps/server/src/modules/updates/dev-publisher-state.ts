@@ -16,9 +16,14 @@ const FILE_NAME = 'dev-publisher-version.json'
 
 export interface PersistedDevPublisherState extends DevPublisherVersionState {
   /**
-   * Artifact basenames still referenced by retained manifests / recent publishes.
-   * Newest first. The on-disk sweep keeps exactly this set (plus an explicit
-   * protect list), never a stamp-ordered guess.
+   * LEGACY: artifact basenames in the checkout's `dist-bun/`, from before the build
+   * ledger moved the published files into the state directory (POD-3055).
+   *
+   * Retained here, and still read back, so a state file written by an older server is
+   * not silently truncated by a newer one. Nothing adds to it any more: what a publish
+   * retains is now the build records under `<stateDir>/builds/`, and the `dist-bun/`
+   * files an older server left behind are cleaned up by hand once
+   * (docs/updating-a-dev-instance.md).
    */
   retainedArtifacts: string[]
   /**
@@ -29,6 +34,18 @@ export interface PersistedDevPublisherState extends DevPublisherVersionState {
   lastVersion?: string
   /** Commit whose manifest was last written into the served feed. */
   lastPublishedSha?: string
+  /**
+   * The last build the ledger recorded, and the last one whose manifest went into the
+   * served feed (POD-3055).
+   *
+   * `lastPublishedBuildId` is what the retention sweep protects. The record list is the
+   * durable retained set now — there is deliberately no second copy of it here, because
+   * two lists of what is retained can disagree and only one of them owns the bytes. What
+   * the state file adds is the pointer the record list cannot hold: which of those
+   * records the fleet is currently being served.
+   */
+  lastBuildId?: string
+  lastPublishedBuildId?: string
 }
 
 function invalidState(path: string): Error {
@@ -46,6 +63,8 @@ function parsePersistedState(path: string, raw: string): PersistedDevPublisherSt
       lastSha?: unknown
       lastVersion?: unknown
       lastPublishedSha?: unknown
+      lastBuildId?: unknown
+      lastPublishedBuildId?: unknown
     }
     if (typeof candidate.base !== 'string' || candidate.base.trim().length === 0) {
       throw invalidState(path)
@@ -86,6 +105,10 @@ function parsePersistedState(path: string, raw: string): PersistedDevPublisherSt
       typeof candidate.lastPublishedSha === 'string' && candidate.lastPublishedSha.length > 0
         ? candidate.lastPublishedSha
         : undefined
+    const text = (value: unknown): string | undefined =>
+      typeof value === 'string' && value.length > 0 ? value : undefined
+    const lastBuildId = text(candidate.lastBuildId)
+    const lastPublishedBuildId = text(candidate.lastPublishedBuildId)
     return {
       base: candidate.base.trim(),
       counter: candidate.counter,
@@ -93,6 +116,8 @@ function parsePersistedState(path: string, raw: string): PersistedDevPublisherSt
       ...(lastSha ? { lastSha } : {}),
       ...(lastVersion ? { lastVersion } : {}),
       ...(lastPublishedSha ? { lastPublishedSha } : {}),
+      ...(lastBuildId ? { lastBuildId } : {}),
+      ...(lastPublishedBuildId ? { lastPublishedBuildId } : {}),
     }
   } catch (error) {
     if (
@@ -142,6 +167,8 @@ export function writeDevPublisherState(
       ...(state.lastSha ? { lastSha: state.lastSha } : {}),
       ...(state.lastVersion ? { lastVersion: state.lastVersion } : {}),
       ...(state.lastPublishedSha ? { lastPublishedSha: state.lastPublishedSha } : {}),
+      ...(state.lastBuildId ? { lastBuildId: state.lastBuildId } : {}),
+      ...(state.lastPublishedBuildId ? { lastPublishedBuildId: state.lastPublishedBuildId } : {}),
     },
     null,
     2,

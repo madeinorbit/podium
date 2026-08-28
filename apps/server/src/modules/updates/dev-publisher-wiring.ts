@@ -22,12 +22,14 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
+import { stateDir } from '@podium/runtime/config'
 import {
-  timeReleaseBuildTask,
   type ReleaseBuildTimingDeps,
+  timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
 import type { Hono } from 'hono'
 import { registerDevFeedRoutes } from './artifact-route'
+import { releaseTimingStagingDir } from './build-record'
 import {
   type BuiltDevBundle,
   createDevBundlePublisher,
@@ -235,7 +237,11 @@ export function wireDevBundlePublisher(deps: {
     sourceRoot && deps.releaseTiming !== false
       ? (deps.releaseTiming ?? {
           enabled: true,
-          outputDirectory: join(sourceRoot, 'dist-bun', 'release-timing'),
+          // Beside the ledger, not in the checkout. Each release's lines land in a
+          // `<version>.jsonl` here and are moved into `builds/<buildId>/timing.jsonl`
+          // when that attempt's record is written, so how long a release took ends up
+          // next to what it produced instead of in a directory a clean wipes.
+          outputDirectory: releaseTimingStagingDir(stateDir()),
         })
       : undefined
   /**

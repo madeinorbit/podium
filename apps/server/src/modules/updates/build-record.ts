@@ -119,6 +119,18 @@ export function buildTimingPath(stateDir: string, buildId: string): string {
   return join(buildRecordDir(stateDir, buildId), 'timing.jsonl')
 }
 
+/**
+ * Where a release's timing lines land WHILE it is building.
+ *
+ * The sink is opened before the attempt has a record to write into — it times the very
+ * steps that produce one — so it stages here, keyed by version, and the file is moved
+ * into `builds/<buildId>/timing.jsonl` when the record is written. The leading dot
+ * keeps it out of the record listing.
+ */
+export function releaseTimingStagingDir(stateDir: string): string {
+  return join(buildRecordsRoot(stateDir), '.timing')
+}
+
 export function buildClientEvidencePath(stateDir: string, buildId: string): string {
   return join(buildRecordDir(stateDir, buildId), 'client.json')
 }
@@ -268,12 +280,15 @@ export function selectBuildRecordSweep(
   // class keeps its own newest `retain`.
   const kept = { release: 0, failed: 0 }
   for (const record of records) {
-    if (referenced.has(record.buildId)) continue
     const bucket = record.outcome.startsWith('failed:') ? 'failed' : 'release'
+    // A referenced record inside the window still FILLS its slot: protecting it is
+    // about not deleting it, not about widening the window by one every time the
+    // release being served is also the newest one.
     if (kept[bucket] < options.retain) {
       kept[bucket] += 1
       continue
     }
+    if (referenced.has(record.buildId)) continue
     doomed.push(record.buildId)
   }
   return doomed

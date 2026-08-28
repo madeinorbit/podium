@@ -1,20 +1,31 @@
 import { execFileSync } from 'node:child_process'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { matchUpdateFailureToken, UpdateTarget } from '@podium/protocol'
-import { fetchArtifact } from '@podium/runtime/update-delivery'
 import type {
   ReleaseBuildTimingDeps,
   ReleaseBuildTimingRecord,
 } from '@podium/runtime/release-build-timing'
+import { fetchArtifact } from '@podium/runtime/update-delivery'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
 import { registerDevFeedRoutes } from './artifact-route'
+import {
+  type BuildRecord,
+  buildBundlesDir,
+  buildRecordDir,
+  listBuildRecords,
+  mintBuildId,
+  prepareBuildRecordDir,
+  readBuildRecord,
+  writeBuildRecord,
+} from './build-record'
 import { withDevBuildSnapshot } from './dev-build-snapshot'
 import {
   assertSourceMatchesHead,
+  type BuiltDevBundle,
   buildDevBundle,
   classifyIgnoredSourceInputs,
   classifySourceIdentity,
@@ -24,21 +35,20 @@ import {
   type DevBundleLock,
   decideDevBuild,
   devBuildPlatforms,
-  devReleaseBuildArgs,
   devBundleFileName,
   devBundleKeyFingerprint,
   devBundleStamp,
   developmentPlatformTarget,
   devIdentityTarget,
+  devReleaseBuildArgs,
   devTarget,
   fleetHeadlessPlatforms,
   listDevBundles,
   parseDevBundleName,
   requireDefinedMigrations,
-  selectDevBundleSweep,
-  sweepDevBundles,
 } from './dev-bundle'
 import { createServerDevBundleLock } from './dev-bundle-lock'
+import { readDevPublisherState, writeDevPublisherState } from './dev-publisher-state'
 import { classifyMachineFailure, describeUpdateOperationFailure } from './operation'
 import { type DesktopFeedChannel, desktopManifestFeedChannel } from './release-target'
 
@@ -359,27 +369,35 @@ function memoryFs(
   }
 }
 
-/** A dist-bun holding one bundle published exactly the way the server does it. */
-function published(input: {
+/**
+ * A LEDGER holding one release published exactly the way the server does it: a build
+ * record under the state directory and its signed tarball in that record's `bundles/`.
+ *
+ * The bytes live in the in-memory `DevBundleFs` the publisher is given; the record is a
+ * real file in a real temporary state directory, which is where the publisher reads it
+ * from. That split is the production one — the record is small metadata the module owns
+ * outright, the tarball is a quarter-gigabyte stream behind a seam.
+ */
+function publishedRecord(input: {
   sha: string
   stamp: string
   bytes: Uint8Array
   signature: string
   signingKey?: string
-  root?: string
   /** Override the minted version; defaults to a publisher mint on CHECKOUT_BASE. */
   version?: string
   counter?: number
   /** Defaults to this host's own — the platform a restore requires to be present. */
   platform?: string
+  outcome?: BuildRecord['outcome']
 }) {
+  const stateDirectory = publisherDir()
   const version = input.version ?? `0.1.0-dev.${input.counter ?? 1}+${input.sha}`
   const platform = input.platform ?? developmentPlatformTarget()
-  const path =
-    (input.root ?? '/repo/podium') +
-    '/dist-bun/' +
-    devBundleFileName(version, input.stamp, platform)
-  return memoryFs({
+  const buildId = mintBuildId(input.stamp, input.sha)
+  const file = devBundleFileName(version, input.stamp, platform)
+  const path = join(buildBundlesDir(stateDirectory, buildId), file)
+  const store = memoryFs({
     blobs: { [path]: input.bytes },
     text: {
       [path + '.sig']: input.signature + '\n',
@@ -392,6 +410,29 @@ function published(input: {
       }),
     },
   })
+  prepareBuildRecordDir(stateDirectory, buildId)
+  writeBuildRecord(stateDirectory, {
+    recordVersion: 1,
+    buildId,
+    approvedSha: input.sha,
+    version,
+    platforms: [platform],
+    client: null,
+    artifacts: [
+      {
+        platform,
+        file,
+        size: input.bytes.length,
+        digest: digestOf(input.bytes),
+        signature: input.signature,
+      },
+    ],
+    signingKeyFingerprint: devBundleKeyFingerprint(input.signingKey),
+    startedAt: '2026-08-12T18:20:15.000Z',
+    outcome: input.outcome ?? 'signed',
+    outcomeAt: '2026-08-12T18:20:15.000Z',
+  })
+  return { store, stateDir: stateDirectory, buildId, version, path, file }
 }
 
 /** For publisher tests that care about lifecycle, not about what is on disk. */
@@ -606,165 +647,6 @@ describe('development bundle names', () => {
   })
 })
 
-describe('selectDevBundleSweep', () => {
-  const stamped = (sha: string, stamp: string) => `podium-headless-dev+${sha}-${stamp}.tar.gz`
-  const newest = stamped('ddddddd', '20260812T190000Z')
-  const previous = stamped('ccccccc', '20260812T180000Z')
-  const older = stamped('bbbbbbb', '20260812T170000Z')
-  const oldest = stamped('aaaaaaa', '20260812T160000Z')
-
-  it('keeps the new bundle and the one before it, and takes the rest with their sidecars', () => {
-    const listing = [
-      oldest,
-      oldest + '.sig',
-      oldest + '.meta.json',
-      older,
-      older + '.sig',
-      previous,
-      newest,
-    ]
-    expect(selectDevBundleSweep(listing).sort()).toEqual(
-      [oldest, oldest + '.sig', oldest + '.meta.json', older, older + '.sig'].sort(),
-    )
-    expect(DEV_BUNDLE_RETAINED).toBe(2)
-  })
-
-  it('sweeps nothing when the directory is already within the window', () => {
-    expect(selectDevBundleSweep([newest, previous, newest + '.sig'])).toEqual([])
-  })
-
-  it('never names a file the listing does not have', () => {
-    // Only sidecars that actually exist — the result is files, not guesses.
-    expect(selectDevBundleSweep([newest, previous, older])).toEqual([older])
-  })
-
-  it('leaves release artifacts and everything else alone', () => {
-    const listing = [
-      'podium-headless-0.2.0.tar.gz',
-      'podium-headless-0.2.0.tar.gz.sig',
-      'podium',
-      'abduco.bin',
-      'headless',
-      oldest,
-    ]
-    expect(selectDevBundleSweep(listing, { keep: 0 })).toEqual([oldest])
-  })
-
-  it('reclaims the unstamped bundles that accumulated before this existed', () => {
-    const legacy = ['podium-headless-dev+1111111.tar.gz', 'podium-headless-dev+2222222.tar.gz']
-    expect(selectDevBundleSweep([newest, previous, ...legacy]).sort()).toEqual([...legacy].sort())
-  })
-
-  it('will not delete the artifact being served, whatever the ordering says', () => {
-    expect(
-      selectDevBundleSweep([newest, previous, older], {
-        keep: 1,
-        protect: [older],
-      }),
-    ).toEqual([previous])
-  })
-
-  it('counts BUILDS per platform, not files, when it has no allowlist to go on', () => {
-    // `keep` means "the last N builds", and a build is now up to four files. Counting
-    // them in one list keeps two and deletes the rest of the build just published — a
-    // Mac in the fleet would be offered a target whose tarball the sweep had removed.
-    //
-    // Production reaches this through the allowlist (`referenced`) instead, which
-    // POD-2502 added; this counting fallback is what an `selectDevBundleSweep(names)`
-    // with no options still does, so it has to be right on its own terms.
-    const build = (counter: number, sha: string, stamp: string, platform: string) =>
-      `podium-headless-0.1.0-dev.${counter}+${sha}-${platform}-${stamp}.tar.gz`
-    const newestBuild = ['linux-x86_64', 'darwin-aarch64', 'linux-aarch64', 'darwin-x86_64'].map(
-      (platform) => build(3, '3333333', '20260812T190000Z', platform),
-    )
-    const previousBuild = ['linux-x86_64', 'darwin-aarch64'].map((platform) =>
-      build(2, '2222222', '20260812T180000Z', platform),
-    )
-    const oldestBuild = ['linux-x86_64', 'darwin-aarch64'].map((platform) =>
-      build(1, '1111111', '20260812T170000Z', platform),
-    )
-
-    const doomed = selectDevBundleSweep([...newestBuild, ...previousBuild, ...oldestBuild], {
-      hostPlatform: 'linux-x86_64',
-    })
-
-    // Every file of the two newest builds survives; only the third build goes.
-    expect(doomed.sort()).toEqual([...oldestBuild].sort())
-    for (const name of [...newestBuild, ...previousBuild]) expect(doomed).not.toContain(name)
-  })
-
-  it('drains legacy platform-less names through the host group rather than hoarding them', () => {
-    // A name with no platform predates multi-platform builds, and the only bundle such
-    // a build produced was this host's. Give it a group of its own and its survivors are
-    // retained forever, because nothing new is ever added to push them out.
-    const legacy = [
-      'podium-headless-dev+1111111-20260812T170000Z.tar.gz',
-      'podium-headless-dev+2222222-20260812T180000Z.tar.gz',
-    ]
-    const fresh = ['linux-x86_64', 'darwin-aarch64'].map(
-      (platform) => `podium-headless-0.1.0-dev.9+9999999-${platform}-20260812T190000Z.tar.gz`,
-    )
-    const doomed = selectDevBundleSweep([...fresh, ...legacy], {
-      keep: 1,
-      hostPlatform: 'linux-x86_64',
-    })
-    // keep:1 — the host group holds the fresh linux bundle, so BOTH legacy names go.
-    expect(doomed.sort()).toEqual([...legacy].sort())
-  })
-
-  it('never deletes an artifact referenced by current manifests, even if stamp-newest', () => {
-    const current = `podium-headless-0.1.0-dev.2+ddddddd-20260812T190000Z.tar.gz`
-    const retained = `podium-headless-0.1.0-dev.1+ccccccc-20260812T180000Z.tar.gz`
-    const orphan = `podium-headless-0.1.0-dev.3+bbbbbbb-20260812T200000Z.tar.gz`
-    const listing = [current, retained, orphan, orphan + '.sig', 'podium-headless-0.2.0.tar.gz']
-    expect(
-      selectDevBundleSweep(listing, {
-        referenced: [current, retained],
-        protect: [current],
-      }).sort(),
-    ).toEqual([orphan, orphan + '.sig'].sort())
-  })
-})
-
-describe('sweepDevBundles', () => {
-  it('removes what it can and survives what it cannot', async () => {
-    const store = memoryFs({
-      blobs: {
-        '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T160000Z.tar.gz': new Uint8Array(
-          [1],
-        ),
-        '/repo/podium/dist-bun/podium-headless-dev+bbbbbbb-20260812T170000Z.tar.gz': new Uint8Array(
-          [2],
-        ),
-        '/repo/podium/dist-bun/podium-headless-dev+ccccccc-20260812T180000Z.tar.gz': new Uint8Array(
-          [3],
-        ),
-        '/repo/podium/dist-bun/podium-headless-0.2.0.tar.gz': new Uint8Array([4]),
-      },
-      text: {
-        '/repo/podium/dist-bun/podium-headless-dev+aaaaaaa-20260812T160000Z.tar.gz.sig': 'x',
-      },
-    })
-    const failing: DevBundleFs = {
-      ...store.fs,
-      remove: async (path) => {
-        if (path.endsWith('.sig')) throw new Error('permission denied')
-        await store.fs.remove(path)
-      },
-    }
-
-    // A sidecar that refuses to go is disk to reclaim next time, not a failure.
-    await sweepDevBundles(failing, '/repo/podium/dist-bun')
-
-    expect(store.names()).toEqual([
-      'podium-headless-0.2.0.tar.gz',
-      'podium-headless-dev+aaaaaaa-20260812T160000Z.tar.gz.sig',
-      'podium-headless-dev+bbbbbbb-20260812T170000Z.tar.gz',
-      'podium-headless-dev+ccccccc-20260812T180000Z.tar.gz',
-    ])
-  })
-})
-
 describe('fleetHeadlessPlatforms', () => {
   const host = 'linux-x86_64'
 
@@ -887,8 +769,9 @@ describe('buildDevBundle', () => {
     const { bytes, signature } = signedFixture()
     const store = memoryFs()
     const events: string[] = []
+    const seams = publisherSeams()
     const built = await buildDevBundle({
-      ...publisherSeams(),
+      ...seams,
       root: '/repo/podium',
       headSha: '123456789abcdef',
       fs: store.fs,
@@ -906,9 +789,25 @@ describe('buildDevBundle', () => {
 
     expect(built.version).toBe('0.1.0-dev.1+1234567')
     // The version a daemon sees is the publisher mint; the FILE also names the build.
+    // It lives in THIS ATTEMPT'S LEDGER RECORD, not in the checkout's `dist-bun/`:
+    // published bytes sit beside the evidence describing them, on the instance's own
+    // state volume, so cleaning or rebasing the checkout cannot take a release the
+    // fleet is still installing.
+    expect(built.buildId).toBe('20260812T182015Z-1234567')
     expect(built.path).toBe(
-      '/repo/podium/dist-bun/podium-headless-0.1.0-dev.1+1234567-linux-x86_64-20260812T182015Z.tar.gz',
+      join(
+        buildBundlesDir(seams.publisherStateDir, built.buildId),
+        'podium-headless-0.1.0-dev.1+1234567-linux-x86_64-20260812T182015Z.tar.gz',
+      ),
     )
+    // And the attempt said what it did: a record naming every artifact, signed.
+    const record = readBuildRecord(seams.publisherStateDir, built.buildId)
+    expect(record?.outcome).toBe('signed')
+    expect(record?.approvedSha).toBe('1234567')
+    expect(record?.artifacts.map((artifact) => artifact.file)).toEqual([
+      'podium-headless-0.1.0-dev.1+1234567-linux-x86_64-20260812T182015Z.tar.gz',
+    ])
+    expect(record?.artifacts[0]?.digest).toBe(digestOf(bytes))
     expect(built.size).toBe(bytes.length)
     expect(built.digest).toBe(digestOf(bytes))
     expect(events).toEqual(['acquire', 'build:0.1.0-dev.1+1234567', 'release'])
@@ -983,6 +882,7 @@ describe('buildDevBundle', () => {
     // The descriptor is metadata; there is nowhere for a payload to hide in it.
     expect(Object.keys(built).sort()).toEqual([
       'artifacts',
+      'buildId',
       'digest',
       'path',
       'signature',
@@ -1068,11 +968,12 @@ describe('buildDevBundle', () => {
     // disk — one ~264 MB artifact per commit, nothing ever removed.
     const { bytes, signature, signingKey } = signedFixture()
     const store = memoryFs()
+    const seams = publisherSeams()
     const shas = ['1111111', '2222222', '3333333', '4444444', '5555555', '6666666']
     let head = shas[0] as string
     let minute = 0
     const publisher = createDevBundlePublisher({
-      ...publisherSeams(),
+      ...seams,
       sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -1096,10 +997,21 @@ describe('buildDevBundle', () => {
       await publisher.requestBuild(true)
     }
 
-    const tarNames = store.names().filter((n) => n.endsWith('.tar.gz'))
-    expect(tarNames).toHaveLength(2)
-    expect(tarNames.some((n) => n.includes('dev.5+5555555-linux-x86_64'))).toBe(true)
-    expect(tarNames.some((n) => n.includes('dev.6+6666666-linux-x86_64'))).toBe(true)
+    // Six releases, two records left. The bytes go with the record: reclaiming by
+    // record is what makes "nothing ever removed" impossible to fall back into.
+    const kept = listBuildRecords(seams.publisherStateDir)
+    expect(kept.map((record) => record.version)).toEqual([
+      '0.1.0-dev.6+6666666',
+      '0.1.0-dev.5+5555555',
+    ])
+    for (const record of kept) {
+      expect(record.artifacts.map((artifact) => artifact.platform)).toEqual(['linux-x86_64'])
+    }
+    expect(
+      existsSync(
+        buildRecordDir(seams.publisherStateDir, mintBuildId('20260812T184000Z', '4444444')),
+      ),
+    ).toBe(false)
     expect((await publisher.target())?.version).toBe('0.1.0-dev.6+6666666')
   })
 
@@ -1165,45 +1077,83 @@ describe('buildDevBundle', () => {
     expect(new Set(Object.values(platforms).map((artifact) => artifact.url)).size).toBe(2)
   })
 
-  it('keeps the whole of the last two builds, not the last two files', async () => {
-    // The failure this prevents: a four-platform build publishes, the sweep counts the
-    // newest two files across every platform, and three quarters of the build it just
-    // published are deleted — so a Mac is offered a target whose tarball is gone.
+  it('keeps the whole of the last two builds, and every byte a served release names', async () => {
+    // TWO failures this prevents. The old one: a four-platform build publishes, the
+    // sweep counts the newest two FILES across every platform, and three quarters of
+    // the build it just published are deleted — so a Mac is offered a target whose
+    // tarball is gone. And the one the ledger adds: the release the fleet is still
+    // being served falls out of the retention window and is reclaimed under the
+    // machines downloading it.
+    //
+    // The tarballs are written to real disk here, not only into the in-memory seam,
+    // because a sweep that removes record directories has to be watched removing them.
     const { bytes, signature, signingKey } = signedFixture()
     const store = memoryFs()
     const seams = publisherSeams()
+    const builds: BuiltDevBundle[] = []
     let minute = 0
-    for (const sha of ['1111111', '2222222', '3333333']) {
+    for (const sha of ['1111111', '2222222', '3333333', '4444444']) {
       minute += 10
-      await buildDevBundle({
-        ...seams,
-        root: '/repo/podium',
-        headSha: sha,
-        signingKey,
-        fs: store.fs,
-        lock: lockFixture([]),
-        now: () => Date.UTC(2026, 7, 12, 18, minute, 0),
-        platforms: ['linux-x86_64', 'darwin-aarch64'],
-        spawnBuild: async ({ artifacts }) => {
-          for (const { artifactPath } of artifacts) {
-            store.blobs.set(artifactPath, bytes)
-            store.text.set(artifactPath + '.sig', signature + '\n')
-          }
-        },
-      })
+      builds.push(
+        await buildDevBundle({
+          ...seams,
+          root: '/repo/podium',
+          headSha: sha,
+          signingKey,
+          fs: store.fs,
+          lock: lockFixture([]),
+          now: () => Date.UTC(2026, 7, 12, 18, minute, 0),
+          platforms: ['linux-x86_64', 'darwin-aarch64'],
+          spawnBuild: async ({ artifacts }) => {
+            for (const { artifactPath } of artifacts) {
+              store.blobs.set(artifactPath, bytes)
+              store.text.set(artifactPath + '.sig', signature + '\n')
+              writeFileSync(artifactPath, bytes)
+            }
+          },
+          // The OLDEST build is the one the served feed still names. Nothing about its
+          // age protects it; being referenced does.
+          ...(sha === '1111111'
+            ? {}
+            : {
+                publisherStateDir: seams.publisherStateDir,
+              }),
+        }),
+      )
+      if (sha === '1111111') {
+        const state = readDevPublisherState(seams.publisherStateDir)
+        writeDevPublisherState(
+          { ...(state as NonNullable<typeof state>), lastPublishedBuildId: builds[0]?.buildId },
+          seams.publisherStateDir,
+        )
+      }
     }
 
-    const tarballs = store.names().filter((name) => name.endsWith('.tar.gz'))
-    // BOTH intents, in one assertion: publisher-minted, orderable versions (POD-2502)
-    // and every platform of the retained builds surviving (POD-2504). Two builds, two
-    // platforms each — not "the newest two files", which would have kept only the last
-    // build and left a Mac pointed at a tarball the sweep had removed.
-    expect(tarballs.sort()).toEqual([
-      'podium-headless-0.1.0-dev.2+2222222-darwin-aarch64-20260812T182000Z.tar.gz',
-      'podium-headless-0.1.0-dev.2+2222222-linux-x86_64-20260812T182000Z.tar.gz',
-      'podium-headless-0.1.0-dev.3+3333333-darwin-aarch64-20260812T183000Z.tar.gz',
-      'podium-headless-0.1.0-dev.3+3333333-linux-x86_64-20260812T183000Z.tar.gz',
-    ])
+    const kept = listBuildRecords(seams.publisherStateDir).map((record) => record.buildId)
+    // Two newest, plus the served one however old — and the fourth-newest reclaimed.
+    expect(kept.sort()).toEqual(
+      [
+        builds[0]?.buildId as string,
+        builds[2]?.buildId as string,
+        builds[3]?.buildId as string,
+      ].sort(),
+    )
+    // The served release still has BOTH its platforms' bytes on disk. Every one of
+    // them, not just the host's: a Mac converging on it fetches the darwin tarball.
+    const served = readBuildRecord(seams.publisherStateDir, builds[0]?.buildId as string)
+    expect(served?.artifacts).toHaveLength(2)
+    for (const artifact of served?.artifacts ?? []) {
+      expect(
+        existsSync(
+          join(buildBundlesDir(seams.publisherStateDir, served?.buildId as string), artifact.file),
+        ),
+        artifact.file,
+      ).toBe(true)
+    }
+    // And the reclaimed one is gone whole — record and bytes together.
+    expect(existsSync(buildRecordDir(seams.publisherStateDir, builds[1]?.buildId as string))).toBe(
+      false,
+    )
   })
 
   it('refuses the whole build when one platform comes back unsigned', async () => {
@@ -1239,16 +1189,18 @@ describe('buildDevBundle', () => {
     // perfectly short: publishing it would offer that Mac a manifest with no entry for
     // it, so recovery must decline and let the build run.
     const { bytes, signature, signingKey } = signedFixture()
-    const store = published({
+    const release = publishedRecord({
       sha: 'aaaaaaa',
       stamp: '20260812T182015Z',
       bytes,
       signature,
       signingKey,
     })
+    const store = release.store
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
+      publisherStateDir: release.stateDir,
       sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -1284,32 +1236,47 @@ describe('buildDevBundle', () => {
     // Retention that only ran after a successful build would never reach what a
     // crash, a failed compile or a plain shutdown left behind.
     const { bytes, signature, signingKey } = signedFixture()
-    const store = published({
+    const restorable = publishedRecord({
       sha: 'aaaaaaa',
       stamp: '20260812T190000Z',
       bytes,
       signature,
       signingKey,
     })
+    // Three older releases the ledger still has records for. Two are inside the
+    // retention window; the oldest is the backlog this restore has to reclaim.
     for (const [sha, stamp] of [
       ['1111111', '20260812T160000Z'],
       ['2222222', '20260812T170000Z'],
       ['3333333', '20260812T180000Z'],
     ] as const) {
-      const path = '/repo/podium/dist-bun/' + devBundleFileName('dev+' + sha, stamp)
-      store.blobs.set(path, bytes)
-      store.text.set(path + '.sig', signature + '\n')
+      const buildId = mintBuildId(stamp, sha)
+      prepareBuildRecordDir(restorable.stateDir, buildId)
+      writeBuildRecord(restorable.stateDir, {
+        recordVersion: 1,
+        buildId,
+        approvedSha: sha,
+        version: `0.1.0-dev.0+${sha}`,
+        platforms: ['linux-x86_64'],
+        client: null,
+        artifacts: [],
+        signingKeyFingerprint: devBundleKeyFingerprint(signingKey),
+        startedAt: '2026-08-12T16:00:00.000Z',
+        outcome: 'signed',
+        outcomeAt: '2026-08-12T16:00:00.000Z',
+      })
     }
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
+      publisherStateDir: restorable.stateDir,
       sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
       headSha: () => 'aaaaaaa',
       signingKey,
-      fs: store.fs,
+      fs: restorable.store.fs,
       lock: lockFixture([]),
       spawnBuild: async ({ artifacts }) => {
         builds++
@@ -1320,20 +1287,15 @@ describe('buildDevBundle', () => {
     await publisher.requestBuild(true)
 
     expect(builds).toBe(0)
-    // Reference-based retention keeps the restored artifact and the previous
-    // recognised publisher bundle (DEV_BUNDLE_RETAINED=2), even after state loss —
-    // and the legacy names (no platform in them) drain through the same group as
-    // today's host bundles rather than being retained forever in a group nothing new
-    // is ever added to.
-    expect(store.names().sort()).toEqual(
-      [
-        'podium-headless-dev+3333333-20260812T180000Z.tar.gz',
-        'podium-headless-dev+3333333-20260812T180000Z.tar.gz.sig',
-        'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz',
-        'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz.meta.json',
-        'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T190000Z.tar.gz.sig',
-      ].sort(),
-    )
+    // Retention by RECORD keeps the restored release and the one before it
+    // (DEV_BUNDLE_RETAINED=2), even after state loss, and reclaims the backlog behind
+    // them — which is the whole point of sweeping on the restore path too.
+    expect(listBuildRecords(restorable.stateDir).map((record) => record.buildId)).toEqual([
+      restorable.buildId,
+      '20260812T180000Z-3333333',
+    ])
+    // The restored release still has every byte its record names.
+    expect(restorable.store.names()).toContain(restorable.file)
   })
 
   it('releases the lease and keeps a failed build unpublished', async () => {
@@ -1355,7 +1317,7 @@ describe('buildDevBundle', () => {
 
   it('restores the published HEAD artifact after a publisher restart without rebuilding', async () => {
     const { bytes, signature, signingKey } = signedFixture()
-    const store = published({
+    const release = publishedRecord({
       sha: 'aaaaaaa',
       stamp: '20260812T182015Z',
       bytes,
@@ -1365,13 +1327,14 @@ describe('buildDevBundle', () => {
     let builds = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
+      publisherStateDir: release.stateDir,
       sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
       root: '/repo/podium',
       headSha: () => 'aaaaaaa',
       signingKey,
-      fs: store.fs,
+      fs: release.store.fs,
       lock: lockFixture([]),
       spawnBuild: async ({ artifacts }) => {
         builds++
@@ -1383,8 +1346,9 @@ describe('buildDevBundle', () => {
 
     expect(builds).toBe(0)
     expect(restored).toMatchObject({
+      buildId: release.buildId,
       version: '0.1.0-dev.1+aaaaaaa',
-      path: '/repo/podium/dist-bun/podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
+      path: release.path,
       signature,
     })
     expect(restored?.digest).toBe(digestOf(bytes))
@@ -1393,26 +1357,20 @@ describe('buildDevBundle', () => {
 
   it('rebuilds rather than restore an artifact this server did not publish', async () => {
     const { bytes, signature, signingKey } = signedFixture()
-    const cases: Array<{ label: string; store: ReturnType<typeof memoryFs> }> = [
+    const seed = () =>
+      publishedRecord({ sha: 'aaaaaaa', stamp: '20260812T182015Z', bytes, signature, signingKey })
+    const cases: Array<{ label: string; release: ReturnType<typeof publishedRecord> }> = [
       {
-        label: 'no publication metadata at all',
-        store: (() => {
-          const store = published({
-            sha: 'aaaaaaa',
-            stamp: '20260812T182015Z',
-            bytes,
-            signature,
-            signingKey,
-          })
-          store.text.delete(
-            '/repo/podium/dist-bun/podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz.meta.json',
-          )
-          return store
+        label: 'no record at all — bytes on disk that nothing claims to have published',
+        release: (() => {
+          const release = seed()
+          rmSync(join(buildRecordDir(release.stateDir, release.buildId), 'manifest.json'))
+          return release
         })(),
       },
       {
         label: 'signed under a key this server no longer holds',
-        store: published({
+        release: publishedRecord({
           sha: 'aaaaaaa',
           stamp: '20260812T182015Z',
           bytes,
@@ -1421,40 +1379,43 @@ describe('buildDevBundle', () => {
         }),
       },
       {
+        label: 'an attempt that failed',
+        release: publishedRecord({
+          sha: 'aaaaaaa',
+          stamp: '20260812T182015Z',
+          bytes,
+          signature,
+          signingKey,
+          outcome: 'failed:sign',
+        }),
+      },
+      {
         label: 'a truncated tarball',
-        store: (() => {
-          const store = published({
-            sha: 'aaaaaaa',
-            stamp: '20260812T182015Z',
-            bytes,
-            signature,
-            signingKey,
-          })
-          store.blobs.set(
-            '/repo/podium/dist-bun/podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
-            bytes.slice(0, 2),
-          )
-          return store
+        release: (() => {
+          const release = seed()
+          release.store.blobs.set(release.path, bytes.slice(0, 2))
+          return release
         })(),
       },
     ]
 
-    for (const { label, store } of cases) {
+    for (const { label, release } of cases) {
       let builds = 0
       const publisher = createDevBundlePublisher({
         ...publisherSeams(),
+        publisherStateDir: release.stateDir,
         sourceCheckoutAvailable: true,
         readSourceStatus: () => '',
         readIgnoredSourceInputs: () => '',
         root: '/repo/podium',
         headSha: () => 'aaaaaaa',
         signingKey,
-        fs: store.fs,
+        fs: release.store.fs,
         lock: lockFixture([]),
         spawnBuild: async ({ artifacts }) => {
           builds++
           return artifacts.map(({ platform, artifactPath }) => {
-            store.blobs.set(artifactPath, bytes)
+            release.store.blobs.set(artifactPath, bytes)
             return { platform, signature }
           })
         },
@@ -1508,17 +1469,19 @@ describe('buildDevBundle', () => {
 
   it('refuses to build or restore anything from a dirty checkout', async () => {
     const { bytes, signature, signingKey } = signedFixture()
-    const store = published({
+    const release = publishedRecord({
       sha: 'aaaaaaa',
       stamp: '20260812T182015Z',
       bytes,
       signature,
       signingKey,
     })
+    const store = release.store
     let builds = 0
     let reads = 0
     const publisher = createDevBundlePublisher({
       ...publisherSeams(),
+      publisherStateDir: release.stateDir,
       sourceCheckoutAvailable: true,
       root: '/repo/podium',
       headSha: () => 'aaaaaaa',
@@ -1549,9 +1512,8 @@ describe('buildDevBundle', () => {
     expect(await publisher.target()).toBeUndefined()
     expect(publisher.unavailable()).toContain('apps/server/src/server.ts')
     // And nothing was reclaimed: a refusal is not a licence to touch the disk.
-    expect(store.names()).toContain(
-      'podium-headless-0.1.0-dev.1+aaaaaaa-linux-x86_64-20260812T182015Z.tar.gz',
-    )
+    expect(store.names()).toContain(release.file)
+    expect(readBuildRecord(release.stateDir, release.buildId)).not.toBeNull()
   })
 
   it('refuses when the checkout cannot be verified at all', async () => {
@@ -2015,6 +1977,7 @@ describe('development targets declare the schema they can open', () => {
     expect(() =>
       devTarget(
         {
+          buildId: '20260812T182015Z-1234567',
           version: '0.1.0-dev.1+1234567',
           path: '/x',
           size: 1,
@@ -2092,10 +2055,17 @@ describe('the dev feed manifest the publisher writes', () => {
       edge: edgeShellManifest,
     },
     timing?: ReleaseBuildTimingDeps,
+    /**
+     * The ledger these publishers share. A restart test needs BOTH publishers reading
+     * one state directory: the second one has no in-memory descriptor and must find the
+     * release in the records the first one wrote.
+     */
+    stateDirectory: string = publisherDir(),
   ) {
     const { bytes, signature, signingKey } = fixture
     return createDevBundlePublisher({
       ...publisherSeams(),
+      publisherStateDir: stateDirectory,
       sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -2385,7 +2355,17 @@ describe('the dev feed manifest the publisher writes', () => {
   it('names integrity when published artifact bytes change after publication', async () => {
     const store = memoryFs()
     const fixture = signedFixture()
-    const publisher = publisherFor(store, () => 'aaaaaaa', undefined, undefined, fixture)
+    const ledger = publisherDir()
+    const publisher = publisherFor(
+      store,
+      () => 'aaaaaaa',
+      undefined,
+      undefined,
+      fixture,
+      undefined,
+      undefined,
+      ledger,
+    )
     await publisher.requestBuild(true)
     expect(await publisher.publishFeed()).toBe(true)
 
@@ -2397,7 +2377,16 @@ describe('the dev feed manifest the publisher writes', () => {
     // A fresh publisher has no in-memory build descriptor to trust. It must
     // reconstruct the artifact from the publication and hash the bytes that
     // are now on disk, which is the same path exercised after a server restart.
-    const restarted = publisherFor(store, () => 'aaaaaaa', undefined, undefined, fixture)
+    const restarted = publisherFor(
+      store,
+      () => 'aaaaaaa',
+      undefined,
+      undefined,
+      fixture,
+      undefined,
+      undefined,
+      ledger,
+    )
     const app = new Hono()
     registerDevFeedRoutes(app, {
       publishedArtifact: (version, platform) => restarted.publishedArtifact(version, platform),
