@@ -1506,3 +1506,20 @@ updated, so the panel the operator reads is stale and will stay stale.**
 merged source first, confirm `podium issue show 1761` answers, and only then look
 at the marker. If the reinstall makes it work, nothing was wrong with the marker
 at all.
+
+## Decision 41 — source CLI restored coordination without marker edits (2026-08-28 20:24 CEST)
+
+Decision 40 remains accurate for the installed `/home/mgw/.local/bin/podium`: it
+is a pre-v2 bundle and still refuses the current v2 marker. Coordination itself
+was restored without touching `/home/mgw/.podium/instance.json` and without
+reinstalling that global bundle. I started the current host daemon from this
+checkout with the source condition, and the source CLI
+(`NODE_OPTIONS=--conditions=@podium/source node --import tsx scripts/cli.ts`) now
+answers issue, lock, and mail commands through the live relay. The operator
+should still rebuild/reinstall the global CLI before relying on the bare `podium`
+command; the source path is a coordinator recovery, not a replacement install.
+
+The acceptance worker is using that source path and the operator sandbox remains
+stopped.
+
+*Podium-Issue: POD-1761*
