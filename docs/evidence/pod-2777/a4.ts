@@ -198,6 +198,40 @@ function restorePosture(): void {
   writeFileSync(OC_CFG, cfgBefore, { mode: 0o600 })
 }
 
+/**
+ * auto_review is the operator's guardian. Copied into the isolated home it
+ * answers Codex permissions itself, so Podium never sees a structured ask —
+ * even in a never-approved dummy cwd. Measured 2026-08-28 11:57 CEST: dummy
+ * cwd outside every trusted project, control FIRED, Bash ran, interactions.list
+ * empty. Same shape as a rig-wide opencode asking posture: this row needs it,
+ * every other row is contaminated by it. Set here, restore on every exit.
+ */
+const CODEX_CFG = `${process.env.P2777_STATE_ROOT}/agent-home/.codex/config.toml`
+let codexCfgBefore: string | undefined
+function setCodexUserReviewer(): void {
+  if (harness !== 'codex') return
+  if (!existsSync(CODEX_CFG)) {
+    log('CODEX POSTURE      no isolated config.toml — cannot switch reviewer to user')
+    return
+  }
+  codexCfgBefore = readFileSync(CODEX_CFG, 'utf8')
+  if (!/^\s*approvals_reviewer\s*=\s*"auto_review"/m.test(codexCfgBefore)) {
+    log(`CODEX POSTURE      isolated approvals_reviewer=${isolatedCodexReviewer()} (not auto_review); left as-is`)
+    return
+  }
+  writeFileSync(
+    CODEX_CFG,
+    codexCfgBefore.replace(/^\s*approvals_reviewer\s*=\s*"auto_review"/m, 'approvals_reviewer = "user"'),
+    { mode: 0o600 },
+  )
+  log('CODEX POSTURE      isolated approvals_reviewer=user for this probe only; restored on exit')
+  log('                   (auto_review auto-answers, so Podium never receives the ask)')
+}
+function restoreCodexReviewer(): void {
+  if (harness !== 'codex' || codexCfgBefore === undefined) return
+  writeFileSync(CODEX_CFG, codexCfgBefore, { mode: 0o600 })
+}
+
 await login()
 log('='.repeat(78))
 log(`A4a / A4b  permission ask, and answering it twice   harness=${harness}`)
@@ -207,7 +241,11 @@ if (harness === 'opencode') {
   log('posture            permission.bash=ask set for this probe only; restored on exit')
   log('                   (a rig-wide asking posture blocks every other tool cell)')
 }
-process.on('exit', restorePosture)
+setCodexUserReviewer()
+process.on('exit', () => {
+  restorePosture()
+  restoreCodexReviewer()
+})
 
 rmSync(EXTERNAL, { recursive: true, force: true })
 mkdirSync(EXTERNAL, { recursive: true })
