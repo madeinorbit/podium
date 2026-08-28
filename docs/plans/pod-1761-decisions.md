@@ -870,5 +870,5 @@ and confirming the product sees it is still the allowed setup.
 - Coordinator and later agents treat Claude SDK cells as in-scope high-priority work, not
   "terminal-only / no testing burden."
 - Historical evidence, `results.tsv`, and audit-time SA4/LD8 classifications stay historical.
-- Source comments that still omit subscription from the embedded auth list are implementation
-  lag, not a policy veto.
+- The Claude manifest now declares subscription for the embedded auth list. Any stale source
+  comment elsewhere is implementation drift, not a policy veto or an acceptance result.

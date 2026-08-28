@@ -64,10 +64,10 @@ For the POD-1761 coordinator and every later agent:
   `docs/evidence/**`, and audit-time classifications alone. Append a current
   reading; do not edit an old one to match this policy.
 - **Source comments are not policy.**
-  `packages/harness/src/manifests/claude-code.ts` still says subscription
-  OAuth is absent from the embedded auth list and that the SDK is an
-  experiment. That is implementation lag, not a rule. Changing it is a code
-  lane; this policy does not edit source.
+  `packages/harness/src/manifests/claude-code.ts` now declares subscription
+  OAuth for the embedded SDK. If a stale comment elsewhere still describes the
+  old exclusion, treat it as implementation drift rather than a policy veto;
+  this policy does not turn that drift into a new acceptance result.
 - **This documentation lane does not run provider or heavy tests.** Future
   SDK drives still follow the standing brief: pin server, web bundle, *and*
   daemon; take `test:heavy` only for memory-heavy work; never overlap gates;

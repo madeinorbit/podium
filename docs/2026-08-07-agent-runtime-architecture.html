@@ -188,7 +188,7 @@
   <tr><td>Cursor</td><td colspan="2"><span class="pill pty">terminal</span> only (ACP status unverified — the public ACP registry lists Cursor as an agent; verify before amending this row)</td><td>Engine terminal (today)</td></tr>
 </table></div>
 
-<p class="callout" style="display:block"><b>Policy, 2026-08-28:</b> Claude subscription OAuth on the persistent Agent SDK path is operator-authorized under an explicit rollout acknowledgement. Claude headless is first-class. PTY is the fallback. Credential-safety rules (do not mint, rotate, or replay a superseded refresh token) are unchanged. Canonical text: <code>docs/architecture/claude-subscription-oauth-policy.md</code>. Historical "ToS-prohibited / terminal-only" wording in audits and evidence remains historical. Source admission in <code>packages/harness/src/manifests/claude-code.ts</code> may still omit subscription from the embedded auth list — that is implementation lag, not current policy.</p>
+<p class="callout" style="display:block"><b>Policy, 2026-08-28:</b> Claude subscription OAuth on the persistent Agent SDK path is operator-authorized under an explicit rollout acknowledgement. Claude headless is first-class. PTY is the fallback. Credential-safety rules (do not mint, rotate, or replay a superseded refresh token) are unchanged. Canonical text: <code>docs/architecture/claude-subscription-oauth-policy.md</code>. Historical "ToS-prohibited / terminal-only" wording in audits and evidence remains historical. The Claude manifest now declares subscription for the embedded SDK; the remaining work is current end-to-end acceptance, not a policy or selector exclusion.</p>
 
 <h2><span class="sec">§3</span>The primitive surface (code-level)</h2>
 

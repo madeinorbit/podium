@@ -1632,9 +1632,9 @@ and do not rewrite `results.tsv` or evidence reports to match.
   acknowledgement, or the credential-safety boundary — not "subscription OAuth is
   prohibited."
 - Leave historical readings historical. Append; do not edit old rows.
-- Source comments in `packages/harness/src/manifests/claude-code.ts` that still omit
-  subscription from the embedded auth list are implementation lag, not a rule. Changing
-  them is a code lane.
+- The Claude manifest now declares subscription for the embedded auth list. Any stale source
+  comment elsewhere that repeats the old exclusion is implementation drift, not a policy veto;
+  do not treat it as an acceptance result.
 - This documentation change does not run provider or heavy tests. Future SDK drives still
   follow every other rule in this brief (three-part pin, `test:heavy` for RAM, never merge
   main into the epic branch).
