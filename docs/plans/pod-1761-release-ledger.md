@@ -5963,3 +5963,37 @@ a narrow gap main shares.
 codex, grok, opencode — have never been compared against main at all**, because
 main has no server-family driver. Absence of a main row is not a passing main.
 That gap is the last thing standing between this and a defensible release claim.
+
+## FOREST — integration refresh landed (2026-08-28 20:14 CEST)
+
+The intent-preserving integration refresh is complete. The product code landed at
+`9c1cc362168e71cd2237ee009feb2f4e4643c78c`; the later coordinator commits on
+this branch are documentation only. On ludovico, the clean `dev/mw` worktree was
+`363d9733663c7f3b98adb01ed54b61d6be7eb1c6`, and that exact tip was fast-forward
+pushed to `origin/dev/mw` without force or rewrite. It is the merge-base of the
+landed product tip. The refresh used one merge (`445a52315`) instead of replaying
+558 dev/mw commits across 1,069 epic commits; 61 conflicted files were reviewed
+by intent, four either/or decisions and the durable-enqueue ordering choice are
+recorded in the attached POD-3070 log, and 910 `Podium-Issue:` trailers remain
+intact.
+
+The merge exposed ten genuine type seams, fixed in `2d70e8725` and
+`9c1cc3621`. The worker's unscoped typecheck was green (`PODIUM_TEST_WORKERS=1`,
+25/25 packages). Touched lanes reported 264 passed/1 inherited failure in
+daemon/runtime/protocol/client-core, 159 passed/1 inherited failure in
+server/web, and 60 plus 78 passed with no failures in the router/relay and
+scripts lanes. The two reds reproduce in control worktrees: an OpenCode attach
+expectation for a bare executable name on a host that resolves an absolute path,
+and a server-role fixture on a host with no Podium daemon. They are inherited,
+not merge regressions. The landed diff also carries two inherited EOF-whitespace
+warnings from `origin/dev/mw`; neither came from a conflict choice.
+
+The acceptance-path count is **60 files**, not the 82 recorded in the first
+post-merge decision; the corrected count is from `git diff --name-only
+4110ccee6..9c1cc3621` filtered to `apps/daemon`, `packages/harness`,
+`packages/agent-runtime`, `modules/sessions`, and `modules/messages`. Every
+70-cell reading predates this merge, so the prior snapshot remains historical
+evidence only: **60 PASS, 7 PARTIAL, 3 BLOCKED, 0 FAIL of 70**. No cell has
+been silently re-scored. The narrow stale-code audit, a single coordinator gate,
+and any required acceptance re-drives remain outstanding; the operator sandbox
+is stopped.

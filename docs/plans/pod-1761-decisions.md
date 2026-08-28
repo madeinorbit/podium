@@ -1443,7 +1443,7 @@ into the epic branch*. I am recording that it happened rather than arguing with
 it — if the operator ordered the reconciliation, it is their call to make.
 
 **The consequence is the one that matters. 1,175 files changed, 141,466
-insertions, and 82 of them under `apps/daemon`, `packages/harness`,
+insertions, and 60 of them under `apps/daemon`, `packages/harness`,
 `packages/agent-runtime`, `modules/sessions` and `modules/messages` — the exact
 paths the acceptance cells exercise.**
 
@@ -1458,7 +1458,7 @@ is far more dangerous than a stale FAIL, because nobody goes looking for it.
 
 **What I am NOT doing:** re-driving all 70 cells reflexively, or letting the old
 numbers stand as current. **What is needed** is the smallest honest re-drive set,
-chosen from what the 82 files actually touch — and until that runs, the correct
+chosen from what the 60 files actually touch — and until that runs, the correct
 answer to "is the epic clean" is **"it was, at 4110ccee6; nobody knows yet at
 9c1cc3621."**
 
