@@ -26,6 +26,7 @@ import { color, font, leading, radius, sans, space, spring } from '../theme/them
 import { AttachmentStrip } from './AttachmentStrip'
 import {
   COMPOSER_LINE,
+  COMPOSER_MIN_HEIGHT,
   composerAtRest,
   composerFieldHeight,
   composerMaxHeight,
@@ -36,6 +37,10 @@ import { useComposerMeasure } from './composer-measure'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import type { ComposerAttachmentsApi, SentAttachment } from './useComposerAttachments'
+
+/** Who owns the field's height: the wrapper on web, the text itself on native.
+ *  See the comment at the field for what a height costs on native. */
+const CONTROLLED_HEIGHT = Platform.OS === 'web'
 
 const CONTROL_TARGET = 44
 /** The filled disc inside a control's 44pt target — send, and mic while live. */
@@ -332,12 +337,20 @@ export function Composer({
         >
           {voiceStatus}
         </Text>
-        <View style={[styles.fieldWrap, { height }]}>
+        {/* THE FIELD SIZES ITSELF ON NATIVE, AND IS SIZED ON WEB.
+            A height here is a CEILING on what UIKit will report back through
+            `onContentSizeChange`: it answers with the height it was given, so
+            the field measured one line, stayed one line, and every prompt past
+            a few words was typed into a keyhole with the rest scrolled out of
+            sight (2026-08-29, device). Native grows from its own content and is
+            capped by `maxHeight`; react-native-web's <textarea> cannot do that,
+            so it keeps the measured height (see ./composer-measure.web). */}
+        <View style={[styles.fieldWrap, CONTROLLED_HEIGHT ? { height } : null]}>
           <TextInput
             ref={inputRef}
             {...composerFieldProps}
             accessibilityLabel={placeholder}
-            style={[styles.input, { maxHeight }]}
+            style={[styles.input, CONTROLLED_HEIGHT && styles.inputFill, { maxHeight }]}
             value={composedText}
             onChangeText={changeText}
             onFocus={() => setFocused(true)}
@@ -656,11 +669,18 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({ outlineStyle: 'none', overflowY: 'auto', resize: 'none' } as object)
       : null),
-    flex: 1,
     color: color.text,
     fontSize: font.body,
     lineHeight: leading(font.body),
     padding: 0,
+    // A one-line field is exactly one line tall before any content has been
+    // measured — the floor the native path grows from.
+    minHeight: COMPOSER_MIN_HEIGHT,
+  },
+  /** Fills the height its wrapper was given — the web path only, where the
+   *  wrapper is the one that knows how tall the text is. */
+  inputFill: {
+    flex: 1,
   },
   /**
    * The control rail. The negative inset pulls the 44pt targets back out so the
