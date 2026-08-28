@@ -99,18 +99,6 @@ export type CardStateSlot =
 export const CARD_LABEL_DOTS = 3
 
 /**
- * Agents actually computing on this issue right now.
- *
- * `sessionSummary.byPhase` is keyed by `AgentPhase`, and 'working' is the only
- * one that means a machine is burning tokens for you — DESIGN.md's motion
- * grammar gates the spinner on exactly that. An issue with five attached
- * sessions and none working is still, and stillness is the signal.
- */
-export function liveAgentCount(issue: IssueViewModel): number {
-  return issue.sessionSummary?.byPhase?.working ?? 0
-}
-
-/**
  * Commits waiting to land, or 0.
  *
  * Read off `gitState.ahead`, which the probe leaves ABSENT on a shared checkout
@@ -132,8 +120,8 @@ export function issueCardStateSlots(
     badges: IssuesDisplay['badges']
     stageCounts?: { stage: IssueStage; count: number }[]
     progress?: EpicProgress | null
-    /** Canonical live count when the caller has the member session rows. */
-    workingAgents?: number
+    /** Canonical count resolved from the member session rows. */
+    workingAgents: number
   },
 ): CardStateSlot[] {
   const model = issueCardModel(issue)
@@ -143,11 +131,10 @@ export function issueCardStateSlots(
   if (model.isBlocked) slots.push({ kind: 'blocked' })
   if (model.isBlocking) slots.push({ kind: 'blocking' })
 
-  // An epic reports its SUBTREE's live agents; a leaf reports its own. Both
-  // answer "how much is moving under this card", which is the question — and
-  // taking the larger of the two means an epic whose own sessions are working
-  // never reads as quieter than one of its children.
-  const live = Math.max(workingAgents ?? liveAgentCount(issue), progress?.liveAgents ?? 0)
+  // An epic reports every confirmed worker on itself and in its descendant
+  // subtree. The two sets cannot overlap: `progress` deliberately excludes the
+  // root issue, while `workingAgents` contains only the root's member sessions.
+  const live = workingAgents + (progress?.liveAgents ?? 0)
   if (live > 0) slots.push({ kind: 'live', count: live })
 
   const ahead = aheadCount(issue)
@@ -184,9 +171,11 @@ export function issueCardStateSlots(
  */
 export function issueStateWord(
   issue: IssueViewModel,
+  workingAgents: number,
 ): { text: string; tone: 'attention' | 'alert' | 'live' | 'quiet' } | null {
   const [top] = issueCardStateSlots(issue, {
     badges: { labels: false, type: false, estimate: false, due: false, sessions: false },
+    workingAgents,
   })
   if (!top) return null
   switch (top.kind) {

@@ -1,3 +1,4 @@
+import { withoutShells } from '@podium/client-core/focus'
 import { orderIssues as coreOrderIssues, type IssuesOrdering } from '@podium/client-core/viewmodels'
 import { isAgentConfirmedComputing, type SessionMeta } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
@@ -132,20 +133,25 @@ export function confirmedWorkingAgentCount(
   sessions: readonly SessionMeta[],
   now: number,
 ): number {
-  return sessions.reduce(
+  return withoutShells([...sessions]).reduce(
     (count, session) => count + (isAgentConfirmedComputing(session, now) ? 1 : 0),
     0,
   )
 }
 
-function workingCountsByIssue(
+/** Confirmed issue workers, keyed through canonical issue membership. */
+export function confirmedWorkingAgentCountsByIssue(
+  issues: readonly IssueViewModel[],
   sessions: readonly SessionMeta[],
   now: number,
 ): Map<string, number> {
+  const sessionById = new Map(sessions.map((session) => [session.sessionId as string, session]))
   const counts = new Map<string, number>()
-  for (const session of sessions) {
-    if (!session.issueId || !isAgentConfirmedComputing(session, now)) continue
-    counts.set(session.issueId, (counts.get(session.issueId) ?? 0) + 1)
+  for (const issue of issues) {
+    const members = (issue.memberSessionIds ?? [])
+      .map((id) => sessionById.get(id as string))
+      .filter((session): session is SessionMeta => session !== undefined)
+    counts.set(issue.id, confirmedWorkingAgentCount(members, now))
   }
   return counts
 }
@@ -156,7 +162,11 @@ export function computeEpicProgress(
   sessions: readonly SessionMeta[] = [],
   now = Date.now(),
 ): EpicProgress | null {
-  return progressFrom(buildChildrenIndex(issues), epicId, workingCountsByIssue(sessions, now))
+  return progressFrom(
+    buildChildrenIndex(issues),
+    epicId,
+    confirmedWorkingAgentCountsByIssue(issues, sessions, now),
+  )
 }
 
 /** Batch rollup for many roots over one shared child index (see buildChildrenIndex) —
@@ -168,7 +178,7 @@ export function computeEpicProgressMap(
   now = Date.now(),
 ): Map<string, EpicProgress | null> {
   const childrenOf = buildChildrenIndex(issues)
-  const workingByIssue = workingCountsByIssue(sessions, now)
+  const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
   return new Map(rootIds.map((id) => [id, progressFrom(childrenOf, id, workingByIssue)]))
 }
 

@@ -122,8 +122,17 @@ describe('computeEpicProgress (#198)', () => {
     const child = issue({
       id: 'c',
       parentId: 'e',
-      memberSessionIds: ['working', 'compacting', 'idle', 'parked', 'exited', 'stale'],
-      sessionSummary: { total: 6, byPhase: { working: 4, compacting: 1, idle: 1 } },
+      memberSessionIds: [
+        'working',
+        'compacting',
+        'idle',
+        'parked',
+        'exited',
+        'stale',
+        'shell',
+        'headless',
+      ],
+      sessionSummary: { total: 8, byPhase: { working: 6, compacting: 1, idle: 1 } },
     })
     const staleAt = new Date(NOW - 16 * 60_000).toISOString()
     const sessions = [
@@ -150,8 +159,12 @@ describe('computeEpicProgress (#198)', () => {
           nativeSubagentCount: 0,
         },
       }),
+      session('shell', 'c', { agentKind: 'shell' }),
+      session('headless', 'c', { headless: true }),
     ]
 
+    // Generic issue surfaces exclude terminal shells and embedded headless
+    // harness sessions before applying the shared confirmed-computing rule.
     expect(confirmedWorkingAgentCount(sessions, NOW)).toBe(2)
     expect(computeEpicProgress([epic, child], 'e', sessions, NOW)?.liveAgents).toBe(2)
   })
