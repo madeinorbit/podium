@@ -548,6 +548,57 @@ describe('durable runtime observation gate', () => {
     store.close()
   })
 
+  it('accepts a process exit after the final turn epoch is closed', () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'exit-bootstrap',
+      sessionId,
+      event: stateEvent({
+        at: '2026-08-23T00:00:00.000Z',
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+      }),
+    })
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'exit-turn-complete',
+      sessionId,
+      event: turnEvent({
+        at: '2026-08-23T00:00:01.000Z',
+        seq: 2,
+        turnEpoch: 1,
+        ev: 'completed',
+      }),
+    })
+    expect(store.events.runtimeEventCheckpoint(sessionId)?.closedTurnEpoch).toBe(1)
+
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'exit-after-turn',
+      sessionId,
+      event: {
+        t: 'process',
+        ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+        at: '2026-08-23T00:00:02.000Z',
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
+        observerGeneration: 1,
+        turnEpoch: 1,
+      },
+    })
+
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
+    expect(registry.modules.sessions.sessionById(sessionId)?.status).toBe('exited')
+
+    registry.dispose()
+    store.close()
+  })
+
   it('starts a new drain for a request arriving during prior drain teardown', async () => {
     const sessionId = asSessionId('teardown-session')
     const event = stateEvent({

@@ -3987,6 +3987,21 @@ describe('hibernation', () => {
     })
     daemon.length = 0
 
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'grok-order-bootstrap',
+      sessionId,
+      event: {
+        t: 'state',
+        change: { kind: 'session_started' },
+        at: '2026-08-23T00:00:00.000Z',
+        provenance: 'bootstrap',
+        cursor: { segmentId: 'grok-order-segment', components: { seq: 1 } },
+        observerGeneration: initialGeneration,
+        turnEpoch: 0,
+      },
+    })
+
     expect(
       reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' }),
     ).toEqual({ ok: true, queued: true })
@@ -4021,6 +4036,26 @@ describe('hibernation', () => {
       sessionId,
       code: 137,
       observerGeneration: initialGeneration,
+    })
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    // The durable process event may arrive after the ordinary exit frame. The
+    // recovery above has already advanced the lease, so this same-generation
+    // replay must not apply a second exit or spawn another replacement.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'grok-order-process-after-agent-exit',
+      sessionId,
+      event: {
+        t: 'process',
+        ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+        at: '2026-08-23T00:00:01.000Z',
+        provenance: 'live',
+        cursor: { segmentId: 'grok-order-segment', components: { seq: 2 } },
+        observerGeneration: initialGeneration,
+        turnEpoch: 0,
+      },
     })
     expect(lifecycle).toEqual(['exit', 'spawn'])
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
@@ -4103,6 +4138,113 @@ describe('hibernation', () => {
     })
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2)
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    reg.dispose()
+  })
+
+  it('recovers a queued Grok send from the durable process-exit event', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    const lifecycle: string[] = []
+    let target: SessionId | undefined
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => {
+      daemon.push(message)
+      if (message.type === 'spawn' && message.sessionId === target) lifecycle.push('spawn')
+    })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/w',
+    })
+    target = sessionId
+    const initialSpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    const initialGeneration = initialSpawn?.observationGeneration
+    expect(initialGeneration).toEqual(expect.any(Number))
+    if (initialGeneration === undefined) throw new Error('initial spawn was not fenced')
+    reg.bus.on('session.exited', (event) => {
+      if (event.sessionId === sessionId) lifecycle.push('exit')
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-durable-exit-resume' },
+    })
+    daemon.length = 0
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'grok-process-bootstrap',
+      sessionId,
+      event: {
+        t: 'state',
+        change: { kind: 'session_started' },
+        at: '2026-08-23T00:00:00.000Z',
+        provenance: 'bootstrap',
+        cursor: { segmentId: 'grok-durable-exit-resume', components: { seq: 1 } },
+        observerGeneration: initialGeneration,
+        turnEpoch: 0,
+      },
+    })
+    expect(reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' })).toEqual(
+      { ok: true, queued: true },
+    )
+    // The ordinary agentExit frame is intentionally absent: it is the frame
+    // that the daemon/server disconnect can drop after the child closes.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'grok-process-exit-1',
+      sessionId,
+      event: {
+        t: 'process',
+        ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+        at: '2026-08-23T00:00:01.000Z',
+        provenance: 'live',
+        cursor: { segmentId: 'grok-durable-exit-resume', components: { seq: 2 } },
+        observerGeneration: initialGeneration,
+        turnEpoch: 0,
+      },
+    })
+    // The legacy frame is the lossy copy, but it can race after the durable
+    // process event. The lease minted by recovery rejects this stale frame.
+    const spawnCountAfterDurableExit = daemon.filter((message) => message.type === 'spawn').length
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+      observerGeneration: initialGeneration,
+    })
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(
+      spawnCountAfterDurableExit,
+    )
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+
+    const recoverySpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    expect(recoverySpawn).toMatchObject({
+      type: 'spawn',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-durable-exit-resume' },
+    })
+    expect(recoverySpawn?.observationGeneration).toBeGreaterThan(initialGeneration)
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+    expect(daemon).toContainEqual({
+      type: 'runtimeEventAck',
+      deliveryId: 'grok-process-exit-1',
+      outcome: 'committed',
+    })
     expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
     reg.dispose()
   })

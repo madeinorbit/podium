@@ -315,7 +315,14 @@ export class RuntimeEventGate {
     if (event.turnEpoch < current.turnEpoch) {
       return { kind: 'rejected', reason: 'turn-epoch-regressed' }
     }
-    if (current.closedTurnEpoch !== null && event.turnEpoch <= current.closedTurnEpoch) {
+    // Process lifecycle is independent of the last turn. A child can die after
+    // its final turn has closed, and that exit must remain an admissible causal
+    // event rather than being mistaken for a late turn update.
+    if (
+      current.closedTurnEpoch !== null &&
+      event.turnEpoch <= current.closedTurnEpoch &&
+      event.t !== 'process'
+    ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
     }
     if (event.turnEpoch > current.turnEpoch) {

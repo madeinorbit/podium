@@ -182,6 +182,73 @@ export class SessionDaemonLifecycle {
   private readonly clearOffer = (sessionId: SessionId): void => this.ports.clearOffer(sessionId)
 
   /**
+   * Apply a process death from either legacy `agentExit` or the durable runtime
+   * stream. The latter is the lossless copy: `agentExit` is an ordinary daemon
+   * frame and may be dropped while the daemon/server link is reconnecting.
+   */
+  private handleAgentExit(msg: Extract<SessionsDaemonFrame, { type: 'agentExit' }>): void {
+    const before = this.sessions.get(msg.sessionId)
+    const lease =
+      this.observationLeases.get(msg.sessionId) ??
+      this.store.observationCheckpoints.get(msg.sessionId)
+    // A replacement reuses the Podium session id but owns a newer runtime
+    // generation. Reject any exit not authored by the currently fenced
+    // process, including one repeated after the replacement has bound live.
+    // A stated generation with no lease fails closed: the runtime cannot
+    // legitimately spawn until terminal proof has minted that lease.
+    if (
+      msg.observerGeneration !== undefined &&
+      (!lease || msg.observerGeneration !== lease.observationGeneration)
+    ) {
+      return
+    }
+    // Older terminal/daemon frames have no generation. Preserve their
+    // pre-bind duplicate guard; an already-exited row is inert either way.
+    if (
+      (msg.observerGeneration === undefined &&
+        this.unfencedExitsAwaitingBind.has(msg.sessionId)) ||
+      before?.status === 'exited'
+    ) {
+      return
+    }
+    before?.onExit(msg.code)
+    this.autoContinue.onSessionGone(msg.sessionId)
+    // Free the lingering per-session title debouncer when the process ends (audit
+    // P1-12) — previously only killSession did, so every exited-but-not-killed
+    // session leaked its debouncer closure. The row stays (resurrectable); a new
+    // debouncer is created lazily if it ever emits a title again. Drafts are kept
+    // (resurrect/chat needs them).
+    this.daemonProjection.disposeTitle(msg.sessionId)
+    const s = this.sessions.get(msg.sessionId)
+    if (s) this.persist(s)
+    this.broadcastSessions()
+    // The assistant digest remains a legacy consumer in this vertical slice.
+    this.ports.onSessionActivity(msg.sessionId)
+    // Keep the issue attachment: an updater and an abandoned process both
+    // arrive as agentExit, and the exited session remains resumable.
+    // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
+    // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
+    // and the session's leases with it. Also durable for steward parent-wake
+    // (POD-904).
+    if (s?.status === 'exited') {
+      // Capture and publish the REAL death before requesting recovery. The
+      // wake reaction is synchronous through workspace ensure and mutates
+      // this same Session to `starting`; doing it first suppresses this
+      // event and loses lock release and parent wake.
+      if (msg.observerGeneration === undefined) {
+        this.unfencedExitsAwaitingBind.add(msg.sessionId)
+      }
+      this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
+      // A send can be durably admitted in the narrow interval between the
+      // child dying and this exit reaching the server. It was accepted while
+      // the row still said `live`, so queueText did not request resurrection.
+      // Once the real exit is published, hand that accepted row back to the
+      // ordinary delegated wake path; a fresh bind re-arms its FIFO drain.
+      this.inbox.recoverQueuedAfterExit(msg.sessionId)
+    }
+  }
+
+  /**
    * A new turn began: does it retire the session's standing offer
    * [spec:SP-c7f1]? Only when the USER opened it — a turn forced by a
    * stop-hook, mail delivery, cron or steward wake must leave an offer the
@@ -322,65 +389,7 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'agentExit': {
-        const before = this.sessions.get(msg.sessionId)
-        const lease =
-          this.observationLeases.get(msg.sessionId) ??
-          this.store.observationCheckpoints.get(msg.sessionId)
-        // A replacement reuses the Podium session id but owns a newer runtime
-        // generation. Reject any exit not authored by the currently fenced
-        // process, including one repeated after the replacement has bound live.
-        // A stated generation with no lease fails closed: the runtime cannot
-        // legitimately spawn until terminal proof has minted that lease.
-        if (
-          msg.observerGeneration !== undefined &&
-          (!lease || msg.observerGeneration !== lease.observationGeneration)
-        ) {
-          break
-        }
-        // Older terminal/daemon frames have no generation. Preserve their
-        // pre-bind duplicate guard; an already-exited row is inert either way.
-        if (
-          (msg.observerGeneration === undefined &&
-            this.unfencedExitsAwaitingBind.has(msg.sessionId)) ||
-          before?.status === 'exited'
-        ) {
-          break
-        }
-        before?.onExit(msg.code)
-        this.autoContinue.onSessionGone(msg.sessionId)
-        // Free the lingering per-session title debouncer when the process ends (audit
-        // P1-12) — previously only killSession did, so every exited-but-not-killed
-        // session leaked its debouncer closure. The row stays (resurrectable); a new
-        // debouncer is created lazily if it ever emits a title again. Drafts are kept
-        // (resurrect/chat needs them).
-        this.daemonProjection.disposeTitle(msg.sessionId)
-        const s = this.sessions.get(msg.sessionId)
-        if (s) this.persist(s)
-        this.broadcastSessions()
-        // The assistant digest remains a legacy consumer in this vertical slice.
-        this.ports.onSessionActivity(msg.sessionId)
-        // Keep the issue attachment: an updater and an abandoned process both
-        // arrive as agentExit, and the exited session remains resumable.
-        // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
-        // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
-        // and the session's leases with it. Also durable for steward parent-wake
-        // (POD-904).
-        if (s?.status === 'exited') {
-          // Capture and publish the REAL death before requesting recovery. The
-          // wake reaction is synchronous through workspace ensure and mutates
-          // this same Session to `starting`; doing it first suppresses this
-          // event and loses lock release and parent wake.
-          if (msg.observerGeneration === undefined) {
-            this.unfencedExitsAwaitingBind.add(msg.sessionId)
-          }
-          this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
-          // A send can be durably admitted in the narrow interval between the
-          // child dying and this exit reaching the server. It was accepted while
-          // the row still said `live`, so queueText did not request resurrection.
-          // Once the real exit is published, hand that accepted row back to the
-          // ordinary delegated wake path; a fresh bind re-arms its FIFO drain.
-          this.inbox.recoverQueuedAfterExit(msg.sessionId)
-        }
+        this.handleAgentExit(msg)
         break
       }
       case 'spawnError': {
@@ -877,6 +886,23 @@ export class SessionDaemonLifecycle {
             rejectionReason: result.reason,
           })
         } else {
+          // `runtimeEvent` is the durable copy of the process boundary. The
+          // Grok adapter also emits `agentExit` for legacy consumers, but that
+          // ordinary frame is lossy while the daemon/server link reconnects.
+          // Recover from the committed event before acknowledging its outbox
+          // record, preserving the queued-send resume contract.
+          if (
+            (result.kind === 'accepted' || result.kind === 'duplicate') &&
+            msg.event.t === 'process' &&
+            msg.event.ev.ev === 'exited'
+          ) {
+            this.handleAgentExit({
+              type: 'agentExit',
+              sessionId: msg.sessionId,
+              code: msg.event.ev.code ?? 0,
+              observerGeneration: msg.event.observerGeneration,
+            })
+          }
           this.ports.toMachine(machineId, {
             type: 'runtimeEventAck',
             deliveryId: msg.deliveryId,
