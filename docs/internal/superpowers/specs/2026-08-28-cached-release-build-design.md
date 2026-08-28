@@ -174,6 +174,32 @@ The task output must be a pure function of the declared inputs.
   unfixable, excluded from `outputs` and from the manifest. The result of that check is recorded in
   the implementation report; without it the cache is not trusted.
 
+### 4.4 The commit is in the output, not the key (POD-3072)
+
+The two halves above meet in one place, and the first release after M2 landed found it. §5's
+provenance check refuses a dist whose stamped `sourceCommit` is not the commit being released.
+The task key is the declared inputs plus `PODIUM_APP_VERSION` and nothing else — no SHA, on
+purpose, because a SHA in the key makes every commit a MISS and there is nothing left to cache.
+So a commit that touches no client input restores the previous commit's dist, still stamped with
+that commit, and the release stops on:
+
+    verify-client-build: web was built from <old>, not <new>
+
+That is exactly the case this design exists to make fast.
+
+The resolution is to re-state the commit AFTER the restore. `scripts/build-clients.ts` runs
+`write-web-build-stamp.ts` over both dists once Turbo returns, on a HIT and a MISS alike, with
+this checkout's HEAD. It weakens nothing in §5: the manifest's per-file inventory skips the two
+stamp files (§4.3), so rewriting them invalidates no hashed file, and the inventory is recomputed
+from the bytes on disk rather than carried over. `verifyClientBuild` is unchanged. On a MISS the
+re-stamp writes identical bytes, which is what §4.3's determinism gives it.
+
+The stamp stays the last writing step of each client's own `build` script as well. Three callers
+run those scripts directly and never see Turbo — the development publisher (which reads
+`podium-build.json` to decide the website is at HEAD), the browser lane, and
+`scripts/prove-client-build-deterministic.sh` — and a `build` that leaves an unstamped dist makes
+the publisher rebuild on every `/version` poll.
+
 ## 5. Freshness and provenance (replaces POD-2540's nonce)
 
 POD-2540 ended on the question "did **our** build write these bytes, **now**?" and answered it
