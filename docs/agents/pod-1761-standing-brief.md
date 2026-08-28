@@ -1744,3 +1744,38 @@ This is the third face of the same coordinator problem: `review` can hide
 unlanded evidence, `done` can hide work that never happened, and a closed issue
 can hide an agent still running. **The tracker records intent. Verify against
 commits and process state.**
+
+
+### A sub-issue brief may not quietly weaken the standing bar
+
+POD-3043 was handed two instructions that cannot both be satisfied. The epic bar:
+*not reviewable until shown failing without the change and passing with it, on a
+real instance, with a fired positive control.* Its own brief: *no provider drive.*
+**A live A3 arm IS a provider drive** — it needs a real turn in flight to
+interrupt. I wrote the bar, I let the brief stand, and the session was the one
+that noticed.
+
+It handled it correctly and this is the rule: **when a brief and the bar
+conflict, neither quietly wins — the work is scored at what its evidence
+actually supports.** It marked itself PARTIAL rather than presenting
+unit-boundary evidence as a live arm, and said so before anyone asked.
+
+Two things follow for whoever writes briefs here:
+
+1. **Do not write a constraint that makes the bar unreachable** without also
+   saying how the cell gets scored. "No provider drive" is a legitimate
+   instruction — for a cell that does not need one. For A3 it silently converts
+   every possible outcome into a PARTIAL.
+2. **A hermetic run is not a failed run.** POD-3043 produced nine mutants each
+   killed by exactly one test, including a restored-swallow that reproduces the
+   original defect and reddens only the test naming it. That is a real pre-fix
+   control at the unit boundary and a stronger statement about the tests than
+   most cells here can make. Keep it; record it; just never let it wear a live
+   arm's clothes.
+
+**When you land a fix whose live arm is missing, verify the blast radius instead
+of the behaviour.** POD-3043's change was safe to land unproven because it
+touches only `claude-sdk` files, its one outside importer dispatches by driver
+id, and no exported signature changed — so it cannot reach `claude-pty`, the
+shipping driver. *Confined* is a claim to check, not assume: check the import
+edge, not just the changed-file list.
