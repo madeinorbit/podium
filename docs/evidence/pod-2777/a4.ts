@@ -28,8 +28,21 @@
  * And "not a double action" is checked, not assumed: a typed error whose side
  * effect happened anyway is the failure this row exists to catch, so the probe
  * records whether the tool ran once or twice.
+ *
+ * ---------------------------------------------------------------------------
+ * CODEX SESSION CWD IS A NEVER-APPROVED DUMMY GIT REPO.
+ * ---------------------------------------------------------------------------
+ * A write outside the session cwd is necessary but not sufficient on Codex.
+ * This harness also auto-reviews tools when the session cwd is already in
+ * `~/.codex/config.toml` as a trusted project — `/tmp/pod-2777/repo` is one —
+ * so the product is never handed an ask. This probe therefore creates a unique
+ * dummy Git repository under $HOME, outside every previously approved root
+ * and outside /tmp, and uses THAT as `sessions.create` cwd. Other harnesses
+ * keep the shared scratch repo: they do not have this trust list.
  */
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join, resolve, sep } from 'node:path'
 import {
   AGENT_KIND,
   Chat,
@@ -64,6 +77,83 @@ const log = (s: string) => console.log(s)
  * what it meant. A home-relative directory is outside both.
  */
 const EXTERNAL = `${process.env.HOME}/pod-2777-a4-external`
+
+function inside(path: string, root: string): boolean {
+  const resolved = resolve(path)
+  const base = resolve(root)
+  return resolved === base || resolved.startsWith(base + sep)
+}
+
+function readTrustedProjectRoots(): string[] {
+  const files = [
+    `${process.env.HOME}/.codex/config.toml`,
+    process.env.P2777_STATE_ROOT
+      ? `${process.env.P2777_STATE_ROOT}/agent-home/.codex/config.toml`
+      : '',
+  ].filter(Boolean)
+  const roots = new Set<string>()
+  for (const file of files) {
+    if (!existsSync(file)) continue
+    const text = readFileSync(file, 'utf8')
+    const re = /\[projects\."([^"]+)"\]/g
+    let match: RegExpExecArray | null
+    while ((match = re.exec(text))) roots.add(match[1])
+  }
+  return [...roots]
+}
+
+function isolatedCodexReviewer(): string {
+  const file = process.env.P2777_STATE_ROOT
+    ? `${process.env.P2777_STATE_ROOT}/agent-home/.codex/config.toml`
+    : ''
+  if (!file || !existsSync(file)) return '(no isolated config)'
+  const text = readFileSync(file, 'utf8')
+  const match = text.match(/^\s*approvals_reviewer\s*=\s*"([^"]+)"/m)
+  return match?.[1] ?? '(unset)'
+}
+
+/**
+ * Fresh unique Git cwd that Codex has never trusted. Refuses rather than
+ * measuring if the path lands under a previously approved root, /tmp, or the
+ * product checkout — those are the conditions that previously produced a
+ * BLOCKED "this harness approved its own tool call" for the wrong reason.
+ */
+function makeNeverApprovedDummyRepo(): string {
+  const trusted = readTrustedProjectRoots()
+  const forbidden = [
+    ...trusted,
+    '/tmp',
+    '/var/tmp',
+    `${process.env.HOME}/src/podium`,
+    `${process.env.HOME}/.codex`,
+    '/home/mgw/src/podium',
+  ]
+  const stamp = `${Date.now()}-${nonce('CWD').toLowerCase()}`
+  const tree = `${process.env.HOME}/pod-3027-a4-never-approved-${stamp}`
+  const cwd = join(tree, 'repo')
+  const hit = forbidden.find((root) => inside(cwd, root))
+  if (hit) {
+    log(`REFUSED — dummy cwd ${cwd} is under previously approved/forbidden root ${hit}`)
+    log(`  trusted projects: ${trusted.join(', ') || '(none listed)'}`)
+    process.exit(3)
+  }
+  mkdirSync(cwd, { recursive: true })
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd })
+  writeFileSync(
+    join(cwd, 'README.md'),
+    'Harmless dummy Git repository for the Codex A4 first-approval measurement. No product code.\n',
+  )
+  execFileSync('git', ['add', 'README.md'], { cwd })
+  execFileSync(
+    'git',
+    ['-c', 'user.email=pod-3027@localhost', '-c', 'user.name=pod-3027', 'commit', '-qm', 'dummy repo'],
+    { cwd },
+  )
+  log(`SESSION CWD        never-approved dummy git repo ${cwd}`)
+  log(`                   avoided trusted projects: ${trusted.join(', ') || '(none listed)'}`)
+  log(`                   isolated approvals_reviewer=${isolatedCodexReviewer()}`)
+  return cwd
+}
 
 async function openAsks(sid: string): Promise<any[]> {
   const listed = await query('interactions.list', { sessionId: sid })
@@ -122,7 +212,10 @@ process.on('exit', restorePosture)
 rmSync(EXTERNAL, { recursive: true, force: true })
 mkdirSync(EXTERNAL, { recursive: true })
 
-const created = await mutate('sessions.create', { cwd: REPO, agentKind })
+const sessionCwd = harness === 'codex' ? makeNeverApprovedDummyRepo() : REPO
+if (harness !== 'codex') log(`SESSION CWD        shared scratch repo ${sessionCwd}`)
+
+const created = await mutate('sessions.create', { cwd: sessionCwd, agentKind })
 const sid = created.result?.data?.sessionId as string | undefined
 if (!sid) {
   log(`sessions.create FAILED: ${JSON.stringify(created).slice(0, 800)}`)
