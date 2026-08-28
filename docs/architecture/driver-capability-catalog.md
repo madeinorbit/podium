@@ -59,9 +59,28 @@ turn a viewer joined never streamed at all.
 
 ## 2. Streaming and observation
 
+**READ THE `terminal` COLUMN'S `n/a` CELLS CORRECTLY — THERE ARE TWO STREAMS
+HERE, NOT ONE.** The rows below describe the PREVIEW / fine-watch plane: an
+opt-in, live-only, lossy fragment stream that exists so a CHAT viewer sees an
+assistant message being written. A terminal-family session has no such plane and
+declares `coarse` alone, which is why those cells read `n/a` rather than
+`absent`.
+
+That is not the terminal's real-time story, and reading it as one inverts the
+facts. **A terminal session's real-time stream is its PTY bytes** — `agentFrame`
+/ `agentFrameBatch`, unconditional, not gated on a watch level, and the thing the
+native view renders. It is the oldest and least lossy live path in the product.
+
+So **a terminal session reporting `preview = 0` is not a terminal-stream
+failure.** It is the correct reading of a session that has no fragment plane to
+count, while its bytes are flowing normally. Two probes that look alike answer
+different questions: count preview frames to test the CHAT plane on a headless
+driver, and count PTY frames to test the terminal's. A preview counter pointed at
+a terminal session measures the absence of a feature that was never there.
+
 | behaviour | codex | grok-acp | opencode | terminal | notes |
 |---|---|---|---|---|---|
-| fragment stream exactly when `fine` is declared | pinned | pinned | pinned | n/a | terminal declares coarse only |
+| fragment stream exactly when `fine` is declared | pinned | pinned | pinned | n/a | terminal declares coarse only — its live path is PTY bytes, not this plane; see the note above |
 | **no** fragment while every watcher is coarse | pinned | pinned | pinned | n/a | the half that rots silently |
 | fragments join their completed item | pinned | pinned | pinned | n/a | |
 | stamped with the OPEN turn epoch, never a fenced one | pinned | pinned | pinned | n/a | |
