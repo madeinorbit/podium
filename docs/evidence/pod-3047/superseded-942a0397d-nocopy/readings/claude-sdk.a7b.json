@@ -1,0 +1,544 @@
+{
+  "cell": "A7B",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a7b",
+  "at": "2026-08-28T16:16:56.546Z",
+  "pin": {
+    "cell": "A7B",
+    "at": "2026-08-28T16:16:56.567Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
+    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "5cef0dd",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1875467",
+    "daemonPid": "1875670",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18515052 kB",
+      "SwapFree": "41212124 kB"
+    },
+    "rootFreeKiB": 82203684,
+    "load1m": 5.23,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a7b",
+      "exists": true,
+      "files": 1
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a7b",
+      "exists": true,
+      "files": 4
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "the harness reported itself not logged in, so this cell could not be exercised for a reason that is not the behaviour under test: class=authentication retryable=false error={\"class\":\"authentication\",\"retryable\":false,\"detail\":\"Claude Code returned an error result: Not logged in · Please run /login\"}",
+  "control": {
+    "fired": true,
+    "what": "pre-hibernate conversation replying with a unique codeword",
+    "detail": "user=true; reply=false"
+  },
+  "evidence": [
+    "HIBERNATE         {\"result\":{\"data\":{\"ok\":true}}}",
+    "PARKED            false",
+    "RESURRECT         {\"result\":{\"data\":{\"ok\":true}}}",
+    "LIVE              true",
+    "RECALLED          false",
+    "STATUS            {\"sessionId\":\"713e39f9-7b74-4495-85c4-920205193e1b\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
+  ],
+  "data": {
+    "sid": "713e39f9-7b74-4495-85c4-920205193e1b",
+    "secret": "P3047-A7B-MTD5MRUC",
+    "hibernated": {
+      "result": {
+        "data": {
+          "ok": true
+        }
+      }
+    },
+    "parked": {
+      "ok": false,
+      "ms": 30388,
+      "row": {
+        "sessionId": "713e39f9-7b74-4495-85c4-920205193e1b",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-sdk",
+        "requestedDriverId": null,
+        "status": "hibernated",
+        "phase": "errored",
+        "machine": "flatblock",
+        "model": null,
+        "effort": null,
+        "contextUsagePercent": null,
+        "account": "native:claude-code",
+        "error": {
+          "class": "authentication",
+          "retryable": false,
+          "detail": "Claude Code returned an error result: Not logged in · Please run /login"
+        },
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [
+          "4dc639f probe seed"
+        ],
+        "files": [
+          "## main"
+        ],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 50,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 572,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 1131,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 1714,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 2237,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 2764,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 3318,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 3852,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 4367,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 4888,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 5405,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 5939,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 6455,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 6975,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 7524,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 8052,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 8605,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 9117,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 9656,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 10191,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 10701,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 11241,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 11752,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 12273,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 12788,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 13303,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 13819,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 14333,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 14885,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 15402,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 15922,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 16434,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 16949,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 17474,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 17987,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 18504,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 19021,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 19533,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 20044,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 20558,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 21073,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 21591,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 22105,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 22629,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 23143,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 23658,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 24185,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 24710,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 25235,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 25750,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 26266,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 26789,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 27305,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 27816,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 28330,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 28843,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 29356,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 29886,
+          "phase": "errored",
+          "status": "hibernated",
+          "driverId": "claude-sdk"
+        }
+      ]
+    },
+    "resurrected": {
+      "result": {
+        "data": {
+          "ok": true
+        }
+      }
+    },
+    "live": {
+      "ok": true,
+      "ms": 549,
+      "row": {
+        "sessionId": "713e39f9-7b74-4495-85c4-920205193e1b",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-sdk",
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "idle",
+        "machine": "flatblock",
+        "model": null,
+        "effort": null,
+        "contextUsagePercent": null,
+        "account": "native:claude-code",
+        "error": null,
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [
+          "4dc639f probe seed"
+        ],
+        "files": [
+          "## main"
+        ],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 34,
+          "phase": "errored",
+          "status": "starting",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 549,
+          "phase": "idle",
+          "status": "live",
+          "driverId": "claude-sdk"
+        }
+      ]
+    },
+    "recalled": false,
+    "recall": {
+      "result": {
+        "data": {
+          "ok": true,
+          "disposition": "delivered"
+        }
+      }
+    }
+  }
+}
