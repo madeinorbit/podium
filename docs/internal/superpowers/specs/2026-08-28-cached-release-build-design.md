@@ -244,15 +244,30 @@ count below floor, summary naming a task that did not run.
 
 | caller | today | after |
 |---|---|---|
-| dev publisher approve | `prepareWebDist` + N × `package-headless.ts` | one `release:prepare --platforms <list>` child |
-| `scripts/release.ts --prepare-cross` (CI release) | one session, four platforms | same entry, `--platforms all` |
-| `apps/desktop/scripts/stage-sidecar.ts` | `bun run package:headless` | `release:prepare --platforms host --no-sign`, copies from the record |
-| `windows-smoke.yml`, `verify-headless-update.sh` | `package:headless` | `release:prepare --platforms host` |
-| `bun run package:headless` (human) | `package-headless.ts` | alias of the above |
+| dev publisher approve | `prepareWebDist` + N × `package-headless.ts` | one `scripts/release.ts --prepare-cross` child with a `--platform`/`--artifact` pair per fleet platform |
+| `scripts/release.ts --prepare-cross` (CI release) | one session, four platforms | `bun run release:prepare -- --channel …` (all four) |
+| `apps/desktop/scripts/stage-sidecar.ts` | `bun run package:headless` | unchanged: `package-headless.ts` (native host; shares `buildClients`) |
+| `windows-smoke.yml`, `verify-headless-update.sh` | `package:headless` | unchanged: `package-headless.ts` (native host; shares `buildClients`) |
+| `bun run package:headless` (human) | `package-headless.ts` | unchanged: the native single-platform entry |
 | `test:integration` / `test:e2e` `bun run build` | manual chain | `turbo run build` |
 
 `package-headless.ts` and `build-bun.ts` keep their compile/tar/sign responsibilities and lose the
 client build; direct invocation without evidence still refuses.
+
+**Correction to this table, made in M3 (POD-3054).** It originally said the three native callers
+would switch to `release:prepare` too. They cannot: `prepareHeadlessCross` refuses a non-Linux host
+because the zig/rcodesign evidence trail is Linux-only, and `stage-sidecar`, `windows-smoke` and
+`verify-headless-update.sh` run on macOS and Windows runners. They stay on `package-headless.ts`,
+which shares `beginFreshClientPackagingSession` → `buildClients` with the coordinator — so they
+already restore the clients from the same Turbo cache, which is what switching them was for. The
+"one entry" claim is therefore about the two callers that produce a RELEASE (the development
+publisher and CI), not about every caller that packages a bundle.
+
+**A consequence worth stating, also M3.** Because the release build now runs entirely inside the
+approved commit's snapshot and never writes the live `apps/web/dist`, preparing no longer makes the
+served website current as a side effect. The update operation's `web` step does that work instead
+of usually finding it already done. It is not a second client build: `prepare` filled the Turbo
+cache for this commit's clients, so the step restores.
 
 ## 8. Error handling
 

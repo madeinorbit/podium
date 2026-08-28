@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,7 +29,9 @@ import {
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
 import { readOrCreateDevArtifactToken } from '../apps/server/src/modules/updates/signing-key'
 import { refreshTargetsOnBoot } from '../apps/server/src/modules/updates/target-refresh'
-import { CLIENT_BUILD_TASKS, buildClients } from './build-clients'
+import { CLIENT_BUILD_TASKS, buildClients, readRunSummary } from './build-clients'
+import { beginFreshClientPackagingSession } from './build-bun'
+import { prepareHeadlessCross } from './release'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const INSTANCE_ID = 'update-e2e'
@@ -113,9 +123,6 @@ describe('named-instance development releases', () => {
               return result
             },
           ),
-        prepareWebDist: async () => {
-          assertClientPackagingWritesOnlyDist()
-        },
         lock: {
           acquire: async () => true,
           renew: async () => {},
@@ -142,12 +149,13 @@ describe('named-instance development releases', () => {
                 },
               }
             : { missing: 'dev desktop manifest returned HTTP 404' },
-        spawnBuild: async ({ artifactPath }) => {
-          mkdirSync(dirname(artifactPath), { recursive: true })
-          writeFileSync(artifactPath, 'named release bytes')
-          writeFileSync(artifactPath + '.sig', 'development-signature\n')
-          return { path: artifactPath, signature: 'development-signature' }
-        },
+        spawnBuild: async ({ artifacts }) =>
+          artifacts.map(({ platform, artifactPath }) => {
+            mkdirSync(dirname(artifactPath), { recursive: true })
+            writeFileSync(artifactPath, 'named release bytes')
+            writeFileSync(artifactPath + '.sig', 'development-signature\n')
+            return { platform, path: artifactPath, signature: 'development-signature' }
+          }),
       })
     const publisher = createPublisher()
     const proposal = await publisher.proposal()
@@ -340,6 +348,11 @@ describe('named-instance development releases', () => {
    * expo, whatever the clock says.
    */
   it('restores both clients on a second approval of the same commit', async () => {
+    // The reuse this depends on is Turbo's `dist/**` outputs. If a client's build task
+    // grew a second output the restore would be partial, and a HIT would stop meaning
+    // "the whole client came back".
+    assertClientPackagingWritesOnlyDist()
+
     const version = '0.0.0-second-approval'
     const first = await buildClients(ROOT, [], { ...process.env, PODIUM_APP_VERSION: version })
     const second = await buildClients(ROOT, [], { ...process.env, PODIUM_APP_VERSION: version })
@@ -350,5 +363,51 @@ describe('named-instance development releases', () => {
     }
     expect(second.summaryPath).not.toBe(first.summaryPath)
   }, 900_000)
+
+  /**
+   * THE COORDINATOR BUILDS THE CLIENTS ONCE, NOT ONCE PER PLATFORM (POD-3054).
+   *
+   * This is the M3 claim, and the one the unit tests cannot make: they assert the
+   * command line the publisher hands its single child, not what the child then does
+   * with a two-platform list.
+   *
+   * It is measured by COUNTING TURBO RUN SUMMARIES around a real two-platform
+   * `prepareHeadlessCross`. One summary is one `turbo run build`, which is one client
+   * build lane; the per-platform packaging this replaced would leave two. Counting the
+   * summaries rather than reading the source means a refactor that reintroduced the
+   * per-platform session fails here even if it kept every name.
+   *
+   * The clients are warmed first, deliberately. The subject is how many times the
+   * coordinator reaches for the lane, not how long a cold client build takes — and
+   * warm is also the state that makes the second half of the claim checkable: with the
+   * cache populated for this commit, an approval of unchanged clients builds NOTHING,
+   * which shows up as HIT on both tasks inside that single run.
+   */
+  it('builds the clients once for a two-platform release, and restores them', async () => {
+    const summaries = (): string[] =>
+      existsSync(join(ROOT, '.turbo', 'runs')) ? readdirSync(join(ROOT, '.turbo', 'runs')) : []
+
+    // Warm this commit's clients THROUGH THE SAME ENTRY the coordinator uses. The
+    // build is keyed on PODIUM_APP_VERSION among other things, so warming with a bare
+    // `buildClients` would warm a different key and the run below would legitimately
+    // MISS — a green that proved nothing about reuse.
+    await beginFreshClientPackagingSession([])
+    const before = new Set(summaries())
+
+    await prepareHeadlessCross(
+      ['linux-x86_64', 'darwin-aarch64'],
+      join(scratch(), 'release'),
+    )
+
+    const written = summaries().filter((name) => !before.has(name))
+    // ONE lane for two platforms. Two would be the regression this milestone removed.
+    expect(written).toHaveLength(1)
+
+    const tasks = readRunSummary(ROOT, join(ROOT, '.turbo', 'runs', written[0] as string))
+    for (const task of CLIENT_BUILD_TASKS) {
+      // Nothing was built: an approval whose clients did not change costs no client build.
+      expect(tasks[task].cache, task).toBe('HIT')
+    }
+  }, 2_400_000)
 
 })
