@@ -5610,3 +5610,44 @@ created; no state-root, socket, tmux, HOME, or runtime-driver path was
 overridden. The operator sandbox remains stopped. The remaining confirmed
 acceptance blocker is the current-tip Grok A1c dead-send failure, which still
 requires the landed recovery fix to be re-driven.
+
+## FOREST — corrected current-tip Grok A1c re-drive (2026-08-28 05:48 CEST)
+
+The exact-current epic tip is `6e50dbc1c0945324f96f149ed28a1dfa7ef8c5f4`,
+clean and carrying the landed POD-2980 recovery change. The dedicated
+`grok2927v6` rig was pinned before the cell: server PID `3897750`, daemon PID
+`3897835`, and served web `bundle+BhuJzoDU`/source `6e50dbc` all matched the
+full SHA; the product selected `grok-acp/server` with Grok `0.2.118`
+(`1e1687c1cf`).
+
+The fresh live control answered, and the exact product stamp proved one child
+for session `679b34c6-1219-41d7-8cf1-a1547dce61b8`: UUID
+`ef93bbc8-ad88-48f3-83f3-9087bdbaaab7`, PID `3900945`, cwd
+`/tmp/pod-2927-grok-6e50/repo`. That PID alone was SIGKILLed and confirmed
+gone. `sessions.sendText` then returned `{ok:true, queued:true, position:1,
+disposition:"queued"}`. No typed refusal, resume offer, or assistant nonce
+arrived during the complete 120-second delayed window. The post-window ledger
+row eventually became `dead_letter` at `2026-08-28T03:27:37.096Z`, but that
+delayed state is not the immediate typed refusal or delivered assistant result
+required by the A1c scorer. The cell is therefore an authoritative `FAIL`,
+not a setup refusal; its full reading is
+`docs/evidence/pod-2927/readings/a1c-current-6e50.json`.
+
+The first probe invocation was discarded as a setup diagnostic because the
+canonical environment was not sourced and it tried the default port; the
+corrected retry sourced `drive-env.sh` and passed the pre-probe verifier. A
+fresh product-derived state root required the documented narrow
+`PODIUM_ADOPT_STATE=1` exception after the product created its runtime/tmux
+directories. No product path or runtime-driver override was set. The heavy
+lease was acquired without queueing only for the web build and released before
+the scored retry. Host admission at `05:25:06 CEST` recorded
+`MemAvailable=6229368 kB`, `SwapFree=36858032 kB`, `load1=5.59`, root 98% full;
+swap activity settled to zero after the first sample. At `05:38:31 CEST` the
+coordinator stopped only the recorded server/daemon PIDs, found no process
+stamped with the instance, verified ports `19947/46947/46948` closed, and
+confirmed `test:heavy` free.
+
+This re-drive confirms the POD-2980 production change is still insufficient
+for the user-visible dead-send contract. A1c remains the confirmed Grok
+release blocker and is handed back to POD-2980/POD-3024; no additional product
+edit was made by the acceptance coordinator.

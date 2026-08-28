@@ -1,0 +1,127 @@
+{
+  "id": "A1c",
+  "label": "[fix] current-tip 6e50dbc1c exact-child re-drive after POD-2980",
+  "arm": "fix",
+  "harness": "grok-acp",
+  "verdict": "FAIL",
+  "summary": "The exact UUID+session-stamped Grok child was killed and confirmed gone, but the dead-session send was accepted at queue position 1 and its assistant nonce was lost through the full 120-second outcome window.",
+  "control": {
+    "fired": true,
+    "what": "A send to the same grok-acp/server session while alive was answered before the destructive control.",
+    "detail": "The live positive control answered; exactly one child carried the named instance UUID and target session ID; that exact PID was killed and gone."
+  },
+  "evidence": [
+    "The first probe invocation was a setup refusal before session creation because drive-env.sh was not sourced and it tried the default port 19847; it is retained as a diagnostic, not a cell result.",
+    "The corrected canonical pin verifier passed for server, daemon, served web, and policy arm at 6e50dbc1c0945324f96f149ed28a1dfa7ef8c5f4.",
+    "Product reported grok-acp with driver family server.",
+    "The live positive control answered before child death.",
+    "Instance UUID was ef93bbc8-ad88-48f3-83f3-9087bdbaaab7 from the product instance.json.",
+    "Exactly one stamped target existed: PID 3900945, cwd /tmp/pod-2927-grok-6e50/repo, /home/mgw/.local/bin/grok agent stdio.",
+    "SIGKILL was sent to PID 3900945; the exact PID was gone and no exact UUID+session target remained.",
+    "The post-kill receipt was {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}.",
+    "No typed refusal or resume offer appeared, and the assistant nonce did not arrive during the full 120000ms delayed window.",
+    "The post-window durable ledger shows the accepted message dead-lettered at 2026-08-28T03:27:37.096Z; that delayed state is not the immediate typed refusal or delivered assistant outcome required by the A1c scorer.",
+    "After the probe, the exact server PID 3897750 and daemon PID 3897835 were stopped; no process stamped with the instance remained, all three rig ports were closed, and test:heavy was free."
+  ],
+  "data": {
+    "sessionId": "679b34c6-1219-41d7-8cf1-a1547dce61b8",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "instanceId": "grok2927v6",
+    "instanceUuid": "ef93bbc8-ad88-48f3-83f3-9087bdbaaab7",
+    "cwd": "/tmp/pod-2927-grok-6e50/repo",
+    "target": {
+      "pid": 3900945,
+      "cwd": "/tmp/pod-2927-grok-6e50/repo",
+      "command": "/home/mgw/.local/bin/grok agent stdio",
+      "instanceUuid": "ef93bbc8-ad88-48f3-83f3-9087bdbaaab7",
+      "sessionId": "679b34c6-1219-41d7-8cf1-a1547dce61b8",
+      "signal": "SIGKILL",
+      "gone": true
+    },
+    "remainingExactStampedTargets": 0,
+    "sendReceipt": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "typedRefusal": false,
+    "resumeOffered": false,
+    "accepted": true,
+    "assistantNonceObserved": false,
+    "delayedOutcome": "lost",
+    "delayedWindowMs": 120000,
+    "postWindow": {
+      "sessionStatus": "exited",
+      "workState": "grok-acp",
+      "resumeKind": "grok-session",
+      "resumeValue": "01a04666-6656-7691-8445-12d94e781153",
+      "messagesLedgerId": "msg_81fd9eea-48c9-4f55-848c-266119a3801c",
+      "messagesLedgerStatus": "dead_letter",
+      "deadLetteredAt": "2026-08-28T03:27:37.096Z",
+      "sessionsListCount": 0,
+      "interactionsCount": 0
+    },
+    "grokVersion": "0.2.118 (1e1687c1cf) [stable]"
+  },
+  "pin": {
+    "codeCommit": "6e50dbc1c0945324f96f149ed28a1dfa7ef8c5f4",
+    "codeTree": "d9b892e260e111ddfba9b3ccf647259db34e42d5",
+    "server": {
+      "pid": 3897750,
+      "spawnSha": "6e50dbc1c0945324f96f149ed28a1dfa7ef8c5f4",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column"
+    },
+    "daemon": {
+      "pid": 3897835,
+      "spawnSha": "6e50dbc1c0945324f96f149ed28a1dfa7ef8c5f4",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column"
+    },
+    "servedWeb": {
+      "sourceSha": "6e50dbc",
+      "bundleVersion": "bundle+BhuJzoDU",
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "buildExit": "2026-08-28 05:20:41 CEST",
+      "port": 19947
+    },
+    "verifier": "passed at 2026-08-28 05:23 CEST; server/daemon/web/arm all matched"
+  },
+  "admission": {
+    "instance": "grok2927v6",
+    "stateRoot": "/home/mgw/.local/state/podium/grok2927v6",
+    "stateRootPreparation": "Without adoption, the product refused the non-empty root after creating only its runtime/tmux directories. The retry used PODIUM_ADOPT_STATE=1 solely for those product-created directories.",
+    "pathOverrides": {
+      "PODIUM_STATE_DIR": false,
+      "ABDUCO_SOCKET_DIR": false,
+      "TMUX_TMPDIR": false,
+      "HOME": false,
+      "PODIUM_RUNTIME_DRIVER": false
+    },
+    "uniqueCwd": true,
+    "noConcurrentProbe": true,
+    "testHeavyLease": "Acquired without queueing for the web build, released before the scored retry; free after teardown.",
+    "hostSnapshotCapturedAt": "2026-08-28 05:25:06 CEST",
+    "load1": 5.59,
+    "memAvailableKb": 6229368,
+    "swapFreeKb": 36858032,
+    "rootFilesystem": "5.0G free (98% used)",
+    "vmstatSwapInKbPerSec": [1145, 0, 0],
+    "vmstatSwapOutKbPerSec": [1293, 0, 0],
+    "cleanupVerifiedAt": "2026-08-28 05:38:31 CEST"
+  },
+  "criterionClauses": {
+    "productDriver": "PASS — product reported grok-acp/server.",
+    "liveSendPositiveControl": "PASS — the same session answered while alive.",
+    "exactDeadTargetAttribution": "PASS — one child carried the named instance UUID and exact target session ID.",
+    "deadSessionConfirmed": "PASS — SIGKILL was sent to PID 3900945 and that exact stamped PID was confirmed gone; no exact stamped target remained.",
+    "typedRefusalOrResumeOffered": "FAIL — the immediate receipt was accepted/queued with no typed refusal or resume offer.",
+    "neverLostMessage": "FAIL — the accepted message produced no assistant nonce during the full 120-second window; it only reached a delayed durable dead_letter state.",
+    "overall": "FAIL"
+  },
+  "runWindow": "2026-08-28 05:25:08–05:27:37 CEST",
+  "localTimestamp": "2026-08-28 05:38:31 CEST",
+  "rawRunDirectory": "/tmp/pod-2927-grok-6e50",
+  "rawTranscript": "readings/a1c-current-6e50.txt",
+  "defect": "POD-2980 follow-up"
+}
