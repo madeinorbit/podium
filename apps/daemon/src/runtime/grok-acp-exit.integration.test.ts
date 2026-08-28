@@ -80,7 +80,10 @@ printf '%s\\n' "$*" > "$PODIUM_TEST_SCOPE_ARGS"
 while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 if [ "$#" -eq 0 ]; then exit 64; fi
 shift
-"$@" &
+# dash redirects an async command's stdin to /dev/null even with <&0;
+# duplicate the wrapper's protocol pipe before backgrounding the ACP child.
+exec 3<&0
+"$@" <&3 &
 child=$!
 trap 'kill "$child" 2>/dev/null || true' TERM INT HUP
 wait "$child"
