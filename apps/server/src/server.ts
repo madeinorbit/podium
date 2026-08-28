@@ -83,11 +83,7 @@ import {
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
-import {
-  isRemoteUpdateConsumer,
-  selectRemoteUpdateConsumers,
-  wireDevBundlePublisher,
-} from './modules/updates/dev-publisher-wiring'
+import { isRemoteUpdateConsumer, wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
 import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import {
   createInstalledCoordinatorRestart,
@@ -696,15 +692,6 @@ export async function startServer(
     // Fleet skew belongs to rollout; it must never move the build's changelog baseline.
     proposalRunningVersion: appVersion,
     ...(appSourceDigest ? { proposalRunningSha: appSourceDigest } : {}),
-    remoteUpdateConsumers: () =>
-      selectRemoteUpdateConsumers(store.machines.listMachines(), hostMachineId, (machineId) => {
-        // POD-2861 owns degraded presence when a daemon is absent or refused.
-        // Here daemon presence says only whether this selected update consumer
-        // can execute the reachability probe now.
-        return registry.modules.machines.hasDaemon(asMachineId(machineId))
-      }),
-    probeArtifact: (url, machineId) =>
-      registry.modules.rpc.probeDevArtifact(url, asMachineId(machineId)),
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),

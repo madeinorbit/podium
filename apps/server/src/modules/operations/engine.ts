@@ -331,6 +331,31 @@ export class OperationEngine {
   }
 
   /**
+   * THE NOTE ABOUT PLACES THIS OPERATION IS NOT WAITING FOR CHANGED (POD-3040).
+   *
+   * `deferred` is a claim with a shelf life — "2 machines will follow when they
+   * reconnect" is true only while what they would follow still exists. When the
+   * kind decides it no longer does, the note has to be restated rather than
+   * left standing, because a stale reassurance is worse than none: the operator
+   * reads it as work still on its way.
+   *
+   * Generic, like {@link OperationEngine.admitDeferred}: the engine learns that
+   * a deferred place's reason changed, never what the reason means. It does NOT
+   * drive — restating a note adds no work to any step, so there is nothing for
+   * a runner to do about it.
+   */
+  async recordDeferred(
+    operationId: string,
+    deferred: readonly { id: string; name?: string; reason?: string }[],
+  ): Promise<void> {
+    await this.enqueue(operationId, async () => {
+      const operation = this.deps.store.get(operationId)?.operation
+      if (!operation || isTerminalOperationState(operation.state)) return
+      this.persist({ ...operation, deferred: [...deferred] } as PersistedOperation, this.now())
+    })
+  }
+
+  /**
    * SOMETHING OUTSIDE THE OPERATION CHANGED WHAT THIS STEP COULD DO (POD-2167).
    *
    * `ensure()` is idempotent and reality-first, so running it again is always

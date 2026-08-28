@@ -21,6 +21,7 @@ import { DevBundleUnavailableError } from './dev-bundle'
 import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import {
   admissibleDeferredPlaces,
+  supersededDeferredPlaces,
   classifyMachineFailure,
   createUpdateFleetBridge,
   DESKTOP_INSTALL_ASK,
@@ -312,7 +313,7 @@ describe('planUpdateOperation', () => {
         target: identityTarget(),
         fleet: [
           machine({ id: 'src', installKind: 'source', deliveryCaps: SOURCE_CAPS }),
-          machine({ id: 'vmi', deliveryCaps: FEED_CAPS }),
+          machine({ id: 'vmi' }),
         ],
       }),
     )
@@ -372,7 +373,7 @@ describe('planUpdateOperation', () => {
       planInput({
         target: identityTarget(),
         canPrepare: false,
-        fleet: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
+        fleet: [machine({ id: 'vmi' })],
       }),
     )
     expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
@@ -1516,7 +1517,7 @@ describe('the step runners', () => {
     // all (POD-2195); with nobody needing one the plan would not contain the
     // step this test is about.
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
+      machines: [machine({ id: 'vmi' })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       requestDestBundle,
@@ -1556,7 +1557,7 @@ describe('the step runners', () => {
       publicReason: 'The website has not been built for HEAD (abc1234) yet.',
     })
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
+      machines: [machine({ id: 'vmi' })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       requestDestBundle: () => Promise.reject(refusal),
@@ -2151,7 +2152,7 @@ describe('the step runners', () => {
    */
   it('machines: waits for the package when no awaited machine can take the identity', async () => {
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
+      machines: [machine({ id: 'vmi' })],
       target: identityTarget(),
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
@@ -2395,7 +2396,7 @@ describe('surviving the coordinator restart', () => {
    */
   it('fails the update with the configuration remedy instead of waiting for a package', async () => {
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
+      machines: [machine({ id: 'vmi' })],
       servedWebDigest: () => WEB_DIGEST,
       appVersion: 'dev+abc1234',
       requestDestBundle: () =>
@@ -2438,7 +2439,7 @@ describe('surviving the coordinator restart', () => {
    * the operation published it instantly with nothing else changed.
    */
   it('completes an operation adopted across a restart, package and all', async () => {
-    const fleet = [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })]
+    const fleet = [machine({ id: 'vmi' })]
     // The publisher republishes into whichever process is alive — which is the
     // whole point: after the restart that is the successor, with no memory.
     let publisher: UpdatesService | undefined
@@ -2625,6 +2626,7 @@ describe('the fleet bridge', () => {
         active: () => undefined,
         recordProgress,
         admitDeferred,
+        recordDeferred: () => Promise.resolve(),
         reensure: () => Promise.resolve(),
         recordDetails: () => undefined,
       },
@@ -2828,6 +2830,145 @@ describe('the fleet bridge', () => {
     const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.places?.map((place) => place.id)).toEqual(['vmi', 'laptop'])
   })
+  /**
+   * MIXED FLEET, ONE MACHINE ASLEEP (POD-3040).
+   *
+   * Publication no longer waits on the sleeping machine, so this is the shape
+   * every dev release now lands in: the online machines are waved, the offline
+   * one is deferred with its own reason, and the operation's outcome is a
+   * statement about the machines it actually addressed.
+   */
+  it('waves the online machines and defers the sleeping one without holding the operation open', async () => {
+    const fleet = [
+      machine({ id: 'vmi' }),
+      machine({ id: 'laptop', online: false }),
+    ]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      requestCoordinatorRestart: vi.fn(),
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    expect(step?.places?.map((place) => place.id)).toEqual(['vmi'])
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+  })
+
+  /**
+   * …AND AN ONLINE MACHINE WHOSE ROUTE FAILS FAILS ONLY ITSELF, with the
+   * diagnostic it always had. The sleeping machine is not blamed for it and
+   * stays deferred: it was never asked.
+   */
+  it('fails the machine whose artifact route failed, naming it, and leaves the deferred one alone', async () => {
+    const fleet = [
+      machine({ id: 'vmi', name: 'vmi3407763' }),
+      machine({ id: 'laptop', online: false }),
+    ]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      requestCoordinatorRestart: vi.fn(),
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'stuck',
+      version: '0.4.1',
+      detail: 'artifact address unreachable: https://source.test/a.tgz — ECONNREFUSED',
+    })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe('artifact-unreachable')
+    expect(operation.error?.detail).toContain('https://source.test/a.tgz')
+    // The offline machine is neither blamed nor silently swept into the failure.
+    expect(operation.error?.places ?? []).not.toContain('laptop')
+    expect(operation.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+  })
+
+  /**
+   * RETENTION IS FINITE, SO A DEFERRED TARGET CAN SIMPLY BE GONE (POD-3040).
+   *
+   * The machine slept through a newer publish and the sweep reclaimed the
+   * tarballs of the release this operation planned. Admitting it now would
+   * grant it whatever is published TODAY while every arrival check here is
+   * fenced to this operation's version — bytes for another version, counted as
+   * nothing. It is told instead, and converges on the current target as
+   * ordinary work.
+   */
+  it('tells a deferred machine its target was superseded rather than granting it another version', () => {
+    const fleet = [machine({ id: 'laptop' })]
+    const h = harness({ machines: fleet, target: packedTarget() })
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'laptop', name: 'laptop', reason: 'offline' }],
+    } as Operation
+    const details = { target: packedTarget(), channel: 'dev' as const }
+
+    // Reconnected, eligible, and it WOULD have been admitted a moment ago.
+    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([
+      { id: 'laptop', name: 'laptop', state: 'pending' },
+    ])
+
+    // A newer release is published while it was away, and retention will sweep
+    // the one this operation planned.
+    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+
+    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
+    expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+  })
+
+  it('restates a superseded deferred reason once, not on every fleet event', () => {
+    const h = harness({ machines: [machine({ id: 'laptop' })], target: packedTarget() })
+    const details = { target: packedTarget(), channel: 'dev' as const }
+    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    const restated = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }],
+    } as Operation
+
+    expect(supersededDeferredPlaces(restated, details, h.updates)).toBeUndefined()
+  })
+
+  it('refuses to admit a deferred place while the channel is offering nothing', () => {
+    const fleet = [machine({ id: 'laptop' })]
+    const h = harness({ machines: fleet, target: packedTarget() })
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'laptop', name: 'laptop', reason: 'offline' }],
+    } as Operation
+    const details = { target: packedTarget(), channel: 'dev' as const }
+
+    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+
+    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
+    expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-unavailable' },
+    ])
+  })
+
   it('does not re-admit a source checkout from a persisted deferred place', () => {
     const fleet = [machine({ id: 'source', installKind: 'source' })]
     const h = harness({ machines: fleet })
@@ -3665,6 +3806,7 @@ describe('a wave whose canary arrived without an attach', () => {
         active: () => ({ id: 'op_1', kind: UPDATE_OPERATION_KIND, operation }),
         recordProgress,
         admitDeferred: async () => {},
+        recordDeferred: async () => {},
         reensure,
         recordDetails: () => undefined,
       },

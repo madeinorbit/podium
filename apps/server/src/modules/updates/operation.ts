@@ -2277,6 +2277,8 @@ export function createUpdateFleetBridge(deps: {
       placeIds: readonly string[],
       patch: StepProgressPatch,
     ): Promise<void>
+    /** Restate the note about places this operation is NOT waiting for (POD-3040). */
+    recordDeferred(id: string, deferred: readonly DeferredPlace[]): Promise<void>
     reensure(id: string, stepId: string, patch?: StepProgressPatch): Promise<void>
     /** Where this bridge writes the wave rounds it just watched happen (POD-2754). */
     recordDetails(id: string, patch: Record<string, unknown>): unknown
@@ -2315,6 +2317,12 @@ export function createUpdateFleetBridge(deps: {
       // so its first appearance in the payload is already inside the step's
       // places and its own progress — never as a place the panel has to
       // discover in a later frame.
+      // Before admission, because the two are the same question asked of the
+      // same fact: an operation whose exact target is gone admits nobody, and
+      // the places it was holding open are owed the reason (POD-3040).
+      const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
+      if (restated) void deps.engine.recordDeferred(row.id, restated)
+
       const admitted = admissibleDeferredPlaces(row.operation, details, deps.updates)
       if (admitted.length > 0) {
         const places = [...(step.places ?? []), ...admitted]
@@ -2437,7 +2445,18 @@ export function admissibleDeferredPlaces(
 ): StepPlace[] {
   const deferred = operation.deferred ?? []
   if (deferred.length === 0) return []
-  const published = updates.target(details.channel) ?? details.target
+  const published = exactPublishedTarget(details, updates)
+  // THE EXACT TARGET IS GONE (POD-3040), so nobody joins this wave.
+  //
+  // Retention is finite: a newer publication supersedes this operation's
+  // target and the sweep reclaims its tarballs under the ordinary window. A
+  // machine that slept through that must not be admitted here — the grant it
+  // would receive carries whatever is published NOW, while every arrival check
+  // in this operation is fenced to `details.target.version`, so it would
+  // download a version this operation can never count and then be reported as
+  // silent. {@link supersededDeferredPlaces} gives it the honest word instead,
+  // and the ordinary reconciler converges it on the newest orderable target.
+  if (!published) return []
   const deliveries = offeredDeliveries(published)
   const fleet = new Map(updates.fleet().map((machine) => [machine.id, machine]))
   const admitted: StepPlace[] = []
@@ -2456,6 +2475,63 @@ export function admissibleDeferredPlaces(
     })
   }
   return admitted
+}
+
+/**
+ * THIS OPERATION'S TARGET, OR NOTHING (POD-3040).
+ *
+ * An operation is a promise about ONE immutable release, and every place it
+ * counts is judged against `details.target.version`. So the published target
+ * is usable here only while it is still that exact version; anything else —
+ * a newer publication, or a withdrawn channel — means the operation's target
+ * is no longer on offer, and falling back to `details.target` would have this
+ * operation reason from a release the server can no longer serve.
+ */
+function exactPublishedTarget(
+  details: UpdateOperationDetails,
+  updates: UpdatesService,
+): UpdateTarget | undefined {
+  const published = updates.target(details.channel)
+  if (!published) return undefined
+  return published.version === details.target.version ? published : undefined
+}
+
+/** §3.6: a deferred place whose exact target is no longer the one on offer. */
+export const DEFERRED_TARGET_SUPERSEDED = 'target-superseded'
+/** §3.6: a deferred place whose channel is currently offering nothing at all. */
+export const DEFERRED_TARGET_UNAVAILABLE = 'target-unavailable'
+
+/**
+ * THE WORD A DEFERRED MACHINE IS OWED WHEN ITS RELEASE IS GONE (POD-3040).
+ *
+ * Deferring an offline machine is what lets publication proceed without it,
+ * and the note it leaves — "will update when it reconnects" — is true only
+ * while the release it was deferred against still exists. Retention is finite,
+ * so eventually it does not: the sweep reclaims the tarballs a newer publish
+ * superseded, and the address in this operation's plan answers `not found`.
+ *
+ * Saying so is the whole obligation. The alternative — quietly handing the
+ * machine the newest bytes under this operation's name — would report a
+ * version this operation never planned as this operation's success, which is
+ * exactly the lie the exact-target fence exists to prevent. The machine is not
+ * stranded by the honesty: the ordinary reconciler converges it on whatever is
+ * published now, as a new operation, under its own name.
+ *
+ * Returns the rewritten deferred list, or `undefined` when nothing changed.
+ */
+export function supersededDeferredPlaces(
+  operation: Operation,
+  details: UpdateOperationDetails,
+  updates: UpdatesService,
+): DeferredPlace[] | undefined {
+  const deferred = operation.deferred ?? []
+  if (deferred.length === 0) return undefined
+  if (exactPublishedTarget(details, updates)) return undefined
+  const reason = updates.target(details.channel)
+    ? DEFERRED_TARGET_SUPERSEDED
+    : DEFERRED_TARGET_UNAVAILABLE
+  if (deferred.every((place) => place.reason === reason)) return undefined
+  return deferred.map((place) => ({ ...place, reason }))
 }
 
 /**

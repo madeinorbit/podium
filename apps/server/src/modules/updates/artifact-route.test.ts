@@ -16,7 +16,7 @@ import {
   developmentArtifactUrl,
   selectDevelopmentArtifactOrigin,
   wireDevBundlePublisher,
-  selectRemoteUpdateConsumers,
+  isRemoteUpdateConsumer,
 } from './dev-publisher-wiring'
 
 const bytes = new Uint8Array([9, 8, 7, 6])
@@ -194,45 +194,18 @@ describe('development artifact route', () => {
     }
   })
 
-  it('selects update consumers by reported feed capability, not pairing policy', () => {
-    const onlineChecks: string[] = []
+  it('counts a registered remote consumer by reported feed capability, not pairing policy', () => {
+    // Membership decides one thing: whether an externally reachable origin is
+    // mandatory. It says nothing about whether the machine is up (POD-3040).
     const machines = [
-      {
-        id: 'source-host',
-        name: 'Source host',
-        podiumManaged: true,
-        deliveryCaps: ['update.delivery.feed'],
-      },
-      {
-        id: 'careful-remote',
-        name: 'Security-conscious remote',
-        podiumManaged: false,
-        deliveryCaps: ['update.delivery.feed'],
-      },
-      {
-        id: 'managed-nonconsumer',
-        name: 'Managed source checkout',
-        podiumManaged: true,
-        deliveryCaps: ['shipping.train.v2'],
-      },
+      { id: 'source-host', deliveryCaps: ['update.delivery.feed'] },
+      { id: 'careful-remote', deliveryCaps: ['update.delivery.feed'] },
+      { id: 'managed-nonconsumer', deliveryCaps: ['shipping.train.v2'] },
     ]
 
     expect(
-      selectRemoteUpdateConsumers(machines, 'source-host', (machineId) => {
-        onlineChecks.push(machineId)
-        return true
-      }),
-    ).toEqual([
-      {
-        id: 'careful-remote',
-        name: 'Security-conscious remote',
-        online: true,
-        // Declares feed delivery but not the probe capability, so it IS a
-        // consumer and is NOT asked to prove reachability.
-        probeCapable: false,
-      },
-    ])
-    expect(onlineChecks).toEqual(['careful-remote'])
+      machines.filter((machine) => isRemoteUpdateConsumer(machine, 'source-host')).map((m) => m.id),
+    ).toEqual(['careful-remote'])
   })
 
   it('uses loopback only for a same-host update fleet', () => {
@@ -400,13 +373,45 @@ describe('development artifact route', () => {
   })
 
   describe('the release publication boundary', () => {
+    /**
+     * The publisher this boundary composes over. Hoisted out of `wiringFor` so
+     * a test can replace ONE of its answers — what the artifact route serves —
+     * without restating the other ten.
+     */
+    let publications = 0
+    const publisherFor = () => ({
+      requestBuild: async () => built,
+      current: () => built,
+      publishedArtifact: async (version: string, platform?: string) =>
+        resolveBuiltArtifact(built, version, platform),
+      target: async () => undefined,
+      feedManifest: async () => undefined,
+      publishFeed: async () => {
+        publications += 1
+        return true
+      },
+      proposal: async () => undefined,
+      feedManifestPath: () => manifestPath,
+      desktopManifestPath: () => desktopManifestPath,
+      desktopManifestSource: () => undefined,
+      readiness: async () => ({
+        state: 'ready' as const,
+        headSha: 'abc1234',
+        version: built.version,
+      }),
+      unavailable: () => undefined,
+    })
+
     const wiringFor = (over: Partial<Parameters<typeof wireDevBundlePublisher>[0]> = {}) => {
-      let publications = 0
+      publications = 0
       const unavailable: string[] = []
       const wiring = wireDevBundlePublisher({
         sourceRoot: '/repo/podium',
         artifactOrigin: 'http://source:18787',
         localArtifactOrigin: () => 'http://127.0.0.1:18787',
+        // A remote consumer IS registered throughout this describe, and none of
+        // these tests says whether it is online: after POD-3040 that fact is
+        // not an input to publication at all.
         hasRemoteUpdateConsumers: () => true,
         artifactToken: 'random-token',
         signingKey: 'test-key',
@@ -418,94 +423,125 @@ describe('development artifact route', () => {
           renew: () => {},
           release: () => {},
         },
-        createPublisher: () => ({
-          requestBuild: async () => built,
-          current: () => built,
-          publishedArtifact: async (version, platform) =>
-            resolveBuiltArtifact(built, version, platform),
-          target: async () => undefined,
-          feedManifest: async () => undefined,
-          publishFeed: async () => {
-            publications += 1
-            return true
-          },
-          proposal: async () => undefined,
-          feedManifestPath: () => manifestPath,
-          desktopManifestPath: () => desktopManifestPath,
-          desktopManifestSource: () => undefined,
-          readiness: async () => ({
-            state: 'ready' as const,
-            headSha: 'abc1234',
-            version: built.version,
-          }),
-          unavailable: () => undefined,
-        }),
+        createPublisher: () => publisherFor() as never,
         ...over,
       })
       return { wiring, publications: () => publications, unavailable }
     }
 
-    it('refuses an unreachable remote address before publication and proceeds once reachable', async () => {
-      const address = 'http://source:18787'
-      const probed: { url: string; machineId: string }[] = []
-      let reachable = false
-      const { wiring, publications, unavailable } = wiringFor({
-        remoteUpdateConsumers: () => [
-          { id: 'linux-1', name: 'Linux host', online: true, probeCapable: true },
-          { id: 'mac-1', name: 'joined Mac', online: true, probeCapable: true },
-        ],
-        probeArtifact: async (url, machineId) => {
-          probed.push({ url, machineId })
-          return reachable || machineId === 'linux-1'
-            ? { ok: true, status: 200 }
-            : { ok: false, detail: 'Unable to connect' }
-        },
-      })
+    /**
+     * ONE SLEEPING LAPTOP IS NOT A RELEASE DEFECT (POD-3040).
+     *
+     * Publication used to ask every registered remote consumer to fetch every
+     * artifact URL first, and an OFFLINE consumer failed that proof closed — so
+     * a machine being asleep withheld the release from the whole fleet, with
+     * "wake it or remove it from the update fleet" as the only remedy. Nothing
+     * about the release or the address was wrong. Publication now states only
+     * what this server can serve; who can reach it is delivery, and delivery is
+     * the updater's job, machine by machine.
+     */
+    it('publishes while every registered remote consumer is offline', async () => {
+      const { wiring, publications, unavailable } = wiringFor()
 
-      await expect(wiring.requestBuild()).rejects.toThrow(address)
-      expect(publications()).toBe(0)
-      expect(unavailable.at(-1)).toContain(address)
-      expect(unavailable.at(-1)).toContain('joined Mac')
-      expect(probed).toHaveLength(2)
-      for (const probe of probed) {
-        expect(new URL(probe.url).searchParams.get('token')).toBe('random-token')
-      }
-
-      reachable = true
       await expect(wiring.requestBuild()).resolves.toEqual(built)
       expect(publications()).toBe(1)
-      expect(new Set(probed.slice(2).map(({ machineId }) => machineId))).toEqual(
-        new Set(['linux-1', 'mac-1']),
-      )
-      expect(new Set(probed.slice(2).map(({ url }) => new URL(url).pathname))).toEqual(
-        new Set([
-          '/updates/feed/dev/artifact/dev%2Babc1234/linux-x86_64',
-          '/updates/feed/dev/artifact/dev%2Babc1234/darwin-aarch64',
-        ]),
-      )
-
-      // Retrying the same built candidate with the same fleet does not fan out
-      // another proof; a roster or URL change invalidates this key.
-      const proofCount = probed.length
-      await expect(wiring.requestBuild()).resolves.toEqual(built)
-      expect(probed).toHaveLength(proofCount)
-      expect(publications()).toBe(2)
+      expect(unavailable).toEqual([])
     })
 
-    it('withholds the release while a registered remote is asleep', async () => {
-      const probed: string[] = []
+    it('publishes for a mixed fleet without asking the online machines anything', async () => {
+      // The mixed case is the one the old gate got most wrong: the online
+      // machines were reachable, and the release was still withheld from them.
+      const { wiring, publications, unavailable } = wiringFor()
+
+      await expect(wiring.requestBuild()).resolves.toEqual(built)
+      await expect(wiring.requestBuild()).resolves.toEqual(built)
+      expect(publications()).toBe(2)
+      expect(unavailable).toEqual([])
+    })
+
+    it('publishes on a server-only fleet from its loopback origin', async () => {
+      // No remote consumer is registered, so no external address is required
+      // and same-host testing publishes exactly as it always did.
       const { wiring, publications, unavailable } = wiringFor({
-        remoteUpdateConsumers: () => [{ id: 'sleeping-1', name: 'Sleeping Mac', online: false, probeCapable: true }],
-        probeArtifact: async (url) => {
-          probed.push(url)
-          return { ok: true, status: 200 }
+        artifactOrigin: undefined,
+        hasRemoteUpdateConsumers: () => false,
+      })
+
+      await expect(wiring.requestBuild()).resolves.toEqual(built)
+      expect(publications()).toBe(1)
+      expect(unavailable).toEqual([])
+    })
+
+    /**
+     * WHAT THE GATE STILL REFUSES: an address this server knows its fleet
+     * cannot use. Registration alone makes the origin mandatory — being online
+     * was never what made a loopback URL wrong for a remote machine.
+     */
+    it('still refuses a loopback origin while a remote consumer is registered and offline', async () => {
+      const { wiring, publications, unavailable } = wiringFor({
+        artifactOrigin: undefined,
+      })
+
+      await expect(wiring.requestBuild()).rejects.toSatisfy(
+        (error: unknown) =>
+          error instanceof DevBundleUnavailableError && /Public URL/.test(error.publicReason),
+      )
+      expect(publications()).toBe(0)
+      expect(unavailable).toEqual([])
+    })
+
+    /**
+     * …AND A ROUTE THIS SERVER CANNOT SERVE ITSELF.
+     *
+     * A URL inside a signed manifest cannot be repaired, so the artifacts the
+     * manifest is about to name are resolved through the same published-artifact
+     * path the route serves from, before the manifest is written. This one is
+     * local, needs no machine, and cannot time out.
+     */
+    it('refuses before publication when a built artifact is no longer on disk', async () => {
+      const { wiring, publications, unavailable } = wiringFor({
+        // Retention swept the Mac tarball out from under this publish.
+        artifactSize: async (path: string) =>
+          path === darwinArtifact ? undefined : bytes.length,
+      })
+
+      await expect(wiring.requestBuild()).rejects.toThrow(/is not on disk/)
+      expect(publications()).toBe(0)
+      expect(unavailable.at(-1)).toContain('darwin-aarch64')
+    })
+
+    it('refuses before publication when an artifact is not the size publication signed', async () => {
+      const { wiring, publications, unavailable } = wiringFor({
+        artifactSize: async () => 1,
+      })
+
+      await expect(wiring.requestBuild()).rejects.toThrow(/would be refused/)
+      expect(publications()).toBe(0)
+      expect(unavailable.at(-1)).toMatch(/no longer matches what was signed/)
+    })
+
+    /**
+     * A REBUILD AT THE SAME HEAD MINTS THE SAME URLS, so the proof may not be
+     * keyed on the address alone: the second bundle would inherit the first
+     * one's verdict and publish unchecked.
+     */
+    it('re-proves a re-packed bundle rather than reusing the address it published under', async () => {
+      const checked: string[] = []
+      const { wiring, publications } = wiringFor({
+        artifactSize: async (path: string) => {
+          checked.push(path)
+          return path === artifact ? bytes.length : darwinBytes.length
         },
       })
 
-      await expect(wiring.requestBuild()).rejects.toThrow('offline machine sleeping-1')
-      expect(publications()).toBe(0)
-      expect(probed).toEqual([])
-      expect(unavailable.at(-1)).toContain('Wake it or remove it from the update fleet')
+      await expect(wiring.requestBuild()).resolves.toEqual(built)
+      const afterFirst = checked.length
+      expect(afterFirst).toBe(2)
+
+      // Same version, same URLs, same bytes: the proof is reused.
+      await expect(wiring.requestBuild()).resolves.toEqual(built)
+      expect(checked).toHaveLength(afterFirst)
+      expect(publications()).toBe(2)
     })
   })
 

@@ -18,10 +18,10 @@
  * separate capabilities in either profile.
  */
 
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
-import { ARTIFACT_PROBE_CAPABILITY } from '@podium/protocol/daemon'
 import {
   timeReleaseBuildTask,
   type ReleaseBuildTimingDeps,
@@ -148,18 +148,15 @@ export function selectDevelopmentArtifactOrigin(input: {
   return input.localOrigin
 }
 
-export interface RemoteUpdateConsumer {
-  readonly id: string
-  readonly name: string
-  readonly online: boolean
-  /** Whether this consumer's daemon can answer the reachability probe at all. */
-  readonly probeCapable: boolean
-}
-
 /**
- * Proof membership follows the daemon-reported delivery contract used by the
- * wave planner. Pairing policy is deliberately absent: a machine that accepts
- * feed updates needs this guarantee whether or not Podium manages its agents.
+ * WHO MAKES THE ORIGIN MANDATORY (POD-3040).
+ *
+ * Membership follows the daemon-reported delivery contract used by the wave
+ * planner, and it deliberately says nothing about whether the machine is up:
+ * a registered remote consumer is one whenever it wakes, so the address this
+ * server publishes has to be one it could fetch from either way. Pairing
+ * policy is equally absent — a machine that accepts feed updates needs a
+ * reachable address whether or not Podium manages its agents.
  */
 export function isRemoteUpdateConsumer(
   machine: {
@@ -171,35 +168,6 @@ export function isRemoteUpdateConsumer(
   return machine.id !== hostMachineId && machine.deliveryCaps.includes('update.delivery.feed')
 }
 
-export function selectRemoteUpdateConsumers(
-  machines: readonly {
-    readonly id: string
-    readonly name: string
-    readonly deliveryCaps: readonly string[]
-  }[],
-  hostMachineId: string,
-  isOnline: (machineId: string) => boolean,
-): RemoteUpdateConsumer[] {
-  return machines
-    .filter((machine) => isRemoteUpdateConsumer(machine, hostMachineId))
-    .map((machine) => ({
-      id: machine.id,
-      name: machine.name,
-      online: isOnline(machine.id),
-      // WHETHER THIS CONSUMER CAN ANSWER THE PROBE AT ALL.
-      //
-      // It is still an update consumer either way — it will receive this
-      // release. This says only whether asking it is meaningful. The probe
-      // shipped WITH the reachability guard, so no daemon predating it can
-      // reply, and a timeout counts as a failed proof: the first release
-      // carrying the probe could therefore never be published, because every
-      // consumer was by definition still on code without it. Seen on a live
-      // fleet, refusing publication and naming a machine that was not
-      // unreachable, only deaf to the question.
-      probeCapable: machine.deliveryCaps.includes(ARTIFACT_PROBE_CAPABILITY),
-    }))
-}
-
 export function wireDevBundlePublisher(deps: {
   /** Absent (an installed server) disables the whole thing. */
   readonly sourceRoot: string | undefined
@@ -207,7 +175,10 @@ export function wireDevBundlePublisher(deps: {
   readonly artifactOrigin: string | undefined
   /** Loopback origin used only when the registered update fleet is same-host. */
   readonly localArtifactOrigin: () => string
-  /** Read at publication time so a newly joined remote machine fails closed immediately. */
+  /**
+   * Read at publication time so a newly joined remote machine makes the
+   * external origin mandatory immediately — whether or not it is online.
+   */
   readonly hasRemoteUpdateConsumers: () => boolean
   /**
    * The platforms the registered fleet actually runs — what this host mints bundles
@@ -217,13 +188,13 @@ export function wireDevBundlePublisher(deps: {
   /** Product version and source commit captured by the server producing this proposal. */
   readonly proposalRunningVersion?: string
   readonly proposalRunningSha?: string
-  /** Every remote that could later be offered this immutable release. */
-  readonly remoteUpdateConsumers?: () => readonly RemoteUpdateConsumer[]
-  /** Executes the exact authenticated artifact request from the named daemon. */
-  readonly probeArtifact?: (
-    url: string,
-    machineId: string,
-  ) => Promise<{ ok: boolean; status?: number; detail?: string }>
+  /**
+   * How big is the artifact on disk right now? `undefined` means "not there".
+   *
+   * A seam rather than a bare `stat` so the publication boundary can be tested
+   * without a quarter-gigabyte fixture; production uses the default below.
+   */
+  readonly artifactSize?: (path: string) => Promise<number | undefined>
   readonly artifactToken: string
   readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
@@ -434,88 +405,94 @@ export function wireDevBundlePublisher(deps: {
   }
 
   /**
-   * A URL inside a signed manifest cannot be repaired. Before the manifest is
-   * written into the served feed, prove every registered remote update consumer
-   * can reach every exact, authenticated artifact route it could later receive.
+   * A URL INSIDE A SIGNED MANIFEST CANNOT BE REPAIRED — so it is proved HERE,
+   * on this host, against this host's own artifact store (POD-3040).
    *
-   * An offline registered machine fails closed deliberately: it remains a
-   * consumer when it wakes, so publishing without its proof would recreate the
-   * same permanent split-fleet risk. Wake it or remove it from the managed
-   * fleet, then retry the publication.
+   * This used to ask every registered remote consumer to fetch every artifact
+   * URL before the manifest was written, and an OFFLINE consumer failed the
+   * proof closed. That made one sleeping laptop a fleet-wide publication
+   * outage: nothing about the release was wrong, nothing about the address was
+   * wrong, and the operator's only remedy was to go and wake a machine. Worse,
+   * a consumer that simply did not answer cost the publication a probe timeout
+   * before saying so.
+   *
+   * Publication is now a statement about what THIS SERVER can serve, which is
+   * the only thing publication can honestly be:
+   *
+   *  - the source snapshot is built, and every artifact is signed, hashed and
+   *    described (the builder refuses an unsigned or unhashable one);
+   *  - every artifact the manifest is about to name is STILL ON DISK at the
+   *    size publication recorded — the check below;
+   *  - the origin those URLs are built on is externally reachable whenever ANY
+   *    remote consumer is registered, online or not ({@link artifactOriginFailure}).
+   *
+   * The disk check is the route's own early guard, asked one step earlier. The
+   * route refuses a file whose size is not the published one and 404s a file
+   * that is gone; a manifest naming either is a release every machine would
+   * fail to download, and the cheapest place to find that out is here, before
+   * the URL is signed into the feed. Size rather than a re-hash on purpose: the
+   * digest was computed over these exact bytes minutes ago, and re-reading a
+   * quarter-gigabyte tarball per platform to publish is a cost this host cannot
+   * absorb — an equal-size mutation is still caught end to end by the daemon's
+   * digest and signature checks, where it must be caught anyway.
+   *
+   * Whether a particular machine can reach the address is delivery, and
+   * delivery belongs to the updater: an offline machine is deferred, and an
+   * online machine whose route fails gets `artifact-unreachable` naming itself.
+   * One machine's network is not a property of the release.
    */
+  const artifactSize =
+    deps.artifactSize ??
+    (async (path: string) => {
+      try {
+        return (await stat(path)).size
+      } catch {
+        return undefined
+      }
+    })
   let provenArtifactKey: string | undefined
   let proofInFlight: { key: string; proof: Promise<void> } | undefined
 
-  const proveRemoteArtifactReachability = async (bundle: BuiltDevBundle): Promise<void> => {
-    if (!deps.hasRemoteUpdateConsumers()) return
+  const proveLocalArtifactRoutes = async (bundle: BuiltDevBundle): Promise<void> => {
+    // Throws the origin refusal when a remote consumer is registered and this
+    // server has no address it could hand one. Being ONLINE is not part of the
+    // question — a machine registered today is a consumer tomorrow.
     const origin = selectDevelopmentArtifactOrigin({
       externalOrigin: artifactOrigin,
       localOrigin: deps.localArtifactOrigin(),
-      hasRemoteUpdateConsumers: true,
+      hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
     })
-    const urls = [
-      ...new Set(
-        bundle.artifacts.map((artifact) =>
+    const routes = [
+      ...new Map(
+        bundle.artifacts.map((artifact) => [
           developmentArtifactUrl(origin, bundle.version, deps.artifactToken, artifact.platform),
-        ),
+          artifact,
+        ]),
       ),
-    ].sort()
-    // A consumer whose daemon cannot ANSWER the probe is skipped rather than
-    // failing the proof. The probe shipped with this guard, so no daemon
-    // predating it can reply and a timeout reads as a failed proof — which
-    // made the first release carrying the probe impossible to publish, every
-    // consumer being by definition still on code without it. Seen on a live
-    // fleet: publication refused naming a machine that was not unreachable,
-    // only deaf to the question. Such a machine takes this release unproven,
-    // then advertises the capability and is proven from the next one on.
-    const machines = [...(deps.remoteUpdateConsumers?.() ?? [])]
-      .filter((machine) => machine.probeCapable)
-      .sort((a, b) => a.id.localeCompare(b.id))
-    const key = JSON.stringify({ urls, machines: machines.map((machine) => machine.id) })
+    ].sort(([a], [b]) => a.localeCompare(b))
+    // KEYED ON THE BYTES, not only on the address. A rebuild at the same HEAD
+    // mints the same version and therefore the same URLs, so a key that named
+    // the addresses alone would let a re-packed bundle inherit the previous
+    // one's proof and publish unchecked.
+    const key = JSON.stringify(
+      routes.map(([url, artifact]) => [url, artifact.digest, artifact.size]),
+    )
     if (provenArtifactKey === key) return
     if (proofInFlight?.key === key) return proofInFlight.proof
 
     const proof = (async () => {
-      if (machines.length === 0) {
-        // Consumers exist — `hasRemoteUpdateConsumers` gated that above — but
-        // none can answer yet. Publish, and say plainly that the address went
-        // unchecked, because refusing here would mean never shipping the
-        // release that teaches them to answer.
-        log.warn('publishing without a remote reachability proof', {
-          origin,
-          reason: 'no registered update consumer advertises the artifact probe capability',
-        })
-        return
-      }
-      const offline = machines.find((machine) => !machine.online)
-      if (offline) {
-        throw new DevBundleUnavailableError(
-          `development artifact address ${origin} cannot be proved from offline machine ${offline.id}`,
-          `The update package address ${origin} could not be checked from ${offline.name} because that machine is offline. Wake it or remove it from the update fleet, then publish again.`,
-        )
-      }
-      if (!deps.probeArtifact) {
-        throw new DevBundleUnavailableError(
-          `development artifact address ${origin} cannot be proved: no remote probe is wired`,
-          `The update package address ${origin} could not be checked from another machine, so no release was published.`,
-        )
-      }
-
-      for (const url of urls) {
-        const results = await Promise.all(
-          machines.map(async (machine) => ({
-            machine,
-            outcome: await deps.probeArtifact?.(url, machine.id),
-          })),
-        )
-        const failed = results.find(({ outcome }) => !outcome?.ok)
-        if (failed) {
-          const detail =
-            failed.outcome?.detail ??
-            (failed.outcome?.status ? `HTTP ${failed.outcome.status}` : 'reachability failed')
+      for (const [url, artifact] of routes) {
+        const size = await artifactSize(artifact.path)
+        if (size === undefined) {
           throw new DevBundleUnavailableError(
-            `development artifact address ${origin} is unreachable from ${failed.machine.id}: ${detail}`,
-            `The update package address ${origin} could not be reached from ${failed.machine.name} (${detail}), so no release was published.`,
+            `development artifact ${artifact.path} is not on disk, so ${url} cannot be served`,
+            `The ${artifact.platform} update package is no longer on this server, so no release was published.`,
+          )
+        }
+        if (size !== artifact.size) {
+          throw new DevBundleUnavailableError(
+            `development artifact ${artifact.path} is ${size} bytes, not the published ${artifact.size}, so ${url} would be refused`,
+            `The ${artifact.platform} update package on this server no longer matches what was signed, so no release was published.`,
           )
         }
       }
@@ -549,7 +526,7 @@ export function wireDevBundlePublisher(deps: {
     const candidate = publisher.current()
     if (!candidate) return false
     try {
-      await proveRemoteArtifactReachability(candidate)
+      await proveLocalArtifactRoutes(candidate)
     } catch (error) {
       if (error instanceof DevBundleUnavailableError) {
         recordPublishFailure(error)

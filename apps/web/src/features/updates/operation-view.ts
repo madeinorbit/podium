@@ -410,7 +410,20 @@ function deferredNote(operation: Operation): string | undefined {
   const deferred = operation.deferred ?? []
   if (deferred.length === 0) return undefined
   const legacy = deferred.filter((place) => place.reason === 'legacy-instance-trust')
-  const reconnecting = deferred.filter((place) => place.reason !== 'legacy-instance-trust')
+  /**
+   * THE RELEASE THESE MACHINES WERE WAITING FOR IS GONE (POD-3040).
+   *
+   * Retention is finite, so a machine that slept through a newer publish is no
+   * longer waiting for anything this operation can deliver. "Will update when
+   * it reconnects" would be a reassurance about work that cannot happen, so it
+   * gets its own sentence — and one that says the machine is not stranded.
+   */
+  const gone = deferred.filter(
+    (place) => place.reason === 'target-superseded' || place.reason === 'target-unavailable',
+  )
+  const reconnecting = deferred.filter(
+    (place) => place.reason !== 'legacy-instance-trust' && !gone.includes(place),
+  )
   const notes: string[] = []
   if (legacy.length > 0) {
     const subject = deferredSubject(legacy)
@@ -420,6 +433,18 @@ function deferredNote(operation: Operation): string | undefined {
         ' host-local repair before ' +
         (legacy.length === 1 ? 'it can verify' : 'they can verify') +
         ' instance-signed development updates. Reconnecting will not clear this blocker.',
+    )
+  }
+  if (gone.length > 0) {
+    const subject = deferredSubject(gone)
+    const superseded = gone.some((place) => place.reason === 'target-superseded')
+    notes.push(
+      subject +
+        ' did not come back before this update\'s package was ' +
+        (superseded ? 'replaced by a newer one' : 'withdrawn') +
+        '. ' +
+        (gone.length === 1 ? 'It' : 'They') +
+        ' will take the current update instead.',
     )
   }
   if (reconnecting.length > 0) {
