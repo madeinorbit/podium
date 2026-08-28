@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-07-21T17:30:00Z",
+  "generatedAt": "2026-08-28T12:45:00Z",
   "title": "Design System: Podium",
   "extensions": {
     "colorMeta": {
@@ -30,7 +30,10 @@
     "motion": [
       { "name": "phase-crossfade", "value": "0.4s", "purpose": "Issue-color crossfade via registered --issue @property; gated on prefers-reduced-motion." },
       { "name": "control-transition", "value": "150ms", "purpose": "Button/hover state transitions." },
-      { "name": "spinner", "value": "braille 10-frame CSS content animation", "purpose": "The only perpetual motion, only while an agent computes; stillness means needs-you." }
+      { "name": "phase-morph", "value": "150–400ms ease-out", "purpose": "One-shot agent phase changes, followed by total stillness." },
+      { "name": "working-mark", "value": "1.5s travelling wave across eight dots", "purpose": "The only canonical working mark, shown only while an agent computes or a sent message is in transport; it rests fully lit under reduced motion." },
+      { "name": "working-meter", "value": "1.6s ease-in-out", "purpose": "A worklist row's running segment sweeps only while a session on that row is computing." },
+      { "name": "structural-layout", "value": "200–260ms", "purpose": "One-shot layout transitions for rows, branches, seats, and stage changes; latched against first paint and gated on prefers-reduced-motion." }
     ],
     "breakpoints": []
   },
@@ -109,7 +112,11 @@
       { "name": "The Machine Voice Rule", "body": "Anything the system says about itself — labels, timers, counts, IDs, terminal — is Geist Mono. Anything addressed to the human is Geist Sans.", "section": "typography" },
       { "name": "The Carved Rule (amended, POD-725)", "body": "If a resting surface needs to look different from its neighbor, change its tone or draw a hairline; it may not lift. The stage sheet is the single exception, and it is not a licence — the sheet reads as elevated because it is the only thing that does. Drop shadows are otherwise for things that will disappear.", "section": "elevation" },
       { "name": "The Frame Lifts (POD-725, POD-737)", "body": "Both themes step UP from their ground rather than cutting the chrome into it, and the stage ends up the brightest surface in each. Dark Ink: ground #16171a → work list and dock #191a1e → bar #1b1d21 → rail #1e2024 → tab strip #202228 → sheet #23262d → chip #252830. Paper: rail #eceae4 → ground #f2f1ed → work list #f4f3f0 → bar #f7f7f5 → tab strip #faf9f7 → sheet #ffffff. The old navy ramp ran the other way, with the bar as the darkest tier.", "section": "elevation" },
-      { "name": "Carving in light (Paper, POD-725)", "body": "The carve ink is the theme's, never black: Paper carves in #1d1c19 at 7% (engraved) and 10% (drop), because tone already groups the chrome in ~1 L-point steps. Only the two genuinely floating inks go deep — --carve-popover-far at 30%, for the popover and the stage sheet.", "section": "elevation" }
+      { "name": "Carving in light (Paper, POD-725)", "body": "The carve ink is the theme's, never black: Paper carves in #1d1c19 at 7% (engraved) and 10% (drop), because tone already groups the chrome in ~1 L-point steps. Only the two genuinely floating inks go deep — --carve-popover-far at 30%, for the popover and the stage sheet.", "section": "elevation" },
+      { "name": "The color belongs to the mission (POD-697)", "body": "A color slot is set on top-level tasks only. Everything downstream inherits that mission color, so a sub-task offers no color picker of its own.", "section": "components" },
+      { "name": "The predicate, not the device (POD-516 R3)", "body": "Perpetual motion is licensed only by an agent computing right now. Any surface-specific motion must gate on the same predicate and depict the thing that predicate is about.", "section": "components" },
+      { "name": "One mark, every surface (POD-1252)", "body": "Use the eight-dot braille cell with a 1.5s travelling wave as the only working mark. It scales by context, always uses the reserved working blue, and renders only while a session computes or a sent message is in transport. Under reduced motion, the wave stops and the cell rests fully lit.", "section": "components" },
+      { "name": "Structural motion is not state motion", "body": "Layout changes use a latched 200–260ms one-shot transition and never replay on first paint. They do not spend the stillness budget and must honor prefers-reduced-motion.", "section": "components" }
     ],
     "dos": [
       "Do use Superade Yellow only where action or attention is being asked — The Signal Rule.",
@@ -117,15 +124,16 @@
       "Do keep controls on the compact scale: 32px buttons, 12px type, 4px spacing grid, 6-10px radii.",
       "Do put machine voice (labels, timers, IDs, counts) in Geist Mono with tabular-nums where digits tick.",
       "Do separate surfaces by tonal tier and hairline seam, and carve inward when a field must read as pressed in; reserve drop shadows for the stage and for what will disappear.",
-      "Do honor prefers-reduced-motion: the issue-color crossfade and phase morphs already gate on it; new motion must too."
+      "Do honor prefers-reduced-motion: the issue-color crossfade and phase morphs already gate on it; new motion must too.",
+      "Do cap the transcript's measure on the COLUMN, not on anything inside it (POD-993, amending POD-747). POD-747 removed two nested caps and was right about the defect: caps on the row and on the prose produced three different right edges inside one pane, with the composer and the tail running full width underneath them. Its replacement — the pane is the measure — reads well to about a thousand pixels and then sets 150-character lines on a wide stage. So there is one cap, expressed as the scroller's own inline padding (max(32px, (100% - 888px)/2)): every voice obeys it because nothing inside sets a width, and below ~950px it collapses to exactly the flat gutter it replaces."
     ],
     "donts": [
       "Don't build SaaS dashboard clichés: metric-card grids, gradient accents, or marketing gloss inside the product.",
-      "Don't drift toward the AI-chat startup look: bubbly chat-first layouts, sparkle icons, purple gradients, mascot energy.",
+      "Don't drift toward the AI-chat startup look: sparkle icons, purple gradients, mascot energy, or a field of alternating bubbles. Amended by POD-993: the OPERATOR's turn in a transcript is a right-aligned card at a measure, because side is the cheapest possible statement of who spoke and it costs no colour, no label and no vertical space. The exception is one-sided and stays that way — the agent keeps the full column and the flat ground, and only the human's turn is a surface: the theme's one-step-off-the-sheet ground, a hairline rim, and a single lit pixel along its top edge, which is the same one resting elevation every other surface in this window is built from. The corner that points at the speaker is the one that is not round. Two columns of bubbles would halve the measure of the thing the reader actually came to read, which is the defect the original rule was aimed at.",
       "Don't ship enterprise-DevOps-console sprawl: cluttered toolbars, inconsistent panels, Jenkins/Grafana utilitarianism.",
       "Don't let it feel like Electron-app blandness — a website in a frame; the shell is an instrument with native manners.",
       "Don't flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is neutral ink, yellow, red, blue.",
-      "Don't add perpetual motion beyond the working spinner and timer; stillness is the 'needs you' signal and must stay legible.",
+      "Don't add perpetual motion that is not gated on the working mark's own predicate; stillness is the 'needs you' signal and must stay legible.",
       "Don't use white text on Superade Yellow — ink on yellow is always Dark Ink; and don't put #f5c518 in a text token at all (gold writes on ink, ochre on paper).",
       "Don't re-hue the neutrals. The dark chassis is neutral ink and the light one is warm stone; a tinted chrome competes with the issue-accent channel, whose whole premise is that a hue on a surface was chosen by somebody.",
       "Don't add a second resting shadow. The stage sheet is the window's one elevation, and it only reads as one while nothing else at rest casts anything."
