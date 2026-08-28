@@ -1,0 +1,45 @@
+import { describe, expect, it } from 'vitest'
+import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
+
+describe('Claude SDK provider failure classification', () => {
+  it('classifies monthly spend exhaustion as a non-retryable usage limit', () => {
+    expect(classifyClaudeSdkFailure("You've hit your monthly spend limit")).toEqual({
+      errorClass: 'usage_limit',
+      retryable: false,
+    })
+    expect(
+      classifyClaudeSdkFailure('HTTP 429: rate_limit: You have hit your monthly spend limit'),
+    ).toEqual({ errorClass: 'usage_limit', retryable: false })
+  })
+
+  it('keeps a transient 429 as retryable rate_limit', () => {
+    expect(classifyClaudeSdkFailure('stream error: 429 Too Many Requests')).toEqual({
+      errorClass: 'rate_limit',
+      retryable: true,
+    })
+  })
+
+  it('classifies expired or invalid auth as authentication, not usage', () => {
+    expect(classifyClaudeSdkFailure('401 Unauthorized — access token is expired')).toEqual({
+      errorClass: 'authentication',
+      retryable: false,
+    })
+    expect(classifyClaudeSdkFailure('invalid OAuth token; please log in')).toEqual({
+      errorClass: 'authentication',
+      retryable: false,
+    })
+    expect(classifyClaudeSdkFailure('not logged in — run /login')).toEqual({
+      errorClass: 'authentication',
+      retryable: false,
+    })
+  })
+
+  it('never copies credential material into stored detail', () => {
+    const leaked =
+      '401 Unauthorized for CLAUDE_CODE_OAUTH_TOKEN=oat_secretvalue sk-ant-secretkey Bearer abc.def'
+    const redacted = redactClaudeSdkFailureDetail(leaked)
+    expect(redacted).not.toMatch(/oat_secretvalue|sk-ant-secretkey|abc\.def/)
+    expect(redacted).toContain('[redacted]')
+    expect(classifyClaudeSdkFailure(leaked).errorClass).toBe('authentication')
+  })
+})

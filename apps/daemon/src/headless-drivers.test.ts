@@ -84,6 +84,16 @@ describe('buildHeadlessExec argv shapes', () => {
       HOME: '/accounts/managed',
       ANTHROPIC_API_KEY: 'server-selected-key',
     })
+
+    const subscription = headlessChildEnv('claude-code', {
+      HOME: '/accounts/claude-oauth',
+      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1',
+    })
+    expect(subscription).toMatchObject({
+      HOME: '/accounts/claude-oauth',
+      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1',
+    })
+    expect(subscription).not.toHaveProperty('ANTHROPIC_API_KEY')
   })
   it('codex first turn: exec --json with positional prompt, no resume subcommand', () => {
     const { cmd, args } = buildHeadlessExec('codex', { prompt: 'hi there' }, snapshot)

@@ -153,6 +153,17 @@ it('leaves a plain operator shell alone', async () => {
   expect(opts.stripEnv).toEqual([])
 })
 
+it('never strips a subscription OAuth token the server put on the frame', async () => {
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-oauth',
+    agentKind: 'claude-code',
+    env: { CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' },
+  })
+  expect(opts.stripEnv).not.toContain('CLAUDE_CODE_OAUTH_TOKEN')
+  expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe('oat-test-1')
+  expect(JSON.stringify(opts.stripEnv)).not.toMatch(/oat-test-1/)
+})
+
 it('never deletes a credential the server put on the frame', async () => {
   // THE LIMIT ON THE SCRUB, asserted first and on its own so that widening the
   // list can never quietly consume it: a key on the frame IS the account Podium

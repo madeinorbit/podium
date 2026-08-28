@@ -14,10 +14,12 @@ import { createClaudeCodeConversationProvider } from '../discovery/providers/cla
 import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
-  type HarnessEnvironment,
+  type DriverId,
   fileTranscript,
+  type HarnessEnvironment,
   isSet,
   promptArgv,
+  type SelectionContext,
   selectRuntimeDriver,
   supported,
   type TranscriptSourceInput,
@@ -41,6 +43,18 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
     ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
   })
   return path ? [path] : []
+}
+
+const CLAUDE_SDK_AUTH = new Set(['subscription', 'api-key', 'bedrock', 'vertex'])
+
+function selectClaudeRuntime(ctx: SelectionContext): DriverId {
+  if (ctx.preference === 'claude-pty' || ctx.preference === 'generic-pty') {
+    return selectRuntimeDriver(ctx, ['claude-pty'])
+  }
+  if (ctx.available.includes('claude-sdk')) {
+    if (ctx.preference === 'claude-sdk' || CLAUDE_SDK_AUTH.has(ctx.auth)) return 'claude-sdk'
+  }
+  return selectRuntimeDriver(ctx, ['claude-pty'])
 }
 
 export const claudeCodeManifest: AgentManifest = {
@@ -207,9 +221,11 @@ export const claudeCodeManifest: AgentManifest = {
     }
   }),
 
-  // §2's load-bearing selection: subscription auth is TERMINAL (the only
-  // compliant path for Claude Code), while an API-key / Bedrock / Vertex
-  // principal can run the Agent SDK in a runtime-owned worker child instead.
+  // §2's load-bearing selection: subscription / API-key / Bedrock / Vertex can
+  // run the Agent SDK in a runtime-owned worker child when that driver is
+  // available (the daemon only admits it after PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1).
+  // Without that admission, or on unknown/logged-out auth, the interactive PTY
+  // remains the total fallback.
   runtime: {
     server: unsupported(
       'Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot',
@@ -217,11 +233,7 @@ export const claudeCodeManifest: AgentManifest = {
     embedded: supported({
       driverId: 'claude-sdk',
       module: 'claude-agent-sdk',
-      // Subscription OAuth is deliberately ABSENT. The official position is that
-      // headless/SDK use wants an API key, and Anthropic's third-party-
-      // subscription policy is the binding constraint either way — which is
-      // exactly what keeps subscription sessions on the terminal driver below.
-      auth: ['api-key', 'bedrock', 'vertex'],
+      auth: ['subscription', 'api-key', 'bedrock', 'vertex'],
     }),
     terminal: {
       driverId: 'claude-pty',
@@ -231,15 +243,10 @@ export const claudeCodeManifest: AgentManifest = {
       // fallback, and `unverified` is the honest answer when even that times out.
       sendProof: ['hook', 'transcript-echo'],
     },
-    // The SDK is an explicit per-spawn experiment, never a default. The daemon
-    // registry resolves that request before constructing this spec; honoring
-    // the preference here lets the root runtime route the host-minted session
-    // to the embedded source without making a machine-wide preference opt in
-    // every Claude session.
-    select: (ctx) =>
-      ctx.preference === 'claude-sdk' && ctx.available.includes('claude-sdk')
-        ? 'claude-sdk'
-        : selectRuntimeDriver(ctx, ['claude-pty']),
+    // Availability is the ToS gate. An explicit terminal preference still opts
+    // out; a machine-wide SDK default is stripped before this function runs, so
+    // unknown auth cannot silently move every Claude session off the PTY path.
+    select: selectClaudeRuntime,
   },
   headless: supported({
     // One turn through the Claude Agent SDK; the first turn mints the session id

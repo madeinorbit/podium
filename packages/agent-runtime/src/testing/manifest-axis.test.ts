@@ -104,27 +104,43 @@ describe('the AgentManifest runtime axis', () => {
 })
 
 describe('per-harness selection (spec §2 matrix)', () => {
-  it('keeps Claude-on-subscription on the terminal driver', () => {
-    // The compliant path, and the reason the terminal family is permanent.
+  it('routes Claude subscription auth to the SDK when that driver is available', () => {
     expect(
       AGENT_MANIFESTS['claude-code'].runtime.select({
         auth: 'subscription',
         platform: 'linux',
         available: ['claude-pty', 'claude-sdk'],
       }),
+    ).toBe('claude-sdk')
+  })
+
+  it('keeps Claude-on-subscription on the terminal driver when the SDK is not admitted', () => {
+    expect(
+      AGENT_MANIFESTS['claude-code'].runtime.select({
+        auth: 'subscription',
+        platform: 'linux',
+        available: ['claude-pty'],
+      }),
     ).toBe('claude-pty')
   })
 
-  it('declares the embedded driver Claude-on-api-key will select', () => {
-    // Declared now, selected later: W1 records WHICH driver an API-key principal
-    // belongs on without routing anyone there.
+  it('lets an explicit terminal preference opt out of the admitted SDK', () => {
+    expect(
+      AGENT_MANIFESTS['claude-code'].runtime.select({
+        auth: 'subscription',
+        platform: 'linux',
+        available: ['claude-pty', 'claude-sdk'],
+        preference: 'claude-pty',
+      }),
+    ).toBe('claude-pty')
+  })
+
+  it('declares the embedded driver Claude subscription and API-key principals select', () => {
     const embedded = AGENT_MANIFESTS['claude-code'].runtime.embedded
     expect(embedded.supported).toBe(true)
     if (!embedded.supported) return
     expect(embedded.value.driverId).toBe('claude-sdk')
-    // Subscription OAuth is absent on purpose — that is what keeps subscription
-    // sessions on the terminal driver.
-    expect(embedded.value.auth).not.toContain('subscription')
+    expect(embedded.value.auth).toEqual(['subscription', 'api-key', 'bedrock', 'vertex'])
   })
 
   it.each([

@@ -137,17 +137,60 @@ const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
 
 export type DriverResolution = { ok: true; driverId: DriverId } | { ok: false; reason: string }
 
+function envFlag(
+  env: Readonly<Record<string, string | undefined>> | undefined,
+  key: string,
+): boolean {
+  const raw = env?.[key]?.trim()
+  return raw === '1' || raw === 'true'
+}
+
+function envPresent(
+  env: Readonly<Record<string, string | undefined>> | undefined,
+  key: string,
+): boolean {
+  return Boolean(env?.[key]?.trim())
+}
+
+/**
+ * Auth implied by the spawn FRAME, not the daemon's inherited environment.
+ * Inherited `ANTHROPIC_API_KEY` is stripped from children and must not select
+ * api-key billing; a managed credential on the frame is the account Podium
+ * resolved for this session.
+ */
+function claudeAuthFromEnv(
+  env: Readonly<Record<string, string | undefined>> | undefined,
+): SelectionContext['auth'] | undefined {
+  if (envFlag(env, 'CLAUDE_CODE_USE_BEDROCK')) return 'bedrock'
+  if (envFlag(env, 'CLAUDE_CODE_USE_VERTEX')) return 'vertex'
+  if (envPresent(env, 'ANTHROPIC_API_KEY') || envPresent(env, 'ANTHROPIC_AUTH_TOKEN')) {
+    return 'api-key'
+  }
+  if (envPresent(env, 'CLAUDE_CODE_OAUTH_TOKEN')) return 'subscription'
+  return undefined
+}
+
 /** Map inventory's login fact onto the selection axis without guessing an auth
  * mode. Codex is the exception to the general `unknown` rule: its detector
  * deliberately reports `unknown` while a missing auth.json is inside the
  * credential-replacement grace window. On a machine that has never logged in,
  * that same window is the first fact Podium sees, so admitting app-server would
  * create a bound session that cannot answer. Keep the other harnesses' genuinely
- * inconclusive reads distinct from a known logout. */
+ * inconclusive reads distinct from a known logout.
+ *
+ * Claude is the other exception: a stored OAuth login (or a setup-token on the
+ * spawn frame) is subscription auth, and a managed API key on the frame is
+ * api-key. Those facts decide whether the ToS-admitted SDK is selectable. */
 export function selectionAuthForLogin(
   agentKind: AgentKind,
   state: 'in' | 'out' | 'unknown' | undefined,
+  env?: Readonly<Record<string, string | undefined>>,
 ): SelectionContext['auth'] {
+  if (agentKind === 'claude-code') {
+    const fromEnv = claudeAuthFromEnv(env)
+    if (fromEnv) return fromEnv
+    if (state === 'in') return 'subscription'
+  }
   return harnessLoginNeedsInteractive(agentKind, state) ? 'logged-out' : 'unknown'
 }
 

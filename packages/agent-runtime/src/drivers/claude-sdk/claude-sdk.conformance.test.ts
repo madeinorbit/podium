@@ -222,7 +222,8 @@ describe('claude-sdk conversation persistence', () => {
   it('mints the first SDK session and resumes it for every later turn', async () => {
     const local = makeWorld()
     const { driver, control } = local.target.createDriver()
-    const session = await driver.create(local.target.spec())
+    const runtime = driver as ClaudeSdkRuntime
+    const session = await runtime.create(local.target.spec())
     await session.send(
       { id: 'turn-first', text: 'first' },
       { origin: 'human', delivery: 'when-ready' },
@@ -238,7 +239,7 @@ describe('claude-sdk conversation persistence', () => {
     const resume = session.binding.resume
     if (!resume) throw new Error('fixture did not mint a Claude resume ref')
     await session.kill()
-    const resumed = await driver.resumeWithId(
+    const resumed = await runtime.resumeWithId(
       session.binding.sessionId,
       resume,
       local.target.spec(),

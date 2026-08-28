@@ -1,10 +1,9 @@
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
-import { PermissionAnswer } from '@podium/protocol'
 import type { ProviderCursor } from '@podium/protocol'
+import { PermissionAnswer } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { DriverRefusalError } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
-import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type {
   AgentSessionHandle,
   AttachmentStageResult,
@@ -30,7 +29,9 @@ import type {
   TurnReceipt,
   WatchLevel,
 } from '../../index.js'
+import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import { claudeSdkCapabilities } from './capabilities.js'
+import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
 
 export const CLAUDE_SDK_DRIVER_ID = 'claude-sdk' as const
 
@@ -192,23 +193,51 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
     core.active = undefined
     if (result instanceof Error) {
       const interrupted = core.interruptRequested
+      const failure = interrupted
+        ? { errorClass: 'interrupted' as const, retryable: true }
+        : classifyClaudeSdkFailure(result.message)
+      const detail = redactClaudeSdkFailureDetail(result.message)
+      const reason = interrupted
+        ? ('interrupted' as const)
+        : failure.errorClass === 'authentication'
+          ? ('auth-expired' as const)
+          : failure.errorClass === 'usage_limit' || failure.errorClass === 'rate_limit'
+            ? ('rate-limit' as const)
+            : ('provider-error' as const)
+      const disposition = interrupted
+        ? ('retryable' as const)
+        : failure.errorClass === 'authentication'
+          ? ('needs-human' as const)
+          : failure.retryable
+            ? ('retryable' as const)
+            : ('fatal' as const)
       push(core, {
         t: 'turn',
         ev: {
           ev: 'failed',
           turnEpoch: epoch,
-          reason: interrupted ? 'interrupted' : 'provider-error',
-          disposition: interrupted ? 'retryable' : 'fatal',
-          detail: result.message,
+          reason,
+          disposition,
+          detail,
         },
       })
-      core.state = { ...core.state, phase: 'errored', since: host.now() }
+      core.state = {
+        ...core.state,
+        phase: 'errored',
+        since: host.now(),
+        error: {
+          class: failure.errorClass,
+          retryable: failure.retryable,
+          ...(detail ? { detail } : {}),
+        },
+      }
       push(core, {
         t: 'state',
         change: {
           kind: 'turn_failed',
-          errorClass: interrupted ? 'interrupted' : 'provider-error',
-          retryable: interrupted,
+          errorClass: failure.errorClass,
+          retryable: failure.retryable,
+          ...(detail ? { detail } : {}),
         },
       })
     } else {

@@ -3,8 +3,8 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { RefusalReason, SessionSpec } from '@podium/agent-runtime'
 import {
-  bindHarnessLaunch,
   agentStateProviderFor,
+  bindHarnessLaunch,
   type DriverId,
   declaredValue,
   harnessCapabilitiesFor,
@@ -37,13 +37,13 @@ import {
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
-import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { emitClaudeBinding } from '../runtime/claude-sdk-driver'
+import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
-import { opencodeVersionProbe } from '../runtime/opencode-server'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
+import { opencodeVersionProbe } from '../runtime/opencode-server'
 import {
   availableDriverIds,
   claudeSdkTosAcceptedByEnv,
@@ -62,7 +62,9 @@ import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
+
 export { harnessCompatEnv } from './session-env'
+
 import { sourceForRead } from './transcripts'
 
 const log = createLogger('daemon:session')
@@ -824,8 +826,8 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
    * Every spawn is offered to the harness policy. Server-capable harnesses take
    * their own server driver when its three-valued probe admits this machine; an
    * absent, unsupported or unprobeable driver falls through to the PTY path.
-   * Harnesses without a server declaration (including Claude Code) never probe
-   * and stay on that path.
+   * Claude's embedded SDK is admitted only after PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1;
+   * without that gate it never probes and stays on the terminal path.
    */
   const runtimeLaunch = await launchServerDriverSession(ctx, msg)
   if (runtimeLaunch.handled) return
@@ -1178,9 +1180,11 @@ export async function launchServerDriverSession(
     perSpawn: msg.runtimeContract,
     machineDefault: runtimeDriverByEnv(),
   })
-  if (!preferred) {
-    // No server driver is even in play for this harness (Claude Code, cursor, a
-    // shell): the answer is the terminal one and it is known without probing
+  const embeddedAdmitted =
+    claudeSdkTosAcceptedByEnv() && isEmbeddedDriver(msg.agentKind, 'claude-sdk')
+  if (!preferred && !embeddedAdmitted) {
+    // No server/embedded driver is in play: Claude without the ToS gate, cursor,
+    // a shell. The answer is the terminal one and it is known without probing
     // anything, so say so now rather than leaving the clients to infer it from
     // a `bind` that is still seconds away. `terminalProfileFor` is undefined
     // only for a kind with no manifest — a shell — which has no driver to name.
@@ -1200,7 +1204,7 @@ export async function launchServerDriverSession(
   // default: a known logout always selects the PTY login path, so probing a
   // server binary first can only delay the same answer.
   const loginState = ctx.harnessLoginState(msg.agentKind)
-  const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState)
+  const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState, msg.env)
   const terminalLoginReason =
     selectionAuth === 'logged-out'
       ? loginState === 'out'

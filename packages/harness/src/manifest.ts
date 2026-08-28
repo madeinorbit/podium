@@ -532,10 +532,10 @@ export function fileTranscript(
  * WHY `terminal` IS REQUIRED AND THE OTHER TWO ARE NOT. Every harness Podium
  * ships can be driven by emulating a user at a TUI — that is the current stack,
  * and §2's decision is that it is a PERMANENT tier, not a deprecation path: it
- * is the only subscription-preserving way to run Claude Code and the only way to
- * run harnesses that never grow a protocol. A `server` or `embedded` spec is a
- * capability a vendor either shipped or did not, so both are `Declared<T>` and
- * say WHY when absent.
+ * is the fallback when an embedded/server driver is not admitted, and the only
+ * way to run harnesses that never grow a protocol. A `server` or `embedded` spec
+ * is a capability a vendor either shipped or did not, so both are `Declared<T>`
+ * and say WHY when absent.
  */
 export interface AgentRuntimeAxis {
   /**
@@ -589,10 +589,11 @@ export interface AgentRuntimeAxis {
  * The three ways a harness can be driven (spec §2). A harness may support
  * several; `select()` picks one per session at spawn.
  *
- * `terminal` IS A PERMANENT TIER, NOT A DEPRECATION PATH: it is the only
- * subscription-preserving way to run Claude Code and the only way to run a
- * harness that never grows a protocol. What changes is its RANK — it stops
- * being the definition of a session and becomes one driver behind one contract.
+ * `terminal` IS A PERMANENT TIER, NOT A DEPRECATION PATH: it is the fallback
+ * for Claude when the SDK is not admitted, the interactive login path, and the
+ * only way to run a harness that never grows a protocol. What changes is its
+ * RANK — it stops being the definition of a session and becomes one driver
+ * behind one contract.
  */
 export type DriverFamily = 'server' | 'embedded' | 'terminal'
 
@@ -619,8 +620,8 @@ export const DRIVER_IDS = [
 export type DriverId = (typeof DRIVER_IDS)[number]
 
 /** What `select()` is allowed to decide on. `auth` is the load-bearing axis:
- *  Claude on a subscription is terminal (the compliant path) and on an API key
- *  is embedded. */
+ *  Claude on subscription/API-key/Bedrock/Vertex selects the embedded SDK when
+ *  that driver is available (the ToS gate); otherwise it stays on terminal. */
 export interface SelectionContext {
   auth: 'subscription' | 'api-key' | 'bedrock' | 'vertex' | 'logged-out' | 'unknown'
   platform: NodeJS.Platform
@@ -791,10 +792,11 @@ export interface ClientTerminalSpec {
 export interface EmbeddedRuntimeSpec {
   driverId: DriverId
   module: string
-  /** Auth modes the SDK actually supports headlessly. Subscription OAuth is
-   *  absent from every entry today, which is exactly why Claude-on-subscription
-   *  selects terminal. */
-  auth: readonly ('api-key' | 'bedrock' | 'vertex')[]
+  /** Auth modes the SDK actually supports headlessly. Claude lists subscription
+   *  here so a ToS-admitted machine can select `claude-sdk` for OAuth as well as
+   *  API-key / Bedrock / Vertex; without that admission, select() stays on
+   *  terminal. */
+  auth: readonly ('subscription' | 'api-key' | 'bedrock' | 'vertex')[]
 }
 
 /** Today's stack, named. There is no new mechanism here — `launch()` above is

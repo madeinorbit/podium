@@ -234,6 +234,76 @@ describe('Claude SDK embedded teardown', () => {
   })
 })
 
+describe('Claude SDK subscription spawn gate', () => {
+  it('launches the embedded SDK for a logged-in Claude spawn when ToS is accepted', async () => {
+    vi.stubEnv('PODIUM_CLAUDE_SDK_TOS_ACCEPTED', '1')
+    const created = handle(SESSION_ID, RESUME)
+    const send = vi.fn()
+    const create = vi.fn(async () => created)
+    const resume = vi.fn(async () => {
+      throw new Error('fresh subscription spawn must not resume')
+    })
+    const ctx = {
+      send,
+      harnessLoginState: () => 'in',
+      agentRuntime: {
+        resolveDriver: vi.fn(() => ({
+          ok: true,
+          driverId: 'claude-sdk',
+          capabilities: { placement: 'dedicated' },
+        })),
+        create,
+        resume,
+        handleFor: vi.fn(() => undefined),
+      },
+    } as unknown as DaemonContext
+    const message = {
+      type: 'spawn',
+      sessionId: SESSION_ID,
+      agentKind: 'claude-code',
+      cwd: '/project',
+      geometry: { cols: 80, rows: 24 },
+    } as never
+
+    await expect(
+      launchServerDriverSession(ctx, message, async () => ({ drivable: true })),
+    ).resolves.toEqual({ handled: true })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(resume).not.toHaveBeenCalled()
+  })
+
+  it('falls through to PTY when the ToS gate is absent', async () => {
+    const send = vi.fn()
+    const create = vi.fn(async () => {
+      throw new Error('SDK must not launch')
+    })
+    const ctx = {
+      send,
+      harnessLoginState: () => 'in',
+      agentRuntime: {
+        resolveDriver: vi.fn(() => {
+          throw new Error('resolve must not run when the SDK is not admitted')
+        }),
+        create,
+        resume: vi.fn(),
+        handleFor: vi.fn(() => undefined),
+      },
+    } as unknown as DaemonContext
+    const message = {
+      type: 'spawn',
+      sessionId: SESSION_ID,
+      agentKind: 'claude-code',
+      cwd: '/project',
+      geometry: { cols: 80, rows: 24 },
+    } as never
+
+    await expect(
+      launchServerDriverSession(ctx, message, async () => ({ drivable: true })),
+    ).resolves.toEqual({ handled: false })
+    expect(create).not.toHaveBeenCalled()
+  })
+})
+
 describe('Claude SDK spawn resume control', () => {
   it('passes the exact Podium id and Claude ref to resume instead of create', async () => {
     vi.stubEnv('PODIUM_CLAUDE_SDK_TOS_ACCEPTED', '1')

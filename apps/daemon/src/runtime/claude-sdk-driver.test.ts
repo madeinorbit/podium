@@ -31,7 +31,10 @@ const WITNESS: TranscriptItem[] = [
 
 function host(reads: Array<{ resumeValue: string; limit: number }>): TerminalRuntimeHost {
   return {
-    readTranscript: async (session, range) => {
+    readTranscript: async (
+      session: { resume?: { value?: string } },
+      range: { limit: number },
+    ) => {
       reads.push({ resumeValue: session.resume?.value ?? '', limit: range.limit })
       return WITNESS.slice(-range.limit)
     },
