@@ -79,6 +79,7 @@ import {
   type RuntimeEventBody,
   type WatchLevel,
 } from '../../events.js'
+import { type HeadlessTurnResult, headlessInterruptMark } from '../../headless-interrupt.js'
 import { sessionHealth } from '../../health.js'
 import type {
   InteractionAnswer,
@@ -850,6 +851,36 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   // -- the turn fence --------------------------------------------------------
 
   /**
+   * THE MARK A STOPPED TURN LEAVES BEHIND (POD-3090).
+   *
+   * Codex answers a stop as a completion carrying `status: 'interrupted'`, so
+   * the mapping sees the provider's own word and this driver infers nothing.
+   * Called from BOTH fence arms because a stop can also reach us classified as a
+   * failure; the mapping returns nothing for every result that is not an
+   * interrupt, which is why the call is unconditional.
+   *
+   * EXACTLY ONCE IS INHERITED, NOT RE-IMPLEMENTED: `closeTurn` claims
+   * `fencedTurnIds` before anything below it runs, so a duplicate
+   * `turn/completed` never reaches here — and the item id carries the epoch, so
+   * even a replayed stream presents one stop as one record.
+   */
+  function publishInterruptMark(
+    session: DriverSession,
+    result: HeadlessTurnResult,
+    at: string,
+  ): void {
+    const item = headlessInterruptMark({
+      family: 'codex',
+      sessionId: session.sessionId,
+      turnEpoch: session.turnEpoch,
+      at,
+      result,
+    })
+    if (!item) return
+    emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
+  }
+
+  /**
    * The turn fence.
    *
    * ABSORBING, AND ONLY THE PROVIDER OPENS IT. `turn/completed` is Codex saying
@@ -892,6 +923,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     let change: AgentStateEvent
     if (turn.status === 'failed') {
       const detail = describeTurnError(turn.error)
+      publishInterruptMark(session, { kind: 'failed', reason: detail.reason }, at)
       emit(
         session,
         {
@@ -915,6 +947,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       }
     } else {
       const verdict = turnStatusToVerdict(turn.status, session.asks.size > 0)
+      publishInterruptMark(session, { kind: 'completed', verdict }, at)
       emit(
         session,
         { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } },

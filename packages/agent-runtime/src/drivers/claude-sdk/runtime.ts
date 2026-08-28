@@ -12,6 +12,7 @@ import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { claudeToolCallItem, claudeToolResultItem } from '@podium/transcript'
 import { DriverRefusalError } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
+import { headlessInterruptMark } from '../../headless-interrupt.js'
 import type {
   AgentSessionHandle,
   AttachmentStageResult,
@@ -355,13 +356,27 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
    */
   function publishInterruptRecord(core: SessionCore, epoch: number): void {
     const confirmed = core.interruptConfirmation === 'accepted'
-    publishSystemNote(
-      core,
-      `claude-sdk-interrupt-${core.sessionId}-${epoch}`,
-      confirmed
+    /**
+     * MINTED BY THE SHARED HEADLESS MAPPING (POD-3090), not by hand. The record
+     * this driver already wrote was invisible: a plain system note carrying no
+     * `event`, so the chat's interrupt arm — the stop rule a terminal session
+     * gets for free — never fired for it. Going through the mapping keeps this
+     * family's wording and its system role (its consumers key on both) and adds
+     * the one field that makes the stop READ as a stop, in the same shape codex
+     * and opencode now emit.
+     */
+    const item = headlessInterruptMark({
+      family: 'claude-sdk',
+      sessionId: core.sessionId,
+      turnEpoch: epoch,
+      at: host.now(),
+      result: { kind: 'completed', verdict: 'interrupted' },
+      role: 'system',
+      text: confirmed
         ? 'Turn interrupted by the operator.'
         : 'Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended.',
-    )
+    })
+    if (item) publishItem(core, item)
   }
 
   function closeTurn(core: SessionCore, result: 'done' | 'interrupted' | Error): void {

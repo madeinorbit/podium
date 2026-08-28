@@ -14,7 +14,7 @@
  * is SILENCE, and a request id of zero.
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { streamItemIdOf } from '@podium/transcript'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
@@ -1277,6 +1277,100 @@ describe('in-progress tool calls on the fine plane', () => {
     await settle()
     expect(partials(w.events())).toEqual([])
     release()
+    w.dispose()
+  })
+})
+
+/**
+ * THE DURABLE MARK A STOPPED TURN LEAVES (POD-3090).
+ *
+ * A terminal session gets this free: Claude Code writes
+ * "[Request interrupted by user]" into its transcript and the chat draws its
+ * stop rule. Headless, nobody writes it — the turn just ends — so the fence
+ * mints it from the provider's own verdict. Codex is the family that states the
+ * stop outright (`turn/completed` with `status: 'interrupted'`), so nothing here
+ * is inferred.
+ */
+describe('the mark a stopped turn leaves behind', () => {
+  const interrupts = (events: RuntimeEvent[]): TranscriptItem[] =>
+    events.flatMap((e) =>
+      e.t === 'item' && e.item.kind === 'complete' && e.item.item.event === 'interrupt'
+        ? [e.item.item]
+        : [],
+    )
+
+  it('publishes exactly one interrupt item when Codex reports the turn stopped', async () => {
+    const w = await world()
+    await w.handle.send(
+      { text: 'count to a thousand' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await settle()
+    w.server.completeTurn('interrupted')
+    await settle()
+
+    const items = interrupts(w.events())
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      id: `codex-interrupt-${w.handle.binding.sessionId}-1`,
+      role: 'user',
+      text: '[Request interrupted by user]',
+      event: 'interrupt',
+    })
+    // The verdict is unchanged — the mark is what a HUMAN reads, the verdict is
+    // what the machine reads, and neither substitutes for the other.
+    expect(
+      w
+        .events()
+        .some((e) => e.t === 'turn' && e.ev.ev === 'completed' && e.ev.verdict === 'interrupted'),
+    ).toBe(true)
+    w.dispose()
+  })
+
+  it('leaves nothing behind when the turn finished by itself', async () => {
+    const w = await world()
+    await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+    w.server.emitAgentMessage('the answer')
+    w.server.completeTurn('completed')
+    await settle()
+    expect(interrupts(w.events())).toEqual([])
+    w.dispose()
+  })
+
+  it('replays one stop as one stop, and a second stop as its own', async () => {
+    const w = await world()
+    await w.handle.send({ text: 'first' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    w.server.completeTurn('interrupted')
+    await settle()
+    // A duplicate terminal notification for the same turn: the fence absorbs it,
+    // and even if it did not, the id is the same one.
+    w.server.completeTurn('interrupted')
+    await settle()
+
+    // The replay seam a reload goes through: a fresh subscriber reading the
+    // stream from the beginning must see the stop once, not once per re-report.
+    const replayed: RuntimeEvent[] = []
+    void (async () => {
+      try {
+        for await (const event of w.handle.events('bootstrap')) replayed.push(event)
+      } catch {
+        // the stream ends with the session
+      }
+    })()
+    await settle()
+    await settle()
+    expect(interrupts(replayed)).toHaveLength(1)
+    expect(interrupts(replayed)[0]?.id).toBe(interrupts(w.events())[0]?.id)
+
+    // A retry after the stop is a new turn, and stopping THAT is a second mark.
+    await w.handle.send({ text: 'again' }, { origin: 'human', delivery: 'when-ready' })
+    await settle()
+    w.server.completeTurn('interrupted')
+    await settle()
+    const ids = interrupts(w.events()).map((item) => item.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids).toHaveLength(2)
     w.dispose()
   })
 })

@@ -31,7 +31,7 @@
  * `../../permitted-failures.ts`.
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent } from '../../events.js'
 // `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
@@ -630,6 +630,71 @@ describe('an aborted opencode turn', () => {
         events.filter((event) => event.t === 'state' && event.change.kind === 'turn_failed'),
       ).toEqual([])
       expect(events.filter((event) => event.t === 'turn' && event.ev.ev === 'failed')).toEqual([])
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  /**
+   * THE MARK A STOPPED TURN LEAVES BEHIND (POD-3090).
+   *
+   * The verdict above is what the MACHINE reads. This is what a human reading
+   * the conversation back reads, and headless it did not exist: the turn stopped
+   * mid-sentence and the transcript said nothing, while a terminal session shows
+   * the stop rule Claude Code's own marker earns it. The fence now mints the
+   * mark from the same terminal result the verdict comes from.
+   */
+  it('leaves exactly one durable interrupt item, stable across a replay', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const events: RuntimeEvent[] = []
+      void (async () => {
+        try {
+          for await (const event of handle.events('bootstrap')) events.push(event)
+        } catch {
+          // the stream ends with the session
+        }
+      })()
+      await handle.send({ text: 'a long task' }, { origin: 'human', delivery: 'when-ready' })
+      abortTurn(world, handle.binding.sessionId)
+
+      const marks = (collected: RuntimeEvent[]): TranscriptItem[] =>
+        collected.flatMap((event) =>
+          event.t === 'item' &&
+          event.item.kind === 'complete' &&
+          event.item.item.event === 'interrupt'
+            ? [event.item.item]
+            : [],
+        )
+
+      await vi.waitFor(() => expect(marks(events)).toHaveLength(1))
+      expect(marks(events)[0]).toMatchObject({
+        id: `opencode-interrupt-${handle.binding.sessionId}-1`,
+        role: 'user',
+        text: '[Request interrupted by user]',
+        event: 'interrupt',
+      })
+
+      // A SECOND terminal signal for the same turn — the duplicate a flaky SSE
+      // reconnect delivers. The epoch fence absorbs it and the id would collapse
+      // it anyway; either way the operator sees one stop.
+      abortTurn(world, handle.binding.sessionId)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(marks(events)).toHaveLength(1)
+
+      // The reload seam: a fresh reader of the same stream sees the same one.
+      const replayed: RuntimeEvent[] = []
+      void (async () => {
+        try {
+          for await (const event of handle.events('bootstrap')) replayed.push(event)
+        } catch {
+          // the stream ends with the session
+        }
+      })()
+      await vi.waitFor(() => expect(marks(replayed)).toHaveLength(1))
+      expect(marks(replayed)[0]?.id).toBe(marks(events)[0]?.id)
     } finally {
       world.target.reset()
     }

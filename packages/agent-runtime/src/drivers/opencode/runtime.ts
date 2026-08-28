@@ -63,6 +63,7 @@ import {
   type RuntimeEventBody,
   type WatchLevel,
 } from '../../events.js'
+import { type HeadlessTurnResult, headlessInterruptMark } from '../../headless-interrupt.js'
 import { sessionHealth } from '../../health.js'
 import type {
   InteractionAnswer,
@@ -764,6 +765,35 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   }
 
   /**
+   * THE MARK A STOPPED TURN LEAVES BEHIND (POD-3090).
+   *
+   * Same mapping the codex fence calls, off this fence's own terminal result.
+   * opencode reports a stop as `session.error` carrying `MessageAborted`, which
+   * `describeError` classifies as `interrupted` and the arm below turns into the
+   * `interrupted` VERDICT — so the mark is minted from the verdict, and a local
+   * `interruptPending` with no provider confirmation produces the same one.
+   *
+   * EXACTLY ONCE IS INHERITED: `closeTurn` claims `fencedTurnEpoch` before this
+   * runs, so a second terminal event for the same epoch never reaches here, and
+   * the epoch is in the item id, so a replay cannot present two stops.
+   */
+  function publishInterruptMark(
+    session: DriverSession,
+    result: HeadlessTurnResult,
+    at: string,
+  ): void {
+    const item = headlessInterruptMark({
+      family: 'opencode',
+      sessionId: session.sessionId,
+      turnEpoch: session.turnEpoch,
+      at,
+      result,
+    })
+    if (!item) return
+    emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
+  }
+
+  /**
    * The turn fence.
    *
    * ABSORBING, AND ONLY THE PROVIDER CLOSES IT. `session.idle` and
@@ -863,6 +893,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
           : session.interactions.size > 0
             ? 'question'
             : 'done'
+      publishInterruptMark(session, { kind: 'completed', verdict }, at)
       emit(
         session,
         { t: 'turn', ev: { ev: 'completed', turnEpoch: session.turnEpoch, verdict } },

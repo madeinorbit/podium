@@ -150,6 +150,12 @@ describe('Claude SDK interrupt receipt', () => {
     })
     const record = interruptItems(stream.items())[0]
     expect(record?.text).toBe('Turn interrupted by the operator.')
+    // AND IT HAS TO READ AS A STOP (POD-3090). The record was a plain system
+    // note carrying no `event`, so the chat's interrupt arm — the stop rule a
+    // terminal session gets from Claude Code's own marker — never fired for it:
+    // durable, and still invisible as an interruption.
+    expect(record?.event).toBe('interrupt')
+    expect(record?.id).toBe(`claude-sdk-interrupt-${SESSION}-1`)
 
     const closes = stream.events.filter((e) => e.t === 'turn' && e.ev.ev !== 'started')
     expect(closes).toHaveLength(1)
