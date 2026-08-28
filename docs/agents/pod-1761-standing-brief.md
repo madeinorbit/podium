@@ -1843,3 +1843,39 @@ owned.** POD-3045 already existed and already had the fix. I filed POD-3046 for
 the same defect and restarted it three times when its sessions produced nothing.
 
     podium issue ready ; podium issue show <parent> --json   # scan open children
+
+### Check whether the seam is already owned BEFORE filing a fix issue
+
+Three duplicates in one day, all mine:
+
+- **POD-3046** duplicated POD-3045 (OpenCode switch echo) — and I restarted it
+  three times when its sessions produced nothing.
+- **POD-3048** duplicated POD-3047 (live A3 for the SDK driver).
+- **POD-3067** duplicated POD-3057 (the headless-child HOME seam) — POD-3057
+  already had the fix committed with a before/after showing `sessions.read`
+  going from empty to the real conversation.
+
+Every one cost a rig slot or an agent hour on work already done, and in two of
+the three another session had to tell me. **The check is one command and I kept
+skipping it because filing felt like progress:**
+
+    podium issue show 1761 --json | grep -i "<keyword>"   # scan open children
+    git branch -a --list "*<keyword>*"                    # and their branches
+
+**A fix issue is the wrong first move when a defect has just been measured.**
+The measuring session usually knows whether someone is already on it — ask, then
+file. POD-3047 answered that question twice for me unprompted, which is the only
+reason two of these were caught at all.
+
+### A credential in a rig home must be a SYMLINK, never a copy
+
+If a drive needs the operator's credential present, link it. **A copy can go
+stale, and presenting a superseded refresh token can be treated as replay and
+revoke the whole family — logging the operator out of their own tool.** A
+symlink cannot diverge. Never print, log or commit a token value; report expiry
+times and file mtimes only, and delete any copy at teardown.
+
+State in the evidence WHICH posture the rig used. A credential-free home makes
+every cell needing a model reply BLOCKED-on-auth, so two rigs with different
+postures will disagree about what a red means — that is exactly the A1a and A8
+confusion between POD-3036 and POD-3047.
