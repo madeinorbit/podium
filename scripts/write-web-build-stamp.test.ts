@@ -19,6 +19,7 @@ import {
   injectProductVersionMeta,
   injectSourceDigestMeta,
   resolveWebSourceSha,
+  rewriteServiceWorkerIndexRevision,
   webBuildStamp,
   writeWebBuildStamp,
 } from './write-web-build-stamp'
@@ -326,6 +327,136 @@ describe.each([
       expect(precompress).toBeLessThan(stamp)
     })
   }
+})
+
+/**
+ * THE SERVICE WORKER HAS TO NAME THE PAGE THAT SHIPPED (POD-3083).
+ *
+ * With PODIUM_APP_VERSION out of the build, a version-only release changes no JS, so
+ * workbox's generated `sw.js` is byte-identical — and `registration.update()` is a byte
+ * diff of the worker script. An installed PWA would install nothing, never produce a
+ * waiting worker, and keep serving the PRECACHED index.html of the previous release
+ * through `navigateFallback`, while the update panel reported it behind and offered a
+ * Reload that could not clear itself. The stamp therefore rewrites the precache
+ * revision, which both moves the worker's bytes and — for the first time — makes that
+ * revision TRUE: workbox recorded the md5 of the PRE-stamp page.
+ */
+describe('rewriteServiceWorkerIndexRevision', () => {
+  const swWith = (...entries: string[]): string =>
+    `self.__WB_MANIFEST;const e=[${entries.join(',')}];precacheAndRoute(e);`
+  const INDEX_ENTRY = '{url:"index.html",revision:"856b900ae6d209eaaa37d643e2d6bb76"}'
+  const CHUNK_ENTRY = '{url:"assets/index-DHMkD0wf.js",revision:null}'
+
+  it('rewrites the entry to the md5 of the bytes actually shipped', () => {
+    const stamped = injectProductVersionMeta(BUILT_INDEX, '0.4.2')
+    const out = rewriteServiceWorkerIndexRevision(swWith(CHUNK_ENTRY, INDEX_ENTRY), stamped)
+    const md5 = createHash('md5').update(stamped).digest('hex')
+    expect(out).toContain(`{url:"index.html",revision:"${md5}"}`)
+    // The content-hashed chunks carry their revision in the filename; nothing else moves.
+    expect(out).toContain(CHUNK_ENTRY)
+  })
+
+  /**
+   * THE INSTRUMENT MUST BE ABLE TO SAY NO. A pattern matcher that silently no-ops when
+   * workbox changes its output shape is exactly the gate that cannot fire: the build
+   * stays green and the failure only ever shows up as an installed app that will not
+   * come current. So both directions of "the shape moved" are refusals.
+   */
+  it('refuses a service worker with no index.html precache entry', () => {
+    expect(() => rewriteServiceWorkerIndexRevision(swWith(CHUNK_ENTRY), BUILT_INDEX)).toThrow(
+      /has 0 index\.html precache entries/,
+    )
+  })
+
+  it('refuses a service worker with more than one index.html precache entry', () => {
+    expect(() =>
+      rewriteServiceWorkerIndexRevision(swWith(INDEX_ENTRY, CHUNK_ENTRY, INDEX_ENTRY), BUILT_INDEX),
+    ).toThrow(/has 2 index\.html precache entries/)
+  })
+})
+
+describe('writeWebBuildStamp and the generated service worker', () => {
+  const SW = 'const e=[{url:"assets/index-DHMkD0wf.js",revision:null},{url:"index.html",revision:"856b900ae6d209eaaa37d643e2d6bb76"}];'
+  const distWithSw = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-sw-'))
+    writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
+    writeFileSync(join(dir, 'sw.js'), SW)
+    return dir
+  }
+
+  /**
+   * THE TRIPWIRE. Written as "the revision equals the md5 of the page on disk" rather
+   * than "the revision changed", because that is the property the browser depends on and
+   * the one an ordering mistake breaks: inject the metas AFTER this rewrite and the
+   * worker names a page that was never served.
+   */
+  it('leaves the precache revision equal to the md5 of the stamped index.html', () => {
+    const dir = distWithSw()
+    writeWebBuildStamp(dir, '47a01e3', '0.4.2')
+
+    const html = readFileSync(join(dir, 'index.html'))
+    expect(html.toString('utf8')).toContain('<meta name="podium-version" content="0.4.2">')
+    const sw = readFileSync(join(dir, 'sw.js'), 'utf8')
+    expect(sw).toContain(
+      `{url:"index.html",revision:"${createHash('md5').update(html).digest('hex')}"}`,
+    )
+  })
+
+  /** The point of the exercise: a version-only re-stamp must MOVE the worker's bytes. */
+  it('changes the worker across a version change, so an installed app updates', () => {
+    const a = distWithSw()
+    writeWebBuildStamp(a, '47a01e3', '0.0.0-swtest.a')
+    const b = distWithSw()
+    writeWebBuildStamp(b, '47a01e3', '0.0.0-swtest.b')
+
+    expect(readFileSync(join(b, 'sw.js'), 'utf8')).not.toBe(readFileSync(join(a, 'sw.js'), 'utf8'))
+  })
+
+  // static-web.ts prefers these off disk, so a stale sibling hands the browser the
+  // very worker this rewrite exists to replace.
+  it('refreshes the .br and .gz siblings of the worker it rewrote', () => {
+    const dir = distWithSw()
+    writeFileSync(join(dir, 'sw.js.br'), brotliCompressSync(Buffer.from(SW)))
+    writeFileSync(join(dir, 'sw.js.gz'), gzipSync(Buffer.from(SW)))
+
+    writeWebBuildStamp(dir, '47a01e3', '0.4.2')
+
+    const sw = readFileSync(join(dir, 'sw.js'), 'utf8')
+    expect(sw).not.toBe(SW)
+    expect(brotliDecompressSync(readFileSync(join(dir, 'sw.js.br'))).toString('utf8')).toBe(sw)
+    expect(gunzipSync(readFileSync(join(dir, 'sw.js.gz'))).toString('utf8')).toBe(sw)
+  })
+
+  // The phone export ships no service worker at all (checked: apps/mobile registers
+  // none and its export emits none), and the same script stamps both dists.
+  it('stamps a dist that has no service worker', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-nosw-'))
+    writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
+    expect(() => writeWebBuildStamp(dir, '47a01e3', '0.4.2')).not.toThrow()
+    expect(existsSync(join(dir, 'sw.js'))).toBe(false)
+  })
+
+  // A restore is re-stamped (POD-3072); the worker must land on the same bytes a fresh
+  // build at that version would have written, or the manifest describes a dist nobody
+  // else can reproduce.
+  it('re-stamped after a restore, writes the worker a first build would have', () => {
+    const restored = distWithSw()
+    writeWebBuildStamp(restored, '47a01e3', '0.4.2')
+    writeWebBuildStamp(restored, 'b00b135', '0.5.0')
+    const fresh = distWithSw()
+    writeWebBuildStamp(fresh, 'b00b135', '0.5.0')
+
+    expect(readFileSync(join(restored, 'sw.js'), 'utf8')).toBe(
+      readFileSync(join(fresh, 'sw.js'), 'utf8'),
+    )
+    // And the inventory names the worker as it now stands, not as it was restored.
+    const manifest = JSON.parse(
+      readFileSync(join(restored, CLIENT_BUILD_MANIFEST_FILE), 'utf8'),
+    ) as ClientBuildManifest
+    expect(manifest.files['sw.js']).toBe(
+      createHash('sha256').update(readFileSync(join(restored, 'sw.js'))).digest('hex'),
+    )
+  })
 })
 
 describe('injectProductVersionMeta', () => {

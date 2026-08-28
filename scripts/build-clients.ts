@@ -17,9 +17,9 @@
  *      run's dist in place for packaging to pick up.
  *   3. THE REFUSAL OF AN UNEXPLAINED --force. `decideForce` again — a forced client
  *      build is minutes of CPU on a host that is also serving a live Podium.
- *   4. THE COMMIT THE DIST NAMES (POD-3072). Turbo's key is the inputs (plus
- *      PODIUM_APP_VERSION for web only, POD-3082); the commit SHA is in no part of it,
- *      and the version is in no part of the phone's — that is on purpose —
+ *   4. THE COMMIT THE DIST NAMES (POD-3072). Turbo's key is the inputs; neither the
+ *      commit SHA nor PODIUM_APP_VERSION is any part of it, for either client
+ *      (POD-3082, POD-3083) — that is on purpose —
  *      putting it in would make every commit a MISS and there would be nothing left to
  *      cache. But the stamp the build writes DOES name the commit, so a restore hands
  *      back a dist stamped with whichever commit first built those inputs, and
@@ -132,14 +132,13 @@ function summaryWrittenSince(root: string, since: number): string {
 /**
  * Build both clients through Turbo. Throws on refusal or a non-zero turbo exit.
  *
- * `env` names the variables the BUILD is parameterised by — in practice only
- * PODIUM_APP_VERSION, which the stamp writes into index.html and the manifest. It is
- * hashed rather than filtered for `@podium/web#build`, which lists it in turbo.json;
- * `@podium/mobile#build` deliberately lists nothing, because the phone reads the
- * variable nowhere and the re-stamp below puts the version into a RESTORED dist just
- * as well as a freshly built one (POD-3082, and `REQUIRED_BUILD_ENV` in
- * scripts/client-build-inputs.ts for why the asymmetry is not an oversight).
- * Everything else comes from this process via `turboEnv`.
+ * `env` carries PODIUM_APP_VERSION through to the child, which the STAMP reads — it
+ * writes the version into index.html, the service worker and the manifest. Neither
+ * client build task lists it in turbo.json, so it is passed through without being
+ * hashed: neither client reads the variable at build time, and the re-stamp below puts
+ * the version into a RESTORED dist just as well as a freshly built one (POD-3082,
+ * POD-3083, and `REQUIRED_BUILD_ENV` in scripts/client-build-inputs.ts for why an
+ * empty key is deliberate). Everything else comes from this process via `turboEnv`.
  */
 export async function buildClients(
   root: string,

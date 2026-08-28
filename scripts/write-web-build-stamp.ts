@@ -203,6 +203,62 @@ function sha256(bytes: Buffer | string): string {
 }
 
 /**
+ * The precache entry workbox writes for the SPA shell, in the generated `sw.js`.
+ *
+ * Every `assets/*` entry is `revision:null` — those filenames carry a content hash,
+ * so the URL IS the revision. `index.html` does not, so workbox gives it an explicit
+ * revision: the md5 of the file as it stood when the manifest was generated.
+ */
+const SW_INDEX_PRECACHE_ENTRY = /\{url:"index\.html",revision:"[0-9a-f]{32}"\}/g
+
+/**
+ * MAKE THE SERVICE WORKER NAME THE PAGE THAT IS ACTUALLY SHIPPED (POD-3083).
+ *
+ * Workbox builds its precache manifest at `closeBundle`, BEFORE this script injects
+ * the version and source-digest metas — so the revision it recorded is the md5 of the
+ * PRE-STAMP index.html, and nothing reconciled the two. That was already wrong; it
+ * became load-bearing when `PODIUM_APP_VERSION` stopped being a build input.
+ *
+ * With the version out of the JS, a release that changes nothing but the version
+ * produces a BYTE-IDENTICAL `sw.js`. `registration.update()` is a byte diff of the
+ * worker script, so an installed PWA installs nothing, no worker ever waits, and
+ * `navigateFallback` keeps serving the PRECACHED old index.html — while the update
+ * panel, comparing the page's meta against the server's stamp, correctly reports the
+ * install as behind and offers a Reload that provably cannot clear itself.
+ *
+ * Workbox's own primitives for this (`manifestTransforms`, `additionalManifestEntries`)
+ * run INSIDE the vite build, which would put the version straight back into the
+ * turbo-cached output — the exact miss the define removal exists to fix. The version has
+ * to enter AFTER the cache boundary, which is here: `stampClients` re-runs this script
+ * over every restored dist (POD-3072), so a HIT restores a version-free dist and the
+ * re-stamp writes the release into index.html AND into the worker that serves it.
+ *
+ * `revision` is an opaque string to workbox, so the algorithm is free; md5 of the
+ * stamped bytes keeps the shape workbox emits and makes the value TRUE.
+ *
+ * EXACTLY ONE MATCH, or throw. A workbox upgrade that changed this output shape would
+ * otherwise make this a silent no-op, and the failure it guards against is invisible
+ * from a green build — it only shows up as an installed app that will not come current.
+ */
+export function rewriteServiceWorkerIndexRevision(
+  serviceWorker: string,
+  stampedIndexHtml: string,
+): string {
+  const matches = serviceWorker.match(SW_INDEX_PRECACHE_ENTRY) ?? []
+  if (matches.length !== 1) {
+    throw new Error(
+      `sw.js has ${matches.length} index.html precache entries matching ` +
+        `${SW_INDEX_PRECACHE_ENTRY.source}, expected exactly 1. The generated service ` +
+        'worker no longer has the shape this stamp rewrites, so an installed app would ' +
+        'keep serving the precached page of the previous release (POD-3083). Check what ' +
+        'workbox now emits and update the pattern.',
+    )
+  }
+  const revision = createHash('md5').update(stampedIndexHtml).digest('hex')
+  return serviceWorker.replace(SW_INDEX_PRECACHE_ENTRY, `{url:"index.html",revision:"${revision}"}`)
+}
+
+/**
  * Describe the exact completed client dist. The manifest excludes only itself
  * (a file cannot contain its own digest), and predicts the stamp bytes written
  * immediately after it so `podium-build.json` remains the completion marker.
@@ -266,6 +322,19 @@ export function writeWebBuildStamp(
     : versionStamped
   writeFileSync(indexPath, stamped)
   refreshCompressedSiblings(indexPath, stamped)
+  // The generated service worker precaches that page by revision, so it has to be
+  // rewritten with it — see `rewriteServiceWorkerIndexRevision`. Only the desktop
+  // shell has one: the phone export ships no service worker, so the phone dist takes
+  // this branch not at all rather than being excused from it.
+  const swPath = join(distDir, 'sw.js')
+  if (existsSync(swPath)) {
+    const rewritten = rewriteServiceWorkerIndexRevision(readFileSync(swPath, 'utf8'), stamped)
+    writeFileSync(swPath, rewritten)
+    // NOT OPTIONAL. static-web.ts serves `sw.js.br`/`sw.js.gz` in preference to the
+    // original, so a stale sibling means the browser is handed the worker this rewrite
+    // was meant to replace and the fix is inert.
+    refreshCompressedSiblings(swPath, rewritten)
+  }
   const stampBytes = `${JSON.stringify(stamp, null, 2)}\n`
   const manifest = clientBuildManifest(distDir, stamp, stampBytes)
   writeFileSync(join(distDir, CLIENT_BUILD_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`)

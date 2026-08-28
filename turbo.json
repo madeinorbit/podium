@@ -21,7 +21,6 @@
     },
     "@podium/web#build": {
       "dependsOn": [],
-      "env": ["PODIUM_APP_VERSION"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "!dist/**",

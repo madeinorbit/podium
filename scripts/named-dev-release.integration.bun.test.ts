@@ -383,8 +383,8 @@ describe('named-instance development releases', () => {
    * update panel reads, and the precompressed siblings the server serves in preference
    * to the original.
    *
-   * Web is deliberately not asserted here. It keeps its `env` entry while POD-3083
-   * settles a service-worker question, so it legitimately MISSes on the version change.
+   * The web half is the test below; it has more to check, because the desktop shell
+   * ships a service worker and the phone export does not.
    */
   it('restores the phone app across a version change, stamped with the new version', async () => {
     assertClientPackagingWritesOnlyDist()
@@ -419,6 +419,75 @@ describe('named-instance development releases', () => {
     const raw = readFileSync(indexPath)
     expect(brotliDecompressSync(readFileSync(`${indexPath}.br`)).equals(raw)).toBe(true)
     expect(gunzipSync(readFileSync(`${indexPath}.gz`)).equals(raw)).toBe(true)
+  }, 1_800_000)
+
+  /**
+   * A NEW RELEASE VERSION IS NOT A NEW WEB APP EITHER (POD-3083).
+   *
+   * The same claim as the phone's, for the client that was actually costing the release:
+   * `@podium/web#build` was keyed on PODIUM_APP_VERSION, so every release MISSed and
+   * rebuilt the whole site — 41.7s cold against 0.2s warm, of a ~73s release, which is
+   * most of the speed-up POD-3051 did not deliver.
+   *
+   * IT ASSERTS ONE THING THE PHONE'S DOES NOT: THE SERVICE WORKER. The desktop shell
+   * precaches index.html and serves navigations from that precache. Workbox generates
+   * the precache manifest at `closeBundle`, before the stamp injects the version — so
+   * with the version out of the JS, a version-only release would leave `sw.js`
+   * byte-identical, an installed PWA would never see an update (the update check is a
+   * byte diff of the worker script), and it would keep serving the previous release's
+   * page while the update panel offered a Reload that could not clear itself. The stamp
+   * rewrites that revision; this requires the rewrite to have taken, on a RESTORED dist,
+   * which is the only path a release actually uses.
+   *
+   * The revision is asserted EQUAL to the md5 of the shipped page rather than merely
+   * changed: that is the property the browser depends on, and an ordering mistake in the
+   * stamp — worker rewritten before the metas go in — leaves it changed but wrong.
+   */
+  it('restores the web app across a version change, stamped into the page and its service worker', async () => {
+    assertClientPackagingWritesOnlyDist()
+
+    const first = await buildClients(ROOT, [], {
+      ...process.env,
+      PODIUM_APP_VERSION: '0.0.0-web-version-a',
+    })
+    const dist = join(ROOT, 'apps', 'web', 'dist')
+    const swBefore = readFileSync(join(dist, 'sw.js'))
+
+    const version = '0.0.0-web-version-b'
+    const second = await buildClients(ROOT, [], { ...process.env, PODIUM_APP_VERSION: version })
+
+    const web = '@podium/web#build'
+    expect(second.tasks[web].cache, 'web rebuilt for a version it does not read').toBe('HIT')
+    expect(second.tasks[web].hash, 'web restored under a different hash').toBe(
+      first.tasks[web].hash,
+    )
+
+    const indexPath = join(dist, 'index.html')
+    const html = readFileSync(indexPath, 'utf8')
+    expect(html).toContain(`<meta name="podium-version" content="${version}">`)
+    expect(html.match(/<meta\s+name=["']podium-version["']/gi) ?? []).toHaveLength(1)
+    const stamp = JSON.parse(readFileSync(join(dist, 'podium-build.json'), 'utf8')) as {
+      appVersion: string
+    }
+    expect(stamp.appVersion).toBe(version)
+
+    const raw = readFileSync(indexPath)
+    expect(brotliDecompressSync(readFileSync(`${indexPath}.br`)).equals(raw)).toBe(true)
+    expect(gunzipSync(readFileSync(`${indexPath}.gz`)).equals(raw)).toBe(true)
+
+    // The worker moved, and it names the page on disk. Both halves matter: unchanged
+    // bytes mean no update ever installs, and a changed-but-wrong revision means the
+    // installed worker precaches a page that was never served.
+    const swPath = join(dist, 'sw.js')
+    const sw = readFileSync(swPath)
+    expect(sw.equals(swBefore), 'sw.js unchanged, so an installed app never updates').toBe(false)
+    expect(sw.toString('utf8')).toContain(
+      `{url:"index.html",revision:"${createHash('md5').update(raw).digest('hex')}"}`,
+    )
+    // static-web.ts prefers these; a stale sibling hands out the old worker and the
+    // whole mechanism is inert.
+    expect(brotliDecompressSync(readFileSync(`${swPath}.br`)).equals(sw)).toBe(true)
+    expect(gunzipSync(readFileSync(`${swPath}.gz`)).equals(sw)).toBe(true)
   }, 1_800_000)
 
   /**

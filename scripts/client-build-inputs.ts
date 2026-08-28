@@ -136,35 +136,40 @@ export function declaredBuildInputs(root: string, task: ClientBuildTaskId): stri
 }
 
 /**
- * THE TWO CLIENT TASKS DECLARE DIFFERENT `env`, ON PURPOSE (POD-3082).
+ * NEITHER CLIENT TASK IS KEYED ON THE RELEASE VERSION (POD-3082, POD-3083).
  *
- * `@podium/web#build` names PODIUM_APP_VERSION; `@podium/mobile#build` names nothing.
- * That asymmetry looks like an oversight and is not one, so it is written here, and
- * asserted in `client-build-inputs.test.ts`, rather than left as a comment in
- * turbo.json — Turbo refuses an unknown key there and every reader in this repository
- * parses that file as strict JSON, so it has nowhere to put a note.
+ * An empty list looks like an omission, so it is written here, and asserted in
+ * `client-build-inputs.test.ts`, rather than left as a comment in turbo.json — Turbo
+ * refuses an unknown key there and every reader in this repository parses that file as
+ * strict JSON, so it has nowhere to put a note.
  *
- * NOTHING IN apps/mobile READS THE VARIABLE. The version reaches the mobile dist only
- * through `scripts/write-web-build-stamp.ts`, which injects the `podium-version` meta
- * and refreshes index.html's `.br`/`.gz` siblings — and `scripts/build-clients.ts`
- * re-runs that stamp over BOTH client dists after Turbo returns, unconditionally, on
- * HIT as well as MISS (POD-3072). Naming the variable in the mobile key therefore
- * bought nothing and cost everything: it forced a MISS on every release, for a value
- * the cached output does not depend on.
+ * NEITHER BUILD READS PODIUM_APP_VERSION. The version reaches either dist only through
+ * `scripts/write-web-build-stamp.ts`, which injects the `podium-version` meta, refreshes
+ * index.html's `.br`/`.gz` siblings, and (web only) rewrites the index.html revision in
+ * the generated service worker — and `scripts/build-clients.ts` re-runs that stamp over
+ * BOTH client dists after Turbo returns, unconditionally, on HIT as well as MISS
+ * (POD-3072). Naming the variable in either key therefore bought nothing and cost
+ * everything: it forced a MISS on every release for a value the cached output does not
+ * depend on, which was the whole of the release speed-up POD-3051 did not deliver.
  *
- * Web keeps its entry while POD-3083 settles a service-worker question; its build also
- * runs `archive-web-sourcemaps.ts` and `web-bundle-budget.ts`, which were not audited
- * for this. So: do not "restore consistency" by adding the variable back to mobile, and
- * do not remove it from web on the strength of this note.
+ * Mobile lost its entry first (POD-3082), web second (POD-3083) — web needed the service
+ * worker settled, because with the version out of the JS a version-only release leaves
+ * `sw.js` byte-identical and an installed PWA never updates. That is what the sw.js
+ * rewrite in the stamp is for.
  *
- * What proves the removal SAFE rather than merely currently-true is
- * "restores the phone app across a version change, stamped with the new version"
- * (scripts/named-dev-release.integration.bun.test.ts), which builds the phone at one
- * version, rebuilds at another, and requires both a HIT and a dist naming the new
- * version — meta, manifest and compressed siblings.
+ * So: do not add the variable back to either task to "make the build name the release".
+ * The stamp names the release, after the cache boundary, which is the only place it can
+ * be named without destroying the cache.
+ *
+ * What proves the removals SAFE rather than merely currently-true are the two
+ * behavioural gates in `scripts/named-dev-release.integration.bun.test.ts` — "restores
+ * the phone app across a version change, stamped with the new version" and "restores the
+ * web app across a version change, stamped into the page and its service worker" — which
+ * build a client at one version, rebuild at another, and require both a HIT and a dist
+ * naming the new version everywhere a reader looks.
  */
 export const REQUIRED_BUILD_ENV: Record<ClientBuildTaskId, readonly string[]> = {
-  '@podium/web#build': ['PODIUM_APP_VERSION'],
+  '@podium/web#build': [],
   '@podium/mobile#build': [],
 }
 
