@@ -23,6 +23,12 @@ side, and so is the disk.
 | JSONL in the reader's home | **no project directory at all** | present, holds the needle |
 | JSONL in the operator's home | present, holds the needle | **absent** |
 
+**The before arm is a recheck at the coordinator root, not an older reading.**
+`90ebca7d9` CONTAINS `ccdea1f93` — POD-3059's fix — one documentation commit
+ahead of it, so the empty read above was measured with that fix in place. This
+branch is now rebased onto `ff815f3d1`; the advance from the pinned tip is
+documentation only, and the fix's patch-id is unchanged across the rebase.
+
 Readings: `readings/read-check.before.json`, `readings/read-check.fix.json`.
 Each carries its own pin — the commit read back out of the server and daemon
 processes that actually served it, refusing the cell unless both are the
@@ -92,18 +98,42 @@ Mutations, each applied alone and reverted after:
 because the repo's default gate is red or green by that variable, so a number
 taken without saying which it was is not comparable to one that was.
 
-- `bun run typecheck` — 25/25 successful.
-- focused: `runtime/claude-sdk-driver.test.ts` + `claude-sdk-client.test.ts` —
-  2 files, 26 tests, all passing.
-- `apps/daemon` package tests — **1306 passed, 5 skipped, 9 failed** across 111
-  files. The nine reconcile exactly against POD-3059's baseline at this root:
-  it recorded 1303 passed / 9 failed, my commit is the only non-docs change
-  since (every root advance in between is documentation), and 1303 + the 3 tests
-  added here = 1306. The failing names are the same set, and none is in a file
-  this change touches; read individually rather than as a cluster, they are
-  environmental — `ABDUCO_SOCKET_DIR` inherited from the ambient session
-  (`expected '/run/user/1001/podium-blue'`) and an opencode binary that resolves
-  to an absolute path on this box.
+**Typecheck** — `bun run typecheck`: 25 successful, 25 total.
+
+**Focused** — `runtime/claude-sdk-driver.test.ts` + `claude-sdk-client.test.ts`,
+which is where all three new tests live, the real-child spawn among them
+(*spawns the host under the HOME the turn spec names* runs an actual process and
+reads its `HOME`/`CLAUDE_CONFIG_DIR` back off stdout):
+
+```
+ Test Files  2 passed (2)
+      Tests  26 passed (26)
+```
+
+Re-run unchanged after rebasing onto the coordinator tip.
+
+**`apps/daemon` package**, verbatim:
+
+```
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  5 failed | 105 passed | 1 skipped (111)
+      Tests  9 failed | 1306 passed | 5 skipped (1320)
+```
+
+**The nine are inherited, and the arithmetic is the argument.** POD-3059
+recorded 1303 passed / 9 failed at this root; my commit is the only non-docs
+change since (`git diff 90ebca7d9 ff815f3d1 -- . ':!docs'` is empty, and every
+root advance in between is documentation); 1303 + the 3 tests added here = 1306,
+with the failure count unmoved. Classified individually rather than as a
+cluster, and none is in a file this change touches:
+
+| file | n | why it fails here |
+|---|---|---|
+| `instance-bootstrap.test.ts` | 1 | `ABDUCO_SOCKET_DIR` inherited from the ambient session — `expected '/run/user/1001/podium-blue'` |
+| `harness-exec.test.ts` | 2 | an opencode binary installed on this box resolves to an absolute path (`/home/mgw/.opencode/bin/opencode`) where the test expects the bare name |
+| `headless-drivers.test.ts` | 1 | codex MCP bearer argv shape, same environmental class |
+| `server-reap.test.ts` | 4 | teardown-frame suite, red at the clean root |
+| `opencode-attach.test.ts` | 1 | runs opencode's own client; not present in this environment |
 
 ## What this does NOT show
 
