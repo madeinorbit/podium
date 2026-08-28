@@ -1674,3 +1674,22 @@ and a reusable probe change, and was explicitly forbidden from editing
 `results.tsv`, so its two verdicts would never have reached the matrix without
 someone transcribing them. **Check every `review`-stage child for unlanded
 commits before you believe the matrix is current.**
+
+### Classify on the leading token, never on a substring of the prose
+
+Verdict cells carry prose after the verdict word, and that prose quotes other
+verdict words. `PARTIAL no-restart and both-view passed; the scrollback clause
+is UNMEASURED by the probe` is a **PARTIAL**. A scorer that asks
+`'UNMEAS' in verdict.upper()` calls it unmeasured and silently moves a cell into
+the wrong bucket. The same trap eats `FAIL ... scrollback corruption unmeasured`.
+
+    t = re.split(r'[^A-Za-z]+', verdict.strip().upper())[0]   # leading token ONLY
+
+This is the third instance of one shape on this epic and it is worth naming:
+**a check whose pattern is looser than the thing it is checking.** The `NF<8`
+validator could only catch too-few fields (Decision 27). The A6b probe printed an
+aggregate PASS while a clause went unmeasured (Decision 28). This scorer matched
+a word anywhere in a sentence. Each one produced a confident wrong number rather
+than an error, which is why none of them announced itself.
+
+**Check your check against a case it must REJECT, not only one it must accept.**
