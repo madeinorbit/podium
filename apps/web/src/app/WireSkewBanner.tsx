@@ -5,6 +5,7 @@ import {
   openUpdatePanel,
   subscribeUpdatePanel,
 } from '@/features/updates/open-panel'
+import { forceReload } from '@/lib/force-reload'
 import { currentSkew, type SkewNotice, subscribeSkew } from './skew-notice'
 
 /**
@@ -98,6 +99,13 @@ export function WireSkewBanner(): JSX.Element | null {
 
   if (!notice) return null
 
+  // `assets-replaced` means this page is controlled by a service worker/cache
+  // for bytes the server has already replaced. A panel opener may still be
+  // registered while its state is empty, so opening it is not a reliable
+  // recovery path. This branch owns the one action that can guarantee the next
+  // navigation fetches the server's current bundle.
+  const staleAssets = notice.source === 'assets-replaced'
+
   return (
     <div
       ref={measure}
@@ -127,10 +135,15 @@ export function WireSkewBanner(): JSX.Element | null {
         // button anywhere, even in a banner that styles itself.
         data-pressable
         onClick={() => {
+          if (staleAssets) {
+            void forceReload()
+            return
+          }
           /**
-           * ONE REMEDY, IN ONE PLACE (POD-2102, spec §6.1). This button used to
-           * prescribe its own fix — a plain reload — while the update panel, a
-           * few hundred pixels away, was recommending a different one. The
+           * For wire skew, the banner delegates to the panel's remedy (POD-2102,
+           * spec §6.1). This button used to prescribe its own fix — a plain reload —
+           * while the update panel, a few hundred pixels away, was recommending a
+           * different one. The
            * banner stays as the last-resort backstop it was built to be, but
            * the remedy it points at is now the panel's, because the panel is
            * the thing that knows what state the update is actually in.
@@ -151,7 +164,7 @@ export function WireSkewBanner(): JSX.Element | null {
           cursor: 'pointer',
         }}
       >
-        {panelAvailable ? 'Show update' : 'Reload'}
+        {staleAssets ? 'Reload' : panelAvailable ? 'Show update' : 'Reload'}
       </button>
     </div>
   )

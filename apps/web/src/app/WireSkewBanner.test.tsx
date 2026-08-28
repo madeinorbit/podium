@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { registerUpdatePanelOpener } from '@/features/updates/open-panel'
 import { APP_START_FALLBACK_ID, AppStarted } from './AppStarted'
 import { reportSkew, resetSkewNotice } from './skew-notice'
 import { SKEW_BANNER_HEIGHT_VAR, skewBannerHeightValue, WireSkewBanner } from './WireSkewBanner'
@@ -30,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
   document.body.replaceChildren()
   resetSkewNotice()
 })
@@ -107,5 +109,37 @@ describe('the space the skew banner reserves', () => {
     // A property left behind would push the app down by a banner that is no
     // longer there — a dead stripe nobody can explain.
     expect(clearedValue()).toBe('')
+  })
+
+  it('hard-reloads stale assets even when a dormant update panel opener exists', async () => {
+    const opener = vi.fn()
+    const unregister = vi.fn().mockResolvedValue(true)
+    const cacheDelete = vi.fn().mockResolvedValue(true)
+    const reload = vi.fn()
+    vi.stubGlobal('navigator', {
+      serviceWorker: { getRegistrations: vi.fn().mockResolvedValue([{ unregister }]) },
+    })
+    vi.stubGlobal('caches', {
+      keys: vi.fn().mockResolvedValue(['podium-precache', 'podium-runtime']),
+      delete: cacheDelete,
+    })
+    vi.stubGlobal('location', { reload })
+    const unregisterPanel = registerUpdatePanelOpener(opener)
+
+    reportSkew({
+      source: 'assets-replaced',
+      severe: false,
+      message: 'The server is serving a newer web build.',
+    })
+    render(<WireSkewBanner />)
+
+    const button = screen.getByRole('button', { name: 'Reload' })
+    button.click()
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
+
+    expect(opener).not.toHaveBeenCalled()
+    expect(unregister).toHaveBeenCalledTimes(1)
+    expect(cacheDelete).toHaveBeenCalledTimes(2)
+    unregisterPanel()
   })
 })
