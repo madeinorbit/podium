@@ -46,6 +46,20 @@ export interface QuotaLedgerColumn extends QuotaWindowHistoryWire {
   /** The plan changed at this column, so the pool underneath it is a different
    *  size and the percentages either side are not comparable. */
   planBreak: boolean
+  /**
+   * How long this window ran, in days — the column's WIDTH.
+   *
+   * Linear, and it may be: only nominally-weekly pools reach this chart, so the
+   * spread is about 1–7 days. A seven-day window really is drawn seven times the
+   * width of a one-day one, which means the width can be read as a proportion
+   * rather than a ranking. (Claude's 5-hour window would have made that a 33:1
+   * ratio and forced a compressed scale — it is filtered out well before here.)
+   *
+   * `undefined` when the provider reported no duration: that is a legitimate
+   * "it did not say", and a column that cannot claim a length must not be drawn
+   * as a measured short one.
+   */
+  durationDays: number | undefined
 }
 
 export interface QuotaLedgerStrip {
@@ -54,7 +68,14 @@ export interface QuotaLedgerStrip {
   /** `CC` · `CX` · `GR` — the mark the rest of the shell already uses. */
   mark: string
   agentLabel: string
-  windowLabel: string
+  /**
+   * What this pool's rhythm actually looks like — `Weekly`, `typically weekly`,
+   * a range like `1–7 days`, or NOTHING when too little has been seen to say.
+   *
+   * Derived from the observed windows, never copied from the provider's own
+   * label. See {@link cadenceLabel}.
+   */
+  windowLabel: string | undefined
   columns: QuotaLedgerColumn[]
   /** Completed windows only — a running window has no final answer yet. */
   completedCount: number
@@ -114,6 +135,55 @@ export function formatLedgerSpan(startedAt: string | undefined, resetsAt: string
   return `${MONTH_DAY.format(start)} – ${sameMonth ? DAY.format(end) : MONTH_DAY.format(end)}`
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** A window's length in days, or undefined when the provider reported none. */
+export function windowDurationDays(row: QuotaWindowHistoryWire): number | undefined {
+  if (row.windowMinutes > 0) return row.windowMinutes / (24 * 60)
+  if (!row.startedAt) return undefined
+  const span = Date.parse(row.resetsAt) - Date.parse(row.startedAt)
+  return Number.isFinite(span) && span > 0 ? span / DAY_MS : undefined
+}
+
+function median(values: number[]): number | undefined {
+  if (values.length === 0) return undefined
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1
+    ? sorted[mid]
+    : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2
+}
+
+/**
+ * WHAT THIS POOL'S RHYTHM ACTUALLY IS, from the windows we watched.
+ *
+ * The provider's own label is not evidence. Every harness here calls its big
+ * pool "Weekly", and Codex was measured emptying its pool several times in one
+ * afternoon while its reset time crept — printing "Weekly" over that would be
+ * the chart asserting something its own columns contradict.
+ *
+ * Three answers, in descending confidence:
+ *  - every window within half a day of seven → `Weekly`, said plainly;
+ *  - they vary but sit around a week → `typically weekly`, which claims a
+ *    tendency and not a rule;
+ *  - they vary and are not weekly → the observed range, `1–7 days`.
+ *
+ * And a fourth: fewer than two completed windows says NOTHING. One observation
+ * cannot establish a rhythm, and silence is the honest output — the caller
+ * renders no cadence at all rather than a hedge.
+ */
+export function cadenceLabel(durationsDays: number[]): string | undefined {
+  const known = durationsDays.filter((d) => Number.isFinite(d) && d > 0)
+  if (known.length < 2) return undefined
+  const lo = Math.min(...known)
+  const hi = Math.max(...known)
+  if (lo >= 6.5 && hi <= 7.5) return 'Weekly'
+  const mid = median(known) ?? 0
+  if (mid >= 6 && mid <= 8) return 'typically weekly'
+  const round = (d: number) => (d < 1.5 ? d.toFixed(1).replace(/\.0$/, '') : String(Math.round(d)))
+  return lo === hi ? `${round(lo)} days` : `${round(lo)}–${round(hi)} days`
+}
+
 function mean(values: number[]): number | undefined {
   if (values.length === 0) return undefined
   return values.reduce((a, b) => a + b, 0) / values.length
@@ -148,6 +218,7 @@ export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
         spanLabel: row.closed ? span : span ? `${span} · now` : 'now',
         endLabel: row.closed ? MONTH_DAY.format(new Date(row.resetsAt)) : 'now',
         planBreak: prev !== undefined && prev.plan !== undefined && prev.plan !== row.plan,
+        durationDays: windowDurationDays(row),
       }
     })
     const completed = columns.filter((c) => c.closed)
@@ -157,7 +228,11 @@ export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
       agent: first.agent,
       mark: AGENT_MARK[first.agent] ?? first.agent.slice(0, 2).toUpperCase(),
       agentLabel: AGENT_LABEL[first.agent] ?? first.agent,
-      windowLabel: first.label || 'Weekly',
+      // Closed windows only: a running one is still growing, so its length so far
+      // is not the length it will turn out to have had.
+      windowLabel: cadenceLabel(
+        completed.map((c) => c.durationDays).filter((d): d is number => d !== undefined),
+      ),
       columns,
       completedCount: completed.length,
       averagePeak: mean(completed.map((c) => c.peakPercent)),

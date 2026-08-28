@@ -11072,6 +11072,13 @@ a.ref-link--session::before {
   justify-content: flex-start;
   gap: 3px;
   height: 76px;
+  /* 20px a day puts a full week at 140px and a single day at 20px. Measured in
+     the harness at a 560px panel the strip compresses to ~18px a day, at which
+     point a one-day column meets the 22px floor and is drawn a little wider than
+     its share — the ratio shown is then ~5.7:1 rather than 7:1. That is the
+     floor doing its job (a 18px column is not a hover target) and it is the only
+     place the scale bends; every length from two days up stays exactly linear. */
+  --quota-px-per-day: 20px;
 }
 .quota-gridline {
   position: absolute;
@@ -11085,18 +11092,37 @@ a.ref-link--session::before {
 .quota-gridline[data-target] {
   background: color-mix(in srgb, var(--foreground) 14%, transparent);
 }
+/* WIDTH IS THE WINDOW'S LENGTH (POD-1743).
+   Every column used to be the same width, so a one-day period looked exactly
+   like a seven-day one. `--days` carries the real length and the basis is linear
+   in it: seven days is seven times one day, and the width can be read as a
+   proportion rather than a ranking. Only nominally-weekly pools reach this chart
+   (~1–7 days), which is what makes a linear scale both truthful and legible —
+   Claude's 5-hour window would have been a 33:1 sliver, and it is filtered out
+   long before here.
+
+   `flex: 0 1 <basis>` rather than `flex: 1`: no growing, so a strip holding two
+   weeks still reads as two weeks with room to grow rather than stretching to
+   fill; shrinking is allowed, and because flex distributes shrinkage in
+   proportion to basis, the 7:1 ratio survives a squeezed sheet. */
 .quota-groove {
   position: relative;
   display: flex;
-  flex: 1;
+  flex: 0 1 calc(var(--days, 7) * var(--quota-px-per-day));
   align-items: flex-end;
-  min-width: 5px;
-  /* Capped rather than stretched: two weeks of history should read as two weeks
-     with room to grow, not as a full chart. */
-  max-width: 96px;
+  /* The floor, and the one place proportionality yields: a window this short
+     still has to be visible and hoverable. It binds only for a one-day window in
+     a compressed strip — see the note on --quota-px-per-day. */
+  min-width: 22px;
   height: 100%;
   border-radius: 2px;
   background: var(--usage-scale);
+}
+/* No duration was reported, so this column's width is a placeholder rather than
+   a measurement — drawn at the nominal week, with its ground dimmed so it does
+   not read as a confident length. */
+.quota-groove[data-unknown-length] {
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
 }
 .quota-groove i {
   display: block;
@@ -11142,10 +11168,17 @@ a.ref-link--session::before {
   justify-content: flex-start;
   gap: 3px;
   padding-top: 8px;
+  --quota-px-per-day: 20px;
 }
+/* A DATE THAT DOES NOT FIT IS HIDDEN, NOT CLIPPED. Now that width tracks
+   duration, a one-day column is ~20px and its date truncated to "Au…" — which
+   cuts off exactly the part that tells one column from the next. The container
+   query hides the text outright on any column too narrow for it, at whatever
+   compression the strip is under, and the full span stays on the hover title. */
 .quota-strip-days span {
-  flex: 1;
-  max-width: 96px;
+  container-type: inline-size;
+  flex: 0 1 calc(var(--days, 7) * var(--quota-px-per-day));
+  min-width: 22px;
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -11154,6 +11187,18 @@ a.ref-link--session::before {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.quota-strip-days b {
+  font-weight: inherit;
+}
+@container (max-width: 44px) {
+  /* `display: none`, not `visibility: hidden`: a hidden child still overflows its
+     parent, so the parent kept painting its own "…" — the clipped label this rule
+     exists to remove. Removing the box removes the overflow with it. */
+  .quota-strip-days b {
+    display: none;
+  }
 }
 
 .quota-legend {
