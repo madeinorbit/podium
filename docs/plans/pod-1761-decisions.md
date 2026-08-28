@@ -1029,7 +1029,7 @@ replacement is worse at the provider level, it has failed at exactly the thing
 it exists to do.**
 
 **So I am scoring this as a release blocker on the provider-level reading**, and
-POD-3045 owns the fix. If the operator wants the stricter same-driver reading
+POD-3045 owns the fix (I originally filed a duplicate, POD-3046, and closed it). If the operator wants the stricter same-driver reading
 instead — under which this is not a blocker because main has no comparator —
 that is their call to make and it flips this one cell. I am flagging it rather
 than deciding it silently, but I am not going to sit on it in the meantime.
