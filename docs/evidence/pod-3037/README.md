@@ -40,6 +40,18 @@ processes from this worktree at fe311c5, a served bundle sourceSha of fe311c5,
 and the requested arm. The product tree was clean outside the probe's own
 docs/evidence path. No main branch merge was performed.
 
+## Epic movement after the drive
+
+At drive time the local epic tip was 182d00fc3d14ec029d394952270cd6193c3a9388.
+After this drive, the local issue/1761-agent-runtime ref advanced to
+bf328f859b5bfee724a68745ad85561e61bc3235. The non-doc drift between those pins
+is confined to Claude SDK and session-model changes; it does not touch Grok
+ACP, permission, terminal, or shared A4 probe paths.
+
+The reading remains pinned to fe311c5 and is not being relabeled as a current
+tip drive. This is the standing-brief case where the branch moved in an area
+outside the measured cell.
+
 The host preflight at 2026-08-28 13:47:27 CEST showed 19,674 MiB available
 memory, 281 MiB swap used, and quiet swap samples. The server boot log began at
 2026-08-28 13:50:02.476 CEST; the raw probe reading was captured at
