@@ -23,6 +23,13 @@ Run window: 2026-08-28 13:07:23–13:16:00 CEST. Each cell had a fresh `df -h /`
 - The coordinator ref had docs-only descendants through `182d00fc3` when the branch was
   fast-forwarded after the drive. `git diff --name-only 98ef8d6e0..182d00fc3 | awk '!/^docs\\//'` was
   empty, so the already-built bundle remained valid; no test:heavy or broad test was run.
+- The evidence behavior pin is `98ef8d6e0`, while the exact current issue branch is
+  `c71b896a9`. Later coordinator descendants include docs-only `d606c06e5` and
+  `c71b896a9`; the latter changes only Claude SDK files under `apps/daemon` and
+  `packages/agent-runtime`, plus the related model session type, with no shell/terminal
+  path touched. The shell readings therefore remain valid under the stale-row rule:
+  source, server, daemon, and web bundle were all pinned to `98ef8d6e0`, and the later
+  descendant did not alter the measured shell/terminal behavior.
 
 ## Cell results
 
