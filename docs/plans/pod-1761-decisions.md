@@ -872,3 +872,45 @@ and confirming the product sees it is still the allowed setup.
 - Historical evidence, `results.tsv`, and audit-time SA4/LD8 classifications stay historical.
 - The Claude manifest now declares subscription for the embedded auth list. Any stale source
   comment elsewhere is implementation drift, not a policy veto or an acceptance result.
+
+## Decision 27 — the matrix had a silent parse fault, and A4 is an instrument story (2026-08-28 13:09 CEST)
+
+**Two things, both of which change what the coverage number means.**
+
+**1. Nineteen rows were shifted by one column and no validator could see it.**
+They carried a ninth field — a `detail` column inserted after `verdict` —
+pushing commit/control/alone/date/issue one place right. Any reader indexing
+by position read the rig-notes column as the date. Mine did, and produced a
+phantom `A3 claude FAIL` that contradicted Decision 25. **The validator I wrote
+into the standing brief was `NF<8`, which can only catch too-few fields.** It
+was structurally incapable of detecting the fault that actually occurred — a
+check that could not fail in the direction that mattered. Now `NF!=8`.
+Realigned without losing a character: 337 lines before and after, and a
+separator-stripped diff is empty. Corrected position: **69/69 driven, 52 PASS,
+17 not-PASS** — and A3/claude is correctly a PASS, as Decision 25 said.
+
+**2. The six A4a/A4b BLOCKED cells are vendor-instrument blocks, not
+regressions.** claude-code 2.1.231 rewrites `permissions.defaultMode`
+manual-to-auto so an ask can never fire; opencode auto-approves; codex
+auto-answers under `approvals_reviewer=auto_review`. **These cells are
+undriveable on BOTH arms, so they cannot be worse than main** — but
+undriveable is NOT a pass, and they must never be counted as one. They are a
+declared measurement gap.
+
+POD-3027 broke part of that open for codex by giving the probe a dummy
+never-approved cwd and setting an isolated `approvals_reviewer=user` restored
+on exit — the same posture A4 already uses for opencode's `permission.bash=ask`.
+You cannot measure asking without configuring the agent to ask. Result:
+**A4b codex PASS** (allow-once acted exactly once; the second answer was a
+typed `already-answered` refusal, not a double action) and **A4a codex
+PARTIAL** — the chat plane enumerated the ask, the terminal plane showed
+0 native bytes before answering and still looked to be prompting after, so
+"answering resolves both planes" is unmet.
+
+*Note against myself:* I read A4a as a PASS from that session's bullet list and
+was about to record it that way; its own verdict line said PARTIAL. **The
+bullets described one plane, the verdict scored both.** Read to the verdict.
+
+**The same dummy-cwd probe should now be pointed at grok, and the claude
+`defaultMode` rewrite is worth one attempt at a version pin** — those are the
+next A4 moves, not a rewrite of the harness.
