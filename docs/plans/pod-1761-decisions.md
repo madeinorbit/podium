@@ -1083,3 +1083,28 @@ confident wrong claim rather than an error.**
 
 POD-3044 corrected too: its A1c pattern stands on its own evidence, but A6b is
 **not** corroboration for it and must not be used as such.
+
+## Decision 31a — the blocker fix landed before its verification, by accident (2026-08-28 16:15 CEST)
+
+`b5a3aa870` — POD-3045's park fix — **is the parent of the current epic tip.**
+It committed onto the shared epic branch and I committed Decision 31 on top of
+it without noticing. Nobody merged it deliberately. POD-3045 believed it was
+unlanded and said so in good faith; from its side that was true.
+
+**Consequence: the drive I authorised is now a post-landing verification, and
+the stakes invert.** A failing drive no longer means "do not land" — it means
+**revert `b5a3aa870`**. I have told POD-3045 exactly that, including the warning
+that a fix already in the tree exerts pressure to turn verification into a
+rubber stamp.
+
+**The matrix still records A6b/opencode as FAIL at pin 5fe951f2f**, which is the
+last real reading and a pre-fix one. **I will not record a PASS on the strength
+of a landed diff.** Until the drive reports, the epic carries a fix whose only
+evidence is at the boundary — an honest state, and better than pretending
+otherwise.
+
+**Standing risk on this epic:** sessions commit directly to the shared epic
+branch, so "unlanded" as reported by a child is not reliable, and my own commits
+can silently ratify someone else's. Before believing anything is unlanded:
+`git log --oneline -4 issue/1761-agent-runtime` and look at what your own tip's
+parent actually is.
