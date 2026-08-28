@@ -5748,3 +5748,19 @@ The last measured matrix snapshot remains 69 cells (54 PASS, 3 confirmed FAIL,
 12 qualified/blocked), but it is provisional while the two server-path A1c
 cells are re-driven at the integrated tip. The operator sandbox remains stopped;
 no shared gate lease is held.
+
+
+## FOREST — acceptance-table format repair (2026-08-28 09:48 CEST)
+
+The coordinator repaired the separator-only bookkeeping defect in 19 historical rows of
+docs/plans/pod-1761-results.tsv: each had verdict and its description separated into two
+fields, yielding nine columns instead of the declared eight. The repair merged those two text
+fields back into the verdict column and preserved every verdict, commit pin, control/alone
+evidence, timestamp, issue reference, and duplicate history unchanged. No runtime measurement or
+matrix verdict was added or changed.
+
+The table now parses cleanly: all 297 data rows have exactly eight tab-separated fields. The
+acceptance snapshot remains provisional at 69 cells (54 PASS, 3 confirmed FAIL, 12
+qualified/blocked) while current-tip Grok and OpenCode A1c re-drives remain pending after the
+POD-2980 landing. The operator sandbox remains stopped; the host has about 2.3 GiB free and is
+actively swapping, so no runtime drive was admitted.
