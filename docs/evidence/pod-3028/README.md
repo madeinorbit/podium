@@ -166,3 +166,13 @@ mtime unchanged `2026-08-28T06:20:34Z`.
 Provider quota after reset was **not exhausted**. The product still did not
 reach it: named-instance agent-home had no credential. Honest class is
 logged-out / not-success / not-quota. A quota failure was not manufactured.
+
+## Pin retarget c55613bd7 (2026-08-28T11:06:43Z)
+
+Coordinator named docs-only `c55613bd7` after the parked script. At retarget,
+local `issue/1761-agent-runtime` had already moved to `976a62c38` (one further
+docs commit). This branch was rebased onto that tip. `c55613bd7` is an ancestor
+of HEAD. `git diff --name-only 98ef8d6e0 c55613bd7` is all `docs/`. Runtime
+behavior is unchanged, so the post-reset drive was **not** re-launched (that
+would only burn the new weekly window on another logged-out empty agent-home).
+Quota at retarget: weekly_all=0%. See [`pin-c55613bd7.md`](pin-c55613bd7.md).

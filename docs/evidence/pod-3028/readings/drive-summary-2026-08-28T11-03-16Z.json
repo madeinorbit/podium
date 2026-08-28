@@ -1,8 +1,11 @@
 {
   "productPin": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
   "productPinSubject": "fix(claude-sdk): read SDKResultError.errors on host frames",
+  "docsPinRequested": "c55613bd7a7cc32405672fa0794b720a38bbe28d",
+  "epicTipAtRetarget": "976a62c384e9d02c9ee41d6633d5b0c1586364b9",
+  "docsPinVsRuntime": "c55613bd7 and later 1761 tip 976a62c38 are docs-only after 98ef8d6e0; no runtime files",
   "issueHeadAtSpawn": "5f203cd43bc331e51f8a05c9cfa514932db1c14d",
-  "productDiffVsPin": "docs/evidence/pod-3028 only",
+  "productDiffVsPin": "docs/evidence/pod-3028 only at spawn; later rebased onto 1761 including c55613bd7",
   "serverPid": 295487,
   "daemonPid": 295782,
   "spawnSha": "5f203cd43bc331e51f8a05c9cfa514932db1c14d",
