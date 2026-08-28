@@ -994,3 +994,30 @@ and no longer true), swap-in 0 across a 20s sample, load 1.46. All above the
 coordinator's 5 GiB/no-swap floor. The only closed gate is `test:heavy`, held by
 POD-3026 with ~22m remaining; not queued with `--wait`, per instruction and per
 the orphaned-queue-slot failure recorded earlier in this file.
+
+### A4 approval fixture, prepared 2026-08-28 20:32 CEST (not yet driven)
+
+The codex A4a/A4b cells were blocked by the harness rather than by the product:
+codex only raises the approval prompt in a directory tree it has never approved,
+and re-using an approved tree silently exercises nothing. The operator supplied
+the recipe; this is it, built and preserved:
+
+```
+/home/mgw/pod2777-a4-approval-fixture-9c1cc3621/never-approved-root/dummy-repo-a4
+```
+
+A `git init` with one commit, to be used as the session cwd, with the harmless
+command run inside it.
+
+**Why it is genuinely never-approved, stated as a mechanism rather than a
+search.** The obvious check — grepping codex's state for the path — proves
+nothing, because it depends on whether approvals are recorded per path or per
+parent root, and a negative grep would look identical either way. The airtight
+argument is simpler: this directory was created at 20:32 with a name unique to
+this pin, so no approval record written before 20:32 can name it, whatever the
+format. The fixture is single-use in spirit — once codex approves it, it is
+spent, and a re-drive needs a fresh uniquely-named tree.
+
+Controls for these cells are unchanged: positive-turn, structured-ask,
+native-view, ordering, and the first-answer/second-answer pair. No result will be
+claimed unless the live control fires.
