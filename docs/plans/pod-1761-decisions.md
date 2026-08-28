@@ -1266,16 +1266,25 @@ operator home while the instance agent home has **no `projects` directory at
 all**; and `sessions.read` returns `items: []` on a session whose reply had just
 arrived on the stream.
 
-**POD-3059 was closed on a fix that does not work for this path.** POD-3066
-owns it. This does not move the release bar — `claude-sdk` is not on it — but it
-does mean Decision 32's re-read premise is wrong for the SDK column, and
-POD-3065 has been told directly.
+**POD-3059's fix does not reach this path, which is narrower than saying it
+failed.** What it closed is the DURABLE HEADLESS spawn, and it closed it. The
+in-process `claude-sdk` child is a SECOND spawn site — `claude-sdk-client.ts`
+`spawnDefaultHost`, over the two-argument `headlessChildEnv` with the
+interactive frame's `env`, which names no home — so POD-3059's overlay builder
+is never reached from there. Two spawn sites, one class of defect, one of them
+fixed. **POD-3057 owns this one** (see Decision 36). This does not move the
+release bar — `claude-sdk` is not on it — but it does mean Decision 32's
+re-read premise is wrong for the SDK column, and POD-3065 has been told
+directly.
 
-*Third wrong ref of the day, also mine:* Decision 32 said POD-3064 owned the
-re-read. **POD-3064 is an unrelated mobile bootstrap issue**; the right one is
-POD-3065. Corrected in place. Three times now I have written a ref that pointed
-at a real, unrelated, active issue — the failure mode where nothing looks broken
-from either end.
+*Wrong refs of the day, all mine:* Decision 32 said POD-3064 owned the re-read
+(**POD-3064 is an unrelated mobile bootstrap issue**; the right one is
+POD-3065), and this decision first said POD-3066 owned the SDK home split
+(**POD-3066 is 'Bug: NUL byte hides a script from grep'**; the right one is
+POD-3057, which raised the correction — and it was lost once already, in a
+rebase that resolved this file in favour of the other side). Both corrected in
+place. Four times now I have written a ref that pointed at a real, unrelated,
+active issue — the failure mode where nothing looks broken from either end.
 
 ## Decision 35 — my Decision 32 hypothesis is REFUTED, and that is the useful answer (2026-08-28 17:44 CEST)
 
@@ -1331,7 +1340,8 @@ a site whose design predates the instance-home rule. That is why nobody caught
 it, and it is the seventh instrument of the day: **a test that passes for the
 case it names while the live path never arrives there.**
 
-**POD-3057 already owns the fix** — `96f53857e`, *"Keep the SDK child in the home
+**POD-3057 already owns the fix** — `0f0c7a295` (was `96f53857e` before the
+branch was rebased onto this root; same patch-id `e655a3e9`), *"Keep the SDK child in the home
 its transcript is read from"*, 166 lines across the same three files, with a
 before/after showing `sessions.read` going from empty to the real conversation.
 Not landed. **POD-3067 was my third duplicate of the day** (after POD-3046 and
