@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, existsSync, readFileSync, renameSync } from 'node:fs'
-import { readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -663,7 +663,18 @@ export const nodeDevBundleFs: DevBundleFs = {
       stream.once('end', () => resolve({ digest: `sha256-${hash.digest('base64')}`, size }))
     }),
   readText: (path) => readFileAsync(path, 'utf8'),
-  writeText: (path, contents) => writeFile(path, contents),
+  // ENSURE THE PARENT, because nothing else does any more.
+  //
+  // `dist-bun/` used to be created as a side effect of the build writing its tarballs
+  // there. The tarballs live in the ledger now, so on a checkout that has never built,
+  // the first thing to want that directory is the feed manifest — and a publish that
+  // fails with ENOENT on `latest.json` is a release nobody can pull, reported as a disk
+  // fault. The seam owns this rather than the manifest writers: they take a
+  // `DevBundleFs`, and only this implementation is on a real filesystem.
+  writeText: async (path, contents) => {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, contents)
+  },
   remove: (path) => rm(path, { force: true }),
 }
 

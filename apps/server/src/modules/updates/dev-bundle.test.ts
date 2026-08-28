@@ -44,6 +44,7 @@ import {
   devTarget,
   fleetHeadlessPlatforms,
   listDevBundles,
+  nodeDevBundleFs,
   parseDevBundleName,
   requireDefinedMigrations,
 } from './dev-bundle'
@@ -455,6 +456,20 @@ function stubFs(): DevBundleFs {
     remove: async () => {},
   }
 }
+
+describe('the node filesystem seam', () => {
+  it('creates the directory a feed manifest is written into', async () => {
+    // `dist-bun/` used to exist because the build wrote its tarballs there. They live in
+    // the ledger now, so on a checkout that has never built, the feed manifest is the
+    // first thing to want that directory — and the failure without this is a publish
+    // that returns false with ENOENT on latest.json: a release nobody can pull,
+    // reported as a disk fault. Caught by the end-to-end release test; pinned here.
+    const root = mkdtempSync(join(tmpdir(), 'podium-dev-bundle-fs-'))
+    const path = join(root, 'dist-bun', 'podium-update.json')
+    await nodeDevBundleFs.writeText(path, '{}\n')
+    expect(readFileSync(path, 'utf8')).toBe('{}\n')
+  })
+})
 
 describe('createServerDevBundleLock', () => {
   it('uses one in-process system identity scoped to the bundle lock', async () => {
