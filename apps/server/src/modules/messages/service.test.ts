@@ -1205,6 +1205,18 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(store.messages.getMessage(sent.message.id)?.status).toBe('cancelled')
   })
 
+  it('cancels a held operator chat message for an interrupted session', () => {
+    const target = session({ sessionId: asSessionId('s1'), agentState: WORKING })
+    const { svc, store } = harness([target])
+    const held = svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: target.sessionId }, body: 'cancel this one' },
+    )
+
+    expect(svc.cancelPendingOperatorMessage(target.sessionId)?.id).toBe(held.message.id)
+    expect(store.messages.getMessage(held.message.id)?.status).toBe('cancelled')
+  })
+
   it('unknown session target dead-letters, never silently queues [POD-834]', () => {
     const { svc, store } = harness([])
     const r = svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 'ghost' }, body: 'x' })

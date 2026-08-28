@@ -223,6 +223,9 @@ export interface InboxAuthorizationPort {
   injected?(input: { sourceMessageId: string; sessionId: SessionId }): void
   /** The operator interrupted an injected row before it became a user turn. */
   interrupted?(input: { sourceMessageId: string | null; sessionId: SessionId }): void
+  /** The operator interrupted while a chat message was still held in the
+   *  higher-level message ledger and had no physical inbox row yet. */
+  interruptedPending?(input: { sessionId: SessionId }): void
 }
 
 export interface InboxAttentionPort {
@@ -417,7 +420,12 @@ export class SessionInbox {
 
   sendText(input: InboxSendInput): { ok: boolean; queued?: boolean; reason?: string } {
     const session = this.deps.getSession(input.sessionId)
-    if (session && (session.queuedMessageCount > 0 || this.isDraining(input.sessionId))) {
+    if (
+      session &&
+      (isAgentComputing(session) ||
+        session.queuedMessageCount > 0 ||
+        this.isDraining(input.sessionId))
+    ) {
       return this.queueText(input)
     }
     // A grok process that has bound but not finished its TUI still reports
@@ -497,7 +505,10 @@ export class SessionInbox {
     // part of the interrupted interaction and remain individually retractable.
     const rows = this.deps.queue.list(sessionId)
     const head = rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined)
-    if (!head) return verification
+    if (!head) {
+      if (includeUnattempted) this.deps.authorization.interruptedPending?.({ sessionId })
+      return verification
+    }
     this.deps.queue.delete(head.id)
     session.queuedMessageCount = Math.max(0, session.queuedMessageCount - 1)
     this.deps.persist(session)
@@ -866,6 +877,14 @@ export class SessionInbox {
       }
       const now = this.deps.now()
       if (current.status === 'live') {
+        // Keep ownership of chat messages while the harness is working. Once a
+        // prompt has been submitted into a CLI's own queue, an interrupt may
+        // deliberately promote it into the next turn; holding it here is what
+        // lets either native Escape or chat Stop retract it reliably.
+        if (isAgentComputing(current)) {
+          setTimeout(tick, HELD_POLL_MS).unref?.()
+          return
+        }
         if (!liveAtMs) {
           liveAtMs = now
           baseOutputMs = current.terminal.lastOutputAtMs
@@ -1064,6 +1083,14 @@ export class SessionInbox {
     if (this.deps.authorizeDrive && !this.deps.authorizeDrive(principal, sessionId)) {
       if (session.terminal.controllerId === client.id) session.terminal.revokeController()
       return
+    }
+    // The native terminal sees the operator's abort key before the transcript
+    // can report its result. Cancel a chat-owned delayed Enter at this boundary,
+    // or the 90ms submit timer can win and start the prompt after Codex has
+    // already printed "Conversation interrupted" (POD-1733).
+    const abort = this.abortKeyFor(session)
+    if (abort && data === Buffer.from(abort).toString('base64')) {
+      this.cancelInterruptedDelivery(sessionId, true)
     }
     session.terminal.handleInput(client.id, data, inboxPrincipalFromClient(principal).attribution)
   }
