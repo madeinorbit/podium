@@ -61,7 +61,7 @@
     "bundleUnchangedThrough": "2e1648ca",
     "expectedDriver": "opencode-server",
     "expectedFamily": "server",
-    "actualRuntimeDriver": "",
+    "actualRuntimeDriver": "opencode-server",
     "contract": "1",
     "streaming": "1"
   },
