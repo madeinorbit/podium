@@ -4054,25 +4054,43 @@ describe('hibernation', () => {
       expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
 
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
-      // The server retains the dead process's final working phase; the fresh
-      // bind must let the runtime contract, not that stale projection, decide.
-      expect(reg.modules.sessions.listSessions()[0]?.agentState?.phase).toBe('working')
-      await vi.waitFor(() =>
-        expect(
-          daemon.some(
-            (entry) =>
-              entry.type === 'runtimeSendRequest' &&
-              entry.sessionId === sessionId &&
-              entry.turnId === message.id,
-          ),
-        ).toBe(true),
-      )
-      const request = daemon.find(
-        (entry) =>
-          entry.type === 'runtimeSendRequest' &&
-          entry.sessionId === sessionId &&
-          entry.turnId === message.id,
-      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      const runtimeSendRequests = (): Array<
+        Extract<ControlMessage, { type: 'runtimeSendRequest' }>
+      > =>
+        daemon.filter(
+          (entry): entry is Extract<ControlMessage, { type: 'runtimeSendRequest' }> =>
+            entry.type === 'runtimeSendRequest' &&
+            entry.sessionId === sessionId &&
+            entry.turnId === message.id,
+        )
+      await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(1))
+      const firstRequest = runtimeSendRequests()[0]
+      expect(firstRequest).toBeDefined()
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: firstRequest!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'refused',
+          refusal: { reason: 'busy', detail: 'driver is still handling the prior turn' },
+        },
+      })
+      await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(2))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'grok-ledger-rebind-ready',
+        sessionId,
+        event: {
+          t: 'state',
+          change: { kind: 'session_started' },
+          at: '2026-08-23T00:00:02.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 3 } },
+          observerGeneration: initialGeneration,
+          turnEpoch: 0,
+        },
+      })
+      const request = runtimeSendRequests()[1]
       expect(request).toBeDefined()
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',

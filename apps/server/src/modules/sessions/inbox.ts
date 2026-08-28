@@ -1460,7 +1460,6 @@ export class SessionInbox {
           stop()
           return
         }
-        this.unobservedServerBinds.delete(sessionId)
         void contractDeliver({
           sessionId,
           turnId: head.sourceMessageId ?? head.id,
@@ -1520,7 +1519,8 @@ export class SessionInbox {
             }
             // `accepted` (protocol-acked) or `queued` (the driver's own FIFO
             // now holds it). The row crossed to the driver: confirm it and
-            // move on.
+            // move on. Busy/needs_user is not an acknowledgment of the fresh bind.
+            this.unobservedServerBinds.delete(sessionId)
             if (head.sourceMessageId) {
               // A retraction that raced the in-flight send is a no-op here:
               // `onQueuedInputApplied` only moves rows still `queued`.
