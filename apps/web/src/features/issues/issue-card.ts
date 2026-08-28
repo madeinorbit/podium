@@ -127,10 +127,13 @@ export function issueCardStateSlots(
     badges,
     stageCounts,
     progress,
+    workingAgents,
   }: {
     badges: IssuesDisplay['badges']
     stageCounts?: { stage: IssueStage; count: number }[]
     progress?: EpicProgress | null
+    /** Canonical live count when the caller has the member session rows. */
+    workingAgents?: number
   },
 ): CardStateSlot[] {
   const model = issueCardModel(issue)
@@ -144,7 +147,7 @@ export function issueCardStateSlots(
   // answer "how much is moving under this card", which is the question — and
   // taking the larger of the two means an epic whose own sessions are working
   // never reads as quieter than one of its children.
-  const live = Math.max(liveAgentCount(issue), progress?.liveAgents ?? 0)
+  const live = Math.max(workingAgents ?? liveAgentCount(issue), progress?.liveAgents ?? 0)
   if (live > 0) slots.push({ kind: 'live', count: live })
 
   const ahead = aheadCount(issue)

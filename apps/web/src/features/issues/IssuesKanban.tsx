@@ -39,9 +39,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CardBoundary } from '@/app/CardBoundary'
 import type { IssueViewModel } from '@/app/store'
-import { useStoreSelector } from '@/app/store'
 import { issueColorHex } from '@/lib/issueColors'
-import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { IssueCard } from './IssueCard'
 import { STAGE_LABELS } from './issue-card'
@@ -53,6 +51,8 @@ import { useBoundedVirtualList } from './use-bounded-virtual-list'
 export interface IssuesKanbanProps {
   columns: { stage: IssueStage; issues: IssueViewModel[] }[]
   allIssues: IssueViewModel[]
+  sessions: SessionMeta[]
+  now: number
   badges: IssuesDisplay['badges']
   ordering: IssuesOrdering
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
@@ -89,12 +89,11 @@ function sameDropTarget(a: DragState['over'], b: DragState['over']): boolean {
 const NOOP = (): void => {}
 
 export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
-  const sessions = useStoreSelector((store) => store.sessions)
   // One index for the whole board; a card resolves its own members from it
   // rather than every card scanning the session list.
   const sessionById = useMemo(
-    () => new Map((sessions ?? []).map((s) => [s.sessionId as string, s])),
-    [sessions],
+    () => new Map(props.sessions.map((s) => [s.sessionId as string, s])),
+    [props.sessions],
   )
   const sessionsFor = useCallback(
     (issue: IssueViewModel): SessionMeta[] =>
@@ -110,9 +109,10 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
     () => new Map(props.allIssues.map((issue) => [issue.id, sessionsFor(issue)])),
     [props.allIssues, sessionsFor],
   )
-  // Card ages tick at minute granularity — the board is a scan surface, and a
-  // per-second clock would repaint every card in every column.
-  const now = useNow(60_000)
+  // The parent owns the minute clock because the same timestamp also gates the
+  // confirmed-working rollup. Card ages and working badges therefore repaint
+  // from one coherent observation of time.
+  const now = props.now
 
   const [drag, setDrag] = useState<DragState | null>(null)
   const proxyRef = useRef<HTMLDivElement | null>(null)
