@@ -534,7 +534,11 @@ export function TranscriptFeed({
                 The delivered design said "queued"; main had already settled on
                 "pending" for the same state, and one vocabulary matters more
                 here than one word. */}
-                {durable && !handedOver ? (
+                {p.state === 'interrupted' ? (
+                  <div className="msg-foot" data-side="right">
+                    <span className="transcript-delivery">interrupted</span>
+                  </div>
+                ) : durable && !handedOver ? (
                   <div className="msg-foot" data-side="right">
                     <span className="transcript-delivery">
                       {sessionWaking(session)
@@ -590,6 +594,8 @@ export function TranscriptFeed({
           read "pending · sends after this turn". So an injected row drops the
           dashed rim and the whole foot and takes its place as a settled card: the
           same silence a message in flight keeps everywhere else in this feed. A
+          fresh harness interrupt is the exception: the server cancels that row
+          and the local outgoing bubble names the interrupted result. A
           WAKING session is the exception — its row is queued for a process that
           does not exist yet, so the stamp says nothing about a CLI and the
           reservation stands. */}

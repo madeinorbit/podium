@@ -597,9 +597,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       }
       taRef.current?.focus()
       if (headless) {
-        void Promise.resolve(headlessTurn.interrupt()).catch((e: unknown) =>
-          setInterruptError(errorText(e)),
-        )
+        void Promise.resolve(headlessTurn.interrupt())
+          .then(send.markInterrupted)
+          .catch((e: unknown) => setInterruptError(errorText(e)))
         return
       }
       // A refusal RESOLVES as `{ ok: false, reason }` (the `assertSendAccepted`
@@ -609,10 +609,20 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
         .then((result) => {
           const refused = refusalReason(result)
           if (refused) setInterruptError(refused)
+          else send.markInterrupted()
         })
         .catch((e: unknown) => setInterruptError(errorText(e)))
     },
-    [canInterrupt, headless, headlessTurn, latestOperatorPrompt, sessionId, setDraft, trpc],
+    [
+      canInterrupt,
+      headless,
+      headlessTurn,
+      latestOperatorPrompt,
+      send.markInterrupted,
+      sessionId,
+      setDraft,
+      trpc,
+    ],
   )
 
   // Answer a live AskUserQuestion from its chat card: option digits, free text

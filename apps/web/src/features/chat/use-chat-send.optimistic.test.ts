@@ -136,6 +136,36 @@ describe('useChatSend optimistic window', () => {
     expect(result.current.justSent).toBe(true)
   })
 
+  it('keeps a cancelled outgoing bubble and marks it interrupted', async () => {
+    const initial = opts(IDLE_SINCE)
+    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: initial,
+    })
+    await act(async () => {
+      await result.current.send('cancel this prompt')
+    })
+
+    await act(async () => {
+      rerender({
+        ...initial,
+        blocks: [
+          {
+            item: {
+              id: 'interrupt-1',
+              role: 'user',
+              text: 'Conversation interrupted',
+              event: 'interrupt',
+            } as TranscriptItem,
+          },
+        ],
+      })
+    })
+
+    expect(result.current.pending).toEqual([
+      expect.objectContaining({ text: 'cancel this prompt', state: 'interrupted' }),
+    ])
+  })
+
   it('outlives the old 8s ceiling while the daemon stays silent', async () => {
     const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
       initialProps: opts(IDLE_SINCE),

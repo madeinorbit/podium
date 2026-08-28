@@ -329,7 +329,7 @@ export interface PendingItem {
   deliveryId?: string
   text: string
   at: number
-  state: 'sending' | 'queued' | 'sent' | 'failed'
+  state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted'
   tags?: TranscriptTag[]
   /** Uploaded paths encoded into the submitted prompt. Transcript providers
    * normalize those paths out of `text`, so they are the stable identity used
@@ -351,9 +351,9 @@ export interface QueuedChatMessage {
   /** THE CLI HAS IT (POD-1242). The ledger stamps this when the bytes cross into
    * the harness, which is BEFORE the agent takes them: a busy Claude Code parks
    * typed input in its own composer queue until the running turn ends, and shows
-   * it to that turn on the way. So an injected row is no longer waiting on us —
-   * it cannot be retracted, nothing more will be typed, and the agent may already
-   * be acting on it. Null while the row is still only promised. */
+   * it to that turn on the way. So an injected row is no longer waiting on us
+   * unless the harness reports an explicit interrupt. Null while the row is
+   * still only promised. */
   injectedAt: number | null
 }
 

@@ -16,6 +16,18 @@ describe('codexRecordToItems', () => {
     expect(items[0]).toMatchObject({ role: 'user', text: 'fix the chat view' })
   })
 
+  it('surfaces turn_aborted as the shared interrupt event', () => {
+    expect(codexRecordToItems(env('event_msg', { type: 'turn_aborted' }))).toEqual([
+      {
+        id: expect.any(String),
+        role: 'user',
+        ts: '2026-06-16T16:11:00.000Z',
+        text: 'Conversation interrupted',
+        event: 'interrupt',
+      },
+    ])
+  })
+
   it('takes the clean user prompt from event_msg.item_completed UserMessage', () => {
     const items = codexRecordToItems(
       env('event_msg', {
