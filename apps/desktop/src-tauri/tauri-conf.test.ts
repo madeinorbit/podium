@@ -428,6 +428,32 @@ describe('served-local launchMode classification (POD-2510)', () => {
     expect(mainSource).toContain('let window_builder = window_builder.decorations(false);')
   })
 
+  /**
+   * POD-1598. Tauri's native drag-drop handler is on by default, and it eats the
+   * drag before the document does: while it is installed the webview never sees
+   * `dragover`/`drop`, so the composer's file-attach drop zone is dead in the
+   * desktop app while working fine in a browser. Nothing in the shell consumes
+   * the native events, so the handler is pure loss here.
+   *
+   * Pinned as source text because this host cannot compile the shell, and
+   * because the failure is invisible at the call site — the builder without this
+   * call looks complete, and the symptom shows up two layers away in the web app.
+   */
+  it('lets the page receive HTML5 file drops (POD-1598)', () => {
+    const start = mainSource.indexOf('WebviewWindowBuilder::new(&handle2, "main", resolved_url)')
+    expect(start, 'no main WebviewWindowBuilder in main.rs').toBeGreaterThan(-1)
+    // The chain ends at the initialization script, not at the first `;` the other
+    // tests here scan for — the rationale comments inside it contain semicolons.
+    const end = mainSource.indexOf('.initialization_script(&init);', start)
+    expect(end, 'main window builder chain not found').toBeGreaterThan(start)
+    const chain = mainSource.slice(start, end)
+    expect(chain).toContain('.disable_drag_drop_handler()')
+    // Off on every platform, not just the one Tauri documents: upstream reports
+    // put macOS in the same position, and on Linux the handler navigates the
+    // webview to the dropped path. A cfg here would re-break two of three.
+    expect(chain).not.toContain('#[cfg(')
+  })
+
   it('reveals a native semantic material only through the macOS command bar', () => {
     expect(cargoSource).toContain('"macos-private-api"')
     expect(mainSource).toContain('.transparent(true)')

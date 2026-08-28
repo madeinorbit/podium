@@ -226,6 +226,21 @@ export function buildMobileTranscript(
   return { blocks, rows }
 }
 
+/** Shape the one in-progress assistant row without touching settled history. */
+export function liveAssistantRow(
+  item: TranscriptItem | undefined,
+  blockIndex: number,
+): MobileTranscriptRow | undefined {
+  if (!item) return undefined
+  return {
+    key: transcriptItemKey(item),
+    kind: item.answer ? 'answer' : 'prose',
+    item,
+    blockIndices: [blockIndex],
+    turn: 'beat',
+  }
+}
+
 export interface MobileTranscriptSearch {
   matches: number[]
   matchingRows: Set<number>

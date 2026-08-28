@@ -124,11 +124,13 @@ const needsUserState: AgentState = {
   nativeSubagentCount: 0,
   need: { kind: 'question', summary: 'which one?' },
 }
+// `network_error` is a class the harnesses really emit — the phrase table is an
+// allowlist, so a made-up class here would silently test the fallback instead.
 const erroredState = (retryable: boolean): AgentState => ({
   phase: 'errored',
   since: SINCE,
   nativeSubagentCount: 0,
-  error: { class: 'network', retryable },
+  error: { class: 'network_error', retryable },
 })
 /** Ran to a natural stop — quiet, not a request. */
 const finishedState: AgentState = {
@@ -488,6 +490,46 @@ describe('missionIssueIds', () => {
     const builds = missionIndexStats().builds
     expect([...missionIssueIds(after, 'root', sessions)].sort()).toEqual(['c1', 'c2', 'root'])
     expect(missionIndexStats().builds - builds).toBe(1)
+  })
+
+  it('shares one membership set between every surface asking for the same root', () => {
+    const { issues, sessions } = mission()
+    missionIssueIds(issues, 'root', sessions)
+    const before = missionIndexStats().memberComputes
+    const first = missionIssueIds(issues, 'root', sessions)
+    for (let i = 0; i < 50; i += 1) {
+      // Identical to the reference, not merely equal: `Workspace`, `FlightDeck`,
+      // the explorer and `use-unified-work` all ask this in the same publish.
+      expect(missionIssueIds(issues, 'root', sessions)).toBe(first)
+    }
+    expect(missionIndexStats().memberComputes - before).toBe(0)
+  })
+
+  it('recomputes membership when EITHER slice is republished', () => {
+    const { issues, sessions } = mission()
+    missionIssueIds(issues, 'root', sessions)
+    const before = missionIndexStats().memberComputes
+    // A sessions-only change still moves membership: provenance grafting reads
+    // which sessions are in the mission, so the memo may not key on issues alone.
+    missionIssueIds(issues, 'root', [...sessions])
+    missionIssueIds([...issues], 'root', sessions)
+    expect(missionIndexStats().memberComputes - before).toBe(2)
+  })
+
+  it('indexes the session slice once, however many issues ask about it', () => {
+    const { issues, sessions } = mission()
+    missionProgress(issues, sessions, 'root')
+    const before = missionIndexStats().sessionBuilds
+    for (let i = 0; i < 50; i += 1) {
+      missionProgress([...issues], sessions, 'root')
+      missionIssueIds([...issues], 'root', sessions)
+    }
+    // Fifty fresh ISSUE slices, one session slice: the session index is keyed on
+    // the session array alone and must not be dragged along by the other.
+    expect(missionIndexStats().sessionBuilds - before).toBe(0)
+    const after = missionIndexStats().sessionBuilds
+    missionProgress(issues, [...sessions], 'root')
+    expect(missionIndexStats().sessionBuilds - after).toBe(1)
   })
 
   it('still claims an ARCHIVED issue through provenance, as it always did', () => {
@@ -1212,7 +1254,18 @@ describe('missionProgress', () => {
     ],
   ]
 
-  it.each(cases)('reports %s', (_name, issues, expected, sessions) => {
+  // REST PARAMS, NOT FOUR NAMED ONES. A four-argument test callback is a
+  // done-callback signature to the runner, so every case in this table was
+  // being handed the runner's `done` as its `sessions` and timing out or
+  // throwing instead of asserting — eight silent holes in the one table that
+  // defines what the gauge says. Rest params make the callback zero-arity.
+  it.each(cases)('reports %s', (...args) => {
+    const [, issues, expected, sessions] = args as [
+      string,
+      IssueNavigationModel[],
+      MissionProgress,
+      SessionMeta[] | undefined,
+    ]
     expect(missionProgress(issues, sessions ?? [], issues[0]?.id ?? null)).toEqual(expected)
   })
 
@@ -1544,6 +1597,88 @@ describe('missionProgress', () => {
       wait: 0,
     })
   })
+
+  // -------------------------------------------------------------------------
+  // ONE COMPUTE PER PUBLISH, PER ROOT (POD-1685).
+  //
+  // Four surfaces ask this about the same root inside one replica publish —
+  // `UnifiedIssueRow` once per visible row, `SidebarRail` once per root, the
+  // Flight Deck and its folded bar once each — and each of them used to walk the
+  // whole mission from scratch, filtering the entire session slice once per
+  // member issue. The answer depends on the two slices and the root and nothing
+  // else, so it is computed once and read by the rest.
+  // -------------------------------------------------------------------------
+
+  it('computes once per (issue slice, session slice, root), however many callers ask', () => {
+    const { issues, sessions } = mission()
+    const first = missionProgress(issues, sessions, 'root')
+    const before = missionIndexStats().progressComputes
+    for (let i = 0; i < 50; i += 1) {
+      expect(missionProgress(issues, sessions, 'root')).toBe(first)
+    }
+    expect(missionIndexStats().progressComputes - before).toBe(0)
+    // A DIFFERENT root over the same slices is a different question and gets its
+    // own compute — once, and then it is shared too.
+    const child = missionProgress(issues, sessions, 'c1')
+    expect(missionProgress(issues, sessions, 'c1')).toBe(child)
+    expect(missionIndexStats().progressComputes - before).toBe(1)
+  })
+
+  it('recomputes when either slice is republished, so the meter can never go stale', () => {
+    const issues = [issue('root'), issue('c1', { parentId: 'root', stage: 'in_progress' })]
+    const sessions: SessionMeta[] = []
+    expect(missionProgress(issues, sessions, 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 0,
+      review: 0,
+      stall: 1,
+      block: 0,
+      wait: 0,
+    })
+    // An agent arrives. Nothing about the ISSUE slice changed — only the session
+    // slice — and `stall` must become `run` all the same.
+    const staffed = [sess('s1', { issueId: 'c1' })]
+    expect(missionProgress(issues, staffed, 'root')).toEqual({
+      total: 1,
+      done: 0,
+      run: 1,
+      review: 0,
+      stall: 0,
+      block: 0,
+      wait: 0,
+    })
+    // And the other way round: same sessions, a republished issue slice.
+    const closed = [
+      issues[0] as IssueNavigationModel,
+      issue('c1', { parentId: 'root', stage: 'done' }),
+    ]
+    expect(missionProgress(closed, staffed, 'root').done).toBe(1)
+  })
+
+  it('hands out a frozen result, because every caller now reads the same object', () => {
+    const { issues, sessions } = mission()
+    const progress = missionProgress(issues, sessions, 'root') as MissionProgress & {
+      total: number
+    }
+    expect(Object.isFrozen(progress)).toBe(true)
+    // No caller in the app writes to it (verified across apps/web, apps/mobile
+    // and engine/state.ts); the freeze is what keeps that true.
+    expect(() => {
+      progress.total = 99
+    }).toThrow()
+    expect(missionProgress(issues, sessions, 'root').total).toBe(progress.total)
+  })
+
+  it('shares the staffed-subtree walk between roots over the same slices', () => {
+    const { issues, sessions } = mission()
+    missionProgress(issues, sessions, 'root')
+    const before = missionIndexStats().staffedComputes
+    // Fresh roots, same slices: the walk is root-independent, so asking about
+    // three more missions must not walk the crew three more times.
+    for (const root of ['c1', 'c2', 'g1']) missionProgress(issues, sessions, root)
+    expect(missionIndexStats().staffedComputes - before).toBe(0)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -1729,7 +1864,10 @@ describe('sessionNeedsHuman', () => {
   const cases: Array<[string, SessionMeta, boolean]> = [
     ['stopped on a question', sess('a', { agentState: needsUserState }), true],
     ['errored but retryable', sess('a', { agentState: erroredState(true) }), true],
-    ['errored and not retryable', sess('a', { agentState: erroredState(false) }), false],
+    // WAS `false`, AND THAT WAS THE BUG (POD-1601). Retryability decides which
+    // control the row offers, not whether a dead run is worth mentioning — so
+    // the failure Continue cannot fix used to be the one that asked for nothing.
+    ['errored and not retryable', sess('a', { agentState: erroredState(false) }), true],
     ['standing offer', sess('a', { offer }), true],
     ['mid-turn', sess('a', { agentState: workingState }), false],
     ['finished quietly', sess('a', { agentState: finishedState }), false],
@@ -1945,11 +2083,20 @@ describe('operationalState', () => {
       [sess('a', { agentState: finishedState })],
       'idle',
     ],
+    // It reached `needs-you` before POD-1601, through the late `motionPhase`
+    // fallback, and said `Waiting on you` — a sentence about a question nobody
+    // is asking. `error` is its own state now, above `needs-you`.
     [
-      'needs-you when a fatal error leaves the agent parked on us',
+      'error when a fatal error leaves the agent parked on us',
       issue('i'),
       [sess('a', { agentState: erroredState(false) })],
-      'needs-you',
+      'error',
+    ],
+    [
+      'error when the error is retryable too',
+      issue('i'),
+      [sess('a', { agentState: erroredState(true) })],
+      'error',
     ],
   ]
 
@@ -1961,6 +2108,31 @@ describe('operationalState', () => {
   // outranks a machine move, which outranks work in flight, which outranks a
   // stage the issue has not caught up with.
   const precedence: Case[] = [
+    // THE ARM ABOVE `needs-you` (POD-1601). Both mean "this is on you", so the
+    // only question is which sentence the operator gets — and `Needs you` on a
+    // task whose agent is dead sends them hunting for a question.
+    [
+      'error beats needs-you',
+      issue('i', { needsHuman: true }),
+      [sess('a', { agentState: erroredState(false) })],
+      'error',
+    ],
+    // A closed task never errors, for the same reason it never needs you: the
+    // operator's own "this is finished" flip retires the question.
+    [
+      'a close beats the error',
+      issue('i', { stage: 'done' }),
+      [sess('a', { agentState: erroredState(false) })],
+      'done',
+    ],
+    // Presence, not history: a session nobody is looking at any more cannot put
+    // its task into an error state.
+    [
+      'an archived errored session does not error the task',
+      issue('i'),
+      [sess('a', { archived: true, agentState: erroredState(false) })],
+      'retired',
+    ],
     [
       'needs-you beats moved',
       issue('i', { needsHuman: true }),
@@ -2112,9 +2284,49 @@ describe('operationalState', () => {
     expect(operationalState(issue('i'), [sess('a', { agentState: needsUserState })]).label).toBe(
       'Needs you',
     )
+    // A WRITTEN PHRASE, NOT THE CLASS TOKEN (POD-1601). `network_error` is what
+    // the harness stores; `Network error` is what a person reads. The difference
+    // between "wait for it" and "go and look" is worth a label of its own — it
+    // is just never worth spelling `Errored: network_error` to say it.
     expect(
       operationalState(issue('i'), [sess('a', { agentState: erroredState(false) })]).label,
-    ).toBe('Waiting on you')
+    ).toBe('Network error')
+  })
+
+  // The phrase table is an ALLOWLIST, and this is why. `error.class` carries
+  // whatever the harness put there: Claude Code forwards its hook's raw
+  // `error_type`, Cursor sends the literal string `error`, and `unknown` is the
+  // classifier admitting it could not tell. None of those are words for a UI, so
+  // anything without a phrase written for it reads as the plain sentence.
+  it.each([
+    ['unknown'],
+    ['error'],
+    ['failed'],
+    ['some_new_provider_code'],
+  ])('falls back to a plain sentence for the %s class', (cls) => {
+    const state = {
+      phase: 'errored',
+      since: SINCE,
+      nativeSubagentCount: 0,
+      error: { class: cls, retryable: true },
+    } as AgentState
+    expect(operationalState(issue('i'), [sess('a', { agentState: state })]).label).toBe(
+      'Agent errored',
+    )
+  })
+
+  // The one the report was written about: red plus two plain words is the whole
+  // message, and `Error: overloaded` was never the way to say it.
+  it('names an overloaded agent in words', () => {
+    const overloaded = {
+      phase: 'errored',
+      since: SINCE,
+      nativeSubagentCount: 0,
+      error: { class: 'overloaded', retryable: true },
+    } as AgentState
+    expect(operationalState(issue('i'), [sess('a', { agentState: overloaded })]).label).toBe(
+      'Agent overloaded',
+    )
   })
 })
 
@@ -2654,6 +2866,39 @@ describe('deckIssueState', () => {
   // stage-level answer — the same call `issueStatusOf` makes.
   it('does not read an unknown close reason as cancelled', () => {
     expect(deckIssueState(issue('a', { closedReason: 'shipped' }), []).state).toBe('done')
+  })
+
+  // POD-1601 — the strip used to cover a dead agent with whatever its STAGE
+  // implied. A task in `review` whose only agent errored read `Standing by`.
+  describe('an agent that stopped on an error', () => {
+    const dead = (over = {}) =>
+      sess('s', { issueId: 'a', agentState: erroredState(false), ...over })
+
+    it('says Errored instead of the stage word', () => {
+      const state = deckIssueState(issue('a', { stage: 'review' }), [dead()])
+      expect(state.state).toBe('errored')
+      expect(state.label).toBe('Errored')
+    })
+
+    // The attention channel is separate from the state channel by design, and
+    // this is the case that proves both are wired: the word says what happened,
+    // the dot says there is something in here.
+    it('lights the attention indicator with it', () => {
+      expect(deckIssueState(issue('a', { stage: 'review' }), [dead()]).attention).toBe(true)
+    })
+
+    it('does not shout over a task that is genuinely still running', () => {
+      const alive = sess('t', { issueId: 'a', agentState: workingState })
+      expect(deckIssueState(issue('a'), [dead(), alive]).state).toBe('working')
+    })
+
+    it('stays quiet once the task is closed', () => {
+      expect(deckIssueState(issue('a', { stage: 'done' }), [dead()]).state).toBe('done')
+    })
+
+    it('outranks a blocked or unstarted reading', () => {
+      expect(deckIssueState(issue('a', { blocked: true }), [dead()]).state).toBe('errored')
+    })
   })
 })
 

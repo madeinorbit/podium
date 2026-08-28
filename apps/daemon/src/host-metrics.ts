@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { cpus, freemem, loadavg, totalmem } from 'node:os'
-import type { HostLoadWire, HostMemoryWire } from '@podium/model'
+import { readFileSync, statfsSync } from 'node:fs'
+import { cpus, freemem, homedir, loadavg, totalmem } from 'node:os'
+import type { HostDiskWire, HostLoadWire, HostMemoryWire } from '@podium/model'
 
 const MEMINFO_PATH = '/proc/meminfo'
 
@@ -58,4 +58,38 @@ export function sampleHostLoad(): HostLoadWire {
     fifteen,
     cpuCount: Math.max(1, cpus().length),
   }
+}
+
+/**
+ * Capacity of the volume a path sits on, in `df`'s terms.
+ *
+ * `statfs` reports three block counts and they are deliberately all kept: a
+ * Linux filesystem reserves a slice (5% by default) for root, so `bfree` — what
+ * exists — is larger than `bavail` — what the operator can actually spend. Used
+ * is total − free, and the percentage the panel draws is used ÷ (used +
+ * available), which is exactly the arithmetic `df` prints as Use%. Anything
+ * simpler makes the meter disagree with the terminal on the same machine.
+ *
+ * Returns undefined rather than a zeroed sample when the syscall refuses (a
+ * platform without statfs, an unreadable mount): the field is optional on the
+ * wire precisely so "not measured" stays distinguishable from "empty disk".
+ */
+export function sampleHostDisk(path: string = homedir()): HostDiskWire | undefined {
+  for (const target of [path, '/']) {
+    try {
+      const fs = statfsSync(target)
+      const block = Number(fs.bsize)
+      const totalBytes = Number(fs.blocks) * block
+      if (!Number.isFinite(totalBytes) || totalBytes <= 0) continue
+      return {
+        path: target,
+        totalBytes: Math.round(totalBytes),
+        usedBytes: Math.max(0, Math.round((Number(fs.blocks) - Number(fs.bfree)) * block)),
+        availableBytes: Math.max(0, Math.round(Number(fs.bavail) * block)),
+      }
+    } catch {
+      // try the root volume, then give up — the field is optional on the wire.
+    }
+  }
+  return undefined
 }

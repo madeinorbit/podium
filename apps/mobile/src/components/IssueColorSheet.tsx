@@ -70,7 +70,14 @@ export function IssueColorSheet({
               key={slot}
               accessibilityRole="button"
               accessibilityLabel={slot}
+              // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
+              // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
+              // so the web build announced no state at all; and `aria-selected` is only
+              // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
+              // browser-visible way to say a button is the chosen one is `aria-pressed`.
+              // React Native still reads `accessibilityState` on device. [POD-1664]
               accessibilityState={{ selected: on }}
+              aria-pressed={on}
               onPress={() => pick(slot)}
               scaleTo={0.92}
               style={[
@@ -88,6 +95,7 @@ export function IssueColorSheet({
         accessibilityRole="button"
         accessibilityLabel="No colour"
         accessibilityState={{ selected: current === undefined }}
+        aria-pressed={current === undefined}
         onPress={() => pick(null)}
         style={({ pressed }) => [styles.clear, pressed && styles.clearPressed]}
       >

@@ -133,6 +133,7 @@ export class InstanceService {
     return {
       mode: c.mode ?? null,
       publicUrl: c.publicUrl ?? null,
+      networkOption: c.networkOption ?? null,
       serverUrl: c.serverUrl ?? null,
       // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun
       // --define); the Machines panel compares each daemon's reported version
@@ -181,6 +182,12 @@ export class InstanceService {
    */
   async complete(input: {
     publicUrl: string
+    networkOption?:
+      | 'tailscale-funnel'
+      | 'tailscale-serve'
+      | 'cloudflare-tunnel'
+      | 'manual'
+      | undefined
     mode?: 'all-in-one' | 'server' | undefined
     password?: string | undefined
     acknowledgeNoPassword?: true | undefined
@@ -209,6 +216,7 @@ export class InstanceService {
     }
     const cfg = applySetup({
       publicUrl: v.normalized,
+      ...(input.networkOption ? { networkOption: input.networkOption } : {}),
       ...(input.mode ? { mode: input.mode } : {}),
     })
     // Honours the kill switches: an env that says "do not track" wins over an

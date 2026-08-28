@@ -36,6 +36,14 @@ const DAEMON_BLOCKED_EXIT_CODE: i32 = 78;
 /// can put in an exit handler covers "the exit handler never ran", so the backend polls
 /// for our death instead (packages/runtime/src/supervisor.ts).
 const SUPERVISOR_PID_ENV: &str = "PODIUM_SUPERVISOR_PID";
+
+fn bundled_sidecar_resource(windows: bool) -> &'static str {
+    if windows {
+        "resources/podium.exe"
+    } else {
+        "resources/podium"
+    }
+}
 const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize",
@@ -1743,6 +1751,23 @@ fn main() {
                     let window_builder = WebviewWindowBuilder::new(&handle2, "main", resolved_url)
                         .title("Podium ADE")
                         .inner_size(1200.0, 800.0)
+                        // [POD-1598] Tauri installs a native OS drag-drop handler by
+                        // default, and it consumes the drag BEFORE the page: the document
+                        // never receives `dragover`/`drop` at all, so every HTML5 drop zone
+                        // the web app renders is dead in the desktop build no matter what
+                        // the page does — the composer's file attach included. Off on ALL
+                        // three platforms rather than behind a cfg, because the docs
+                        // ("required ... on Windows") understate it. The handler
+                        // tauri-runtime-wry installs returns `true` unconditionally, and
+                        // true means HANDLED: on macOS wry then answers `draggingEntered:`
+                        // itself instead of forwarding to WKWebView's super, and on Linux it
+                        // returns true from GTK `drag-drop` after `drop_finish`, so WebKitGTK
+                        // never sees the drop either. Dropping this call is what re-enables
+                        // each platform's own webview handling — wry only wires any of it up
+                        // when a handler is present. Nothing in this shell consumes the
+                        // native events it gives up: the shell uploads nothing, and the page
+                        // owns the workspace the bytes land in.
+                        .disable_drag_drop_handler()
                         .initialization_script(&init);
 
                     // [spec:SP-3834] Native desktop chrome replaces the separate OS title bar.
@@ -1919,6 +1944,12 @@ mod tests {
             .find(|(name, _)| *name == key)
             .and_then(|(_, value)| value)
             .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    #[test]
+    fn bundled_sidecar_resource_matches_the_platform_binary_name() {
+        assert_eq!(bundled_sidecar_resource(false), "resources/podium");
+        assert_eq!(bundled_sidecar_resource(true), "resources/podium.exe");
     }
 
     /// ⌘Q. Supervision must leave the child slot lockable while the backend is alive, because

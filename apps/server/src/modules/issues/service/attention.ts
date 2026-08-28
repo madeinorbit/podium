@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import type { IssueId, IssueWire, MachineId, SessionId, SessionMeta, UserId } from '@podium/model'
+import { DRAFT_ISSUE_TITLE } from '@podium/model'
 import {
   attributionOf,
   type CommandPrincipal,
@@ -390,7 +391,7 @@ export class IssueAttentionModule {
   ): IssueWire {
     return this.crud().create({
       repoPath,
-      title: 'Draft',
+      title: DRAFT_ISSUE_TITLE,
       startNow: false,
       draft: true,
       origin: 'human',

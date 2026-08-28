@@ -18,6 +18,9 @@ bot: just open a pull request.
   the vendored `abduco` session helper into `~/.podium/bin/` on first daemon start; without it,
   sessions don't survive a daemon restart. `tmux` is used as a fallback, or set
   `PODIUM_ABDUCO=/path/to/abduco` to point at a prebuilt binary.
+- **Windows desktop:** Microsoft C++ Build Tools with the "Desktop development with C++"
+  workload, Microsoft Edge WebView2, and the Rust MSVC host toolchain. Windows sessions use
+  ConPTY, so they do not need the POSIX `abduco` compiler prerequisite.
 - (Optional) **Rust + Tauri CLI** — only needed to build the desktop app (`apps/desktop`); the
   desktop build runs a preflight that checks for it.
 
@@ -70,7 +73,7 @@ Rust + Tauri toolchain (the build runs a preflight that checks for it):
 
 ```bash
 bun run --cwd apps/desktop dev                  # dev: stage the compiled backend + web, open the window
-bun run --cwd apps/desktop build                # release build (.app/.dmg on macOS, deb/AppImage on Linux)
+bun run --cwd apps/desktop build                # release build (.app/.dmg, deb/AppImage, or Windows installer)
 ```
 
 ## Everyday commands

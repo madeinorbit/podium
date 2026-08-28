@@ -88,6 +88,17 @@ const HELD_CONFIRM_CEILING_MS = 30 * 60_000
 const MAX_DELIVERY_ATTEMPTS = 5
 /** Backoff before re-typing an unconfirmed row; scaled by attempt number. */
 const RETRY_BACKOFF_MS = 2_000
+/**
+ * Cadence of the queued-input sweep — see {@link SessionInbox.sweepQueuedInputs}
+ * (POD-1703).
+ *
+ * A minute, against the ledger sweep's five: this one re-arms rows a person is
+ * waiting on, and a pass over a session with nothing pending (or one already
+ * draining) is a map lookup and a return. Not shorter, because a row the drain
+ * genuinely cannot deliver yet — a session mid-wake, a CLI still rehydrating —
+ * is better left to finish its current pass than re-entered every few seconds.
+ */
+export const QUEUED_INPUT_SWEEP_MS = 60_000
 /** Prefix of the normalized prompt used to recognise it in the transcript. */
 const CONFIRM_NEEDLE_CHARS = 80
 /** Below this, a needle matches too much of the transcript to be evidence. */
@@ -182,6 +193,11 @@ export interface InboxQueuePort {
   resetAttempts?(id: string): void
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   delete(id: string): void
+  /** Every session holding at least one pending row — the work list for
+   *  {@link SessionInbox.sweepQueuedInputs} (POD-1703). Optional so the many
+   *  fixtures that satisfy this port with enqueue/list/delete alone stay valid;
+   *  without it the sweep is a no-op rather than a crash. */
+  sessionsWithPending?(): SessionId[]
 }
 
 export interface InboxAuthorizationPort {
@@ -488,6 +504,19 @@ export class SessionInbox {
       return { ok: false, reason: 'no resume ref' }
     }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
+    // ONE LEDGER INTENT, ONE PHYSICAL ROW (POD-1703). A ledger row that cannot
+    // confirm itself is re-pushed by the delivery sweep, and this used to mint a
+    // fresh queue id for each pass — so the agent was typed the same text three
+    // times over five minutes while the FIRST copy was still sitting in the
+    // queue, unread. The row already here is the delivery; re-arm the drain in
+    // case the earlier pass gave up, but never stack a duplicate behind it.
+    // `cancelQueuedMessage` retracts by the same key, so a second row would also
+    // survive a cancellation that was meant to remove the message entirely.
+    if (input.sourceMessageId && this.hasQueuedMessage(input.sessionId, input.sourceMessageId)) {
+      if (parked) this.deps.resurrect(input.sessionId, principal)
+      this.drain(input.sessionId)
+      return { ok: true, queued: true }
+    }
     const inserted = this.deps.queue.enqueue({
       id: input.mutationId ?? randomUUID(),
       sessionId: input.sessionId,
@@ -531,6 +560,29 @@ export class SessionInbox {
 
   hasQueuedMessage(sessionId: SessionId, sourceMessageId: string): boolean {
     return this.deps.queue.list(sessionId).some((row) => row.sourceMessageId === sourceMessageId)
+  }
+
+  /**
+   * Re-arm delivery for every session still holding a queued row (POD-1703).
+   *
+   * THE MISSING HALF OF THE RETRY STORY. The message ledger has had a slow sweep
+   * since #237, but the PTY queue — the table the bytes actually wait in — had
+   * none, and `drain` was re-armed from only three places: the enqueue itself, a
+   * daemon bind, and a machine reattach. None is a timer, so any pass that ended
+   * without settling the row left it for a daemon reconnect that a healthy
+   * long-lived session never performs. Every stuck row observed live had
+   * `attempts = 0` on a parked session — queued, never typed once, the oldest 33
+   * days old.
+   *
+   * Deliberately just a re-arm, not a delivery path of its own: `drain` is
+   * single-flight, checks liveness and readiness, and carries the row's own
+   * attempt budget, so a pass that still cannot deliver costs one no-op. That is
+   * what makes it safe to run over every pending session on a fixed interval.
+   */
+  sweepQueuedInputs(): void {
+    const pending = this.deps.queue.sessionsWithPending?.()
+    if (!pending) return
+    for (const sessionId of pending) this.drain(sessionId)
   }
 
   /**
@@ -933,6 +985,17 @@ export class SessionInbox {
     next: AgentRuntimeState
     observation?: AgentObservation
   }): void {
+    // A CLEARED MENU IS A RE-ARM (POD-1703). `typeText` refuses while the phase
+    // is `needs_user` — correctly, since a prompt typed into an AskUserQuestion
+    // menu answers the wrong question — and the drain then stops and waits for
+    // "the next re-arm". That used to mean a daemon bind, which on a healthy
+    // long-lived session may never come, so an offer clicked while the agent sat
+    // on a permission prompt hung indefinitely. The moment the menu clears is
+    // the exact edge that unblocks it, and it costs nothing on a session with an
+    // empty queue (`drain` returns on queuedMessageCount === 0).
+    if (input.prev?.phase === 'needs_user' && input.next.phase !== 'needs_user') {
+      this.drain(input.sessionId)
+    }
     const ownerUserId = this.deps.ownerOf(input.sessionId)
     if (!ownerUserId) return
     this.deps.attention.stateChanged({ ...input, ownerUserId })

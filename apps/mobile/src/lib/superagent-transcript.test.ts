@@ -1,24 +1,23 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from './superagent-transcript'
+import { dropEchoedTurns, liveTranscriptItem, markTurnsFailed } from './superagent-transcript'
 
 const item = (
   partial: Partial<TranscriptItem> & Pick<TranscriptItem, 'id' | 'role' | 'text'>,
 ): TranscriptItem => partial as TranscriptItem
 
-describe('renderedTranscript', () => {
-  it('appends the in-progress text as a live assistant item while a turn runs', () => {
-    const out = renderedTranscript([item({ id: 't1', role: 'user', text: 'q' })], ' partial ', true)
-    expect(out.map((i) => [i.id, i.text])).toEqual([
-      ['t1', 'q'],
-      ['super:live', 'partial'],
-    ])
+describe('liveTranscriptItem', () => {
+  it('returns trimmed in-progress text as a live assistant item while a turn runs', () => {
+    expect(liveTranscriptItem(' partial ', true)).toEqual({
+      id: 'super:live',
+      role: 'assistant',
+      text: 'partial',
+    })
   })
 
-  it('adds nothing when the turn is idle or the live text is blank', () => {
-    const settled = [item({ id: 't1', role: 'user', text: 'q' })]
-    expect(renderedTranscript(settled, 'partial', false)).toHaveLength(1)
-    expect(renderedTranscript(settled, '   ', true)).toHaveLength(1)
+  it('returns nothing when the turn is idle or the live text is blank', () => {
+    expect(liveTranscriptItem('partial', false)).toBeUndefined()
+    expect(liveTranscriptItem('   ', true)).toBeUndefined()
   })
 })
 

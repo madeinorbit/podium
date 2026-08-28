@@ -183,6 +183,23 @@ export const HostMemoryWire = z.object({
 export type HostMemoryWire = z.infer<typeof HostMemoryWire>
 
 /**
+ * `SEE` — one filesystem's capacity sample, `df`'s three columns and the path
+ * they were read from. Used and available are BOTH carried because they do not
+ * add up to the total: a Linux filesystem keeps a root-only reserve (5% by
+ * default) that is neither in use nor available to the operator, and folding it
+ * into either number would make the panel disagree with `df` on the same box.
+ * The percentage is used ÷ (used + available), which is `df`'s Use% exactly.
+ */
+export const HostDiskWire = z.object({
+  /** The directory sampled — the daemon host's home, where worktrees live. */
+  path: z.string(),
+  totalBytes: byteCount,
+  usedBytes: byteCount,
+  availableBytes: byteCount,
+})
+export type HostDiskWire = z.infer<typeof HostDiskWire>
+
+/**
  * `SEE` — pure health/liveness. Kernel load averages plus logical core count so
  * clients and the server can form load-per-core without a second sample.
  * Optional on the metrics frame: a daemon predating the field must keep parsing.
@@ -490,6 +507,69 @@ export const MachineQuotaWire = z.object({
   agents: z.array(AgentQuotaWire),
 })
 export type MachineQuotaWire = z.infer<typeof MachineQuotaWire>
+
+// ── Quota HISTORY. The wires above are the live reading; these are the record of
+// what each window came to before it reset. Nothing upstream keeps that record —
+// no provider reports a window id, a start, or a prior period — so it exists only
+// because this server samples and folds. [spec:SP-0610]
+
+/**
+ * The identity a quota window belongs to. Rate limits are per-ACCOUNT, not per
+ * machine: two machines signed into one account share a pool, and keying history
+ * by machine would double-count it. Falls back to the machine when the provider
+ * reports no email, so two machines we cannot prove share an account are never
+ * merged.
+ */
+export function quotaAccountKey(
+  agent: AgentKind,
+  email: string | undefined,
+  machineId: string,
+): string {
+  return email ? `${agent}::${email}` : `${agent}::machine:${machineId}`
+}
+
+/**
+ * `USE` — one concrete run of a rolling quota window, from its start to the reset
+ * that ended it. This is the unit the history chart is made of: "how well did I
+ * use my quota" has exactly one honest answer per instance, `peakPercent`.
+ *
+ * PEAK, NOT LAST. The closing sample is always stale by up to one sampling
+ * interval, so a window still climbing when it rolled over would be understated
+ * by its final reading. The peak is stable against a missed last sample.
+ *
+ * NO PROVIDER REPORTS A WINDOW START. `startedAt` is derived as
+ * `resetsAt - windowMinutes`, and is absent when the provider reports no duration
+ * (`windowMinutes: 0`, a legitimate value meaning "unknown").
+ */
+export const QuotaWindowHistoryWire = z.object({
+  accountKey: z.string().min(1),
+  agent: AgentKind,
+  /** `session` · `weekly-all` · `weekly-scoped:model:fable` · `weekly` … */
+  windowKey: z.string().min(1),
+  label: z.string(),
+  scopeModel: z.string().optional(),
+  /** Plan tier at the time. A percentage of one pool is NOT comparable to a
+   *  percentage of another, so a change here segments the series. */
+  plan: z.string().optional(),
+  resetsAt: z.string(),
+  startedAt: z.string().optional(),
+  windowMinutes: z.number().int().nonnegative(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  firstPercent: z.number(),
+  peakPercent: z.number(),
+  lastPercent: z.number(),
+  sampleCount: z.number().int().nonnegative(),
+  /** True once `now` is past `resetsAt`: the window is over and its peak is final. */
+  closed: z.boolean(),
+  /** First seen more than one sampling interval after the window started, so its
+   *  early life was never watched and the peak may understate what was spent. */
+  partial: z.boolean(),
+  /** `live` — sampled by this server. `backfill` — recovered from harness files on
+   *  the daemon host, which only Codex and Grok write. */
+  source: z.enum(['live', 'backfill']),
+})
+export type QuotaWindowHistoryWire = z.infer<typeof QuotaWindowHistoryWire>
 
 // ---------------------------------------------------------------------------
 // Repos, worktrees and directory browsing (was messages/discovery.ts)

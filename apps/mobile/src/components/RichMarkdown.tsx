@@ -218,6 +218,7 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
   const rows = token.rows ?? []
   const [overflow, setOverflow] = useState(false)
   const [atEnd, setAtEnd] = useState(false)
+  const atEndRef = useRef(false)
   const viewport = useRef(0)
   const content = useRef(0)
   const measure = () => setOverflow(content.current > viewport.current + 1)
@@ -239,7 +240,10 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
         }}
         onScroll={(e) => {
           const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-          setAtEnd(contentOffset.x + layoutMeasurement.width >= contentSize.width - 2)
+          const nextAtEnd = contentOffset.x + layoutMeasurement.width >= contentSize.width - 2
+          if (nextAtEnd === atEndRef.current) return
+          atEndRef.current = nextAtEnd
+          setAtEnd(nextAtEnd)
         }}
         contentContainerStyle={styles.table}
         accessibilityLabel={`Markdown table, ${header.length} columns and ${rows.length} rows`}

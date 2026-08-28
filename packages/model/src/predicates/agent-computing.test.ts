@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { type AgentComputingFields, isAgentComputing } from './agent-computing'
+import {
+  type AgentComputingFields,
+  CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS,
+  isAgentComputing,
+  isAgentConfirmedComputing,
+} from './agent-computing'
+
+const NOW = Date.parse('2026-08-26T10:00:00.000Z')
 
 function row(over: Partial<AgentComputingFields> = {}): AgentComputingFields {
-  return { status: 'live', archived: false, agentState: { phase: 'working' }, ...over }
+  return {
+    status: 'live',
+    archived: false,
+    lastActiveAt: new Date(NOW).toISOString(),
+    agentState: { phase: 'working', since: new Date(NOW).toISOString() },
+    ...over,
+  }
 }
 
 describe('isAgentComputing', () => {
@@ -13,6 +26,30 @@ describe('isAgentComputing', () => {
 
   it('counts a reconnecting agent: the daemon link dropped, not the agent', () => {
     expect(isAgentComputing(row({ status: 'reconnecting' }))).toBe(true)
+  })
+
+  it('confirms only a process whose daemon is currently connected', () => {
+    expect(isAgentConfirmedComputing(row(), NOW)).toBe(true)
+    expect(isAgentConfirmedComputing(row({ status: 'starting' }), NOW)).toBe(false)
+    expect(isAgentConfirmedComputing(row({ status: 'reconnecting' }), NOW)).toBe(false)
+    expect(isAgentConfirmedComputing(row({ status: 'hibernated' }), NOW)).toBe(false)
+    expect(isAgentConfirmedComputing(row({ status: 'exited' }), NOW)).toBe(false)
+  })
+
+  it('requires activity within the last fifteen minutes', () => {
+    const stale = new Date(NOW - CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS - 1).toISOString()
+    expect(
+      isAgentConfirmedComputing(
+        row({ lastActiveAt: stale, agentState: { phase: 'working', since: stale } }),
+        NOW,
+      ),
+    ).toBe(false)
+    expect(
+      isAgentConfirmedComputing(
+        row({ lastActiveAt: undefined, agentState: { phase: 'working' } }),
+        NOW,
+      ),
+    ).toBe(false)
   })
 
   // The phase outlives the process on purpose — exit preserves the final turn

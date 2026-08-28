@@ -4,6 +4,7 @@ import {
   defaultChatCapable,
   latestPendingQuestion,
   mergeTranscriptItems,
+  OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
   prependTranscriptItems,
 } from '@podium/client-core/viewmodels'
@@ -17,7 +18,7 @@ import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { dropEchoedPendingTurns } from '../lib/pending-turns'
 import { sendOfferAction } from '../lib/send-offer-action'
 import { color } from '../theme/theme'
-import { AskQuestionCard, type AskQuestionAnswer } from './AskQuestionCard'
+import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
@@ -105,8 +106,41 @@ export function SessionConversation({
    * same flag for the same reason (`justSent` in `use-chat-send.ts`); it is a
    * claim about THIS client's action, not about the agent, and it expires on
    * its own so a refused send cannot leave a permanent "working".
+   *
+   * IT MUST YIELD THE MOMENT THE SESSION ANSWERS (POD-1595). `chatActivity` now
+   * ranks this claim above everything the PREVIOUS turn left behind — an offer,
+   * a question, an error — which is right, but only for as long as the claim is
+   * still the newest thing anyone knows. A flat timer is not that: an approval
+   * raised two seconds into the turn would have sat behind "Sending" for the
+   * rest of the window and read as ignored. So the ceiling is a backstop and
+   * `agentState.since` is the real signal — any phase change moves it, and the
+   * comparison is by VALUE, never against this device's clock.
    */
-  const [justSent, setJustSent] = useState(false)
+  const [openSend, setOpenSend] = useState<{
+    seq: number
+    since: string | null
+    /** True when the send went into a turn that was ALREADY running. */
+    queuedBehindTurn: boolean
+  } | null>(null)
+  const justSent = openSend !== null
+  const sendSeq = useRef(0)
+  // The daemon observation the optimistic claim is made AGAINST — see the
+  // ceiling effect below. Written in an effect, not during render.
+  const latestSince = useRef<string | undefined>(undefined)
+  const latestPhase = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    latestSince.current = session.agentState?.since
+    latestPhase.current = session.agentState?.phase
+  }, [session.agentState?.since, session.agentState?.phase])
+  const markSent = useCallback((): number => {
+    const seq = ++sendSeq.current
+    setOpenSend({
+      seq,
+      since: latestSince.current ?? null,
+      queuedBehindTurn: latestPhase.current === 'working' || latestPhase.current === 'compacting',
+    })
+    return seq
+  }, [])
   /**
    * The offer hidden by an accept that has not been echoed yet, keyed by its
    * createdAt. The server clears the offer as part of accepting it, but that
@@ -138,7 +172,7 @@ export function SessionConversation({
     setItems(cached?.items ?? [])
     setLoaded(false)
     setPendingTurns([])
-    setJustSent(false)
+    setOpenSend(null)
     setAnsweredOfferAt(null)
     paging.current = { hasMore: false, loading: false }
     const attach = (since: string | undefined) => {
@@ -183,31 +217,57 @@ export function SessionConversation({
     })
   }, [items, pendingTurns.length])
 
-  // The optimistic "working" claim is a bridge to the server's own answer, not
-  // a substitute for it. Eight seconds is the desktop's ceiling and the same one
-  // applies here: past that, whatever the session reports IS the truth.
+  // The optimistic claim is a bridge to the server's own answer, not a
+  // substitute for it: it ends when the session reports on this turn, and the
+  // ceiling only covers a session that reports nothing at all.
+  const agentSince = session.agentState?.since
+  const agentPhase = session.agentState?.phase
   useEffect(() => {
-    if (!justSent) return
-    const timer = setTimeout(() => setJustSent(false), 8000)
+    if (openSend === null) return
+    if ((agentSince ?? null) !== openSend.since) {
+      // A send made into a RUNNING turn is a queued one, and the first phase
+      // change it sees is that turn ending — not the daemon saying anything
+      // about the message still waiting behind it. Spend the flag on a quiet
+      // finish only; anything else (an ask raised mid-turn, an error) is news
+      // the operator needs more than they need our receipt.
+      if (openSend.queuedBehindTurn && agentPhase === 'idle') {
+        setOpenSend({ ...openSend, since: agentSince ?? null, queuedBehindTurn: false })
+        return
+      }
+      setOpenSend(null)
+      return
+    }
+    // The ceiling is for a session saying NOTHING. One visibly working is
+    // saying plenty, just about the turn ahead of ours.
+    if (openSend.queuedBehindTurn && (agentPhase === 'working' || agentPhase === 'compacting')) {
+      return
+    }
+    const timer = setTimeout(() => setOpenSend(null), OPTIMISTIC_SEND_CEILING_MS)
     return () => clearTimeout(timer)
-  }, [justSent])
+  }, [openSend, agentSince, agentPhase])
 
-  const fail = useCallback((id: string, error: unknown) => {
+  const fail = useCallback((id: string, error: unknown, seq?: number) => {
     const message = error instanceof Error ? error.message : String(error)
     setPendingTurns((prev) =>
       prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
     )
+    // A REFUSED send is not in flight. Leaving the optimistic claim open would
+    // keep "Sending" over the tail — now above the session's own error and
+    // attention lines — for the rest of the window, next to a bubble that has
+    // just gone red. Scoped to the send that failed: these resolve out of
+    // order, and a slow rejection must not close a later send's window.
+    if (seq !== undefined) setOpenSend((current) => (current?.seq === seq ? null : current))
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
   }, [])
 
   const dispatch = useCallback(
     (turn: LocalPendingTurn) => {
-      setJustSent(true)
+      const mySend = markSent()
       void store.resumeAndSend(sessionId, turn.wire).catch((error: unknown) => {
-        fail(turn.id, error)
+        fail(turn.id, error, mySend)
       })
     },
-    [store.resumeAndSend, sessionId, fail],
+    [store.resumeAndSend, sessionId, fail, markSent],
   )
 
   /**
@@ -371,14 +431,14 @@ export function SessionConversation({
     }
     setAnsweredOfferAt(offerCreatedAt)
     setPendingTurns((prev) => [...prev, turn])
-    setJustSent(true)
+    const mySend = markSent()
     return sendOfferAction(trpc.sessions, {
       sessionId,
       text,
       wake: composer.canResume,
     }).catch((error: unknown) => {
       setAnsweredOfferAt(null)
-      fail(turn.id, error)
+      fail(turn.id, error, mySend)
       throw error
     })
   }

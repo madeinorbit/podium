@@ -32,13 +32,19 @@ function state(phase: AgentRuntimeState['phase']): AgentRuntimeState {
 interface FakeSession {
   status: Session['status']
   archived: boolean
+  lastActiveAt: string
   /** Non-optional so these rows can also stand in as a `stateChanged` payload's
    *  `next`, which is always a state. */
   agentState: AgentRuntimeState
 }
 
 function live(phase: AgentRuntimeState['phase']): FakeSession {
-  return { status: 'live', archived: false, agentState: state(phase) }
+  return {
+    status: 'live',
+    archived: false,
+    lastActiveAt: new Date(NOW).toISOString(),
+    agentState: state(phase),
+  }
 }
 
 describe('buildAgentConcurrencyHistory', () => {
@@ -159,16 +165,21 @@ describe('AgentConcurrencyHistory', () => {
 describe('workingAgentCount', () => {
   it('counts only agents that are both alive and computing', () => {
     expect(
-      workingAgentCount([
-        live('working'),
-        live('compacting'),
-        live('idle'),
-        { ...live('working'), status: 'exited' },
-        { ...live('working'), status: 'hibernated' },
-        { ...live('working'), archived: true },
-        // A dropped daemon link is not a dropped agent.
-        { ...live('working'), status: 'reconnecting' },
-      ]),
-    ).toBe(3)
+      workingAgentCount(
+        [
+          live('working'),
+          live('compacting'),
+          live('idle'),
+          { ...live('working'), status: 'exited' },
+          { ...live('working'), status: 'hibernated' },
+          { ...live('working'), archived: true },
+          { ...live('working'), status: 'starting' },
+          // Neither a launching process nor a dropped daemon link is confirmed
+          // current work, even if an earlier working phase is preserved.
+          { ...live('working'), status: 'reconnecting' },
+        ],
+        NOW,
+      ),
+    ).toBe(2)
   })
 })

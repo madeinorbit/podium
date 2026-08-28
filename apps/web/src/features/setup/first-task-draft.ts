@@ -1,6 +1,13 @@
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { UiState } from '@podium/client-core/ui-state'
-import { asIssueId, asMutationId, type IssueId, type MutationId } from '@podium/model'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
+import {
+  asIssueId,
+  asMutationId,
+  asSessionId,
+  type IssueId,
+  type MutationId,
+  type SessionId,
+} from '@podium/model'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import { issueAgentKind } from '@/lib/issue-agents'
 
@@ -14,8 +21,17 @@ export type FirstTaskDraft = {
   description: string
   /** Set once the tracked task exists; retries start this issue instead of creating another. */
   pendingIssueId: IssueId | ''
+  /** Reserved optimistic identities survive an ambiguous create response, so a
+   * retry cannot mint a duplicate if server truth arrives late. */
+  createIssueId: IssueId | ''
+  createSessionId: SessionId | ''
   createMutationId: MutationId | ''
   startMutationId: MutationId | ''
+  /** Uploaded paths already captured into the in-flight task brief. */
+  attachmentPaths: string[]
+  /** Survives the optimistic workspace being removed so the remounted composer
+   * can explain why the saved request returned. */
+  launchError: string
 }
 
 export const EMPTY_FIRST_TASK_DRAFT: FirstTaskDraft = {
@@ -27,8 +43,12 @@ export const EMPTY_FIRST_TASK_DRAFT: FirstTaskDraft = {
   title: '',
   description: '',
   pendingIssueId: '',
+  createIssueId: '',
+  createSessionId: '',
   createMutationId: '',
   startMutationId: '',
+  attachmentPaths: [],
+  launchError: '',
 }
 
 export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
@@ -47,6 +67,14 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
         typeof value.pendingIssueId === 'string' && value.pendingIssueId
           ? asIssueId(value.pendingIssueId)
           : '',
+      createIssueId:
+        typeof value.createIssueId === 'string' && value.createIssueId
+          ? asIssueId(value.createIssueId)
+          : '',
+      createSessionId:
+        typeof value.createSessionId === 'string' && value.createSessionId
+          ? asSessionId(value.createSessionId)
+          : '',
       createMutationId:
         typeof value.createMutationId === 'string' && value.createMutationId
           ? asMutationId(value.createMutationId)
@@ -55,14 +83,23 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
         typeof value.startMutationId === 'string' && value.startMutationId
           ? asMutationId(value.startMutationId)
           : '',
+      attachmentPaths: Array.isArray(value.attachmentPaths)
+        ? value.attachmentPaths.filter((path): path is string => typeof path === 'string')
+        : [],
+      launchError: typeof value.launchError === 'string' ? value.launchError : '',
     }
   } catch {
     return EMPTY_FIRST_TASK_DRAFT
   }
 }
 
+/** Module-level so `usePersistedUiState` gets a stable `serialize` identity. */
+export function serializeFirstTaskDraft(draft: FirstTaskDraft): string {
+  return JSON.stringify(draft)
+}
+
 export function persistFirstTaskDraft(uiState: Pick<UiState, 'set'>, draft: FirstTaskDraft): void {
-  uiState.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, JSON.stringify(draft))
+  uiState.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, serializeFirstTaskDraft(draft))
 }
 
 export function clearFirstTaskDraft(uiState: Pick<UiState, 'set'>): void {

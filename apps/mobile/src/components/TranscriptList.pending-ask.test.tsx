@@ -9,9 +9,19 @@
  */
 import type { TranscriptItem } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { type ComponentType, Suspense, act, startTransition, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-afterEach(cleanup)
+const markdownRenders = vi.hoisted(() => new Map<string, number>())
+const transcriptBuilds = vi.hoisted(() => vi.fn())
+const flatListData = vi.hoisted(() => [] as unknown[])
+
+afterEach(() => {
+  cleanup()
+  markdownRenders.clear()
+  transcriptBuilds.mockClear()
+  flatListData.length = 0
+})
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -20,6 +30,34 @@ vi.mock('expo-haptics', () => ({
   notificationAsync: vi.fn(async () => {}),
 }))
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => {}) }))
+vi.mock('react-native', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-native')>()
+  const { createElement, forwardRef } = await import('react')
+  const CapturingFlatList = forwardRef<unknown, Record<string, unknown>>((props) => {
+    flatListData.push(props.data)
+    return createElement(
+      actual.FlatList as unknown as ComponentType<Record<string, unknown>>,
+      props,
+    )
+  })
+  return { ...actual, FlatList: CapturingFlatList }
+})
+vi.mock('./RichMarkdown', () => ({
+  RichMarkdown: ({ text }: { text: string }) => {
+    markdownRenders.set(text, (markdownRenders.get(text) ?? 0) + 1)
+    return <span>{text}</span>
+  },
+}))
+vi.mock('../lib/transcript-feed', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/transcript-feed')>()
+  return {
+    ...actual,
+    buildMobileTranscript: (...args: Parameters<typeof actual.buildMobileTranscript>) => {
+      transcriptBuilds(args[0])
+      return actual.buildMobileTranscript(...args)
+    },
+  }
+})
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('../client/hooks', () => ({
   useUiState: () => ({ get: () => null, set: () => {}, subscribe: () => () => {} }),
@@ -109,5 +147,100 @@ describe('TranscriptList pendingAsk', () => {
     render(<TranscriptList items={[]} live pendingAsk={null} onAnswer={async () => {}} />)
 
     expect(screen.queryByText('Which database?')).toBeNull()
+  })
+
+  it('shapes settled history once while live text changes', () => {
+    const settled = Array.from({ length: 64 }, (_, index) => ({
+      id: `settled:${index}`,
+      role: 'assistant' as const,
+      text: `Settled answer ${index}`,
+    }))
+    const onAnswer = async () => {}
+    const { rerender } = render(
+      <TranscriptList
+        items={settled}
+        liveItem={{ id: 'super:live', role: 'assistant', text: 'Live one' }}
+        live
+        streaming
+        onAnswer={onAnswer}
+      />,
+    )
+    const initialFlatListData = flatListData.at(-1)
+
+    rerender(
+      <TranscriptList
+        items={settled}
+        liveItem={{ id: 'super:live', role: 'assistant', text: 'Live two' }}
+        live
+        streaming
+        onAnswer={onAnswer}
+      />,
+    )
+
+    expect(transcriptBuilds).toHaveBeenCalledTimes(1)
+    expect(transcriptBuilds).toHaveBeenCalledWith(settled)
+    expect(initialFlatListData).toBeDefined()
+    expect(flatListData.at(-1)).toBe(initialFlatListData)
+    expect(markdownRenders.get('Settled answer 0')).toBe(1)
+    expect(markdownRenders.get('Live one')).toBe(1)
+    expect(markdownRenders.get('Live two')).toBe(1)
+  })
+
+  it('routes a memoized question row to the latest committed answer handler', async () => {
+    const ask = fromState()
+    const first = vi.fn(async () => {})
+    const latest = vi.fn(async () => {})
+    const { rerender } = render(
+      <TranscriptList items={[]} live pendingAsk={ask} onAnswer={first} />,
+    )
+
+    rerender(<TranscriptList items={[]} live pendingAsk={ask} onAnswer={latest} />)
+    fireEvent.click(screen.getByLabelText('SQLite'))
+
+    await waitFor(() => expect(latest).toHaveBeenCalledTimes(1))
+    expect(first).not.toHaveBeenCalled()
+  })
+
+  it('does not leak a handler from a suspended concurrent render', async () => {
+    const ask = fromState()
+    const committed = vi.fn(async () => {})
+    const abandoned = vi.fn(async () => {})
+    const suspended = new Promise<never>(() => {})
+    let attempted = false
+    let beginAbandonedRender: (() => void) | undefined
+
+    function SuspendAfterTranscript({ blocked }: { blocked: boolean }) {
+      if (blocked) {
+        attempted = true
+        throw suspended
+      }
+      return null
+    }
+
+    function ConcurrentHarness() {
+      const [answer, setAnswer] = useState(() => committed)
+      const [blocked, setBlocked] = useState(false)
+      beginAbandonedRender = () => {
+        startTransition(() => {
+          setAnswer(() => abandoned)
+          setBlocked(true)
+        })
+      }
+      return (
+        <Suspense fallback={null}>
+          <TranscriptList items={[]} live pendingAsk={ask} onAnswer={answer} />
+          <SuspendAfterTranscript blocked={blocked} />
+        </Suspense>
+      )
+    }
+
+    render(<ConcurrentHarness />)
+    act(() => beginAbandonedRender?.())
+    expect(attempted).toBe(true)
+
+    fireEvent.click(screen.getByLabelText('Postgres'))
+
+    await waitFor(() => expect(committed).toHaveBeenCalledTimes(1))
+    expect(abandoned).not.toHaveBeenCalled()
   })
 })

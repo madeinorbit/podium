@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { selectedMissionRoot } from '@podium/client-core/viewmodels'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
@@ -23,11 +23,11 @@ import { vpsIntroState } from '@/features/setup/vps-activation'
 import { loadAgentPanel } from '@/features/terminal/AgentPanelLazy'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
-import { SidebarRail } from '@/features/worklist/SidebarRail'
+import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
-  COLLAPSE_EASE,
-  COLLAPSE_MS,
+  COLUMN_FOLD_EASE,
+  COLUMN_FOLD_MS,
   ResizableAside,
   ResizableColumn,
   SIDEBAR_RAIL_WIDTH,
@@ -46,6 +46,7 @@ import { onReconnect } from '@/lib/on-reconnect'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
+import { useFileDropGuard } from '@/lib/use-file-drop-guard'
 import { type AuthBootstrap, useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
@@ -243,6 +244,9 @@ function KernelHubAttach({
 }
 
 export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
+  // Whole-window, and mounted at the top so it also covers the boot and error
+  // screens — a drag released over a loading app would navigate it away too.
+  useFileDropGuard()
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
   // One tRPC client for the gate, memoized on the origin so the gate's effect
@@ -583,8 +587,11 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     }
     flightDeckAnimation.current?.cancel()
     const animation = shell.animate([{ width: `${from}px` }, { width: `${to}px` }], {
-      duration: COLLAPSE_MS,
-      easing: COLLAPSE_EASE,
+      // The left column's curve, since POD-1672 gave the shell's folds one that
+      // is not the drawer's (`COLUMN_FOLD_EASE`). Two columns of one shell decelerating
+      // differently is how a window stops feeling like a single object.
+      duration: COLUMN_FOLD_MS,
+      easing: COLUMN_FOLD_EASE,
       fill: 'both',
     })
     flightDeckAnimation.current = animation
@@ -879,22 +886,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
               style={{ width: sidebarFold.width ?? undefined }}
             >
               {sidebarCollapsed && !sidebarFold.folding ? (
-                <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-                  <button
-                    data-pressable
-                    type="button"
-                    className="collapsed-sidebar-expand"
-                    aria-label="Expand sidebar"
-                    title="Expand sidebar"
-                    onClick={() => sidebarFold.fold(false)}
-                  >
-                    {/* 15px, not 13: the control is the column's whole header
-                        band now (POD-1178), and a 13px glyph read as a speck
-                        parked in the middle of it. */}
-                    <ChevronRight size={15} aria-hidden="true" />
-                  </button>
-                  <SidebarRail />
-                </aside>
+                <CollapsedSidebar onExpand={() => sidebarFold.fold(false)} />
               ) : (
                 <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
                   <ResizableAside>
@@ -910,6 +902,26 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                   >
                     <ChevronLeft size={12} aria-hidden="true" />
                   </button>
+                </div>
+              )}
+              {/* THE GHOST OF THE FOLDED COLUMN (POD-1658). Rendered only while
+                  the fold runs, pinned over the clip, and dissolved in or out by
+                  the hook. It is what the swap at the end of the gesture happens
+                  UNDERNEATH: by then this is already an opaque rail sitting on
+                  the pixels the real one is about to occupy, so the frame where
+                  the work list becomes the rail has nothing visible in it. Inert
+                  and aria-hidden — there are briefly two rails in the tree and
+                  only one of them is the column. */}
+              {sidebarFold.folding && (
+                <div ref={sidebarFold.ghostRef} className="sidebar-fold-ghost" aria-hidden="true">
+                  {/* The lid and what is on it are two layers (POD-1672). The
+                      ghost holds still and carries the opacity and the blur —
+                      it is what covers the clip, and a cover that moves is a
+                      gap. This node carries the slide that makes the rail
+                      ARRIVE instead of appear. */}
+                  <div ref={sidebarFold.ghostContentRef} className="sidebar-fold-ghost-inner">
+                    <CollapsedSidebar />
+                  </div>
                 </div>
               )}
             </div>

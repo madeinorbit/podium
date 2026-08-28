@@ -76,6 +76,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   unique,
@@ -2299,5 +2300,70 @@ export const operations = sqliteTable(
   (table) => [
     index('idx_operations_group_state').on(table.exclusionGroup, table.state),
     index('idx_operations_kind_created').on(table.kind, table.createdAt),
+  ],
+)
+
+/**
+ * ONE ROW PER QUOTA WINDOW INSTANCE — how much of a plan window was spent before
+ * it reset. The first time Podium has written a quota number to disk.
+ *
+ * WHY INSTANCES AND NOT RAW SAMPLES. A samples table would be the obvious shape
+ * and the wrong one: it grows without bound, needs its own retention job, and
+ * still has to be folded into windows at read time on every request. Folding on
+ * WRITE puts the whole feature in ~15 rows a day, makes retention a single
+ * `DELETE`, and makes the analytic unit and the storage unit the same thing.
+ *
+ * THE UNIQUE KEY IS THE DEDUPE. Two machines signed into one account report the
+ * SAME limits, and both write here; the server sampler and the opportunistic
+ * write on `quota.summary` both fire. All of them converge on one row because
+ * `(account_key, window_key, resets_at_bucket)` is unique and every write is an
+ * upsert-then-fold.
+ *
+ * `resets_at_bucket` IS NOT `resets_at`. The reset time providers report jitters
+ * between fetches (see quota-history-fold.ts for the measured traces), so the
+ * exact value cannot be an identity. The bucket is a coarse quantisation used
+ * ONLY to make the uniqueness constraint expressible in SQL; the tolerant
+ * comparison in the fold is the real rule, and `resets_at` keeps the newest
+ * reading for display.
+ */
+export const quotaWindows = sqliteTable(
+  'quota_windows',
+  {
+    /** `<agent>::<email>`, or `<agent>::machine:<id>` when no email is reported. */
+    accountKey: text('account_key').notNull(),
+    agent: text().notNull(),
+    windowKey: text('window_key').notNull(),
+    /** floor(resets_at_ms / RESET_BUCKET_MS) — see the note above. */
+    resetsAtBucket: integer('resets_at_bucket').notNull(),
+    label: text().notNull(),
+    scopeModel: text('scope_model'),
+    /** Plan tier while this window ran. A percentage of one pool is not
+     *  comparable to a percentage of another, so a change segments the series. */
+    plan: text(),
+    resetsAtMs: integer('resets_at_ms').notNull(),
+    /** `resets_at_ms - window_minutes`; null when the provider reports no duration. */
+    startedAtMs: integer('started_at_ms'),
+    windowMinutes: integer('window_minutes').notNull(),
+    firstSeenMs: integer('first_seen_ms').notNull(),
+    lastSeenMs: integer('last_seen_ms').notNull(),
+    firstPercent: real('first_percent').notNull(),
+    /** The ledger's bar height. */
+    peakPercent: real('peak_percent').notNull(),
+    lastPercent: real('last_percent').notNull(),
+    sampleCount: integer('sample_count').notNull(),
+    /** 1 when the window was already under way when first observed. */
+    partial: integer().notNull(),
+    /** `live` | `backfill`. */
+    source: text().notNull(),
+    /** `[[minutesFromStart, percent], …]` — the burn curve, decimated on write. */
+    trailJson: text('trail_json').notNull(),
+  },
+  (table) => [
+    index('idx_quota_windows_series').on(table.accountKey, table.windowKey, table.resetsAtMs),
+    index('idx_quota_windows_resets').on(table.resetsAtMs),
+    primaryKey({
+      columns: [table.accountKey, table.windowKey, table.resetsAtBucket],
+      name: 'quota_windows_pk',
+    }),
   ],
 )

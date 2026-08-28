@@ -18,8 +18,18 @@
 export interface AgentComputingFields {
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   archived?: boolean
-  agentState?: { phase: string } | undefined
+  lastActiveAt?: string | undefined
+  agentState?:
+    | {
+        phase: string
+        since?: string | undefined
+        stateObservedAt?: string | undefined
+      }
+    | undefined
 }
+
+/** A silent working phase stops being evidence after this long. */
+export const CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS = 15 * 60 * 1_000
 
 /**
  * True only for a session whose process is still around AND whose harness is
@@ -33,4 +43,28 @@ export function isAgentComputing(row: AgentComputingFields): boolean {
   if (row.archived) return false
   const phase = row.agentState?.phase
   return phase === 'working' || phase === 'compacting'
+}
+
+/**
+ * True only when Podium can currently confirm the process and harness state.
+ *
+ * `isAgentComputing` deliberately treats `reconnecting` as alive for guards
+ * that must not interrupt a turn during a short daemon outage. A fleet counter
+ * has the opposite burden of proof: once the daemon link is gone, Podium no
+ * longer knows that the preserved working phase still describes the process.
+ * Counting that row until some later lifecycle event arrives turns an outage
+ * into an ever-growing "agents working" headline.
+ */
+export function isAgentConfirmedComputing(
+  row: AgentComputingFields,
+  nowMs: number,
+): boolean {
+  if (row.status !== 'live') return false
+  if (!isAgentComputing(row)) return false
+  const activityAt = Math.max(
+    ...[row.agentState?.stateObservedAt, row.lastActiveAt, row.agentState?.since]
+      .map((stamp) => Date.parse(stamp ?? ''))
+      .filter(Number.isFinite),
+  )
+  return Number.isFinite(activityAt) && nowMs - activityAt <= CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS
 }

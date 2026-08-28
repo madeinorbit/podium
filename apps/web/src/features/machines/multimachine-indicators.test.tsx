@@ -246,6 +246,54 @@ describe('quota overlay groups by account', () => {
     expect([...verdictItems].every((item) => item.querySelector('i'))).toBe(true)
   })
 
+  it('keeps Grok visible when its quota read expires', async () => {
+    const mixed = machineQuota('solo', 'solo', 'solo', 'claude@example.com', 20)
+    mixed.agents.push({
+      agent: 'grok',
+      status: 'expired',
+      account: { email: 'grok@example.com' },
+      windows: [],
+      fetchedAt: '2026-07-07T00:00:00.000Z',
+    })
+    quotaSummary.mockResolvedValue([mixed])
+
+    render(<QuotaIndicator header />)
+
+    const chip = await screen.findByRole('button', {
+      name: /Grok \(grok@example\.com\) Token expired/i,
+    })
+    const grok = chip.querySelector<HTMLElement>('[data-harness="grok"]')
+    expect(grok).toBeTruthy()
+    expect(within(grok as HTMLElement).getByText('GR')).toBeTruthy()
+    expect(within(grok as HTMLElement).getByText('N/A')).toBeTruthy()
+
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('1 unavailable')).toBeTruthy())
+    expect(screen.getByText('Token expired')).toBeTruthy()
+  })
+
+  it('keeps a provider visible when a healthy response has no quota windows', async () => {
+    const mixed = machineQuota('solo', 'solo', 'solo', 'claude@example.com', 20)
+    mixed.agents.push({
+      agent: 'grok',
+      status: 'ok',
+      account: { email: 'grok@example.com' },
+      windows: [],
+      fetchedAt: '2026-07-07T00:00:00.000Z',
+    })
+    quotaSummary.mockResolvedValue([mixed])
+
+    render(<QuotaIndicator header />)
+
+    const chip = await screen.findByRole('button', {
+      name: /Grok \(grok@example\.com\) quota unavailable/i,
+    })
+    expect(chip.querySelector('[data-harness="grok"] .header-quota-unavailable')).toBeTruthy()
+
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('No quota reported')).toBeTruthy())
+  })
+
   it('shows a card per distinct account, each labeled with its email + machine', async () => {
     quotaSummary.mockResolvedValue([
       machineQuota('podium-host', 'podium-host', 'podium-host', 'lud@example.com', 30),
@@ -383,8 +431,10 @@ describe('quota overlay groups by account', () => {
   })
 })
 
-describe('header quota chip does not pin a detailed breakdown', () => {
-  it('opens the hover panel without data-pinned', async () => {
+describe('the quota panel has one tier', () => {
+  // Pinning was retired with POD-1603: no chip stamps `data-pinned`, no panel
+  // grows on click, and nothing anywhere invites a second zoom.
+  it('opens the whole panel on the first gesture', async () => {
     quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
     render(<QuotaIndicator header />)
     const chip = await screen.findByRole('button', { name: /agent quota/i })

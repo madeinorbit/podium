@@ -269,6 +269,26 @@ describe('IssueService CRUD', () => {
     expect(svc.get('iss_client-supplied')?.id).toBe('iss_client-supplied')
   })
 
+  it('refuses a client-provided id collision without changing or starting the issue', async () => {
+    const { svc, deps } = harness()
+    const id = asIssueId('iss_client-supplied')
+    svc.create({ repoPath: '/r', title: 'Original', description: 'Keep me', startNow: false, id })
+    const before = svc.get(id)
+
+    await expect(
+      svc.createAndMaybeStart({
+        repoPath: '/r',
+        title: 'Replacement',
+        description: 'Overwrite attempt',
+        startNow: true,
+        id,
+      }),
+    ).rejects.toThrow(`refusing to reuse an existing issue id: ${id}`)
+
+    expect(svc.get(id)).toEqual(before)
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+  })
+
   it('create mints an iss_-prefixed uuid when no id is given (unchanged default behavior)', () => {
     const { svc } = harness()
     const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
@@ -2030,6 +2050,28 @@ describe('IssueService.start', () => {
     expect(wire.worktreePath).not.toBeNull()
   })
 
+  it('reuses the optimistic first-session id when create starts immediately', async () => {
+    const { svc, deps } = harness()
+    const startSessionId = asSessionId('client-first-session')
+
+    await svc.createAndMaybeStart({
+      id: asIssueId('iss_client-task'),
+      startSessionId,
+      repoPath: '/r',
+      title: 'Instant chat',
+      description: 'Show my message now',
+      startNow: true,
+    })
+
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: startSessionId,
+        issueId: asIssueId('iss_client-task'),
+        initialPrompt: 'Show my message now',
+      }),
+    )
+  })
+
   it('start fails clearly when the worktree op fails', async () => {
     const { svc, deps } = harness()
     ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -3475,8 +3517,9 @@ describe('IssueService.prime (P1a)', () => {
     const { svc } = harness()
     const out = svc.prime({ repoPath: '/r', boundIssueId: null })
     const policy = out.slice(out.lastIndexOf('\n\n') + 2)
-    // Stages, titles, offers, artifacts, and the discovered-from essay already
-    // ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the unique procedures.
+    // Stages, general title doctrine, offers, artifacts, and the discovered-from
+    // essay already ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the
+    // unique procedures and may add facts about the bound issue before this tail.
     expect(policy).not.toContain('podium offer')
     expect(policy).not.toContain('Bug: duplicate session rows')
     expect(policy).not.toContain('lands in Proposed automatically')

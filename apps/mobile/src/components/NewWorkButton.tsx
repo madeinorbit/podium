@@ -413,7 +413,14 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                   key={view.machine.id}
                   accessibilityRole="button"
                   accessibilityLabel={view.machine.name}
+                  // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
+                  // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
+                  // so the web build announced no state at all; and `aria-selected` is only
+                  // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
+                  // browser-visible way to say a button is the chosen one is `aria-pressed`.
+                  // React Native still reads `accessibilityState` on device. [POD-1664]
                   accessibilityState={{ disabled: !ok, selected }}
+                  aria-pressed={selected}
                   disabled={!ok}
                   scaleTo={0.99}
                   onPress={() => pickMachine(view.machine.id)}
@@ -465,6 +472,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                     accessibilityRole="button"
                     accessibilityLabel={repo.name}
                     accessibilityState={{ selected: repo.path === selectedRepo?.path }}
+                    aria-pressed={repo.path === selectedRepo?.path}
                     onPress={() => {
                       setRepoPick(repo.path)
                       setStep('launch')
@@ -617,6 +625,7 @@ function OptionList({
                 accessibilityRole="button"
                 accessibilityLabel={option.group ? `${option.group} ${option.label}` : option.label}
                 accessibilityState={{ selected: on }}
+                aria-pressed={on}
                 onPress={() => onPick(option.value)}
                 scaleTo={0.99}
                 style={({ pressed }) => [

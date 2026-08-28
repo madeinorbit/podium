@@ -70,6 +70,18 @@ GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The private key must match `plugins.updater.pubkey` in
 `apps/desktop/src-tauri/tauri.conf.json`; changing the key strands existing installations.
 
+### Windows installer
+
+The Windows x86_64 leg runs on `windows-latest` and builds an NSIS `-setup.exe`. The same
+installer is the Tauri updater payload, with its detached `.sig` included in `latest.json` under
+`windows-x86_64`. The regular Windows smoke compiles the Tauri executable without making an
+installer, launches it against a real local Podium server, and fails if native setup or the
+WebView2 window cannot stay alive.
+
+The Tauri updater signature verifies Podium updates, but it is not a Windows Authenticode
+signature. Until an Authenticode certificate is provisioned, Windows may show a publisher or
+SmartScreen warning for a freshly downloaded installer.
+
 ### macOS Developer ID signing and notarization
 
 macOS builds (Apple Silicon and Intel) are signed with a Developer ID Application certificate, hardened, notarized
@@ -162,8 +174,9 @@ that is neither `X.Y.Z` nor `X.Y.Z-edge.N`, a dirty tree, a branch out of sync w
 a tag that already exists.
 
 Both workflows then run from that tag. If the shell hash changed, the desktop half builds Linux
-x86_64, macOS Apple Silicon, and macOS Intel in parallel. Only after all succeed does it regenerate
-and validate `latest.json`, upload the signed shell assets, and publish the new input hash. If the
+x86_64, Windows x86_64, macOS Apple Silicon, and macOS Intel in parallel. Only after all succeed does it
+regenerate and validate `latest.json`, upload the signed shell assets (the AppImage, Windows NSIS
+installer, macOS DMGs, updater files, signatures, and manifest), and publish the new input hash. If the
 hash did not change, those jobs are skipped and the headless publisher re-uploads the standing
 manifest reference instead.
 
@@ -252,8 +265,8 @@ the quarantine attribute a `gh release download` does not) and open it. No warni
 Security approval step. `spctl --assess --type exec -vvv /Applications/Podium.app` should say
 `source=Notarized Developer ID`.
 
-For a real release, verify from an older signed AppImage or macOS app whose embedded public key
-matches the release signing key:
+For a real release, verify from an older signed AppImage, NSIS install, or macOS app whose embedded
+public key matches the release signing key:
 
 1. launch with an isolated `PODIUM_STATE_DIR` containing the intended `updateChannel`;
 2. observe the real update prompt;

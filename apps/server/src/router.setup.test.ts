@@ -145,13 +145,19 @@ describe('setup tRPC', () => {
     expect(await caller().setup.info()).toEqual({
       mode: null,
       publicUrl: null,
+      networkOption: null,
       serverUrl: null,
       appVersion,
     })
-    await caller().setup.complete({ publicUrl: 'https://box.ts.net', acknowledgeNoPassword: true })
+    await caller().setup.complete({
+      publicUrl: 'https://box.ts.net',
+      networkOption: 'tailscale-serve',
+      acknowledgeNoPassword: true,
+    })
     expect(await caller().setup.info()).toEqual({
       mode: 'all-in-one',
       publicUrl: 'https://box.ts.net',
+      networkOption: 'tailscale-serve',
       serverUrl: null,
       appVersion,
     })

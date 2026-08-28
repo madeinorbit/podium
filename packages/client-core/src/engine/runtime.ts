@@ -1270,6 +1270,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         agentKind: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]['agentKind']
         firstPrompt?: string
       }) => this.optimism.spawnDraftAgent(args),
+      spawnIssueAgent: (args: Parameters<OptimismLedger<TApi>['spawnIssueAgent']>[0]) =>
+        this.optimism.spawnIssueAgent(args),
       waitForSpawnConfirmed: (sessionId) => this.optimism.waitForSpawnConfirmed(sessionId),
       // ONE KEYSTROKE. The store write is synchronous and unconditional — it is
       // what the caret is attached to. Everything else about this edit (when it

@@ -242,11 +242,7 @@ fn is_local_host(action: &LaunchAction) -> bool {
 /// updater resolves the missing channel against the build stamp rather than inventing a persisted
 /// choice.
 pub fn read_config() -> DesktopConfig {
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    let path = std::path::Path::new(&base).join("config.json");
+    let path = state_dir().join("config.json");
     let text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(_) => return DesktopConfig::default(),
@@ -284,11 +280,52 @@ pub fn read_config() -> DesktopConfig {
 /// `pub` because the native log sink writes under the SAME state dir the server
 /// family logs to — one resolution rule, not two that can drift apart.
 pub fn state_dir() -> PathBuf {
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    PathBuf::from(base)
+    state_dir_from_parts(
+        std::env::var_os("PODIUM_STATE_DIR").map(PathBuf::from),
+        std::env::var_os("HOME").map(PathBuf::from),
+        std::env::var_os("USERPROFILE").map(PathBuf::from),
+        std::env::var_os("HOMEDRIVE"),
+        std::env::var_os("HOMEPATH"),
+        std::env::temp_dir(),
+        cfg!(target_os = "windows"),
+    )
+}
+
+fn state_dir_from_parts(
+    configured: Option<PathBuf>,
+    home: Option<PathBuf>,
+    user_profile: Option<PathBuf>,
+    home_drive: Option<std::ffi::OsString>,
+    home_path: Option<std::ffi::OsString>,
+    temp_dir: PathBuf,
+    windows: bool,
+) -> PathBuf {
+    let nonempty = |path: PathBuf| (!path.as_os_str().is_empty()).then_some(path);
+    if let Some(configured) = configured.and_then(nonempty) {
+        return configured;
+    }
+
+    let windows_home = || {
+        user_profile.and_then(nonempty).or_else(|| {
+            let mut combined = home_drive?;
+            if combined.is_empty() {
+                return None;
+            }
+            let suffix = home_path?;
+            if suffix.is_empty() {
+                return None;
+            }
+            combined.push(suffix);
+            nonempty(PathBuf::from(combined))
+        })
+    };
+    let base = if windows {
+        windows_home().or_else(|| home.and_then(nonempty))
+    } else {
+        home.and_then(nonempty)
+    }
+    .unwrap_or(temp_dir);
+    base.join(".podium")
 }
 
 fn remote_http_url(server_url: &str) -> Result<Url, String> {
@@ -1356,6 +1393,35 @@ mod tests {
     }
 
     #[test]
+    fn windows_state_dir_uses_the_native_profile_without_home() {
+        let resolved = state_dir_from_parts(
+            None,
+            None,
+            Some(PathBuf::from(r"C:\Users\Ada")),
+            None,
+            None,
+            PathBuf::from(r"C:\Temp"),
+            true,
+        );
+        assert_eq!(resolved, PathBuf::from(r"C:\Users\Ada").join(".podium"));
+    }
+
+    #[test]
+    fn windows_state_dir_prefers_userprofile_to_a_posix_shell_home() {
+        let resolved = state_dir_from_parts(
+            None,
+            Some(PathBuf::from("/c/Users/wrong")),
+            Some(PathBuf::from(r"C:\Users\Ada")),
+            None,
+            None,
+            PathBuf::from(r"C:\Temp"),
+            true,
+        );
+        assert_eq!(resolved, PathBuf::from(r"C:\Users\Ada").join(".podium"));
+    }
+
+
+    #[test]
     fn injection_script_embeds_the_port() {
         let s = injection_script(18799);
         assert!(s.contains("ws://127.0.0.1:18799"));
@@ -2273,4 +2339,5 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&tmp);
     }
+
 }

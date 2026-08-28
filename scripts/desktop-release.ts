@@ -23,7 +23,11 @@ export const NATIVE_DESKTOP_BRIDGE_VERSION = 1
  * standing release so a test promotion never lands where real installs are looking.
  */
 export type DesktopReleaseChannel = 'stable' | 'edge' | 'dev'
-export type DesktopReleaseTarget = 'linux-x86_64' | 'darwin-aarch64' | 'darwin-x86_64'
+export type DesktopReleaseTarget =
+  | 'linux-x86_64'
+  | 'windows-x86_64'
+  | 'darwin-aarch64'
+  | 'darwin-x86_64'
 
 export type DesktopReleaseArtifact = {
   target: DesktopReleaseTarget
@@ -54,6 +58,11 @@ const macIntelMarker = /x86_64|_x64/
 
 const targetBundles: TargetBundle[] = [
   { target: 'linux-x86_64', updaterSuffix: '.AppImage', requiredDownloadSuffixes: [] },
+  {
+    target: 'windows-x86_64',
+    updaterSuffix: '-setup.exe',
+    requiredDownloadSuffixes: [],
+  },
   {
     target: 'darwin-aarch64',
     updaterSuffix: '.app.tar.gz',

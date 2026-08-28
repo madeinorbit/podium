@@ -90,6 +90,7 @@ describe('runCliSetup', () => {
       expect(loadConfig()).toMatchObject({
         mode: 'all-in-one',
         publicUrl: 'https://vps.ts.net',
+        networkOption: 'tailscale-funnel',
         persistence: 'systemd',
       })
       expect(startBackend).toHaveBeenCalledWith({
@@ -131,6 +132,7 @@ describe('runCliSetup', () => {
       await run(['1', '1', 'https://box.ts.net', 's3cret', 'n'], setPw)
       expect(loadConfig().mode).toBe('all-in-one')
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+      expect(loadConfig().networkOption).toBe('tailscale-funnel')
       expect(setPw).toHaveBeenCalledWith('s3cret')
       expect(loadConfig().persistence).toBe('detached') // answered "n" to systemd
     })
@@ -139,6 +141,7 @@ describe('runCliSetup', () => {
       await run(['2', '1', 'https://relay.ts.net', '', 'open', 'y'])
       expect(loadConfig().mode).toBe('server')
       expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
+      expect(loadConfig().networkOption).toBe('tailscale-funnel')
       expect(loadConfig().persistence).toBe('systemd') // answered "y"
     })
 
@@ -382,6 +385,7 @@ describe('runCliSetup', () => {
       const setPw = vi.fn(async () => {})
       await run(['4', '1', 'https://new.ts.net'], setPw)
       expect(loadConfig().publicUrl).toBe('https://new.ts.net')
+      expect(loadConfig().networkOption).toBe('tailscale-funnel')
       expect(loadConfig().mode).toBe('all-in-one')
       expect(setPw).not.toHaveBeenCalled()
     })

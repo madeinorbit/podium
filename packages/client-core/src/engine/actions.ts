@@ -13,6 +13,7 @@ import type {
   IssueId,
   IssueWire,
   LayoutSnapshot,
+  MutationId,
   SessionId,
   SessionMeta,
   ThreadId,
@@ -23,7 +24,7 @@ import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnTarget } from '../spawn-agent'
+import type { SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import { type Router, routeDefaults } from '../ui-state'
 import type {
   DockTab,
@@ -118,9 +119,11 @@ export const COMMAND_ACTIONS = [
   'setSuperOpen',
   'setDockTab',
   'setPanelMode',
+  'preferPanelMode',
   'tldrSession',
   'writeFileScoped',
   'spawnDraftAgent',
+  'spawnIssueAgent',
   'killSession',
   'continueSession',
   'hibernateSession',
@@ -250,6 +253,26 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   }): {
     sessionId: SessionId
     issueId: IssueId
+    settled: Promise<boolean>
+  }
+  spawnIssueAgent(args: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    mutationId?: MutationId
+    target: SpawnTarget
+    title: string
+    description: string
+    brief?: string
+    parentBranch?: string
+    agentKind: AgentKind
+    model?: string
+    effort?: string
+  }): {
+    sessionId: SessionId
+    issueId: IssueId
+    mutationId: MutationId
+    settled: Promise<boolean>
+    outcome: Promise<TaskSpawnOutcome>
   }
   /**
    * Hold a first chat send until an optimistic spawn's create has reconciled
@@ -645,6 +668,27 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       if (panelMode[sessionId] !== mode)
         rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
     },
+    /**
+     * A SUGGESTION, NOT A PICK (POD-1702).
+     *
+     * Navigation that lands on one surface rather than the other — the native
+     * worker rows' "focus this session in CLI", a launch with nothing written —
+     * is stating where it would LIKE the panel to open, not choosing the
+     * session's view on the operator's behalf. `setPanelMode` is the operator's
+     * own choice (the Chat/CLI segment) and outranks every such suggestion: a
+     * session the operator has explicitly put in chat kept jumping back to the
+     * terminal because a row whose whole job is navigation wrote `native` over
+     * that choice, and persisted it, so the session reopened in CLI too.
+     *
+     * A session with no explicit pick still follows the suggestion — that is
+     * what makes "in CLI" mean something for the sessions nobody has decided
+     * about, which is nearly all of them.
+     */
+    preferPanelMode: (sessionId, mode) => {
+      const panelMode = rt.state().panelMode
+      if (panelMode[sessionId] !== undefined) return
+      rt.apply({ panelMode: { ...panelMode, [sessionId]: mode } })
+    },
     setDockVisibleSession: (dockVisibleSession) => rt.apply({ dockVisibleSession }),
     setDockShell: (worktreePath, sessionId) => {
       const current = rt.state().dockShells
@@ -825,6 +869,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     gitCommitDiffFile: ((args) =>
       api.git.commitDiffFile.query(args)) as Store<TApi>['gitCommitDiffFile'],
     spawnDraftAgent: (args) => rt.spawnDraftAgent(args),
+    spawnIssueAgent: (args) => rt.spawnIssueAgent(args),
     killSession: async (sessionId) => {
       await api.sessions.kill.mutate({ sessionId }).catch(() => {})
       const state = rt.state()

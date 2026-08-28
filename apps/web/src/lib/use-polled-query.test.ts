@@ -101,6 +101,72 @@ describe('usePolledQuery', () => {
     expect(second.result.current.data).toBe('cached')
   })
 
+  it('does not re-read on mount while the held answer is still fresh', async () => {
+    // Property 2's second half (POD-1603): holding the last answer saves the
+    // flicker; declining to re-take it saves the WORK, which for a `/proc` walk
+    // on someone else's machine is the half that matters.
+    const read = vi.fn().mockResolvedValue('held')
+    const first = renderHook(() =>
+      usePolledQuery({ key: 'k', intervalMs: 0, read, freshForMs: 20_000 }),
+    )
+    await act(async () => {})
+    expect(read).toHaveBeenCalledTimes(1)
+    first.unmount()
+
+    const second = renderHook(() =>
+      usePolledQuery({ key: 'k', intervalMs: 0, read, freshForMs: 20_000 }),
+    )
+    await act(async () => {})
+    expect(second.result.current.data).toBe('held')
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-reads on mount once the window has passed — the control for the above', async () => {
+    const read = vi.fn().mockResolvedValue('held')
+    const first = renderHook(() =>
+      usePolledQuery({ key: 'k', intervalMs: 0, read, freshForMs: 20_000 }),
+    )
+    await act(async () => {})
+    first.unmount()
+
+    await act(async () => {
+      vi.advanceTimersByTime(20_001)
+    })
+    renderHook(() => usePolledQuery({ key: 'k', intervalMs: 0, read, freshForMs: 20_000 }))
+    await act(async () => {})
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets an explicit refresh override freshness', async () => {
+    // The control exists precisely for "I do not care how fresh you think you
+    // are"; a freshness window that swallowed it would make the button a lie.
+    const read = vi.fn().mockResolvedValue('held')
+    const { result } = renderHook(() =>
+      usePolledQuery({ key: 'k', intervalMs: 0, read, freshForMs: 20_000 }),
+    )
+    await act(async () => {})
+    expect(read).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      result.current.refresh()
+    })
+    expect(read).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the interval firing inside the window — freshness gates the MOUNT', async () => {
+    // The interval is the caller's stated cadence for re-taking the reading; the
+    // window is about not re-taking one just because a panel was opened again.
+    const read = vi.fn().mockResolvedValue('held')
+    renderHook(() => usePolledQuery({ key: 'k', intervalMs: 1_000, read, freshForMs: 20_000 }))
+    await act(async () => {})
+    expect(read).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(3_000)
+    })
+    expect(read.mock.calls.length).toBeGreaterThan(1)
+  })
+
   it('keeps the figures on screen when a refresh fails, and names the reason', async () => {
     const read = vi.fn().mockResolvedValue('good')
     const { result } = renderHook(() => usePolledQuery({ key: 'k', intervalMs: 100, read }))

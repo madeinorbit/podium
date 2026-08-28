@@ -335,6 +335,10 @@ export interface PendingItem {
    * normalize those paths out of `text`, so they are the stable identity used
    * to reconcile attachment-bearing turns. */
   toolPaths?: string[]
+  /** The issue-start contract may append its technical brief to the human's
+   * description before the first turn reaches the transcript. Only that seeded
+   * first-turn bubble may accept the longer authoritative echo. */
+  acceptsAppendedBrief?: boolean
 }
 
 /** A human chat message durably held in the unified message ledger until the
@@ -483,9 +487,17 @@ function textCarriesPaths(text: string, paths: readonly string[]): boolean {
 
 /** One content matcher for local, ledger, and provider-normalized turns. */
 function messageMatchesItem(
-  message: Pick<PendingItem, 'text' | 'toolPaths'>,
+  message: Pick<PendingItem, 'text' | 'toolPaths' | 'acceptsAppendedBrief'>,
   item: TranscriptItem,
 ): boolean {
+  const itemText = item.text.trim()
+  const messageText = message.text.trim()
+  if (
+    message.acceptsAppendedBrief === true &&
+    (itemText === messageText || itemText.startsWith(`${messageText}\n\n`))
+  ) {
+    return true
+  }
   const messagePaths = message.toolPaths ?? []
   const itemPaths = item.toolPaths ?? []
   if (messagePaths.length > 0) {
@@ -493,7 +505,7 @@ function messageMatchesItem(
     return textCarriesPaths(item.text, messagePaths)
   }
   if (itemPaths.length > 0) return textCarriesPaths(message.text, itemPaths)
-  return item.text.trim() === message.text.trim()
+  return itemText === messageText
 }
 
 /**

@@ -36,6 +36,7 @@ import {
 
 const REFRESH_MS = 90_000
 const CACHE_KEY = 'usage.summary'
+const SCAN_HISTORY_MS = 15 * 60_000
 
 export { PENDING_REVEAL_MS }
 
@@ -50,27 +51,26 @@ interface UsageAnswer {
   buckets: UsageBucketWire[]
 }
 
-// The polled-query cache and this pair share one lifetime: the current browser
-// tab. Multiple mounted readers may receive the same daemon memo, so only a
-// strictly newer scan advances the pair.
-let scans: { current: UsageScan | null; previous: UsageScan | null } = {
-  current: null,
-  previous: null,
-}
+// The polled-query cache and this history share one lifetime: the current
+// browser tab. Multiple mounted readers may receive the same daemon memo, so
+// only a strictly newer scan advances it. Fifteen minutes is enough to produce
+// the footer's stable rolling rate without retaining another copy of the
+// seven-day usage response indefinitely.
+let scanHistory: UsageScan[] = []
 
 function recordScan(answer: UsageAnswer): void {
   const sampledAt = Date.parse(answer.sampledAt ?? '')
-  if (!Number.isFinite(sampledAt) || sampledAt <= (scans.current?.sampledAt ?? -Infinity)) return
-  scans = {
-    previous: scans.current,
-    current: { sampledAt, buckets: answer.buckets },
-  }
+  const latest = scanHistory.at(-1)
+  if (!Number.isFinite(sampledAt) || sampledAt <= (latest?.sampledAt ?? -Infinity)) return
+  scanHistory = [...scanHistory, { sampledAt, buckets: answer.buckets }].filter(
+    (scan) => scan.sampledAt >= sampledAt - SCAN_HISTORY_MS,
+  )
 }
 
 /** Tests only — the module cache is deliberately process-wide otherwise. */
 export function resetUsageCache(): void {
   resetPolledQueryCache(CACHE_KEY)
-  scans = { current: null, previous: null }
+  scanHistory = []
 }
 
 export interface UsageFeed {
@@ -78,9 +78,8 @@ export interface UsageFeed {
   buckets: UsageBucketWire[] | null
   /** When `buckets` was received, for the staleness stamp. */
   fetchedAt: number | null
-  /** The newest two distinct daemon scans, used for the recent burn delta. */
-  currentScan: UsageScan | null
-  previousScan: UsageScan | null
+  /** Distinct daemon scans from the last 15 minutes, oldest first. */
+  scans: readonly UsageScan[]
   /** A request is in flight AND has been slow enough to be worth showing. */
   waiting: boolean
   /** The last attempt failed. With `buckets` set, what is on screen is old. */
@@ -98,8 +97,7 @@ export function useUsageFeed(trpc: Trpc): UsageFeed {
   return {
     buckets: query.data?.buckets ?? null,
     fetchedAt: query.fetchedAt,
-    currentScan: scans.current,
-    previousScan: scans.previous,
+    scans: scanHistory,
     waiting: query.pending,
     failed: query.failed,
     retry: query.refresh,

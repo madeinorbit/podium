@@ -72,9 +72,72 @@ describe('claudeRecordToItems', () => {
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({
       role: 'user',
-      text: '[Image #1]does this look right?',
+      text: 'does this look right?',
       toolPaths: ['/home/u/.podium/uploads/s1/abc.png'],
       tags: [{ kind: 'image', label: 'abc.png' }],
+    })
+  })
+
+  it('strips the bare [Image #N] placeholder that sits ahead of the prompt', () => {
+    // POD-1605: the placeholder carries no path, so path harvesting left it in
+    // place and every pasted screenshot showed a literal "[Image #1]" glued to
+    // the front of the message. Two images means two placeholders, and the
+    // numbered source form must still win the paths.
+    const items = claudeRecordToItems({
+      type: 'user',
+      uuid: 'u9',
+      timestamp: '2026-06-12T10:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'BBBB' } },
+          {
+            type: 'text',
+            text:
+              '[Image #1][Image #2]compare these\n' +
+              '[Image #1: source: /home/u/.podium/uploads/s1/a.png]\n' +
+              '[Image #2: source: /home/u/.podium/uploads/s1/b.png]',
+          },
+        ],
+      },
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      role: 'user',
+      text: 'compare these',
+      toolPaths: ['/home/u/.podium/uploads/s1/a.png', '/home/u/.podium/uploads/s1/b.png'],
+      tags: [
+        { kind: 'image', label: 'a.png' },
+        { kind: 'image', label: 'b.png' },
+      ],
+    })
+  })
+
+  it('keeps a placeholder-only turn as a text-less media item', () => {
+    // The human pasted a screenshot and typed nothing. Stripping both markers
+    // empties the text — the item must survive on its tags, not vanish.
+    const items = claudeRecordToItems({
+      type: 'user',
+      uuid: 'u10',
+      timestamp: '2026-06-12T10:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          {
+            type: 'text',
+            text: '[Image #1]\n[Image: source: /home/u/.podium/uploads/s1/only.png]',
+          },
+        ],
+      },
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      role: 'user',
+      text: '',
+      toolPaths: ['/home/u/.podium/uploads/s1/only.png'],
+      tags: [{ kind: 'image', label: 'only.png' }],
     })
   })
 

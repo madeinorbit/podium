@@ -462,6 +462,57 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
     },
   })
 }
+// POD-1595: one LIVE session whose last turn ended with a QUESTION, so its tail
+// carries an attention verdict before anything is sent. That standing verdict is
+// the whole subject — `chatActivity` used to rank it above the operator's own
+// send, so the row under a freshly-sent prompt described the turn BEFORE it and
+// did not budge until the daemon's first observation of the new one arrived.
+// Nothing about that is reproducible on a fresh session: with no verdict to be
+// stale, the old order and the new one agree.
+if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Stale verdict under a send',
+    startNow: false,
+  })
+  // Same inventory race as PANEL_LIFECYCLE above, same answer: retry rather than
+  // let `requireAgent` take the harness down.
+  let sessionId: string | undefined
+  let lastError: unknown
+  for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
+    try {
+      sessionId = server.registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: REPO_ROOT,
+        issueId: issue.id,
+        machineId: hostMachineId(),
+      }).sessionId
+    } catch (err) {
+      lastError = err
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+  if (sessionId === undefined) {
+    throw new Error(
+      `PODIUM_E2E_STALE_VERDICT: the agent inventory never arrived — ${String(lastError)}`,
+    )
+  }
+  server.registry.modules.sessions.renameSession({ sessionId, name: 'Stale verdict subject' })
+  const principal = inProcessMachinePrincipal(hostMachineId())
+  // `idle` + `question` is what `agentBadge` turns into `needs answer`, and the
+  // tail into "Waiting for your answer". Stamped an hour ago, because the point
+  // is that it belongs to a turn that is over.
+  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    type: 'agentState',
+    sessionId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'question' },
+      since: new Date(Date.now() - 3_600_000).toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+}
 // Same-native-id transcript replacement proof (POD-660): one completed issue
 // retains a hibernated session whose lake is two device/inode incarnations. The
 // browser spec opens the real AgentPanel, which must render both files as one

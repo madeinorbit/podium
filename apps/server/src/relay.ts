@@ -78,6 +78,8 @@ import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
+import { QuotaBackfill } from './modules/quota-history/backfill'
+import { QuotaSampler } from './modules/quota-history/service'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
@@ -124,6 +126,7 @@ import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
+import { QUEUED_INPUT_SWEEP_MS } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
@@ -368,10 +371,25 @@ export class SessionRegistry {
   private readonly steward: StewardService
   /** Event-log retention timers (issue #61) — modules/events. */
   private readonly eventRetention: EventLogRetention
+  /**
+   * The quota window ledger's writer (POD-1571). STARTED, unlike the two retired
+   * timers near it, and it has to be: quota is a live pull-through read that
+   * nothing polls on a schedule, so without this timer a window that elapses
+   * while no client is open leaves no record at all — and unlike a cache, that
+   * history cannot be recomputed later from anything on disk.
+   */
+  private readonly quotaSampler: QuotaSampler
+  /** One-shot boot import of the quota history the harnesses wrote themselves
+   *  (POD-1571) — Codex rollouts and Grok's billing log. Claude keeps none. */
+  private readonly quotaBackfill: QuotaBackfill
   /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
   private readonly ledger: Ledger
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
+  /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
+   *  above walks the message LEDGER; this one re-arms the drains that actually
+   *  move bytes, which had no timer at all. */
+  private readonly queuedInputSweep: ReturnType<typeof setInterval>
   /** Stalled-approval deadline (POD-2223) — modules/approvals. */
   private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
@@ -1221,6 +1239,7 @@ export class SessionRegistry {
       getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
       spawnSession: (o) =>
         sessionsSvc.createSession({
+          ...(o.sessionId ? { sessionId: o.sessionId } : {}),
           cwd: o.cwd,
           agentKind: o.agentKind as AgentKind,
           ...(o.issueId ? { issueId: o.issueId } : {}),
@@ -1348,24 +1367,37 @@ export class SessionRegistry {
       // the sender is told its message was queued, the session never comes back,
       // and nothing anywhere records why. A refused wake looked identical to a
       // broken one for as long as it took to read this line (POD-1650).
+      // A LOG IS NOT A SIGNAL (POD-1703). The line below records why; it does not
+      // tell the person who sent the message, who is still looking at a bubble
+      // that says pending. `onWakeUnavailable` raises the same needs-attention
+      // the spawn-budget path raises, on every row addressed to this session.
       if (!authorized.ok) {
-        log.warn('wake refused — input stays queued for an explicit resume', {
-          sessionId,
-          reason: authorized.reason ?? 'not authorized',
-        })
+        const reason = authorized.reason ?? 'not authorized'
+        log.warn('wake refused — input stays queued for an explicit resume', { sessionId, reason })
+        messagesSvc.onWakeUnavailable(sessionId, `refused: ${reason}`)
         return
       }
       void issueSessionLifecycle
         .resurrectSession({ sessionId })
         .then((result) => {
-          if (!result.ok)
+          if (!result.ok) {
             log.warn('wake-on-queue failed', {
               sessionId,
               reason: result.reason,
             })
+            messagesSvc.onWakeUnavailable(sessionId, result.reason ?? 'wake failed')
+            return
+          }
+          // THE WAKE IS AN ELIGIBILITY EDGE (POD-1703). A bind normally re-arms
+          // the drain, but a resume that comes back without one — an already-live
+          // session, a race with the daemon's own bind — left the row waiting for
+          // the next reconnect. Re-arming here costs a no-op when the bind path
+          // already ran.
+          sessionsSvc.inbox.drain(sessionId)
         })
         .catch((err) => {
           log.warn('wake-on-queue failed', { sessionId, err })
+          messagesSvc.onWakeUnavailable(sessionId, 'wake threw')
         })
     })
     // The `session.listChanged` republish tail is GONE (POD-1574). It re-derived
@@ -2560,6 +2592,15 @@ export class SessionRegistry {
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
+    // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
+    // it is cheap — `drain` is single-flight and returns immediately on a
+    // session with an empty queue or one already draining — and because what it
+    // heals is a person waiting on a message that has already been accepted.
+    this.queuedInputSweep = setInterval(
+      () => sessionsSvc.inbox.sweepQueuedInputs(),
+      QUEUED_INPUT_SWEEP_MS,
+    )
+    this.queuedInputSweep.unref?.()
     // An approved op whose daemon takes the frame and never answers must not sit
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
@@ -2583,6 +2624,16 @@ export class SessionRegistry {
     // the janitor's fence to protect — see IssueGitWatch.
     this.issueGitWatch = new IssueGitWatch(issues)
     this.issueGitWatch.start()
+    // Reads through the same fan-out `quota.summary` serves, so the sampler adds
+    // no new path to the daemons — only a clock behind the one that exists.
+    this.quotaSampler = new QuotaSampler(this.store.quotaHistory, () =>
+      this.modules.rpc.agentQuotaAll(),
+    )
+    this.quotaSampler.start()
+    this.quotaBackfill = new QuotaBackfill(this.store.quotaHistory, (sinceMs) =>
+      this.modules.rpc.quotaHistoryAll(sinceMs),
+    )
+    this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()
@@ -2655,8 +2706,11 @@ export class SessionRegistry {
     // indistinguishable from a broken one (POD-1390).
     this.modules.memory.dispose()
     this.eventRetention.dispose()
+    this.quotaSampler.dispose()
+    this.quotaBackfill.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
+    clearInterval(this.queuedInputSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.issueAutoArchive.dispose()

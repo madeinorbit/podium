@@ -4,14 +4,14 @@
  * buttons, and the end of a transcript.
  *
  * It is the braille cell the status strip used to SPIN, held still and lit in a
- * travelling wave instead. Eight dots, two columns of four; one CSS animation
- * with eight staggered delays walks the light down the cell. No rotation, no
- * canvas, no frame loop — and no beat you could point at, which is what lets
- * the same mark sit inside a dense mono row AND be stared at for a minute at
- * the tail of a feed without reading as a terminal artefact. Before this there
- * were two marks for one fact (a stepped braille glyph in rows, a breathing
- * canvas ring at the tail); a tab and the transcript it leads to now describe
- * the same working session with the same shape.
+ * travelling wave instead. Eight dots, two columns of four; one compositor
+ * frame strip carries the staggered light down the cell. No rotation, no canvas,
+ * no JavaScript frame loop — and no beat you could point at, which is what lets
+ * the same mark sit inside a dense mono row AND be stared at for a minute at the
+ * tail of a feed without reading as a terminal artefact. Before this there were
+ * two marks for one fact (a stepped braille glyph in rows, a breathing canvas
+ * ring at the tail); a tab and the transcript it leads to now describe the same
+ * working session with the same shape.
  *
  * It renders ONLY while an agent is actually computing (motionPhase ===
  * 'working', or a message in transport to one) — gating stays the caller's job,
@@ -46,21 +46,30 @@ function WorkingMarkCell({
   // Small cells get FATTER dots: at 12px tall a 9.5-unit dot is a grey smudge
   // and the wave has nothing to travel across. Ladder verbatim from the design.
   const r = size >= 18 ? 9.5 : size >= 14 ? 10.5 : 11
+  const density = size >= 18 ? 'large' : size >= 14 ? 'medium' : 'small'
+  const width = Math.round(size * 0.66)
   return (
     // Decorative: the timer, label or row beside it carries the state for readers.
-    <svg
+    <span
       aria-hidden="true"
-      focusable="false"
       data-testid="working-mark"
-      viewBox="0 0 66 100"
-      width={Math.round(size * 0.66)}
-      height={size}
-      className={cn('pod-mark', className)}
+      className={cn('pod-mark', `pod-mark-${density}`, className)}
+      style={{ width, height: size }}
     >
-      {DOTS.map(([cx, cy]) => (
-        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} />
-      ))}
-    </svg>
+      <svg
+        aria-hidden="true"
+        focusable="false"
+        viewBox="0 0 66 100"
+        width={width}
+        height={size}
+        className="pod-mark-static"
+      >
+        {DOTS.map(([cx, cy]) => (
+          <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={r} />
+        ))}
+      </svg>
+      <span className="pod-mark-frames" />
+    </span>
   )
 }
 

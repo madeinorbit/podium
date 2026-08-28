@@ -2,7 +2,9 @@
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { DOUBLE_CLICK_MS } from './click-intent'
 import {
   continuationPresenceLine,
   deckTaskUnread,
@@ -14,7 +16,7 @@ import {
 } from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
-import { REVEAL_IN_DECK_EVENT } from './shell-state'
+import { REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
 
 /**
  * The deck's own click grammar and fold defaults (POD-710 §4.1–4.4).
@@ -38,6 +40,7 @@ const harness = vi.hoisted(() => ({
   openSessionTab: vi.fn(),
   focusIssueSession: vi.fn(async () => null),
   setPanelMode: vi.fn(),
+  preferPanelMode: vi.fn(),
   setSelectedIssueId: vi.fn(),
   setIssueTucked: vi.fn(async () => undefined),
   updateIssue: vi.fn(async (_id: string, _patch: unknown) => undefined),
@@ -89,6 +92,7 @@ vi.mock('./store', () => ({
       openSessionTab: harness.openSessionTab,
       focusIssueSession: harness.focusIssueSession,
       setPanelMode: harness.setPanelMode,
+      preferPanelMode: harness.preferPanelMode,
       setView: vi.fn(),
       markIssueRead: vi.fn(async () => undefined),
       markIssueUnread: vi.fn(async () => undefined),
@@ -155,17 +159,24 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
 /** An agent mid-turn — what `Working` asks about, once per agent (POD-1452). */
 const WORKING = { phase: 'working', since: '2026-01-01T00:00:00.000Z' } as const
 
-const deck = (): void => {
-  render(
+function DeckHarness() {
+  return (
     // ConfirmProvider because the task menu's Archive/Delete now use the
     // app-wide dialog (POD-1077), exactly as AppShell supplies it in the app.
     <ConfirmProvider>
       <OperatorFocusProvider missionId="root">
-        <FlightDeck onCollapse={vi.fn()} />
+        {/* The explorer's stack lives above the dock in the app, and the deck
+            reads it to know which task the dock is already showing — so the
+            harness supplies the real provider rather than the default context. */}
+        <IssueExplorerProvider>
+          <FlightDeck onCollapse={vi.fn()} />
+        </IssueExplorerProvider>
       </OperatorFocusProvider>
-    </ConfirmProvider>,
+    </ConfirmProvider>
   )
 }
+
+const deck = (): ReturnType<typeof render> => render(<DeckHarness />)
 
 /** The single-click action is deferred by the double-click window. */
 const settle = (): void => {
@@ -185,6 +196,7 @@ beforeEach(() => {
   harness.openSessionTab.mockClear()
   harness.focusIssueSession.mockClear()
   harness.setPanelMode.mockClear()
+  harness.preferPanelMode.mockClear()
   harness.setSelectedIssueId.mockClear()
   harness.setIssueTucked.mockClear()
   harness.updateIssue.mockClear()
@@ -211,7 +223,11 @@ beforeEach(() => {
   ]
 })
 
+/** Torn down after each test — a window listener outlives the render. */
+const afterEachListeners: Array<() => void> = []
+
 afterEach(() => {
+  for (const off of afterEachListeners.splice(0)) off()
   cleanup()
   vi.useRealTimers()
 })
@@ -244,6 +260,30 @@ describe('the cold deck (POD-1112)', () => {
     deck()
     expect(screen.queryByTestId('flight-empty')).toBeNull()
     expect(screen.getByText('Full spine')).toBeTruthy()
+  })
+
+  it('names an unnamed mission from the shared draft fallback, not the harness title', () => {
+    harness.issues = [vessel({ memberSessionIds: ['s-new'] })]
+    harness.sessions = [
+      session('s-new', {
+        issueId: 'v1',
+        name: undefined,
+        title: 'Unrelated older conversation',
+      }),
+    ]
+    harness.selectedIssueId = 'v1'
+    deck()
+    expect(document.querySelector('.shell-type-column-title')?.textContent).toBe(
+      'New Claude session',
+    )
+  })
+
+  it('shows an optimistic rename before the server clears the draft flag', () => {
+    harness.issues = [vessel({ title: 'Renamed mission', memberSessionIds: ['s-new'] })]
+    harness.sessions = [session('s-new', { issueId: 'v1', name: 'Agent label' })]
+    harness.selectedIssueId = 'v1'
+    deck()
+    expect(document.querySelector('.shell-type-column-title')?.textContent).toBe('Renamed mission')
   })
 
   it('shows the empty state when nothing at all is selected', () => {
@@ -593,6 +633,31 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
 
+  it('lands a native worker row on the terminal without overruling a Chat pick', () => {
+    // POD-1702. These rows are navigation — "take me to the agent running this
+    // worker, on the terminal it is running in" — so they SUGGEST the CLI. They
+    // used to write it as the session's mode, which overwrote an explicit Chat
+    // pick and persisted it, so the session reopened on the terminal too.
+    harness.sessions = [
+      session('s1', { issueId: 't1' }),
+      session('s2', {
+        issueId: 't2',
+        agentState: { nativeSubagents: [{ id: 'w1', type: 'general-purpose' }] },
+      }),
+      session('s3', { issueId: 't2' }),
+      session('s4', { issueId: 't3' }),
+    ]
+    deck()
+
+    const worker = document.querySelector('[data-testid="flight-native-agents"] button')
+    expect(worker).toBeTruthy()
+    fireEvent.click(worker as HTMLElement)
+    settle()
+
+    expect(harness.preferPanelMode.mock.calls).toEqual([['s2', 'native']])
+    expect(harness.setPanelMode).not.toHaveBeenCalled()
+  })
+
   it('reopens the Task dock when an issue is picked', () => {
     const openPanel = vi.fn()
     window.addEventListener('podium:open-right-panel', openPanel, { once: true })
@@ -603,6 +668,70 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 
     expect(openPanel).toHaveBeenCalledTimes(1)
     expect((openPanel.mock.calls[0]?.[0] as CustomEvent).detail).toBe('issue')
+  })
+
+  /** Every `podium:open-right-panel` detail the deck asked for, in order. */
+  const panelRequests = (): string[] => {
+    const details: string[] = []
+    const listener = (event: Event): void => {
+      details.push(String((event as CustomEvent).detail))
+    }
+    window.addEventListener('podium:open-right-panel', listener)
+    afterEachListeners.push(() => window.removeEventListener('podium:open-right-panel', listener))
+    return details
+  }
+
+  it('closes the dock on a second click on the task it is already showing (POD-1639)', () => {
+    // The dock is open on the Task panel, exactly as it is after the first pick.
+    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
+    const details = panelRequests()
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+    fireEvent.click(taskRow('t2'))
+    settle()
+
+    expect(details).toEqual(['issue', 'close'])
+  })
+
+  it('opens rather than closes when the dock is showing another task', () => {
+    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
+    const details = panelRequests()
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+    fireEvent.click(taskRow('t3'))
+    settle()
+
+    expect(details).toEqual(['issue', 'issue'])
+  })
+
+  it('never closes the dock on a promotion, which is an unambiguous open', () => {
+    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
+    const details = panelRequests()
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+    fireEvent.click(taskRow('t2'))
+    fireEvent.click(taskRow('t2'))
+    settle()
+
+    expect(details).toEqual(['issue', 'issue'])
+  })
+
+  it('opens the dock when it is closed, whatever the row it lands on', () => {
+    const details = panelRequests()
+    deck()
+
+    fireEvent.click(taskRow('t2'))
+    settle()
+    fireEvent.click(taskRow('t2'))
+    settle()
+
+    expect(details).toEqual(['issue', 'issue'])
   })
 
   it('promotes on the second click and never fires the single as well', () => {
@@ -639,13 +768,21 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
   })
 
   it('changes a proposed issue from its status icon without opening the row', async () => {
+    // This file's fake clock is for the click-intent window. Base UI positions
+    // the status menu on rAF, and the two together make `findByRole` miss the
+    // item. The rest of the suite can keep the fake clock; this test needs the
+    // menu to actually open, then a real wait past the double-click window so
+    // a leaked row click would still have fired.
+    vi.useRealTimers()
     const openPanel = vi.fn()
     window.addEventListener('podium:open-right-panel', openPanel)
     deck()
 
     fireEvent.click(screen.getByLabelText('Status: Proposed'))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Backlog' }))
-    settle()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, DOUBLE_CLICK_MS + 40))
+    })
 
     expect(harness.updateIssue).toHaveBeenCalledWith('p1', { stage: 'backlog' })
     expect(openPanel).not.toHaveBeenCalled()
@@ -1112,6 +1249,41 @@ describe('flight deck task menu (POD-771)', () => {
   it('shows the hover affordance for operators who never right-click', () => {
     deck()
     expect(screen.getByRole('button', { name: 'Task actions for Task t1' })).toBeTruthy()
+  })
+
+  it('uses the shared draft name in the strip and its rename editor', () => {
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 't1'
+        ? { ...(candidate as Issue), title: 'Draft', draft: true }
+        : candidate,
+    )
+    harness.sessions = harness.sessions.map((candidate) => {
+      const meta = candidate as SessionMeta
+      return meta.sessionId === 's1'
+        ? { ...meta, name: undefined, title: 'Unrelated older conversation' }
+        : meta
+    })
+    const view = deck()
+    const strip = stripOf('t1')
+    expect(strip.querySelector('.deck-task-content')?.textContent).toContain('New Claude session')
+
+    fireEvent.contextMenu(strip)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
+    const editor = strip.querySelector('input')
+    expect(editor).not.toBeNull()
+    expect((editor as HTMLInputElement).value).toBe('New Claude session')
+
+    // The draft's visible name can move while the uncontrolled editor is open.
+    // Its seed and no-op comparison must stay on the title the operator opened.
+    harness.sessions = harness.sessions.map((candidate) => {
+      const meta = candidate as SessionMeta
+      return meta.sessionId === 's1' ? { ...meta, name: 'Agent renamed while open' } : meta
+    })
+    view.rerender(<DeckHarness />)
+    expect((editor as HTMLInputElement).value).toBe('New Claude session')
+
+    fireEvent.blur(editor as HTMLInputElement)
+    expect(harness.updateIssue).not.toHaveBeenCalled()
   })
 })
 

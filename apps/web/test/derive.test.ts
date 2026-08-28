@@ -434,13 +434,16 @@ describe('agentBadge', () => {
     ).toBe('needs answer')
   })
 
-  it('errored shows the class; Continue only when retryable', () => {
+  it('errored names the failure in words; Continue only when retryable', () => {
     expect(
       agentBadge(
         sessionWithState(stateAt('errored', { error: { class: 'rate_limit', retryable: true } })),
       ),
     ).toEqual({
-      label: 'error: rate_limit',
+      // NOT `error: rate_limit` (POD-1601): `error.class` is a raw harness
+      // token — Cursor sends the literal `failed` — and the badge is the one
+      // place the operator reads fastest.
+      label: 'rate limited',
       tone: 'error',
       showContinue: true,
     })
@@ -451,6 +454,18 @@ describe('agentBadge', () => {
         ),
       )?.showContinue,
     ).toBe(false)
+  })
+
+  // The badge is where a raw token would show up first and be read fastest, so
+  // the allowlist matters most here. Cursor really does send `failed`.
+  it.each([
+    ['failed'],
+    ['unknown'],
+    ['some_future_code'],
+    [undefined],
+  ])('never leaks the %s class into the badge', (cls) => {
+    const error = cls === undefined ? {} : { error: { class: cls, retryable: false } }
+    expect(agentBadge(sessionWithState(stateAt('errored', error)))?.label).toBe('agent errored')
   })
 
   it('ended is muted', () => {
@@ -651,6 +666,115 @@ describe('chatActivity', () => {
       ),
     ).toBeNull()
     expect(chatActivity(undefined, false)).toBeNull()
+  })
+
+  /**
+   * POD-1595. Every label below is the PREVIOUS turn's parting verdict, and
+   * pressing Enter is the act that answers it. They each used to outrank the
+   * send — `justSent` was the last test in the function — so the row under a
+   * freshly-sent prompt described the state before it, and stayed that way
+   * until the daemon's first observation of the new turn arrived.
+   */
+  describe('a send outranks the turn it answered', () => {
+    const sent = (over: Parameters<typeof base>[0]) => chatActivity(base(over), true)
+    const SENDING = { label: 'Sending', tone: 'idle', transient: 'just-sent' }
+
+    it('beats an offer still sitting on the meta', () => {
+      expect(
+        sent({
+          offer: {
+            message: 'Pick one',
+            actions: [{ label: 'Merge', prompt: 'merge it' }],
+            createdAt: '2026-08-24T10:00:00.000Z',
+          },
+          agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 },
+        }),
+      ).toEqual(SENDING)
+    })
+
+    it('beats a question, a plan, an error and an open todo list', () => {
+      expect(
+        sent({
+          agentState: {
+            phase: 'needs_user',
+            since: '',
+            nativeSubagentCount: 0,
+            need: { kind: 'question' },
+          },
+        }),
+      ).toEqual(SENDING)
+      expect(
+        sent({
+          agentState: {
+            phase: 'idle',
+            since: '',
+            nativeSubagentCount: 0,
+            idle: { kind: 'approval' },
+          },
+        }),
+      ).toEqual(SENDING)
+      expect(
+        sent({
+          agentState: {
+            phase: 'errored',
+            since: '',
+            nativeSubagentCount: 0,
+            error: { class: 'rate_limit', retryable: true },
+          },
+        }),
+      ).toEqual(SENDING)
+      for (const kind of ['open_todos', 'interrupted'] as const) {
+        expect(
+          sent({
+            agentState: { phase: 'idle', since: '', nativeSubagentCount: 0, idle: { kind } },
+          }),
+        ).toEqual(SENDING)
+      }
+    })
+
+    it('does NOT beat work happening now — the agent already picked the turn up', () => {
+      expect(sent({ agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } })).toEqual(
+        { label: 'Working…', tone: 'working' },
+      )
+      expect(
+        sent({ agentState: { phase: 'compacting', since: '', nativeSubagentCount: 0 } }),
+      ).toEqual({ label: 'Compacting…', tone: 'working' })
+      // Uninstrumented kinds have no phase to report; the PTY's own busy flag is
+      // still a live observation and still outranks the optimistic row.
+      expect(sent({ agentKind: 'shell', busy: true })).toEqual({
+        label: 'Working…',
+        tone: 'working',
+      })
+    })
+
+    it('does NOT reorder anything when there is no send in flight', () => {
+      // POD-1595 review. Getting `busy` above the optimistic row must not also
+      // put it above the attention badge: `agentBadge` answers from `meta.offer`
+      // BEFORE it looks at `agentState`, so an uninstrumented session with an
+      // offer and a live PTY would have read "Working…" and lost the offer line
+      // entirely — with no send anywhere in sight.
+      expect(
+        chatActivity(
+          base({
+            agentKind: 'shell',
+            busy: true,
+            offer: {
+              message: 'Pick one',
+              actions: [{ label: 'Merge', prompt: 'merge it' }],
+              createdAt: '2026-08-24T10:00:00.000Z',
+            },
+          }),
+          false,
+        ),
+      ).toEqual({ label: 'waiting on decision', tone: 'attention' })
+    })
+
+    it('still yields to waking on a parked session', () => {
+      expect(sent({ status: 'hibernated', agentState: undefined })).toEqual({
+        label: 'Waking the agent…',
+        tone: 'working',
+      })
+    })
   })
 })
 

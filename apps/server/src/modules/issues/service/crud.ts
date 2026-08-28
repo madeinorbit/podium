@@ -758,6 +758,13 @@ export class IssueCrudModule {
     // POD-2700 §2.5 lists issue homing as an enforcement site, and refusing only
     // one of the two entry points is how a guard becomes decorative.
     if (input.machineId != null) this.store.d.requireIssueHomeMachine?.(input.machineId)
+    // Server-minted ids are unique by construction; a client-minted optimistic
+    // insert is not. Refuse it before allocating a sequence or touching storage:
+    // IssuesRepository upserts by id for ordinary updates, so allowing create to
+    // reach that seam would turn an additive command into an overwrite.
+    if (input.id && this.store.deps.store.issues.getIssue(input.id) !== null) {
+      throw new Error(`refusing to reuse an existing issue id: ${input.id}`)
+    }
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
     const repoId = this.store.deps.store.repos.resolveRepoIdForPath(input.repoPath)

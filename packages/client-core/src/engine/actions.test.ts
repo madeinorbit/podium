@@ -155,6 +155,22 @@ describe('engine action ownership boundary', () => {
     )
   })
 
+  it('lets navigation suggest a panel mode without overwriting the operator’s pick', () => {
+    // POD-1702. The native worker rows under a session focus it "in CLI", and
+    // that wrote `native` over an explicit Chat pick — durably, so the session
+    // reopened on the terminal too. A suggestion now yields to a pick and still
+    // decides for a session nobody has decided about.
+    const h = harness()
+    const mode = (): unknown => (h.state().panelMode as Record<string, unknown>)[sessionId]
+
+    h.actions.preferPanelMode(sessionId, 'native')
+    expect(mode()).toBe('native')
+
+    h.actions.setPanelMode(sessionId, 'chat')
+    h.actions.preferPanelMode(sessionId, 'native')
+    expect(mode()).toBe('chat')
+  })
+
   it('queues an offer dismissal through the Outbox, carrying the offer it names', async () => {
     const h = harness()
 

@@ -524,7 +524,6 @@ export class ClaudeCausalObserver {
   private readonly pendingOrigins: ObservationInputOrigin[] = []
   private readonly seen = new Set<string>()
   private readonly seenOrder: string[] = []
-  private readonly activeChildren = new Set<string>()
   constructor(private readonly options: ClaudeCausalObserverOptions) {
     const checkpoint = options.acceptedCheckpoint
     const reconciledEpochs = checkpoint ? (options.bootstrapPromptCount ?? 0) : 0
@@ -563,16 +562,17 @@ export class ClaudeCausalObserver {
     } else if (acceptedCursor) {
       this.predecessorSegmentId = acceptedCursor.segmentId
     }
-    // Every child the inherited state still names is live, however the epoch
-    // stands: its SubagentStop is the only thing that can settle the hold, and
-    // that hook is matched against this set. Seeding it only when the fence
-    // already said `closing` left a restart with an empty set, so the Stop that
-    // followed computed closing=false and every SubagentStop after it was
-    // dropped — the hold could never settle. [POD-1130]
-    for (const child of this.state.nativeSubagents ?? []) {
-      this.activeChildren.add(child.id)
-    }
-    if (checkpoint?.terminalFence?.closing && !reconciledNewEpoch && this.state.awaitingSubagents) {
+    // `&& liveChildCount` for the reason given over {@link liveChildCount}: only a
+    // named child can be matched by the SubagentStop that clears this. Restoring
+    // `closing` over a hold with no names (anonymous mode, or a turnState whose
+    // optional list did not survive a version boundary) left the observer holding
+    // an absorbing terminal nothing could ever end. [POD-1610]
+    if (
+      checkpoint?.terminalFence?.closing &&
+      !reconciledNewEpoch &&
+      this.state.awaitingSubagents &&
+      this.liveChildCount > 0
+    ) {
       this.closing = true
     } else if (
       checkpoint &&
@@ -616,6 +616,35 @@ export class ClaudeCausalObserver {
     if (this.state.phase !== 'idle' || this.state.idle !== undefined) return false
     const fence = checkpoint.terminalFence
     return fence === null || fence.turnEpoch !== this.turnEpoch
+  }
+
+  /**
+   * The children still outstanding, read from the reducer's own identity list
+   * rather than from a second set kept beside it.
+   *
+   * There used to be a mirrored `activeChildren` set, and the mirror is what
+   * broke. `reduceAgentState` deliberately carries `nativeSubagents` across turn
+   * boundaries (subagents outlive a phase — see `base` in reducer.ts), while the
+   * observer cleared its set on every `UserPromptSubmit`. The two then disagreed
+   * for exactly the children that outlive the turn that spawned them — every
+   * backgrounded fork — and the gates below are keyed on the set, so those
+   * children's SubagentStop was dropped, `nativeSubagentCount` never reached 0,
+   * and `turn_completed` rewrote every later Stop into `working`. One session
+   * reported working for 7.5 hours after its turn ended [POD-1610]. One list, so
+   * there is nothing left to diverge. (POD-1130's restart seeding is subsumed:
+   * the inherited checkpoint state carries the list already.)
+   */
+  private tracksChild(agentId: string | undefined): boolean {
+    if (!agentId) return false
+    return (this.state.nativeSubagents ?? []).some((child) => child.id === agentId)
+  }
+
+  /** Identified live children. Anonymous providers (Grok, dead Claude
+   *  TaskCreated) keep a count with no list and are deliberately excluded — a
+   *  hold nothing can name is a hold no SubagentStop could ever settle, so
+   *  `closing` must not absorb the turn for one. */
+  private get liveChildCount(): number {
+    return this.state.nativeSubagents?.length ?? 0
   }
 
   get pendingInputOriginCount(): number {
@@ -735,6 +764,23 @@ export class ClaudeCausalObserver {
     if (transcriptOffset < this.lastOffset) return null
 
     const hookPromptId = str(p.prompt_id) ?? null
+    /**
+     * The stop of a child we are still tracking. Bookkeeping about ONE named
+     * child, not a claim about a turn — which is why it is exempt from both the
+     * prompt-id fence and the epoch gate below.
+     *
+     * A backgrounded fork finishes whenever it finishes: under a later turn, or
+     * under no turn at all. Its stop therefore carries the prompt id of the turn
+     * that SPAWNED it, which by construction is not the parent's current one, and
+     * it arrives long after the epoch that opened it closed. Both gates were
+     * written for hooks that assert a turn is in flight, and both dropped the one
+     * hook that can settle an `awaitingSubagents` hold [POD-1610].
+     *
+     * Naming a child the identity list still holds is what keeps this narrow: a
+     * stray or replayed stop cannot invent a child, and once the stop lands the
+     * list no longer holds it, so it cannot land twice.
+     */
+    const childStopForKnownChild = hook === 'SubagentStop' && this.tracksChild(str(p.agent_id))
     // A foreign prompt id only disproves a hook while THIS observer still holds a
     // live epoch. With no epoch open the remembered id belongs to a turn that is
     // already over, so a differing one is evidence of the turn we missed rather
@@ -742,7 +788,8 @@ export class ClaudeCausalObserver {
     // instead of rejecting it against a stale fence. [POD-593]
     if (
       hook !== 'UserPromptSubmit' &&
-      (this.epochOpen || this.closing) &&
+      !childStopForKnownChild &&
+      (this.epochOpen || (this.closing && !EPOCH_REVIVING_HOOKS.has(hook))) &&
       this.providerPromptId !== null &&
       hookPromptId &&
       hookPromptId !== this.providerPromptId
@@ -784,7 +831,6 @@ export class ClaudeCausalObserver {
         str(p.prompt_id) ?? (promptFingerprint ? `fingerprint:${promptFingerprint}` : null)
       this.epochOpen = true
       this.closing = false
-      this.activeChildren.clear()
       const origin =
         inputOrigin ??
         this.pendingOrigins.shift() ??
@@ -818,18 +864,23 @@ export class ClaudeCausalObserver {
     // touched until the transition is known to be emittable (below), so a hook that
     // reduces to nothing can never burn an epoch number the server would then
     // reject as non-causal.
+    //
+    // `closing` does NOT bar revival, and must not: it now lasts as long as a
+    // child does, and a backgrounded fork outlives many turns. Barring it there
+    // would discard every hook of every turn taken while the fork runs — the
+    // question a permission prompt asks would never surface, which is the exact
+    // failure POD-593 exists to prevent, merely relocated. Nothing is weakened
+    // by allowing it: the bar is still a revive-listed (never terminal) hook
+    // naming a DIFFERENT turn, so a replayed terminal still cannot manufacture
+    // one, and the hold itself lives in the reducer's state rather than in this
+    // flag — the child's stop still settles it either way. [POD-1610]
     const reviving =
       !this.epochOpen &&
-      !this.closing &&
       EPOCH_REVIVING_HOOKS.has(hook) &&
       hookPromptId !== null &&
       hookPromptId !== this.providerPromptId
-    if (!this.epochOpen && !this.closing && !reviving) return null
-    if (this.closing) {
-      if (hook !== 'SubagentStop') return null
-      const agentId = str(p.agent_id)
-      if (!agentId || !this.activeChildren.has(agentId)) return null
-    }
+    if (!this.epochOpen && !this.closing && !reviving && !childStopForKnownChild) return null
+    if (this.closing && !reviving && !childStopForKnownChild) return null
 
     let events = await translateClaudeHookPayload(payload)
     const scheduledSelfWake =
@@ -841,13 +892,6 @@ export class ClaudeCausalObserver {
     }
     if (events.length !== 1) return null
     const event = events[0]!
-    if (hook === 'SubagentStart') {
-      const agentId = str(p.agent_id)
-      if (agentId) this.activeChildren.add(agentId)
-    } else if (hook === 'SubagentStop') {
-      const agentId = str(p.agent_id)
-      if (agentId) this.activeChildren.delete(agentId)
-    }
 
     const prior = this.state
     const next = reduceAgentState(prior, withStateChannelEvent(event, 'hook'), this.now())
@@ -860,7 +904,7 @@ export class ClaudeCausalObserver {
       this.turnEpoch += 1
       this.providerPromptId = hookPromptId
       this.epochOpen = true
-      this.activeChildren.clear()
+      this.closing = false
       // No prompt record backs this turn, so the origin is genuinely unknown —
       // inheriting the previous turn's would misattribute it.
       this.currentOrigin = inputOrigin ?? 'unknown'
@@ -875,8 +919,8 @@ export class ClaudeCausalObserver {
     if (terminal) {
       transitionKind = 'turn_terminal'
       this.epochOpen = false
-      this.closing = next.awaitingSubagents === true && this.activeChildren.size > 0
-    } else if (this.closing && this.activeChildren.size === 0) {
+      this.closing = next.awaitingSubagents === true && this.liveChildCount > 0
+    } else if (this.closing && this.liveChildCount === 0) {
       this.closing = false
     }
 

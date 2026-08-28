@@ -8,6 +8,7 @@ import {
   type QuotaPace,
   quotaPoolVerdict,
   splitQuotaWindows,
+  statusNote,
   windowElapsedPercent,
   windowScopeModel,
   windowShortLabel,
@@ -50,7 +51,6 @@ export function QuotaPanel({
   groups: AccountQuotaGroup[]
   now: number
 }): JSX.Element {
-  const ok = groups.filter((g) => g.status === 'ok')
   const verdict = quotaPoolVerdict(groups, now)
   return (
     <>
@@ -70,11 +70,12 @@ export function QuotaPanel({
       </div>
       {/* Scrolls once the accounts outgrow the popover's cap — see `.hp-scroll`. */}
       <div className="hp-scroll">
-        {ok.length === 0 && <div className="hp-section hp-dim-line">No quota reported</div>}
-        {ok.map((g) => {
+        {groups.length === 0 && <div className="hp-section hp-dim-line">No quota reported</div>}
+        {groups.map((g) => {
           const { gating, models } = splitQuotaWindows(g.windows)
           const pace = groupGatingPace(g, now)
           const Icon = QUOTA_PANEL_ICONS[g.agent]
+          const unavailable = g.status !== 'ok' || g.windows.length === 0
           return (
             <div key={g.key} className="hp-section">
               <div className="hp-acct">
@@ -88,9 +89,13 @@ export function QuotaPanel({
                 )}
                 {g.account?.email && <span className="hp-acct-sub">{g.account.email}</span>}
               </div>
-              {gating.map((w) => (
-                <WindowRow key={w.key} w={w} now={now} pace={pace} />
-              ))}
+              {unavailable ? (
+                <div className="hp-dim-line hp-quota-unavailable">
+                  {statusNote(g) || 'No quota reported'}
+                </div>
+              ) : (
+                gating.map((w) => <WindowRow key={w.key} w={w} now={now} pace={pace} />)
+              )}
               {/* A model-scoped bucket is extra capacity for one model, not a
                   limit on the harness (POD-271) — so it hangs off the window
                   rows as a sub-row of the week meter it lives inside, on the

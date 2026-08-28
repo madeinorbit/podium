@@ -489,7 +489,17 @@ function PlacementMenu({
  * issue's state resolves to, and the shared issue context menu. Every other
  * lifecycle affordance lives in that menu rather than competing for the row.
  */
-export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.Element {
+export function IssueCompactControls({
+  issue,
+  onRename,
+}: {
+  issue: IssueViewModel
+  /** Open the head's inline title editor. Supplying it is what puts `Rename`
+   *  in the menu below (`renameEnabled: onRename !== undefined`) — this strip
+   *  has no editor of its own, so a menu entry with nowhere to land would be a
+   *  dead command (POD-1618). */
+  onRename?: () => void
+}): JSX.Element {
   // NO CROSSING INTO WORK HERE, SINCE POD-1457. A `Work on this` chip stood in
   // this strip, filled or outlined depending on what else had resolved, and it
   // sat one gap away from `Start work` — two adjacent controls whose labels both
@@ -728,7 +738,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
                   className="whitespace-nowrap"
                   onClick={() => selectStatus(entry.value)}
                 >
-                  <StatusGlyph status={entry.status} size={12} />
+                  <StatusGlyph status={entry.status} size={12} decorative />
                   {entry.label}
                   {currentStatusValue === entry.value && (
                     <Check size={12} className="ml-auto text-text-faint" aria-hidden="true" />
@@ -828,6 +838,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           anchor={menu}
           onClose={() => setMenu(null)}
           onRequestClose={requestClose}
+          {...(onRename ? { onRename: () => onRename() } : {})}
           // `dock`, not `sidebar`: identical in every respect but one — this
           // menu offers no `Open`, because the only place Open could land was
           // the Tasks tool, and this panel does not link there (POD-1457).

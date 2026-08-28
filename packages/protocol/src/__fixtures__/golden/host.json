@@ -367,6 +367,12 @@
           "swapTotalBytes": 1,
           "swapFreeBytes": 1
         },
+        "disk": {
+          "path": "disk.path",
+          "totalBytes": 1,
+          "usedBytes": 1,
+          "availableBytes": 1
+        },
         "agents": [
           {
             "sessionId": "agents[0].sessionId",
@@ -392,7 +398,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"memoryBreakdownResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"agents\":[{\"sessionId\":\"agents[0].sessionId\",\"bytes\":1,\"processCount\":1}],\"projects\":[{\"root\":\"projects[0].root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[{\"name\":\"projects[0].topProcesses[0].name\",\"bytes\":1}]}],\"otherBytes\":1}"
+      "encoded": "{\"type\":\"memoryBreakdownResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"supported\":true,\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"disk\":{\"path\":\"disk.path\",\"totalBytes\":1,\"usedBytes\":1,\"availableBytes\":1},\"agents\":[{\"sessionId\":\"agents[0].sessionId\",\"bytes\":1,\"processCount\":1}],\"projects\":[{\"root\":\"projects[0].root\",\"bytes\":1,\"processCount\":1,\"topProcesses\":[{\"name\":\"projects[0].topProcesses[0].name\",\"bytes\":1}]}],\"otherBytes\":1}"
     },
     {
       "schema": "UsageRequestMessage",
@@ -440,6 +446,7 @@
         "type": "usageResult",
         "requestId": "requestId",
         "hostname": "hostname",
+        "sampledAt": "sampledAt",
         "buckets": [
           {
             "hour": "buckets[0].hour",
@@ -456,7 +463,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"usageResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"buckets\":[{\"hour\":\"buckets[0].hour\",\"model\":\"buckets[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}]}"
+      "encoded": "{\"type\":\"usageResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"sampledAt\":\"sampledAt\",\"buckets\":[{\"hour\":\"buckets[0].hour\",\"model\":\"buckets[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}]}"
     },
     {
       "schema": "WorktreesChangedMessage",

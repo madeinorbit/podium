@@ -76,7 +76,7 @@ function session(id: string, issueId: string, working: boolean) {
   return {
     sessionId: id,
     agentKind: 'claude-code',
-    cwd: '/repo',
+    cwd: '/home/podium/podium',
     title: id,
     status: 'live',
     controllerId: null,
@@ -102,7 +102,7 @@ function session(id: string, issueId: string, working: boolean) {
 function issue(id: string, seq: number, title: string, over: Record<string, unknown> = {}) {
   return {
     id,
-    repoPath: '/repo',
+    repoPath: '/home/podium/podium',
     seq,
     title,
     description: '',
@@ -198,7 +198,13 @@ const sessions = issues
   .map((i, index) => session(`s-${i.id}`, i.id, index % 4 === 0))
 
 const store = {
-  repos: [{ path: '/repo', kind: 'repository' as const, branch: 'main', worktrees: [] }],
+  repos: [
+    { path: '/home/podium/podium', kind: 'repository' as const, branch: 'main', worktrees: [] },
+    // A project nobody has worked yet (POD-1469): it contributes no ROW, so the
+    // column can only band it from the project tree. This is the fixture for
+    // `Start first task`.
+    { path: '/home/podium/tailwind', kind: 'repository' as const, branch: 'main', worktrees: [] },
+  ],
   sessions,
   machines: [],
   pins: { panels: [], worktrees: [], repos: [] },

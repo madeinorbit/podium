@@ -329,6 +329,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bumpAttempts: (id) => bag.store.sync.bumpQueuedAttempts(id),
       resetAttempts: (id) => bag.store.sync.resetQueuedAttempts(id),
       delete: (id) => bag.store.sync.deleteQueuedMessage(id),
+      // The same per-session tally that seeds Session.queuedMessageCount at
+      // boot, read as a work list for the queue sweep (POD-1703).
+      sessionsWithPending: () => [...bag.store.sync.queuedMessageCounts().keys()],
     },
     daemon: {
       sendInput: (machineId, input) => bag.toPtyInput(machineId, input),

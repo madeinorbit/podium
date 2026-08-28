@@ -12,7 +12,7 @@ concurrency:
 jobs:
   smoke:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -30,8 +30,10 @@ jobs:
       - name: ConPTY runtime smoke (spawn → write/exec → resize → exit)
         run: bun --conditions=@podium/source scripts/conpty-smoke.ts
 
-      - name: Build headless bundle
-        run: bun run package:headless
+      # This compiles and boots the desktop executable but deliberately does not make an
+      # installer on every main push. Installers remain an explicit desktop release action.
+      - name: Build Windows desktop executable and headless bundle
+        run: bun run --cwd apps/desktop build -- --no-bundle
 
 
       - name: Boot smoke (podium.cmd all-in-one → /health + /version)
@@ -63,6 +65,40 @@ jobs:
           }
           $v = Invoke-WebRequest -Uri 'http://localhost:18787/version' -UseBasicParsing
           Write-Host "version probe: $($v.Content)"
+
+          # Launch the actual Tauri executable in client mode against the healthy local server.
+          # The version marker is written during native setup; staying alive after that proves
+          # WebView2 accepted the remote page and the window build did not fail synchronously.
+          $desktopState = Join-Path $env:RUNNER_TEMP 'podium-desktop-state'
+          New-Item -ItemType Directory -Force -Path $desktopState | Out-Null
+          @{ mode = 'client'; serverUrl = 'ws://127.0.0.1:18787' } |
+            ConvertTo-Json -Compress |
+            Set-Content -Path (Join-Path $desktopState 'config.json') -Encoding utf8
+          $env:PODIUM_STATE_DIR = $desktopState
+          $desktop = Start-Process -FilePath 'apps\desktop\src-tauri\target\release\Podium.exe' `
+            -PassThru
+          $started = $false
+          foreach ($i in 1..30) {
+            if (Test-Path (Join-Path $desktopState 'running-version')) {
+              $started = $true
+              break
+            }
+            if ($desktop.HasExited) { break }
+            Start-Sleep -Seconds 1
+          }
+          Start-Sleep -Seconds 5
+          $nativeLog = Join-Path $desktopState 'logs\desktop-native.ndjson'
+          Write-Host '--- desktop native log ---'
+          Get-Content $nativeLog -ErrorAction SilentlyContinue
+          if (-not $started -or $desktop.HasExited) {
+            Write-Error 'the Windows Tauri app did not remain alive through native setup'
+            exit 1
+          }
+          if (Select-String -Path $nativeLog -Pattern 'window build failed' -Quiet -ErrorAction SilentlyContinue) {
+            Write-Error 'the Windows Tauri webview failed to build'
+            exit 1
+          }
+          taskkill /PID $desktop.Id /T /F 2>$null
           # Kill the TREE: $proc is the cmd.exe launcher; podium-cli.exe is its child
           # and would otherwise keep holding :18787.
           taskkill /PID $proc.Id /T /F 2>$null; exit 0

@@ -50,6 +50,11 @@ export * from './entities/repo'
 export * from './entities/machine'
 export * from './entities/session'
 export * from './entities/transcript'
+// Folding quota SAMPLES into window INSTANCES. Lives beside the wires because
+// both the server (live sampling) and the daemon-side backfill importer run the
+// identical identity rule — two copies of it would be two answers to "is this the
+// same window?", and the whole ledger rests on that answer.
+export * from './quota-history-fold'
 export * from './shipping'
 export * from './shipwright'
 // The wire-INPUT aliases: the unbranded side of the branded-id boundary, so a

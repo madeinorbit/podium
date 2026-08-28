@@ -255,6 +255,10 @@ export const panelApplyInput = z.object({
 })
 
 export const createInput = z.object({
+  // Client-minted identities let insert-shaped optimistic UI reconcile in place.
+  // The service refuses collisions before it creates or starts anything.
+  id: IssueIdField.optional(),
+  startSessionId: SessionIdField.optional(),
   repoPath: z.string(),
   title: z.string().min(1),
   description: z.string().optional(),

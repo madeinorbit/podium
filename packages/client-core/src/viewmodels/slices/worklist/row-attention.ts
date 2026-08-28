@@ -7,9 +7,15 @@
  * the worklist → issues edge lands — `issuePendingDecision`,
  * `pendingDecisionLabel` and `issueFinishedAt` are read from the issues slice,
  * one way.
+ *
+ * The same one-way rule now brings in `issueErroredSession` from `mission`
+ * (POD-1601), so the sidebar's "an agent on this row died" is the SAME verdict
+ * the Flight Deck strip and the issue explorer print. Duplicating that
+ * predicate here is how a row and a strip end up disagreeing about one task.
  */
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import { issueErroredSession } from '../../mission'
 import {
   agentBadge,
   isOfferOnlyAttention,
@@ -18,6 +24,8 @@ import {
   type MotionPhase,
   type MotionTiming,
   motionPhase,
+  sessionErrored,
+  sessionErrorLine,
 } from '../../session-status'
 import { mostUrgentSession } from '../../session-urgency'
 import {
@@ -208,6 +216,29 @@ function waitingWithinDepth(row: UnifiedIssueRow, depth: number): boolean {
 }
 
 /**
+ * AN AGENT ON THIS ROW STOPPED ON AN ERROR — the words, or null (POD-1601).
+ *
+ * This is the line that has to BEAT the pending decision, and that is the whole
+ * point of it being separate. A task whose agent moved it to `review` and then
+ * died on the next turn satisfies both readings, and the row only has one line:
+ * it printed `Needs review`, which is a true sentence about the stage and a lie
+ * about the run — there is no verdict coming, because nothing is going to finish
+ * asking for one. Whichever of the two the operator acts on first, they need to
+ * know the agent is gone before they open the diff.
+ *
+ * Branch-wide, like {@link rowWaitingCount}: a sidebar row is the only line its
+ * whole mission gets, so an error three levels down has nowhere else to appear.
+ */
+export function rowErrorLine(row: UnifiedWorkRow): string | null {
+  const sessions = rowSessions(row)
+  const errored =
+    row.kind === 'issue'
+      ? issueErroredSession(row.issue, sessions)
+      : (sessions.find(sessionErrored) ?? null)
+  return errored ? sessionErrorLine(errored) : null
+}
+
+/**
  * The row's second line (#41): a compact status phrase in the handoff's copy
  * grammar. Waiting rows surface WHAT is being waited for (the most urgent
  * session's badge label — "needs answer", "plan ready"); working/done rows
@@ -256,6 +287,9 @@ export function rowStatusLine(
     const working = rowHasWorkingSession(row)
     const own = working ? 'working · ' : ''
     if (working) head = ''
+    // Before the decision, for the reason {@link rowErrorLine} exists.
+    const error = rowErrorLine(row)
+    if (error !== null) return `${head}${own}${error}${progress}`
     if (row.kind === 'issue') {
       const decision = rowPendingDecision(row)
       if (decision !== null) {

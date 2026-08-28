@@ -186,9 +186,30 @@ export function useAttachments(opts: {
     uploading: attachments.some((a) => a.state === 'uploading'),
     ready,
     dropHandlers: {
+      /**
+       * CLAIM EVERY DRAG, OFFER A DROP TO ONLY SOME (POD-1595 review).
+       *
+       * `preventDefault` here means two different things at once, and since
+       * these handlers moved onto the whole conversation the difference started
+       * to matter. It stops the browser navigating away on release — which every
+       * drag over this surface needs, because losing the workspace to a dropped
+       * link is the same accident as losing it to a dropped file. And it marks
+       * the surface as a drop TARGET, which only a file drag should get: a link
+       * or a run of dragged text was being shown a copy cursor and then silently
+       * swallowed into `processFiles([])`.
+       *
+       * `dropEffect` separates them. Claim the event either way; say `copy` only
+       * for files, and `none` otherwise — which both tells the truth and stops
+       * the drop event firing at all for the drags this does not want.
+       */
       onDragOver: useCallback((e: React.DragEvent) => {
+        const { items } = e.dataTransfer
+        // A drag with no inspectable item list is treated as files: `items` is
+        // universal in practice, and erring this way costs a cursor, not a drop.
+        const files = !items || hasFileItems(items)
         e.preventDefault()
-        if (e.dataTransfer.items && hasFileItems(e.dataTransfer.items)) setDragOver(true)
+        e.dataTransfer.dropEffect = files ? 'copy' : 'none'
+        setDragOver(files)
       }, []),
       onDragLeave: useCallback((e: React.DragEvent) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false)

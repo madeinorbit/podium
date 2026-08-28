@@ -168,6 +168,7 @@ export interface IssueDeps {
    *  their exact initiating session/operator when known, with `issue:<id>` as the
    *  legacy direct-service fallback. [spec:SP-ccb2] */
   spawnSession(o: {
+    sessionId?: SessionId
     cwd: string
     /** Explicit issue attachment (POD-529): the workflow knows the issue, so the
      *  session must not fall back to cwd-derived attachment (or a DRAFT birth ref). */
@@ -371,6 +372,8 @@ export interface CreateIssueInput
       | 'color'
       | 'draft'
     > {
+  /** Client-minted id for the first session when `startNow` is true. */
+  startSessionId?: SessionId
   /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
   stage?: 'proposed' | 'backlog'
   startNow: boolean

@@ -199,7 +199,7 @@ describe('reconcilePending', () => {
     }
     const echoed = item({
       role: 'user',
-      text: '[Image #1]merge it',
+      text: 'merge it',
       tags: [{ kind: 'image', label: 'shot.png' }],
       toolPaths: [path],
     })
@@ -212,7 +212,7 @@ describe('reconcilePending', () => {
     }
     const echoed = item({
       role: 'user',
-      text: '[Image #1]review this',
+      text: 'review this',
       toolPaths: ['/uploads/b.png'],
     })
     expect(reconcilePending([pending], [echoed])).toEqual([pending])

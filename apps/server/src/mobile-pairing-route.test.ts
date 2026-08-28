@@ -252,12 +252,79 @@ describe('mobile pairing routes', () => {
     })
     const forged = await post('/auth/mobile-pair/claim', {}, HTTPS)
     expect(await forged.json()).toEqual({ error: 'secure HTTPS is required' })
+    const remoteStart = await post('/auth/mobile-pair/start', {}, authHeaders())
+    expect(await remoteStart.json()).toEqual({
+      error: 'secure HTTPS is required for mobile pairing',
+    })
     const directTls = await app.request('https://podium.example/auth/mobile-pair/claim', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',
     })
     expect(await directTls.json()).toEqual({ error: 'pairing unavailable' })
+  })
+
+  it('allows a verified loopback controller while phone traffic remains HTTPS-only', async () => {
+    app = new Hono()
+    registerMobilePairingRoutes(app, {
+      store,
+      pairing,
+      serverIdentity: () => ({ publicUrl: 'https://podium.example.ts.net', instanceId: 'one' }),
+      loginRequired: () => true,
+      resolveUserId: (headers) => resolveClientCredential(store, headers)?.session.userId,
+      trustedProxyHops: 1,
+      localControlRequest: (request) => request.headers.get('x-test-local') === 'yes',
+      requestPeerAddress: () => peerAddress,
+    })
+    const localHeaders = {
+      'content-type': 'application/json',
+      cookie: `podium_session=${AUTH_TOKEN}`,
+      'x-test-local': 'yes',
+    }
+    const start = await post('/auth/mobile-pair/start', {}, localHeaders)
+    expect(start.status).toBe(200)
+    const started = (await start.json()) as { pairingId: string; envelope: string }
+    const envelope = decodePairingEnvelope(started.envelope)
+    if (envelope.v !== 2 || envelope.mode !== 'pair') throw new Error('wrong envelope')
+
+    const insecureClaim = await post(
+      '/auth/mobile-pair/claim',
+      {
+        pairCode: envelope.pairCode,
+        claimHash: CLAIM_HASH,
+        deviceId: 'phone',
+        deviceName: 'Phone',
+        platform: 'ios',
+      },
+      { 'content-type': 'application/json', 'x-test-local': 'yes' },
+    )
+    expect(insecureClaim.status).toBe(400)
+
+    const claim = await post(
+      '/auth/mobile-pair/claim',
+      {
+        pairCode: envelope.pairCode,
+        claimHash: CLAIM_HASH,
+        deviceId: 'phone',
+        deviceName: 'Phone',
+        platform: 'ios',
+      },
+      {
+        'content-type': 'application/json',
+        'x-forwarded-for': '100.64.0.2',
+        'x-forwarded-host': 'podium.example.ts.net',
+        'x-forwarded-proto': 'https',
+      },
+    )
+    expect(claim.status).toBe(200)
+    expect(
+      (await post('/auth/mobile-pair/status', { pairingId: started.pairingId }, localHeaders))
+        .status,
+    ).toBe(200)
+    expect(
+      (await post('/auth/mobile-pair/approve', { pairingId: started.pairingId }, localHeaders))
+        .status,
+    ).toBe(200)
   })
 
   it('keys failures on the socket peer unless proxy trust is explicitly configured', async () => {

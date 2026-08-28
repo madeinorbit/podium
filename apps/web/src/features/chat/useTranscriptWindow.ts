@@ -75,6 +75,10 @@ export interface UseTranscriptWindowOptions {
    *  becomes the foreground view again (a backgrounded view can fall behind). */
   active: boolean
   session: SessionMeta | undefined
+  /** A client-minted session can be painted before the authority knows its id.
+   * Keep the optimistic feed visible without spending the one initial read on a
+   * guaranteed not-found; the caller clears this when replica truth arrives. */
+  deferInitialRead?: boolean
   /** How much of the transcript to render (POD-376). Applied HERE, at the one
    *  place rows are built, so the window, the search cursor and the minimap
    *  cannot disagree about which rows exist. `normal` (the default) filters
@@ -141,6 +145,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     replica,
     active,
     session,
+    deferInitialRead = false,
     verbosity = 'normal',
     query = '',
     cursor = 0,
@@ -384,6 +389,12 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     // Fresh session → no trustworthy window yet; the read below restores health.
     windowHealthy.current = false
 
+    // Optimistic session inserts are deliberately ahead of server truth. The
+    // pending prompt already makes the feed ready; querying this id now can race
+    // the create, fail once, and miss the read-then-subscribe setup permanently.
+    // Re-run this effect when the matching replica row retires the insert.
+    if (deferInitialRead) return
+
     // CACHE-FIRST [POD-700]. Every successful read above already writes its window
     // through to the replica, and the catch path below already serves that copy
     // when the server is unreachable — but a REACHABLE server left this pane with
@@ -455,7 +466,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       windowHealthy.current = false
       unsub()
     }
-  }, [hub, sessionId, readNewest, replica])
+  }, [hub, sessionId, readNewest, replica, deferInitialRead])
 
   // Re-read the newest window at the two moments the held window can silently go
   // stale, both of which the sticky read-then-subscribe above can miss:
@@ -612,6 +623,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     // The stand-down is checked per TICK rather than taken as a dependency, so
     // paging a page in and out does not tear the interval down and rebuild it.
     const beat = setInterval(() => {
+      if (document.visibilityState === 'hidden') return
       if (pagedBackRef.current) return
       void probeNewest().catch(() => {})
     }, LIVE_HEARTBEAT_MS)

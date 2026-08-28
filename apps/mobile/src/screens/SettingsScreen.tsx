@@ -270,7 +270,11 @@ export function SettingsScreen() {
           disabled={accountBusy}
           accessibilityRole="button"
           accessibilityLabel="Log out"
+          // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads
+          // only the former. The disabled half already reaches the browser via
+          // the `disabled` prop above. [POD-1664]
           accessibilityState={{ disabled: accountBusy, busy: accountBusy }}
+          aria-busy={accountBusy}
         >
           <Text style={styles.logoutText}>{loggedOut ? 'Logged out' : 'Log out'}</Text>
         </PressableScale>

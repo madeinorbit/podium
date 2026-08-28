@@ -24,10 +24,12 @@ import type {
   GitRepositoryWire,
   HarnessAgent,
   IssueId,
+  IssueWire,
   LayoutSnapshot,
   MachineId,
   MachineQuotaWire,
   MutationId,
+  QuotaWindowHistoryWire,
   ReadPositionSnapshot,
   SessionId,
   ThreadId,
@@ -172,6 +174,25 @@ export interface PodiumClientApi {
     clear: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
   }
   issues: {
+    /** Insert-shaped optimistic create: both ids are minted by the client and
+     * reused by the authority so task/session rows reconcile without a swap. */
+    create: ApiMutation<
+      WithMutationId<{
+        id?: IssueId
+        startSessionId?: SessionId
+        repoPath: string
+        machineId?: MachineId
+        title: string
+        description?: string
+        brief?: string
+        parentBranch?: string
+        defaultAgent?: string
+        defaultModel?: string
+        defaultEffort?: string
+        startNow: boolean
+      }>,
+      IssueWire
+    >
     markRead: ApiMutation<WithMutationId<{ id: string }>>
     markUnread: ApiMutation<WithMutationId<{ id: string }>>
     /** Tuck-away dismissal (POD-333) — server-side, global, outboxed. */
@@ -302,6 +323,10 @@ export interface PodiumClientApi {
    *  token-cost analytics — see `viewmodels/quota`. */
   quota: {
     summary: ApiQuery<void, MachineQuotaWire[]>
+    /** The window ledger (POD-1571) — one entry per run of a plan window, with
+     *  what it came to before it reset. Oldest first. Distinct from `summary`,
+     *  which is the live reading and keeps no record of itself. */
+    history: ApiQuery<{ days?: number } | void, QuotaWindowHistoryWire[]>
   }
   superagent: {
     /** The signed-in principal's own threads. The authority scopes this to the

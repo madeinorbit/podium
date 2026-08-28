@@ -4,6 +4,7 @@ import type { TerminalAppearance } from '@podium/terminal-client/appearance'
 import type { MountedSession } from '@podium/terminal-client/session-mount'
 import type { RefObject } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { nativePromise } from './native-promise'
 
 type TerminalRuntime = typeof import('@podium/terminal-client/session-mount')
 
@@ -14,10 +15,16 @@ let terminalRuntimePromise: Promise<TerminalRuntime> | undefined
 const TERMINAL_RUNTIME_RETRY_DELAYS_MS = [250, 1_000] as const
 
 function loadTerminalRuntime(): Promise<TerminalRuntime> {
-  terminalRuntimePromise ??= import('@podium/terminal-client/session-mount').catch((cause) => {
-    terminalRuntimePromise = undefined
-    throw cause
-  })
+  // Metro implements split imports with a standards-compatible thenable, but
+  // that object is not a native Promise and has no `.catch()`. Normalize it at
+  // the boundary before the shared retry/cache logic uses Promise methods.
+  // Vite returns a native Promise here, so this stays a no-op on desktop.
+  terminalRuntimePromise ??= nativePromise(import('@podium/terminal-client/session-mount')).catch(
+    (cause) => {
+      terminalRuntimePromise = undefined
+      throw cause
+    },
+  )
   return terminalRuntimePromise
 }
 

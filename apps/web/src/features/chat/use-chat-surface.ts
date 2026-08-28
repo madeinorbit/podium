@@ -85,6 +85,8 @@ export interface UseChatSurfaceOptions {
   compact: boolean
   initialTurnRunning: boolean
   initialPendingText: string | undefined
+  onInitialPendingSettled?: () => void
+  deferInitialTranscript: boolean
 }
 
 export interface ChatSurface {
@@ -192,7 +194,16 @@ export interface ChatSurface {
 }
 
 export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
-  const { sessionId, active, superThread, compact, initialTurnRunning, initialPendingText } = opts
+  const {
+    sessionId,
+    active,
+    superThread,
+    compact,
+    initialTurnRunning,
+    initialPendingText,
+    onInitialPendingSettled,
+    deferInitialTranscript,
+  } = opts
 
   const {
     hub,
@@ -303,6 +314,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     replica,
     active,
     session,
+    deferInitialRead: deferInitialTranscript,
     verbosity,
     query,
     cursor: matchCursor,
@@ -469,6 +481,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     headlessTurn,
     pinToBottom: scroll.pinToBottom,
     initialPendingText,
+    onInitialPendingSettled,
   })
 
   const messageProjection = useMemo(

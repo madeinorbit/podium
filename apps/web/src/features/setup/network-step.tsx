@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -50,12 +50,22 @@ type NetOptionInfo = Awaited<ReturnType<Trpc['setup']['options']['query']>>[numb
 /** The whole-wizard commit payload, derived from the router so it can't drift. */
 export type SetupCompleteInput = Parameters<Trpc['setup']['complete']['mutate']>[0]
 
+/** Save-bar state exposed by the embedded Network settings form. */
+export interface NetworkSaveController {
+  dirty: boolean
+  saving: boolean
+  error: string | null
+  savedAt: number
+  save: () => Promise<void>
+  discard: () => void
+}
+
 /** What the form starts from: the state this instance is ALREADY in, resolved before a
  *  single field is rendered. See `networkStepInitialState`. */
 export interface NetworkStepInitialState {
   /** The saved reachable URL, seeded into the input. Empty when there is none. */
   url: string
-  /** Which exposure option to preselect, or `null` for "don't claim to remember one". */
+  /** Which saved exposure option to preselect, or `null` for an older unclassified URL. */
   option: NetOption | null
   /** Does the CALLER already have a credential — i.e. is "keep current password" offered. */
   hasPassword: boolean
@@ -68,19 +78,17 @@ export interface NetworkStepInitialState {
  * actually configured, so the one thing the server does remember (`publicUrl`) was thrown away
  * and the one thing it does NOT remember (the tunnel option) was displayed as if it did.
  *
- * The option is deliberately `null` once a URL exists rather than guessed from its hostname:
- * `applySetup` stores only publicUrl/mode/port, so there is no saved answer to restore and a
- * preselected radio would be an invention. Nothing selected = "pick one to print its command
- * again", which is all these radios have ever done.
+ * Older configs can have a URL without a saved option. Keep those unselected rather than
+ * guessing from the hostname; every new save records the explicit choice.
  */
 export function networkStepInitialState(
-  info: { publicUrl: string | null } | null,
+  info: { publicUrl: string | null; networkOption?: NetOption | null } | null,
   status: { hasOwnCredential: boolean } | null,
 ): NetworkStepInitialState {
   const url = info?.publicUrl ?? ''
   return {
     url,
-    option: url ? null : 'tailscale-funnel',
+    option: info?.networkOption ?? (url ? null : 'tailscale-funnel'),
     hasPassword: Boolean(status?.hasOwnCredential),
   }
 }
@@ -98,6 +106,9 @@ interface NetworkStepProps {
    *  later sub-step (telemetry) can commit the whole wizard in one call
    *  [spec:SP-f933]. Absent = commit immediately (the embedded Settings use). */
   onCollected?: (payload: SetupCompleteInput) => void
+  /** Settings owns the shared save bar. When supplied, the embedded form reports
+   *  its draft here and omits its private save controls. */
+  onSaveStateChange?: (state: NetworkSaveController | null) => void
 }
 
 /** Reachability step: pick how to expose the relay, run the printed command, paste the resulting
@@ -156,6 +167,7 @@ function NetworkStepForm({
   embedded = false,
   mode,
   onCollected,
+  onSaveStateChange,
   initial,
 }: NetworkStepProps & { initial: NetworkStepInitialState }): ReactNode {
   const httpOrigin = serverConfig(window.location).httpOrigin
@@ -174,7 +186,23 @@ function NetworkStepForm({
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [savedAt, setSavedAt] = useState(0)
   const hasPassword = initial.hasPassword
+  const initialAuthMode = initial.hasPassword ? 'keep' : 'password'
+  const [baseline, setBaseline] = useState(() => ({
+    option: initial.option,
+    url: initial.url,
+    authMode: initialAuthMode as 'password' | 'open' | 'keep',
+    password: '',
+    ackNoPassword: false,
+  }))
+  const dirty =
+    option !== baseline.option ||
+    url !== baseline.url ||
+    authMode !== baseline.authMode ||
+    password !== baseline.password ||
+    ackNoPassword !== baseline.ackNoPassword
   // Ephemeral quick-tunnel flag for the pasted URL (mirrors the CLI's warning).
   const urlWarning = quickTunnelWarning(url)
 
@@ -203,7 +231,7 @@ function NetworkStepForm({
     })
   }
 
-  const finish = async (): Promise<void> => {
+  const finish = useCallback(async (): Promise<void> => {
     setErr('')
     // NOT `password.trim()` (POD-1148). The login route verifies the raw string and
     // `auth.setPassword` hashes the raw string, so trimming here stored a credential the user
@@ -220,6 +248,7 @@ function NetworkStepForm({
     setBusy(true)
     const payload: SetupCompleteInput = {
       publicUrl: url,
+      ...(option ? { networkOption: option } : {}),
       ...(mode ? { mode } : {}),
       // 'keep' sends neither field → the server leaves the existing password untouched.
       ...(authMode === 'password'
@@ -252,13 +281,45 @@ function NetworkStepForm({
           body: JSON.stringify({ password: payload.password }),
         }).catch(() => {})
       }
+      setSaved(true)
+      setSavedAt(Date.now())
+      setBaseline({ option, url, authMode, password, ackNoPassword })
       onSaved()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
-  }
+  }, [ackNoPassword, authMode, httpOrigin, mode, onCollected, onSaved, option, password, trpc, url])
+
+  const discard = useCallback((): void => {
+    setOption(baseline.option)
+    setUrl(baseline.url)
+    setAuthMode(baseline.authMode)
+    setPassword(baseline.password)
+    setAckNoPassword(baseline.ackNoPassword)
+    setErr('')
+    setSaved(false)
+    setSavedAt(0)
+  }, [baseline])
+
+  useEffect(() => {
+    onSaveStateChange?.({
+      dirty,
+      saving: busy,
+      error: err || null,
+      savedAt,
+      save: finish,
+      discard,
+    })
+  }, [busy, dirty, discard, err, finish, onSaveStateChange, savedAt])
+
+  useEffect(
+    () => () => {
+      onSaveStateChange?.(null)
+    },
+    [onSaveStateChange],
+  )
 
   return (
     <div
@@ -281,13 +342,9 @@ function NetworkStepForm({
       )}
       <fieldset className="flex flex-col gap-2">
         <legend className="text-[12px] text-muted-foreground">How to expose this instance</legend>
-        {/* Nothing is preselected once a URL is saved, because nothing about this choice IS
-            saved — `applySetup` records the URL, not how you produced it. Say so rather than
-            leave an invented radio standing where a remembered one would be. */}
         {initial.option === null && (
           <p className="text-[12px] text-muted-foreground">
-            Podium doesn’t record which of these you used. Pick one to print its command again, or
-            just edit the URL below.
+            Choose how this URL is exposed. Podium will save the selection with the URL.
           </p>
         )}
         {options.map((o) => (
@@ -302,7 +359,10 @@ function NetworkStepForm({
               value={o.id}
               id={`net-${o.id}`}
               checked={option === o.id}
-              onChange={() => setOption(o.id)}
+              onChange={() => {
+                setOption(o.id)
+                setSaved(false)
+              }}
               className="mt-1"
             />
             <span className="flex flex-col">
@@ -330,14 +390,17 @@ function NetworkStepForm({
       {cmd?.hint ? <p className="text-[12px] text-muted-foreground">{cmd.hint}</p> : null}
       <div className="flex flex-col gap-1">
         <label htmlFor="public-url" className="text-[12px] text-muted-foreground">
-          Public URL
+          Podium URL
         </label>
         <Input
           id="public-url"
           type="text"
           placeholder="https://box.tailnet.ts.net"
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => {
+            setUrl(e.target.value)
+            setSaved(false)
+          }}
         />
         {/* Same *.trycloudflare.com flag the CLI setup shows — warn, never block. */}
         {urlWarning && (
@@ -362,6 +425,7 @@ function NetworkStepForm({
               onChange={() => {
                 setAuthMode('keep')
                 setAckNoPassword(false)
+                setSaved(false)
               }}
               className="mt-1"
             />
@@ -386,6 +450,7 @@ function NetworkStepForm({
             onChange={() => {
               setAuthMode('password')
               setAckNoPassword(false)
+              setSaved(false)
             }}
             className="mt-1"
           />
@@ -409,7 +474,10 @@ function NetworkStepForm({
               autoComplete="new-password"
               placeholder="Password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setSaved(false)
+              }}
             />
             <p className="text-[11px] text-muted-foreground">
               Devices will need this password to connect.
@@ -426,7 +494,10 @@ function NetworkStepForm({
             name="setup-auth"
             value="open"
             checked={authMode === 'open'}
-            onChange={() => setAuthMode('open')}
+            onChange={() => {
+              setAuthMode('open')
+              setSaved(false)
+            }}
             className="mt-1"
           />
           <span className="flex flex-col">
@@ -440,7 +511,10 @@ function NetworkStepForm({
           <Label className="ml-6 cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
             <Checkbox
               checked={ackNoPassword}
-              onCheckedChange={(checked) => setAckNoPassword(checked === true)}
+              onCheckedChange={(checked) => {
+                setAckNoPassword(checked === true)
+                setSaved(false)
+              }}
             />
             <span>
               I understand that anyone who can reach this Podium URL can control agents and shells.
@@ -448,38 +522,45 @@ function NetworkStepForm({
           </Label>
         )}
       </fieldset>
-      {err && (
+      {err && !onSaveStateChange && (
         <p role="alert" className="text-[12px] text-destructive">
           {err}
         </p>
       )}
-      <div className="flex items-center justify-between gap-2">
-        {onBack ? (
-          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-            Back
-          </Button>
-        ) : (
-          <span />
-        )}
-        <div className="flex items-center gap-2">
-          {onSkip && (
-            <Button type="button" variant="outline" size="sm" onClick={onSkip}>
-              Skip for now
+      {!onSaveStateChange && (
+        <p role="status" className="min-h-4 text-[12px] text-success">
+          {saved ? 'Network settings saved.' : ''}
+        </p>
+      )}
+      {!onSaveStateChange && (
+        <div className="flex items-center justify-between gap-2">
+          {onBack ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+              Back
             </Button>
+          ) : (
+            <span />
           )}
-          <Button
-            type="button"
-            disabled={
-              busy ||
-              !url.trim() ||
-              (authMode === 'password' ? !password : authMode === 'open' ? !ackNoPassword : false)
-            }
-            onClick={() => void finish()}
-          >
-            {busy ? 'Saving…' : embedded ? 'Save URL' : 'Finish'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {onSkip && (
+              <Button type="button" variant="outline" size="sm" onClick={onSkip}>
+                Skip for now
+              </Button>
+            )}
+            <Button
+              type="button"
+              disabled={
+                busy ||
+                !url.trim() ||
+                (authMode === 'password' ? !password : authMode === 'open' ? !ackNoPassword : false)
+              }
+              onClick={() => void finish()}
+            >
+              {busy ? 'Saving…' : embedded ? 'Save network settings' : 'Finish'}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

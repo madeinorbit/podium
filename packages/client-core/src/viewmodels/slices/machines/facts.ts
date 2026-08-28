@@ -25,6 +25,7 @@
 import {
   asIssueId,
   type GitRepositoryWire,
+  type HostDiskWire,
   type HostMetricsWire,
   type IssueId,
   isIssueClosed,
@@ -201,6 +202,7 @@ export interface HostMemoryView {
   title: string
 }
 
+const MIB = 1024 ** 2
 const GIB = 1024 ** 3
 const usedGib = (bytes: number): string => (bytes / GIB).toFixed(1)
 // Totals are installed capacity — print "32", not "32.0".
@@ -212,7 +214,59 @@ const totalGib = (bytes: number): string => {
 /** Human size for breakdown rows: "12.3 GB" from 1 GiB up, whole "512 MB" below. */
 export function formatMemBytes(bytes: number): string {
   if (bytes >= GIB) return `${(bytes / GIB).toFixed(1)} GB`
-  return `${Math.round(bytes / 1024 ** 2)} MB`
+  return `${Math.round(bytes / MIB)} MB`
+}
+
+export interface HostDiskView {
+  /** Headline: `used/total`, e.g. "412/916 GB" or "1.4/3.6 TB". */
+  label: string
+  /** What is still spendable, e.g. "462 GB free". */
+  freeLabel: string
+  /** Used percentage, 0–100 — `df`'s Use%. */
+  pct: number
+  severity: MemorySeverity
+  /** Tooltip: the volume sampled and the full numbers. */
+  title: string
+}
+
+const TIB = 1024 ** 4
+/** Capacity at a disk's scale: TB past a terabyte, GB down to a gigabyte, else
+ *  MB. One decimal throughout, whole numbers printed whole — "916", not "916.0",
+ *  the same rule `totalGib` already applies to installed RAM. */
+function formatDiskBytes(bytes: number): string {
+  const [value, unit] =
+    bytes >= TIB ? [bytes / TIB, 'TB'] : bytes >= GIB ? [bytes / GIB, 'GB'] : [bytes / MIB, 'MB']
+  return `${Number.isInteger(value) ? String(value) : value.toFixed(1)} ${unit}`
+}
+/** The unit-less half of a `used/total` pair — the unit is printed once, on the
+ *  total, so "412/916 GB" reads as one measurement rather than two. */
+const formatDiskValue = (bytes: number, unitOf: number): string => {
+  const value = unitOf >= TIB ? bytes / TIB : unitOf >= GIB ? bytes / GIB : bytes / MIB
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+/**
+ * Present one host's disk sample, in `df`'s arithmetic: the percentage is used ÷
+ * (used + available), NOT used ÷ total, because the root-only reserve on a Linux
+ * filesystem is neither in use nor yours to spend — counting it as headroom
+ * would let the meter read 95% while `df` on the same box says 100%.
+ *
+ * `total` is still what the label prints as the denominator, because that is the
+ * volume's size and the number the operator recognises.
+ */
+export function hostDiskView(disk: HostDiskWire): HostDiskView {
+  const spendable = disk.usedBytes + disk.availableBytes
+  const pct = spendable > 0 ? Math.round((disk.usedBytes / spendable) * 100) : 0
+  const severity: MemorySeverity = pct >= 90 ? 'critical' : pct >= 75 ? 'warn' : 'ok'
+  const label = `${formatDiskValue(disk.usedBytes, disk.totalBytes)}/${formatDiskBytes(disk.totalBytes)}`
+  const freeLabel = `${formatDiskBytes(disk.availableBytes)} free`
+  return {
+    label,
+    freeLabel,
+    pct,
+    severity,
+    title: `disk ${label} used (${pct}%) on the volume holding ${disk.path} — ${freeLabel}`,
+  }
 }
 export function reclaimSpaceLabel(
   estimate: {

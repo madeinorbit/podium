@@ -12,6 +12,7 @@ import {
 import { SELF_REF_RULE } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
+import { createPrimeInjector } from '../../daemon/src/prime-injector'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
@@ -493,6 +494,51 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain('close with the new work untouched')
     expect(text).toContain('--confirm-rehome')
     expect(text).toContain('native subagent must not self-attach')
+  })
+
+  it('bound real issue with a prompt-derived title is told to retitle it now', () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Please investigate why task naming stopped working correctly',
+      startNow: false,
+    })
+
+    const text = svc.prime({ boundIssueId: issue.id })
+    expect(text).toContain("This issue's title violates the 3–5 word rule")
+    expect(text).toContain(`podium issue update --id ${issue.seq} --title "…"`)
+  })
+
+  it('bound real issue with a compliant title gets no retitle nudge', () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Prompt-derived title correction',
+      startNow: false,
+    })
+
+    expect(svc.prime({ boundIssueId: issue.id })).not.toContain(
+      `podium issue update --id ${issue.seq} --title "…"`,
+    )
+  })
+
+  it('SessionStart injects the real-issue retitle nudge as additional context', async () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Please investigate why task naming stopped working correctly',
+      startNow: false,
+    })
+    const injector = createPrimeInjector(async () => ({
+      ok: true,
+      result: svc.prime({ boundIssueId: issue.id }),
+    }))
+
+    const response = await injector.respondTo(asSessionId('session-start'), {
+      hook_event_name: 'SessionStart',
+    })
+    const context = JSON.parse(response!).hookSpecificOutput.additionalContext as string
+    expect(context).toContain(`podium issue update --id ${issue.seq} --title "…"`)
   })
 
   /**

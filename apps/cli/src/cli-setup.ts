@@ -12,6 +12,7 @@ import {
   ephemeralTunnelWarning,
   NETWORK_OPTIONS,
   networkOptionCommand,
+  type NetworkOption,
   validatePublicUrl,
 } from '@podium/runtime/setup'
 import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
@@ -154,9 +155,14 @@ export function shouldRunCliSetup(opts: {
 
 type HostMode = 'all-in-one' | 'server'
 
+interface ReachabilityChoice {
+  publicUrl: string
+  networkOption: NetworkOption
+}
+
 /**
  * Reachability step: pick how to expose the relay, run the command, paste the URL. Returns
- * the validated URL, or undefined when the operator gave up. With `save` (the standalone
+ * the validated URL and exposure method, or undefined when the operator gave up. With `save` (the standalone
  * "change the URL" menu edit on an already-configured box) it persists immediately; the
  * full host flow passes save:false and writes config ONCE at the end — so a Ctrl-C midway
  * can't leave a configured-looking-but-passwordless box (issue #21).
@@ -166,7 +172,7 @@ async function reachabilityStep(
   port: number,
   mode: HostMode,
   opts: { save: boolean } = { save: true },
-): Promise<string | undefined> {
+): Promise<ReachabilityChoice | undefined> {
   io.print('Make this instance reachable (encrypted, no domain needed):')
   NETWORK_OPTIONS.forEach((o, i) => {
     io.print(`  ${i + 1}) ${o.label} — ${o.note}`)
@@ -187,14 +193,14 @@ async function reachabilityStep(
     const v = validatePublicUrl(pasted)
     if (v.ok) {
       if (opts.save) {
-        saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized })
+        saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized, networkOption: opt.id })
         io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
       } else {
         io.print(`\nThis instance will be reachable at ${v.normalized}.`)
       }
       const warning = ephemeralTunnelWarning(v.normalized)
       if (warning) io.print(`\nWarning: ${warning}`)
-      return v.normalized
+      return { publicUrl: v.normalized, networkOption: opt.id }
     }
     io.print(`  ${v.error}`)
   }
@@ -389,13 +395,14 @@ async function hostStep(
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
   options: { askTelemetry?: boolean; activateImmediately?: boolean } = {},
 ): Promise<void> {
-  const publicUrl = await reachabilityStep(io, port, mode, { save: false })
-  if (!publicUrl) return
+  const reachability = await reachabilityStep(io, port, mode, { save: false })
+  if (!reachability) return
+  const { publicUrl, networkOption } = reachability
   if (!(await passwordStep(io, setPassword))) {
     io.print('Nothing saved — re-run `podium setup` to start over.')
     return
   }
-  saveConfig({ ...loadConfig(), mode, publicUrl })
+  saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
   io.print(`\nSaved. This instance is reachable at ${publicUrl}.`)
   await persistenceStep(io, port, mode, startBackend, {
     activateImmediately: options.activateImmediately,

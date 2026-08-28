@@ -23,6 +23,7 @@ import {
   isCoordinatorSession,
   issueAbandoned,
   issueContinuation,
+  issueDisplayTitle,
   issueNote,
   issueOwnContentUnread,
   type MissionDeparture,
@@ -84,6 +85,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
@@ -101,14 +103,20 @@ import { renderReadoutMarkdown } from '@/lib/markdown'
 import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
-import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
+import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useClickIntent } from './click-intent'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useSessionHovered } from './session-hover'
-import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT } from './shell-state'
+import {
+  CLOSE_RIGHT_PANEL,
+  OPEN_RIGHT_PANEL_EVENT,
+  REVEAL_IN_DECK_EVENT,
+  RIGHT_PANEL_KEY,
+  readRightPanel,
+} from './shell-state'
 import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 
 /**
@@ -1459,6 +1467,8 @@ function HungRows(ctx: HungContext): JSX.Element | null {
 const TaskRow = memo(
   function TaskRow({
     row,
+    displayTitle,
+    renameSeed,
     byId,
     carries,
     mode,
@@ -1480,10 +1490,15 @@ const TaskRow = memo(
     onMenu,
     onRenameIssue,
     onStatusPick,
-    renaming,
     onRenameDone,
   }: {
     row: FlightDeckRow
+    /** The shared human-facing issue name. A draft's stored title is only a
+     *  placeholder until somebody names it. */
+    displayTitle: string
+    /** The displayed title captured when Rename opened. `null` keeps the row in
+     *  read mode; a string keeps the editor and its no-op comparison in sync. */
+    renameSeed: string | null
     byId: ReadonlyMap<string, IssueNavigationModel>
     /** Which ancestor guide rails cross this row — see `treeGuides`. */
     carries: readonly boolean[]
@@ -1519,11 +1534,7 @@ const TaskRow = memo(
      *  the commit policy lives in the deck, next to the state that opens the
      *  editor, so the row has no rename decision of its own to get wrong. */
     onRenameIssue: (title: string) => void
-    /** True while the deck's menu has this row's editor open. Rename state is
-     *  the DECK's (one id), not the row's: the menu that starts a rename is
-     *  mounted once for the whole column and cannot reach into a row's hook. */
-    renaming: boolean
-    /** Commit or cancel — either way the deck clears `renamingIssueId`. */
+    /** Commit or cancel — either way the deck clears its rename target. */
     onRenameDone: () => void
   }): JSX.Element {
     const intent = useClickIntent()
@@ -1660,7 +1671,7 @@ const TaskRow = memo(
               data-pressable
               type="button"
               className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
-              aria-label={collapsed ? `Expand ${row.issue.title}` : `Collapse ${row.issue.title}`}
+              aria-label={collapsed ? `Expand ${displayTitle}` : `Collapse ${displayTitle}`}
               aria-expanded={!collapsed}
               // The chevron is the ONE control that folds without navigating, and
               // it acts immediately — the row's own click is deferred by the
@@ -1678,10 +1689,10 @@ const TaskRow = memo(
             entry — so the column the operator works in was the one column that
             could not fix a title. Same hook and same editor the sidebar row and
             the session row above already use. */}
-          {renaming ? (
+          {renameSeed !== null ? (
             <span className={cn('flex min-w-0 flex-1 items-center', proposed ? 'py-0.5' : 'py-1')}>
               <SessionNameEditor
-                value={row.issue.title}
+                value={renameSeed}
                 onCommit={(next) => {
                   onRenameIssue(next)
                   onRenameDone()
@@ -1732,7 +1743,7 @@ const TaskRow = memo(
                   <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
                     {issueDisplayRef(row.issue)}
                   </span>
-                  {row.issue.title}
+                  {displayTitle}
                 </span>
                 {unread ? (
                   <>
@@ -1770,7 +1781,7 @@ const TaskRow = memo(
               variant="ghost"
               size="icon-sm"
               className="size-5 text-text-dim"
-              aria-label={`Task actions for ${row.issue.title}`}
+              aria-label={`Task actions for ${displayTitle}`}
               title="Task actions"
               onClick={(event) => {
                 event.stopPropagation()
@@ -1811,6 +1822,8 @@ const TaskRow = memo(
   },
   (previous, next) =>
     previous.row === next.row &&
+    previous.displayTitle === next.displayTitle &&
+    previous.renameSeed === next.renameSeed &&
     previous.byId === next.byId &&
     previous.carries === next.carries &&
     previous.rails === next.rails &&
@@ -2665,7 +2678,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     setSelectedIssueId,
     openSessionTab,
     focusIssueSession,
-    setPanelMode,
+    preferPanelMode,
     setView,
     markIssueRead,
     markSessionRead,
@@ -2693,7 +2706,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
       // which session the operator is actually in.
       openSessionTab: store.openSessionTab,
       focusIssueSession: store.focusIssueSession,
-      setPanelMode: store.setPanelMode,
+      preferPanelMode: store.preferPanelMode,
       setView: store.setView,
       markIssueRead: store.markIssueRead,
       markSessionRead: store.markSessionRead,
@@ -2716,6 +2729,21 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     [repos],
   )
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
+  // WHAT THE TASK DOCK IS ACTUALLY SHOWING, so a row can answer for it. The
+  // explorer's own stack top — not this column's focus — because the operator
+  // may have walked the explorer somewhere else since, and a row that claims to
+  // already be open there has to mean the level on screen.
+  //
+  // THROUGH REFS, read when the click resolves rather than when the row
+  // rendered. `TaskRow`'s memo deliberately ignores its handler props, so a
+  // strip goes on holding the closure from the render BEFORE the explorer
+  // followed the focus — which is exactly the render whose answer is stale.
+  const { current: explorerIssueId } = useIssueExplorer()
+  const rightPanel = usePersistedUiValue(RIGHT_PANEL_KEY, readRightPanel)
+  const explorerIssueRef = useRef(explorerIssueId)
+  explorerIssueRef.current = explorerIssueId
+  const dockPanelRef = useRef(rightPanel)
+  dockPanelRef.current = rightPanel
   // Device-local DISPLAY preference, subscribed rather than seeded (POD-540):
   // which view you left the deck in and which branches you folded survive a
   // remount. Neither ever touches issue stage or agent state.
@@ -2756,6 +2784,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     stableRowsRef.current = stable
     return stable
   }, [computedRows])
+  const rowDisplayTitles = useMemo(
+    () =>
+      new Map(
+        rows.map((row) => [row.issue.id, issueDisplayTitle(row.issue, sessions, allWorktreePaths)]),
+      ),
+    [allWorktreePaths, rows, sessions],
+  )
   const byId = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
   /**
    * The session the operator is ACTUALLY in.
@@ -3028,6 +3063,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   }, [rows])
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
+  // Naming and lifecycle answer different questions. `draftFilling` governs
+  // the temporary mission brief; the title switches as soon as the optimistic
+  // rename carries a non-placeholder value, before the server clears `draft`.
+  const rootDisplayTitle = root ? issueDisplayTitle(root, sessions, allWorktreePaths) : ''
   const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
   /**
    * The header's one paragraph, resolved and rendered in one place (POD-1455).
@@ -3134,12 +3173,27 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
   }, [sessions, issues, rows, folds, setFolds, setSelectedIssueId, setFocusedIssueId])
 
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
+    // THE SAME ROW CLOSES WHAT IT OPENED (POD-1639). A single click whose task
+    // is the one the dock is already showing is the operator asking for the
+    // stage back — the first click was the request to see this task, so the
+    // second can only be about the panel. The explorer keeps its stack above
+    // the dock, so this costs nothing: the next click returns to this level.
+    //
+    // The PREVIEW click only. A promotion (double click, or the strip menu's
+    // Open) is an unambiguous "show me this task" and must never end with the
+    // inspector shut.
+    const dockShowsThisIssue =
+      dockPanelRef.current === 'issue' && explorerIssueRef.current === row.issue.id
     setFocusedIssueId(row.issue.id)
     // A deliberate task pick asks to SEE its inspector, not merely retarget an
     // inspector that happens to be open. Reopen the Task dock even when the
     // operator previously dismissed it; the provider follows the focus update
     // above and retargets the explorer to this issue.
-    window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
+    window.dispatchEvent(
+      new CustomEvent(OPEN_RIGHT_PANEL_EVENT, {
+        detail: !permanent && dockShowsThisIssue ? CLOSE_RIGHT_PANEL : 'issue',
+      }),
+    )
     void markIssueRead(row.issue.id)
     if (row.issue.worktreePath) setSelectedWorktree(row.issue.worktreePath)
     const active = row.sessions.filter(
@@ -3207,8 +3261,12 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * WHICH STRIP IS RENAMING (POD-1077) — deck state, for the same reason the
    * menu is: the menu is mounted once for the column, so the row it names has to
    * be addressed by id rather than by reaching into that row's own hook.
+   *
+   * The displayed title is captured at OPEN time (POD-1618). A draft's visible
+   * name belongs to its agent and can change while this uncontrolled input is
+   * open; the seed must stay equal to what the operator actually saw and edited.
    */
-  const [renamingIssueId, setRenamingIssueId] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<{ id: string; seed: string } | null>(null)
   /**
    * The shared commit policy (POD-407), applied here so no strip carries a
    * second copy: trim, then no-op on empty or unchanged. The no-op is the part
@@ -3217,10 +3275,10 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
    * on a title that did not change.
    */
   const renameIssue = useCallback(
-    (issueId: string, next: string): void => {
+    (issueId: string, next: string, openedTitle: string): void => {
       const trimmed = next.trim()
       const current = issues.find((issue) => issue.id === issueId)?.title
-      if (!trimmed || trimmed === current) return
+      if (!trimmed || trimmed === current || trimmed === openedTitle.trim()) return
       void updateIssue(issueId, { title: trimmed })
     },
     [issues, updateIssue],
@@ -3294,7 +3352,14 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
     if (issueId) setFocusedIssueId(issueId)
     if (session.cwd) setSelectedWorktree(session.cwd)
     openSessionTab(session.sessionId, { permanent: opts.permanent })
-    if (opts.native) setPanelMode(session.sessionId, 'native')
+    // WHERE THE ROW WOULD LIKE THE PANEL TO OPEN, not what the operator chose
+    // (POD-1702). The native worker rows below a session are navigation — their
+    // job is "take me to the agent running this worker, on the terminal it is
+    // running in" — and a session the operator has explicitly put in chat used
+    // to snap straight back to the CLI on the next such click, durably, so it
+    // reopened there too. `preferPanelMode` lands on the terminal for every
+    // session nobody has decided about and leaves a standing pick alone.
+    if (opts.native) preferPanelMode(session.sessionId, 'native')
     if (issueId) void markIssueRead(issueId)
     void markSessionRead(session.sessionId)
     setView('workspace')
@@ -3480,7 +3545,7 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                     scanned list, so the mission's name is allowed to be read
                     from across the desk. 17px is the artifact's own measure. */}
                   <h2 className="shell-type-column-title font-semibold text-text-strong">
-                    {draftFilling ? sessionDisplayName(rootSession as SessionMeta) : root.title}
+                    {rootDisplayTitle}
                   </h2>
                 </button>
                 {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN
@@ -3671,6 +3736,8 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
               <TaskRow
                 key={row.issue.id}
                 row={row}
+                displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
+                renameSeed={renameTarget?.id === row.issue.id ? renameTarget.seed : null}
                 byId={byId}
                 carries={guides[index] ?? []}
                 rails={rails[index] ?? []}
@@ -3702,9 +3769,16 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
                 }
                 onMenu={(event) => openIssueMenu(row.issue.id, event)}
                 onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
-                renaming={renamingIssueId === row.issue.id}
-                onRenameIssue={(title) => renameIssue(row.issue.id, title)}
-                onRenameDone={() => setRenamingIssueId(null)}
+                onRenameIssue={(title) =>
+                  renameIssue(
+                    row.issue.id,
+                    title,
+                    renameTarget?.id === row.issue.id
+                      ? renameTarget.seed
+                      : (rowDisplayTitles.get(row.issue.id) ?? row.issue.title),
+                  )
+                }
+                onRenameDone={() => setRenameTarget(null)}
               />
             ))}
             {visibleRows.length === 0 &&
@@ -3873,7 +3947,13 @@ export function FlightDeck({ onCollapse }: { onCollapse: () => void }): JSX.Elem
           onClose={() => setIssueMenu(null)}
           onRename={(id) => {
             setIssueMenu(null)
-            setRenamingIssueId(id)
+            const issue = rows.find((candidate) => candidate.issue.id === id)?.issue
+            if (issue) {
+              setRenameTarget({
+                id,
+                seed: rowDisplayTitles.get(id) ?? issue.title,
+              })
+            }
           }}
           onOpen={(id) => {
             setIssueMenu(null)

@@ -158,6 +158,12 @@ jobs:
             artifact_paths: |
               apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
               apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig
+          - target: windows-x86_64
+            runner: windows-latest
+            build_args: "-- --bundles nsis"
+            artifact_paths: |
+              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
           - target: darwin-aarch64
             runner: blacksmith-6vcpu-macos-15
             build_args: "-- --target aarch64-apple-darwin"
@@ -185,10 +191,10 @@ jobs:
       # The Blacksmith wrappers assume Blacksmith infrastructure; the GitHub-hosted Intel mac
       # leg uses the upstream actions instead.
       - uses: useblacksmith/setup-bun@v1
-        if: matrix.runner != 'macos-15-intel'
+        if: startsWith(matrix.runner, 'blacksmith-')
         with: { bun-version: '1.3.14' }
       - uses: oven-sh/setup-bun@v2
-        if: matrix.runner == 'macos-15-intel'
+        if: ${{ !startsWith(matrix.runner, 'blacksmith-') }}
         with: { bun-version: '1.3.14' }
       - name: Install Linux desktop build dependencies
         if: matrix.target == 'linux-x86_64'
@@ -198,14 +204,14 @@ jobs:
             build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             librsvg2-dev libayatana-appindicator3-dev libxdo-dev libssl-dev
       - uses: useblacksmith/cache@v5
-        if: matrix.runner != 'macos-15-intel'
+        if: startsWith(matrix.runner, 'blacksmith-')
         with:
           path: |
             ~/.bun/install/cache
             packages/agent-bridge/src/abduco.bin
           key: desktop-build-${{ matrix.target }}-${{ hashFiles('bun.lock', 'apps/desktop/src-tauri/Cargo.lock') }}
       - uses: actions/cache@v4
-        if: matrix.runner == 'macos-15-intel'
+        if: ${{ !startsWith(matrix.runner, 'blacksmith-') }}
         with:
           path: |
             ~/.bun/install/cache
@@ -270,13 +276,12 @@ jobs:
           # Presence of these three is what makes Tauri notarize and staple rather than only sign.
           APPLE_API_KEY: ${{ startsWith(matrix.target, 'darwin-') && secrets.APPLE_API_KEY || '' }}
           APPLE_API_ISSUER: ${{ startsWith(matrix.target, 'darwin-') && secrets.APPLE_API_ISSUER || '' }}
-          BUILD_ARGS: ${{ matrix.build_args }}
           # Compile the resolved promotion channel into the installed shell so a pristine config
           # checks the feed this artifact actually came from.
           PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bun run --cwd apps/desktop build $BUILD_ARGS
+        run: bun run --cwd apps/desktop build ${{ matrix.build_args }}
       # Tauri notarizes the .app and then builds the DMG around it, leaving the disk image itself
       # unnotarized — and the DMG is what users download and what carries the quarantine flag.
       - name: Notarize and staple the DMG
