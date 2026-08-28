@@ -471,16 +471,28 @@ async function runA1a() {
         String(last?.assistant ?? false),
     }
     const allThree = turns.length === 3 && turns.every((x) => x.assistant === true)
+    // A LOGGED-OUT HARNESS IS NOT A BROKEN DRIVER. On the terminal arm the
+    // isolated agent home holds no credential — deliberately, this rig may not
+    // copy one — so a turn that never answers is telling us about the account,
+    // not about the send path. Scoring that FAIL puts a red against a driver on
+    // evidence that would look identical if the driver were perfect, which is
+    // the same vacuous shape as scoring A8 against a session that was never
+    // logged out. Classify it and block.
+    const surface = joined(await transcript(sid)) + '\n' + chat.screenTail(6000) + '\n' + JSON.stringify((await status(sid))?.error ?? {})
+    const cls = classifyText(surface)
+    const authBlocked = !allThree && cls.errorClass === 'authentication'
     return result(
-      !controlFired ? 'BLOCKED' : allThree ? 'PASS' : 'FAIL',
+      !controlFired ? 'BLOCKED' : authBlocked ? 'BLOCKED' : allThree ? 'PASS' : 'FAIL',
       !controlFired
         ? 'no delivered send or needle; cell is not attributable'
-        : allThree
-          ? 'three idle sends replied, including the required last send'
-          : 'one of the three idle sends did not land or reply',
+        : authBlocked
+          ? 'the harness reported itself not logged in, so the sends could not be answered for a reason that is not the send path: ' + cls.errorClass
+          : allThree
+            ? 'three idle sends replied, including the required last send'
+            : 'one of the three idle sends did not land or reply',
       control,
-      ['SENDS             ' + JSON.stringify(turns), 'IDENTITY          ' + short(await status(sid)), 'FRAME TYPES        ' + chat.frameSummary()],
-      { sid, turns, driverRow: await status(sid) },
+      ['SENDS             ' + JSON.stringify(turns), 'CLASS             ' + short(cls), 'IDENTITY          ' + short(await status(sid)), 'FRAME TYPES        ' + chat.frameSummary()],
+      { sid, turns, class: cls, driverRow: await status(sid) },
     )
   } finally {
     await cleanup(sid, chat)
