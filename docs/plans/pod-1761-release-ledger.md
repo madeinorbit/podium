@@ -5845,3 +5845,39 @@ not the empty-read bug POD-3057 fixed.
 - **A3/codex and A3/opencode are real but narrow:** the interrupt works —
   accepted, turn stops in 524ms and 14ms, no continuing output — and only the
   transcript *record* of it is missing. Main's legacy PTY has the same gap.
+
+## FOREST — 2026-08-28 19:09 CEST
+
+**59 PASS, 7 PARTIAL, 3 BLOCKED, 1 FAIL, of 70 shipping-driver cells.**
+claude-sdk bring-up, tracked separately: 16 cells — 9 PASS, 5 BLOCKED, 1 PARTIAL,
+1 FAIL.
+
+POD-3047 re-drove after POD-3057's transcript-home fix and delivered 25 exact
+eight-field rows at `ad02520c` — 19 claude-sdk, 6 claude-pty — across **both
+credential postures** (22 symlink, 3 absent). They replaced the 17 pre-fix rows
+I had transcribed by hand from its table.
+
+**The credential-posture question is now answered with data, not argument.**
+A1a/claude moved **BLOCKED → PASS**: credential-free, the cell is blocked on
+authentication; symlinked, it passes outright. That is the same cell POD-3036
+had recorded as a FAIL and I corrected to BLOCKED this morning on POD-3047's
+reasoning — the correction held, and the credentialed reading now confirms the
+product was never at fault. **The posture decides what a red means, which is why
+both arms had to be on record.**
+
+### The one FAIL
+
+**A5/grok** — the tool *call* persists and the tool *result* does not. POD-3025
+owns it, its earlier fix landed without closing the cell, and it is restarted
+with the fresh reading. POD-3065 already ruled out the empty-read explanation.
+
+### What still limits the claim — unchanged and still true
+
+- **Three A1c cells have no main comparison.** Server-family drivers main does
+  not have. A1c/claude *is* settled: main fails identically, so our PASS is an
+  improvement over main rather than a repaired regression.
+- **The 3 BLOCKED are vendor instrument limits** — claude-code 2.1.231 rewriting
+  `permissions.defaultMode`, and a login path that cannot be completed in the
+  rig. Undriveable is not a pass.
+- **A3/codex and A3/opencode remain real but narrow:** the interrupt works and
+  only its transcript record is missing. Main's legacy PTY has the same gap.
