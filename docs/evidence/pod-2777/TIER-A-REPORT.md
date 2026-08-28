@@ -922,3 +922,75 @@ without telling the server a view was open; the one that demanded a thrown error
 where the row asked only for a typed one; the one that scored a park as a kill;
 and the one that scored a correct transcript as FAIL because it guessed the item
 shape. Three of the four would have been reported as product defects.
+
+---
+
+## Post-integration staleness audit — 2026-08-28 20:30 CEST, pin `9c1cc3621`
+
+APPENDED, NOT OVERWRITTEN. Every reading above stands exactly as taken. This
+section says only which of them still describe the product, and the answer is
+none of them.
+
+**What was audited.** `git diff --name-only <row-pin>..9c1cc3621`, excluding
+`docs/` and excluding `*.test.ts`, narrowed to the code each row actually
+exercises rather than to the repository as a whole. The row pins are the ones in
+the ledger at the top of this file; the widest is `15cdfa0ea` and the most
+common is `372ae4de2`.
+
+**The whole-repo number is useless and is recorded only so nobody re-derives it
+hoping for comfort:** 1,247–1,422 non-doc files changed depending on the row
+pin. That number cannot distinguish a driver rewrite from a lockfile bump, which
+is the entire reason the audit is done per row instead.
+
+**The per-group result, from `372ae4de2`:**
+
+| path group | changed non-doc, non-test files |
+|---|---|
+| agent-runtime drivers | 9 |
+| agent-runtime core (`events.ts`, `runtime.ts`, `index.ts`) | 3 |
+| daemon runtime | 13 |
+| server sessions module | 22 |
+| server interactions module | 1 |
+| protocol | 37 |
+| pty | 10 |
+| transcript | 1 |
+
+**THE STALE SET IS EVERY CELL.** There is no row in this matrix whose exercised
+code is unchanged: every group above moved, and every row reads at least one of
+them. I looked for a surviving subset specifically so I could report one, and
+there isn't a defensible one to report.
+
+**But the shape is narrower than the count, and that matters for what to
+re-drive first.** The four largest driver diffs are one change wearing four
+hats — `fdfbe9343`, each driver dropping its own replay reader for the shared
+trim-safe one:
+
+```
+codex/runtime.ts      +13 -32
+opencode/runtime.ts   +13 -32
+terminal-driver.ts     +7 -34
+events.ts             +66  -0
+```
+
+Genuinely additional on top of that: `opencode-driver.ts` +29 −13 and
+`pty/session.ts` +12 −6.
+
+So the cells whose verdict *depends on the thing that changed* — anything
+reading replay or streaming continuity: interrupt (A3), the streaming-delta
+cells, the long-turn cells, on both codex and opencode — are stale in substance.
+The rest are stale in the weaker sense of having run on different bytes of
+nominally the same behaviour.
+
+**I am not promoting the weaker sense to "still valid" on my own authority.**
+That distinction is exactly the crack the two uncheckable drives in this epic's
+history fell through, and the honest statement is that a cell driven against code
+that has since changed is a cell whose verdict is unconfirmed — not a cell that
+passed. The coordinator has the choice in writing; whichever way it goes, it goes
+in here as a decision with a name on it and not as a silent promotion.
+
+**Gates at the time of writing:** 18.6 GiB available, 79 GiB free on `/` (73%
+used — the "root filesystem 100% full" report in circulation is two nights old
+and no longer true), swap-in 0 across a 20s sample, load 1.46. All above the
+coordinator's 5 GiB/no-swap floor. The only closed gate is `test:heavy`, held by
+POD-3026 with ~22m remaining; not queued with `--wait`, per instruction and per
+the orphaned-queue-slot failure recorded earlier in this file.
