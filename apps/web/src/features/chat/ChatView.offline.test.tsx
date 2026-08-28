@@ -261,7 +261,7 @@ describe('ChatView cache-first transcript', () => {
     expect(container.textContent).toContain('cached hello')
     const refreshNotice = container.querySelector('[data-notice="transcript-refreshing"]')
     expect(refreshNotice?.textContent).toContain('Updating transcript')
-    expect(refreshNotice?.textContent).toContain('showing saved messages')
+    expect(refreshNotice?.textContent).toContain('showing previous messages')
     // Not the offline path: the server was never unreachable, so no notice.
     expect(container.querySelector('[data-notice="offline"]')).toBeNull()
     // And not the cold state either — there is real content on screen.
@@ -289,6 +289,25 @@ describe('ChatView cache-first transcript', () => {
     expect(container.textContent).toContain('newer turn')
     expect(container.textContent?.match(/cached hello/g)).toHaveLength(1)
     expect(container.querySelector('[data-notice="transcript-refreshing"]')).toBeNull()
+  })
+
+  it('keeps qualifying cached rows when the current read is empty', async () => {
+    fakeReplica.windows.set('s1', {
+      items: [item('a', 'c1', 'cached hello')],
+      savedAt: Date.now(),
+    })
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await act(async () => {
+      reads[0]?.resolve({ items: [], hasMore: false })
+    })
+    await flush()
+
+    expect(container.textContent).toContain('cached hello')
+    const notice = container.querySelector('[data-notice="transcript-refreshing"]')
+    expect(notice?.textContent).toContain('Transcript may be outdated')
+    expect(notice?.textContent).toContain('waiting for current messages')
   })
 
   it('shows the cold transcript when the session has never been read here', async () => {

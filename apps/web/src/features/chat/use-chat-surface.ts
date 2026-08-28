@@ -40,7 +40,7 @@ import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
-import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
+import { RENDER_WINDOW, type TranscriptFreshness, useTranscriptWindow } from './useTranscriptWindow'
 
 /**
  * THE CHAT SOURCE (POD-405) — the one place the chat surface's data is
@@ -117,7 +117,7 @@ export interface ChatSurface {
   /** Unsafe worker HTML keyed by source Markdown; TranscriptFeed sanitizes it. */
   markdownHtml: ReadonlyMap<string, string>
   phase: TranscriptPhase
-  refreshingFromCache: boolean
+  transcriptFreshness: TranscriptFreshness
   moreAbove: boolean
   loadingOlder: boolean
   loadOlder: () => void
@@ -301,7 +301,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     loadingOlder,
     deepeningSearch,
     initialLoaded,
-    refreshingFromCache,
+    transcriptFreshness,
     offlineAsOf,
     loadOlder,
     ensureSearchDepth,
@@ -719,7 +719,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     renderStart,
     markdownHtml,
     phase,
-    refreshingFromCache,
+    transcriptFreshness,
     moreAbove,
     loadingOlder,
     loadOlder: scroll.loadOlder,

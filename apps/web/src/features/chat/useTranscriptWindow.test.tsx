@@ -951,6 +951,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     // The one-item probe, not the 200-item read POD-725 exists to avoid.
     expect(reads).toHaveLength(2)
     expect(reads[1]?.input.limit).toBe(1)
+    expect(captured?.transcriptFreshness).toBe('checking')
 
     // Disk really is ahead → the probe escalates and the missed item lands.
     await act(async () => {
@@ -962,6 +963,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     })
     await flush()
     expect(reads[2]?.input.limit).toBe(200)
+    expect(captured?.transcriptFreshness).toBe('checking')
     await act(async () => {
       reads[2]?.resolve({
         items: [item('a', 'c1', 'first'), item('b', 'c2', 'missed while hidden')],
@@ -972,6 +974,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     })
     await flush()
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
+    expect(captured?.transcriptFreshness).toBeNull()
   })
 
   it('does not chase the same signal twice — the probe stands in for the 400ms reconcile', async () => {

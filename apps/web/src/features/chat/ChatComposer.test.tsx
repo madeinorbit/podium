@@ -61,7 +61,7 @@ async function mount(
     onDraftChange?: (draft: string) => void
     turnRunning?: boolean
     interruptError?: string | null
-    transcriptRefreshing?: boolean
+    transcriptFreshness?: 'checking' | 'rendering' | 'saved' | null
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const taRef = createRef<HTMLTextAreaElement>()
@@ -87,7 +87,7 @@ async function mount(
         onOfferDismiss={async () => {}}
         session={undefined}
         turnError={opts.turnError ?? null}
-        transcriptRefreshing={opts.transcriptRefreshing ?? false}
+        transcriptFreshness={opts.transcriptFreshness ?? null}
         offlineAsOf={null}
         autoFocusKey="s1"
         transcriptSettled
@@ -277,6 +277,22 @@ describe('ChatComposer, non-compact (the main chat)', () => {
     )
     expect(well().querySelector('[data-testid="attachment-strip"] .pod-mark')).toBeNull()
   })
+
+  it('keeps a stable polite status region through transcript refresh', async () => {
+    await mount({ compact: false })
+    const status = container.querySelector('[role="status"]')
+    expect(status).not.toBeNull()
+    expect(status?.textContent).toBe('')
+
+    await mount({ compact: false, transcriptFreshness: 'checking' })
+    expect(container.querySelector('[role="status"]')).toBe(status)
+    expect(status?.textContent).toContain('Updating transcript')
+    expect(status?.textContent).toContain('Showing previous messages')
+
+    await mount({ compact: false, transcriptFreshness: null })
+    expect(container.querySelector('[role="status"]')).toBe(status)
+    expect(status?.textContent).toContain('Transcript updated')
+  })
 })
 
 // The @-menu's first refusal, the IME guard and Enter/Shift+Enter are ONE
@@ -406,7 +422,7 @@ describe('ChatComposer backend rail', () => {
           onOfferDismiss={async () => {}}
           session={undefined}
           turnError={null}
-          transcriptRefreshing={false}
+          transcriptFreshness={null}
           offlineAsOf={null}
           autoFocusKey="s1"
           transcriptSettled
