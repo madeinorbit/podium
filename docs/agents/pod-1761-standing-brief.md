@@ -1879,3 +1879,29 @@ State in the evidence WHICH posture the rig used. A credential-free home makes
 every cell needing a model reply BLOCKED-on-auth, so two rigs with different
 postures will disagree about what a red means — that is exactly the A1a and A8
 confusion between POD-3036 and POD-3047.
+
+### `add-session` without a prompt makes a session that can never receive mail
+
+POD-3025 accumulated **five sessions** this way: `podium issue add-session`
+spawns an agent with no task, it sits at `phase=None`, and because **mail is
+next-turn delivery**, a session that never takes a turn can never receive the
+brief you sent it. Mine sat `queued — captured + waiting for the target` for 19
+minutes while the session was live and idle. Both halves look healthy in
+isolation; neither does anything.
+
+**Use `podium issue start` for work that needs a brief.** `add-session` is for
+adding a second agent to an issue that is already running something.
+
+And when you stop, check what you actually stopped:
+
+    podium issue show <id> --json    # statuses, not just the live filter
+
+`stop` reported "stopped 5 sessions" and left **4 hibernated + 1 exited** — the
+live filter showed zero, which reads as clean but is not the same as gone. A
+following `start` then exited immediately. Host was healthy throughout (load
+2.27, 19 GB free), so this is the session layer, not resources.
+
+**Do not thrash on this.** Two attempts is enough to establish it is not going to
+come up; record the state, say plainly that the work is not running, and let a
+human see it. An issue that silently is not running is worse than one that is
+visibly stuck.
