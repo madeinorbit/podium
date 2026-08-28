@@ -104,6 +104,24 @@ OAuth authorize URLs from the PTY first-run UI were redacted in the raw
 reading. Leftover PTY Claude/abduco after daemon stop were killed; live
 credential untouched.
 
+## Selector / auth applicability (coordinator policy seam)
+
+The Claude manifest still **declares** embedded `claude-sdk` auth as
+`api-key` / `bedrock` / `vertex` only. Default `select({ auth: 'subscription' })`
+stays on `claude-pty` even when the SDK is available.
+
+The production resolver does **not** enforce that list on the opt-in path:
+`runtimeContract: 'claude-sdk'` plus `PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1` returns
+`claude-sdk` without reading `embedded.auth`. This drive observed that
+(`driverId=claude-sdk` published). It did **not** reach the subscription
+spend-limit window because the named instance agent-home had no credential and
+the product classified both paths `logged-out`. No API-key test account was
+supplied. Exact pins and doc list:
+[`selection-policy.md`](selection-policy.md).
+
+Implementation of a TOS-gated subscription declaration is **POD-3031**, already
+in progress. This issue does not change product code.
+
 ## Classification gaps (not fixed here)
 
 1. Status API still omits `driverId` on the failed first PTY turn even though
