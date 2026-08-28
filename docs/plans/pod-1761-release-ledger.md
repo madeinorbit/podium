@@ -5997,3 +5997,21 @@ evidence only: **60 PASS, 7 PARTIAL, 3 BLOCKED, 0 FAIL of 70**. No cell has
 been silently re-scored. The narrow stale-code audit, a single coordinator gate,
 and any required acceptance re-drives remain outstanding; the operator sandbox
 is stopped.
+
+## FOREST — post-integration matrix is unconfirmed (2026-08-28 20:38 CEST)
+
+POD-2777 completed the required per-row staleness audit at product pin
+`9c1cc3621`. After excluding docs and tests, every acceptance row still reads
+at least one changed code group: driver adapters, agent-runtime core, daemon
+runtime, server sessions/interactions, protocol, PTY, or transcript. The
+result is therefore **70/70 previously driven, 0 confirmed at the current tip**.
+The old rows remain intact as pin-specific evidence; none was deleted or
+rewritten.
+
+The first re-drive target is the substantive seam: replay/streaming continuity
+(A3, streaming-delta, and long-turn cells for codex and opencode), where the
+shared trim-safe reader and related driver paths changed. The remaining cells
+are stale by bytes even where the behavior may be unchanged, and are not silently
+promoted. The acceptance worker prepared a fresh never-approved Codex A4 fixture
+but did not run it while `test:heavy` was held by another issue. No new verdict
+rows exist yet; the operator sandbox remains stopped.
