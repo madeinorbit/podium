@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   type AgentSessionHandle,
   type ClaudeSdkRuntime,
@@ -64,10 +64,45 @@ export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
   launch(input: ClaudeSdkSessionLaunch): Promise<AgentSessionHandle>
 }
 
+/**
+ * THE HOME THE SDK CHILD MUST RUN IN, and why it is a parameter at all.
+ *
+ * `readTranscript` below resolves this session's JSONL under the daemon's
+ * `ctx.homeDir` — the named instance's agent home. The child writes that file
+ * under its own `HOME`, and nothing in the spawn frame's `env` (server-resolved
+ * managed credentials) names one, so the child kept the DAEMON's `HOME`: the
+ * operator account home. Reader and writer then addressed two different files
+ * and every `sessions.read` answered `items: []` for a conversation that had
+ * really happened — prompt and answer included, not one item type (POD-3057).
+ *
+ * The same split, reached by a different road, is POD-3059 on the durable
+ * headless path; the instance home is authoritative there for the reasons that
+ * issue records, and this path is the one it did not travel. `claude-code`
+ * declares no `instanceHome` state selector, so for this harness `HOME` alone
+ * decides where the record lands — which is also why aligning it closes the
+ * credential-isolation leak POD-2247 names: a child left on the daemon's `HOME`
+ * reads and writes the operator's real auth files from inside an instance that
+ * is supposed to be isolated.
+ *
+ * Absent on the DEFAULT instance, where the daemon has no agent home of its own
+ * and reader and child already agree on the ambient one.
+ */
 export function createDaemonClaudeSdkRuntime(deps: {
   send(msg: DaemonMessage): void
   host: TerminalRuntimeHost
+  /** `ctx.homeDir` — the named instance's agent home, when there is one. */
+  homeDir?: string
 }): DaemonClaudeSdkRuntime {
+  /**
+   * The instance-owned overlay, layered LAST so it outranks the spawn frame's
+   * env. `CLAUDE_CONFIG_DIR` rides along because the CLI honours it over `HOME`
+   * for its config root while the reader knows only `HOME`: pinning it to this
+   * home's own `.claude` keeps a value inherited from the daemon's environment
+   * from re-opening the split the `HOME` line just closed.
+   */
+  const instanceEnv = deps.homeDir
+    ? { HOME: deps.homeDir, CLAUDE_CONFIG_DIR: join(deps.homeDir, '.claude') }
+    : undefined
   let runtime!: DaemonClaudeSdkRuntime
   const host: ClaudeSdkRuntimeHost = {
     mintSessionId: () => randomUUID() as SessionId,
@@ -103,7 +138,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
         ...(effort && effort !== 'auto' ? { effort } : {}),
         ...(instructions ? { systemPrompt: instructions } : {}),
         ...(mcpConfig ? { mcpConfig } : {}),
-        ...(input.spec.env ? { env: { ...input.spec.env } } : {}),
+        ...(input.spec.env || instanceEnv ? { env: { ...input.spec.env, ...instanceEnv } } : {}),
       }
       const child = runClaudeSdkChildTurn(
         spec,

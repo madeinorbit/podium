@@ -310,15 +310,27 @@ export function runClaudeSdkChildTurn(
   }
 }
 
+/**
+ * The environment the host child inherits.
+ *
+ * The host builds the CLI's own environment from `spec` itself, exactly as the
+ * in-process driver did. What it inherits here is the daemon's environment plus
+ * the same per-turn overrides, so `process.env` reads inside the host see what
+ * they saw when the SDK ran in the daemon.
+ *
+ * Exported so a test can spawn a real process with it and read back the `HOME`
+ * that process actually ran under — the fact POD-3057 turns on — rather than
+ * re-asserting this merge expression against itself.
+ */
+export function claudeSdkHostEnv(spec: HeadlessTurnSpec): Record<string, string> {
+  return headlessChildEnv(spec.agent, spec.env)
+}
+
 function spawnDefaultHost(spec: HeadlessTurnSpec): ChildProcess {
   const launch = claudeSdkHostLaunch()
-  // The host builds the CLI's own environment from `spec` itself, exactly as the
-  // in-process driver did. What it inherits here is the daemon's environment plus
-  // the same per-turn overrides, so `process.env` reads inside the host see what
-  // they saw when the SDK ran in the daemon.
   return spawn(launch.cmd, launch.args, {
     cwd: spec.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...headlessChildEnv(spec.agent, spec.env), ...launch.env },
+    env: { ...claudeSdkHostEnv(spec), ...launch.env },
   })
 }

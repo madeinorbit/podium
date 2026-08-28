@@ -13,7 +13,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runClaudeSdkChildTurn } from './claude-sdk-client.js'
+import { claudeSdkHostEnv, runClaudeSdkChildTurn } from './claude-sdk-client.js'
 import { HeadlessTurnError, type HeadlessTurnSpec } from './headless-drivers.js'
 
 const spec: HeadlessTurnSpec = {
@@ -499,5 +499,38 @@ describe('the daemon carries the tool record across the pipe (POD-3050)', () => 
       'call:toolu_2:Read:null',
       'result:toolu_2:"":true',
     ])
+  })
+
+  /**
+   * POD-3057, the second half of the chain. The driver puts the instance's agent
+   * home on the turn spec (claude-sdk-driver.test.ts); this asserts the spawn
+   * carries it all the way to a process — the HOME that process really ran
+   * under, printed by the process itself, not the merge expression read back.
+   *
+   * That home is where the CLI writes the session's JSONL, and where
+   * `sessions.read` resolves it. When the two disagree the read answers empty.
+   */
+  it('spawns the host under the HOME the turn spec names', async () => {
+    const home = '/state/p3057/agent-home'
+    const child = spawn(
+      process.execPath,
+      ['-e', 'process.stdout.write(`${process.env.HOME}|${process.env.CLAUDE_CONFIG_DIR}`)'],
+      {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: claudeSdkHostEnv({
+          ...spec,
+          env: { HOME: home, CLAUDE_CONFIG_DIR: `${home}/.claude` },
+        }),
+      },
+    )
+    alive.push(child)
+    const printed = await new Promise<string>((resolve) => {
+      let text = ''
+      child.stdout?.on('data', (chunk: Buffer) => {
+        text += chunk.toString()
+      })
+      child.on('exit', () => resolve(text))
+    })
+    expect(printed).toBe(`${home}|${home}/.claude`)
   })
 })

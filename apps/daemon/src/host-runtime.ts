@@ -752,7 +752,14 @@ export async function createDaemonHostRuntime(args: {
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
   const contractHost = daemonRuntimeHost(ctx, send, stageAttachment)
   terminalRuntime = createTerminalRuntime(contractHost)
-  claudeRuntime = createDaemonClaudeSdkRuntime({ send, host: contractHost })
+  claudeRuntime = createDaemonClaudeSdkRuntime({
+    send,
+    host: contractHost,
+    // The instance agent home the transcript reader already resolves against
+    // (control/transcripts.ts sourceForRead), so the SDK child writes its JSONL
+    // where sessions.read looks for it (POD-3057).
+    ...(homeDir ? { homeDir } : {}),
+  })
   /**
    * THE SERVER-FAMILY RUNTIME (POD-1761 W5), built the same way and for the same
    * reason: its host port is this context.

@@ -343,4 +343,74 @@ describe('Claude SDK daemon host adapter', () => {
     await handle.stop()
     runtime.dispose()
   })
+  /**
+   * POD-3057. `readTranscript` above resolves the session's JSONL under the
+   * daemon's agent home; the child writes it under its own `HOME`. When those
+   * two are different homes the reader addresses a file nobody wrote and
+   * `sessions.read` answers `items: []` for a conversation that really happened.
+   * So the home is asserted where the child receives it — on the turn spec that
+   * becomes its environment — including against a spawn frame that names one.
+   */
+  it('runs the SDK child under the instance agent home, over the spawn frame env', async () => {
+    const childSpecs: HeadlessTurnSpec[] = []
+    vi.mocked(runClaudeSdkChildTurn).mockImplementation((spec) => {
+      childSpecs.push(spec)
+      return {
+        done: Promise.resolve({ harnessSessionId: 'sdk-thread', output: 'answered' }),
+        interrupt: vi.fn(),
+        requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
+        answerPermission: vi.fn(),
+        dispose: vi.fn(),
+      } satisfies ClaudeSdkChildHandle
+    })
+
+    const runtime = createDaemonClaudeSdkRuntime({
+      send: () => {},
+      host: host([]),
+      homeDir: '/state/p3057/agent-home',
+    })
+    const handle = await runtime.launch({
+      sessionId: SESSION_ID,
+      cwd: '/project',
+      // The machine home, arriving the way it really arrives: as the spawn
+      // frame's server-resolved env. The instance's own home outranks it.
+      env: { HOME: '/home/operator', PODIUM_SESSION_ID: SESSION_ID },
+    })
+    await handle.send({ id: 'first', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+
+    expect(childSpecs).toHaveLength(1)
+    expect(childSpecs[0]?.env).toMatchObject({
+      HOME: '/state/p3057/agent-home',
+      CLAUDE_CONFIG_DIR: '/state/p3057/agent-home/.claude',
+      PODIUM_SESSION_ID: SESSION_ID,
+    })
+    await handle.stop()
+    runtime.dispose()
+  })
+
+  /** The default instance has no agent home of its own: reader and child both
+   *  use the ambient one, and the daemon must not invent a different answer. */
+  it('leaves the child on the daemon home when the instance has none', async () => {
+    const childSpecs: HeadlessTurnSpec[] = []
+    vi.mocked(runClaudeSdkChildTurn).mockImplementation((spec) => {
+      childSpecs.push(spec)
+      return {
+        done: Promise.resolve({ harnessSessionId: 'sdk-thread', output: 'answered' }),
+        interrupt: vi.fn(),
+        requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
+        answerPermission: vi.fn(),
+        dispose: vi.fn(),
+      } satisfies ClaudeSdkChildHandle
+    })
+
+    const runtime = createDaemonClaudeSdkRuntime({ send: () => {}, host: host([]) })
+    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+    await handle.send({ id: 'first', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+
+    expect(childSpecs).toHaveLength(1)
+    expect(childSpecs[0]?.env?.HOME).toBeUndefined()
+    expect(childSpecs[0]?.env?.CLAUDE_CONFIG_DIR).toBeUndefined()
+    await handle.stop()
+    runtime.dispose()
+  })
 })
