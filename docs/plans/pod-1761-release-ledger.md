@@ -5692,3 +5692,35 @@ streaming arms (OpenCode and Grok) are current-tip `UNMEASURED`; the older
 streaming PASS rows are not counted. Static ancestry confirms the parent
 boundaries, but does not substitute for a runtime control. The matrix counts
 therefore remain unchanged until the disk gate permits fresh streaming drives.
+
+## FOREST — scorer current-tip re-drive (2026-08-28 07:20 CEST)
+
+POD-2929's scorer branch was fast-forwarded onto the coordinator at
+`705f65ed7e4b12db363b833578513612699e4b52`; the branch is clean and the six
+evidence commits carry `Podium-Issue: POD-2929`. The current-tip OpenCode
+headless A1c cell is an authoritative `FAIL`: child PID `3997579` was selected
+only after exact instance/session stamp proof, killed and confirmed gone, and
+the subsequent send returned `ok=true` with `disposition=delivered`; no typed
+refusal, resume offer, or assistant nonce arrived in the complete 120-second
+window. The paired OpenCode A9 cell is a `PASS`: the exact original
+`4000972:23195700` was gone at 15 and 300 seconds, stamped rebounds were zero,
+and server/daemon infrastructure stayed alive 2/2. The terminal-family and
+Codex A1c/A9 arms failed closed before bring-up at `5,228,788 KiB` free, below
+the `5,242,880 KiB` disk floor; no process or runtime result was inferred.
+
+### Current acceptance columns (69 recorded cells)
+
+| column | cells | PASS | FAIL | other / qualification |
+|---|---:|---:|---:|---|
+| codex | 16 | 13 | 0 | A3 REFUSED; A4a/A4b BLOCKED by the approval instrument; A6b scrollback clause unmeasured; current A1c/A9 drive blocked by disk floor |
+| opencode | 16 | 11 | 1 | current A1c FAIL; A3/A8 PARTIAL; A4a/A4b need current interaction-path re-drive; A6b scrollback clause unmeasured |
+| grok | 16 | 13 | 1 | A1c FAIL; A4a/A4b BLOCKED; corrected A5 is PASS |
+| claude | 15 | 11 | 1 | A1c FAIL also observed on main; A4a/A4b/A8 BLOCKED by the Claude CLI instrument; A6b scrollback clause unmeasured |
+| shell | 6 | 6 | 0 | all six current shell checks PASS |
+
+The new rows do not make the table release-ready: OpenCode A1c is now a
+second confirmed dead-send loss alongside Grok A1c, while the terminal and
+Codex cells remain honestly blocked rather than guessed. The operator sandbox
+is stopped, `test:heavy` and `integration:1761` are free, and the only active
+production investigation is POD-2980's bounded Grok recovery repair; no fresh
+Grok drive is authorized until that candidate is reviewed and landed.
