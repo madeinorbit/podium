@@ -25,6 +25,7 @@ import type {
   HandshakeRejectReason,
   PeerCredential,
   PeerHello,
+  UpdateKeyRotation,
 } from '../envelope'
 
 /**
@@ -66,6 +67,8 @@ export type AuthOutcome =
       readonly issuedToken?: string
       /** Current server update key; the daemon persists it only when pairing issues a token. */
       readonly updatePubkey?: string
+      /** Old-key-signed path from a prior pin to updatePubkey. */
+      readonly updateKeyRotations?: readonly UpdateKeyRotation[]
       /** Operator-facing name the acceptor settled on. */
       readonly name?: string
       /**
@@ -195,6 +198,8 @@ export interface ResolvedMachine {
   readonly name?: string
   /** Current server update-signing key, published on every successful machine hello. */
   readonly updatePubkey?: string
+  /** Old-key-signed path from a prior pin to updatePubkey. */
+  readonly updateKeyRotations?: readonly UpdateKeyRotation[]
   /**
    * Opaque data the DIRECTORY attaches to a resolution and the gateway reads back
    * off the established peer. The handshake never interprets it — it exists so a

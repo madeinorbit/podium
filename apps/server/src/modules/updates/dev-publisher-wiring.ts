@@ -18,36 +18,61 @@
  * separate capabilities in either profile.
  */
 
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import type { UpdateTarget } from '@podium/protocol'
-import type { Hono } from 'hono'
-import { registerDevArtifactRoute } from './artifact-route'
+import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import {
+  timeReleaseBuildTask,
+  type ReleaseBuildTimingDeps,
+} from '@podium/runtime/release-build-timing'
+import type { Hono } from 'hono'
+import { registerDevFeedRoutes } from './artifact-route'
+import {
+  type BuiltDevBundle,
   createDevBundlePublisher,
+  DEV_ARTIFACT_ROUTE,
+  DevBundleProposalMovedError,
   DevBundleUnavailableError,
   developmentHeadSha,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev-web-build'
 import { createGitHeadShaCache } from './head-sha-cache'
+import {
+  createReleaseApprovalFlow,
+  ReleaseApprovalRefusal,
+  type ReleaseApprovalTarget,
+} from './release-approval'
+import { type ChannelFeed, DEV_FEED_MANIFEST, DEV_FEED_ROUTE } from './release-target'
 
 const log = createLogger('server:updates')
 
 export interface DevPublisherWiring {
-  /**
-   * Publish the current development target, if there is one.
-   *
-   * Asynchronous because naming the target means reading HEAD, and every git
-   * call this server makes is off its event loop (POD-2048).
-   */
-  readonly publishTarget: () => Promise<UpdateTarget | undefined>
+  /** The admin-only pre-release fact. Undefined means nothing awaits publication. */
+  readonly proposal: () => Promise<ReleaseProposal | undefined>
+  /** Approve BUILD + PUBLISH only; rollout remains the ordinary update offer. */
+  readonly approveRelease: (
+    approvedBy: string,
+    expected: ReleaseApprovalTarget,
+  ) => Promise<ReleaseProposal | undefined>
   /**
    * Ask for a build after the operator has started an update. Merely publishing
    * the current HEAD identity never calls this capability.
    */
   readonly requestBuild: () => Promise<unknown>
-  /** Mount the authenticated artifact route, when a publisher exists. */
+  /** Mount the authenticated dev feed (manifest + artifacts), when a publisher exists. */
   readonly registerRoute: (app: Hono) => void
+  /**
+   * How `resolveReleaseTarget` reaches THIS server's dev feed — the address, the
+   * origin fence, the trust root and the machine credential, in one descriptor.
+   *
+   * Nothing when this server publishes no feed, or when it cannot name an
+   * address its fleet could fetch from. Both are the same honest answer: there
+   * is no dev feed to pull, so the channel resolves to "unavailable" with a
+   * reason rather than to a target nobody could take delivery of.
+   */
+  readonly channelFeed: () => ChannelFeed | undefined
   /** True when this server can publish a development bundle at all. */
   readonly enabled: boolean
   /**
@@ -70,12 +95,22 @@ export interface DevPublisherWiring {
   }
 }
 
+/**
+ * Where a machine of `platform` fetches this version's bundle.
+ *
+ * The platform is part of the PATH rather than a query parameter because it selects
+ * which file is served, and a URL that names the bytes it returns is one a log line or
+ * a failed download can be read against.
+ */
 export function developmentArtifactUrl(
   origin: string,
   version: string,
   artifactToken: string,
+  platform: string,
 ): string {
-  return `${origin}/updates/dev-bundle/${encodeURIComponent(version)}?token=${encodeURIComponent(artifactToken)}`
+  return `${origin}${DEV_ARTIFACT_ROUTE}/${encodeURIComponent(
+    version,
+  )}/${encodeURIComponent(platform)}?token=${encodeURIComponent(artifactToken)}`
 }
 
 /**
@@ -96,17 +131,17 @@ export const ARTIFACT_ORIGIN_UNCONFIGURED_REASON =
 export function selectDevelopmentArtifactOrigin(input: {
   externalOrigin: string | undefined
   localOrigin: string
-  hasRemoteManagedMachines: boolean
+  hasRemoteUpdateConsumers: boolean
 }): string {
   if (input.externalOrigin) return input.externalOrigin
-  if (input.hasRemoteManagedMachines) {
+  if (input.hasRemoteUpdateConsumers) {
     // TYPED, so the refusal can travel (POD-2227). It used to be a bare Error
     // whose only reader was `publishTarget`'s catch, which logged it and
     // returned undefined — the operator was left watching a step that waited
     // for a package this server had already decided it would never hand over.
     throw new DevBundleUnavailableError(
       'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
-        'config.publicUrl while remote managed machines are registered',
+        'config.publicUrl while remote update consumers are registered',
       ARTIFACT_ORIGIN_UNCONFIGURED_REASON,
     )
   }
@@ -114,24 +149,23 @@ export function selectDevelopmentArtifactOrigin(input: {
 }
 
 /**
- * What the shared update service may advertise.
+ * WHO MAKES THE ORIGIN MANDATORY (POD-3040).
  *
- * A dest identity (web digest, git checkout, no tarball URL) is the destination
- * Update Podium needs on this host. It must enter the service even when there is
- * no publicUrl — otherwise /version shows dest+HEAD and converge throws
- * "No update target is configured."
- *
- * A dest tarball URL is different: without an external origin it is loopback, and
- * a later remote grant must not be handed 127.0.0.1. Strip that URL and keep the
- * dest identity so this host can still rebuild and pack.
+ * Membership follows the daemon-reported delivery contract used by the wave
+ * planner, and it deliberately says nothing about whether the machine is up:
+ * a registered remote consumer is one whenever it wakes, so the address this
+ * server publishes has to be one it could fetch from either way. Pairing
+ * policy is equally absent — a machine that accepts feed updates needs a
+ * reachable address whether or not Podium manages its agents.
  */
-export function targetForSharedReadModel(
-  target: UpdateTarget,
-  artifactOrigin: string | undefined,
-): UpdateTarget {
-  if (artifactOrigin || target.artifacts.headless === undefined) return target
-  const { headless: _headless, ...artifacts } = target.artifacts
-  return { ...target, artifacts }
+export function isRemoteUpdateConsumer(
+  machine: {
+    readonly id: string
+    readonly deliveryCaps: readonly string[]
+  },
+  hostMachineId: string,
+): boolean {
+  return machine.id !== hostMachineId && machine.deliveryCaps.includes('update.delivery.feed')
 }
 
 export function wireDevBundlePublisher(deps: {
@@ -139,10 +173,28 @@ export function wireDevBundlePublisher(deps: {
   readonly sourceRoot: string | undefined
   /** Validated external origin. Absent is allowed only for same-host publication. */
   readonly artifactOrigin: string | undefined
-  /** Loopback origin used only when the registered managed fleet is same-host. */
+  /** Loopback origin used only when the registered update fleet is same-host. */
   readonly localArtifactOrigin: () => string
-  /** Read at publication time so a newly joined remote machine fails closed immediately. */
-  readonly hasRemoteManagedMachines: () => boolean
+  /**
+   * Read at publication time so a newly joined remote machine makes the
+   * external origin mandatory immediately — whether or not it is online.
+   */
+  readonly hasRemoteUpdateConsumers: () => boolean
+  /**
+   * The platforms the registered fleet actually runs — what this host mints bundles
+   * for beyond its own [spec:SP-6144 section 8b]. Absent mints only this host's.
+   */
+  readonly fleetPlatforms?: () => readonly string[]
+  /** Product version and source commit captured by the server producing this proposal. */
+  readonly proposalRunningVersion?: string
+  readonly proposalRunningSha?: string
+  /**
+   * How big is the artifact on disk right now? `undefined` means "not there".
+   *
+   * A seam rather than a bare `stat` so the publication boundary can be tested
+   * without a quarter-gigabyte fixture; production uses the default below.
+   */
+  readonly artifactSize?: (path: string) => Promise<number | undefined>
   readonly artifactToken: string
   readonly signingKey: string
   readonly setTarget: (target: UpdateTarget) => void
@@ -152,15 +204,40 @@ export function wireDevBundlePublisher(deps: {
    * offering an older commit's.
    */
   readonly setTargetUnavailable?: (reason: string) => void
+  /**
+   * Ask the updates service to re-resolve `dev` from its feed, right now.
+   *
+   * The publisher no longer PUSHES a deliverable target; it writes a manifest
+   * and asks the ordinary resolver to pull it. This is that ask — in-process,
+   * because on a source host the publisher and the updater are the same process
+   * (spec dispositions 19, 20).
+   */
+  readonly refreshDevTarget?: () => Promise<unknown>
   readonly locks: DevBundleLockService
   /** Names the transient build units. Defaults to the default instance. */
   readonly instanceId?: string
   /** Seam for tests; defaults to `git rev-parse --short=7 HEAD` in `sourceRoot`. */
   readonly readHeadSha?: (root: string) => Promise<string>
+  /**
+   * Explicit test/embedding seam. Source development publishers enable durable timing by default;
+   * installed and production release paths never enter this wiring.
+   */
+  readonly releaseTiming?: ReleaseBuildTimingDeps | false
+  /** Constructor seam for publication-boundary tests; production never supplies it. */
+  readonly createPublisher?: (
+    input: Parameters<typeof createDevBundlePublisher>[0],
+  ) => ReturnType<typeof createDevBundlePublisher>
 }): DevPublisherWiring {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
   const instanceId = deps.instanceId ?? 'default'
+  const releaseTiming =
+    sourceRoot && deps.releaseTiming !== false
+      ? (deps.releaseTiming ?? {
+          enabled: true,
+          outputDirectory: join(sourceRoot, 'dist-bun', 'release-timing'),
+        })
+      : undefined
   /**
    * ONE HEAD READER for everything below, and the reason it is here.
    *
@@ -188,12 +265,13 @@ export function wireDevBundlePublisher(deps: {
       })
     : undefined
   const publisher = sourceRoot
-    ? createDevBundlePublisher({
-        isSourceRun: true,
+    ? (deps.createPublisher ?? createDevBundlePublisher)({
+        sourceCheckoutAvailable: true,
         root: sourceRoot,
         instanceId,
         headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
         signingKey: deps.signingKey,
+        ...(releaseTiming ? { timing: releaseTiming } : {}),
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
         // The instant a build is admitted, the read model must say `preparing`
         // rather than keep offering the previous commit's target for the length
@@ -201,15 +279,25 @@ export function wireDevBundlePublisher(deps: {
         // walks the tree off the loop), so the publisher announces it — a
         // caller cannot infer it from `requestBuild` having returned.
         onAdmitted: () => {
-          void publishReadiness()
+          void observeBundleReadiness()
         },
-        prepareWebDist: (headSha, explicit) => {
-          if (!webBuilder) return Promise.resolve()
+        prepareWebDist: async (headSha, explicit, buildRoot, releaseVersion) => {
+          if (!webBuilder) return undefined
+          const buildWeb =
+            buildRoot === sourceRoot
+              ? webBuilder
+              : createDevWebBuilder({
+                  root: buildRoot,
+                  instanceId,
+                  headSha: () => headSha,
+                })
           const decision = decideWebDist({
-            current: webBuilder.isCurrent(headSha),
+            current: buildWeb.isCurrent(headSha, releaseVersion),
             explicit,
           })
-          if (decision === 'ready') return Promise.resolve()
+          if (decision === 'ready') {
+            return
+          }
           // `refuse` is the `/version` poll. The browser is served
           // `apps/web/dist` by THIS process, which is still running the commit
           // it booted with, so rebuilding the dist here would put the page
@@ -229,29 +317,40 @@ export function wireDevBundlePublisher(deps: {
           // A web-build failure must arrive as a REFUSAL with its own words, not
           // as a nameless compile error: the operator's next move (look at the
           // vite output) is different from the one a failed compile calls for.
-          return webBuilder.ensure(headSha).catch((error: unknown) => {
+          try {
+            await buildWeb.ensure(headSha, releaseVersion)
+            return
+          } catch (error) {
             throw new DevBundleUnavailableError(
               `development bundle unavailable: the web bundles could not be rebuilt for dev+${headSha}: ` +
                 (error instanceof Error ? error.message : String(error)),
               `The website could not be rebuilt for HEAD (${headSha}), so dev+${headSha} cannot be packed.`,
             )
-          })
+          }
         },
-        artifactUrl: (version) =>
+        artifactUrl: (version, platform) =>
           developmentArtifactUrl(
             selectDevelopmentArtifactOrigin({
               externalOrigin: artifactOrigin,
               localOrigin: deps.localArtifactOrigin(),
-              hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+              hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
             }),
             version,
             deps.artifactToken,
+            platform,
           ),
+        // Read at BUILD time, not at wiring time: a machine that enrolls while this
+        // server is running must be covered by the next build, and this server runs for
+        // days at a time.
+        fleetPlatforms: deps.fleetPlatforms,
+        ...(deps.proposalRunningVersion
+          ? { proposalRunningVersion: deps.proposalRunningVersion }
+          : {}),
+        ...(deps.proposalRunningSha ? { proposalRunningSha: deps.proposalRunningSha } : {}),
       })
     : undefined
 
   let unavailableDiagnostic: string | undefined
-  let publishedReason: string | undefined
   let publishedVersion: string | undefined
   let bundleReady = false
   let bundleFailureDetail: string | undefined
@@ -278,7 +377,7 @@ export function wireDevBundlePublisher(deps: {
       selectDevelopmentArtifactOrigin({
         externalOrigin: artifactOrigin,
         localOrigin: deps.localArtifactOrigin(),
-        hasRemoteManagedMachines: deps.hasRemoteManagedMachines(),
+        hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
       })
       return undefined
     } catch (error) {
@@ -292,7 +391,9 @@ export function wireDevBundlePublisher(deps: {
     publishFailureDetail = error.publicReason
     if (error.message === unavailableDiagnostic) return
     unavailableDiagnostic = error.message
-    log.warn('development bundle target unavailable', { diagnostic: error.message })
+    log.warn('development bundle target unavailable', {
+      diagnostic: error.message,
+    })
   }
 
   /** Cache publisher readiness at lifecycle transitions; fleet polling must not spawn git. */
@@ -303,72 +404,179 @@ export function wireDevBundlePublisher(deps: {
     return readiness
   }
 
-  const setSharedTarget = (target: UpdateTarget): void => {
-    publishedVersion = target.version
-    deps.setTarget(targetForSharedReadModel(target, artifactOrigin))
+  /**
+   * A URL INSIDE A SIGNED MANIFEST CANNOT BE REPAIRED — so it is proved HERE,
+   * on this host, against this host's own artifact store (POD-3040).
+   *
+   * This used to ask every registered remote consumer to fetch every artifact
+   * URL before the manifest was written, and an OFFLINE consumer failed the
+   * proof closed. That made one sleeping laptop a fleet-wide publication
+   * outage: nothing about the release was wrong, nothing about the address was
+   * wrong, and the operator's only remedy was to go and wake a machine. Worse,
+   * a consumer that simply did not answer cost the publication a probe timeout
+   * before saying so.
+   *
+   * Publication is now a statement about what THIS SERVER can serve, which is
+   * the only thing publication can honestly be:
+   *
+   *  - the source snapshot is built, and every artifact is signed, hashed and
+   *    described (the builder refuses an unsigned or unhashable one);
+   *  - every artifact the manifest is about to name is STILL ON DISK at the
+   *    size publication recorded — the check below;
+   *  - the origin those URLs are built on is externally reachable whenever ANY
+   *    remote consumer is registered, online or not ({@link artifactOriginFailure}).
+   *
+   * The disk check is the route's own early guard, asked one step earlier. The
+   * route refuses a file whose size is not the published one and 404s a file
+   * that is gone; a manifest naming either is a release every machine would
+   * fail to download, and the cheapest place to find that out is here, before
+   * the URL is signed into the feed. Size rather than a re-hash on purpose: the
+   * digest was computed over these exact bytes minutes ago, and re-reading a
+   * quarter-gigabyte tarball per platform to publish is a cost this host cannot
+   * absorb — an equal-size mutation is still caught end to end by the daemon's
+   * digest and signature checks, where it must be caught anyway.
+   *
+   * Whether a particular machine can reach the address is delivery, and
+   * delivery belongs to the updater: an offline machine is deferred, and an
+   * online machine whose route fails gets `artifact-unreachable` naming itself.
+   * One machine's network is not a property of the release.
+   */
+  const artifactSize =
+    deps.artifactSize ??
+    (async (path: string) => {
+      try {
+        return (await stat(path)).size
+      } catch {
+        return undefined
+      }
+    })
+  let provenArtifactKey: string | undefined
+  let proofInFlight: { key: string; proof: Promise<void> } | undefined
+
+  const proveLocalArtifactRoutes = async (bundle: BuiltDevBundle): Promise<void> => {
+    // Throws the origin refusal when a remote consumer is registered and this
+    // server has no address it could hand one. Being ONLINE is not part of the
+    // question — a machine registered today is a consumer tomorrow.
+    const origin = selectDevelopmentArtifactOrigin({
+      externalOrigin: artifactOrigin,
+      localOrigin: deps.localArtifactOrigin(),
+      hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
+    })
+    const routes = [
+      ...new Map(
+        bundle.artifacts.map((artifact) => [
+          developmentArtifactUrl(origin, bundle.version, deps.artifactToken, artifact.platform),
+          artifact,
+        ]),
+      ),
+    ].sort(([a], [b]) => a.localeCompare(b))
+    // KEYED ON THE BYTES, not only on the address. A rebuild at the same HEAD
+    // mints the same version and therefore the same URLs, so a key that named
+    // the addresses alone would let a re-packed bundle inherit the previous
+    // one's proof and publish unchecked.
+    const key = JSON.stringify(
+      routes.map(([url, artifact]) => [url, artifact.digest, artifact.size]),
+    )
+    if (provenArtifactKey === key) return
+    if (proofInFlight?.key === key) return proofInFlight.proof
+
+    const proof = (async () => {
+      for (const [url, artifact] of routes) {
+        const size = await artifactSize(artifact.path)
+        if (size === undefined) {
+          throw new DevBundleUnavailableError(
+            `development artifact ${artifact.path} is not on disk, so ${url} cannot be served`,
+            `The ${artifact.platform} update package is no longer on this server, so no release was published.`,
+          )
+        }
+        if (size !== artifact.size) {
+          throw new DevBundleUnavailableError(
+            `development artifact ${artifact.path} is ${size} bytes, not the published ${artifact.size}, so ${url} would be refused`,
+            `The ${artifact.platform} update package on this server no longer matches what was signed, so no release was published.`,
+          )
+        }
+      }
+      provenArtifactKey = key
+    })()
+    proofInFlight = { key, proof }
+    try {
+      await proof
+    } finally {
+      if (proofInFlight?.proof === proof) proofInFlight = undefined
+    }
   }
 
   /**
-   * Push the publisher's readiness into the shared read model.
+   * PUBLISH, THEN HAND OFF (spec §6 step 4).
    *
-   * A dev identity (web digest, no tarball) is still a target. Retracting it
-   * because the headless compile failed hides Update — operators then have no
-   * button to rebuild yesterday's website.
+   * Writing the manifest into the served feed IS the publication; nudging the
+   * refresh is what makes this process notice it in seconds rather than at
+   * tomorrow's tick. The publisher and the updater share one process on a source
+   * host, which is why this is an in-process call and not a second protocol —
+   * and why withdrawal and queued `nextTargets` stay internal events too
+   * (dispositions 19 and 20).
+   *
+   * The nudge goes through the SAME `refreshTarget` the periodic tick calls, so
+   * the two coalesce and the operation-active skip rule applies to both: a
+   * publish landing mid-operation is queued as `nextTarget`, never spliced into
+   * a running wave.
    */
-  const publishReadiness = async (): Promise<void> => {
-    if (!publisher) return
-    const identity = await publisher.target()
-    if (identity) {
-      setSharedTarget(identity)
-      publishedReason = undefined
-      return
-    }
-    if (!deps.setTargetUnavailable) return
-    const readiness = await observeBundleReadiness()
-    if (!readiness) return
-    const reason =
-      readiness.state === 'failed'
-        ? readiness.publicReason
-        : readiness.state === 'preparing'
-          ? // Name the step actually running. The website is built first and takes
-            // the best part of a minute, so "building the bundle" would be wrong
-            // for most of the wait and leaves an operator watching the wrong log.
-            webBuilder?.state().state === 'building'
-            ? `Rebuilding the website for dev+${readiness.headSha}.`
-            : `Building the development bundle for dev+${readiness.headSha}.`
-          : 'No development bundle has been built for the current commit yet.'
-    if (reason === publishedReason) return
-    publishedReason = reason
-    deps.setTargetUnavailable(reason)
-  }
-
-  const publishTarget = async (): Promise<UpdateTarget | undefined> => {
+  const publishToFeed = async (): Promise<boolean> => {
+    if (!publisher) return false
+    const candidate = publisher.current()
+    if (!candidate) return false
     try {
-      const target = await publisher?.target()
-      if (target) {
-        setSharedTarget(target)
-        publishedReason = undefined
-      } else {
-        await publishReadiness()
-      }
-      unavailableDiagnostic = undefined
-      publishFailureDetail = undefined
-      return target
+      await proveLocalArtifactRoutes(candidate)
     } catch (error) {
-      // A TYPED refusal reaches the read model; an untyped one is a diagnostic
-      // whose text may name paths, and stays in the log (POD-2227).
       if (error instanceof DevBundleUnavailableError) {
         recordPublishFailure(error)
-        return undefined
+        deps.setTargetUnavailable?.(error.publicReason)
       }
-      const diagnostic = error instanceof Error ? error.message : String(error)
-      if (diagnostic !== unavailableDiagnostic) {
-        log.warn('development bundle target unavailable', { diagnostic })
-        unavailableDiagnostic = diagnostic
-      }
-      return undefined
+      throw error
     }
+    const published = await publisher.publishFeed()
+    if (published) await deps.refreshDevTarget?.()
+    return published
   }
+
+  const approval = createReleaseApprovalFlow({
+    proposal: async () => publisher?.proposal(),
+    release: async (approved) =>
+      timeReleaseBuildTask(
+        {
+          phase: 'approval-to-publish',
+          task: 'approved-development-release',
+          channel: 'dev',
+          version: approved.version,
+          sourceSha: approved.headSha,
+        },
+        async () => {
+          if (!publisher) throw new Error('This server does not publish development releases.')
+          const blocked = artifactOriginFailure()
+          if (blocked) throw blocked
+          publishFailureDetail = undefined
+          headSha?.invalidate()
+          try {
+            await publisher.requestBuild(true, approved)
+          } catch (error) {
+            if (error instanceof DevBundleProposalMovedError) {
+              throw new ReleaseApprovalRefusal(error.publicReason)
+            }
+            throw error
+          }
+          await observeBundleReadiness()
+          publishedVersion = publisher.current()?.version
+          if (!(await publishToFeed())) {
+            throw new Error('the development feed manifest was not published')
+          }
+          unavailableDiagnostic = undefined
+          publishFailureDetail = undefined
+        },
+        releaseTiming,
+      ),
+    failureLogs: (error) =>
+      publisher?.unavailable() ?? (error instanceof Error ? error.message : String(error)),
+  })
 
   return {
     enabled: publisher !== undefined,
@@ -401,7 +609,16 @@ export function wireDevBundlePublisher(deps: {
         ...(failureDetail ? { failureDetail } : {}),
       }
     },
-    publishTarget,
+    proposal: approval.read,
+    approveRelease: async (approvedBy, expected) => {
+      if (!publisher) {
+        throw new DevBundleUnavailableError(
+          'development release publishing is unavailable on an installed server',
+          'This server does not publish development releases.',
+        )
+      }
+      return approval.approve(approvedBy, expected)
+    },
     requestBuild: () => {
       if (!publisher) return Promise.resolve()
       // Refuse before the compile, with the remedy in the sentence, rather than
@@ -422,14 +639,18 @@ export function wireDevBundlePublisher(deps: {
       return publisher.requestBuild(true).then(
         async (built) => {
           await observeBundleReadiness()
-          await publishTarget()
+          publishedVersion = built?.version
+          // The order is the handoff: write the manifest into the feed, then
+          // ask the resolver to pull it. This legacy internal entry point is
+          // intentionally not composed into update operations any more; only
+          // proposal approval calls the release path above.
+          await publishToFeed()
           return built
         },
         async (error: unknown) => {
           await observeBundleReadiness()
           // The failure must reach the read model, or a stale target stays
           // published while the only trace of the problem is this log line.
-          await publishReadiness()
           // Log each distinct refusal once. This full text — offending paths
           // included — is the CONSOLE half; only
           // `readiness().publicReason` travels to a client.
@@ -443,12 +664,60 @@ export function wireDevBundlePublisher(deps: {
         },
       )
     },
+    channelFeed: () => {
+      if (!publisher) return undefined
+      let origin: string
+      try {
+        origin = selectDevelopmentArtifactOrigin({
+          externalOrigin: artifactOrigin,
+          localOrigin: deps.localArtifactOrigin(),
+          hasRemoteUpdateConsumers: deps.hasRemoteUpdateConsumers(),
+        })
+      } catch {
+        // The refusal is already reported through `requestBuild`/`preparation`;
+        // here it just means there is no feed address to hand the resolver.
+        return undefined
+      }
+      const base = `${origin}${DEV_FEED_ROUTE}/`
+      return {
+        manifestUrl: `${base}${DEV_FEED_MANIFEST}`,
+        // The fence is this server's own feed prefix, so a manifest that named
+        // a GitHub URL — or any other origin — is refused before a byte moves.
+        artifactBase: base,
+        // Signed by THIS instance's key, which every paired daemon pinned.
+        trust: 'instance',
+        headers: { authorization: `Bearer ${deps.artifactToken}` },
+      }
+    },
     registerRoute: (app) => {
       if (!publisher) return
-      registerDevArtifactRoute(app, {
-        current: () => publisher.current(),
-        authenticate: (request) =>
-          new URL(request.url).searchParams.get('token') === deps.artifactToken,
+      registerDevFeedRoutes(app, {
+        publishedArtifact: (version, platform) => publisher.publishedArtifact(version, platform),
+        probeArtifact: (version, platform) => {
+          const candidate = publisher.current()
+          if (!candidate || candidate.version !== version) return null
+          if (platform === undefined) return candidate.artifacts[0] ?? null
+          return candidate.artifacts.find((artifact) => artifact.platform === platform) ?? null
+        },
+        manifestPath: () => publisher.feedManifestPath(),
+        desktopManifestPath: () => publisher.desktopManifestPath(),
+        /**
+         * ONE CREDENTIAL, TWO WAYS TO PRESENT IT.
+         *
+         * A daemon fetches an artifact URL taken straight out of the manifest,
+         * so its token has to live in the query string — it has no place to put
+         * a header. The RESOLVER is ordinary code making an ordinary fetch, so
+         * it sends the header, which keeps the credential out of request logs
+         * and out of the manifest URL an operator might paste somewhere.
+         *
+         * Both are the same token and the same authority; accepting only one
+         * would mean minting a second credential for no reason.
+         */
+        authenticate: (request) => {
+          const bearer = request.headers.get('authorization')
+          if (bearer === `Bearer ${deps.artifactToken}`) return true
+          return new URL(request.url).searchParams.get('token') === deps.artifactToken
+        },
       })
     },
   }

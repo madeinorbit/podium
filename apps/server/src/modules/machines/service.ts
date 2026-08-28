@@ -1,35 +1,45 @@
-import { type Principal } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import {
-  type AgentKind,
   type AccountId,
+  type AgentKind,
   agentCapabilityRejection,
   agentProbeTimeoutDescription,
   asAccountId,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
+  asAccountId,
   asMachineId,
   asUserId,
+  HOST_REPOS,
   type Inventory,
+  type MachineComponent,
   type MachineId,
+  type MachineRejection,
+  type MachineRequirement,
   type MachineUseDecision,
   type MachineWire,
+  machineRejection,
+  machineRejectionMessage,
   resolveMachineChannel,
+  structuralEligibility,
   type UpdateChannel,
   type UserId,
 } from '@podium/model'
 import type {
   DaemonHandshake,
+  DaemonPtyInputBatch,
   LiveServerMessage,
   MachineVerb,
   PeerBuild,
   ServerMessage,
+  UpdateKeyRotation,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
+import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
@@ -47,6 +57,29 @@ export { sha256 } from './enrollment'
  * this service stays principal-free and only carries the answer.
  */
 export type MachineUseResolver = (machineId: MachineId) => MachineUseDecision
+
+type PendingDaemonDelivery =
+  | { readonly kind: 'control'; readonly message: ControlMessage }
+  | { readonly kind: 'input'; readonly input: DaemonPtyInputBatch }
+
+const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
+  if (typeof transport === 'function') transport(message)
+  else transport.send(message)
+}
+
+const sendPtyInput = (transport: DaemonControlPeer, input: DaemonPtyInputBatch): void => {
+  if (typeof transport !== 'function') {
+    transport.sendInput(input)
+    return
+  }
+  transport({
+    type: 'input',
+    sessionId: input.sessionId,
+    inputOrigin: input.inputOrigin,
+    data: Buffer.from(input.bytes).toString('base64'),
+    ...(input.attribution ? { attribution: input.attribution } : {}),
+  })
+}
 
 /**
  * One principal's OWNERSHIP answer, per machine (POD-1495) — "are you this
@@ -124,6 +157,8 @@ export interface MachinesDeps {
   instanceId: string
   /** Public half of the server update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
+  /** Old-key-signed path published with the current update key. */
+  updateKeyRotations?: () => readonly UpdateKeyRotation[]
   /**
    * The version in the server's injected update target. Absent means this
    * deployment has no target descriptor yet, so every machine is unreported.
@@ -183,7 +218,12 @@ export class MachinesService {
   // machineId -> control-message sender for that daemon. Replaces the single
   // socket: each connected machine has its own send, so a session's control
   // messages route to the daemon that actually runs it.
-  private readonly daemons = new Map<string, Send<ControlMessage>>()
+  private readonly daemons = new Map<string, DaemonControlPeer>()
+  /** One local parent-backed update participant; separate from agent daemon routing. */
+  private readonly updateParticipants = new Map<
+    string,
+    Send<Extract<ControlMessage, { type: 'updateGrant' }>>
+  >()
   /** Online daemon connections whose current-generation inventory has not arrived yet. */
   private readonly inventoryPending = new Set<string>()
   private readonly inventoryWaiters = new Map<string, Set<() => void>>()
@@ -196,7 +236,7 @@ export class MachinesService {
   // Nothing here is waiting for an answer — a queued message may be a fire-and-
   // forget spawn — and it is the layer BELOW the broker, which sends through
   // `toMachine` and never learns whether a message went out or was parked.
-  private readonly pendingByMachine = new Map<string, ControlMessage[]>()
+  private readonly pendingByMachine = new Map<string, PendingDaemonDelivery[]>()
   /**
    * In-memory mirror of the machines table. listSessions() resolves machineName
    * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
@@ -251,8 +291,8 @@ export class MachinesService {
 
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
-  attach(machineId: MachineId, send: Send<ControlMessage>): void {
-    this.daemons.set(machineId, send)
+  attach(machineId: MachineId, transport: DaemonControlPeer): void {
+    this.daemons.set(machineId, transport)
     // A persisted inventory describes the PREVIOUS connection. Until this daemon
     // reports, treating an old `installed: false` as current turns startup into a
     // confident false negative.
@@ -260,18 +300,65 @@ export class MachinesService {
     // The daemon may have (re-)registered/touched its machine row on the way in
     // (pair/hello, or a test upserting directly before attaching) — drop the cache.
     this.invalidateMachineCache()
+    // A DAEMON JUST ATTACHED HERE (POD-2700), so this machine durably runs one —
+    // the structural fact §1.2 asks for, recorded at the same moment the socket
+    // fact is. This is the one place every enrolment path converges on (pair and
+    // hello both end here), which is why it is stamped here rather than in the
+    // handshake, where a second path could be added without one.
+    this.recordComponent(machineId, 'daemon')
+  }
+
+  /**
+   * Record that a Podium component durably runs on a machine (POD-2700).
+   *
+   * ADDITIVE and idempotent — see `MachinesRepository.addMachineComponent` for
+   * why. The cheap-path guard matters: this runs on EVERY daemon attach, and
+   * without it a reconnect storm would broadcast the whole fleet projection once
+   * per socket for a fact that did not change.
+   */
+  recordComponent(machineId: MachineId, component: MachineComponent): void {
+    if (!this.deps.store.machines.addMachineComponent(machineId, component)) return
+    this.invalidateMachineCache()
+    this.broadcastMachines()
+  }
+
+  /** Register the parent-backed update participant for this host. A daemon socket may
+   * coexist for sessions, but update grants always take this one local path. */
+  attachUpdateParticipant(
+    machineId: MachineId,
+    send: Send<Extract<ControlMessage, { type: 'updateGrant' }>>,
+  ): void {
+    const existing = this.updateParticipants.get(machineId)
+    if (existing && existing !== send) {
+      throw new Error("machine '" + machineId + "' already has an update participant")
+    }
+    this.updateParticipants.set(machineId, send)
+    this.invalidateMachineCache()
+  }
+
+  detachUpdateParticipant(
+    machineId: MachineId,
+    send?: Send<Extract<ControlMessage, { type: 'updateGrant' }>>,
+  ): boolean {
+    if (send !== undefined && this.updateParticipants.get(machineId) !== send) return false
+    const removed = this.updateParticipants.delete(machineId)
+    if (removed) this.invalidateMachineCache()
+    return removed
   }
 
   /** Flush control messages buffered while this machine was offline (e.g. a boot
    *  session's spawn produced before the host daemon's ws connected). Every queue is
    *  keyed by a real machine id, so there is nothing to carry over on attach. */
   flushQueued(machineId: MachineId): void {
-    const send = this.daemons.get(machineId)
-    if (!send) return
+    const transport = this.daemons.get(machineId)
+    if (!transport) return
     const pending = this.pendingByMachine.get(machineId)
     if (pending && pending.length > 0) {
       this.pendingByMachine.delete(machineId)
-      for (const m of pending) send(m)
+      for (const delivery of pending) {
+        if (delivery.kind === 'control') sendControl(transport, delivery.message)
+        else sendPtyInput(transport, delivery.input)
+      }
     }
   }
 
@@ -286,8 +373,8 @@ export class MachinesService {
    *  the 35s "no daemon answered" timeout.
    *
    *  Returns false when the closing socket is already superseded (nothing to do). */
-  detach(machineId: MachineId, send?: Send<ControlMessage>): boolean {
-    if (send !== undefined && this.daemons.get(machineId) !== send) return false
+  detach(machineId: MachineId, transport?: DaemonControlPeer): boolean {
+    if (transport !== undefined && this.daemons.get(machineId) !== transport) return false
     this.daemons.delete(machineId)
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
@@ -330,14 +417,36 @@ export class MachinesService {
   /** Route a control message to the daemon that owns `machineId`; queue it if that
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
-    const send = this.daemons.get(machineId)
-    if (send) {
-      send(msg)
+    if (msg.type === 'updateGrant') {
+      const participant = this.updateParticipants.get(machineId)
+      if (participant) {
+        participant(msg)
+        return
+      }
+    }
+    const transport = this.daemons.get(machineId)
+    if (transport) {
+      sendControl(transport, msg)
       return
     }
     const q = this.pendingByMachine.get(machineId)
-    if (q) q.push(msg)
-    else this.pendingByMachine.set(machineId, [msg])
+    const delivery = { kind: 'control' as const, message: msg }
+    if (q) q.push(delivery)
+    else this.pendingByMachine.set(machineId, [delivery])
+  }
+
+  /** Route canonical PTY bytes without re-encoding on a capable daemon transport. */
+  readonly toPtyInput = (machineId: MachineId, input: DaemonPtyInputBatch): void => {
+    if (input.bytes.byteLength === 0) return
+    const transport = this.daemons.get(machineId)
+    if (transport) {
+      sendPtyInput(transport, input)
+      return
+    }
+    const q = this.pendingByMachine.get(machineId)
+    const delivery = { kind: 'input' as const, input }
+    if (q) q.push(delivery)
+    else this.pendingByMachine.set(machineId, [delivery])
   }
 
   // ---- machine admin + daemon pairing/auth ----
@@ -455,7 +564,19 @@ export class MachinesService {
    */
   defaultMachine(): MachineId {
     const online = this.onlineMachineIds()
-    return online[0] ?? this.deps.hostMachineId
+    if (online[0] !== undefined) return online[0]
+    // NOTHING IS ONLINE. The old answer was always this host — and on a
+    // server-only coordinator that is a machine which can never do the work,
+    // handed out as a default (POD-2700 §2.4). Prefer a machine that DURABLY
+    // runs a daemon: it is offline, so the request queues either way, but it
+    // queues under an id whose daemon can actually flush it, and every caller
+    // that checks capability before routing now gets a truthful answer.
+    //
+    // The host stays the last resort rather than a refusal, because the
+    // boot-before-daemon case is real and must keep queueing: at boot this
+    // host's own daemon is precisely the one about to attach.
+    const durable = this.machineRecords().find((m) => m.components?.includes('daemon'))
+    return durable?.id ?? this.deps.hostMachineId
   }
 
   /**
@@ -540,6 +661,8 @@ export class MachinesService {
           code: 'FORBIDDEN',
           message: `you do not have access to run agents on machine '${machine.name}'`,
         })
+      case 'no-daemon':
+        throw new Error(machineRejectionMessage(machine.name, 'no-daemon', `run ${agentKind}`))
       case 'offline':
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
@@ -568,6 +691,81 @@ export class MachinesService {
   }
 
   /**
+   * THE ENFORCEMENT SEAM (POD-2700 §2.5): refuse an action on a machine that
+   * cannot perform it, at the ACTION, not only in the picker that offered it.
+   *
+   * A filtered dropdown is the ergonomic half. This is the safety half — the
+   * only one that also covers a stale tab, a CLI call, a raw tRPC request and
+   * the next surface somebody adds without reading this file. It answers with
+   * the SAME predicate the picker used (`machineRejection` in `@podium/model`)
+   * and the same sentence (`machineRejectionMessage`), so a refusal a user sees
+   * server-side matches the reason the UI would have given.
+   *
+   * FAILS CLOSED on an unknown machine, exactly as {@link requireAgent} does:
+   * being unable to evaluate a machine is not permission to use it.
+   *
+   * `action` is the verb phrase for the refusal — "host repositories".
+   */
+  requireCapability(
+    machineId: MachineId,
+    requirement: MachineRequirement,
+    action: string,
+    use?: MachineUseResolver,
+  ): void {
+    const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
+    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    const rejection = machineRejection(machine, requirement)
+    if (rejection === undefined) return
+    throw new Error(machineRejectionMessage(machine.name, rejection, action))
+  }
+
+  /** The verdict {@link requireCapability} would throw on, without throwing —
+   *  for callers that report rather than refuse (fleet panels, `machine show`). */
+  capabilityRejection(
+    machineId: MachineId,
+    requirement: MachineRequirement,
+    use?: MachineUseResolver,
+  ): MachineRejection | undefined {
+    const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
+    if (!machine) return 'no-daemon'
+    return machineRejection(machine, requirement)
+  }
+
+  /**
+   * Refuse to REGISTER a repository onto a machine that can never hold one
+   * (POD-2700) — the guard behind `repos.add` / `repos.addMany` / scan / clone.
+   *
+   * Distinct from {@link requireMachineForRepo} below, and the gap between them
+   * is the reported bug: that one guards operations on a repo the machine
+   * ALREADY has, so nothing guarded putting a repo there in the first place, and
+   * the repo screen happily offered the server-only coordinator.
+   */
+  requireRepoHost(machineId: MachineId, use?: MachineUseResolver): void {
+    this.requireCapability(machineId, HOST_REPOS, 'host repositories', use)
+  }
+
+  /**
+   * The DURABLE half of {@link requireRepoHost}, for the one act that does not
+   * touch the daemon: writing the `repos` row.
+   *
+   * Registering a path is a server-local database write, so refusing it because
+   * the machine happens to be asleep would break legitimate flows (a CLI
+   * registering a repo on a laptop that is closed, and every test that adds a
+   * repo without attaching a socket) for no safety gained. What must NEVER
+   * succeed is registering a repo onto a machine that can never hold one — the
+   * reported bug — and that is exactly the structural axis, which is what this
+   * checks. Everything that then ACTS on the repo still goes through the live
+   * check in {@link requireMachineForRepo}.
+   */
+  requireRepoHostStructure(machineId: MachineId): void {
+    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    const rejection = structuralEligibility(machine, HOST_REPOS)
+    if (rejection === undefined) return
+    throw new Error(machineRejectionMessage(machine.name, rejection, 'host repositories'))
+  }
+
+  /**
    * Guard an explicit machine pin BEFORE any work is routed to it. Without this,
    * an offline machine silently queues the request until the 35s daemonRequest
    * timeout ("no daemon answered…") — and the queued op may still run when the
@@ -576,6 +774,16 @@ export class MachinesService {
    */
   requireMachineForRepo(machineId: MachineId, repoPath: string): void {
     const name = this.machineName(machineId)
+    // STRUCTURAL FIRST (POD-2700 §1.4). A machine that runs no daemon is not
+    // "offline": telling its user to bring the daemon online is advice that can
+    // never be taken, and following it is what left the operator stuck. The
+    // ordering — unauthorized, then structural, then live — is the canonical one
+    // and it lives in the shared predicate; here it is spelled out because this
+    // function predates the seam and guards the hottest path.
+    const machine = this.listMachines().find((candidate) => candidate.id === machineId)
+    if (machine && structuralEligibility(machine, HOST_REPOS) === 'no-daemon') {
+      throw new Error(machineRejectionMessage(name, 'no-daemon', 'host repositories'))
+    }
     if (!this.daemons.has(machineId)) {
       throw new Error(
         `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
@@ -604,26 +812,12 @@ export class MachinesService {
    * to attach and drain the queue.
    */
   pickMachineForRepo(_originUrl: string | undefined, cwd: string): MachineId {
-    return this.machineHoldingRepo(cwd) ?? this.defaultMachine()
-  }
-
-  /**
-   * The online machine that actually HAS this path registered, or undefined.
-   *
-   * Split out of `pickMachineForRepo` because its callers need the two answers
-   * separated. That method must always name a machine, so it ends in
-   * `defaultMachine()` — the first online daemon, which for an UNREGISTERED path is
-   * an arbitrary one. Choosing arbitrarily is right for spawning a session, which
-   * only needs somewhere to run, and wrong for creating a worktree, which needs the
-   * repository. Callers that must fall back to the host ask this instead and say so
-   * themselves (POD-2651).
-   */
-  machineHoldingRepo(cwd: string): MachineId | undefined {
-    return this.onlineMachineIds().find((id) =>
+    const byRepo = this.onlineMachineIds().find((id) =>
       this.deps.store.repos
         .listRepos(id)
         .some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
     )
+    return byRepo ?? this.defaultMachine()
   }
 
   /**
@@ -677,7 +871,7 @@ export class MachinesService {
         id: m.id,
         name: m.name,
         hostname: m.hostname,
-        online: this.daemons.has(m.id),
+        online: this.daemons.has(m.id) || this.updateParticipants.has(m.id),
         lastSeenAt: m.lastSeenAt,
         updateChannel: resolveMachineChannel(m.updateChannelOverride, this.fleetChannel()),
         updateChannelOverride: m.updateChannelOverride,
@@ -691,6 +885,10 @@ export class MachinesService {
         // ordinary machines and a supervised one is unmistakable (POD-2099).
         ...(m.supervised ? { supervised: true } : {}),
         buildReportedAt: m.buildReportedAt,
+        // POD-2700: the durable structural axis, `SEE`-visible beside `online`.
+        // Omitted when the row has NOT been evaluated, which is how a reader
+        // tells "we have not recorded this" from "[] — evaluated, runs nothing".
+        ...(m.components !== null ? { components: m.components } : {}),
         versionState: deriveVersionState(m.appVersion, target),
         ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
         // A durable snapshot remains useful while OFFLINE, but it is not evidence
@@ -785,14 +983,11 @@ export class MachinesService {
     this.broadcastMachines()
   }
 
-  /** Persist the selected source independently for every Podium-managed machine.
+  /** Persist the selected source independently for every joined machine.
    *  `null` removes the pin and hands the machine back to the fleet default. */
   setUpdateChannel(id: MachineId, channel: UpdateChannel | null): void {
     const machine = this.deps.store.machines.getMachine(id)
     if (!machine) throw new Error(`unknown machine '${id}'`)
-    if (!machine.podiumManaged) {
-      throw new Error(`machine '${machine.name}' is shared and does not accept managed updates`)
-    }
     this.deps.store.machines.setUpdateChannel(id, channel)
     this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
@@ -876,6 +1071,7 @@ export class MachinesService {
     this.deps.store.machines.deleteMachine(id)
     this.invalidateMachineCache()
     this.daemons.delete(id)
+    this.updateParticipants.delete(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
     this.broadcastMachines()
@@ -918,6 +1114,15 @@ export class MachinesService {
       ownerUserId: deviceGradeSoleOwner(),
     })
     this.invalidateMachineCache()
+    // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
+    // for this — no machine self-reports being the server — and stamping it at
+    // boot is what finally makes a server-only host legible as such: a row with
+    // `server` and no `daemon` is structurally incapable of hosting a repo, which
+    // reads as "runs the Podium server only" instead of as a mystery row that is
+    // permanently offline. On the ordinary single-box install the same row also
+    // gains `daemon` when the local daemon attaches; the two writers are additive
+    // precisely so neither erases the other.
+    this.recordComponent(id, 'server')
     // The row's NAME is derived onto every session's `machineName`, and this write is
     // where it first becomes known (before it, the projection falls back to the raw
     // id). Same seam a rename uses — the derived field has one way to be refreshed,

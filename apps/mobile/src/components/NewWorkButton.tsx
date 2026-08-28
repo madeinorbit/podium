@@ -184,7 +184,11 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     if (explicit !== undefined)
       return usable.some((machine) => machine.id === explicit) ? explicit : null
     const { machineId: resolved, refusal } = resolveSpawnTargetMachine(repo, sessions, machineViews)
-    return refusal === 'unauthorized' ? null : resolved
+    // `incapable` STOPS the spawn for the same reason `unauthorized` does
+    // (POD-2700): falling through to the repo's main checkout would silently
+    // retarget the work onto a machine the operator did not choose, and here the
+    // one they DID choose cannot run it at all.
+    return refusal === 'unauthorized' || refusal === 'incapable' ? null : resolved
   }
 
   const close = () => {
@@ -409,7 +413,14 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                   key={view.machine.id}
                   accessibilityRole="button"
                   accessibilityLabel={view.machine.name}
+                  // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
+                  // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
+                  // so the web build announced no state at all; and `aria-selected` is only
+                  // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
+                  // browser-visible way to say a button is the chosen one is `aria-pressed`.
+                  // React Native still reads `accessibilityState` on device. [POD-1664]
                   accessibilityState={{ disabled: !ok, selected }}
+                  aria-pressed={selected}
                   disabled={!ok}
                   scaleTo={0.99}
                   onPress={() => pickMachine(view.machine.id)}
@@ -429,7 +440,15 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                     </Text>
                     {ok ? null : (
                       <Text style={styles.rowSub}>
-                        {view.availability === 'unauthorized' ? 'No access' : 'Offline'}
+                        {view.availability === 'unauthorized'
+                          ? 'No access'
+                          : view.availability === 'incapable'
+                            ? // POD-2700. A THIRD word, because a machine that
+                              // runs no daemon is not asleep — "Offline" here
+                              // asked the operator to wait for something that
+                              // will never arrive.
+                              'Runs no Podium daemon'
+                            : 'Offline'}
                       </Text>
                     )}
                   </View>
@@ -453,6 +472,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                     accessibilityRole="button"
                     accessibilityLabel={repo.name}
                     accessibilityState={{ selected: repo.path === selectedRepo?.path }}
+                    aria-pressed={repo.path === selectedRepo?.path}
                     onPress={() => {
                       setRepoPick(repo.path)
                       setStep('launch')
@@ -605,6 +625,7 @@ function OptionList({
                 accessibilityRole="button"
                 accessibilityLabel={option.group ? `${option.group} ${option.label}` : option.label}
                 accessibilityState={{ selected: on }}
+                aria-pressed={on}
                 onPress={() => onPick(option.value)}
                 scaleTo={0.99}
                 style={({ pressed }) => [

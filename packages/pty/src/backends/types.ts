@@ -18,6 +18,6 @@ export interface PtyProcess {
 }
 
 export interface PtyBackend {
-  readonly name: 'node-pty' | 'bun-terminal'
+  readonly name: 'bun-terminal'
   spawn(opts: PtySpawnOptions): PtyProcess
 }

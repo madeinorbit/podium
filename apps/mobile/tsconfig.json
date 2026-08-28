@@ -4,7 +4,9 @@
     "strict": true,
     "moduleResolution": "Bundler",
     "customConditions": ["@podium/source"],
+    "types": ["node", "chai", "react", "react-dom"],
     "moduleSuffixes": [".web", ".native", ""],
+    "preserveSymlinks": true,
     "skipLibCheck": true
   },
   "include": ["app", "src", "expo-env.d.ts"]

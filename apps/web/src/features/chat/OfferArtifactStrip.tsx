@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, SessionMeta, SessionOffer } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
@@ -29,11 +30,14 @@ export function OfferArtifactStrip({
    *  applied when the strip renders — an empty strip must not leave margins. */
   className?: string
 }): JSX.Element | null {
-  const { httpOrigin, openArtifact, openFileInWorktree } = useStoreSelector((s) => ({
-    httpOrigin: s.httpOrigin,
-    openArtifact: s.openArtifact,
-    openFileInWorktree: s.openFileInWorktree,
-  }))
+  const { httpOrigin, openArtifact, openFileInWorktree } = useStoreSelector(
+    (s) => ({
+      httpOrigin: s.httpOrigin,
+      openArtifact: s.openArtifact,
+      openFileInWorktree: s.openFileInWorktree,
+    }),
+    shallowEqual,
+  )
   const issues = useReplicaIssues()
   const [lightbox, setLightbox] = useState<{
     kind: 'image' | 'video'

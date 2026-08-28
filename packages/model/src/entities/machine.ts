@@ -203,6 +203,23 @@ export const HostMemoryWire = z.object({
 export type HostMemoryWire = z.infer<typeof HostMemoryWire>
 
 /**
+ * `SEE` — one filesystem's capacity sample, `df`'s three columns and the path
+ * they were read from. Used and available are BOTH carried because they do not
+ * add up to the total: a Linux filesystem keeps a root-only reserve (5% by
+ * default) that is neither in use nor available to the operator, and folding it
+ * into either number would make the panel disagree with `df` on the same box.
+ * The percentage is used ÷ (used + available), which is `df`'s Use% exactly.
+ */
+export const HostDiskWire = z.object({
+  /** The directory sampled — the daemon host's home, where worktrees live. */
+  path: z.string(),
+  totalBytes: byteCount,
+  usedBytes: byteCount,
+  availableBytes: byteCount,
+})
+export type HostDiskWire = z.infer<typeof HostDiskWire>
+
+/**
  * `SEE` — pure health/liveness. Kernel load averages plus logical core count so
  * clients and the server can form load-per-core without a second sample.
  * Optional on the metrics frame: a daemon predating the field must keep parsing.
@@ -292,6 +309,38 @@ export const MachineUseDecision = z.enum(['granted', 'denied'])
 export type MachineUseDecision = z.infer<typeof MachineUseDecision>
 
 /**
+ * WHICH PODIUM COMPONENTS RUN ON A MACHINE — the DURABLE structural fact
+ * (POD-2700, `docs/machine-capability-filtering.md` §1.2).
+ *
+ * This is the third axis, and the one that was missing. `online` is a SOCKET
+ * fact with a lifetime of milliseconds; `use` is a per-principal grant; this is
+ * an install fact that changes only when somebody installs or removes software.
+ * Keeping it separate is the whole point: a machine that is merely OFFLINE might
+ * do the job in five minutes, while a machine that runs no daemon can NEVER do
+ * it. Collapsing them into one `online: false` is what pinned the repo screen to
+ * the server-only coordinator and then dead-ended every action on it.
+ *
+ *  - `daemon` — a Podium daemon is enrolled here. The master capability for
+ *    everything host-shaped: browsing the filesystem, hosting repos and
+ *    worktrees, running agent processes and PTYs, reporting metrics.
+ *  - `server` — the coordinator runs here. Needed by the server-transfer
+ *    surface; more importantly its presence WITHOUT `daemon` is what makes a
+ *    coordinator row honestly incapable rather than mysteriously offline.
+ *
+ * Nothing else earns a component. Harness-level capability (is claude-code
+ * installed, is it logged in) stays in {@link Inventory}; update delivery stays
+ * in `deliveryCaps`, deliberately NOT converged with this (§1.5: an EMPTY
+ * delivery cap list means *permit* on the server, while a missing component must
+ * mean *refuse* everywhere — one vocabulary cannot carry both readings).
+ *
+ * There is deliberately no operator-maintained "server-only" toggle. The absence
+ * of an enrolled daemon IS the declaration, and installing a daemon later flips
+ * the fact through the ordinary handshake with no setting to un-stick.
+ */
+export const MachineComponent = z.enum(['daemon', 'server'])
+export type MachineComponent = z.infer<typeof MachineComponent>
+
+/**
  * The update authority selected for one managed machine.
  *
  * `dev` is the coordinating source server's exact signed git/bundle target.
@@ -372,6 +421,25 @@ export const MachineWire = z.object({
   /** Whether this machine was paired as a Podium-managed host. */ podiumManaged: z
     .boolean()
     .optional(),
+  /**
+   * `SEE` — the durable components installed here ({@link MachineComponent}).
+   *
+   * Deliberately in the `see` slice, on the same shelf as `online`: "that box
+   * runs a daemon" is an existence/health fact of exactly the kind §3.1.4 M1
+   * puts inside `see`, and every picker needs it in order not to OFFER a machine
+   * that can never perform the act. It says nothing about what is checked out or
+   * who is logged in — that is `inventory`, and it stays `USE`.
+   *
+   * ABSENT MEANS NOT RECORDED, the same closed-but-not-refusing reading as
+   * `use`: a producer that predates the field has not answered the question, so
+   * a reader must not conclude "incapable" from silence and blank the fleet.
+   * The server always supplies it, so the guards downstream are armed in
+   * practice — see `structuralRejection` in `predicates/machine-selection.ts`,
+   * which documents the trade in full. An EMPTY array is different and is a real
+   * answer: this row has been evaluated and runs nothing yet (a machine
+   * mid-pairing whose daemon has never connected).
+   */
+  components: z.array(MachineComponent).optional(),
   /** `USE` — see {@link Inventory}. */
   inventory: Inventory.optional(),
   /**
@@ -508,6 +576,69 @@ export const MachineQuotaWire = z.object({
   agents: z.array(AgentQuotaWire),
 })
 export type MachineQuotaWire = z.infer<typeof MachineQuotaWire>
+
+// ── Quota HISTORY. The wires above are the live reading; these are the record of
+// what each window came to before it reset. Nothing upstream keeps that record —
+// no provider reports a window id, a start, or a prior period — so it exists only
+// because this server samples and folds. [spec:SP-0610]
+
+/**
+ * The identity a quota window belongs to. Rate limits are per-ACCOUNT, not per
+ * machine: two machines signed into one account share a pool, and keying history
+ * by machine would double-count it. Falls back to the machine when the provider
+ * reports no email, so two machines we cannot prove share an account are never
+ * merged.
+ */
+export function quotaAccountKey(
+  agent: AgentKind,
+  email: string | undefined,
+  machineId: string,
+): string {
+  return email ? `${agent}::${email}` : `${agent}::machine:${machineId}`
+}
+
+/**
+ * `USE` — one concrete run of a rolling quota window, from its start to the reset
+ * that ended it. This is the unit the history chart is made of: "how well did I
+ * use my quota" has exactly one honest answer per instance, `peakPercent`.
+ *
+ * PEAK, NOT LAST. The closing sample is always stale by up to one sampling
+ * interval, so a window still climbing when it rolled over would be understated
+ * by its final reading. The peak is stable against a missed last sample.
+ *
+ * NO PROVIDER REPORTS A WINDOW START. `startedAt` is derived as
+ * `resetsAt - windowMinutes`, and is absent when the provider reports no duration
+ * (`windowMinutes: 0`, a legitimate value meaning "unknown").
+ */
+export const QuotaWindowHistoryWire = z.object({
+  accountKey: z.string().min(1),
+  agent: AgentKind,
+  /** `session` · `weekly-all` · `weekly-scoped:model:fable` · `weekly` … */
+  windowKey: z.string().min(1),
+  label: z.string(),
+  scopeModel: z.string().optional(),
+  /** Plan tier at the time. A percentage of one pool is NOT comparable to a
+   *  percentage of another, so a change here segments the series. */
+  plan: z.string().optional(),
+  resetsAt: z.string(),
+  startedAt: z.string().optional(),
+  windowMinutes: z.number().int().nonnegative(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  firstPercent: z.number(),
+  peakPercent: z.number(),
+  lastPercent: z.number(),
+  sampleCount: z.number().int().nonnegative(),
+  /** True once `now` is past `resetsAt`: the window is over and its peak is final. */
+  closed: z.boolean(),
+  /** First seen more than one sampling interval after the window started, so its
+   *  early life was never watched and the peak may understate what was spent. */
+  partial: z.boolean(),
+  /** `live` — sampled by this server. `backfill` — recovered from harness files on
+   *  the daemon host, which only Codex and Grok write. */
+  source: z.enum(['live', 'backfill']),
+})
+export type QuotaWindowHistoryWire = z.infer<typeof QuotaWindowHistoryWire>
 
 // ---------------------------------------------------------------------------
 // Repos, worktrees and directory browsing (was messages/discovery.ts)

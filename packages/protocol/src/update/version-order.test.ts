@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { compareVersions, isProvablyNewer } from './version-order'
 
+const sortVersions = (versions: readonly string[]): string[] =>
+  [...versions].sort((a, b) => {
+    const order = compareVersions(a, b)
+    if (order === null) throw new Error(`test fixture should be orderable: ${a} vs ${b}`)
+    return order
+  })
+
+function permutations<T>(items: readonly T[]): T[][] {
+  if (items.length === 0) return [[]]
+  const result: T[][] = []
+  for (let i = 0; i < items.length; i++) {
+    const remainder = [...items.slice(0, i), ...items.slice(i + 1)]
+    for (const suffix of permutations(remainder)) result.push([items[i] as T, ...suffix])
+  }
+  return result
+}
+
 /**
  * The ordering moved here from `apps/cli/src/podium-update.ts` (POD-2221) so the
  * daemon's schema gate and `podium update` share ONE answer. Its own suite came
@@ -26,6 +43,21 @@ describe('isProvablyNewer', () => {
     ['0.1.4-alpha.1', '0.1.4-alpha.beta', false, 'numeric ranks below alphanumeric'],
     ['0.1.4+abc1234', '0.1.4', false, 'build metadata takes no part in precedence'],
     ['0.1.5+abc1234', '0.1.4', true, 'and does not prevent a real comparison either'],
+    // Flat publisher development versions: the dev marker deliberately outranks edge.
+    [
+      '0.1.2-dev.1+656f49b',
+      '0.1.2-edge.1',
+      true,
+      'dev.1 outranks the edge.1 it was built past',
+    ],
+    ['0.1.2-edge.9', '0.1.2-dev.7+656f49b', false, 'dev outranks every edge cut of its core'],
+    [
+      '0.1.2-dev.10+aaa',
+      '0.1.2-dev.4+bbb',
+      true,
+      'dev counters compare numerically; build metadata is ignored',
+    ],
+    ['0.1.2', '0.1.2-dev.10+aaa', true, 'the stable release still outranks its dev prereleases'],
     // FAIL CLOSED. Both callers read `false` as "cannot be proven ahead", never
     // as "is older": one leaves an install where it is, the other refuses a swap
     // it cannot prove survivable.
@@ -51,6 +83,12 @@ describe('compareVersions', () => {
   const cases: [left: string, right: string, order: number | null, why: string][] = [
     ['0.1.4-edge.0', '0.1.4-edge.1', -1, 'zero itself is a valid numeric identifier'],
     ['0.1.4-edge.10', '0.1.4-edge.2', 1, 'multi-digit identifiers may start nonzero'],
+    [
+      '0.1.4-edge.9007199254740993',
+      '0.1.4-edge.9007199254740992',
+      1,
+      'numeric identifiers stay exact beyond JavaScript safe integers',
+    ],
     ['00.1.5', '0.1.4', null, 'a major component cannot have a leading zero'],
     ['0.01.5', '0.1.4', null, 'a minor component cannot have a leading zero'],
     ['0.1.05', '0.1.4', null, 'a patch component cannot have a leading zero'],
@@ -70,5 +108,112 @@ describe('compareVersions', () => {
     // version as the release it is being asked to swap for.
     expect(compareVersions('0.1.4', '0.1.4')).toBe(0)
     expect(compareVersions('dev+abc1234', 'dev+abc1234')).toBeNull()
+  })
+})
+
+describe('mixed stable, edge, and dev precedence', () => {
+  it('sorts adjacent cycles with stable, edge, and flat dev labels', () => {
+    const versions = [
+      '0.1.2-dev.10+fedcba0',
+      '0.1.3',
+      '0.1.2-edge.9',
+      '0.1.1',
+      '0.1.3-dev.10+0123456',
+      '0.1.2',
+      '0.1.3-edge.10',
+      '0.1.2-dev.1+656f49b',
+      '0.1.2-edge.1',
+      '0.1.3-dev.1+abcdef0',
+      '0.1.3-edge.1',
+    ]
+
+    const sorted = sortVersions(versions)
+
+    expect(sorted).toEqual([
+      '0.1.1',
+      '0.1.2-edge.1',
+      '0.1.2-edge.9',
+      '0.1.2-dev.1+656f49b',
+      '0.1.2-dev.10+fedcba0',
+      '0.1.2',
+      '0.1.3-edge.1',
+      '0.1.3-edge.10',
+      '0.1.3-dev.1+abcdef0',
+      '0.1.3-dev.10+0123456',
+      '0.1.3',
+    ])
+
+    // Arming case: restoring plain text comparison makes this exact assertion
+    // fail because lexical `dev` < `edge`.
+    expect(compareVersions('0.1.2-dev.1+656f49b', '0.1.2-edge.1')).toBe(1)
+  })
+})
+
+describe('prerelease precedence is a total order', () => {
+  const labels = [
+    '0.1.2-alpha.1',
+    '0.1.2-dzz.1',
+    '0.1.2-edge.1',
+    '0.1.2-dev.1+656f49b',
+    '0.1.2',
+    '0.1.3-edge.1',
+    '0.1.3-dev.1+abcdef0',
+  ]
+
+  it('is transitive for every triple in the realistic label set', () => {
+    const dev = '0.1.2-dev.1+656f49b'
+    const edge = '0.1.2-edge.1'
+    const fallback = '0.1.2-dzz.1'
+
+    // These premises must be explicit. A plain lexical comparator makes
+    // `dev > edge` false, which otherwise causes the implication below to
+    // skip the only tier-sensitive chain instead of proving it.
+    expect(compareVersions(dev, edge), 'tier witness requires dev > edge').toBe(1)
+    expect(compareVersions(edge, fallback), 'tier witness requires edge > fallback').toBe(1)
+    expect(compareVersions(dev, fallback), 'tier witness requires dev > fallback').toBe(1)
+
+    for (const a of labels) {
+      for (const b of labels) {
+        for (const c of labels) {
+          const ab = compareVersions(a, b)
+          const bc = compareVersions(b, c)
+          const ac = compareVersions(a, c)
+          expect(ab).not.toBeNull()
+          expect(bc).not.toBeNull()
+          expect(ac).not.toBeNull()
+          if (ab !== null && bc !== null && ac !== null && ab > 0 && bc > 0) {
+            expect(ac, `${a} > ${b} > ${c}`).toBeGreaterThan(0)
+          }
+        }
+      }
+    }
+  })
+
+  it('sorts to one order regardless of input permutation', () => {
+    const tierLabels = [
+      '0.1.2-dzz.1',
+      '0.1.2-edge.1',
+      '0.1.2-dev.1+656f49b',
+    ] as const
+    for (const permutation of permutations(tierLabels)) {
+      expect(
+        sortVersions(permutation),
+        'tier-sensitive permutations must keep fallback < edge < dev',
+      ).toEqual([...tierLabels])
+    }
+
+    const expected = [
+      '0.1.2-alpha.1',
+      '0.1.2-dzz.1',
+      '0.1.2-edge.1',
+      '0.1.2-dev.1+656f49b',
+      '0.1.2',
+      '0.1.3-edge.1',
+      '0.1.3-dev.1+abcdef0',
+    ]
+
+    for (const permutation of permutations(labels)) {
+      expect(sortVersions(permutation)).toEqual(expected)
+    }
   })
 })

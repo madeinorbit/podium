@@ -15,12 +15,53 @@ See **[docs/agents/driving-podium.md](docs/agents/driving-podium.md)** for how t
 Podium through Playwright or the native Linux shell — including isolation, the `?e2e=1`
 test API, terminal cells, and choosing the harness vs. a live instance.
 
+A browser cannot stand in for the desktop shell when the boundary IS the shell: the
+all-in-one window loads the bundled UI from `tauri://localhost` and talks to a loopback
+backend, so cross-origin, cookie and sidecar-spawn behavior only reproduce there. See
+**[docs/agents/driving-desktop.md](docs/agents/driving-desktop.md)** — including the
+isolation this needs, since the shell spawns its sidecar with `--takeover`.
+
 ## Testing independent instances
 
 When changing instance identity, state, endpoints, CLI routing, agent ownership, or lifecycle
 behavior, follow **[docs/multi-instance.md](docs/multi-instance.md)** and run
 `bun run test:multi-instance`. The acceptance lane starts fully separate concurrent runtimes;
 do not substitute multiple clients routed to one server.
+
+## Checkout-local dependencies
+
+For a fresh checkout or git worktree, run:
+
+```bash
+bun run setup:worktree
+```
+
+This is the supported topology-following frozen install: it uses the linker setting tracked in
+`bunfig.toml` (currently strict isolated linking with Bun's global store) and creates a checkout-local
+dependency link graph. Package payloads may be shared through Bun's store, but the complete
+`node_modules` tree never is. The command does not override the tracked topology, so it follows
+future configuration changes. Never share, copy, symlink, or bind-mount a complete `node_modules`
+tree between checkouts; checkout-local links are the boundary.
+
+If the checkout has a damaged or mixed-linker install, stop processes using it and run:
+
+```bash
+bun run deps:repair
+```
+
+`deps:repair` composes the checkout-scoped `deps:clean-local-installs` cleanup with a
+topology-following frozen reinstall (`bun install --frozen-lockfile`). The cleanup removes only
+`node_modules` entries under this checkout, does not follow directory symlinks, and stops before
+reinstalling if it finds an unsafe entry.
+`bun run test` is the normal cached gate after repair; its admission census must pass before Turbo
+can reuse or create a result.
+
+Neither command deletes shared caches. Do not add global Bun cache deletion (`bun pm cache rm`,
+removing `~/.bun/install/cache`, or deleting the configured equivalent) or shared Turbo-cache
+deletion to a repair. A reinstall may reuse or populate Bun's shared cache, but repair owns only
+the current checkout's dependency tree.
+Only `deps:rollback-hoisted` intentionally forces `--linker=hoisted`; setup and repair follow the
+tracked `bunfig.toml` setting.
 
 ## Issue tracking with Podium
 
@@ -72,6 +113,11 @@ suite result. When a change needs suite-level evidence, `bun run test:full` is t
 Docs, copy, fonts, formatting, generated artifacts, and other changes that cannot affect runtime
 may skip even this gate; state why in the handoff.
 
+For a narrow change, use the focused lane that matches its risk, such as `bun run test:related --
+<test-file>`, `bun run test:changed`, `bun run test:web`, `bun run test:mobile`, or an applicable
+server shard. Keep focused lanes targeted; use the normal cached gate as the default admission
+check and add only the one specialized lane that the changed behavior requires.
+
 Run another lane only when the changed behavior matches its trigger. Examples: database/store
 changes use the server store shard; daemon or PTY process behavior uses integration; instance
 identity or lifecycle uses multi-instance. A UI edit does **not** require browser automation or
@@ -119,19 +165,22 @@ filename patterns, configs, parent commands, caching, and exclusions—is in
 **[docs/agents/testing.md](docs/agents/testing.md)**. Read that file before selecting anything
 other than `test`.
 
-`bun run test:full` is the exhaustive cached package sweep for scheduled CI, merge batches, and
-explicit requests. It is never the default agent command and is not required before every commit.
-`bun run test:rearch` owns the whole-repository rewrite audit tests; they are excluded from the
-normal package sweep.
+`bun run test:full`, `bun run test:unit`, and `bun run oracle` are exhaustive or multi-lane
+validation reserved for scheduled CI, merge/release validation, or explicit requests—not routine
+agent work. `bun run test:rearch` owns the whole-repository rewrite audit and is likewise not an
+ordinary gate.
 
-Trust typecheck and Turbo cache hits. Never force recomputation. If a concrete cache-key gap is
-known, use `-- --uncached-because="<missing input>"` and file the gap; bare `--force` and
-`TURBO_FORCE` are rejected. A checkout without usable `node_modules/@podium` links is refused.
+Trust typecheck and Turbo cache hits. Never use a forced cache bypass as routine verification.
+Do not set `TURBO_FORCE`, pass `--force`, or use write-only `--cache` flags. If a concrete
+cache-key gap is known, document it and use `--uncached-because="<missing input>"` only as an
+explicit exception while filing the gap; the normal cached gate remains the contract. A checkout
+without usable `node_modules/@podium` links is refused.
 
 ## Reference docs for agents
 
 - [docs/multi-instance.md](docs/multi-instance.md) — operate and test fully independent instances on one machine.
 - [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
+- [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md) — run the Tauri desktop shell headlessly, for the few properties only the real webview answers (cross-origin, cookies, sidecar spawn).
 - [docs/agents/agent-state-classification.md](docs/agents/agent-state-classification.md) — how agent run-state is classified from transcripts.
 - [docs/agents/podium-issues.md](docs/agents/podium-issues.md) — use the `podium issue` CLI to track work from inside a session.
 - [docs/agents/delegating.md](docs/agents/delegating.md) — spawn other agents: placement, naming, concurrency, advisory locks.

@@ -10,17 +10,14 @@ adapters and only there.
 
 ## What it owns
 
-### Backends — `src/backends/`
+### Backend — `src/backends/`
 
-A swappable `PtyBackend`. `defaultPtyBackend()` picks `Bun.spawn({ terminal })`
-when running under Bun **and the running Bun actually has a working terminal
-API**, else node-pty. The capability is feature-detected, never inferred from a
-version alone: a stale Bun in the daemon once produced `proc.terminal.resize is
-undefined` on first attach and every remote terminal rendered black. Under Bun
-there is no node-pty fallback (`bun build --compile` cannot embed the native
-addon), so a Bun too old fails loud here rather than throwing later.
+`defaultPtyBackend()` uses `Bun.spawn({ terminal })`. The capability is
+feature-detected, never inferred from a version alone: a stale Bun in the daemon
+once produced `proc.terminal.resize is undefined` on first attach and every
+remote terminal rendered black. A Bun too old fails loudly at startup.
 
-`PODIUM_PTY_BACKEND=bun-terminal|node-pty` forces the choice.
+`PODIUM_PTY_BACKEND=bun-terminal` may pin the only supported backend.
 
 ### Durable hosts — `src/abduco.ts`, `src/abduco-bin.ts`, `src/tmux.ts`
 
@@ -59,7 +56,6 @@ here.
 
 ## Tests
 
-`src/*.test.ts` plus `test/` — `test/pty-behavior/spec.ts` is one behavior matrix
-run against **both** backends (`.vitest.test.ts` on node-pty, `.bun.test.ts` on
-`Bun.Terminal`) so neither can drift. These tests spawn real PTYs: they are
+`src/*.test.ts` plus `test/` — `test/pty-behavior/spec.ts` is the
+`Bun.Terminal` behavior matrix. These tests spawn real PTYs: they are
 excluded from the unit lane and reap by explicit PID, never `pkill -f`.

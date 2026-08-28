@@ -120,13 +120,6 @@ const INHERITED: readonly InheritedRow[] = [
     value: '3',
     docPhrase: '(8 desktop / 3 mobile, `use-warm-set.ts`)',
   },
-  {
-    what: 'health-probe grace, the server cold-start hard ceiling (§T1 row 1b)',
-    file: 'scripts/podium-health-probe.sh',
-    pattern: /PODIUM_HEALTH_GRACE:-(\d+)/,
-    value: '120',
-    docPhrase: 'hard fail **120 s**',
-  },
 ]
 
 describe('release-criteria thresholds do not drift from the constants they inherit', () => {

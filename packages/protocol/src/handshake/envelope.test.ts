@@ -79,11 +79,20 @@ describe('PeerHello build report', () => {
     expect(Object.keys(PeerIdentityClaims.shape)).toContain('machineId')
   })
 
-  it('names the three delivery capability tokens', () => {
-    expect(DELIVERY_CAPS).toEqual([
-      'update.delivery.feed',
-      'update.delivery.bundle',
-      'update.delivery.git',
-    ])
+  /**
+   * ONE DELIVERY CAPABILITY, and the retired two are not listed here.
+   *
+   * `update.delivery.bundle` and `update.delivery.git` went with the delivery
+   * kinds they named (spec §1, disposition 5). They are absent rather than
+   * marked retired because caps are OPEN and additive at the wire: an old
+   * daemon that still reports one is not rejected, its token simply matches
+   * nothing any target offers, and that machine stays honestly behind. The
+   * second assertion is what keeps that reading honest — this list is what
+   * Podium OFFERS, and a stale entry would advertise a delivery no build can do.
+   */
+  it('names the one surviving delivery capability token', () => {
+    expect(DELIVERY_CAPS).toEqual(['update.delivery.feed'])
+    expect(DELIVERY_CAPS).not.toContain('update.delivery.bundle')
+    expect(DELIVERY_CAPS).not.toContain('update.delivery.git')
   })
 })

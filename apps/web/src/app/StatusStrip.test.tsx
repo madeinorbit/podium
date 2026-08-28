@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { asIssueId } from '@podium/model'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 
@@ -47,6 +47,12 @@ const fixture = vi.hoisted(() => {
     issue: null as ReturnType<typeof makeIssue> | null,
     extraIssues: [] as ReturnType<typeof makeIssue>[],
     sessions: [] as Array<{
+      sessionId?: string
+      agentKind?: string
+      title?: string
+      name?: string
+      displayRef?: string
+      lastActiveAt?: string
       status?: string
       archived?: boolean
       agentState?: { phase: string }
@@ -81,7 +87,7 @@ vi.mock('@/features/machines/ConnectionIndicator', () => ({
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
-import { recentBurnRate } from './StatusPerformanceStats'
+import { rollingBurnRate } from './StatusPerformanceStats'
 import { StatusStrip } from './StatusStrip'
 
 beforeEach(() => {
@@ -137,7 +143,14 @@ describe('StatusStrip agent concurrency history', () => {
   })
 
   it('shares the live concurrency reading through a prefilled X intent', () => {
-    fixture.sessions.push({ status: 'live', agentState: { phase: 'working' } })
+    fixture.sessions.push({
+      sessionId: 's1',
+      agentKind: 'codex',
+      title: 'Footer agent',
+      lastActiveAt: '2026-08-06T18:19:00.000Z',
+      status: 'live',
+      agentState: { phase: 'working' },
+    })
 
     render(<StatusStrip />)
 
@@ -151,8 +164,24 @@ describe('StatusStrip agent concurrency history', () => {
 
   it('keeps the spinner and scales concurrency to the visible-window peak', async () => {
     fixture.sessions.push(
-      { status: 'live', agentState: { phase: 'working' } },
-      { status: 'live', agentState: { phase: 'compacting' } },
+      {
+        sessionId: 's1',
+        agentKind: 'codex',
+        title: 'First agent',
+        displayRef: 'POD-1-A',
+        lastActiveAt: '2026-08-06T18:19:00.000Z',
+        status: 'live',
+        agentState: { phase: 'working' },
+      },
+      {
+        sessionId: 's2',
+        agentKind: 'claude-code',
+        title: 'Second agent',
+        displayRef: 'POD-2-A',
+        lastActiveAt: '2026-08-06T18:19:00.000Z',
+        status: 'live',
+        agentState: { phase: 'compacting' },
+      },
     )
     const { container } = render(<StatusStrip />)
 
@@ -166,6 +195,15 @@ describe('StatusStrip agent concurrency history', () => {
     expect(screen.getByTestId('agent-concurrency-history').getAttribute('aria-label')).toContain(
       '2 agents working now. Peak 16.',
     )
+
+    fireEvent.click(screen.getByTestId('status-strip-working'))
+    await waitFor(() => expect(screen.getByTestId('status-strip-roster')).toBeTruthy())
+    expect(screen.getByTestId('status-strip-roster').textContent).toContain(
+      'First agentPOD-1-A',
+    )
+    expect(screen.getByTestId('status-strip-roster').textContent).toContain(
+      'Second agentPOD-2-A',
+    )
   })
 
   /** POD-730: the phase outlives the process on purpose (exit keeps the final
@@ -173,10 +211,39 @@ describe('StatusStrip agent concurrency history', () => {
    *  count only ever ratchets up. */
   it('does not count agents whose process is gone or parked', () => {
     fixture.sessions.push(
-      { status: 'live', agentState: { phase: 'working' } },
-      { status: 'exited', agentState: { phase: 'working' } },
-      { status: 'hibernated', agentState: { phase: 'working' } },
-      { status: 'live', archived: true, agentState: { phase: 'compacting' } },
+      {
+        sessionId: 'live',
+        agentKind: 'codex',
+        title: 'Live',
+        lastActiveAt: '2026-08-06T18:19:00.000Z',
+        status: 'live',
+        agentState: { phase: 'working' },
+      },
+      {
+        sessionId: 'exited',
+        agentKind: 'codex',
+        title: 'Exited',
+        lastActiveAt: '2026-08-06T18:19:00.000Z',
+        status: 'exited',
+        agentState: { phase: 'working' },
+      },
+      {
+        sessionId: 'parked',
+        agentKind: 'codex',
+        title: 'Parked',
+        lastActiveAt: '2026-08-06T18:19:00.000Z',
+        status: 'hibernated',
+        agentState: { phase: 'working' },
+      },
+      {
+        sessionId: 'archived',
+        agentKind: 'codex',
+        title: 'Archived',
+        lastActiveAt: '2026-08-06T18:19:00.000Z',
+        status: 'live',
+        archived: true,
+        agentState: { phase: 'compacting' },
+      },
     )
 
     render(<StatusStrip />)
@@ -184,37 +251,39 @@ describe('StatusStrip agent concurrency history', () => {
     expect(screen.getByTestId('status-strip-working').textContent).toContain('1 agent working')
   })
 
-  it('still counts a reconnecting agent: the link dropped, not the agent', () => {
-    fixture.sessions.push({ status: 'reconnecting', agentState: { phase: 'working' } })
+  it('does not present a preserved reconnecting phase as confirmed work', () => {
+    fixture.sessions.push({
+      sessionId: 'reconnecting',
+      agentKind: 'codex',
+      title: 'Reconnecting',
+      lastActiveAt: '2026-08-06T18:19:00.000Z',
+      status: 'reconnecting',
+      agentState: { phase: 'working' },
+    })
 
     render(<StatusStrip />)
 
-    expect(screen.getByTestId('status-strip-working').textContent).toContain('1 agent working')
+    expect(screen.getByTestId('status-strip-working').textContent).toBe('no agents working')
   })
 })
 
 describe('StatusStrip token burn', () => {
-  it('bootstraps from the current hour until a second fresh scan arrives', async () => {
+  it('waits for a real rolling window instead of annualizing the first scan', async () => {
     render(<StatusStrip />)
 
-    expect(screen.getByTestId('status-strip-burn').textContent).toBe('—/h burn')
+    expect(screen.getByTestId('status-strip-burn').textContent).toBe('— token burn')
     await waitFor(() =>
-      expect(screen.getByTestId('status-strip-burn').textContent).toBe('$3.75/h burn'),
+      expect(screen.getByTestId('status-strip-burn').textContent).toBe('measuring token burn'),
     )
     expect(
       screen.getByTestId('token-burn-history').querySelectorAll('.status-strip-history-stack'),
     ).toHaveLength(12)
-    const burnShare = decodeURIComponent(
-      screen.getByLabelText('Share token burn on X').getAttribute('href') ?? '',
-    )
-    expect(burnShare).toContain('x.com/intent/post')
-    // $3.75/hr is under the flex threshold, so it takes the small-burn closer.
-    expect(burnShare).toContain('I am running @podium_ade on $3.75/hr in tokens')
+    expect(screen.queryByLabelText('Share api-equivalent token rate on X')).toBeNull()
     expect(screen.queryByTestId('ship-rate-history')).toBeNull()
     expect(screen.queryByTestId('status-strip-ship')).toBeNull()
   })
 
-  it('uses the cost delta between fresh scans, including across an hour boundary', () => {
+  it('averages a burst across at least ten minutes, including an hour boundary', () => {
     const bucket = (hour: string, inputTokens: number) => ({
       hour,
       model: 'gpt-5',
@@ -224,19 +293,43 @@ describe('StatusStrip token burn', () => {
       cacheCreationTokens: 0,
       messages: 1,
     })
-    const previous = {
+    const first = {
       sampledAt: Date.parse('2026-08-06T17:59:00.000Z'),
       buckets: [bucket('2026-08-06T17:00:00.000Z', 1_000_000)],
     }
+    const middle = {
+      sampledAt: Date.parse('2026-08-06T18:04:00.000Z'),
+      buckets: [
+        bucket('2026-08-06T17:00:00.000Z', 1_000_000),
+        bucket('2026-08-06T18:00:00.000Z', 1_000_000),
+      ],
+    }
     const current = {
-      sampledAt: Date.parse('2026-08-06T18:02:00.000Z'),
+      sampledAt: Date.parse('2026-08-06T18:09:00.000Z'),
       buckets: [
         bucket('2026-08-06T17:00:00.000Z', 1_000_000),
         bucket('2026-08-06T18:00:00.000Z', 1_000_000),
       ],
     }
 
-    expect(recentBurnRate(previous, current)).toBeCloseTo(25)
+    expect(rollingBurnRate([first, middle, current])).toEqual({
+      perHour: 7.5,
+      windowMinutes: 10,
+    })
+  })
+
+  it('keeps the rate unfilled until three scans span ten minutes', () => {
+    const scan = (minute: number) => ({
+      sampledAt: Date.parse(`2026-08-06T18:${String(minute).padStart(2, '0')}:00.000Z`),
+      buckets: [],
+    })
+
+    expect(rollingBurnRate([scan(0), scan(5)])).toBeNull()
+    expect(rollingBurnRate([scan(0), scan(5), scan(9)])).toBeNull()
+    expect(rollingBurnRate([scan(0), scan(5), scan(10)])).toEqual({
+      perHour: 0,
+      windowMinutes: 10,
+    })
   })
 
   it('drops the 12h caption; the window is stated in the tooltip foot', () => {

@@ -143,6 +143,7 @@ function harness(
         const index = rows.findIndex((row) => row.id === id)
         if (index >= 0) rows.splice(index, 1)
       },
+      sessionsWithPending: () => [...new Set(rows.map((row) => row.sessionId))],
     },
     daemon: { sendInput: (_machineId, message) => sent.push(message) },
     authorization: {
@@ -2147,5 +2148,119 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
 
     expect(h.inbox.sendText({ sessionId: SID, text: 'typed at nothing' })).toEqual({ ok: false })
     expect(h.sent).toEqual([])
+  })
+})
+
+/**
+ * The never-delivered half of POD-1703. Every stuck row observed live sat on a
+ * parked session with `attempts = 0` — accepted, never typed once — because the
+ * PTY queue had no sweep and `drain` was re-armed from only three places, none
+ * of them a timer.
+ */
+describe('queued input that nothing would come back for [POD-1703]', () => {
+  const PROMPT = 'Land the offer overlay fix on main'
+
+  it('never stacks a second physical row behind one ledger intent', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    // `starting`, so the row parks instead of being typed straight away.
+    const h = harness({ status: 'starting' })
+    const principal = agentPrincipal()
+
+    h.inbox.queueText({ sessionId: SID, text: PROMPT, principal, sourceMessageId: 'msg_a' })
+    expect(h.rows).toHaveLength(1)
+
+    // The delivery sweep re-pushes the SAME ledger row. Pre-fix this minted a
+    // fresh queue id every pass, so the agent was typed the identical text
+    // three times over five minutes while the first copy still sat unread.
+    h.inbox.queueText({ sessionId: SID, text: PROMPT, principal, sourceMessageId: 'msg_a' })
+    h.inbox.queueText({ sessionId: SID, text: PROMPT, principal, sourceMessageId: 'msg_a' })
+    expect(h.rows).toHaveLength(1)
+    expect(h.session.queuedMessageCount).toBe(1)
+
+    // A DIFFERENT message is not the same intent and still queues.
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'something else',
+      principal,
+      sourceMessageId: 'msg_b',
+    })
+    expect(h.rows).toHaveLength(2)
+
+    // And a row with no ledger intent behind it is not deduped by text.
+    h.inbox.queueText({ sessionId: SID, text: PROMPT, principal })
+    h.inbox.queueText({ sessionId: SID, text: PROMPT, principal })
+    expect(h.rows).toHaveLength(4)
+  })
+
+  it('re-arms the drain when the AskUserQuestion menu clears', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ phase: 'needs_user', transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-menu'),
+      principal: agentPrincipal(),
+    })
+    // typeText refuses while a live menu holds the CLI — typing a prompt into it
+    // would answer the wrong question — and the drain stops.
+    vi.advanceTimersByTime(30_000)
+    expect(typedTexts(h.sent)).toEqual([])
+    expect(h.rows).toHaveLength(1)
+
+    // The person answers the menu. Pre-fix "the next re-arm" meant a daemon
+    // bind, which a healthy long-lived session never performs, so an offer
+    // clicked during a permission prompt hung indefinitely.
+    h.setPhase('idle')
+    h.inbox.stateChanged({
+      sessionId: SID,
+      prev: { phase: 'needs_user', since: 't' } as never,
+      next: { phase: 'idle', since: 't' } as never,
+    })
+    vi.advanceTimersByTime(9_000)
+
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
+  it('sweepQueuedInputs delivers a row no bind or reattach would ever revisit', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ status: 'hibernated', transcriptAvailable: true })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      mutationId: asMutationId('queued-orphan'),
+      principal: agentPrincipal(),
+    })
+    // Parked: the drain gives up on the first tick.
+    vi.advanceTimersByTime(120_000)
+    expect(typedTexts(h.sent)).toEqual([])
+    expect(h.rows).toHaveLength(1)
+
+    // The session is live again, but nothing re-armed the drain — no enqueue, no
+    // daemon bind, no machine reattach. This is the state 41 rows were found in.
+    h.setStatus('live')
+    vi.advanceTimersByTime(120_000)
+    expect(typedTexts(h.sent)).toEqual([])
+
+    // The sweep is the timer that was missing.
+    h.inbox.sweepQueuedInputs()
+    vi.advanceTimersByTime(9_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
+  it('sweepQueuedInputs is a no-op for a queue port that cannot list pending sessions', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness()
+    // The optional port method keeps the many fixtures that supply only
+    // enqueue/list/delete valid; without it the sweep must not throw.
+    ;(
+      h.inbox as unknown as { deps: { queue: Record<string, unknown> } }
+    ).deps.queue.sessionsWithPending = undefined
+    expect(() => h.inbox.sweepQueuedInputs()).not.toThrow()
   })
 })

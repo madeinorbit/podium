@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import { asMachineId, resolveMachineChannel } from '@podium/model'
 import type {
@@ -6,13 +7,21 @@ import type {
   UpdateStatusMessage,
   UpdateTarget,
 } from '@podium/protocol'
+import { isHeadlessPlatform, isProvablyNewer, targetPlatforms } from '@podium/protocol'
 import {
+  decideWave,
   IN_FLIGHT_STATES,
+  isPackagedRolloutTarget,
+  machineCanTakeTargetPlatform,
+  machineCanUseTargetTrust,
   offeredDeliveries,
   planWave,
   TERMINAL_STATES,
   type WaveMachine,
+  type WaveRound,
 } from './wave'
+
+const log = createLogger('server:updates')
 
 export interface UpdatesDeps {
   machines(): readonly WaveMachine[]
@@ -20,8 +29,22 @@ export interface UpdatesDeps {
   send(machineId: MachineId, message: UpdateGrantMessage): void
   now(): number
   nextGrantId(): string
+  /** Current publisher key, diagnostic-only in a grant; never replaces a daemon pin. */
+  updatePubkey?(): string
   concurrency: number
-  resolveTarget?(channel: 'edge' | 'stable'): Promise<UpdateTarget>
+  /**
+   * Pull one channel's target from its feed. EVERY channel, `dev` included
+   * (spec §1): dev used to be excluded here because its target was pushed by
+   * the publisher, and that exclusion is what made it the one channel whose
+   * resolution path nothing else exercised.
+   */
+  resolveTarget?(channel: UpdateChannel): Promise<UpdateTarget>
+  /**
+   * Does THIS server also mint targets for this channel? True for `dev` on a
+   * source host, false everywhere else. See {@link UpdatesService.resolvedMayReplace}
+   * for what it decides and why it is not simply "never go backwards".
+   */
+  locallyPublished?(channel: UpdateChannel): boolean
   /**
    * The instance's fleet default channel, read PER CALL so a Settings write is
    * followed without a restart (the same discipline `MachinesService` uses for
@@ -60,6 +83,8 @@ export interface UpdatesDeps {
    * transition. Absent, or `undefined`, degrades to the memory test alone.
    */
   exclusiveOperationVersion?(channel: UpdateChannel): string | undefined
+  /** A packaged rollback may be reported before target resolution finishes. */
+  onTargetChanged?(channel: UpdateChannel): void
 }
 
 /** What one channel's last release-target lookup produced. */
@@ -147,10 +172,33 @@ export const TARGET_WITHDRAWN_TOKEN = 'update-withdrawn'
 export type MachineApplyOutcome =
   | { result: 'granted'; version: string }
   | { result: 'already-current'; version: string }
+  | { result: 'source-checkout' }
   | { result: 'offline' }
   | { result: 'unknown-machine' }
   | { result: 'no-target'; reason: string }
   | { result: 'in-flight'; state: ConvergenceState }
+  | { result: 'legacy-instance-trust'; version: string }
+  /**
+   * THE TWO ANSWERS THAT ARE NOT ABOUT TODAY (POD-2783).
+   *
+   * A release's platform list is fixed when it is minted, from the fleet as it
+   * stood then, so a machine that enrolled afterwards can never take that
+   * release however many times a human presses Apply. `platform-not-published`
+   * is the harder version: Podium builds nothing for that platform at all.
+   * Both carry the platform, because a row that says "no" without saying what
+   * it is is the sentence this issue exists to delete.
+   */
+  | { result: 'platform-not-in-release'; platform: string }
+  | { result: 'platform-not-published'; platform: string }
+
+export function legacyInstanceTrustMessage(machineName: string): string {
+  return (
+    `${machineName} predates channel-keyed update trust. It can receive this development feed, ` +
+    'but its updater will verify it with the baked release key instead of the pinned instance ' +
+    'key. Changing or rotating that key cannot make this build use its pin; use the supported ' +
+    'host-local stranded-machine repair.'
+  )
+}
 
 interface ChannelRolloutState {
   authorized: boolean
@@ -164,6 +212,51 @@ const freshRollout = (): ChannelRolloutState => ({
   halted: false,
 })
 
+function hasHeadlessBytes(target: UpdateTarget): boolean {
+  return target.artifacts.headless !== undefined
+}
+
+function stripUrlCredentials(url: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.username = ''
+    parsed.password = ''
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.href
+  } catch {
+    return url
+  }
+}
+
+function stripArtifactCredentials<T extends { platforms: Record<string, { url: string }> }>(
+  artifact: T,
+): T {
+  return {
+    ...artifact,
+    platforms: Object.fromEntries(
+      Object.entries(artifact.platforms).map(([platform, asset]) => [
+        platform,
+        { ...asset, url: stripUrlCredentials(asset.url) },
+      ]),
+    ),
+  }
+}
+
+/**
+ * `/version` is unauthenticated. The standing channel target keeps the token
+ * so a grant can fetch; the advertisement must not.
+ */
+function withoutArtifactCredentials(target: UpdateTarget): UpdateTarget {
+  const artifacts = { ...target.artifacts }
+  if (artifacts.headless) artifacts.headless = stripArtifactCredentials(artifacts.headless)
+  if (artifacts.headlessAlternatives) {
+    artifacts.headlessAlternatives = artifacts.headlessAlternatives.map(stripArtifactCredentials)
+  }
+  if (artifacts.desktop) artifacts.desktop = stripArtifactCredentials(artifacts.desktop)
+  return { ...target, artifacts }
+}
+
 /**
  * Server-owned convergence orchestration. Each channel names a separate
  * authority: `dev` is signed by this coordinating source server, while `edge`
@@ -176,13 +269,41 @@ export class UpdatesService {
   private readonly rollouts = new Map<UpdateChannel, ChannelRolloutState>()
   private readonly machineStates = new Map<string, MachineConvergenceState>()
   private readonly pendingGrants = new Map<string, PendingGrant>()
+  // Keep only target-named terminal boot reports until the feed resolves.
+  // Uncorrelated progress remains discarded so rollback fencing is unchanged.
+  private readonly terminalStatusesBeforeTarget = new Map<
+    UpdateChannel,
+    Map<string, UpdateStatusMessage>
+  >()
+  // Keep target-named terminal boot reports while a reconnecting machine is
+  // absent from the live directory; replay them once it is visible again.
+  private readonly terminalStatusesBeforeMachine = new Map<string, UpdateStatusMessage>()
   private readonly checks = new Map<UpdateChannel, ChannelCheckRecord>()
   /** One shared resolve per channel, for EVERY caller of `refreshTarget` (POD-2153). */
   private readonly refreshesInFlight = new Map<UpdateChannel, Promise<boolean>>()
   /** Versions published while an exclusive operation held the group (§3.2). */
   private readonly nextTargets = new Map<UpdateChannel, UpdateTarget>()
+  /**
+   * EVERY ROUND OF GRANTS THIS PROCESS HAS ISSUED, PER CHANNEL (POD-2754).
+   *
+   * Append-only and in-memory, which is the whole reason it is not the durable
+   * copy: a wave outlives this process — the coordinator replaces itself
+   * halfway through one. {@link waveRounds} is what the update operation copies
+   * into its own persisted record, and that record is what anybody reads
+   * afterwards. This is only the buffer between the instant a round happens and
+   * the next time the operation writes itself down.
+   */
+  private readonly waveHistory = new Map<UpdateChannel, WaveRound[]>()
 
   constructor(private readonly deps: UpdatesDeps) {}
+
+  /**
+   * The rounds this process has issued on this channel, oldest first. Callers
+   * scope by target version and by their own start time; see {@link WaveRound}.
+   */
+  waveRounds(channel: UpdateChannel): readonly WaveRound[] {
+    return this.waveHistory.get(channel) ?? []
+  }
 
   targetVersion(machineId?: MachineId): string | undefined {
     return machineId === undefined
@@ -248,6 +369,7 @@ export class UpdatesService {
         detail: `${TARGET_WITHDRAWN_TOKEN}: ${reason}`,
       })
     }
+    this.deps.onTargetChanged?.(channel)
   }
 
   setTarget(channel: UpdateChannel, target: UpdateTarget): void
@@ -276,8 +398,18 @@ export class UpdatesService {
     // step ticks explicitly, after `prepare`, exactly once, where a reader can
     // see it happen.
     if (this.isSameUpdate(channel, target.version)) {
+      const standing = this.targets.get(channel)
+      // The deliverable always comes from the feed. An identity for the same
+      // version names no bytes, and replacing the packed target with it is how
+      // a published package sat on "Waiting for the update package" — every
+      // `/version` poll re-publishes the identity, including mid-operation.
+      if (standing && hasHeadlessBytes(standing) && !hasHeadlessBytes(target)) {
+        return
+      }
       this.unavailableReasons.delete(channel)
       this.targets.set(channel, target)
+      this.replayTerminalStatuses(channel, target.version)
+      this.deps.onTargetChanged?.(channel)
       return
     }
 
@@ -299,6 +431,44 @@ export class UpdatesService {
     }
     for (const [machineId, pending] of this.pendingGrants) {
       if (pending.channel === channel) this.pendingGrants.delete(machineId)
+    }
+    this.replayTerminalStatuses(channel, target.version)
+    this.deps.onTargetChanged?.(channel)
+  }
+
+  /**
+   * Replay only terminal reports that name the target just resolved. Reports
+   * for another release are stale and must not influence a later operation.
+   */
+  private replayTerminalStatuses(channel: UpdateChannel, targetVersion: string): void {
+    this.replayTerminalStatusesForKnownMachines()
+    const deferred = this.terminalStatusesBeforeTarget.get(channel)
+    if (!deferred) return
+    this.terminalStatusesBeforeTarget.delete(channel)
+    for (const [machineId, message] of deferred) {
+      if (message.targetVersion === targetVersion) {
+        this.onStatus(asMachineId(machineId), message)
+      }
+    }
+  }
+
+  /**
+   * Replay terminal reports held while a reconnecting machine was absent.
+   * Once the directory has it again, exact target fencing still decides whether
+   * the report may affect the operation.
+   */
+  private replayTerminalStatusesForKnownMachines(): void {
+    if (this.terminalStatusesBeforeMachine.size === 0) return
+    const machines = this.deps.machines()
+    for (const [machineId, message] of this.terminalStatusesBeforeMachine) {
+      const machine = machines.find((candidate) => candidate.id === machineId)
+      if (!machine) continue
+      const target = this.target(this.channelOf(machine))
+      if (!target) continue
+      this.terminalStatusesBeforeMachine.delete(machineId)
+      if (message.targetVersion === target.version) {
+        this.onStatus(asMachineId(machineId), message)
+      }
     }
   }
 
@@ -374,20 +544,54 @@ export class UpdatesService {
     return refresh
   }
 
+  /**
+   * MAY A FRESHLY PULLED TARGET REPLACE THE STANDING ONE?
+   *
+   * Normally yes, unconditionally, and that is load bearing: the server is
+   * authority, so a channel that moves BACKWARDS — a bad release withdrawn, an
+   * edge tag repointed — must be able to roll the fleet back. A resolver that
+   * only ever moved forward would make rollback structurally impossible, which
+   * is the same reasoning `planConvergence` is built on.
+   *
+   * THE ONE EXCEPTION IS A CHANNEL THIS SERVER ALSO PUBLISHES INTO. On a source
+   * host, `dev` has two producers for the length of this transition: the feed
+   * (what has been RELEASED) and the local publisher's identity (what this
+   * checkout IS, spec §6 step 1, until POD-2507 turns it into a release
+   * proposal). When HEAD moves without a release they disagree, and they
+   * disagree in a knowable direction — the identity is a mint on the same
+   * lineage, so it is PROVABLY newer. Letting the daily refresh pull the last
+   * release over it would walk the read model back to a previous commit every
+   * time the tick fired, which is exactly what `devIdentityTarget`'s "never
+   * advertise an older commit's" rule existed to prevent.
+   *
+   * So: never regress a channel whose targets this server also mints. Rollback
+   * on such a channel is not lost — it is the publisher's to perform, by
+   * publishing the version it wants, which is the only actor that could know.
+   *
+   * THE PREDICATE ASKS ABOUT THE CANDIDATE, NOT ABOUT THE STANDING TARGET, and
+   * that direction is the whole fail-closed posture. `isProvablyNewer` answers
+   * false for two different situations — behind, and UNORDERABLE — so asking
+   * "is the standing one newer?" and inverting would ACCEPT an unorderable
+   * answer, which is a feed that has been hand-edited or corrupted saying
+   * something this server cannot reason about. Asking "is the candidate
+   * provably newer?" holds in both cases, which is the conservative reading of
+   * not knowing. (Written the other way round first; the unorderable arm below
+   * is what caught it.)
+   */
+  private resolvedMayReplace(channel: UpdateChannel, resolved: UpdateTarget): boolean {
+    if (this.deps.locallyPublished?.(channel) !== true) return true
+    const standing = this.target(channel)
+    if (!standing || standing.version === resolved.version) return true
+    return isProvablyNewer(resolved.version, standing.version)
+  }
+
   /** True only when this attempt resolved a complete, current target. */
   private async resolveIntoTarget(channel: UpdateChannel): Promise<boolean> {
-    if (channel === 'dev') {
-      // Dev is publisher-pushed, so "refreshing" it is only ever a report on what
-      // the source server has already published.
-      const reason = 'Development target is not currently published by this source server.'
-      if (!this.target('dev')) {
-        this.unavailableReasons.set('dev', reason)
-        this.recordCheck('dev', { status: 'unavailable', reason })
-        return false
-      }
-      this.recordCheck('dev', { status: 'ok' })
-      return true
-    }
+    // NO SPECIAL CASE FOR `dev` ANY MORE (spec §1). It used to branch here and
+    // merely REPORT on whatever the publisher had pushed, because there was no
+    // dev feed to ask. There is one now, so every channel takes the same three
+    // lines below — which is the point of the convergence: the resolve path
+    // production uses is exercised many times a day rather than at release.
     if (!this.deps.resolveTarget) {
       const reason = `${channel} target resolver is not configured.`
       this.unavailableReasons.set(channel, reason)
@@ -395,10 +599,11 @@ export class UpdatesService {
       return false
     }
     try {
+      const resolved = await this.deps.resolveTarget(channel)
       // setTarget clears any recorded unavailable reason, which is what stops a
       // failed boot-time resolve from being pinned as the eternal truth for the
       // life of the process.
-      this.setTarget(channel, await this.deps.resolveTarget(channel))
+      if (this.resolvedMayReplace(channel, resolved)) this.setTarget(channel, resolved)
       this.recordCheck(channel, { status: 'ok' })
       return true
     } catch (error) {
@@ -485,22 +690,49 @@ export class UpdatesService {
 
   onStatus(machineId: MachineId, message: UpdateStatusMessage): void {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
-    if (!machine) return
+    if (!machine) {
+      if (
+        (message.state === 'rejected' || message.state === 'stuck') &&
+        message.targetVersion !== undefined
+      ) {
+        this.terminalStatusesBeforeMachine.set(machineId, message)
+      }
+      return
+    }
     const channel = this.channelOf(machine)
     const target = this.target(channel)
-    if (!target) return
+    if (!target) {
+      if (
+        (message.state === 'rejected' || message.state === 'stuck') &&
+        message.targetVersion !== undefined
+      ) {
+        let deferred = this.terminalStatusesBeforeTarget.get(channel)
+        if (!deferred) {
+          deferred = new Map()
+          this.terminalStatusesBeforeTarget.set(channel, deferred)
+        }
+        deferred.set(machineId, message)
+      }
+      return
+    }
 
     const pending = this.pendingGrants.get(machineId)
     const pendingGrant = pending?.channel === channel ? pending : undefined
-    // A status carrying a grant id must belong to the grant currently issued for
-    // this channel and target. Late reports from a channel the machine left are inert.
-    if (message.grantId && message.grantId !== pendingGrant?.grantId) return
+    // Ordinary progress carrying a grant id must belong to the current grant.
+    // A packaged process can, however, be DOWN while the coordinator spends its
+    // one retry and replaces that id. Its durable boot report is still the
+    // machine's terminal truth for this SAME target, so accept that narrowly;
+    // targetVersion prevents an old crash report poisoning a later release.
+    const terminal = message.state === 'rejected' || message.state === 'stuck'
+    const grantMismatch = message.grantId !== undefined && message.grantId !== pendingGrant?.grantId
+    const recoveredTerminal = grantMismatch && terminal && message.targetVersion === target.version
+    if (grantMismatch && !recoveredTerminal) return
 
     const effectiveState =
-      message.state === 'current' &&
-      message.version !== target.version &&
-      pendingGrant !== undefined
-        ? 'granted'
+      message.state === 'current' && pendingGrant !== undefined
+        ? message.version === target.version
+          ? 'restarting'
+          : 'granted'
         : message.state
     /**
      * A HEARTBEAT IS AN ORDINARY REPORT (POD-2101). The same state arriving
@@ -518,22 +750,17 @@ export class UpdatesService {
       channel,
       state: effectiveState,
       version: message.version,
-      ...(message.grantId ? { grantId: message.grantId } : {}),
+      ...(pendingGrant && recoveredTerminal
+        ? { grantId: pendingGrant.grantId }
+        : message.grantId
+          ? { grantId: message.grantId }
+          : {}),
       ...(message.detail ? { detail: message.detail } : {}),
       ...(message.percent !== undefined ? { percent: message.percent } : {}),
       ...(message.phaseDetail ? { phaseDetail: message.phaseDetail } : {}),
     })
 
     const rollout = this.rollout(channel)
-    if (message.state === 'current' && message.version === target.version) {
-      if (pendingGrant !== undefined) {
-        rollout.canaryHealthy = true
-        this.pendingGrants.delete(machineId)
-      }
-      if (rollout.authorized) this.tick(channel)
-      return
-    }
-
     if (pendingGrant !== undefined && (message.state === 'rejected' || message.state === 'stuck')) {
       this.pendingGrants.delete(machineId)
       if (!rollout.canaryHealthy) rollout.halted = true
@@ -664,12 +891,43 @@ export class UpdatesService {
    * it. A deliberate human Apply is exactly that reset, so it clears this
    * machine's terminal state before planning.
    */
+  /**
+   * Would these bytes be a bricked daemon rather than an update (POD-2783)?
+   *
+   * Asked on BOTH human paths, because the wave's own answer covers neither: a
+   * per-row Apply plans a fleet of one and a Repair plans no wave at all, so a
+   * gate that lived only in `decideWave` would leave the two buttons a human
+   * actually presses granting a package for another architecture.
+   */
+  private platformRefusal(
+    machine: WaveMachine,
+    target: UpdateTarget,
+  ): MachineApplyOutcome | undefined {
+    const platform = machine.platform
+    if (platform === undefined) return undefined
+    if (machineCanTakeTargetPlatform(machine, targetPlatforms(target))) return undefined
+    return isHeadlessPlatform(platform)
+      ? { result: 'platform-not-in-release', platform }
+      : { result: 'platform-not-published', platform }
+  }
+
+  /** A permanent verifier mismatch, distinct from whether bytes are deliverable. */
+  private trustRefusal(
+    machine: WaveMachine,
+    target: UpdateTarget,
+  ): MachineApplyOutcome | undefined {
+    return machineCanUseTargetTrust(machine, target.trust)
+      ? undefined
+      : { result: 'legacy-instance-trust', version: target.version }
+  }
+
   authorizeMachine(machineId: MachineId): MachineApplyOutcome {
     // `project()`, because this issues a grant (POD-2180): a wave continued from
     // inside the lookup would move machines this row is not about, and then this
     // method would plan against the fleet as it was before that happened.
     const machine = this.project().machines.find((candidate) => candidate.id === machineId)
     if (!machine) return { result: 'unknown-machine' }
+    if (!isPackagedRolloutTarget(machine)) return { result: 'source-checkout' }
     const channel = this.channelOf(machine)
     const target = this.target(channel)
     if (!target) {
@@ -681,6 +939,13 @@ export class UpdatesService {
     if (machine.version === target.version) {
       return { result: 'already-current', version: machine.version }
     }
+    // Before in-flight and before offline: this one does not clear when the
+    // machine settles or reconnects, so answering it first is the difference
+    // between "come back later" and the truth.
+    const trustRefusal = this.trustRefusal(machine, target)
+    if (trustRefusal) return trustRefusal
+    const platformRefusal = this.platformRefusal(machine, target)
+    if (platformRefusal) return platformRefusal
     if (IN_FLIGHT_STATES.has(machine.state)) {
       return { result: 'in-flight', state: machine.state }
     }
@@ -711,6 +976,39 @@ export class UpdatesService {
       : { result: 'offline' }
   }
 
+  /**
+   * Re-deliver the selected machine's CURRENT target through the ordinary grant
+   * protocol. Unlike Apply, equality is not success: replacing equal-version bytes
+   * is the purpose of repair. Every schema, signature, progress, restart and rollback
+   * guard below the grant remains unchanged.
+   */
+  repairMachine(machineId: MachineId): MachineApplyOutcome {
+    const machine = this.project().machines.find((candidate) => candidate.id === machineId)
+    if (!machine) return { result: 'unknown-machine' }
+    if (!isPackagedRolloutTarget(machine)) return { result: 'source-checkout' }
+    const channel = this.channelOf(machine)
+    const target = this.target(channel)
+    if (!target) {
+      return {
+        result: 'no-target',
+        reason: this.targetUnavailableReasonFor(machineId) ?? 'No target is available.',
+      }
+    }
+    const trustRefusal = this.trustRefusal(machine, target)
+    if (trustRefusal) return trustRefusal
+    const repairRefusal = this.platformRefusal(machine, target)
+    if (repairRefusal) return repairRefusal
+    if (IN_FLIGHT_STATES.has(machine.state)) {
+      return { result: 'in-flight', state: machine.state }
+    }
+    if (!machine.online) return { result: 'offline' }
+    this.clearMachineVerdicts(channel, [machineId], { keepCanaryProof: true })
+    const issued = this.issueGrants(channel, target, [machine], [machine.id], true)
+    return issued.includes(machineId)
+      ? { result: 'granted', version: target.version }
+      : { result: 'offline' }
+  }
+
   tick(channel: UpdateChannel = 'dev'): string[] {
     const target = this.target(channel)
     const rollout = this.rollout(channel)
@@ -724,14 +1022,86 @@ export class UpdatesService {
     // which is what makes this method the only thing granting on this path.
     const { machines } = this.project()
     const channelMachines = machines.filter((machine) => this.channelOf(machine) === channel)
-    const selected = planWave({
+    const decision = decideWave({
       machines: channelMachines,
       targetVersion: target.version,
       concurrency: this.deps.concurrency,
       canaryHealthy: rollout.canaryHealthy,
       deliveries: offeredDeliveries(target),
+      trust: target.trust,
+      // …and never a machine this release contains no bytes for (POD-2783).
+      platforms: targetPlatforms(target),
     })
-    return this.issueGrants(channel, target, channelMachines, selected)
+    const selected = decision.selected
+    /**
+     * WHY THIS TICK GRANTED WHAT IT GRANTED — INCLUDING NOTHING (POD-2741).
+     *
+     * A tick that selects nobody is indistinguishable from a tick that never
+     * ran, and both look exactly like a wave that has stopped. The gate has
+     * twice recorded a rollout sitting at `[source:current, fleet-a:pending,
+     * fleet-b:pending]` with no way to tell which of the two happened, because
+     * every input this decision turns on — whether the canary is proved, what
+     * each machine's convergence state is, whether it is online at this instant
+     * — lives only in memory and is gone by the time anybody reads a log.
+     */
+    log.info('update wave tick', {
+      channel,
+      targetVersion: target.version,
+      gate: decision.gate,
+      canaryHealthy: rollout.canaryHealthy,
+      concurrency: this.deps.concurrency,
+      selected,
+      held: decision.held,
+      considered: channelMachines.map((machine) => ({
+        machine: machine.name ?? machine.id,
+        version: machine.version,
+        state: machine.state,
+        online: machine.online,
+      })),
+    })
+    const issued = this.issueGrants(channel, target, channelMachines, selected)
+    /**
+     * …AND THE SAME ANSWER SOMEWHERE A CHECK CAN READ IT (POD-2754).
+     *
+     * The log line above says all of this and says it to a human. The rollout
+     * gate is not a human: it had to watch for the canary window instead, and
+     * on a fast update that window is gone before the first sample. So a round
+     * that actually granted something is written down too.
+     *
+     * ONLY WHEN GRANTS WENT OUT. A tick that selected nobody is answered by the
+     * log line, and recording every one of them would bury the handful of rounds
+     * that constitute the wave under hundreds that changed nothing.
+     */
+    if (issued.length > 0) {
+      const granted = issued.map((machineId) => {
+        const machine = channelMachines.find((candidate) => candidate.id === machineId)
+        return { id: machineId, ...(machine?.name ? { name: machine.name } : {}) }
+      })
+      this.recordWaveRound(channel, {
+        at: this.deps.now(),
+        gate: decision.gate,
+        targetVersion: target.version,
+        granted,
+        held: decision.held,
+      })
+    }
+    return issued
+  }
+
+  /**
+   * Append one round, keeping the buffer bounded.
+   *
+   * A wave is a handful of rounds; a coordinator that has been up for weeks has
+   * served many waves. The cap is generous enough that no single wave can reach
+   * it and small enough that the buffer cannot grow without limit — and dropping
+   * the OLDEST is safe precisely because every consumer scopes to rounds newer
+   * than its own start.
+   */
+  private recordWaveRound(channel: UpdateChannel, round: WaveRound): void {
+    const rounds = this.waveHistory.get(channel) ?? []
+    rounds.push(round)
+    if (rounds.length > 200) rounds.splice(0, rounds.length - 200)
+    this.waveHistory.set(channel, rounds)
   }
 
   /**
@@ -753,6 +1123,7 @@ export class UpdatesService {
    * work is one pass over the machine directory.
    */
   fleet(): WaveMachine[] {
+    this.replayTerminalStatusesForKnownMachines()
     const { machines, continuing } = this.project()
     if (continuing.size === 0) return machines
     for (const channel of continuing) this.tick(channel)
@@ -778,7 +1149,10 @@ export class UpdatesService {
    * Both are idempotent, both are true the moment the handshake landed, and
    * neither sends anything to a machine.
    */
-  private project(): { machines: WaveMachine[]; continuing: Set<UpdateChannel> } {
+  private project(): {
+    machines: WaveMachine[]
+    continuing: Set<UpdateChannel>
+  } {
     const channelsReadyToContinue = new Set<UpdateChannel>()
     const fleet: WaveMachine[] = this.deps.machines().map((machine) => {
       const channel = this.channelOf(machine)
@@ -869,6 +1243,7 @@ export class UpdatesService {
     const candidates = this.project().machines.filter(
       (machine) =>
         this.channelOf(machine) === channel &&
+        isPackagedRolloutTarget(machine) &&
         machine.online &&
         IN_FLIGHT_STATES.has(machine.state) &&
         (machineIds === undefined || machineIds.includes(machine.id)),
@@ -951,13 +1326,16 @@ export class UpdatesService {
     target: UpdateTarget,
     machines: readonly WaveMachine[],
     selected: readonly string[],
+    repair = false,
   ): string[] {
     const issued: string[] = []
     for (const machineId of selected) {
       const grant: UpdateGrantMessage = {
         type: 'updateGrant',
         grantId: this.deps.nextGrantId(),
+        ...(repair ? { repair: true } : {}),
         target,
+        ...(this.deps.updatePubkey ? { updatePubkey: this.deps.updatePubkey() } : {}),
       }
       this.deps.send(asMachineId(machineId), grant)
       const machine = machines.find((candidate) => candidate.id === machineId)
@@ -1056,20 +1434,14 @@ export class UpdatesService {
    * same question the ACTION already asks, so the offer and the update it
    * starts can no longer name different versions.
    *
-   * The published development bundle keeps its precedence on a dev-following
-   * host, where it is the freshest statement of that authority: it is HEAD,
-   * read this request, against a `dev` target that was set when HEAD last
-   * moved. It is offered as an argument rather than fetched here because
-   * publishing is the composition root's business and this service must stay
-   * free of it.
+   * A source checkout's HEAD does not participate here: it is a pre-release
+   * proposal until an admin builds and publishes it. Only the standing target
+   * pulled from that channel's feed can become an offer.
    */
-  advertisedTarget(
-    hostMachineId?: string,
-    publishedDevTarget?: UpdateTarget,
-  ): UpdateTarget | undefined {
+  advertisedTarget(hostMachineId?: string): UpdateTarget | undefined {
     const channel = this.operationChannel(hostMachineId)
-    if (channel === 'dev') return publishedDevTarget ?? this.target('dev')
-    return this.target(channel)
+    const raw = this.target(channel)
+    return raw ? withoutArtifactCredentials(raw) : undefined
   }
 
   private rollout(channel: UpdateChannel): ChannelRolloutState {

@@ -586,9 +586,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (everAttached && eligible()) becomeEligible()
       everAttached = true
     },
-    onFrame: (text) => {
-      view.write(text)
-      if (!firstFrameSeen && text.length > 0) {
+    onFrame: (bytes) => {
+      view.write(bytes)
+      if (!firstFrameSeen && bytes.length > 0) {
         firstFrameSeen = true
         opts.onFirstFrame?.()
         markReady('frame')

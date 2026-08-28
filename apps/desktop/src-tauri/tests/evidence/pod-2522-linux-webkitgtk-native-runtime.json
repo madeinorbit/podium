@@ -1,0 +1,186 @@
+{
+  "issue": "POD-2522",
+  "date": "2026-08-21",
+  "platform": "Linux native Tauri WebView under isolated Xvfb — WebKitGTK, not WKWebView",
+  "webkitGtkVersion": "2.52.3",
+  "isolation": {
+    "display": "issue-scoped Xvfb",
+    "network": "systemd user unit with PrivateNetwork=yes (loopback only)",
+    "environment": "allowlisted env; isolated HOME, XDG dirs, state, agent home, instance, payload",
+    "inheritedRelayVariables": false
+  },
+  "exercise": [
+    {
+      "at": "2026-08-21T20:02:45.133Z",
+      "elapsedMs": 6596,
+      "event": "served-origin-loaded",
+      "observed": {
+        "window": {
+          "href": "http://127.0.0.1:<port>/",
+          "launchMode": "all-in-one",
+          "readyState": "complete",
+          "bodyIncludes": []
+        },
+        "versionIdentity": {
+          "appVersion": "0.1.1-edge.1",
+          "wireVersion": 2,
+          "wireSchemaDigest": "833769293edf5a27",
+          "instanceId": "native-2522-server-down"
+        }
+      }
+    },
+    {
+      "at": "2026-08-21T20:02:45.165Z",
+      "elapsedMs": 6628,
+      "event": "sidecar-killed",
+      "observed": {
+        "pid": "<redacted>",
+        "killedRoles": [
+          "parent",
+          "server"
+        ],
+        "executableHeldForRespawnFailure": true
+      }
+    },
+    {
+      "at": "2026-08-21T20:03:29.911Z",
+      "elapsedMs": 51374,
+      "event": "baked-reconnect-rendered",
+      "observed": {
+        "window": {
+          "href": "tauri://localhost",
+          "launchMode": "all-in-one",
+          "readyState": "complete",
+          "bodyIncludes": [
+            "The backend went quiet.",
+            "Retry connection"
+          ]
+        },
+        "engineNetworkErrorPage": false,
+        "restartPauseBudgetMs": 30000,
+        "failedPollThreshold": 6
+      }
+    },
+    {
+      "at": "2026-08-21T20:03:33.920Z",
+      "elapsedMs": 55383,
+      "event": "non-podium-squatter-refused",
+      "observed": {
+        "response": "HTTP 200 with non-Podium body",
+        "window": {
+          "href": "tauri://localhost",
+          "launchMode": "all-in-one",
+          "readyState": "complete",
+          "bodyIncludes": [
+            "The backend went quiet.",
+            "Retry connection"
+          ]
+        }
+      }
+    },
+    {
+      "at": "2026-08-21T20:03:48.842Z",
+      "elapsedMs": 70305,
+      "event": "identity-checked-recovery-stable",
+      "observed": {
+        "window": {
+          "href": "http://127.0.0.1:<port>/",
+          "launchMode": "all-in-one",
+          "readyState": "interactive",
+          "bodyIncludes": []
+        },
+        "observedStableMs": 8000,
+        "bakedNavigationsAfterRecovery": 0
+      }
+    },
+    {
+      "at": "2026-08-21T20:04:02.353Z",
+      "elapsedMs": 83816,
+      "event": "slow-update-respawn-stayed-served",
+      "observed": {
+        "handoverRequest": "real parent control handover",
+        "inducedSuccessorPauseMs": 8000,
+        "oldParentPid": "<redacted>",
+        "successorPid": "<redacted>",
+        "newParentPid": "<redacted>",
+        "window": {
+          "href": "http://127.0.0.1:<port>/",
+          "launchMode": "all-in-one",
+          "readyState": "complete",
+          "bodyIncludes": []
+        },
+        "bakedNavigations": 0
+      }
+    }
+  ],
+  "observedDesktopLog": [
+    "[podium] INFO desktop:shell launch action: LocalAllInOne",
+    "[podium] INFO desktop:shell loading UI from local server http://127.0.0.1:<port>",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 500ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 1000ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 2000ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 4000ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] INFO desktop:shell local document watchdog standing down for supervised restart",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] INFO desktop:shell local server is false; moving the window to the baked dist fallback",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] WARN desktop:shell backend exited (Some(ExitStatus(unix_wait_status(9)))); respawning in 5000ms on port 40229",
+    "[podium] INFO desktop:shell local server is true; moving the window to the local server"
+  ],
+  "deliberateBreak": {
+    "change": "debug runtime control disabled spawn_local_document_watchdog",
+    "detected": true,
+    "harnessOutcome": "the same baked-navigation assertion timed out",
+    "milestone": {
+      "at": "2026-08-21T20:04:24.561Z",
+      "elapsedMs": 17966,
+      "event": "deliberate-break-detected",
+      "observed": {
+        "break": "local document watchdog disabled",
+        "exerciseResult": "FAIL",
+        "reason": "no baked navigation was observed after the local server stopped answering"
+      }
+    },
+    "capturedFailure": "Error: timed out waiting for baked fallback with the watchdog deliberately disabled",
+    "observedDesktopLog": [
+      "[podium] INFO desktop:shell launch action: LocalAllInOne",
+      "[podium] INFO desktop:shell loading UI from local server http://127.0.0.1:45735",
+      "[podium] WARN desktop:shell runtime probe deliberately disabled the local document watchdog"
+    ]
+  }
+}

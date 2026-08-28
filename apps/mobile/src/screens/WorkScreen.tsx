@@ -1,10 +1,10 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { useSlice } from '@podium/client-core/react'
 import {
-  draftIssueLabel,
   formatClock,
   type IssueNavigationModel,
   isDraftAgentVessel,
+  issueDisplayTitle,
   missionProgress,
   pendingDecisionLabel,
   planReorderKeys,
@@ -47,6 +47,7 @@ import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholde
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
+import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { TaskSheet } from '../components/TaskSheet'
@@ -150,6 +151,11 @@ export function WorkScreen() {
   const [menuTarget, setMenuTarget] = useState<WorkIssueMenuTarget | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const titleSessions = useMemo(() => [...sessionsAll], [sessionsAll])
+  const displayTitleFor = useCallback(
+    (issue: IssueNavigationModel) => issueDisplayTitle(issue, titleSessions, allWorktreePaths),
+    [allWorktreePaths, titleSessions],
+  )
 
   const { sections, orderingSections, issueCount, pinnedCount, attentionCount } = useMemo(() => {
     const list: WorkSection[] = []
@@ -210,19 +216,25 @@ export function WorkScreen() {
     return sections
       .map((section) => ({
         ...section,
-        data: section.data.filter((row) => workRowSearchText(row, now).includes(needle)),
+        data: section.data.filter((row) =>
+          workRowSearchText(row, now, displayTitleFor).includes(needle),
+        ),
         snoozedRows: section.snoozedRows.filter((row) =>
-          `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(needle),
+          `${issueDisplayRef(row.issue)} ${displayTitleFor(row.issue)}`
+            .toLowerCase()
+            .includes(needle),
         ),
         closedRows: section.closedRows.filter((row) =>
-          `${issueDisplayRef(row.issue)} ${row.issue.title}`.toLowerCase().includes(needle),
+          `${issueDisplayRef(row.issue)} ${displayTitleFor(row.issue)}`
+            .toLowerCase()
+            .includes(needle),
         ),
       }))
       .filter(
         (section) =>
           section.data.length + section.snoozedRows.length + section.closedRows.length > 0,
       )
-  }, [now, query, sections])
+  }, [displayTitleFor, now, query, sections])
 
   /**
    * A mission row opens its MISSION — the transcript of whoever is on it, with
@@ -324,6 +336,7 @@ export function WorkScreen() {
       {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
           a log line. Outside the crossfade so the skeleton cannot hide it. */}
       <StorageNoticeAlert />
+      <RefreshOffer />
       {searchOpen ? (
         <View style={styles.searchBand}>
           <Icon as={Search} size={15} color={color.textFaint} />
@@ -403,6 +416,7 @@ export function WorkScreen() {
                     storageKey={`podium:sidebar:snoozed-fold:${section.key}`}
                     label="Snoozed"
                     rows={section.snoozedRows}
+                    displayTitleFor={displayTitleFor}
                     lane="snoozed"
                     now={now}
                     onOpen={openIssue}
@@ -414,6 +428,7 @@ export function WorkScreen() {
                     storageKey={`podium:sidebar:closed-fold:${section.key}`}
                     label="Closed"
                     rows={section.closedRows}
+                    displayTitleFor={displayTitleFor}
                     lane="closed"
                     now={now}
                     onOpen={openIssue}
@@ -476,9 +491,13 @@ export function WorkScreen() {
   )
 }
 
-function workRowSearchText(row: UnifiedWorkRow, now: number): string {
+function workRowSearchText(
+  row: UnifiedWorkRow,
+  now: number,
+  displayTitleFor: (issue: IssueNavigationModel) => string,
+): string {
   if (row.kind === 'issue') {
-    return `${issueDisplayRef(row.issue)} ${row.issue.title} ${rowStatusLine(row, now, 0)}`.toLowerCase()
+    return `${issueDisplayRef(row.issue)} ${displayTitleFor(row.issue)} ${rowStatusLine(row, now, 0)}`.toLowerCase()
   }
   return `${row.worktree.repoName ?? ''} ${row.worktree.branch ?? ''} ${rowStatusLine(row, now, 0)}`.toLowerCase()
 }
@@ -493,6 +512,7 @@ function Fold({
   storageKey,
   label,
   rows,
+  displayTitleFor,
   lane,
   now,
   onOpen,
@@ -501,6 +521,7 @@ function Fold({
   storageKey: string
   label: string
   rows: UnifiedIssueRow[]
+  displayTitleFor: (issue: IssueNavigationModel) => string
   lane: 'closed' | 'snoozed'
   now: number
   onOpen: (issue: IssueWire) => void
@@ -511,7 +532,10 @@ function Fold({
     <View style={styles.fold}>
       <PressableScale
         accessibilityRole="button"
+        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+        // only the former, so the web build announced no state at all. [POD-1664]
         accessibilityState={{ expanded: !collapsed }}
+        aria-expanded={!collapsed}
         accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} ${label.toLowerCase()} · ${rows.length}`}
         onPress={toggle}
         style={({ pressed }) => [styles.foldToggle, pressed && styles.pressed]}
@@ -522,30 +546,33 @@ function Fold({
       </PressableScale>
       {collapsed
         ? null
-        : rows.map((row) => (
-            <PressableScale
-              key={row.issue.id}
-              accessibilityRole="button"
-              accessibilityLabel={`${issueDisplayRef(row.issue)} ${row.issue.title}`}
-              onPress={() => onOpen(row.issue)}
-              onLongPress={() => onLongPress(row)}
-              delayLongPress={350}
-              style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}
-            >
-              <Text style={styles.foldedRef}>{issueDisplayRef(row.issue)}</Text>
-              <Text style={styles.foldedTitle} numberOfLines={1}>
-                {row.issue.title}
-              </Text>
-              <Text
-                style={[
-                  styles.foldedMarker,
-                  foldedMarker(row.issue, lane, now) === 'merged' && styles.foldedMerged,
-                ]}
+        : rows.map((row) => {
+            const title = displayTitleFor(row.issue)
+            return (
+              <PressableScale
+                key={row.issue.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${issueDisplayRef(row.issue)} ${title}`}
+                onPress={() => onOpen(row.issue)}
+                onLongPress={() => onLongPress(row)}
+                delayLongPress={350}
+                style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}
               >
-                {foldedMarker(row.issue, lane, now)}
-              </Text>
-            </PressableScale>
-          ))}
+                <Text style={styles.foldedRef}>{issueDisplayRef(row.issue)}</Text>
+                <Text style={styles.foldedTitle} numberOfLines={1}>
+                  {title}
+                </Text>
+                <Text
+                  style={[
+                    styles.foldedMarker,
+                    foldedMarker(row.issue, lane, now) === 'merged' && styles.foldedMerged,
+                  ]}
+                >
+                  {foldedMarker(row.issue, lane, now)}
+                </Text>
+              </PressableScale>
+            )
+          })}
     </View>
   )
 }
@@ -600,9 +627,7 @@ function WorkRow({
   // clicks straight into the session (desktop POD-282).
   const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
   const label = issue
-    ? draftOnly
-      ? draftIssueLabel(issue, [...allSessions], allWorktreePaths)
-      : issue.title
+    ? issueDisplayTitle(issue, [...allSessions], allWorktreePaths)
     : `${worktree?.repoName ?? ''}${worktree?.branch ? ` · ${worktree.branch}` : ''}`
   const stamp = timeStamp(row, now)
   const statusLine =

@@ -1,23 +1,65 @@
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { Readable } from 'node:stream'
+import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
 import type { Context, Hono } from 'hono'
-import type { BuiltDevBundle } from './dev-bundle'
+import { DevArtifactIntegrityError, type DevBundleArtifact } from './dev-bundle'
+import {
+  DEV_DESKTOP_MANIFEST,
+  DEV_FEED_MANIFEST,
+  DEV_FEED_ROUTE,
+  desktopManifestFeedChannel,
+} from './release-target'
 
 export const DEV_BUNDLE_CONTENT_TYPE = 'application/gzip'
+
+/**
+ * Which release the shell manifest in this response came from: `dev`, `edge` (the fallback
+ * an instance with no dev desktop release gets), or `unknown`.
+ */
+export const DEV_DESKTOP_CHANNEL_HEADER = 'x-podium-desktop-channel'
+
+/** The artifact leg of the dev feed, under {@link DEV_FEED_ROUTE}. */
+export const DEV_FEED_ARTIFACT_SEGMENT = 'artifact'
 
 export interface OpenedDevBundle {
   stream: ReadableStream
   size: number
 }
 
-export interface DevArtifactRouteDeps {
-  /** The last successful build only; a failed build must not become readable. */
-  current(): BuiltDevBundle | null
+export interface DevFeedRouteDeps {
+  /**
+   * The exact artifact this host published, or nothing for an unknown version
+   * or platform. May reconstruct and verify the descriptor from disk after a
+   * restart; a merely built, unpublished artifact must not become readable.
+   */
+  publishedArtifact(
+    version: string,
+    platform?: string,
+  ): DevBundleArtifact | null | Promise<DevBundleArtifact | null>
+  /**
+   * The built candidate may answer an authenticated HEAD before publication so
+   * remote consumers can prove its exact route. It is never used for GET: an
+   * unpublished bundle must not become downloadable merely because it was built.
+   */
+  probeArtifact?(
+    version: string,
+    platform?: string,
+  ): DevBundleArtifact | null | Promise<DevBundleArtifact | null>
+  /**
+   * Where the publisher wrote `podium-update.json`, or nothing on a server that
+   * publishes no feed. Read per request rather than captured: the manifest is a
+   * few hundred bytes and it changes underneath this process every publish.
+   */
+  manifestPath(): string | undefined
+  /** Public shell manifest; it contains only release-key-signed GitHub asset URLs. */
+  desktopManifestPath?(): string | undefined
   /** Machine authentication is mandatory, even when the human UI is open-mode. */
   authenticate(request: Request, context: Context): boolean | Promise<boolean>
   /** Seam for tests; defaults to a read stream over the published path. */
   open?(path: string): Promise<OpenedDevBundle | null>
+  /** Seam for tests; defaults to reading the file. */
+  readManifest?(path: string): Promise<string | null>
 }
 
 /**
@@ -41,39 +83,167 @@ async function openDevBundle(path: string): Promise<OpenedDevBundle | null> {
   }
 }
 
-/**
- * Serve the published development bundle by streaming it off disk.
- *
- * The route authenticates before looking up the requested version and then
- * compares the URL label with the current build, so a superseded artifact
- * cannot be served after a new target is published.
- *
- * NOTHING IS BUFFERED. A headless bundle is ~264 MB and this server shares its
- * host with the daemon and every agent session; reading one into the heap to
- * answer a request — or to hold it between requests — is a cost the development
- * host cannot absorb. Integrity does not depend on buffering either: the digest
- * and signature the daemon checks are computed over the file at publication,
- * and the daemon verifies both end to end before it swaps anything in. A
- * truncated or altered download fails there, which is where it must fail
- * anyway, since the network sits between the two.
- */
-export function registerDevArtifactRoute(app: Hono, deps: DevArtifactRouteDeps): void {
-  const open = deps.open ?? openDevBundle
+async function readManifestFile(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8')
+  } catch {
+    return null
+  }
+}
 
-  app.get('/updates/dev-bundle/:version', async (c) => {
+/**
+ * SERVE THE DEVELOPMENT FEED — a manifest and the artifacts it names.
+ *
+ * This used to be one route serving one pushed tarball. It is a FEED now (spec
+ * §1, §6 step 4): the same two documents `resolveReleaseTarget` fetches from
+ * GitHub for edge and stable, served by the source server for `dev`, so all
+ * three channels resolve through one code path. Nothing about the dev channel
+ * is special here except who signed the artifact and who is allowed to ask.
+ *
+ * The headless manifest and artifact are AUTHENTICATED and 401-FIRST
+ * (disposition 3): that manifest names artifact URLs carrying this server's
+ * credential. The desktop `latest.json` is deliberately public because Tauri's
+ * updater cannot attach machine credentials; it contains only GitHub URLs whose
+ * bytes remain protected by the shell's baked release minisign key.
+ *
+ * NOTHING IS BUFFERED on the artifact leg. A headless bundle is ~264 MB and
+ * this server shares its host with the daemon and every agent session; reading
+ * one into the heap to answer a request — or to hold it between requests — is a
+ * cost the development host cannot absorb. Integrity does not depend on
+ * buffering either: the digest and signature the daemon checks are computed over
+ * the file at publication, and the daemon verifies both end to end before it
+ * swaps anything in. A truncated or altered download fails there, which is where
+ * it must fail anyway, since the network sits between the two.
+ *
+ * The platform is in the PATH because one build mints several bundles, and a
+ * request for a platform this build did not mint is `not found` rather than a
+ * fallback to the host's tarball — handing a Mac a Linux bundle would fail its
+ * signature after a 200 MB download.
+ */
+export function registerDevFeedRoutes(app: Hono, deps: DevFeedRouteDeps): void {
+  const open = deps.open ?? openDevBundle
+  const readManifest = deps.readManifest ?? readManifestFile
+
+  const serve = async (
+    c: Context,
+    requestedVersion: string,
+    requestedPlatform: string | undefined,
+  ) => {
     if (!(await deps.authenticate(c.req.raw, c))) return c.text('unauthorized', 401)
 
-    const requested = decodeURIComponent(c.req.param('version'))
-    const current = deps.current()
-    if (!current || requested !== current.version) return c.text('not found', 404)
+    let artifact: DevBundleArtifact | null
+    try {
+      const candidate =
+        c.req.method === 'HEAD'
+          ? await deps.probeArtifact?.(requestedVersion, requestedPlatform)
+          : undefined
+      artifact = candidate ?? (await deps.publishedArtifact(requestedVersion, requestedPlatform))
+    } catch (error) {
+      if (!(error instanceof DevArtifactIntegrityError)) throw error
+      // Keep the route fail-closed and non-enumerating: authenticated callers
+      // still receive the same 404 body and status. The marker preserves the
+      // verdict across that disposition so the daemon does not flatten a
+      // security finding into a connection problem.
+      c.header(UPDATE_ARTIFACT_REFUSAL_HEADER, UPDATE_ARTIFACT_INTEGRITY_REFUSAL)
+      return c.text('not found', 404)
+    }
+    if (
+      !artifact ||
+      artifact.version !== requestedVersion ||
+      (requestedPlatform !== undefined && artifact.platform !== requestedPlatform)
+    ) {
+      return c.text('not found', 404)
+    }
 
-    const opened = await open(current.path)
+    const opened = await open(artifact.path)
+    // ABSENT AND ALTERED ARE DIFFERENT ANSWERS, and this route used to give
+    // them the same one. Retention reclaiming the file, or a cleaned checkout,
+    // is an ordinary `not found` the daemon can act on by asking again.
+    //
+    // A file that is STILL HERE but is no longer the size publication recorded
+    // is the other thing entirely: the stored bytes changed after they were
+    // published, which is the same verdict `publishedArtifact` raises above
+    // when it re-hashes recovered bytes. Answering that with a bare 404 flattened
+    // a security finding into `artifact download returned 404`, which the
+    // downloader classifies `download-failed` — indistinguishable, to whoever
+    // reads it, from a flaky network (POD-2739).
+    //
+    // The end-to-end control is unchanged and still lives with the downloader:
+    // an EQUAL-SIZE mutation streams from here and fails its digest and
+    // signature checks over the bytes. This branch exists so that the cheap
+    // early guard names what it found instead of speaking for the network.
     if (!opened) return c.text('not found', 404)
+    if (opened.size !== artifact.size) {
+      c.header(UPDATE_ARTIFACT_REFUSAL_HEADER, UPDATE_ARTIFACT_INTEGRITY_REFUSAL)
+      return c.text('not found', 404)
+    }
 
-    return c.body(opened.stream, 200, {
+    const headers = {
       'content-type': DEV_BUNDLE_CONTENT_TYPE,
       'content-length': String(opened.size),
       'cache-control': 'no-store',
+    }
+    if (c.req.method === 'HEAD') {
+      await opened.stream.cancel()
+      return c.body(null, 200, headers)
+    }
+    return c.body(opened.stream, 200, headers)
+  }
+
+  app.get(DEV_FEED_ROUTE + '/' + DEV_DESKTOP_MANIFEST, async (c) => {
+    const path = deps.desktopManifestPath?.()
+    const body = path ? await readManifest(path) : null
+    if (!body) return c.text('not found', 404)
+    // A dev server serves the dev shell when one is published and the edge shell when none
+    // is. Both are correct; leaving a reader to work out which is not — so the answer rides
+    // along, read out of the bytes in THIS response rather than from anything remembered.
+    // `unknown` when the document names no single release, which is never a normal state.
+    let served: string
+    try {
+      served = desktopManifestFeedChannel(JSON.parse(body)) ?? 'unknown'
+    } catch {
+      served = 'unknown'
+    }
+    return c.body(body, 200, {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+      [DEV_DESKTOP_CHANNEL_HEADER]: served,
     })
   })
+
+  app.get(`${DEV_FEED_ROUTE}/${DEV_FEED_MANIFEST}`, async (c) => {
+    if (!(await deps.authenticate(c.req.raw, c))) return c.text('unauthorized', 401)
+
+    const path = deps.manifestPath()
+    const body = path ? await readManifest(path) : null
+    // Nothing published yet is a 404, not an empty manifest: the resolver's
+    // "unavailable" reason should say the feed has nothing, never parse a
+    // placeholder into a target with no artifacts.
+    if (!body) return c.text('not found', 404)
+
+    return c.body(body, 200, {
+      'content-type': 'application/json',
+      // The manifest is the one document a stale copy of would republish a
+      // withdrawn release, so it is never cacheable — the same reason the
+      // resolver asks for `no-store` at the other end.
+      'cache-control': 'no-store',
+    })
+  })
+
+  app.on(
+    ['GET', 'HEAD'],
+    `${DEV_FEED_ROUTE}/${DEV_FEED_ARTIFACT_SEGMENT}/:version/:platform`,
+    async (c) =>
+      serve(
+        c,
+        decodeURIComponent(c.req.param('version')),
+        decodeURIComponent(c.req.param('platform')),
+      ),
+  )
+
+  // Kept for a daemon still holding a URL minted before one build published several
+  // platforms. It serves the host's bundle, which is what that URL always meant.
+  app.on(['GET', 'HEAD'], `${DEV_FEED_ROUTE}/${DEV_FEED_ARTIFACT_SEGMENT}/:version`, async (c) =>
+    serve(c, decodeURIComponent(c.req.param('version')), undefined),
+  )
 }

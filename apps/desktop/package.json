@@ -9,9 +9,11 @@
     "preflight": "bun scripts/preflight.ts",
     "stage": "bun scripts/stage-sidecar.ts",
     "build": "bun scripts/preflight.ts && bun scripts/stage-sidecar.ts && tauri build",
-    "dev": "bun scripts/preflight.ts && bun scripts/stage-sidecar.ts && tauri dev"
+    "dev": "bun scripts/preflight.ts && bun scripts/stage-sidecar.ts && tauri dev",
+    "verify:update-ui": "bun ../../scripts/validation-admission.ts heavy --label @podium/desktop:verify:update-ui -- bun --conditions=@podium/source scripts/verify-update-ui-runtime.ts"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2",
+    "vitest": "5.0.0-beta.6"
   }
 }

@@ -36,7 +36,7 @@ import type { OutboxDeadLetterEntry } from '../outbox'
 import type { ReadPositionPort } from '../read-position'
 import type { Replica } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnTarget } from '../spawn-agent'
+import type { SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
@@ -157,6 +157,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  AgentPanel gates its terminal attach on this — attaching to a not-yet-created
    *  session is dropped and never retried, so it must wait for reconciliation. */
   pendingSpawnIds: ReadonlySet<string>
+  /** First prompts for optimistic sessions whose server row has not landed yet.
+   * Chat surfaces seed their pending bubble from this and keep it through the
+   * later transcript reconciliation. */
+  pendingSpawnPrompts: ReadonlyMap<string, string>
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
@@ -260,7 +264,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Close a VIEW. Never touches the session — that lives in the flight deck. */
   closeWorkspaceTab: (tabId: TabId) => void
   moveWorkspaceTab: (tabId: TabId, toPaneId: PaneId, toIndex: number) => void
-  /** `row` = Split Right, `column` = Split Down. Behind `tab-splitting`. */
+  /** `row` = Split Right, `column` = Split Down. */
   splitWorkspacePane: (paneId: PaneId, axis: SplitAxis, opts?: { tabId?: TabId }) => void
   closeWorkspacePane: (paneId: PaneId) => void
   focusWorkspacePane: (paneId: PaneId) => void
@@ -280,18 +284,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  relay. Only meaningful when `split` is on; clamps to 'A' otherwise. */
   focusedPane: 'A' | 'B'
   setFocusedPane: (pane: 'A' | 'B') => void
-  /**
-   * TELL THE ENGINE WHAT IS ON SCREEN.
-   *
-   * A layout keeps its panes when `tab-splitting` is off, and the web renders
-   * its first leaf only. The engine must not read a feature flag, and must not
-   * report a pane nobody can see — so the surface that owns the flag says so
-   * here, once, and every "what is visible" derivation consults it.
-   */
-  setSplitEnabled: (enabled: boolean) => void
   /** One modeled per-session rendered mode. AgentPanel resolves defaults and capability, then records the effective value here; the same value persists and is reported to the server. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
+  /** Where NAVIGATION would like this session to open. Writes the mode only when
+   *  the operator has never picked one for this session, so a row that focuses a
+   *  session "in CLI" cannot overwrite a standing Chat pick (POD-1702). */
+  preferPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
   /** The right dock's shell per worktree (#23): worktreePath → the shell session
    *  living in the dock's Shell panel. Dock shells render THERE, not as workspace
    *  tabs — the tab strip filters every id in this map. Persisted so a reload
@@ -402,6 +401,27 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   }) => {
     sessionId: SessionId
     issueId: IssueId
+    settled: Promise<boolean>
+  }
+  /** Start a named task optimistically, including its first chat turn. */
+  spawnIssueAgent: (args: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    mutationId?: MutationId
+    target: SpawnTarget
+    title: string
+    description: string
+    brief?: string
+    parentBranch?: string
+    agentKind: AgentKind
+    model?: string
+    effort?: string
+  }) => {
+    sessionId: SessionId
+    issueId: IssueId
+    mutationId: MutationId
+    settled: Promise<boolean>
+    outcome: Promise<TaskSpawnOutcome>
   }
   killSession: (sessionId: SessionId) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */

@@ -1,7 +1,13 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { type GitDiscoveryDiagnostic, type GitRepositorySummary, scanGitRepositories, scanGitRepositoriesAtPath } from '@podium/harness'
+import {
+  type GitDiscoveryDiagnostic,
+  type GitRepositorySummary,
+  scanGitRepositories,
+  scanGitRepositoriesAtPath,
+} from '@podium/harness'
+import { createLogger } from '@podium/logger'
 import type {
   DirectoryEntryWire,
   DirectoryListingWire,
@@ -10,10 +16,9 @@ import type {
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { runDirOp } from '../dir-ops'
-import { sampleHostMemory } from '../host-metrics'
+import { sampleHostDisk, sampleHostMemory } from '../host-metrics'
 import type { MemoryAttribution } from '../memory-breakdown'
 import type { ControlHandlers, DaemonContext } from './context'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:discovery')
 
@@ -268,6 +273,9 @@ async function memoryBreakdown(
   roots: string[],
 ): Promise<void> {
   const memory = sampleHostMemory()
+  // One statfs, unlike the /proc walk below it: cheap enough to take on every
+  // breakdown, and pointless to gate on `supported`, which is about attribution.
+  const disk = sampleHostDisk(process.env.HOME ?? ctx.homeDir ?? undefined)
   const supported = process.platform === 'linux' // the walk needs /proc
   let agents: MemoryAttribution['agents'] = []
   let projects: MemoryAttribution['projects'] = []
@@ -298,10 +306,34 @@ async function memoryBreakdown(
     sampledAt: new Date().toISOString(),
     supported,
     memory,
+    ...(disk === undefined ? {} : { disk }),
     agents,
     projects,
     otherBytes: Math.max(0, usedBytes - attributed),
   })
+}
+
+async function reclaimDiskEstimate(
+  ctx: DaemonContext,
+  requestId: string,
+  roots: string[],
+  reclaimRoots: string[],
+): Promise<void> {
+  try {
+    const result = (await ctx.workerClient.runJob(
+      'reclaimDiskEstimate',
+      { roots, reclaimRoots },
+      10 * 60_000,
+      false,
+    )) as { recoverableBytes: number; measuredAt: string }
+    ctx.send({ type: 'reclaimDiskEstimateResult', requestId, ...result })
+  } catch (err) {
+    ctx.send({
+      type: 'reclaimDiskEstimateResult',
+      requestId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
 export const discoveryHandlers: Pick<
@@ -311,6 +343,7 @@ export const discoveryHandlers: Pick<
   | 'browseDirsRequest'
   | 'dirOpRequest'
   | 'memoryBreakdownRequest'
+  | 'reclaimDiskEstimateRequest'
 > = {
   scanRequest: (ctx, msg) => {
     void scan(ctx, msg.requestId)
@@ -332,5 +365,8 @@ export const discoveryHandlers: Pick<
   },
   memoryBreakdownRequest: (ctx, msg) => {
     void memoryBreakdown(ctx, msg.requestId, msg.roots)
+  },
+  reclaimDiskEstimateRequest: (ctx, msg) => {
+    void reclaimDiskEstimate(ctx, msg.requestId, msg.roots, msg.reclaimRoots)
   },
 }

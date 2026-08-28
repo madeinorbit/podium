@@ -10,10 +10,14 @@ import {
   longestDurableLabelFor,
 } from './abduco-socket.js'
 import {
+  abducoSocketPathname,
   applyInstanceRuntimeEnv,
+  assertLinuxUnixSocketPath,
   assertInstanceStateIdentity,
   DEFAULT_INSTANCE_ID,
   defaultInstancePorts,
+  DURABLE_INSTANCE_COMPONENT_BYTES,
+  durableInstanceComponent,
   durableSessionLabel,
   ensureInstanceStateIdentity,
   instanceBuildSliceName,
@@ -21,9 +25,11 @@ import {
   instanceInstallDir,
   instanceServiceName,
   instanceSessionSliceName,
+  instanceSocketRuntimeDir,
   instanceStateDir,
   instanceTimerName,
   instanceUpdateTimerName,
+  LINUX_UNIX_SOCKET_PATH_BYTES,
   readInstanceStateIdentity,
   resolveInstanceId,
   selectInstance,
@@ -84,6 +90,7 @@ describe('instance namespaces', () => {
     expect(instanceStateDir('default', env)).toBe('/home/u/.podium')
     expect(instanceInstallDir('default', env)).toBe('/home/u/.local/share/podium')
     expect(instanceCommandName('default')).toBe('podium')
+    expect(instanceServiceName('parent', 'default')).toBe('podium.service')
     expect(instanceServiceName('server', 'default')).toBe('podium-server.service')
     expect(instanceServiceName('janitor', 'default')).toBe('podium-janitor.service')
     expect(instanceServiceName('update', 'default')).toBe('podium-update-user.service')
@@ -94,6 +101,7 @@ describe('instance namespaces', () => {
     expect(instanceStateDir('blue', env)).toBe('/home/u/.local/state/podium/blue')
     expect(instanceInstallDir('blue', env)).toBe('/home/u/.local/share/podium-instances/blue')
     expect(instanceCommandName('blue')).toBe('podium-blue')
+    expect(instanceServiceName('parent', 'blue')).toBe('podium-blue.service')
     expect(instanceServiceName('daemon', 'blue')).toBe('podium-blue-daemon.service')
     expect(instanceServiceName('janitor', 'blue')).toBe('podium-blue-janitor.service')
     expect(instanceUpdateTimerName('blue')).toBe('podium-blue-update.timer')
@@ -114,6 +122,46 @@ describe('instance namespaces', () => {
     expect(defaultInstancePorts('blue')).toEqual(defaultInstancePorts('blue'))
     expect(new Set(Object.values(defaultInstancePorts('blue'))).size).toBe(3)
     expect(defaultInstancePorts('blue')).not.toEqual(defaultInstancePorts('green'))
+  })
+})
+
+describe('Unix socket byte budget', () => {
+  const sessionId = asSessionId('00000000-0000-4000-8000-000000000000')
+
+  it('pins the 17-byte instance component ceiling inside Linux sun_path', () => {
+    expect(DURABLE_INSTANCE_COMPONENT_BYTES).toBe(17)
+    const fixedRoot = '/tmp/pd-0123456789'
+    const atCeiling = abducoSocketPathname(
+      fixedRoot,
+      `podium-${'i'.repeat(17)}-${sessionId}`,
+      'podium',
+      '123456789abc',
+    )
+    const overflow = abducoSocketPathname(
+      fixedRoot,
+      `podium-${'i'.repeat(18)}-${sessionId}`,
+      'podium',
+      '123456789abc',
+    )
+    expect(Buffer.byteLength(atCeiling)).toBe(LINUX_UNIX_SOCKET_PATH_BYTES)
+    expect(Buffer.byteLength(overflow)).toBe(LINUX_UNIX_SOCKET_PATH_BYTES + 1)
+  })
+
+  it('keeps short instance labels readable and hashes longer ids deterministically', () => {
+    expect(durableInstanceComponent('a'.repeat(17))).toBe('a'.repeat(17))
+    const long = 'a'.repeat(32)
+    const component = durableInstanceComponent(long)
+    expect(component).toHaveLength(DURABLE_INSTANCE_COMPONENT_BYTES)
+    expect(component).toMatch(/^0[A-Za-z0-9_-]{16}$/)
+    expect(durableInstanceComponent(long)).toBe(component)
+    expect(durableSessionLabel(sessionId, long)).toBe(`podium-${component}-${sessionId}`)
+  })
+
+  it('names the instance and both Linux limits when a socket still cannot fit', () => {
+    const path = `/tmp/${'x'.repeat(104)}`
+    expect(() => assertLinuxUnixSocketPath(path, 'blue', 'a test socket', 'linux')).toThrow(
+      /instance 'blue'.*109-byte.*108 bytes.*107 pathname bytes/,
+    )
   })
 })
 
@@ -160,19 +208,16 @@ describe('state ownership marker', () => {
 })
 
 it('named durable backend env is private unless explicitly overridden', () => {
-  const dir = join(temp(), 'state')
-  const runtimeDir = shortTemp()
-  const env: NodeJS.ProcessEnv = { XDG_RUNTIME_DIR: runtimeDir }
+  const dir = join(temp(), 'x'.repeat(60), 'state')
+  const env: NodeJS.ProcessEnv = {}
   applyInstanceRuntimeEnv('blue', env, dir)
+  const bounded = instanceSocketRuntimeDir('blue', dir)
   expect(env).toMatchObject({
     PODIUM_INSTANCE: 'blue',
-    // The abduco root comes from the RUNTIME directory, not the state root
-    // (POD-2853): a named instance's state root plus its instance-prefixed
-    // label does not fit in a 108-byte `sun_path`, so pinning under the state
-    // directory made every terminal spawn fail with "File name too long".
-    ABDUCO_SOCKET_DIR: join(runtimeDir, 'podium-blue'),
-    TMUX_TMPDIR: join(dir, 'runtime', 'tmux'),
+    ABDUCO_SOCKET_DIR: bounded,
+    TMUX_TMPDIR: bounded,
   })
+  expect(bounded).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
   const shared: NodeJS.ProcessEnv = { ABDUCO_SOCKET_DIR: '/shared/a', TMUX_TMPDIR: '/shared/t' }
   applyInstanceRuntimeEnv('blue', shared, dir)
   expect(shared.ABDUCO_SOCKET_DIR).toBe('/shared/a')
@@ -192,21 +237,6 @@ it('pins a named instance somewhere abduco can actually bind a socket', () => {
     '@flatblock',
   )
   expect(composed).toBeLessThan(ABDUCO_SUN_PATH_MAX)
-})
-
-it('falls down the ladder rather than throwing when a root cannot be created', () => {
-  // An XDG_RUNTIME_DIR that is not ours is an ordinary inherited-environment
-  // accident, and it used to be harmless because the pin lived under the state
-  // directory, which the daemon owns. It is not harmless now: an unhandled
-  // mkdir would throw out of instance bootstrap, before the daemon has served
-  // anything, and take down an instance over a socket directory.
-  const root = shortTemp()
-  const unusable = join(root, 'not-a-dir')
-  writeFileSync(unusable, '') // a FILE where a directory is wanted — mkdir refuses
-  const env: NodeJS.ProcessEnv = { XDG_RUNTIME_DIR: unusable, TMPDIR: join(root, 'tmp') }
-  expect(() => applyInstanceRuntimeEnv('blue', env, join(temp(), 'state'))).not.toThrow()
-  expect(env.ABDUCO_SOCKET_DIR).toBe(join(root, 'tmp', `podium-${process.getuid?.() ?? 0}`))
-  expect(existsSync(env.ABDUCO_SOCKET_DIR ?? '')).toBe(true)
 })
 
 it('gives builds their own slice, a sibling of the sessions slice', () => {

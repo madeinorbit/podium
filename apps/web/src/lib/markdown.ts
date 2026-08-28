@@ -1,6 +1,7 @@
 import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import DOMPurify from 'dompurify'
 import { renderMarkdownUnsafe } from './markdown-renderer'
+import { getKnownRefPrefixes, isKnownRefPrefix } from './markdown-references'
 
 // External links in a transcript should open in a new tab — clicking one must
 // never navigate away from Podium. file-link anchors (internal file opens) carry
@@ -38,28 +39,6 @@ export function linkifyCodePaths(html: string): string {
   })
 }
 
-// The set of registered repo prefixes (#474). Only tokens whose prefix matches
-// one of these are linkified — this is what keeps `UTF-8` and other real hyphens
-// from turning into dead ref links. The app updates it whenever the repo list
-// loads; empty (the default) disables ref linkification entirely.
-let knownRefPrefixes = new Set<string>()
-
-/** Update the registered repo prefixes the ref linkifier recognises (#474). */
-export function setKnownRefPrefixes(prefixes: Iterable<string>): void {
-  knownRefPrefixes = new Set(prefixes)
-}
-
-/** The registered repo prefixes (#474). Shared with the terminal link provider so
- *  markdown and terminal linkify agree on which tokens are real refs. */
-export function getKnownRefPrefixes(): ReadonlySet<string> {
-  return knownRefPrefixes
-}
-
-/** Whether `prefix` is a registered repo prefix (#474). */
-export function isKnownRefPrefix(prefix: string): boolean {
-  return knownRefPrefixes.has(prefix)
-}
-
 /**
  * Turn `PREFIX-N` / `PREFIX-N-LETTER` / `PREFIX-DRAFT-N` tokens into ref anchors
  * (#474), analogous to {@link linkifyCodePaths}. Runs on sanitized HTML and only
@@ -83,7 +62,7 @@ export function isKnownRefPrefix(prefix: string): boolean {
  *  not a ref of a registered prefix. */
 function refAnchor(tok: string): string | null {
   const ref = parseAnyRef(tok)
-  if (!ref || !knownRefPrefixes.has(ref.prefix)) return null
+  if (!ref || !isKnownRefPrefix(ref.prefix)) return null
   // NO LIVE STATE IN THE STRING (POD-1290 follow-up). Stage, availability and
   // the accessible label used to be baked in here — which made every row's
   // html a function of the issue store, so each of the fleet's deltas
@@ -103,7 +82,7 @@ function soleRefToken(text: string): string | null {
 }
 
 export function linkifyRefs(html: string): string {
-  if (knownRefPrefixes.size === 0) return html
+  if (getKnownRefPrefixes().size === 0) return html
   const parts = html.split(/(<[^>]+>)/)
   let inAnchor = 0
   let inCode = 0

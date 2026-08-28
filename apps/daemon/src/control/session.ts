@@ -12,6 +12,7 @@ import {
   manifestFor,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import {
   type AgentKind,
   type AgentRuntimeState,
@@ -438,14 +439,13 @@ export function wireBridge(
     ctx.observers.onResize?.(sessionId, pending.cols, pending.rows)
   }
   session.onFrame((frame) => {
-    countFrame(frame.data.length)
+    countFrame(frame.data.byteLength)
     ctx.observers.onFrame?.(sessionId, frame.data)
     ctx.outputScheduler.enqueue(sessionId, frame.data)
     // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
-    // running for this (flagged) session. Guarded so unflagged sessions skip the
-    // base64 decode entirely.
+    // running for this (flagged) session.
     if (ctx.composerEngine.has(sessionId)) {
-      ctx.composerEngine.onData(sessionId, Buffer.from(frame.data, 'base64'))
+      ctx.composerEngine.onData(sessionId, frame.data)
     }
   })
   // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
@@ -2009,6 +2009,51 @@ async function reapDurableHost(
     })
   }
 }
+type CanonicalInputMetadata = Pick<
+  Extract<ControlMessage, { type: 'input' }>,
+  'sessionId' | 'inputOrigin'
+>
+
+/**
+ * Deliver already-converged PTY input bytes. Legacy base64 frames and negotiated
+ * binary envelopes enter here before origin accounting, composer activity, or PTY I/O.
+ */
+export function dispatchInputBytes(
+  ctx: DaemonContext,
+  metadata: CanonicalInputMetadata,
+  bytes: Uint8Array,
+): void {
+  if (bytes.byteLength === 0) return
+  if (bytes.includes(0x0d) || bytes.includes(0x0a)) {
+    ctx.observers.recordInputOrigin(metadata.sessionId, metadata.inputOrigin)
+  }
+  const bridge = ctx.bridges.get(metadata.sessionId)
+  // The client terminal is a leased takeover surface, not a second write
+  // path. Once Chat releases the native request, stale frames must not reach
+  // the warm abduco master.
+  if (
+    !bridge &&
+    ctx.nativeClientRequests?.has(metadata.sessionId) &&
+    ctx.clientTerminals?.input(metadata.sessionId, Buffer.from(bytes).toString('base64'))
+  ) {
+    ctx.composerEngine.onInputByte(metadata.sessionId)
+    return
+  }
+  if (!bridge && sessionIsBehindContract(ctx, metadata.sessionId)) {
+    // Chat sends for a server-family session use `runtimeSendRequest`; Native
+    // bytes reach the client terminal above. Anything arriving here has
+    // neither surface and is malformed/stale rather than silently accepted.
+    log.warn('discarding input bytes for a bridgeless contract session', {
+      sessionId: metadata.sessionId,
+      bytes: bytes.byteLength,
+    })
+  }
+  bridge?.writeBytes(bytes)
+  // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
+  // replica is hot, so the engine defers injection. No-op for unflagged sessions.
+  ctx.composerEngine.onInputByte(metadata.sessionId)
+}
+
 export const sessionHandlers: Pick<
   ControlHandlers,
   | 'spawn'
@@ -2069,37 +2114,12 @@ export const sessionHandlers: Pick<
       })
       .catch((err) => log.warn('could not record the native identity conflict', { err }))
   },
-  input: (ctx, msg) => {
-    const input = Buffer.from(msg.data, 'base64').toString('utf8')
-    if (input.includes('\r') || input.includes('\n')) {
-      ctx.observers.recordInputOrigin(msg.sessionId, msg.inputOrigin)
-    }
-    const bridge = ctx.bridges.get(msg.sessionId)
-    // The client terminal is a leased takeover surface, not a second write
-    // path. Once Chat releases the native request, stale frames must not reach
-    // the warm abduco master.
-    if (
-      !bridge &&
-      ctx.nativeClientRequests?.has(msg.sessionId) &&
-      ctx.clientTerminals?.input(msg.sessionId, msg.data)
-    ) {
-      ctx.composerEngine.onInputByte(msg.sessionId)
-      return
-    }
-    if (!bridge && sessionIsBehindContract(ctx, msg.sessionId)) {
-      // Chat sends for a server-family session use `runtimeSendRequest`; Native
-      // bytes reach the client terminal above. Anything arriving here has
-      // neither surface and is malformed/stale rather than silently accepted.
-      log.warn('discarding input bytes for a bridgeless contract session', {
-        sessionId: msg.sessionId,
-        bytes: msg.data.length,
-      })
-    }
-    bridge?.write(msg.data)
-    // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
-    // replica is hot, so the engine defers injection. No-op for unflagged sessions.
-    ctx.composerEngine.onInputByte(msg.sessionId)
-  },
+  input: (ctx, msg) =>
+    dispatchInputBytes(
+      ctx,
+      { sessionId: msg.sessionId, inputOrigin: msg.inputOrigin ?? 'unknown' },
+      Buffer.from(msg.data, 'base64'),
+    ),
   resize: (ctx, msg) => {
     const bridge = ctx.bridges.get(msg.sessionId)
     // No bridge yet = the spawn this resize belongs to is still in flight. Hold the

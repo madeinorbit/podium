@@ -78,6 +78,7 @@ export interface EngineState {
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
   pendingSpawnIds: ReadonlySet<string>
+  pendingSpawnPrompts: ReadonlyMap<string, string>
   hostMetrics: HostMetricsWire[]
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests (popup). */
@@ -120,22 +121,6 @@ export interface EngineState {
   paneB: SessionId | null
   split: boolean
   focusedPane: 'A' | 'B'
-  /**
-   * WHAT THE VIEW SAYS IT IS RENDERING — told, not read (POD-710).
-   *
-   * A layout keeps its panes when `tab-splitting` is turned off; the web then
-   * renders the first leaf ONLY and leaves the tree alone. The engine must not
-   * read a feature flag, but it also must not report a pane nobody can see: a
-   * hidden pane's session would take PTY-relay priority and have its unread
-   * badge cleared by the mark-read reaction (POD-710 review, item 9).
-   *
-   * So the surface that owns the flag TELLS us, through `setSplitEnabled`, and
-   * everything that answers "what is on screen" ({@link visibleTabIds},
-   * {@link focusedPaneSession}, {@link userFocus}, `reportViewState`) consults
-   * this one field. Default `false`: until a view has said otherwise, the
-   * conservative answer is that only the first pane is showing.
-   */
-  splitEnabled: boolean
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
@@ -219,14 +204,13 @@ export function issueActivityAt(
 /**
  * The panes the operator can actually SEE, in strip order.
  *
- * The layout's leaves minus the ones the view is not rendering: with splitting
- * switched off a preserved split layout still shows its first leaf only (see
- * {@link EngineState.splitEnabled}). Every "what is on screen" derivation walks
- * this, so they cannot disagree about a third pane or a hidden one.
+ * Splitting is ordinary now (POD-1649), so every leaf of the current workspace's
+ * tree is rendered and this is exactly that walk. It stays a named seam because
+ * every "what is on screen" derivation goes through it, so they cannot disagree
+ * about a third pane or a hidden one.
  */
 export function visibleLeafPaneIds(st: EngineState): string[] {
-  const leaves = leafPaneIds(currentWorkspace(st).root)
-  return st.splitEnabled ? leaves : leaves.slice(0, 1)
+  return leafPaneIds(currentWorkspace(st).root)
 }
 
 /**
@@ -697,6 +681,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     automations: seed.automations,
     automationRuns: seed.automationRuns,
     pendingSpawnIds: EMPTY_ID_SET,
+    pendingSpawnPrompts: new Map(),
     hostMetrics: [],
     machines: [],
     approvals: [],
@@ -728,9 +713,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     // Which pane has input focus. Not persisted — it resets to A on reload,
     // which is the right default (A is always the shown pane when split is off).
     focusedPane: 'A',
-    // Not persisted either, and deliberately pessimistic: the view says what it
-    // renders as soon as it mounts (see EngineState.splitEnabled).
-    splitEnabled: false,
     panelMode: seed.persisted.panelMode,
     dockShells: seed.persisted.dockShells,
     dockVisibleSession: null,

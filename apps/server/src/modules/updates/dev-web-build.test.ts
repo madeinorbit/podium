@@ -17,7 +17,7 @@ function builder(opts: {
   stamps: (DevWebBuildStamp | null)[]
   /** Defaults to an installation that never exported one, which is not stale. */
   phones?: ServedWebIdentity[]
-  runStep?: (step: { role: string }) => Promise<void>
+  runStep?: (step: { role: string }, appVersion?: string) => Promise<void>
 }) {
   const stamps = [...opts.stamps]
   let reads = 0
@@ -99,6 +99,31 @@ describe('development web build', () => {
     // `/version` asks on every read, so the common case must not spawn anything.
     expect(run).not.toHaveBeenCalled()
     expect(web.state()).toEqual({ state: 'ready', headSha: 'aaaaaaa' })
+  })
+
+  it('rebuilds and stamps both clients with the approved release version', async () => {
+    const versions: Array<string | undefined> = []
+    const { web } = builder({
+      stamps: [
+        { sourceSha: 'aaaaaaa', appVersion: 'old' },
+        { sourceSha: 'aaaaaaa', appVersion: '0.1.0-dev.1+aaaaaaa' },
+      ],
+      phones: [
+        { present: true, digest: 'aaaaaaa', appVersion: 'old' },
+        {
+          present: true,
+          digest: 'aaaaaaa',
+          appVersion: '0.1.0-dev.1+aaaaaaa',
+        },
+      ],
+      runStep: (_step, appVersion) => {
+        versions.push(appVersion)
+        return Promise.resolve()
+      },
+    })
+
+    await web.ensure('aaaaaaa', '0.1.0-dev.1+aaaaaaa')
+    expect(versions).toEqual(['0.1.0-dev.1+aaaaaaa', '0.1.0-dev.1+aaaaaaa'])
   })
 
   it('runs the web build then the mobile build when the dist is stale', async () => {

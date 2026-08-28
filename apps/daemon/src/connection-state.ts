@@ -1,17 +1,30 @@
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
+import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
   createHandshakeDialer,
+  DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
+  DaemonPtyInputMetadata,
+  type DaemonPtyOutputBatch,
+  decodeBinaryEnvelope,
+  encodeBinaryEnvelope,
   type LocalDaemonAttachment,
   type PeerBuild,
   type PeerCredential,
   type PeerHelloRejected,
 } from '@podium/protocol'
-import { type DaemonMessage } from '@podium/protocol/daemon'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { consumePairCode } from '@podium/runtime/setup'
+import {
+  acceptsUpdateKeyRotation,
+  type UpdateKeyRotation,
+  updateKeyFingerprint,
+} from '@podium/runtime/update-key-trust'
 import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
@@ -19,7 +32,6 @@ import type { QueueDrainOutbox } from './queue-drain-outbox'
 import type { RuntimeEventOutbox } from './runtime-event-outbox'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:connection')
 
@@ -58,10 +70,10 @@ export type DaemonConnectionState =
 
 interface SocketLike {
   readonly readyState: number
-  send(data: string): void
+  send(data: string | Uint8Array): void
   close(): void
   once(event: 'open' | 'close', listener: () => void): this
-  on(event: 'message', listener: (raw: RawData) => void): this
+  on(event: 'message', listener: (raw: RawData, isBinary?: boolean) => void): this
   on(event: 'close', listener: () => void): this
   on(event: 'error', listener: (error: unknown) => void): this
   on(
@@ -73,13 +85,16 @@ interface SocketLike {
 export interface DaemonConnectionDeps {
   readonly options: DaemonOptions
   readonly build: PeerBuild
+  /** False when the sibling server hosts this parent's one update participant. */
+  readonly reportUpdateIdentity?: boolean
   readonly machineId: MachineId
   readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
+  readonly receiveBinaryInput?: (metadata: DaemonPtyInputMetadata, payload: Uint8Array) => void
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => boolean
   readonly queueDrainOutbox: QueueDrainOutbox
   readonly runtimeEventOutbox: RuntimeEventOutbox
-  readonly onConnected: () => void
+  readonly onConnected: () => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
   readonly restartAfterUpdate?: () => void
@@ -88,10 +103,43 @@ export interface DaemonConnectionDeps {
 export interface DaemonConnection {
   readonly state: DaemonConnectionState
   start(): Promise<void>
+  sendOutput(batch: DaemonPtyOutputBatch): void
   send(msg: DaemonMessage): void
   acknowledgeQueueDrainReport(reportId: string): void
   acknowledgeRuntimeEvent(deliveryId: string): void
   close(): Promise<void>
+}
+
+const assertOutputBatch = (batch: DaemonPtyOutputBatch): void => {
+  if (
+    !Number.isSafeInteger(batch.sourceFrames) ||
+    batch.sourceFrames < 1 ||
+    batch.sourceFrames > DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES
+  ) {
+    throw new RangeError(
+      `daemon PTY output batches require sourceFrames in 1..${DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES}`,
+    )
+  }
+}
+
+const legacyOutputMessage = (
+  batch: DaemonPtyOutputBatch,
+): Extract<DaemonMessage, { type: 'agentFrameBatch' }> => {
+  return {
+    type: 'agentFrameBatch',
+    sessionId: batch.sessionId,
+    frames: [
+      Buffer.from(batch.bytes).toString('base64'),
+      ...Array.from({ length: batch.sourceFrames - 1 }, () => ''),
+    ],
+  }
+}
+
+/** Normalize every ws RawData variant without changing any byte values. */
+export function normalizeRawData(raw: RawData): Buffer {
+  if (Buffer.isBuffer(raw)) return raw
+  if (Array.isArray(raw)) return Buffer.concat(raw)
+  return Buffer.from(raw)
 }
 
 /**
@@ -124,6 +172,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let started = false
   let pairFallbackTried = false
   let lastSocketError: string | undefined
+  let convergedVersion: string | undefined
+  let acceptedCaps = new Set<string>()
+  const invalidSockets = new WeakSet<SocketLike>()
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
   // per code/version until an authenticated machine transport exists. Ordinary
   // runtime frames retain historical drop-while-offline behavior; queue-drain
@@ -143,7 +194,16 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const report = (patch: Omit<Parameters<typeof writeConnectivity>[0], 'serverUrl'>): void => {
     if (!connectivityDir) return
     try {
-      writeConnectivity({ serverUrl: options.serverUrl, ...patch }, connectivityDir)
+      writeConnectivity(
+        {
+          serverUrl: options.serverUrl,
+          processId: process.pid,
+          appVersion: deps.build.appVersion ?? 'dev',
+          ...(convergedVersion ? { convergedVersion } : {}),
+          ...patch,
+        },
+        connectivityDir,
+      )
     } catch (error) {
       log.warn('could not write the connectivity status file', { err: error, connectivityDir })
     }
@@ -250,7 +310,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     closing = true
     const guidance =
       kind === 'unauthorized'
-        ? 'Authorization will not be retried; ask the machine owner or an admin to re-pair it.'
+        ? 'Pairing will not be retried. On the server, open Machines → Add machine, create a new one-use code, then pair this machine with that new code.'
         : 'Not reconnecting; update the daemon or repair its configuration.'
     log.error('the server rejected this daemon', { rejection: type, reason, kind, guidance })
     report(
@@ -286,7 +346,13 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     savePinnedUpdatePubkey(updatePubkey, options.identityDir ? { dir: options.identityDir } : {})
   }
 
-  const established = (issuedToken?: string, updatePubkey?: string, active?: SocketLike): void => {
+  const established = (
+    issuedToken?: string,
+    updatePubkey?: string,
+    updateKeyRotations?: readonly UpdateKeyRotation[],
+    active?: SocketLike,
+    caps: readonly string[] = [],
+  ): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
     } else if (updatePubkey !== undefined) {
@@ -298,20 +364,39 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       if (identity.updatePubkey === undefined) {
         persistBootstrapPin(updatePubkey)
       } else if (updatePubkey !== identity.updatePubkey) {
-        terminal(
-          'blocked',
-          'server-update-key',
-          'server update key changed outside pairing',
-          active,
-        )
-        return
+        if (
+          acceptsUpdateKeyRotation(identity.updatePubkey, updatePubkey, updateKeyRotations ?? [])
+        ) {
+          persistBootstrapPin(updatePubkey)
+          log.info('accepted signed server update-key rotation', {
+            fingerprint: updateKeyFingerprint(updatePubkey),
+          })
+        } else {
+          terminal(
+            'blocked',
+            'server-update-key',
+            'the publisher update key was replaced after this machine enrolled, and no valid ' +
+              'old-key-signed rotation reaches it. The existing pin was kept. After verifying ' +
+              updateKeyFingerprint(updatePubkey) +
+              ' out of band with the publisher, recover on this machine with: ' +
+              'podium update-key trust ' +
+              updatePubkey,
+            active,
+          )
+          return
+        }
       }
     }
     state = 'connected'
+    acceptedCaps = new Set(caps)
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
-    report({ state: 'connected', lastHelloOkAt: new Date().toISOString() })
-    deps.onConnected()
+    const boot = deps.onConnected() ?? {}
+    convergedVersion = boot.convergedVersion ?? convergedVersion
+    report({
+      state: 'connected',
+      lastHelloOkAt: new Date().toISOString(),
+    })
     for (const diagnostic of pendingDiagnostics.values()) {
       if (localAttachment) localAttachment.deliver(diagnostic)
       else deps.sendApplicationFrame(socket, diagnostic)
@@ -334,6 +419,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       installed,
       source,
       attached: Boolean(options.serverUrl),
+      parentManaged: process.env.PODIUM_UNDER_PARENT === '1',
     })
     if (action === 'backoff') {
       log.error('protocol mismatch — update the daemon to match the server', { source })
@@ -380,18 +466,66 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     child.once('close', (code) => settle(code))
   }
 
+  const closeForInvalidBinary = (
+    active: SocketLike | undefined,
+    reason: 'unnegotiated' | 'malformed',
+    error: unknown,
+  ): void => {
+    const detail = error instanceof Error ? error.message : String(error)
+    acceptedCaps.clear()
+    lastSocketError = detail
+    log.warn('closing daemon connection for invalid binary PTY input', {
+      reason,
+      err: error,
+    })
+    if (active) {
+      invalidSockets.add(active)
+      if (socket === active) state = 'closed'
+      active.close()
+      return
+    }
+    localAttachment?.close()
+    localAttachment = undefined
+    state = 'closed'
+  }
   const receiveReply = (
     dialer: ReturnType<typeof createHandshakeDialer>,
     raw: RawData,
     active: SocketLike | undefined,
+    isBinary = false,
   ): void => {
-    const step = dialer.receive(raw.toString())
+    if (isBinary) {
+      if (dialer.state !== 'established' || !acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
+        closeForInvalidBinary(
+          active,
+          'unnegotiated',
+          new Error('binary PTY input arrived before capability negotiation'),
+        )
+        return
+      }
+      let decoded: { metadata: DaemonPtyInputMetadata; payload: Uint8Array }
+      try {
+        decoded = decodeBinaryEnvelope(normalizeRawData(raw), DaemonPtyInputMetadata)
+      } catch (error) {
+        closeForInvalidBinary(active, 'malformed', error)
+        return
+      }
+      deps.receiveBinaryInput?.(decoded.metadata, decoded.payload)
+      return
+    }
+    const step = dialer.receive(normalizeRawData(raw).toString())
     if (step.action === 'deliver') {
       deps.receiveApplicationFrame(Buffer.from(step.raw))
       return
     }
     if (step.action === 'established') {
-      established(step.issuedToken, step.updatePubkey, active)
+      established(
+        step.issuedToken,
+        step.updatePubkey,
+        step.updateKeyRotations,
+        active,
+        step.caps.accepted,
+      )
       return
     }
     if (step.action === 'protocol-error') {
@@ -428,11 +562,18 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const makeDialer = () => {
     const selected = credential()
     if (!selected) throw new Error('daemon has no machine credential; pair it first')
+    const reportUpdateIdentity = deps.reportUpdateIdentity !== false
     return createHandshakeDialer({
       peerRole: 'machine',
       credential: selected,
-      caps: deliveryCaps(deps.build),
-      build: deps.build,
+      caps: [
+        ...deliveryCaps(deps.build).filter(
+          (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
+        ),
+        CAP_TERMINAL_OUTPUT_BINARY_V1,
+        CAP_TERMINAL_INPUT_BINARY_V1,
+      ],
+      ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
         machineId: deps.machineId,
         hostname: hostname(),
@@ -442,6 +583,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   const connectLocal = (): void => {
+    acceptedCaps.clear()
     state = 'connecting'
     const localLink = options.localLink
     if (!localLink) {
@@ -459,6 +601,26 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const attachment = localLink.attach({
       hello: dialer.hello(),
       deliver: (msg) => deps.receiveApplicationFrame(Buffer.from(JSON.stringify(msg))),
+      deliverInput: (input) => {
+        if (!acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
+          closeForInvalidBinary(
+            undefined,
+            'unnegotiated',
+            new Error('local binary PTY input arrived before capability negotiation'),
+          )
+          return
+        }
+        deps.receiveBinaryInput?.(
+          {
+            v: 1,
+            type: 'ptyInput',
+            sessionId: input.sessionId,
+            inputOrigin: input.inputOrigin,
+            ...(input.attribution === undefined ? {} : { attribution: input.attribution }),
+          },
+          input.bytes,
+        )
+      },
     })
     if (attachment.established) localAttachment = attachment
     receiveReply(dialer, Buffer.from(JSON.stringify(attachment.reply)), undefined)
@@ -466,11 +628,13 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   function connectSocket(): void {
     if (closing) return
+    acceptedCaps.clear()
     state = 'connecting'
     const active = openSocket(`${options.serverUrl}/daemon`)
     socket = active
     let dialer: ReturnType<typeof createHandshakeDialer> | undefined
     active.once('open', () => {
+      if (invalidSockets.has(active)) return
       try {
         dialer = makeDialer()
         state = 'awaiting-ack'
@@ -479,15 +643,25 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         terminal('blocked', 'configuration', String(error), active)
       }
     })
-    active.on('message', (raw) => {
+    active.on('message', (raw, isBinary) => {
+      if (invalidSockets.has(active)) return
+      if (!dialer && isBinary) {
+        closeForInvalidBinary(
+          active,
+          'unnegotiated',
+          new Error('binary PTY input arrived before the daemon handshake'),
+        )
+        return
+      }
       if (!dialer) {
         terminal('blocked', 'handshake-protocol', 'reply-before-hello', active)
         return
       }
-      receiveReply(dialer, raw, active)
+      receiveReply(dialer, raw, active, isBinary === true)
     })
     if (!process.versions.bun) {
       active.on('unexpected-response', (_req, response) => {
+        if (invalidSockets.has(active)) return
         if (response.statusCode === 426) handleProtocolMismatch(active, 'http-426')
       })
     }
@@ -495,7 +669,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       lastSocketError = error instanceof Error ? error.message : String(error)
     })
     active.on('close', () => {
-      if (socket === active) socket = undefined
+      if (socket === active) {
+        socket = undefined
+        acceptedCaps.clear()
+      }
       stopQueueDrainRetry()
       stopRuntimeEventRetry()
       scheduleReconnect()
@@ -520,6 +697,35 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
       return ready
     },
+    sendOutput(batch) {
+      if (socket && invalidSockets.has(socket)) return
+      if (state !== 'connected') return
+      assertOutputBatch(batch)
+      if (localAttachment) {
+        localAttachment.deliverOutput(batch)
+        return
+      }
+      if (socket && acceptedCaps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)) {
+        try {
+          socket.send(
+            encodeBinaryEnvelope(
+              {
+                v: 1,
+                type: 'ptyOutput',
+                sessionId: batch.sessionId,
+                sourceFrames: batch.sourceFrames,
+              },
+              batch.bytes,
+            ),
+          )
+        } catch (error) {
+          lastSocketError = error instanceof Error ? error.message : String(error)
+        }
+        return
+      }
+      const message = legacyOutputMessage(batch)
+      deps.sendApplicationFrame(socket, message)
+    },
     send(msg) {
       if (msg.type === 'runtimeQueueDrainAbandoned') {
         if (!msg.reportId) {
@@ -531,6 +737,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         if (!msg.deliveryId) throw new Error('runtimeEvent requires deliveryId before daemon send')
         deps.runtimeEventOutbox.enqueue({ ...msg, deliveryId: msg.deliveryId })
       }
+      if (socket && invalidSockets.has(socket)) return
       if (state !== 'connected') {
         if (msg.type === 'machineDiagnostic') {
           pendingDiagnostics.set(`${msg.code}\0${msg.observedVersion ?? ''}`, msg)
@@ -561,6 +768,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       localAttachment?.close()
       localAttachment = undefined
       const active = socket
+      acceptedCaps.clear()
       socket = undefined
       if (!active || active.readyState === WebSocket.CLOSED) return
       await new Promise<void>((resolve) => {

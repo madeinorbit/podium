@@ -61,6 +61,7 @@ import {
 } from '@podium/model'
 import type {
   AgentInstruction,
+  DaemonPtyInputBatch,
   RuntimeContractRequest,
   SessionBindingSpawnInstruction,
 } from '@podium/protocol'
@@ -139,6 +140,7 @@ export interface SessionStartPorts {
     ownerUserId: UserId
   }): void
   toMachine(machineId: MachineId, message: ControlMessage): void
+  toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
   soleOwnerForCwd(cwd: string): IssueId | undefined
@@ -157,7 +159,11 @@ export interface SessionStartPorts {
     queued?: boolean
     reason?: string
   }
-  emitSessionCreated(payload: { sessionId: SessionId; agentKind: AgentKind }): void
+  emitSessionCreated(payload: {
+    sessionId: SessionId
+    agentKind: AgentKind
+    issueId?: IssueId
+  }): void
 }
 
 export class SessionStart {
@@ -321,10 +327,14 @@ export class SessionStart {
       }
     }
     // Fire-and-forget notification (post-spawn, so subscribers observe the new
-    // world). Its one consumer today is the opt-in telemetry usage counter
-    // [spec:SP-f933], which is why the payload carries the harness kind and
-    // nothing else — no cwd, no prompt, no issue id.
-    this.ports.emitSessionCreated({ sessionId: spawned.sessionId, agentKind })
+    // world). Its telemetry consumer reads the harness kind [spec:SP-f933]. The
+    // issue id is also the lifecycle fact used to establish the first eligible
+    // issue agent as its default coordinator; no cwd or prompt crosses this seam.
+    this.ports.emitSessionCreated({
+      sessionId: spawned.sessionId,
+      agentKind,
+      ...(issueId ? { issueId } : {}),
+    })
     // Forcing an unlisted model is a deliberate override — make it durable and
     // observable across every spawn path [spec:SP-cc60].
     if (forced) {
@@ -427,6 +437,11 @@ export class SessionStart {
       // reassignment), falling back to the birth machine before the row exists.
       toDaemon: (msg) =>
         this.ports.toMachine(asMachineId(this.ports.sessionMachineId(sessionId) ?? machineId), msg),
+      sendInput: (input) =>
+        this.ports.toPtyInput(
+          asMachineId(this.ports.sessionMachineId(sessionId) ?? machineId),
+          input,
+        ),
       onActivity: () => {
         // Shell busy transitions advance lastActiveAt (their only activity
         // signal); persist so recency is durable across a restart, then

@@ -1,6 +1,12 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
-import { type ITheme, Terminal } from '@xterm/xterm'
+import { Terminal } from '@xterm/xterm'
+import {
+  DEFAULT_FONT_SIZE,
+  DEFAULT_LINE_HEIGHT,
+  DEFAULT_THEME,
+  type TerminalAppearance,
+} from './appearance'
 import { type FileLinkConfig, makeFileLinkProvider } from './file-link-provider'
 import { makeRefLinkProvider, type RefLinkConfig } from './ref-link-provider'
 import { RefUnderlineOverlay, type ViewportBufferLike } from './ref-underline-overlay'
@@ -16,16 +22,12 @@ import { wireWheelFallback } from './wheel-fallback'
 // FitAddon cannot measure a cell. Importing it here keeps the component self-contained.
 import '@xterm/xterm/css/xterm.css'
 
-/** The user-tunable rendering options — settable at construction and at runtime
- *  via {@link TerminalView.setAppearance} (no remount, no PTY restart). */
-export interface TerminalAppearance {
-  fontSize?: number
-  fontFamily?: string
-  /** Multiplier on the cell height (xterm semantics, >= 1). Values much above
-   *  ~1.2 open visible gaps in box-drawing borders (agent TUI frames). */
-  lineHeight?: number
-  theme?: ITheme
-}
+export {
+  DEFAULT_FONT_SIZE,
+  DEFAULT_LINE_HEIGHT,
+  DEFAULT_THEME,
+  type TerminalAppearance,
+} from './appearance'
 
 export interface TerminalViewOptions extends TerminalAppearance {
   cols?: number
@@ -36,9 +38,6 @@ export interface TerminalViewOptions extends TerminalAppearance {
   /** Lifecycle/layout facts only; never terminal content or input. */
   diagnostics?: (event: string, data?: TerminalDiagnosticData) => void
 }
-
-export const DEFAULT_FONT_SIZE = 15
-export const DEFAULT_LINE_HEIGHT = 1.15
 
 function monotonicEventTime(event: KeyboardEvent): number | undefined {
   const stamp = event.timeStamp
@@ -82,34 +81,6 @@ export function colorSchemeReport(background: string | undefined): string {
 // monospace stack that resolves to a real mono font on every platform.
 const MONO_STACK =
   "'Geist Mono Variable', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, 'Cascadia Code', 'DejaVu Sans Mono', Consolas, monospace"
-
-// Palette aligned with the app's design tokens (see apps/web styles.css).
-// Exported so callers overriding a single slot (e.g. the background) can merge
-// over the full default palette instead of re-declaring it.
-export const DEFAULT_THEME: ITheme = {
-  background: '#0e0e12',
-  foreground: '#d7d7e0',
-  cursor: '#D97757',
-  cursorAccent: '#0e0e12',
-  selectionBackground: 'rgba(245, 158, 11, 0.30)',
-  selectionForeground: '#f3f3f8',
-  black: '#16161c',
-  brightBlack: '#3a3a46',
-  red: '#f87171',
-  brightRed: '#fca5a5',
-  green: '#34d399',
-  brightGreen: '#6ee7b7',
-  yellow: '#fbbf24',
-  brightYellow: '#fcd34d',
-  blue: '#60a5fa',
-  brightBlue: '#93c5fd',
-  magenta: '#c084fc',
-  brightMagenta: '#d8b4fe',
-  cyan: '#22d3ee',
-  brightCyan: '#67e8f9',
-  white: '#d7d7e0',
-  brightWhite: '#f3f3f8',
-}
 
 /** Open an external URL in a new tab / the system browser. In installed PWAs,
  *  `window.open(..., '_blank')` is the most reliable handoff to the browser app
@@ -455,9 +426,9 @@ export class TerminalView {
     this.forceRepaint()
   }
 
-  write(text: string): void {
+  write(data: string | Uint8Array): void {
     if (this.disposed) return
-    this.term.write(text)
+    this.term.write(data)
   }
 
   clear(): void {

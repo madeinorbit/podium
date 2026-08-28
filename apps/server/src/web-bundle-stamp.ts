@@ -31,6 +31,7 @@ import {
   type BuildStamp,
   parseBuildStamp,
   productVersionFromStamp,
+  type ServedWebIdentity,
   webSourceDigest,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -121,11 +122,19 @@ export function servedWebSourceDigest(webDir: string): string | undefined {
  * and built by a unit that can run long after boot, so a value cached at
  * startup would answer "absent" for the rest of the process's life.
  */
-export interface ServedWebIdentity {
-  present: boolean
-  appVersion?: string
-  digest?: string
-}
+/**
+ * The wire shape is the protocol's, not a second copy of it: this value is
+ * published on `/version` and read by a page that may have been built from a
+ * different commit, so its field names are a contract rather than an internal
+ * detail.
+ *
+ * `bundle` is the field POD-2721 added, and it carries `bundleVersion` — the
+ * entry chunk hash — straight off the stamp. The DIGEST is the checkout and the
+ * BUNDLE is the bytes. An open page needs the second: two builds of one commit,
+ * a packaged release and a dev release from the same SHA, share a digest and
+ * share nothing else, and the page's chunk URLs belong to exactly one of them.
+ */
+export type { ServedWebIdentity }
 
 export function servedWebIdentity(webDir: string): ServedWebIdentity {
   if (!webDir || !existsSync(join(webDir, 'index.html'))) return { present: false }
@@ -137,6 +146,7 @@ export function servedWebIdentity(webDir: string): ServedWebIdentity {
     present: true,
     ...(hasProductIdentity ? { appVersion: productVersionFromStamp(stamp) } : {}),
     ...(digest ? { digest } : {}),
+    ...(stamp.bundleVersion ? { bundle: stamp.bundleVersion } : {}),
   }
 }
 

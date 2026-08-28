@@ -32,14 +32,24 @@
     "./process-safety": "./src/process-safety.ts",
     "./sd-notify": "./src/sd-notify.ts",
     "./supervisor": "./src/supervisor.ts",
+    "./parent-supervisor": "./src/parent-supervisor.ts",
+    "./parent-process": "./src/parent-process.ts",
+    "./parent-control": "./src/parent-control.ts",
+    "./parent-update-swap": "./src/parent-update-swap.ts",
+    "./topology-migration": "./src/topology-migration.ts",
     "./boot": "./src/boot.ts",
     "./migration-ledger": "./src/migration-ledger.ts",
     "./update-delivery": "./src/update-delivery.ts",
+    "./update-key-trust": "./src/update-key-trust.ts",
+    "./update-signing-key": "./src/update-signing-key.ts",
     "./update-install": "./src/update-install.ts",
     "./update-schema": "./src/update-schema.ts",
-    "./update-delivery-git": "./src/update-delivery-git.ts",
+    "./update-pending": "./src/update-pending.ts",
+    "./update-participant": "./src/update-participant.ts",
     "./source-version": "./src/source-version.ts",
-    "./command-environment": "./src/command-environment.ts"
+    "./command-environment": "./src/command-environment.ts",
+    "./client-build-provenance": "./src/client-build-provenance.ts",
+    "./release-build-timing": "./src/release-build-timing.ts"
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
@@ -47,7 +57,9 @@
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/runtime:test -- bash -c \"bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun test --conditions=@podium/source test/sqlite.bun.test.ts --test-name-pattern ''\""
   },
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "5.0.0-beta.6"
   },
   "dependencies": {
     "@podium/logger": "workspace:*",

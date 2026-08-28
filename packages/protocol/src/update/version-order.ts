@@ -16,8 +16,9 @@
  *   one that structurally cannot (`refuseSchemaRegression` in `apps/daemon`).
  *
  * FAILS CLOSED, and every caller must treat it that way: `null` means "these two
- * labels have no order", not "equal". A source checkout reports `dev+<sha>`, and
- * for it the honest answer is that there is nothing to compare.
+ * labels have no order", not "equal". A source checkout's forensic `dev+<sha>`
+ * identity has nothing to compare; publisher-minted development versions
+ * (`X.Y.Z-dev.<N>+<sha>`) are orderable here.
  */
 
 /**
@@ -27,17 +28,29 @@
  * precedence, and two builds of one version are the same version here.
  */
 interface ParsedVersion {
-  core: readonly [number, number, number]
-  prerelease: readonly (string | number)[]
+  core: readonly [string, string, string]
+  prerelease: readonly string[]
 }
 
 const SEMVER =
   /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 
-const numericOrText = (id: string): string | number => (/^\d+$/.test(id) ? Number(id) : id)
+const isNumericIdentifier = (id: string): boolean => /^\d+$/.test(id)
 
-/** `null` for anything that is not a semver — including the `dev+<sha>` and
- *  plain `dev` labels a source checkout carries, which have no ordering at all. */
+/**
+ * Semver numeric identifiers are arbitrary-precision non-negative integers.
+ * They stay as canonical decimal strings so digit length followed by
+ * lexicographic comparison remains exact beyond JavaScript's safe-integer
+ * range. Leading zeroes are rejected by `parseVersion` before this runs.
+ */
+function compareNumericIdentifiers(a: string, b: string): number {
+  if (a.length !== b.length) return a.length < b.length ? -1 : 1
+  return a === b ? 0 : a < b ? -1 : 1
+}
+
+/** `null` for anything that is not a semver — including the forensic
+ *  `dev+<sha>` / plain `dev` labels a source checkout carries. Publisher mints
+ *  with flat `X.Y.Z-dev.<N>` identifiers parse and order normally. */
 function parseVersion(raw: string): ParsedVersion | null {
   const m = SEMVER.exec(raw.trim())
   if (!m) return null
@@ -51,42 +64,71 @@ function parseVersion(raw: string): ParsedVersion | null {
   if (prerelease.some((identifier) => /^0\d+$/.test(identifier))) return null
 
   return {
-    core: [Number(m[1]), Number(m[2]), Number(m[3])],
-    prerelease: prerelease.map(numericOrText),
+    core: [m[1] as string, m[2] as string, m[3] as string],
+    prerelease,
   }
 }
 
 /**
- * Semver §11 precedence over the prerelease identifiers. The two rules that a
- * naive dot-splitting comparison cannot express, and that decide real Podium
- * versions:
+ * Semver §11 precedence over the prerelease identifiers, with Podium's one
+ * deliberate deviation: for the same core, known channel identifiers have
+ * explicit tiers — `dev` above `edge` above every other alphanumeric
+ * identifier. The tier is compared before text, and text is compared
+ * alphabetically only within the same tier. This makes the deviation a total
+ * order instead of a pairwise exception.
+ *
+ * The three rules that a naive dot-splitting comparison cannot express, and
+ * that decide real Podium versions:
  *
  * - **A release outranks its own prereleases.** `0.1.4` > `0.1.4-edge.4`, so an
  *   edge install stops offering itself the prerelease once the release lands.
  * - **Numeric identifiers compare NUMERICALLY.** `edge.10` > `edge.4`; compared
  *   as text it is the other way round, and edge would stall at `.9` forever.
+ * - **A development cycle outranks the edge cycle of the same core.**
+ *   `0.1.2-dev.1` > `0.1.2-edge.1`. Since POD-2737 a mint is minted on the NEXT
+ *   patch, so the cut it was BUILT from is already below it on the core alone —
+ *   what this tier carries is the cut its own base anticipates, the `0.1.2-edge.1`
+ *   that lands later. Without it, cutting that edge would make every development
+ *   build on the 0.1.2 lineage look older than the release it is ahead of.
  *
  * Mixed identifiers: numeric always ranks below alphanumeric, and a shorter set
  * of otherwise-equal identifiers ranks below a longer one.
  */
 function comparePrerelease(
-  a: readonly (string | number)[],
-  b: readonly (string | number)[],
+  a: readonly string[],
+  b: readonly string[],
 ): number {
   if (a.length === 0 && b.length === 0) return 0
   if (a.length === 0) return 1
   if (b.length === 0) return -1
   for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    const left = a[i] as string | number
-    const right = b[i] as string | number
+    const left = a[i] as string
+    const right = b[i] as string
     if (left === right) continue
-    const leftIsNumber = typeof left === 'number'
-    const rightIsNumber = typeof right === 'number'
+    const leftIsNumber = isNumericIdentifier(left)
+    const rightIsNumber = isNumericIdentifier(right)
     if (leftIsNumber !== rightIsNumber) return leftIsNumber ? -1 : 1
-    if (leftIsNumber && rightIsNumber) return left < right ? -1 : 1
-    return (left as string) < (right as string) ? -1 : 1
+    if (leftIsNumber && rightIsNumber) return compareNumericIdentifiers(left, right)
+    const leftText = left
+    const rightText = right
+    const leftRank = prereleaseTextRank(leftText)
+    const rightRank = prereleaseTextRank(rightText)
+    if (leftRank !== rightRank) return leftRank < rightRank ? -1 : 1
+    return leftText < rightText ? -1 : 1
   }
   return a.length === b.length ? 0 : a.length < b.length ? -1 : 1
+}
+
+/**
+ * Known publisher channels get explicit precedence. Unknown alphanumeric
+ * prerelease identifiers share the fallback tier and remain text-ordered
+ * within it; putting `edge` above that tier prevents a label such as `dzz`
+ * from closing a cycle between `dev` and `edge`.
+ */
+function prereleaseTextRank(identifier: string): number {
+  if (identifier === 'dev') return 2
+  if (identifier === 'edge') return 1
+  return 0
 }
 
 /**
@@ -98,9 +140,8 @@ export function compareVersions(a: string, b: string): number | null {
   const right = parseVersion(b)
   if (!left || !right) return null
   for (let i = 0; i < 3; i++) {
-    const l = left.core[i] as number
-    const r = right.core[i] as number
-    if (l !== r) return l < r ? -1 : 1
+    const order = compareNumericIdentifiers(left.core[i] as string, right.core[i] as string)
+    if (order !== 0) return order
   }
   return comparePrerelease(left.prerelease, right.prerelease)
 }

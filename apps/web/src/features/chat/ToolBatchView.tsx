@@ -3,6 +3,7 @@ import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
@@ -25,7 +26,7 @@ import { ToolBlock, toolCallLabel } from './ToolBlock'
  *  the chat would put all of that in the bundle every session pays for on open,
  *  to serve a click most readers never make. */
 const DiffSheet = lazy(() =>
-  import('@/features/git/DiffSheet').then((m) => ({ default: m.DiffSheet })),
+  throughRestarts(() => import('@/features/git/DiffSheet')).then((m) => ({ default: m.DiffSheet })),
 )
 
 const LIVE_TICK_MS = 1000

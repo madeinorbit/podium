@@ -3,7 +3,7 @@
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { RightDock } from './RightDock'
 
 const selectedIssue = {
@@ -110,6 +110,26 @@ vi.mock('./RightDockIssuePanel', () => ({
       <div data-testid="issue-explorer" data-cwd={props.cwd} data-machine-id={props.machineId} />
     ),
 }))
+
+/**
+ * TRANSFORM THE LAZY PANEL BEFORE THE CLOCK STARTS (POD-2730).
+ *
+ * `findByRole` gives a query one second, and in vitest that second was paying
+ * for Vite's first transform of the merge-queue graph — measured at 5,975 ms
+ * here, against a built chunk that costs a file read. It passed before only by
+ * accident: `DockShellPanel` was this file's one STATIC import, so its large
+ * shared graph was already transformed by the time any test ran. Deferring it
+ * (which is the whole point — it was one of the two doors xterm came through)
+ * took that free warm-up away and two queries started timing out.
+ *
+ * So warm it here, deliberately, where it costs nothing anyone is measuring.
+ * `lazy()` still suspends once on first render, which is the behaviour under
+ * test; what has gone is a module transform inside the assertion's budget.
+ * Raising the timeout instead would have hidden a real slow render behind it.
+ */
+beforeAll(async () => {
+  await import('@/features/merge-queue/MergeQueuePanel')
+})
 
 afterEach(() => {
   cleanup()

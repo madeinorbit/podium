@@ -42,13 +42,9 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
   dispose,
 }))
 
-vi.mock('@podium/terminal-client', async (orig) => {
-  const real = (await orig()) as Record<string, unknown>
-  return {
-    ...real,
-    mountSession: (el: unknown, opts: { active?: boolean }) => mountSessionMock(el, opts),
-  }
-})
+vi.mock('@podium/terminal-client/session-mount', () => ({
+  mountSession: (el: unknown, opts: { active?: boolean }) => mountSessionMock(el, opts),
+}))
 
 // The kill/archive guard reaches for a ConfirmProvider context that this focused
 // render doesn't mount — stub the hook (it's only invoked on a click anyway).
@@ -73,6 +69,7 @@ vi.mock('@/lib/voice', () => ({
 // (native vs chat) so a test can flip the mounted panel's mode without a prop.
 let storeSessions: SessionMeta[] = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
+let storeStartScreen: 'chat' | 'native' = 'native'
 
 const unsubscribeTranscript = vi.fn()
 const subscribeTranscript = vi.fn(
@@ -84,7 +81,7 @@ const fakeTrpc = {
   settings: {
     // Resolve immediately so startScreen settles to a known value (native) and
     // doesn't asynchronously flip effectiveMode mid-test.
-    get: { query: vi.fn(async () => ({ sessionDefaults: { startScreen: 'native' as const } })) },
+    get: { query: vi.fn(async () => ({ roles: { coding: { startScreen: storeStartScreen } } })) },
   },
 }
 
@@ -109,6 +106,7 @@ vi.mock('@/app/store', () => {
     sessions: storeSessions,
     machines: [],
     pendingSpawnIds: new Set<string>(),
+    pendingSpawnPrompts: new Map<string, string>(),
     repos: [],
     trpc: fakeTrpc,
     drafts: {},
@@ -159,6 +157,7 @@ let root: Root
 beforeEach(() => {
   storeSessions = [meta({})]
   storePanelMode = { s1: 'native' }
+  storeStartScreen = 'native'
   setActive.mockClear()
   dispose.mockClear()
   terminalFocus.mockClear()
@@ -337,19 +336,53 @@ describe('AgentPanel active wiring', () => {
     expect(setActive).toHaveBeenCalledWith(true)
   })
 
-  it('the initial active reflects chat mode: a panel that starts in chat mounts an INACTIVE terminal', async () => {
+  it('does not load or mount the terminal for an initial chat surface', async () => {
     storePanelMode = { s1: 'chat' }
     await act(async () => {
       root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
-    // Task 6 keeps the terminal mounted (hidden under the chat overlay) in BOTH
-    // modes, so it can warm-toggle without a re-attach. A chat-mode mount must
-    // therefore be INACTIVE (active:false) so the hidden terminal never drives
-    // the PTY size.
+    expect(mountSessionMock).not.toHaveBeenCalled()
+  })
+
+  it('does not mount from the provisional native fallback before a chat default resolves', async () => {
+    storePanelMode = {}
+    storeStartScreen = 'chat'
+    await act(async () => {
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    expect(mountSessionMock).not.toHaveBeenCalled()
+    expect(stableStoreFns.setPanelMode).toHaveBeenCalledWith(asSessionId('s1'), 'chat')
+    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalledWith(asSessionId('s1'), 'native')
+    expect(
+      container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected'),
+    ).toBe('true')
+  })
+
+  it('loads on the first chat-to-native switch, then keeps that terminal warm', async () => {
+    storePanelMode = { s1: 'chat' }
+    await act(async () => {
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    expect(mountSessionMock).not.toHaveBeenCalled()
+
+    storePanelMode = { s1: 'native' }
+    await act(async () => {
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
-    const opts = mountSessionMock.mock.calls[0]?.[1] as { active?: boolean } | undefined
-    expect(opts?.active).toBe(false)
+
+    storePanelMode = { s1: 'chat' }
+    await act(async () => {
+      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    expect(setActive).toHaveBeenCalledWith(false)
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(dispose).not.toHaveBeenCalled()
   })
 
   it('warm-toggle: reuses ONE terminal across a native->chat->native cycle (no dispose, only setActive flips)', async () => {

@@ -68,8 +68,8 @@ function hibernatedSession(reg: SessionRegistry): string {
   return sessionId
 }
 
-/** Drive the readiness engine to 'settled' after a bind: a short burst of output,
- *  then quiet long enough to clear the floor(800)+quiet(600) window (fake timers). */
+/** Drive the readiness engine to 'settled' after a bind: harness output followed
+ * by the runtime-state observation that proves a resumed process is ready. */
 function settle(reg: SessionRegistry, sessionId: string): void {
   let seq = 0
   for (let i = 0; i < 5; i += 1) {
@@ -81,13 +81,16 @@ function settle(reg: SessionRegistry, sessionId: string): void {
     })
     vi.advanceTimersByTime(200)
   }
-  // A resumed CLI is ready when its harness reports state for THIS process,
-  // not merely when its boot paint goes quiet (POD-1100). This is the proof the
-  // real harness emits after bind and the old fixture omitted.
+  // A resumed CLI is ready when its harness reports state for THIS process, not
+  // merely when its boot paint goes quiet (POD-1100). The real harness reports
+  // runtime state after it has rehydrated; mirror that post-bind observation so
+  // this fixture exercises the delivery path rather than the silent-CLI grace
+  // period.
+  const observedAt = new Date().toISOString()
   reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
-    state: { phase: 'idle', since: new Date(Date.now()).toISOString(), nativeSubagentCount: 0 },
+    state: { phase: 'idle', since: observedAt, nativeSubagentCount: 0, stateObservedAt: observedAt },
   })
   vi.advanceTimersByTime(1400)
 }
@@ -404,10 +407,9 @@ describe('queueText (durable outbox sends)', () => {
       const daemonB: ControlMessage[] = []
       regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (m) => daemonB.push(m))
       regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
-      // Silent respawn: no harness state at all, so the readiness window has
-      // nothing to settle against and falls back to its ceiling. Stepped rather
-      // than jumped — see `advanceToComposerReady`.
-      advanceToComposerReady(() => pastesContaining(daemonB, 'survive-restart').length)
+      // The resumed harness reports runtime state once rehydrated; terminal quiet
+      // alone is no longer a readiness signal after a wake.
+      settle(regB, sessionId)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
       // Typed by the NEW process, and still held by it: a row that crossed a
       // restart is confirmed from the transcript like any other.

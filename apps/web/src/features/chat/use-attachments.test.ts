@@ -41,6 +41,48 @@ function pasteEvent(entries: Parameters<typeof items>[0]): React.ClipboardEvent 
   } as unknown as React.ClipboardEvent
 }
 
+/** A React drag event over the composer, honest about `kind` and able to
+ *  report back what `dropEffect` the handler set. */
+function dragEvent(entries: Parameters<typeof items>[0]): {
+  event: React.DragEvent
+  effect: () => string
+} {
+  const dataTransfer = { items: items(entries), dropEffect: 'uninitialized' }
+  return {
+    event: { dataTransfer, preventDefault: vi.fn() } as unknown as React.DragEvent,
+    effect: () => dataTransfer.dropEffect,
+  }
+}
+
+describe('useAttachments drag cursor (POD-1595 review)', () => {
+  /**
+   * Since the drop zone became the whole conversation, `preventDefault` on
+   * dragover has to keep doing its OTHER job — stopping the browser navigating
+   * away on release — for drags this hook will not accept. `dropEffect` is what
+   * separates "I have claimed this event" from "you may drop here".
+   */
+  it('offers a copy cursor for files', () => {
+    const { result } = renderHook(() => useAttachments({ sessionId, trpc }))
+    const { event, effect } = dragEvent([{ kind: 'file', type: 'application/pdf' }])
+    act(() => result.current.dropHandlers.onDragOver(event))
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(effect()).toBe('copy')
+    expect(result.current.dragOver).toBe(true)
+  })
+
+  it('claims a non-file drag but refuses it, rather than promising a drop it drops', () => {
+    const { result } = renderHook(() => useAttachments({ sessionId, trpc }))
+    const { event, effect } = dragEvent([{ kind: 'string', type: 'text/uri-list' }])
+    act(() => result.current.dropHandlers.onDragOver(event))
+    // Still claimed — an unclaimed link drag released over the conversation
+    // navigates the whole workspace away.
+    expect(event.preventDefault).toHaveBeenCalled()
+    // But the cursor tells the truth, and no drop event will follow.
+    expect(effect()).toBe('none')
+    expect(result.current.dragOver).toBe(false)
+  })
+})
+
 describe('useAttachments', () => {
   it('takes a document, not only an image', async () => {
     const { result } = renderHook(() => useAttachments({ sessionId, trpc }))

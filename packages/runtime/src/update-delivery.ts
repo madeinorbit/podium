@@ -1,34 +1,60 @@
 /**
- * UPDATE DELIVERY: turn a resolved artifact reference into verified bytes or
- * a converged development checkout.
+ * UPDATE DELIVERY: turn a resolved artifact reference into verified bytes.
  *
  * Authority (what to run) and delivery (how the artifact arrives) are separate
  * axes. The convergence planner has already selected the platform asset, so
  * this module never re-derives the running platform.
+ *
+ * ONE PATH FOR EVERY CHANNEL (spec §1). Dev, edge and stable all arrive as a
+ * signed feed artifact; what differs between them is only WHICH KEY the
+ * signature must be under, and that is a fact about the channel the target came
+ * from — see {@link DeliveryDeps.trust}.
  */
 import { createHash, verify as cryptoVerify } from 'node:crypto'
-import type { UpdateArtifact } from '@podium/protocol'
-import { convergeViaGit, type GitRun } from './update-delivery-git'
+import {
+  UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+  UPDATE_ARTIFACT_REFUSAL_HEADER,
+  type UpdateArtifact,
+  type UpdateTrustRoot,
+} from '@podium/protocol'
+import { updateKeyFingerprint } from './update-key-trust'
 
-/** The production release key used by feed and bundle verification. */
+/** The baked Podium release key: the `release` trust root. */
 export const PODIUM_UPDATE_PUBKEY = 'MCowBQYDK2VwAyEAG12/153QJI/SePyYeJQhBSbh1ZsFgkoMkwb823NiYOU='
 
 type PlatformAsset = Extract<UpdateArtifact, { delivery: 'feed' }>['platforms'][string]
-type GitArtifact = Extract<UpdateArtifact, { delivery: 'git' }>
 
 export interface DeliveryDeps {
   fetch: typeof fetch
+  /** The baked release key — the `release` trust root. */
   pubkey: string
-  /** Public key pinned by this daemon's server pairing. Required for bundles. */
+  /**
+   * The Ed25519 key this daemon pinned when it paired with its server — the
+   * `instance` trust root. Required whenever {@link trust} is `instance`.
+   */
   pinnedPubkey?: string
+  /** Key the publisher says signed this artifact; diagnostic only, never trusted implicitly. */
+  publisherPubkey?: string
+  /**
+   * WHICH KEY THIS TARGET'S SIGNATURE MUST BE UNDER.
+   *
+   * It used to be read off the DELIVERY KIND (`bundle` meant the pinned key,
+   * anything else the baked one), which conflated "how the bytes travel" with
+   * "who is allowed to have signed them" — and left no way at all to express a
+   * dev artifact arriving as an ordinary feed download, which is what the dev
+   * channel now is. The resolver stamps it on the target from the channel; this
+   * is that stamp, carried down to the one place a key is chosen.
+   *
+   * Absent means `release`, the narrower reading: an instance-signed artifact
+   * checked against the baked key simply fails.
+   */
+  trust?: UpdateTrustRoot
   /**
    * Digest checking is a separate integrity gate from the signature. Tests may
    * disable it when they use a deliberately symbolic digest fixture; production
    * callers leave it enabled (the default).
    */
   verifyDigest?: boolean
-  /** Runner for the development checkout delivery path. */
-  git?: { run: GitRun }
   /**
    * Hard deadline for the artifact download. Without one a stalled connection
    * left the daemon in `downloading` forever and the operator watching a row
@@ -102,6 +128,51 @@ function matchesDigest(bytes: Uint8Array, expected: string): boolean {
   if (!expected.startsWith('sha256-')) return false
   const actual = `sha256-${createHash('sha256').update(bytes).digest('base64')}`
   return actual === expected
+}
+
+function errorChainText(error: unknown): string {
+  const messages: string[] = []
+  const seen = new Set<unknown>()
+  let current = error
+  while (current && !seen.has(current) && messages.length < 6) {
+    seen.add(current)
+    if (current instanceof Error) {
+      messages.push(current.message)
+      const code = (current as Error & { code?: unknown }).code
+      if (typeof code === 'string' && !current.message.includes(code)) messages.push(code)
+      current = current.cause
+    } else if (typeof current === 'object') {
+      const value = current as { code?: unknown; message?: unknown; cause?: unknown }
+      if (typeof value.code === 'string') messages.push(value.code)
+      if (typeof value.message === 'string') messages.push(value.message)
+      current = value.cause
+    } else {
+      messages.push(String(current))
+      break
+    }
+  }
+  return messages.join(' — ')
+}
+
+/** DNS absence and refused routes are properties of this published address, not a partial body. */
+export function isArtifactAddressUnreachable(error: unknown): boolean {
+  return /\b(?:ENOTFOUND|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH)\b|unable to connect|access the url/i.test(
+    errorChainText(error),
+  )
+}
+
+function publicArtifactAddress(raw: string): string {
+  try {
+    const url = new URL(raw)
+    // Signed query parameters are credentials, not useful operator context.
+    url.username = ''
+    url.password = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  } catch {
+    return raw.split(/[?#]/u, 1)[0] ?? raw
+  }
 }
 
 /**
@@ -201,44 +272,23 @@ async function readArtifact(res: Response, deps: DeliveryDeps): Promise<Uint8Arr
   return bytes
 }
 
-export function fetchArtifact(
-  asset: PlatformAsset,
-  delivery: 'feed' | 'bundle',
-  deps: DeliveryDeps,
-): Promise<{ bytes: Uint8Array }>
-export function fetchArtifact(
-  artifact: GitArtifact,
-  delivery: 'git',
-  deps: DeliveryDeps,
-): Promise<{ git: true }>
-export function fetchArtifact(
-  asset: PlatformAsset | GitArtifact,
-  delivery: UpdateArtifact['delivery'],
-  deps: DeliveryDeps,
-): Promise<{ bytes: Uint8Array } | { git: true }>
 export async function fetchArtifact(
-  asset: PlatformAsset | GitArtifact,
-  delivery: UpdateArtifact['delivery'],
+  asset: PlatformAsset,
   deps: DeliveryDeps,
-): Promise<{ bytes: Uint8Array } | { git: true }> {
-  if (delivery === 'git') {
-    if (!('repo' in asset) || !('sha' in asset) || !deps.git) {
-      throw new Error('git delivery requires a configured checkout runner')
-    }
-    const result = await convergeViaGit(
-      { repo: asset.repo, sha: asset.sha },
-      {
-        ...deps.git,
-        // A git convergence has no byte count to divide, so its liveness is the
-        // sequence of steps it is working through — every one of them a fact
-        // about work that has actually happened.
-        ...(deps.onProgress ? { onPhase: (phase: string) => deps.onProgress?.({ phase }) } : {}),
-      },
-    )
-    if (!result.ok) throw new Error('git delivery failed: ' + result.reason)
-    return { git: true }
+): Promise<{ bytes: Uint8Array }> {
+  if (!asset.url) throw new Error('feed delivery requires an artifact URL')
+
+  // WHICH KEY, DECIDED BEFORE THE DOWNLOAD RATHER THAN AFTER IT.
+  //
+  // The verification itself has to happen at the end — it is over the bytes —
+  // but the question "do I even HAVE the key this target names?" is answerable
+  // now, and a quarter-gigabyte download that was always going to end in
+  // "requires the server update key pinned at pairing" is minutes of a fleet
+  // machine's time spent proving something knowable in a nanosecond.
+  const trustedPubkey = deps.trust === 'instance' ? deps.pinnedPubkey : deps.pubkey
+  if (trustedPubkey === undefined) {
+    throw new Error('this target requires the server update key pinned at pairing')
   }
-  if (!('url' in asset)) throw new Error('platform delivery requires an artifact URL')
 
   const timeoutMs = deps.downloadTimeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS
   const abort = new AbortController()
@@ -251,12 +301,26 @@ export async function fetchArtifact(
   let bytes: Uint8Array
   try {
     const res = await deps.fetch(asset.url, { signal: abort.signal })
-    if (!res.ok) throw new Error(`artifact download returned ${res.status}`)
+    if (!res.ok) {
+      const refusal = res.headers?.get(UPDATE_ARTIFACT_REFUSAL_HEADER)
+      if (res.status === 404 && refusal === UPDATE_ARTIFACT_INTEGRITY_REFUSAL) {
+        throw new Error(
+          'published artifact digest verification FAILED — refusing to install because the ' +
+            'stored bytes changed after publication',
+        )
+      }
+      throw new Error(`artifact download returned ${res.status}`)
+    }
     bytes = await readArtifact(res, deps)
   } catch (error) {
     if (deps.signal?.aborted) throw new Error('artifact download was superseded by a newer grant')
     if (abort.signal.aborted) {
       throw new Error(`artifact download timed out after ${Math.round(timeoutMs / 1000)}s`)
+    }
+    if (isArtifactAddressUnreachable(error)) {
+      throw new Error(
+        `artifact address unreachable: ${publicArtifactAddress(asset.url)} — ${errorChainText(error)}`,
+      )
     }
     throw error
   } finally {
@@ -268,13 +332,25 @@ export async function fetchArtifact(
     throw new Error('digest verification FAILED — refusing to install the artifact')
   }
 
-  // SECURITY GATE, before anything touches disk. Fail closed for both feed and
-  // bundle delivery; transport authentication is not a substitute.
-  const trustedPubkey = delivery === 'bundle' ? deps.pinnedPubkey : deps.pubkey
-  if (trustedPubkey === undefined) {
-    throw new Error('bundle delivery requires the server update key pinned at pairing')
-  }
+  // SECURITY GATE, before anything touches disk. Fail closed on every channel;
+  // transport authentication is not a substitute. The dev feed is fetched with
+  // machine credentials AND signature-verified, because being allowed to ask
+  // for bytes says nothing about who made them.
   if (!verifyTarball(bytes, asset.signature, trustedPubkey)) {
+    if (
+      deps.publisherPubkey !== undefined &&
+      deps.publisherPubkey !== trustedPubkey &&
+      verifyTarball(bytes, asset.signature, deps.publisherPubkey)
+    ) {
+      throw new Error(
+        'signature verification FAILED — refusing to install. The package is validly signed, ' +
+          'but the publisher update key was replaced after this machine enrolled. The existing ' +
+          'pin was kept. After verifying ' +
+          updateKeyFingerprint(deps.publisherPubkey) +
+          ' out of band with the publisher, recover on this machine with: podium update-key trust ' +
+          deps.publisherPubkey,
+      )
+    }
     throw new Error(
       'signature verification FAILED — refusing to install. The artifact was not ' +
         'signed by the trusted key (tampered, corrupt, or wrong feed). No changes were made.',

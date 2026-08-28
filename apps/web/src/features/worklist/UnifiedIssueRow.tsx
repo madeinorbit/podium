@@ -1,10 +1,11 @@
 import {
-  draftIssueLabel,
   type IssueNavigationModel,
   isDraftAgentVessel,
+  issueDisplayTitle,
   missionProgress,
   pendingDecisionLabel,
   pendingDecisionTitle,
+  rowErrorLine,
   rowHasWorkingSession,
   rowMotionPhase,
   rowMotionTiming,
@@ -28,6 +29,7 @@ import { lazy, Suspense, useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { idSquareLabel } from '@/components/IdSquare'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { issueIdTitle } from '@/lib/issue-labels'
 import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
@@ -43,7 +45,7 @@ import { WorkRowShell } from './WorkRowShell'
 // the work list rendered it eagerly, so the first paint paid for a gesture no
 // one had made yet.
 const IssueContextMenu = lazy(() =>
-  import('@/features/issues/IssueContextMenu').then((module) => ({
+  throughRestarts(() => import('@/features/issues/IssueContextMenu')).then((module) => ({
     default: module.IssueContextMenu,
   })),
 )
@@ -123,11 +125,18 @@ export function UnifiedIssueRow({
   const active = selectedIssueId === issue.id
   const unread = rowUnreadEmphasized(row)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
+  // WHAT THE ROW CALLS THIS TASK — never the raw title, which on a draft is the
+  // composer's placeholder (see `issueDisplayTitle`).
+  const label = issueDisplayTitle(issue, allSessions, allWorktreePaths)
   // The rename lifecycle and its commit policy live in `use-inline-rename.ts`;
-  // the row keeps only the slot it renders into.
-  const rename = useInlineRename(issue.title, (next) => onRenameIssue(issue.id, next))
-  const renameEditor = inlineRenameEditor(rename, ({ onCommit, onCancel }) => (
-    <SessionNameEditor value={issue.title} onCommit={onCommit} onCancel={onCancel} />
+  // the row keeps only the slot it renders into. Opened on the LABEL, not the
+  // stored title: an editor that opens on a draft showing one name and offers
+  // the word "Draft" to edit is an editor for some other row. The hook snapshots
+  // whatever it opened on and hands it back as `value`, so the field and the
+  // commit policy measure the same string even when the label moves underneath.
+  const rename = useInlineRename(label, (next) => onRenameIssue(issue.id, next))
+  const renameEditor = inlineRenameEditor(rename, ({ value, onCommit, onCancel }) => (
+    <SessionNameEditor value={value} onCommit={onCommit} onCancel={onCancel} />
   ))
   // The row speaks for its whole branch: descendants have no row of their own
   // here, so the fleet stack reads the bubbled aggregate.
@@ -138,6 +147,12 @@ export function UnifiedIssueRow({
   // here, so the phase alone left a running fleet reading as stillness
   // (POD-703). This is the predicate every working texture below gates on.
   const working = rowHasWorkingSession(row)
+  // An agent on this mission stopped on an error (POD-1601). Read BEFORE the
+  // decision, and rendered instead of it: `review` is a stage the agent sets on
+  // ITSELF, so a run that died right after setting it printed `Needs review`
+  // forever — a verdict nobody is waiting for, over a corpse the row never
+  // mentioned.
+  const errorLine = rowErrorLine(row)
   // What this row is asking of the human, if anything (POD-279).
   const decision = rowPendingDecision(row)
   const waitingCount = rowWaitingCount(row)
@@ -178,7 +193,6 @@ export function UnifiedIssueRow({
   // Shared with the nesting rule so structure and rendering agree (POD-282).
   const draftAgentOnly = isDraftAgentVessel(issue, mine)
   const first = mine[0]
-  const label = issue.draft ? draftIssueLabel(issue, allSessions, allWorktreePaths) : issue.title
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault()
     setMenuAnchor({ x: e.clientX, y: e.clientY })
@@ -262,7 +276,24 @@ export function UnifiedIssueRow({
                 {waitingCount} need you ·{' '}
               </span>
             )}
-            {decision !== null ? (
+            {errorLine !== null ? (
+              // RED, not the line's usual ochre. Amber is the "needs you"
+              // signal and nothing else (POD-293) — a decision waiting on you is
+              // the system working as intended, and a dead agent is not. The
+              // session row underneath already reads `text-destructive` for
+              // `agentBadge` → `tone: 'error'`, so the task row and the agent row
+              // now say the same thing in the same colour.
+              //
+              // The colour is also what lets the words stay this short: `Agent
+              // overloaded` in red needs no `error:` prefix to be read as one.
+              <span
+                data-testid="agent-error-status"
+                title="An agent on this task stopped on an error"
+                className="flex-none font-semibold text-destructive"
+              >
+                {errorLine}
+              </span>
+            ) : decision !== null ? (
               // The one word that answers "what is being asked of me here" — a
               // merge states its commit count so the row is a fact, not a mood
               // (POD-279). It is the row's single amber voice (POD-293): plain

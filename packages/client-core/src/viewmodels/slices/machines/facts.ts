@@ -25,14 +25,15 @@
 import {
   asIssueId,
   type GitRepositoryWire,
+  type HostDiskWire,
   type HostMetricsWire,
+  type IssueId,
   isIssueClosed,
+  type MachineId,
   normalizeOriginUrl,
   repoNameFromOrigin,
   type SessionMeta,
   type SessionStatus,
-  type MachineId,
-  type IssueId,
 } from '@podium/model'
 import type { RepoView, WorktreeView } from '../../types'
 
@@ -201,6 +202,7 @@ export interface HostMemoryView {
   title: string
 }
 
+const MIB = 1024 ** 2
 const GIB = 1024 ** 3
 const usedGib = (bytes: number): string => (bytes / GIB).toFixed(1)
 // Totals are installed capacity — print "32", not "32.0".
@@ -212,7 +214,74 @@ const totalGib = (bytes: number): string => {
 /** Human size for breakdown rows: "12.3 GB" from 1 GiB up, whole "512 MB" below. */
 export function formatMemBytes(bytes: number): string {
   if (bytes >= GIB) return `${(bytes / GIB).toFixed(1)} GB`
-  return `${Math.round(bytes / 1024 ** 2)} MB`
+  return `${Math.round(bytes / MIB)} MB`
+}
+
+export interface HostDiskView {
+  /** Headline: `used/total`, e.g. "412/916 GB" or "1.4/3.6 TB". */
+  label: string
+  /** What is still spendable, e.g. "462 GB free". */
+  freeLabel: string
+  /** Used percentage, 0–100 — `df`'s Use%. */
+  pct: number
+  severity: MemorySeverity
+  /** Tooltip: the volume sampled and the full numbers. */
+  title: string
+}
+
+const TIB = 1024 ** 4
+/** Capacity at a disk's scale: TB past a terabyte, GB down to a gigabyte, else
+ *  MB. One decimal throughout, whole numbers printed whole — "916", not "916.0",
+ *  the same rule `totalGib` already applies to installed RAM. */
+function formatDiskBytes(bytes: number): string {
+  const [value, unit] =
+    bytes >= TIB ? [bytes / TIB, 'TB'] : bytes >= GIB ? [bytes / GIB, 'GB'] : [bytes / MIB, 'MB']
+  return `${Number.isInteger(value) ? String(value) : value.toFixed(1)} ${unit}`
+}
+/** The unit-less half of a `used/total` pair — the unit is printed once, on the
+ *  total, so "412/916 GB" reads as one measurement rather than two. */
+const formatDiskValue = (bytes: number, unitOf: number): string => {
+  const value = unitOf >= TIB ? bytes / TIB : unitOf >= GIB ? bytes / GIB : bytes / MIB
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+/**
+ * Present one host's disk sample, in `df`'s arithmetic: the percentage is used ÷
+ * (used + available), NOT used ÷ total, because the root-only reserve on a Linux
+ * filesystem is neither in use nor yours to spend — counting it as headroom
+ * would let the meter read 95% while `df` on the same box says 100%.
+ *
+ * `total` is still what the label prints as the denominator, because that is the
+ * volume's size and the number the operator recognises.
+ */
+export function hostDiskView(disk: HostDiskWire): HostDiskView {
+  const spendable = disk.usedBytes + disk.availableBytes
+  const pct = spendable > 0 ? Math.round((disk.usedBytes / spendable) * 100) : 0
+  const severity: MemorySeverity = pct >= 90 ? 'critical' : pct >= 75 ? 'warn' : 'ok'
+  const label = `${formatDiskValue(disk.usedBytes, disk.totalBytes)}/${formatDiskBytes(disk.totalBytes)}`
+  const freeLabel = `${formatDiskBytes(disk.availableBytes)} free`
+  return {
+    label,
+    freeLabel,
+    pct,
+    severity,
+    title: `disk ${label} used (${pct}%) on the volume holding ${disk.path} — ${freeLabel}`,
+  }
+}
+export function reclaimSpaceLabel(
+  estimate: {
+    status: 'unknown' | 'measuring' | 'ready'
+    recoverableBytes: number | null
+  } | null,
+): string {
+  if (
+    estimate?.status !== 'ready' ||
+    estimate.recoverableBytes === null ||
+    !Number.isFinite(estimate.recoverableBytes)
+  ) {
+    return estimate?.status === 'measuring' ? 'space unknown · measuring' : 'space unknown'
+  }
+  return `${formatMemBytes(estimate.recoverableBytes)} recoverable`
 }
 
 /**
@@ -474,20 +543,17 @@ export function listReclaimableWorktreesClient(args: {
 /**
  * WHICH OF THESE CHECKOUTS BELONG TO THE MACHINE ON THIS CHIP.
  *
- * The rule exists because an issue row's `machineId` is usually NULL: the
- * server records one only when an issue is deliberately placed on a remote
- * machine, and every git op it runs passes `row.machineId ?? undefined`, which
- * routes to the LOCAL daemon. So "no machine recorded" does not mean "nowhere",
- * it means "the hub". Filtering `row.machineId === thisMachine` — the obvious
- * reading — therefore drops every ordinary checkout and leaves a panel that
- * confidently reports zero while the disk fills up.
+ * Historical issue rows may have a NULL `machineId` because the server used to
+ * leave implicit routing decisions unrecorded. That did not necessarily mean
+ * the hub: the daemon router selected an online machine by repository affinity,
+ * then fell back to its default machine. The client cannot reconstruct which
+ * machine handled an old operation after the fact.
  *
- * The client cannot name the hub (no wire field says which machine runs the
- * server), so:
+ * The client cannot recover that historical decision, so:
  *
  * - a row that NAMES a machine belongs to that machine and no other;
- * - a row that names none belongs here when this is the only machine, where
- *   "the hub" is unambiguous;
+ * - a row that names none belongs here when this is the only machine, where its
+ *   placement is unambiguous;
  * - otherwise it cannot be placed, and is COUNTED rather than dropped, so a
  *   multi-machine instance says "N unplaceable" instead of quietly under-
  *   reporting. Offering them under every chip would double-count them and offer

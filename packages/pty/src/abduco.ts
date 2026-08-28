@@ -15,7 +15,12 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import { ABDUCO_SUN_PATH_MAX, abducoSocketPathBytes } from '@podium/runtime/abduco-socket'
-import { instanceSessionSliceName } from '@podium/runtime/instance'
+import {
+  abducoSocketPathname,
+  assertLinuxUnixSocketPath,
+  instanceSessionSliceName,
+  resolveInstanceId,
+} from '@podium/runtime/instance'
 import {
   resolveScopeBudget,
   resolveSessionsSliceHigh,
@@ -1043,6 +1048,18 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     const raced = abducoSocketPath(opts.label, childEnv)
     return raced ? adopt(raced) : undefined
   }
+  if (childEnv.ABDUCO_SOCKET_DIR) {
+    assertLinuxUnixSocketPath(
+      abducoSocketPathname(
+        childEnv.ABDUCO_SOCKET_DIR,
+        opts.label,
+        userInfo().username,
+        hostname(),
+      ),
+      resolveInstanceId(childEnv),
+      'an abduco session socket',
+    )
+  }
   // Create the master in its own systemd scope so it outlives a redeploy. `--scope`
   // runs in the foreground but returns the instant the create process exits — abduco
   // daemonizes the master and returns immediately, so timing matches the bare call.
@@ -1112,7 +1129,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
 }
 
 /**
- * Attach a node-pty client to an existing abduco session. dispose() SIGKILLs the
+ * Attach a Bun.Terminal client to an existing abduco session. dispose() SIGKILLs the
  * client (the master + agent survive) — a hard kill on purpose: the client's atexit
  * handler would otherwise print cursor/alt-screen restore chrome into the stream.
  *

@@ -80,6 +80,12 @@ export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
  *  two unconditionally emitted collections the client consumes.
  */
 export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
+/** Client capability: this connection accepts v1 binary PTY output envelopes.
+ * Missing capability data is the legacy JSON/base64 output contract. */
+export const CAP_TERMINAL_OUTPUT_BINARY_V1 = 'terminal.output.binary.v1'
+/** Client capability: this connection sends v1 binary PTY input envelopes. */
+export const CAP_TERMINAL_INPUT_BINARY_V1 = 'terminal.input.binary.v1'
+
 export const HelloMessage = z.object({
   type: z.literal('hello'),
   clientId: z.string(),
@@ -236,7 +242,12 @@ export const DraftTargetMessage = z.object({
 export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
 
 // ---- Server -> browser client: terminal control frames ----
-export const WelcomeMessage = z.object({ type: z.literal('welcome'), clientId: z.string() })
+export const WelcomeMessage = z.object({
+  type: z.literal('welcome'),
+  clientId: z.string(),
+  /** Capabilities negotiated for this connection. Absent from older servers. */
+  caps: z.array(z.string()).optional(),
+})
 export const AttachedMessage = z.object({
   type: z.literal('attached'),
   sessionId: SessionIdField,

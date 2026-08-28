@@ -15,7 +15,9 @@
  *    cold launch never flashes white before the bundle boots.
  *  - browser tells: long-press selection, the callout menu and Safari's
  *    rubber-band are disabled at the root. Selection is handed back to
- *    transcript prose via [data-selectable] so agent output stays copyable.
+ *    transcript prose via [data-selectable] so agent output stays copyable,
+ *    and the composer's placeholder is held to the one line the field rests
+ *    at via [data-composer-field].
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -77,6 +79,14 @@ ${startupImages}
         user-select: none;
         -webkit-touch-callout: none;
         -webkit-tap-highlight-color: transparent;
+      }
+      /* The composer rests at one line, so its placeholder gets one line. A
+         wrapping one has nowhere to put the second and was clipped mid-word
+         [POD-1666]; the field itself keeps wrapping what is typed. */
+      [data-composer-field]::placeholder {
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
       }
       [data-selectable], [data-selectable] * {
         -webkit-user-select: text;

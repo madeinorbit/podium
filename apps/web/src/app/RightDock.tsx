@@ -19,46 +19,65 @@ import {
 import type { JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { WaitingForServer } from '@/components/WaitingForServer'
+import { PerspectiveRoad } from '@/features/shipping/PerspectiveRoad'
 import type { ShippingPanelCommands } from '@/features/shipping/ShippingPanel'
-import { DockShellPanel } from '@/features/terminal/DockShellPanel'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
 import type { RightPanelTab } from './shell-state'
 import { useReplicaIssues, useStoreSelector } from './store'
-import { PerspectiveRoad } from '@/features/shipping/PerspectiveRoad'
 
 const WorktreeFileTree = lazy(() =>
-  import('@/features/files/WorktreeFileTree').then((module) => ({
+  throughRestarts(() => import('@/features/files/WorktreeFileTree')).then((module) => ({
     default: module.WorktreeFileTree,
   })),
 )
 const GitPanelView = lazy(() =>
-  import('@/features/git/GitPanelView').then((module) => ({ default: module.GitPanelView })),
+  throughRestarts(() => import('@/features/git/GitPanelView')).then((module) => ({
+    default: module.GitPanelView,
+  })),
 )
-const RightDockIssuePanel = lazy(() => import('./RightDockIssuePanel'))
+const RightDockIssuePanel = lazy(() => throughRestarts(() => import('./RightDockIssuePanel')))
+/**
+ * The seventh dock panel, deferred like the other six (POD-2730). It used to be
+ * the one static import in this list, with the note "changing xterm's
+ * mount/attach timing belongs to POD-847" — but a lazy MODULE is not a changed
+ * mount: the component still mounts synchronously once its chunk is resolved,
+ * under the same `<Suspense fallback={<DockPanelFallback />}>` as its siblings,
+ * and it only renders at all when `tab === 'shell'`, which is a click.
+ *
+ * What it did change was the first paint of every session that never opens this
+ * tab, because this is one of the two doors xterm came through.
+ */
+const DockShellPanel = lazy(() =>
+  throughRestarts(() => import('@/features/terminal/DockShellPanel')).then((module) => ({
+    default: module.DockShellPanel,
+  })),
+)
 const MergeQueuePanel = lazy(() =>
-  import('@/features/merge-queue/MergeQueuePanel').then((module) => ({
+  throughRestarts(() => import('@/features/merge-queue/MergeQueuePanel')).then((module) => ({
     default: module.MergeQueuePanel,
   })),
 )
 const ShippingPanel = lazy(() =>
-  import('@/features/shipping/ShippingPanel').then((module) => ({
+  throughRestarts(() => import('@/features/shipping/ShippingPanel')).then((module) => ({
     default: module.ShippingPanel,
   })),
 )
 const MessageLedgerView = lazy(() =>
-  import('@/features/messages/MessageLedgerView').then((module) => ({
+  throughRestarts(() => import('@/features/messages/MessageLedgerView')).then((module) => ({
     default: module.MessageLedgerView,
   })),
 )
 const SuperagentView = lazy(() =>
-  import('@/features/superagent/SuperagentView').then((module) => ({
+  throughRestarts(() => import('@/features/superagent/SuperagentView')).then((module) => ({
     default: module.SuperagentView,
   })),
 )
 
 function DockPanelFallback(): JSX.Element {
-  return <div className="min-h-0 flex-1" aria-hidden="true" />
+  return <WaitingForServer className="flex min-h-0 flex-1" />
 }
 
 /** The right-panel surfaces, including the docked Superagent chat home. */
@@ -250,7 +269,6 @@ export function RightDock({
           {tab === 'superagent' && <SuperagentView />}
           {tab === 'shell' &&
             (active ? (
-              // Kept eager: changing xterm's mount/attach timing belongs to POD-847.
               <DockShellPanel key={active.cwd} cwd={active.cwd} machineId={active.machineId} />
             ) : (
               <div className="p-3 text-xs text-muted-foreground/70">No active worktree.</div>

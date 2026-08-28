@@ -8,12 +8,12 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
   type DescendantTip,
+  FIRST_ADMIN_USER_ID,
   type IssueId,
-  type UserId,
   type SessionMeta,
   type SessionMetaInput,
+  type UserId,
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -21,8 +21,8 @@ import { repoOpCommand } from '../../daemon/src/repo-op'
 import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
 import { MODEL_CATALOG_VERSION } from './model-catalog'
-import { type IssueDeps, IssueService } from './modules/issues/service'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
+import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
@@ -52,6 +52,7 @@ function harness(sessions: SessionMeta[] = []) {
       }),
     spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
+    resolveMachine: vi.fn(() => store.hostMachineId),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     setSessionArchived,
@@ -87,6 +88,23 @@ const sess = (cwd: string, phase = 'working'): SessionMeta =>
     agentState: { phase, since: 't', nativeSubagentCount: 0 },
   }) as unknown as SessionMeta
 
+const gitWorktreeList = (
+  entries: Array<{ path: string; branch?: string; head?: string; detached?: boolean }>,
+): string =>
+  entries
+    .map((entry) =>
+      [
+        `worktree ${entry.path}`,
+        `HEAD ${entry.head ?? 'deadbeef'}`,
+        entry.branch ? `branch refs/heads/${entry.branch}` : null,
+        entry.detached ? 'detached' : null,
+        '',
+      ]
+        .filter((field): field is string => field !== null)
+        .join('\0'),
+    )
+    .join('')
+
 /** Record the git ops a free makes, and script the `status` each tree reports.
  *  Assigns `deps.repoOp` as the PORT it is declared as (same shape as `scriptOps`
  *  further down): the harness builds it with `vi.fn()`, but the assignment is
@@ -100,10 +118,25 @@ const recordOps = (
   status: string | ((cwd: string) => string) = '## issue/x\n',
 ): { op: string; cwd: string; args?: Record<string, string> }[] => {
   const ops: { op: string; cwd: string; args?: Record<string, string> }[] = []
+  let inspected: { path: string; branch?: string } | null = null
   h.deps.repoOp = async (op, cwd, args) => {
     ops.push({ op, cwd, ...(args ? { args } : {}) })
     const reported = typeof status === 'string' ? status : status(cwd)
-    return { ok: true, output: op === 'status' ? reported : '' }
+    if (op === 'status') {
+      const branch = reported.match(/^## ([^\s.]+)/)?.[1]
+      inspected = { path: cwd, ...(branch ? { branch } : {}) }
+      return { ok: true, output: reported }
+    }
+    if (op === 'worktreeList') {
+      return {
+        ok: true,
+        output: gitWorktreeList([
+          { path: '/r', branch: 'main' },
+          ...(inspected ? [inspected] : []),
+        ]),
+      }
+    }
+    return { ok: true, output: '' }
   }
   return ops
 }
@@ -167,14 +200,27 @@ describe('IssueService CRUD', () => {
     // members) — what changed is that the issue payload no longer carries the
     // answer, so a session's `lastActiveAt` cannot dirty it.
     const sessions = [sess('/r/wt', 'working'), sess('/r/wt/pkg', 'idle'), sess('/elsewhere')]
-    const { svc, store } = harness(sessions)
+    const { svc, store, deps } = harness(sessions)
     const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     const updated = svc.update(wire.id, { worktreePath: '/r/wt', stage: 'planning' })
     expect(updated.machineId).toBe(store.hostMachineId)
+    expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r/wt')
     expect(updated).not.toHaveProperty('sessions')
     expect(updated).not.toHaveProperty('sessionSummary')
     // The rule the embed used to express, read from the session side instead.
     expect(sessionsForIssue('/r/wt', sessions, updated.id)).toHaveLength(2)
+  })
+
+  it('does not place a historical NULL worktree during an unrelated update', () => {
+    const { svc, deps, store } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'Legacy', startNow: false })
+    svc.update(wire.id, { worktreePath: '/r/wt' })
+    svc.update(wire.id, { machineId: null })
+    ;(deps.resolveMachine as ReturnType<typeof vi.fn>).mockClear()
+
+    expect(svc.update(wire.id, { stage: 'planning' }).machineId).toBeUndefined()
+    expect(store.issues.getIssue(wire.id)?.machineId).toBeNull()
+    expect(deps.resolveMachine).not.toHaveBeenCalled()
   })
 
   it('update patches fields; archive sets the flag', () => {
@@ -221,6 +267,26 @@ describe('IssueService CRUD', () => {
     })
     expect(wire.id).toBe('iss_client-supplied')
     expect(svc.get('iss_client-supplied')?.id).toBe('iss_client-supplied')
+  })
+
+  it('refuses a client-provided id collision without changing or starting the issue', async () => {
+    const { svc, deps } = harness()
+    const id = asIssueId('iss_client-supplied')
+    svc.create({ repoPath: '/r', title: 'Original', description: 'Keep me', startNow: false, id })
+    const before = svc.get(id)
+
+    await expect(
+      svc.createAndMaybeStart({
+        repoPath: '/r',
+        title: 'Replacement',
+        description: 'Overwrite attempt',
+        startNow: true,
+        id,
+      }),
+    ).rejects.toThrow(`refusing to reuse an existing issue id: ${id}`)
+
+    expect(svc.get(id)).toEqual(before)
+    expect(deps.spawnSession).not.toHaveBeenCalled()
   })
 
   it('create mints an iss_-prefixed uuid when no id is given (unchanged default behavior)', () => {
@@ -1101,6 +1167,7 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     // and it was read as a sweep reaping live agents mid-fix — a bug report
     // against work that had already landed. The job has to name itself.
     const h = harness()
+    recordOps(h)
     const id = startedIssue(h, 'Archived, not stopped')
 
     h.svc.archive(id)
@@ -1116,6 +1183,7 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
 
   it('frees on the read-gated 7-day sweep too, not only on the operator’s own archive', async () => {
     const h = harness()
+    recordOps(h)
     const id = startedIssue(h, 'Aged out')
     h.svc.close(id)
     h.svc.markIssueRead(id)
@@ -1315,27 +1383,6 @@ describe('new agent after worktree free (POD-580)', () => {
     ).toBe(true)
   })
 
-  /**
-   * POD-2651. An unpinned start must still land on the machine that HOLDS the
-   * repository. Handing repoOp an explicit id skips its own resolution, so the id
-   * we record is also the id we route to — assuming the host silently retargets
-   * every issue whose repo lives on another machine, at a path that is not there.
-   */
-  it('start routes a fresh worktree to the repo-holding machine, not the host', async () => {
-    const { svc, deps, store } = harness()
-    const holder = asMachineId('m-holds-repo')
-    deps.machineHoldingRepo = () => holder
-    const w = svc.create({ repoPath: '/r', title: 'Lives elsewhere', startNow: false })
-    await svc.start(w.id)
-    expect(store.hostMachineId).not.toBe(holder)
-    expect(deps.repoOp).toHaveBeenCalledWith(
-      'worktreeAdd',
-      '/r',
-      expect.objectContaining({ branch: expect.stringContaining('lives-elsewhere') }),
-      holder,
-    )
-    expect(svc.get(w.id)!.machineId).toBe(holder)
-  })
 })
 
 describe('IssueService next-message defer (#430)', () => {
@@ -1445,6 +1492,7 @@ describe('IssueService.start', () => {
     expect(started.branch).toBe('issue/1-fix-login')
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
     expect(started.machineId).toBe(store.hostMachineId)
+    expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r')
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
       '/r',
@@ -1462,6 +1510,29 @@ describe('IssueService.start', () => {
       spawnedBy: `issue:${created.id}`,
       machineId: store.hostMachineId,
     })
+  })
+
+  it('records and reuses the resolver-selected remote machine', async () => {
+    const { svc, deps } = harness()
+    const selected = asMachineId('repo-affine-remote')
+    deps.resolveMachine = vi.fn(() => selected)
+    const created = svc.create({
+      repoPath: '/remote/repo',
+      title: 'Repo affine',
+      startNow: false,
+    })
+
+    const started = await svc.start(created.id)
+
+    expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/remote/repo')
+    expect(started.machineId).toBe(selected)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/remote/repo',
+      expect.objectContaining({ branch: 'issue/1-repo-affine' }),
+      selected,
+    )
+    expect(deps.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ machineId: selected }))
   })
 
   it('fires onWorktreesChanged with the issue repoPath after a successful worktree add (POD-665)', async () => {
@@ -1542,6 +1613,7 @@ describe('IssueService.start', () => {
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ machineId: 'mach-b' }),
     )
+    expect(deps.resolveMachine).not.toHaveBeenCalled()
   })
 
   /**
@@ -1976,6 +2048,28 @@ describe('IssueService.start', () => {
     const wire = await svc.createAndMaybeStart({ repoPath: '/r', title: 'X', startNow: true })
     expect(wire.stage).toBe('in_progress')
     expect(wire.worktreePath).not.toBeNull()
+  })
+
+  it('reuses the optimistic first-session id when create starts immediately', async () => {
+    const { svc, deps } = harness()
+    const startSessionId = asSessionId('client-first-session')
+
+    await svc.createAndMaybeStart({
+      id: asIssueId('iss_client-task'),
+      startSessionId,
+      repoPath: '/r',
+      title: 'Instant chat',
+      description: 'Show my message now',
+      startNow: true,
+    })
+
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: startSessionId,
+        issueId: asIssueId('iss_client-task'),
+        initialPrompt: 'Show my message now',
+      }),
+    )
   })
 
   it('start fails clearly when the worktree op fails', async () => {
@@ -3423,8 +3517,9 @@ describe('IssueService.prime (P1a)', () => {
     const { svc } = harness()
     const out = svc.prime({ repoPath: '/r', boundIssueId: null })
     const policy = out.slice(out.lastIndexOf('\n\n') + 2)
-    // Stages, titles, offers, artifacts, and the discovered-from essay already
-    // ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the unique procedures.
+    // Stages, general title doctrine, offers, artifacts, and the discovered-from
+    // essay already ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the
+    // unique procedures and may add facts about the bound issue before this tail.
     expect(policy).not.toContain('podium offer')
     expect(policy).not.toContain('Bug: duplicate session rows')
     expect(policy).not.toContain('lands in Proposed automatically')
@@ -3627,6 +3722,177 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   })
 })
 
+describe('IssueService worktree reconciliation and root safety (POD-2662)', () => {
+  const WT = '/r/.worktrees/issue-1-x'
+  const BR = 'issue/1-x'
+
+  const prepared = (h: ReturnType<typeof harness>) => {
+    const issue = h.svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    h.svc.update(issue.id, { worktreePath: WT, branch: null })
+    return issue
+  }
+
+  it('clears an absent worktree path even when no branch was recorded', async () => {
+    const h = harness()
+    const issue = prepared(h)
+    h.deps.repoOp = vi.fn(async (op) =>
+      op === 'status'
+        ? { ok: false, output: `fatal: cannot change to '${WT}': No such file or directory` }
+        : { ok: true, output: '' },
+    )
+
+    const result = await h.svc.freeWorktreeKeepBranch(issue.id, AS_OPERATOR)
+
+    expect(result).toMatchObject({ ok: true, worktreeFreed: true })
+    expect(h.svc.get(issue.id)).toMatchObject({ worktreePath: null, branch: null })
+    expect(h.onWorktreesChanged).toHaveBeenCalledWith('/r', h.svc.get(issue.id)?.machineId)
+    expect(h.deps.repoOp).toHaveBeenCalledTimes(1)
+  })
+
+  it('heals a missing branch from git before freeing the existing worktree', async () => {
+    const h = harness()
+    const issue = prepared(h)
+    const calls: string[] = []
+    h.deps.repoOp = vi.fn(async (op) => {
+      calls.push(op)
+      if (op === 'status') return { ok: true, output: '## issue/1-x\n' }
+      if (op === 'worktreeList') {
+        return {
+          ok: true,
+          output: gitWorktreeList([
+            { path: '/r', branch: 'main' },
+            { path: WT, branch: BR },
+          ]),
+        }
+      }
+      return { ok: true, output: '' }
+    })
+
+    const result = await h.svc.freeWorktreeKeepBranch(issue.id, AS_OPERATOR)
+
+    expect(result).toMatchObject({ ok: true, worktreeFreed: true })
+    expect(calls).toEqual(['status', 'worktreeList', 'worktreeRemove'])
+    expect(h.svc.get(issue.id)).toMatchObject({ worktreePath: null, branch: BR })
+  })
+
+  it("routes branch discovery and removal to the row's remote machine", async () => {
+    const h = harness()
+    const issue = prepared(h)
+    const remote = asMachineId('flatblock')
+    h.svc.update(issue.id, { machineId: remote })
+    const calls: Array<{ op: string; machineId: string | undefined }> = []
+    h.deps.repoOp = vi.fn(async (op, _cwd, _args, machineId) => {
+      calls.push({ op, machineId })
+      if (op === 'status') return { ok: true, output: '## issue/1-x\n' }
+      if (op === 'worktreeList') {
+        return {
+          ok: true,
+          output: gitWorktreeList([
+            { path: '/r', branch: 'main' },
+            { path: WT, branch: BR },
+          ]),
+        }
+      }
+      return { ok: true, output: '' }
+    })
+
+    const result = await h.svc.freeWorktreeKeepBranch(issue.id, AS_OPERATOR)
+
+    expect(result.ok).toBe(true)
+    expect(calls).toEqual(
+      ['status', 'worktreeList', 'worktreeRemove'].map((op) => ({ op, machineId: remote })),
+    )
+  })
+
+  it('refuses a detached HEAD whose commits are reachable from no other ref', async () => {
+    const h = harness()
+    const issue = prepared(h)
+    const calls: string[] = []
+    h.deps.repoOp = vi.fn(async (op) => {
+      calls.push(op)
+      if (op === 'status') return { ok: true, output: '## HEAD (no branch)\n' }
+      if (op === 'worktreeList') {
+        return {
+          ok: true,
+          output: gitWorktreeList([
+            { path: '/r', branch: 'main' },
+            { path: WT, head: 'abc123', detached: true },
+          ]),
+        }
+      }
+      if (op === 'revListUnreachableCount') return { ok: true, output: '2\n' }
+      return { ok: true, output: '' }
+    })
+
+    const result = await h.svc.freeWorktreeKeepBranch(issue.id, AS_OPERATOR)
+
+    expect(result.ok).toBe(false)
+    expect(result.output).toMatch(/detached HEAD carries 2 commits reachable from no other ref/)
+    expect(calls).toEqual(['status', 'worktreeList', 'revListUnreachableCount'])
+    expect(calls).not.toContain('worktreeRemove')
+    expect(h.svc.get(issue.id)?.worktreePath).toBe(WT)
+  })
+
+  it('rejects repository roots at the write seam and before any removal probe', async () => {
+    const h = harness()
+    h.store.repos.addRepo('/r', h.store.hostMachineId)
+    const issue = prepared(h)
+    expect(() => h.svc.update(issue.id, { worktreePath: '/r' })).toThrow(/repository root/)
+
+    const row = (
+      h.svc as never as {
+        rows: Map<string, { worktreePath: string | null; branch: string | null }>
+      }
+    ).rows.get(issue.id)!
+    row.worktreePath = '/r'
+    row.branch = null
+    h.deps.repoOp = vi.fn(async (op) => {
+      if (op === 'worktreeList') {
+        return {
+          ok: true,
+          output: gitWorktreeList([
+            { path: '/other-primary', branch: 'main' },
+            { path: '/r', branch: 'issue/bogus' },
+          ]),
+        }
+      }
+      return { ok: true, output: '' }
+    })
+
+    const result = await h.svc.freeWorktreeKeepBranch(issue.id, AS_OPERATOR)
+
+    expect(result.output).toMatch(/registered repository root/)
+    expect(h.deps.repoOp).not.toHaveBeenCalled()
+  })
+
+  it("uses git's primary working tree guard even without a repos-table match", async () => {
+    const h = harness()
+    const issue = prepared(h)
+    const row = (
+      h.svc as never as {
+        rows: Map<string, { worktreePath: string | null; branch: string | null }>
+      }
+    ).rows.get(issue.id)!
+    row.worktreePath = '/r'
+    row.branch = null
+    const calls: string[] = []
+    h.deps.repoOp = vi.fn(async (op) => {
+      calls.push(op)
+      if (op === 'status') return { ok: true, output: '## main\n' }
+      if (op === 'worktreeList') {
+        return { ok: true, output: gitWorktreeList([{ path: '/r', branch: 'main' }]) }
+      }
+      return { ok: true, output: '' }
+    })
+
+    const result = await h.svc.freeWorktreeKeepBranch(issue.id, AS_OPERATOR)
+
+    expect(result.output).toMatch(/git's primary working tree/)
+    expect(calls).toEqual(['status', 'worktreeList'])
+    expect(calls).not.toContain('worktreeRemove')
+  })
+})
+
 describe('IssueService.cleanup (issue #71)', () => {
   const WT = '/r/.worktrees/issue-1-x'
   const BR = 'issue/1-x'
@@ -3648,7 +3914,18 @@ describe('IssueService.cleanup (issue #71)', () => {
     const calls: Array<{ op: string; cwd: string; args?: Record<string, string> }> = []
     deps.repoOp = vi.fn(async (op, cwd, args) => {
       calls.push({ op, cwd, ...(args ? { args } : {}) })
-      return impl[op] ?? { ok: true, output: '' }
+      return (
+        impl[op] ??
+        (op === 'worktreeList'
+          ? {
+              ok: true,
+              output: gitWorktreeList([
+                { path: '/r', branch: 'main' },
+                { path: WT, branch: BR },
+              ]),
+            }
+          : { ok: true, output: '' })
+      )
     })
     return calls
   }
@@ -3698,6 +3975,23 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(r2.output).toMatch(/nothing to clean up/)
   })
 
+  it('cleans an absent worktree whose branch column is empty', async () => {
+    const h = harness()
+    const w = prepared(h)
+    h.svc.update(w.id, { branch: null })
+    const calls = scriptRepoOp(h.deps, {
+      status: { ok: false, output: `fatal: cannot change to '${WT}': No such file or directory` },
+    })
+
+    const result = await h.svc.cleanup(w.id, AS_OPERATOR)
+
+    expect(result.ok).toBe(true)
+    expect(result.output).toMatch(/already gone/)
+    expect(calls.map((call) => call.op)).toEqual(['status'])
+    expect(h.svc.get(w.id)).toMatchObject({ worktreePath: null, branch: null })
+    expect(h.onWorktreesChanged).toHaveBeenCalledWith('/r', h.svc.get(w.id)?.machineId)
+  })
+
   it('refuses an UNMERGED branch (is-ancestor false) before any destructive op', async () => {
     const h = harness()
     const w = prepared(h)
@@ -3708,9 +4002,9 @@ describe('IssueService.cleanup (issue #71)', () => {
     const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/not fully merged into 'main'/)
-    expect(calls.map((c) => c.op)).toEqual(['status', 'isMergedInto'])
+    expect(calls.map((c) => c.op)).toEqual(['status', 'worktreeList', 'isMergedInto'])
     // ancestor check is read-only against the repo ROOT ref db
-    expect(calls[1]).toEqual({
+    expect(calls[2]).toEqual({
       op: 'isMergedInto',
       cwd: '/r',
       args: { branch: BR, parentBranch: 'main' },
@@ -3729,7 +4023,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/uncommitted changes/)
     expect(r.output).toContain('M src/a.ts')
-    expect(calls.map((c) => c.op)).toEqual(['status', 'isMergedInto'])
+    expect(calls.map((c) => c.op)).toEqual(['status', 'worktreeList', 'isMergedInto'])
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBe(WT)
   })
 
@@ -3741,6 +4035,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(r.ok).toBe(true)
     expect(calls).toEqual([
       { op: 'status', cwd: WT },
+      { op: 'worktreeList', cwd: '/r' },
       { op: 'isMergedInto', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
       { op: 'worktreeRemove', cwd: '/r', args: { path: WT } },
       { op: 'branchDelete', cwd: '/r', args: { branch: BR } },
@@ -3789,6 +4084,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(r.output).toMatch(/worktree .* removed, but branch delete refused/)
     expect(calls.map((c) => c.op)).toEqual([
       'status',
+      'worktreeList',
       'isMergedInto',
       'worktreeRemove',
       'branchDelete',
@@ -3835,7 +4131,18 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
     const calls: Array<{ op: string; cwd: string; args?: Record<string, string> }> = []
     deps.repoOp = vi.fn(async (op, cwd, args) => {
       calls.push({ op, cwd, ...(args ? { args } : {}) })
-      return impl[op] ?? { ok: true, output: '' }
+      return (
+        impl[op] ??
+        (op === 'worktreeList'
+          ? {
+              ok: true,
+              output: gitWorktreeList([
+                { path: '/r', branch: 'main' },
+                { path: WT, branch: BR },
+              ]),
+            }
+          : { ok: true, output: '' })
+      )
     })
     return calls
   }
@@ -5708,11 +6015,48 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     const busy = closedIssueWithCheckout(h, { title: 'Occupied', path: '/r/.worktrees/busy' })
     sessions.push(sess('/r/.worktrees/busy'))
 
-    const reclaimable = h.svc.listReclaimableWorktrees(DUE)
+    const reclaimable = await h.svc.listReclaimableWorktrees(DUE)
 
-    expect(reclaimable.map((c) => c.issueId)).toEqual([child])
-    expect(reclaimable.map((c) => c.issueId)).not.toContain(open.id)
-    expect(reclaimable.map((c) => c.issueId)).not.toContain(busy)
+    expect(reclaimable.candidates.map((c) => c.issueId)).toEqual([child])
+    expect(reclaimable.candidates.map((c) => c.issueId)).not.toContain(open.id)
+    expect(reclaimable.candidates.map((c) => c.issueId)).not.toContain(busy)
+  })
+
+  it('reports a git worktree that no issue row claims as an orphan', async () => {
+    const h = gcHarness({ mode: 'propose', afterDays: 14 })
+    h.store.repos.addRepo('/r', h.store.hostMachineId)
+    const claimed = closedIssueWithCheckout(h, { path: '/r/.worktrees/claimed' })
+    h.deps.repoOp = vi.fn(async (op) =>
+      op === 'worktreeList'
+        ? {
+            ok: true,
+            output: gitWorktreeList([
+              { path: '/r', branch: 'main' },
+              { path: '/r/.worktrees/claimed', branch: 'issue/claimed' },
+              { path: '/r/.worktrees/unowned', branch: 'scratch/unowned' },
+            ]),
+          }
+        : { ok: true, output: '' },
+    )
+
+    const inventory = await h.svc.listReclaimableWorktrees(DUE, h.store.hostMachineId)
+
+    expect(inventory.candidates).toEqual([
+      expect.objectContaining({ issueId: claimed, present: true, protectedReason: null }),
+    ])
+    expect(inventory.orphans).toEqual([
+      expect.objectContaining({
+        path: '/r/.worktrees/unowned',
+        branch: 'scratch/unowned',
+        repoPath: '/r',
+      }),
+    ])
+    expect(inventory.allWorktreePaths).toEqual([
+      '/r',
+      '/r/.worktrees/claimed',
+      '/r/.worktrees/unowned',
+    ])
+    expect(inventory.reclaimableDiskPaths).toEqual(['/r/.worktrees/claimed'])
   })
 
   it('releases the whole reclaimable list on one click, reporting what refused', async () => {

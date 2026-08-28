@@ -12,13 +12,48 @@ import { appRouter } from './router'
 import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 
+/**
+ * A resolved release target, WITH THE ARTIFACT A RESOLVED ONE ALWAYS HAS.
+ *
+ * It used to be `artifacts: {}`, which no resolver can produce —
+ * `resolveReleaseTarget` refuses a manifest with no headless artifact — and
+ * which now means something specific: a descriptor pointing at no bytes, i.e.
+ * a source host's pre-release identity. The fleet is right to refuse to wave
+ * one, so the fixture has to be the thing it stands for.
+ */
 const target = (version = '0.4.2'): UpdateTarget =>
-  ({ version, critical: false, artifacts: {} }) as UpdateTarget
+  ({
+    version,
+    critical: false,
+    trust: 'release',
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: {
+          'linux-x86_64': {
+            url: `https://github.com/madeinorbit/podium/releases/download/edge/podium-headless-${version}.tar.gz`,
+            digest: 'sha256-fixture',
+            signature: 'sig',
+          },
+        },
+      },
+    },
+  }) as UpdateTarget
 
 const priorAppVersion = process.env.PODIUM_APP_VERSION
 const priorChannel = process.env.PODIUM_UPDATE_CHANNEL
 
 interface HarnessOptions {
+  store?: SessionStore
+  serverInstallKind?: 'installed' | 'source'
+  /**
+   * THIS MACHINE'S OWN UPDATE RECEIVER (POD-2668): the host daemon on an
+   * all-in-one, the parent-backed local participant on a server-only box. Either
+   * one makes the coordinator's machine a rollout target like any other, and
+   * `false` is the coordinator that has neither — the only shape whose plan
+   * still carries a `server` step.
+   */
+  hostUpdateReceiver?: false | ((message: unknown) => void)
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
@@ -29,7 +64,20 @@ interface HarnessOptions {
     bundleReady: boolean
     failureDetail?: string
   }
-  sessionStore?: SessionStore
+}
+
+const temporaryStores: Array<{ store: SessionStore; directory: string }> = []
+
+/**
+ * A coordinator restart is gated on a durable database snapshot. Memory stores
+ * intentionally cannot produce one, so restart-order tests use a disposable
+ * file-backed store and keep the production gate armed.
+ */
+function fileBackedStore(): SessionStore {
+  const directory = mkdtempSync(join(tmpdir(), 'podium-router-updates-'))
+  const store = new SessionStore(join(directory, 'podium.db'))
+  temporaryStores.push({ store, directory })
+  return store
 }
 
 function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
@@ -37,9 +85,10 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
     typeof requestCoordinatorRestart === 'function'
       ? { requestCoordinatorRestart }
       : (requestCoordinatorRestart ?? {})
-  const registry = new SessionRegistry(opts.sessionStore, undefined, { instanceId: 'updates-test' })
+  const registry = new SessionRegistry(opts.store, undefined, { instanceId: 'updates-test' })
   const hostMachineId = registry.sessionStore.hostMachineId
-  registry.gateway.attachDaemon(hostMachineId, () => {})
+  const hostUpdateReceiver = opts.hostUpdateReceiver ?? (() => {})
+  if (hostUpdateReceiver !== false) registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
   registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
@@ -55,6 +104,7 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
     superagent,
     capability: OPERATOR,
     principal: userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+    ...(opts.serverInstallKind ? { serverInstallKind: opts.serverInstallKind } : {}),
     ...(opts.requestCoordinatorRestart
       ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
       : {}),
@@ -69,27 +119,18 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
   return { registry, caller }
 }
 
-/** A real file is part of the server-restart contract: production snapshots the
- * database before it asks the process to replace itself (POD-2270). */
-function snapshotHarness(options: HarnessOptions) {
-  const root = mkdtempSync(join(tmpdir(), 'podium-update-router-'))
-  const store = new SessionStore(join(root, 'podium.db'))
-  const built = harness({ ...options, sessionStore: store })
-  return {
-    ...built,
-    dispose: () => {
-      built.registry.dispose()
-      store.close()
-      rmSync(root, { recursive: true, force: true })
-    },
-  }
-}
-
 afterEach(() => {
   if (priorAppVersion === undefined) delete process.env.PODIUM_APP_VERSION
   else process.env.PODIUM_APP_VERSION = priorAppVersion
   if (priorChannel === undefined) delete process.env.PODIUM_UPDATE_CHANNEL
   else process.env.PODIUM_UPDATE_CHANNEL = priorChannel
+  for (const { store, directory } of temporaryStores.splice(0)) {
+    try {
+      store.close()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
 })
 
 /**
@@ -247,6 +288,38 @@ describe('one default channel', () => {
     registry.dispose()
   })
 
+  it('updates Podium on a machine whose agent software is not Podium-managed', async () => {
+    const { registry, caller } = harness()
+    registry.sessionStore.machines.upsertMachine({
+      id: 'shared',
+      name: 'Shared machine',
+      hostname: 'shared',
+      tokenHash: 'shared-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+      podiumManaged: false,
+    })
+    const sharedMachineId = asMachineId('shared')
+    registry.gateway.attachDaemon(sharedMachineId, () => {})
+    registry.modules.machines.setMachineBuild(
+      sharedMachineId,
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-26T00:00:00.000Z',
+    )
+    const refreshTarget = vi
+      .spyOn(registry.modules.updates, 'refreshTarget')
+      .mockResolvedValue(true)
+    registry.modules.updates.setTarget('dev', target())
+
+    await caller.machines.setUpdateChannel({ id: 'shared', channel: 'dev' })
+    const { outcome } = await caller.machines.applyUpdate({ id: 'shared' })
+
+    expect(registry.modules.machines.updateChannel(sharedMachineId)).toBe('dev')
+    expect(refreshTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev', 'dev'])
+    expect(outcome).toEqual({ result: 'granted', version: '0.4.2' })
+    registry.dispose()
+  })
+
   it('lets a pin win over the fleet default on every path', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry, caller } = harness()
@@ -289,7 +362,8 @@ describe('release target checks', () => {
         checkedAt: expect.any(Number),
         outcome: {
           status: 'unavailable',
-          reason: 'stable target unavailable: getaddrinfo ENOTFOUND',
+          // The resolver names the manifest boundary so feed failures stay actionable.
+          reason: 'stable target unavailable: release manifest getaddrinfo ENOTFOUND',
         },
       },
     ])
@@ -399,6 +473,54 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     expect(fleet.machines.map((machine) => machine.id)).toEqual([
       registry.sessionStore.hostMachineId,
     ])
+    registry.dispose()
+  })
+  it('excludes a source checkout while retaining an outdated packaged machine', async () => {
+    const release = '0.1.1-dev.1+6e57311'
+    const { registry, caller } = harness({ serverInstallKind: 'source' })
+    const host = registry.sessionStore.hostMachineId
+    registry.modules.machines.setMachineBuild(
+      host,
+      { appVersion: 'dev+6e57311', installKind: 'source' },
+      ['podium.shipping-train'],
+      '2026-08-22T00:00:00.000Z',
+    )
+    registry.sessionStore.machines.upsertMachine({
+      id: 'packaged',
+      name: 'Packaged',
+      hostname: 'packaged',
+      tokenHash: 'packaged-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.gateway.attachDaemon(asMachineId('packaged'), () => {})
+    registry.modules.machines.setUpdateChannel(asMachineId('packaged'), 'dev')
+    registry.modules.machines.setMachineBuild(
+      asMachineId('packaged'),
+      { appVersion: '0.1.1-dev.0+old0000', installKind: 'installed' },
+      ['update.delivery.feed', 'podium.shipping-train'],
+      '2026-08-22T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget('dev', target(release))
+
+    const offered = await caller.updates.fleet()
+    expect(offered.total).toBe(1)
+    expect(offered.behind).toBe(1)
+    expect(offered.machines.map((machine) => machine.id)).toEqual(['packaged'])
+    expect(offered.allMachines.map((machine) => machine.id)).toContain(host)
+
+    registry.modules.machines.setMachineBuild(
+      asMachineId('packaged'),
+      { appVersion: release, installKind: 'installed' },
+      ['update.delivery.feed', 'podium.shipping-train'],
+      '2026-08-22T00:01:00.000Z',
+    )
+    const current = await caller.updates.fleet()
+    expect(current.behind).toBe(0)
+    expect(current.startability).toEqual({
+      startable: false,
+      reason: 'Podium is already at this version everywhere.',
+    })
+    await expect(caller.updates.start()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
     registry.dispose()
   })
 
@@ -594,17 +716,21 @@ describe('updates tRPC', () => {
   })
 
   /**
-   * POD-2195, END TO END. A machine running from source advertises git delivery
-   * and nothing else; the bare `dev+<sha>` identity the publisher puts up names
-   * a repo and a sha, which is everything that machine needs. Spec §9.2: it
-   * needs no build and no download. So the update must reach it WITHOUT the
-   * server first packing a tarball nothing in this plan will read.
+   * POD-2195, END TO END, AS IT STANDS AFTER THE PULL CONVERSION.
    *
-   * Observed on the live box before this fix (POD-2194): the plan was
-   * [prepare, machines, web], the only machine in the fleet advertised
-   * `update.delivery.git` alone, and it sat at "Waiting for the update package."
+   * It used to read: a machine running from source advertises git delivery and
+   * nothing else, and the bare identity the publisher puts up names a repo and
+   * a sha — everything that machine needs — so the update must reach it without
+   * packing a tarball first. Git delivery is retired (spec disposition 5), and
+   * with it that whole path: a source machine advertises NO delivery, and an
+   * identity target names nothing anyone can take.
+   *
+   * What survives is the shape of the original bug, which was a machine left at
+   * "Waiting for the update package." forever. The fleet below is the one the
+   * dev channel actually has now — a machine that CAN take a feed — and the
+   * guarantee is that the ordinary published feed target reaches it.
    */
-  function sourceFleet(requestDestBundle: () => Promise<unknown>) {
+  function devFleet(requestDestBundle: () => Promise<unknown>) {
     const { registry, caller } = harness({ servedWebDigest: '47a01e3', requestDestBundle })
     const grants: unknown[] = []
     registry.modules.machines.setMachineBuild(
@@ -621,30 +747,42 @@ describe('updates tRPC', () => {
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
     registry.modules.machines.setUpdateChannel(asMachineId('source-machine'), 'dev')
-    // The caps a daemon running from a checkout reports (`build-report.ts`):
-    // git and nothing else. It cannot take a tarball, and does not need one.
+    // The caps an INSTALLED daemon reports (`build-report.ts`): a feed, and
+    // nothing else now that the bundle kind is retired.
     registry.modules.machines.setMachineBuild(
       asMachineId('source-machine'),
       { appVersion: 'dev+aaaaaaa' },
-      ['update.delivery.git'],
+      ['update.delivery.feed'],
       '2026-08-13T00:00:00.000Z',
     )
     registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
+    // A published dev release, as the resolver hands it over: an ordinary feed
+    // artifact, on the instance trust root.
     registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
+      trust: 'instance',
       artifacts: {
         web: { digest: '47a01e3' },
-        headlessAlternatives: [{ delivery: 'git', repo: '/src/podium', sha: '47a01e3' }],
+        headless: {
+          delivery: 'feed',
+          platforms: {
+            'linux-x64': {
+              url: 'http://source.test/updates/feed/dev/artifact/dev%2B47a01e3',
+              digest: 'd',
+              signature: 's',
+            },
+          },
+        },
       },
     } as UpdateTarget)
     return { registry, caller, grants }
   }
 
-  it('grants a source machine its own commit without packing anything', async () => {
+  it('grants a published dev release without asking for another build', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
     const requestDestBundle = vi.fn().mockResolvedValue(undefined)
-    const { registry, caller, grants } = sourceFleet(requestDestBundle)
+    const { registry, caller, grants } = devFleet(requestDestBundle)
 
     const result = await caller.updates.converge()
     expect(result).toMatchObject({
@@ -663,9 +801,9 @@ describe('updates tRPC', () => {
    * asked the target-only question too, so a source fleet's live counts were
    * zeroed for the want of a tarball nobody wanted.
    */
-  it('counts a source machine mid-grant as converging', async () => {
+  it('counts a dev machine mid-grant as converging', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
-    const { registry, caller } = sourceFleet(vi.fn().mockResolvedValue(undefined))
+    const { registry, caller } = devFleet(vi.fn().mockResolvedValue(undefined))
 
     await caller.updates.converge()
     await expect(caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
@@ -831,7 +969,7 @@ describe('updates tRPC', () => {
       artifacts: {
         web: { digest: '47a01e3' },
         headless: {
-          delivery: 'bundle',
+          delivery: 'feed',
           platforms: {
             'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' },
           },
@@ -891,7 +1029,30 @@ describe('updates tRPC', () => {
     registry.dispose()
   })
 
-  it('does not dest-redeploy immediately while dest packaging is still running', async () => {
+  /**
+   * WHO REPLACES THE COORDINATOR — the one question these two tests split
+   * between them (POD-2738).
+   *
+   * They were one test, written when the coordinator's own process was always
+   * replaced by `requestCoordinatorRestart`, and it kept its fixture while the
+   * design underneath it changed. POD-2668 made the coordinator's machine an
+   * ordinary update receiver — a host daemon on an all-in-one, a parent-backed
+   * local participant on a server-only box — and the planner now refuses to
+   * plan a `server` step for a machine the fleet is already going to swap
+   * (`hostUpdatesThroughFleet`): one receiver per machine, never two.
+   *
+   * So the old test's fixture — a host registered with `setMachineBuild`, hence
+   * a participant — stopped being able to observe the callback it asserted, and
+   * would have gone green again for a coordinator swapped TWICE. Each half is
+   * now pinned where it is real:
+   *
+   * - `restarts the coordinator only after the machine wave finishes` keeps the
+   *   ordering promise, in the topology that still has a `server` step.
+   * - `converges the coordinator through its own fleet grant…` pins the new
+   *   path, where the restart arrives as a grant and the callback must not fire
+   *   at all.
+   */
+  it('restarts the coordinator only after the machine wave finishes', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
     const requestCoordinatorRestart = vi.fn()
     let finish: (() => void) | undefined
@@ -901,17 +1062,33 @@ describe('updates tRPC', () => {
           finish = resolve
         }),
     )
-    const { registry, caller, dispose } = snapshotHarness({
+    const store = fileBackedStore()
+    const grants: unknown[] = []
+    // A coordinator with no update receiver of its own: no host daemon, no
+    // local participant. Nothing in the fleet will swap this machine, so the
+    // operation owns its replacement and the `server` step is planned.
+    const { registry, caller } = harness({
+      store,
+      hostUpdateReceiver: false,
       requestCoordinatorRestart,
       requestDestBundle,
       servedWebDigest: '47a01e3',
     })
+    registry.sessionStore.machines.upsertMachine({
+      id: 'installed-edge',
+      name: 'Installed',
+      hostname: 'installed',
+      tokenHash: 'installed-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
     registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
       [],
       '2026-08-13T00:00:00.000Z',
     )
+    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -949,8 +1126,16 @@ describe('updates tRPC', () => {
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
 
+    // THE ORDER IS THE PLAN'S, not a poll loop's: the step that replaces this
+    // process is last, because it is what ends the process driving the wave.
+    const planned = (await caller.operations.active()) as {
+      steps?: { id: string }[]
+    } | null
+    expect(planned?.steps?.map((step) => step.id)).toEqual(['prepare', 'machines', 'server'])
+
     /**
-     * THE PACK RESOLVES, AND THE SERVER STILL DOES NOT RESTART YET.
+     * THE PACK RESOLVES, THE MACHINE IS GRANTED — AND THE SERVER STILL DOES NOT
+     * RESTART YET.
      *
      * This is the step ordering the old 250 ms poll loop
      * (`restartCoordinatorAfterDevelopmentFleet`) used to express: the machines
@@ -964,7 +1149,7 @@ describe('updates tRPC', () => {
       artifacts: {
         web: { digest: '47a01e3' },
         headless: {
-          delivery: 'bundle',
+          delivery: 'feed',
           platforms: { 'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' } },
         },
       },
@@ -973,38 +1158,100 @@ describe('updates tRPC', () => {
     await vi.waitFor(() =>
       expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
     )
-    await vi.waitFor(() => {
-      const granted = registry.modules.operations.engine.active('lifecycle')?.operation
-      expect(granted?.steps?.find((step) => step.id === 'machines')).toMatchObject({
-        state: 'running',
-      })
-    })
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
 
-    // Both machine places report the target: the remote took the bundle, while
-    // the host daemon finished before the coordinating server process restarts.
-    // Only then may the plan reach the snapshotted server step.
+    // The one waved machine reports the target, so the wave is done and the
+    // plan reaches the step that replaces this process.
+    registry.modules.machines.setMachineBuild(
+      asMachineId('installed-edge'),
+      { appVersion: 'dev+47a01e3' },
+      [],
+      '2026-08-13T00:00:01.000Z',
+    )
+    registry.bus.emit('machine.connected', { machineId: asMachineId('installed-edge') })
+    await vi.waitFor(() => expect(requestCoordinatorRestart).toHaveBeenCalledOnce())
+    registry.dispose()
+  })
+
+  it('converges the coordinator through its own fleet grant, never the restart callback', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
+    const requestCoordinatorRestart = vi.fn()
+    let finish: (() => void) | undefined
+    const requestDestBundle = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const store = fileBackedStore()
+    const hostControl: unknown[] = []
+    // The all-in-one / server-only shape after POD-2668: this machine has an
+    // update receiver, so it is a rollout target like any other.
+    const { registry, caller } = harness({
+      store,
+      hostUpdateReceiver: (message) => hostControl.push(message),
+      requestCoordinatorRestart,
+      requestDestBundle,
+      servedWebDigest: '47a01e3',
+    })
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: 'dev+aaaaaaa' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    })
+
+    await caller.updates.converge()
+    await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+
+    // NO `server` STEP AT ALL. The coordinator is in the wave, and a machine the
+    // wave will swap must not also be swapped from underneath it.
+    const planned = (await caller.operations.active()) as {
+      steps?: { id: string }[]
+    } | null
+    expect(planned?.steps?.map((step) => step.id)).toEqual(['prepare', 'machines'])
+
+    registry.modules.updates.setTarget({
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: {
+        web: { digest: '47a01e3' },
+        headless: {
+          delivery: 'feed',
+          platforms: { 'linux-x64': { url: 'http://bundle', digest: 'd', signature: 's' } },
+        },
+      },
+    })
+    finish?.()
+
+    // The replacement arrives as this machine's own grant — the parent applies
+    // it and hands the process over — so the callback is never reached.
+    await vi.waitFor(() =>
+      expect(hostControl).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
+    )
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
       [],
       '2026-08-13T00:00:01.000Z',
     )
-    registry.modules.machines.setMachineBuild(
-      bundleMachine,
-      { appVersion: 'dev+47a01e3' },
-      [],
-      '2026-08-13T00:00:01.000Z',
+    registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachineId })
+    await vi.waitFor(async () =>
+      expect((await caller.operations.history({ kind: 'update' }))[0]).toMatchObject({
+        state: 'done',
+        steps: [
+          expect.objectContaining({ id: 'prepare', state: 'done' }),
+          expect.objectContaining({ id: 'machines', state: 'done' }),
+        ],
+      }),
     )
-    registry.bus.emit('machine.connected', { machineId: bundleMachine })
-    await vi.waitFor(() => {
-      const latest = registry.modules.operations.engine.active('lifecycle')?.operation
-      expect(latest?.steps?.find((step) => step.id === 'server')).toMatchObject({
-        state: 'running',
-      })
-    })
-    expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
-    dispose()
+    expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+    registry.dispose()
   })
 
   it('still refuses when server, web stamp, and fleet all match', async () => {
@@ -1189,7 +1436,8 @@ describe('updates tRPC', () => {
   it('returns an in-progress wave after the human authorizes convergence', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const requestCoordinatorRestart = vi.fn()
-    const { registry, caller, dispose } = snapshotHarness({ requestCoordinatorRestart })
+    const store = fileBackedStore()
+    const { registry, caller } = harness({ store, requestCoordinatorRestart })
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
@@ -1208,7 +1456,7 @@ describe('updates tRPC', () => {
     expect(result.fleet.targetVersion).toBe('0.4.2')
     expect(result.fleet.machines.length).toBeGreaterThanOrEqual(1)
     expect(requestCoordinatorRestart).toHaveBeenCalledOnce()
-    dispose()
+    registry.dispose()
   })
 
   it('does not count or grant a machine selected onto another channel', async () => {

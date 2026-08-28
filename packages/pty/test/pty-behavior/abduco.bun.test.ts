@@ -1,11 +1,7 @@
 // Run ONLY under `bun test`. Proves the DURABLE session path — abduco create +
 // `sh -c 'exec abduco -a'` attach, alt-screen chrome strip, OSC title, input
 // round-trip, detach-survive, reattach repaint nudge, kill — works when the attach
-// client's PTY is Bun.Terminal (not node-pty). This is the real-world path the
-// node-pty suite proves in src/abduco.test.ts; here we prove its Bun twin.
-//
-// Narrow imports (../../src/abduco) keep node:sqlite and the node-pty native addon
-// out of the graph.
+// client's PTY is Bun.Terminal, matching the shipped daemon.
 
 import { afterAll, describe, expect, it } from 'bun:test'
 import { fileURLToPath } from 'node:url'
@@ -40,7 +36,7 @@ d('abduco durable path [bun-terminal]', () => {
     await killAbducoSession(label)
     const session = await spawnAbducoAgent({
       label,
-      cmd: 'node',
+      cmd: process.execPath,
       args: [FIXTURE],
       cols: 80,
       rows: 24,
@@ -49,7 +45,7 @@ d('abduco durable path [bun-terminal]', () => {
     let out = ''
     let title = ''
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     session.onTitle((t) => {
       title = t
@@ -72,7 +68,7 @@ d('abduco durable path [bun-terminal]', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24, backend })
     let out2 = ''
     re.onFrame((f) => {
-      out2 += Buffer.from(f.data, 'base64').toString('utf8')
+      out2 += Buffer.from(f.data).toString('utf8')
     })
     await wait(600)
     re.write(Buffer.from('yo\r', 'utf8').toString('base64'))
@@ -91,7 +87,7 @@ d('abduco durable path [bun-terminal]', () => {
     await killAbducoSession(label)
     const session = await spawnAbducoAgent({
       label,
-      cmd: 'node',
+      cmd: process.execPath,
       args: [TUI_FIXTURE],
       cols: 80,
       rows: 24,
@@ -104,7 +100,7 @@ d('abduco durable path [bun-terminal]', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24, backend }) // same geometry
     let out = ''
     re.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     await wait(1400)
     expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size

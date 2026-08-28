@@ -21,9 +21,10 @@
  *      printing green is the one failure this lane must never produce. Override
  *      with --allow-uncovered once you have run the full lane yourself.
  *
- *   3. A BROKEN INSTALL IS A MISS, NOT A HIT. Reuses the environment fingerprint from
- *      scripts/typecheck.ts (PODIUM_CHECK_ENV_HASH, declared in turbo.json globalEnv)
- *      so a dangling node_modules/@podium can't serve a stale cached green (POD-1343).
+ *   3. A BROKEN INSTALL IS A MISS, NOT A HIT. Reuses the manifest-owned resolution
+ *      census, install-topology admission, and environment fingerprint from scripts/typecheck.ts
+ *      (PODIUM_CHECK_ENV_HASH, declared in turbo.json globalEnv), so missing, dangling,
+ *      undeclared, or external workspace resolutions cannot serve a stale green.
  *
  * This lane is a fast approximation for the inner loop. It does NOT replace
  * `bun run test:full` before a deliberately exhaustive check. See AGENTS.md "Affected-only tests".
@@ -31,7 +32,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { assessWorkspaceLinks, readCensus, turboEnv } from './typecheck'
+import { admissionRefusal, readCensus, turboEnv } from './typecheck'
 
 /** Runs a git command, returning trimmed stdout, or null if git exited non-zero. */
 export type Git = (args: string[]) => string | null
@@ -270,12 +271,9 @@ async function main() {
   }
 
   const census = readCensus(root)
-  const links = assessWorkspaceLinks(census.links)
-  if (links.error) {
-    console.error(
-      `test:affected refused: ${links.error}; a green there would not be evidence (POD-1343). ` +
-        'Run `bun install` first.',
-    )
+  const refusal = admissionRefusal(census, 'affected test')
+  if (refusal) {
+    console.error(refusal)
     process.exit(1)
   }
 

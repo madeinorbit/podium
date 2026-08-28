@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { nodePtyBackend, spawnAgent } from '@podium/pty'
+import { bunTerminalBackend, spawnAgent } from '@podium/pty'
 import { describe, expect, it } from 'vitest'
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: needed to strip ANSI escapes
@@ -35,16 +35,16 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // is a trusted dir so claude renders its composer instead of a trust prompt. We type a
 // char but never submit it, so no model call is made.
 describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !ready)(
-  '[real-agent:claude] real claude smoke (node-pty backend)',
+  '[real-agent:claude] real claude smoke (Bun.Terminal backend)',
   () => {
     it('boots, renders a substantial frame, and echoes a keystroke', async () => {
       const s = spawnAgent(
         { cmd: 'claude', args: [], cols: 100, rows: 30, cwd: process.env.HOME ?? homedir() },
-        nodePtyBackend(),
+        bunTerminalBackend(),
       )
       let buf = ''
       s.onFrame((f) => {
-        buf += Buffer.from(f.data, 'base64').toString('utf8')
+        buf += Buffer.from(f.data).toString('utf8')
       })
       try {
         for (let i = 0; i < 300 && buf.length < 500; i++) await wait(50)

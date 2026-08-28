@@ -1,6 +1,11 @@
 import type { AgentRuntimeState, Geometry, SessionUserOverlay } from '@podium/model'
 import { asMachineId, asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import {
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  decodeBinaryEnvelope,
+  PtyOutputBinaryMetadata,
+  type ServerMessage,
+} from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
 import { testClientPrincipal } from '../../test-support/client-principal'
@@ -542,6 +547,81 @@ describe('Session', () => {
     expect(s.terminal.outputCount).toBe(2)
   })
 
+  it('accepts arbitrary raw bytes as one sequence with source-frame accounting', () => {
+    const s = makeSession()
+    const a = makeClient('raw')
+    s.terminal.attachClient(a)
+    const source = [
+      Uint8Array.from([0x00, 0xff, 0xe2]),
+      Uint8Array.from([0x82]),
+      Uint8Array.from([0xac, 0x1b, 0x5b, 0x32, 0x4a]),
+    ]
+    const bytes = Buffer.concat(source)
+    s.terminal.acceptOutput(bytes, source.length)
+
+    const frames = a.sent.filter((message) => message.type === 'outputFrame')
+    expect(frames).toHaveLength(1)
+    expect(frames[0]).toMatchObject({ seq: 0, epoch: 0 })
+    if (frames[0]?.type !== 'outputFrame') throw new Error('raw output missing')
+    expect(Array.from(Buffer.from(frames[0].data, 'base64'))).toEqual(Array.from(bytes))
+    expect(s.terminal.outputCount).toBe(3)
+    expect(s.terminal.lastOutputAtMs).toBeGreaterThan(0)
+    expect(s.terminal.activityDirty).toBe(true)
+  })
+
+  it('fans identical live and replay bytes to binary and legacy clients', () => {
+    const s = makeSession()
+    const legacy = makeClient('legacy')
+    const binary = makeClient('binary')
+    const binaryFrames: Uint8Array[] = []
+    const legacySibling = makeClient('legacy-sibling')
+    const binarySibling = makeClient('binary-sibling')
+    const binarySiblingFrames: Uint8Array[] = []
+    binary.caps.add(CAP_TERMINAL_OUTPUT_BINARY_V1)
+    binary.sendBinary = (frame) => binaryFrames.push(frame)
+    binary.sendBinaryStream = (frame) => {
+      binaryFrames.push(frame)
+      return true
+    }
+    binarySibling.caps.add(CAP_TERMINAL_OUTPUT_BINARY_V1)
+    binarySibling.sendBinary = (frame) => binarySiblingFrames.push(frame)
+    binarySibling.sendBinaryStream = (frame) => {
+      binarySiblingFrames.push(frame)
+      return true
+    }
+    s.terminal.attachClient(legacy)
+    s.terminal.attachClient(binary)
+    s.terminal.attachClient(legacySibling)
+    s.terminal.attachClient(binarySibling)
+
+    const payload = Buffer.from([0x00, 0xff, 0xe2, 0x82])
+    s.terminal.onFrame(payload.toString('base64'))
+
+    const legacyFrame = legacy.sent.find((message) => message.type === 'outputFrame')
+    expect(legacyFrame).toMatchObject({ seq: 0, epoch: 0 })
+    if (legacyFrame?.type !== 'outputFrame') throw new Error('legacy output missing')
+    expect(Buffer.from(legacyFrame.data, 'base64')).toEqual(payload)
+    expect(legacySibling.sent.find((message) => message.type === 'outputFrame')).toBe(legacyFrame)
+    expect(binarySiblingFrames[0]).toBe(binaryFrames[0])
+    const live = decodeBinaryEnvelope(binaryFrames[0]!, PtyOutputBinaryMetadata)
+    expect(live.metadata).toMatchObject({
+      type: 'ptyOutput',
+      sessionId: asSessionId('s1'),
+      seq: 0,
+      epoch: 0,
+    })
+    expect(Buffer.from(live.payload)).toEqual(payload)
+
+    const replay = makeClient('binary-replay')
+    const replayFrames: Uint8Array[] = []
+    replay.caps.add(CAP_TERMINAL_OUTPUT_BINARY_V1)
+    replay.sendBinary = (frame) => replayFrames.push(frame)
+    s.terminal.attachClient(replay)
+    const decodedReplay = decodeBinaryEnvelope(replayFrames[0]!, PtyOutputBinaryMetadata)
+    expect(decodedReplay.metadata).toMatchObject({ seq: 0, epoch: 0 })
+    expect(Buffer.from(decodedReplay.payload)).toEqual(payload)
+  })
+
   it('tells the attaching client whether the PTY has ever produced output', () => {
     // POD-385: an empty screen means either "the child has printed nothing yet"
     // (a CLI still booting) or "we no longer hold its replay". Only the server
@@ -612,7 +692,7 @@ describe('Session', () => {
 
   it('still clears for a same-generation cursor older than the replay window', () => {
     const s = makeSession()
-    const largeFrame = 'eA=='.repeat(70_000)
+    const largeFrame = Buffer.alloc(140_000, 0x78).toString('base64')
     s.terminal.onFrame(largeFrame) // seq 0, evicted by later frames
     s.terminal.onFrame(largeFrame) // seq 1, evicted by seq 2
     s.terminal.onFrame(largeFrame) // seq 2
@@ -620,6 +700,48 @@ describe('Session', () => {
     s.terminal.attachClient(a, 0)
     expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(1)
+  })
+
+  it('budgets replay by raw payload bytes rather than base64 characters', () => {
+    const s = makeSession()
+    const payload = Buffer.alloc(120_000, 0x78).toString('base64')
+    s.terminal.onFrame(payload)
+    s.terminal.onFrame(payload)
+    const client = makeClient('raw-budget')
+    s.terminal.attachClient(client)
+    expect(client.sent.filter((message) => message.type === 'outputFrame')).toHaveLength(2)
+  })
+  it('owns replay payload bytes independently of the received websocket envelope', () => {
+    const s = makeSession()
+    const backing = Buffer.alloc(1024)
+    backing.set(Buffer.from('abc'), 512)
+    const payload = backing.subarray(512, 515)
+    s.terminal.acceptOutput(payload, 1)
+    payload.fill(0)
+    const client = makeClient('owned-replay')
+    s.terminal.attachClient(client)
+    const replay = client.sent.filter((message) => message.type === 'outputFrame')
+    expect(Buffer.from(replay[0]!.data, 'base64').toString()).toBe('abc')
+  })
+
+  it('caps empty replay entries and rejects unsafe source-frame counts', () => {
+    const s = makeSession()
+    expect(() => s.terminal.acceptOutput(new Uint8Array(), Number.MAX_SAFE_INTEGER)).toThrow()
+    for (let i = 0; i < 4097; i += 1) s.terminal.acceptOutput(new Uint8Array(), 1)
+    const client = makeClient('empty-replay-budget')
+    s.terminal.attachClient(client)
+    expect(client.sent.filter((message) => message.type === 'outputFrame')).toHaveLength(4096)
+  })
+
+  it('scans reset sequences on canonical bytes and discards older replay', () => {
+    const s = makeSession()
+    s.terminal.onFrame(Buffer.from('old screen').toString('base64'))
+    s.terminal.onFrame(Buffer.from('\x1b[2Jnew screen').toString('base64'))
+    const client = makeClient('after-reset')
+    s.terminal.attachClient(client)
+    const frames = client.sent.filter((message) => message.type === 'outputFrame')
+    expect(frames).toHaveLength(1)
+    expect(Buffer.from(frames[0]!.data, 'base64').toString()).toBe('\x1b[2Jnew screen')
   })
 
   it('a fresh attach (no cursor) is a full replay', () => {
@@ -650,7 +772,7 @@ describe('Session', () => {
     it('nudges when a same-generation cursor fell out of the replay window', () => {
       const toDaemon = vi.fn()
       const s = makeSession(toDaemon)
-      const largeFrame = 'eA=='.repeat(70_000)
+      const largeFrame = Buffer.alloc(140_000, 0x78).toString('base64')
       s.terminal.onFrame(largeFrame) // seq 0, evicted by later frames
       s.terminal.onFrame(largeFrame) // seq 1, evicted by seq 2
       s.terminal.onFrame(largeFrame) // seq 2

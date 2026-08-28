@@ -13,7 +13,7 @@ set -euo pipefail
 
 BUNDLE_DIR="${1:-apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle}"
 APP="$BUNDLE_DIR/macos/Podium.app"
-SIDECAR="$APP/Contents/Resources/resources/podium"
+SIDECAR="$APP/Contents/Resources/resources/payload/podium-cli"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -37,6 +37,49 @@ codesign -dvvv "$SIDECAR" 2>&1 | grep -q 'Authority=Developer ID Application' \
   || fail "bundled podium sidecar is not Developer ID signed"
 codesign -d --entitlements - --xml "$SIDECAR" 2>/dev/null | grep -q 'allow-jit' \
   || fail "sidecar is missing the JIT entitlement — a Bun binary will not start under the hardened runtime"
+
+echo "== Application Support seed execution =="
+# Copying out of the signed frame is the actual first-run boundary. Exercise the same
+# quarantine removal the shell performs, then ask Gatekeeper and the launcher to execute
+# the external bytes rather than inferring success from the in-bundle signature.
+seed_work="$(mktemp -d)"
+seeded="$seed_work/payload"
+cp -R "$APP/Contents/Resources/resources/payload" "$seeded"
+xattr -w com.apple.quarantine '0081;00000000;Podium;' "$seeded/podium-cli"
+xattr -dr com.apple.quarantine "$seeded"
+if xattr -p com.apple.quarantine "$seeded/podium-cli" >/dev/null 2>&1; then
+  fail "seeded payload still carries com.apple.quarantine"
+fi
+codesign --verify --strict --verbose=2 "$seeded/podium-cli" \
+  || fail "seeded external podium-cli signature invalid"
+"$seeded/podium-cli" --version >/dev/null \
+  || fail "seeded external podium-cli did not launch"
+rm -rf "$seed_work"
+
+# NO FLEET GRANT PAYLOAD IS VERIFIABLE HERE, and the tarball that looks like one is not it.
+#
+# A previous revision of this script extracted dist-bun/podium-headless-*.tar.gz here and
+# called it "the exact bytes an ordinary fleet grant installs". It is not, on two counts:
+#
+#   1. It is never published. The darwin legs of desktop-release.yml upload only the DMG,
+#      the .app.tar.gz and its .sig. The grant payload macOS machines actually install is
+#      built by release.yml — one Linux job, `release.ts --prepare-cross`, landing in
+#      dist-bun/release/podium-headless-darwin-*.tar.gz. Nothing here ever reaches a feed.
+#   2. It is signed differently, by design. rcodesign contributes the Bun JIT entitlements
+#      and runs ONLY on the `--target` cross path (build-bun.ts). `bun run package:headless`
+#      on this runner has no --target, so the tarball beside it carries Bun's raw
+#      LINKER_SIGNED ad-hoc signature, which `codesign --verify --strict` rejects outright
+#      ("code or signature have been modified"). That is the byproduct being what it is, not
+#      a release defect — and it is exactly the state assert-headless-bundle.sh fails a real
+#      release for.
+#
+# The grant payload IS gated, on the bytes that ship, in two places: per release by
+# scripts/assert-headless-bundle.sh in release.yml (signature sealed, ADHOC, NOT
+# LINKER_SIGNED, identifier podium, all five JIT entitlement keys — with
+# prove-headless-assertions-can-fail.sh proving that gate can say no), and on demand on real
+# Macs by darwin-mac-execution-proof.yml (quarantine, `codesign --verify --strict`,
+# allow-jit, and an actual boot). Re-adding a copy of that here would only re-assert it
+# against an artifact no user ever receives.
 
 echo "== notarization =="
 # stapler validate is the offline proof: it reads the ticket stapled INTO the bundle. It is the

@@ -37,7 +37,7 @@ function fakeWs() {
   }
 }
 
-const frame = (v: unknown): Buffer => Buffer.from(JSON.stringify(v))
+const frame = (v: unknown): string => JSON.stringify(v)
 
 const A_ROUTABLE_FRAME = {
   type: 'bind',

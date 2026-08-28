@@ -1,14 +1,15 @@
 /**
- * THE EIGHT INSTANCE CONTRACTS — the three routers that administer THIS
+ * THE NINE INSTANCE CONTRACTS — the three routers that administer THIS
  * DEPLOYMENT rather than any entity inside it.
  *
- *   setup.complete · setup.join · setup.connect · setup.setChannel
+ *   setup.complete · setup.join · setup.connect · setup.setChannel · setup.activate
  *   auth.setPassword · auth.setLoginRequired
  *   telemetry.set · telemetry.resetId
  *
- * They share a file because they share a subject: all eight write `config.json`
- * or the password store on the host serving the request — never a row, never a
- * session, never a repo. Their reads (`setup.info`, `setup.options`,
+ * They share a file because they share a subject: eight of them write
+ * `config.json` or the password store on the host serving the request — never a
+ * row, never a session, never a repo — and the ninth, `setup.activate`, is how
+ * the deployment ADOPTS what the other eight wrote. Their reads (`setup.info`, `setup.options`,
  * `setup.commandFor`, `setup.channel`, `auth.status`, `telemetry.state`,
  * `telemetry.preview`) stay queries.
  *
@@ -16,10 +17,10 @@
  * TWO VISIBILITY CLASSES, AND THE SPLIT IS THE POINT OF THIS FILE
  * ---------------------------------------------------------------------------
  *
- * Six are `deployment-substrate` — ADR 9 D3 rule 1, a property of the DEPLOYMENT
+ * Seven are `deployment-substrate` — ADR 9 D3 rule 1, a property of the DEPLOYMENT
  * rather than of a person, the same class ADR 1 gives `configFeatures` (operator
  * `config.features`, `home: 'runtime-local'`). Nobody owns the public URL or the
- * update channel; they are facts about the box.
+ * update channel; they are facts about the box, and so is when the box turns over.
  *
  * TWO ARE `secret`, and getting this wrong in the other direction is the trap.
  * `auth.setPassword` and `auth.setLoginRequired` write CREDENTIAL MATERIAL — the
@@ -52,7 +53,7 @@ import type {
   VisibilityClass,
 } from '../contract'
 
-/** `trpc` alone for all eight. The CLI reaches the SAME core functions
+/** `trpc` alone for all nine. The CLI reaches the SAME core functions
  *  (`applyJoin`, `applySetup`) directly rather than through a procedure, so a
  *  `cli` tag here would open nothing — measured, as POD-386 did for specs. */
 const SERVED_ON: readonly TransportTag[] = ['trpc']
@@ -120,7 +121,7 @@ const INSTANCE_ATTRIBUTION: AttributionPolicy = {
     'precisely where "who did this" must not be guessable from the payload.',
 }
 
-/** None of the eight takes a caller-supplied entity id: they address THIS
+/** None of the nine takes a caller-supplied entity id: they address THIS
  *  deployment, which the caller has already reached. */
 const NO_TARGET: ErrorConsistency = {
   callerSuppliedTargetId: false,
@@ -132,7 +133,7 @@ const NO_TARGET: ErrorConsistency = {
 
 const CREATES_NOTHING = {
   creates: [],
-  note: 'Rewrites deployment configuration or the password store in place. Mints no entity and moves no ownership.',
+  note: 'Rewrites deployment configuration or the password store in place, or replaces the process running it. Mints no entity and moves no ownership.',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -141,6 +142,10 @@ const CREATES_NOTHING = {
 
 export const setupCompleteInput = z.object({
   publicUrl: z.string(),
+  /** The reachability method selected alongside the URL. */
+  networkOption: z
+    .enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual'])
+    .optional(),
   /** Which host mode this reachable box is (the web runs this step for both);
    *  absent preserves the existing mode (default all-in-one on first run). */
   mode: z.enum(['all-in-one', 'server']).optional(),
@@ -181,8 +186,8 @@ export const setupCompleteContract = {
     outputPaths: [],
     note:
       '`password` IS credential material and is redacted from any log or audit record of this ' +
-      'command. `publicUrl` and `mode` are deployment identity and stay visible — the URL is public ' +
-      'by definition and a refusal must name it to be actionable. The telemetry answers are ' +
+      'command. `publicUrl`, `networkOption`, and `mode` are deployment identity and stay visible. ' +
+      'A refusal must name the URL to be actionable. The telemetry answers are ' +
       'consent booleans, not data. The RESULT is the resolved config and carries no password back, ' +
       'which is why `outputPaths` is empty rather than unexamined.',
   } satisfies RedactionPolicy,
@@ -295,6 +300,79 @@ export const setupSetChannelContract = {
   conflictRule:
     'Single deployment-wide release channel; the later Authority commit wins and there is no per-user partition to merge',
 } as const satisfies CommandContract<typeof setupSetChannelInput>
+
+/**
+ * THE REMEDY, AND IT HAD TO STOP BEING BEHIND THE FAILURE (POD-2766).
+ *
+ * Writing boot-relevant config and RUNNING it are two events. Between them the
+ * server reports `activation_pending` and refuses to serve work, which is right —
+ * a process running config nobody asked it to run should not be trusted with
+ * agents, sessions or repos. What was wrong is that the restart which ends that
+ * state had no command: the operator was told "restart Podium on the server" by a
+ * screen reached over the internet, and the only way to comply was to reach into
+ * the box. A safety mechanism whose remedy is unreachable gets worked around.
+ *
+ * So the restart is a command, and it is on the CONTROL plane: the boundary
+ * serves it while the data plane is blocked, precisely so the person who can fix
+ * the instance can reach it. It is not a general "restart the server" button —
+ * the procedure refuses unless the instance is actually activation-pending, so
+ * this cannot become a remote bounce lever on a healthy deployment.
+ */
+export const setupActivateInput = z.object({}).passthrough().optional()
+
+export const setupActivateContract = {
+  name: 'setup.activate',
+  version: 1,
+  visibility: SUBSTRATE,
+  input: setupActivateInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'admin',
+    resource: 'global',
+    confirmation: 'confirm',
+    rationale:
+      'RESTARTS THE PROCESS SERVING THE REQUEST so it adopts the config already on disk. `manage` ' +
+      'and `admin` because it decides when this deployment turns over, which is the same grade as ' +
+      'deciding what it IS — and because an unauthenticated restart on a reachable box would be a ' +
+      'bounce lever for anyone who can resolve the URL. `resource: global`: the target is the ' +
+      'deployment the caller has already reached. CONFIRMATION, unlike every other setup write ' +
+      'here: this one drops live connections. It is not destructive in ADR 3 D2’s sense — nothing ' +
+      'is deleted and the config being adopted is the config the operator asked for — but a ' +
+      'mis-click costs everyone connected their transport, and the screen that offers it is one an ' +
+      'operator lands on while something is already wrong. The narrower guard is in the procedure ' +
+      'rather than the grade: it refuses outright unless readiness is `activation_pending`, so a ' +
+      'healthy instance has no restart button to press by accident.',
+  },
+  exposure: SERVED_ON,
+  delivery: {
+    class: 'online-only',
+    outboxReconciliation:
+      'NEVER queued, and this is the clearest case in the file. A restart drained from a queue ' +
+      'minutes or hours later would bounce a deployment that had long since been activated by ' +
+      'other means — the operator restarting it themselves, an update, a host reboot — for a ' +
+      'staleness that no longer exists. The command is only meaningful against the readiness the ' +
+      'caller was looking at, which is exactly what "online-only" encodes.',
+    applyTimeReauthorization:
+      'Not reachable, since the class forbids queuing; stated for totality (ADR 3 D8). The live ' +
+      'precondition is stronger than a re-authorization anyway: the procedure re-reads readiness ' +
+      'at apply and refuses a deployment that is no longer activation-pending, so a second click ' +
+      'on a stale screen cannot restart an instance that has already recovered.',
+  } satisfies DeliveryPolicy,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'No input and no secret. The result names the state the caller should now expect and the ' +
+      'version being left behind, both of which the readiness route already publishes.',
+  } satisfies RedactionPolicy,
+  ownership: CREATES_NOTHING,
+  attribution: INSTANCE_ATTRIBUTION,
+  errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule:
+    'One process, one turnover: a second activate while a restart is already scheduled is a no-op rather than a second restart, and there is nothing to merge',
+} as const satisfies CommandContract<typeof setupActivateInput>
 
 // ---------------------------------------------------------------------------
 // auth.*
@@ -493,6 +571,7 @@ export const SETUP_CONTRACTS = {
   join: setupJoinContract,
   connect: setupConnectContract,
   setChannel: setupSetChannelContract,
+  activate: setupActivateContract,
 } as const
 export type SetupContractName = keyof typeof SETUP_CONTRACTS
 export const SETUP_CONTRACT_NAMES = Object.keys(SETUP_CONTRACTS).sort() as SetupContractName[]

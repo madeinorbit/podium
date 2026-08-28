@@ -72,6 +72,7 @@ function machineWithLogin(
     deliveryCaps: [],
     supervised: false,
     buildReportedAt: null,
+    components: ['daemon'],
     inventory: Inventory.parse({
       os: 'linux',
       arch: 'x64',
@@ -336,6 +337,7 @@ describe('accountViews catalog', () => {
       deliveryCaps: [],
       supervised: false,
       buildReportedAt: null,
+      components: ['daemon'],
       inventory: Inventory.parse({
         os: 'linux',
         arch: 'x64',

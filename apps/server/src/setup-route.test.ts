@@ -7,10 +7,22 @@ import { registerSetupRoute } from './setup-route'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 const unconfigured = () =>
-  ({ state: 'unconfigured', reason: 'setup_required', dataPlane: 'blocked' }) as const
-const ready = () => ({ state: 'ready', reason: null, dataPlane: 'available' }) as const
+  ({
+    state: 'unconfigured',
+    reason: 'setup_required',
+    dataPlane: 'blocked',
+    controlPlane: 'blocked',
+  }) as const
+const ready = () =>
+  ({ state: 'ready', reason: null, dataPlane: 'available', controlPlane: 'available' }) as const
 const activationPending = () =>
-  ({ state: 'activation_pending', reason: 'restart_required', dataPlane: 'blocked' }) as const
+  ({
+    state: 'activation_pending',
+    reason: 'restart_required',
+    dataPlane: 'blocked',
+    controlPlane: 'available',
+    stale: ['persistence'],
+  }) as const
 
 describe('setup route', () => {
   let dir: string
@@ -35,6 +47,7 @@ describe('setup route', () => {
       state: 'unconfigured',
       reason: 'setup_required',
       dataPlane: 'blocked',
+      controlPlane: 'blocked',
     })
     expect(res.headers.get('X-Podium-Local-Setup')).toBeNull()
   })
@@ -59,7 +72,14 @@ describe('setup route', () => {
     expect(raw).not.toContain('hub.example')
     const body = JSON.parse(raw) as Record<string, unknown>
     // exactly the setup-gating fields, nothing else
-    expect(Object.keys(body).sort()).toEqual(['dataPlane', 'mode', 'needsSetup', 'reason', 'state'])
+    expect(Object.keys(body).sort()).toEqual([
+      'controlPlane',
+      'dataPlane',
+      'mode',
+      'needsSetup',
+      'reason',
+      'state',
+    ])
     expect(body.mode).toBe('daemon')
     expect(body.needsSetup).toBe(false)
   })
@@ -74,6 +94,7 @@ describe('setup route', () => {
       state: 'unconfigured',
       reason: 'setup_required',
       dataPlane: 'blocked',
+      controlPlane: 'blocked',
     })
     expect(response.headers.get('X-Podium-Local-Setup')).toBe('all-in-one')
   })
@@ -90,6 +111,43 @@ describe('setup route', () => {
     })
     expect(response.headers.get('X-Podium-Local-Setup')).toBeNull()
   })
+
+  it('tells the blocked browser WHICH setting is stale, by name [POD-2766]', async () => {
+    // This route is the ONLY channel the restart-required screen has: the data
+    // plane is blocked, so the browser cannot ask tRPC anything. If `stale` stops
+    // riding here the screen silently falls back to "something changed, restart"
+    // and the operator is back to guessing.
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({ mode: 'all-in-one', publicUrl: 'https://sandbox.example.com' }),
+    )
+    const pendingApp = new Hono()
+    registerSetupRoute(pendingApp, { readiness: activationPending })
+    const body = (await (await pendingApp.request('/setup/config')).json()) as {
+      stale?: unknown
+      controlPlane?: unknown
+    }
+    expect(body.stale).toEqual(['persistence'])
+    // The control plane is open, which is what lets the browser in front of this
+    // screen log in and press the restart.
+    expect(body.controlPlane).toBe('available')
+  })
+
+  it('publishes stale FIELD NAMES and never their values', async () => {
+    // The route is unauthenticated, so what rides it is the standing question.
+    // A key name is not a secret; the value behind it can be deployment identity.
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({ mode: 'all-in-one', persistence: 'detached', pairCode: 'SECRET-CODE' }),
+    )
+    const pendingApp = new Hono()
+    registerSetupRoute(pendingApp, { readiness: activationPending })
+    const raw = await (await pendingApp.request('/setup/config')).text()
+    expect(raw).toContain('persistence')
+    expect(raw).not.toContain('detached')
+    expect(raw).not.toContain('SECRET-CODE')
+  })
+
   it('is read-only — writes go through the setup.* tRPC, so POST is not handled', async () => {
     const res = await app.request('/setup/config', {
       method: 'POST',

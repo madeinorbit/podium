@@ -24,14 +24,12 @@ import {
   waitForAbducoSocket,
 } from './abduco.js'
 import { resolveAbducoBin } from './abduco-bin.js'
-import { nodePtyBackend, resolveNodeExecutable } from './backends/index.js'
+import { bunTerminalBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { spawnAgent } from './session.js'
 
-// Prefer node-pty + real Node for fidelity fixtures under bun --bun (bare "node" is a Bun
-// shim; Bun.Terminal attach is fine for abduco but these tests claim node-pty parity).
-const nodePty = nodePtyBackend()
-const nodeBin = resolveNodeExecutable()
+const bunPty = bunTerminalBackend()
+const bunBin = process.execPath
 
 describe('abduco command builders', () => {
   it('builds a direct-argv create command (no shell quoting needed)', () => {
@@ -74,7 +72,7 @@ describe('abduco command builders', () => {
       kill: () => {},
     }
     const backend: PtyBackend = {
-      name: 'node-pty',
+      name: 'bun-terminal',
       spawn(opts) {
         calls.push({ file: opts.file, args: opts.args })
         return proc
@@ -323,11 +321,10 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
   }, async () => {
     const label = `podium-abduco-itest-${process.pid}`
     await killAbducoSession(label)
-    // Integration uses the runtime default backend (bun-terminal under Bun, node-pty under
-    // Node). Fidelity tests below pin node-pty for parity claims.
+    // Integration uses the same Bun.Terminal backend as the shipped daemon.
     const session = await spawnAbducoAgent({
       label,
-      cmd: nodeBin,
+      cmd: bunBin,
       args: [FIXTURE],
       cols: 80,
       rows: 24,
@@ -335,7 +332,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     let out = ''
     let title = ''
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     session.onTitle((t) => {
       title = t
@@ -360,7 +357,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24 })
     let out2 = ''
     re.onFrame((f) => {
-      out2 += Buffer.from(f.data, 'base64').toString('utf8')
+      out2 += Buffer.from(f.data).toString('utf8')
     })
     await wait(500)
     re.write(Buffer.from('yo\r', 'utf8').toString('base64'))
@@ -384,7 +381,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     await killAbducoSession(label)
     const session = await spawnAbducoAgent({
       label,
-      cmd: nodeBin,
+      cmd: bunBin,
       args: [TUI_FIXTURE],
       cols: 80,
       rows: 24,
@@ -396,7 +393,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24 }) // same geometry
     let out = ''
     re.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     await wait(1200)
     expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size
@@ -413,7 +410,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     const crashed = `podium-reaptest-${2 ** 30}` // beyond pid_max — guaranteed dead
     const foreign = 'podium-reaptest-1' // pid 1 is alive and never ours
     const spawn = (label: string) =>
-      spawnAbducoAgent({ label, cmd: nodeBin, args: [FIXTURE], cols: 80, rows: 24 })
+      spawnAbducoAgent({ label, cmd: bunBin, args: [FIXTURE], cols: 80, rows: 24 })
     const sessions = await Promise.all([spawn(mine), spawn(crashed), spawn(foreign)])
     try {
       await wait(800)
@@ -465,7 +462,7 @@ describe.skipIf(!hasScopeMaster)('scope reclaim before respawn', () => {
     try {
       const session = await spawnAbducoAgent({
         label,
-        cmd: nodeBin,
+        cmd: bunBin,
         args: [FIXTURE],
         cols: 80,
         rows: 24,
@@ -508,17 +505,17 @@ describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {
       await killAbducoSession(label)
       session = await spawnAbducoAgent({
         label,
-        cmd: nodeBin,
+        cmd: bunBin,
         args: [HEX_FIXTURE],
         cols: 80,
         rows: 24,
-        backend: nodePty,
+        backend: bunPty,
       })
     } else {
-      session = spawnAgent({ cmd: nodeBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, nodePty)
+      session = spawnAgent({ cmd: bunBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, bunPty)
     }
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     // Probe with a non-control byte first so setRawMode is live before Ctrl-C (0x03).
     session.write(Buffer.from([0x61]).toString('base64')) // 'a'
@@ -535,7 +532,7 @@ describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {
   }
 
   for (const [name, hex] of Object.entries(SAMPLES)) {
-    it(`delivers ${name} (${hex}) through abduco identically to direct node-pty`, async () => {
+    it(`delivers ${name} (${hex}) through abduco identically to direct Bun.Terminal`, async () => {
       const direct = await received('direct', hex)
       const abduco = await received('abduco', hex)
       expect(direct).toContain(hex) // sanity: direct path delivers the bytes

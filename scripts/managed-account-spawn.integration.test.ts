@@ -20,7 +20,7 @@
  * apps/daemon in one process (check-boundaries rule 5, same allowance scripts/host.ts uses).
  *
  * PTY HYGIENE: Podium leaks detached PTY masters when a test forgets to reap (see the
- * agent-bridge notes). Backend is 'none' — a bare node-pty child, no abduco/tmux master to
+ * agent-bridge notes). Backend is 'none' — a bare Bun.Terminal child, no abduco/tmux master to
  * outlive us — and every spawn is disposed by explicit pid and confirmed dead. Nothing here
  * ever pattern-kills, which would be capable of killing the developer's live agents.
  */
@@ -92,7 +92,7 @@ function makeHarness(settingsDir: string): Harness {
   let lastFrameAt = Date.now()
   const ctx = {
     send: (m: DaemonMessage) => sent.push(m),
-    // 'none' = a bare node-pty child. No durable master can survive this test.
+    // 'none' = a bare Bun.Terminal child. No durable master can survive this test.
     machineId: 'local',
     instanceId: 'blue',
     durableLabels: new Map(),

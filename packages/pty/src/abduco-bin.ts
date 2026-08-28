@@ -13,7 +13,7 @@ import { stateDir } from '@podium/runtime/config'
  *   3. A previously built binary cached at $PODIUM_STATE_DIR/bin/abduco
  *      (else ~/.podium/bin/abduco).
  *   4. Build the vendored ISC-licensed source (vendor/abduco, single translation
- *      unit, ~1s) into that cache with the system C compiler. node-pty already
+ *      unit, ~1s) into that cache with the system C compiler. Podium already
  *      makes a working toolchain a hard install requirement, so cc is a fair bet.
  *
  * On Windows resolution is always undefined — abduco is POSIX-only (forkpty), so

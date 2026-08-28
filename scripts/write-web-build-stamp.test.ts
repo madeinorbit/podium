@@ -5,6 +5,7 @@
 // page can read the product string without treating the hash as `v`.
 
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +14,10 @@ import type { BuildStamp } from '@podium/protocol'
 import { bundleVersionFromEntrySrc, bundleVersionFromHtml } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  CLIENT_BUILD_MANIFEST_FILE,
+  type ClientBuildManifest,
   injectProductVersionMeta,
+  injectSourceDigestMeta,
   resolveWebSourceSha,
   webBuildStamp,
   writeWebBuildStamp,
@@ -112,6 +116,9 @@ describe('webBuildStamp', () => {
     expect(readFileSync(join(dir, 'index.html'), 'utf8')).toContain(
       '<meta name="podium-version" content="dev+47a01e3">',
     )
+    expect(readFileSync(join(dir, 'index.html'), 'utf8')).toContain(
+      '<meta name="podium-source-digest" content="47a01e3">',
+    )
   })
 
   it('writes the product version into the stamp and the html together', () => {
@@ -125,6 +132,46 @@ describe('webBuildStamp', () => {
     expect(readFileSync(join(dir, 'index.html'), 'utf8')).toContain(
       '<meta name="podium-version" content="0.4.2">',
     )
+  })
+
+  it('manifests the exact completed files, stamp, and source commit', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-manifest-'))
+    const asset = 'console.log("built client")\n'
+    writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
+    writeFileSync(join(dir, 'asset.txt'), asset)
+
+    const stamp = writeWebBuildStamp(
+      dir,
+      new Date('2026-08-13T00:00:00.000Z'),
+      '47a01e3',
+      '0.4.2',
+      'packaging-invocation-123',
+    )
+    const manifest = JSON.parse(
+      readFileSync(join(dir, CLIENT_BUILD_MANIFEST_FILE), 'utf8'),
+    ) as ClientBuildManifest
+
+    expect(manifest.manifestVersion).toBe(1)
+    expect(manifest.sourceCommit).toBe('47a01e3')
+    expect(manifest.buildInvocation).toBe('packaging-invocation-123')
+    expect(manifest.buildStamp).toEqual(stamp)
+    expect(Object.keys(manifest.files).sort()).toEqual(
+      ['asset.txt', 'index.html', 'podium-build.json'].sort(),
+    )
+    for (const [name, digest] of Object.entries(manifest.files)) {
+      expect(digest).toBe(
+        createHash('sha256')
+          .update(readFileSync(join(dir, name)))
+          .digest('hex'),
+      )
+    }
+  })
+
+  it('refuses to certify a dist whose source commit is unknown', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-manifest-'))
+    writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
+    expect(() => writeWebBuildStamp(dir)).toThrow(/without a source commit/)
+    expect(existsSync(join(dir, CLIENT_BUILD_MANIFEST_FILE))).toBe(false)
   })
 })
 
@@ -175,7 +222,7 @@ describe('writeWebBuildStamp and pre-compressed index.html', () => {
 // Pre-compressing it moves that cost into the batch-tier build scope where the
 // rest of the build already runs.
 describe.each([
-  { pkg: 'apps/web', scripts: ['build', 'build:dev'] },
+  { pkg: 'apps/web', scripts: ['build:dist', 'build:dev'] },
   { pkg: 'apps/mobile', scripts: ['build:web'] },
 ])('$pkg build script ordering', ({ pkg, scripts: names }) => {
   const scripts = (
@@ -221,6 +268,20 @@ describe('injectProductVersionMeta', () => {
     expect(twice.match(/podium-version/g)).toHaveLength(1)
     expect(twice).toContain('content="0.4.2"')
     expect(twice).not.toContain('dev+aaaaaaa')
+  })
+})
+
+describe('injectSourceDigestMeta', () => {
+  it('adds the source identity independently of the product label', () => {
+    const html = injectSourceDigestMeta(BUILT_INDEX, '47a01e3')
+    expect(html).toContain('<meta name="podium-source-digest" content="47a01e3">')
+  })
+
+  it('replaces an existing identity rather than adding a second one', () => {
+    const once = injectSourceDigestMeta(BUILT_INDEX, 'aaaaaaa')
+    const twice = injectSourceDigestMeta(once, 'bbbbbbb')
+    expect(twice.match(/podium-source-digest/g)).toHaveLength(1)
+    expect(twice).toContain('content="bbbbbbb"')
   })
 })
 

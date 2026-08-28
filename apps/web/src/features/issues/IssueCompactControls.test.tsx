@@ -228,23 +228,31 @@ describe('IssueCompactControls', () => {
     })
 
     /**
-     * NO `Start work` ON WORK THAT HAS BEGUN (POD-1457). Three independent
-     * proofs settle it — an agent on it, a checkout, or a stage whose name says
-     * somebody picked it up — and any one of them turns the foot into the
-     * `+ Session` / `+ Shell` face instead.
+     * THE BOX LEAVES WHEN THE WORK BEGINS (POD-1585). Three independent proofs
+     * settle it — an agent on it, a checkout, or a stage whose name says
+     * somebody picked it up — and any one of them takes the whole box with it.
+     *
+     * It used to answer that state with a `+ Session` / `+ Shell` face, which
+     * put the panel's two loudest buttons on the one task that wanted neither:
+     * another agent on running work is the flight deck's move, and a shell is a
+     * tab. Nothing in the panel adds either one now.
      */
     it.each([
       ['a live agent', { sessions: true, over: {} }],
       ['a checkout', { sessions: false, over: { worktreePath: '/r/wt' } }],
       ['a stage that says so', { sessions: false, over: { stage: 'in_progress' as const } }],
       ['a task under review', { sessions: false, over: { stage: 'review' as const } }],
-    ])('offers sessions rather than a start when the work has begun — %s', (_name, spec) => {
+    ])('stands down entirely once the work has begun — %s', (_name, spec) => {
       if (spec.sessions) mockSessions = [session({ sessionId: 'coord' })]
       render(<IssueCompactControls issue={unstarted(spec.over)} />)
 
-      expect(screen.getByTestId('launch-box')).not.toBeNull()
+      expect(screen.queryByTestId('launch-box')).toBeNull()
       expect(screen.queryByTestId('task-primary-action')).toBeNull()
-      expect(screen.getByText('+ Session')).not.toBeNull()
+      expect(screen.queryByText('+ Session')).toBeNull()
+      expect(screen.queryByText('+ Shell')).toBeNull()
+      // The panel still says WHAT state the task is in — only the instrument
+      // for launching one goes.
+      expect(screen.getByLabelText('Status')).not.toBeNull()
     })
 
     it('stands down entirely on a finished task', () => {

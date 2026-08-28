@@ -11,6 +11,7 @@ import {
   DAEMON_PLANE_CLASS,
   edgeOf,
   HOST_EDGE_FRAMES,
+  type DaemonPtyOutputBatch,
   type MachinePrincipal,
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -122,6 +123,22 @@ describe('the routing table', () => {
         `frame '${type}' reached the wrong ports`,
       ).toEqual([...DAEMON_FRAME_PORTS[type]])
     }
+  })
+
+  it('routes typed output with the authenticated principal and exact batch reference', () => {
+    const { ports, calls } = fakePorts()
+    const bytes = Uint8Array.from([0x00, 0xff])
+    const batch: DaemonPtyOutputBatch = {
+      sessionId: asSessionId('s1'),
+      sourceFrames: 2,
+      bytes,
+    }
+    muxWith(ports).routeDaemonOutput(PRINCIPAL, batch)
+
+    expect(calls[0]?.method).toBe('onSessionDaemonOutput')
+    expect(calls[0]?.args[0]).toBe(PRINCIPAL)
+    expect(calls[0]?.args[1]).toBe(batch)
+    expect((calls[0]?.args[1] as DaemonPtyOutputBatch).bytes).toBe(bytes)
   })
 })
 
@@ -254,7 +271,17 @@ describe('machine scope and the writer class', () => {
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    expect(rpcFrames.length).toBe(35)
+    //
+    // 37 after merging dev/mw into the agent-runtime epic (POD-3070). DERIVED
+    // from the merged table rather than added up from the two sides: the epic
+    // contributed the five contract replies (runtimeSend/Answer/Lifecycle/
+    // Snapshot/StageAttachment) and dev/mw contributed `devArtifactProbeResult`
+    // and `quotaHistoryResult`, and the merged table is exactly that union. The
+    // arithmetic would have given 36, because dev/mw's own ratchet was standing
+    // one behind ITS table at 31 against 32 — the same silent drift the note
+    // above records for `githubCliResult`, which is why this is counted off
+    // `DAEMON_FRAME_PORTS` and not off the previous number.
+    expect(rpcFrames.length).toBe(37)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

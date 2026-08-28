@@ -206,6 +206,7 @@ export const CONTROL_PLANE_CLASS = {
   headlessBind: 'control.command',
   usageRequest: 'control.command',
   agentQuotaRequest: 'control.command',
+  quotaHistoryRequest: 'control.command',
   modelProbeRequest: 'control.command',
   imageUploadRequest: 'control.command',
   spawn: 'control.command',
@@ -231,7 +232,9 @@ export const CONTROL_PLANE_CLASS = {
   resize: 'control.command',
   redraw: 'control.command',
   memoryBreakdownRequest: 'control.command',
+  reclaimDiskEstimateRequest: 'control.command',
   inventoryRequest: 'control.command',
+  devArtifactProbeRequest: 'control.command',
   updateGrant: 'control.command',
   transcriptRead: 'bulk.bulk',
   fileReadRequest: 'control.command',
@@ -306,6 +309,7 @@ export const DAEMON_PLANE_CLASS = {
   headlessBindResult: 'control.command',
   usageResult: 'control.command',
   agentQuotaResult: 'control.command',
+  quotaHistoryResult: 'control.command',
   modelProbeResult: 'control.command',
   imageUploadResult: 'control.command',
   // Pairs with sessionResumeRefAck — host channel (ADR 7 D2).
@@ -315,6 +319,7 @@ export const DAEMON_PLANE_CLASS = {
   // Draft Sync v2 (POD-859): the daemon's scraped native composer — a live
   // runtime stream the server sequences into a durable draft edit.
   nativeDraft: 'stream.live',
+  devArtifactProbeResult: 'control.command',
   updateStatus: 'control.command',
   inventoryReport: 'control.command',
   // Host-local configuration warning, durably routed to the machine owner/admins.
@@ -350,6 +355,7 @@ export const DAEMON_PLANE_CLASS = {
   transcriptMirrorResult: 'bulk.bulk',
   hostMetrics: 'stream.live',
   memoryBreakdownResult: 'control.command',
+  reclaimDiskEstimateResult: 'control.command',
   transcriptDelta: 'stream.live',
   transcriptReadResult: 'bulk.bulk',
   fileReadResult: 'control.command',

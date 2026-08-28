@@ -1,8 +1,21 @@
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueWire } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { useRef } from 'react'
-import { Animated, PanResponder, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
+import Animated, {
+  cancelAnimation,
+  Easing,
+  Extrapolation,
+  interpolate,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
+import { scheduleOnRN } from 'react-native-worklets'
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import { FLOW_HEX, flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import {
@@ -15,7 +28,6 @@ import {
   radius,
   sans,
   space,
-  spring,
 } from '../theme/theme'
 import { IdSquare } from './IdSquare'
 import { PressableScale } from './PressableScale'
@@ -23,7 +35,13 @@ import { Pill } from './ui'
 
 /** Horizontal travel that commits a swipe (a flick past it also commits). */
 const COMMIT_PX = 96
-const FLICK_VX = 0.45
+const FLICK_VELOCITY_X = 450
+const EXIT_Y = 40
+const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1)
+
+function decisionHaptic() {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+}
 
 export type ScreeningGesture = 'accepted' | 'declined' | 'skipped'
 
@@ -52,75 +70,152 @@ export function ScreeningCard({
   onDecide: (gesture: ScreeningGesture) => void
   onOpen: () => void
 }) {
-  const { width, height } = useWindowDimensions()
-  const pan = useRef(new Animated.ValueXY()).current
-  const decided = useRef(false)
+  const { width } = useWindowDimensions()
+  const reduceMotion = useReduceMotion()
+  const translateX = useSharedValue(0)
+  const translateY = useSharedValue(0)
+  const dragStartX = useSharedValue(0)
+  const dragStartY = useSharedValue(0)
+  const exitOpacity = useSharedValue(1)
+  const decided = useSharedValue(false)
 
-  const fling = (gesture: ScreeningGesture) => {
-    if (decided.current) return
-    decided.current = true
-    void Haptics.impactAsync(
-      gesture === 'skipped'
-        ? Haptics.ImpactFeedbackStyle.Light
-        : Haptics.ImpactFeedbackStyle.Medium,
-    ).catch(() => {})
-    const to =
-      gesture === 'accepted'
-        ? { x: width * 1.3, y: 40 }
-        : gesture === 'declined'
-          ? { x: -width * 1.3, y: 40 }
-          : { x: 0, y: -height * 0.55 }
-    Animated.timing(pan, { toValue: to, duration: 190, useNativeDriver: false }).start(() =>
-      onDecide(gesture),
-    )
-  }
+  const pan = usePanGesture({
+    // Taps (Open task) pass through; a vertical move fails before this
+    // horizontal gesture can take the pointer stream.
+    activeOffsetX: [-6, 6],
+    failOffsetY: [-6, 6],
+    onActivate: () => {
+      'worklet'
+      if (decided.get()) return
+      cancelAnimation(translateX)
+      cancelAnimation(translateY)
+      dragStartX.set(translateX.get())
+      dragStartY.set(translateY.get())
+    },
+    onUpdate: (event) => {
+      'worklet'
+      if (decided.get()) return
+      translateX.set(dragStartX.get() + event.translationX)
+      translateY.set(dragStartY.get() + event.translationY * 0.25)
+    },
+    onDeactivate: (event) => {
+      'worklet'
+      if (decided.get()) return
 
-  const responder = useRef(
-    PanResponder.create({
-      // Taps (Open task) pass through; only a real horizontal drag takes over.
-      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderMove: (_e, g) => {
-        if (decided.current) return
-        pan.setValue({ x: g.dx, y: g.dy * 0.25 })
-      },
-      onPanResponderRelease: (_e, g) => {
-        if (decided.current) return
-        const commit = Math.abs(g.dx) > COMMIT_PX || Math.abs(g.vx) > FLICK_VX
-        if (commit && g.dx > 0) fling('accepted')
-        else if (commit && g.dx < 0) fling('declined')
-        else
-          Animated.spring(pan, {
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: false,
-            ...spring.snappy,
-          }).start()
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(pan, {
-          toValue: { x: 0, y: 0 },
-          useNativeDriver: false,
-          ...spring.snappy,
-        }).start()
-      },
-    }),
-  ).current
+      if (event.canceled) {
+        translateX.set(
+          withSpring(0, {
+            duration: 400,
+            dampingRatio: 0.8,
+            velocity: event.velocityX,
+            reduceMotion: ReduceMotion.System,
+          }),
+        )
+        translateY.set(
+          withSpring(0, {
+            duration: 400,
+            dampingRatio: 0.8,
+            velocity: event.velocityY * 0.25,
+            reduceMotion: ReduceMotion.System,
+          }),
+        )
+        return
+      }
+
+      const x = translateX.get()
+      const distanceCommits = Math.abs(x) > COMMIT_PX
+      const velocityCommits =
+        !distanceCommits && Math.abs(event.velocityX) > FLICK_VELOCITY_X
+      const commits = distanceCommits || velocityCommits
+      if (!commits) {
+        translateX.set(
+          withSpring(0, {
+            duration: 400,
+            dampingRatio: 0.8,
+            velocity: event.velocityX,
+            reduceMotion: ReduceMotion.System,
+          }),
+        )
+        translateY.set(
+          withSpring(0, {
+            duration: 400,
+            dampingRatio: 0.8,
+            velocity: event.velocityY * 0.25,
+            reduceMotion: ReduceMotion.System,
+          }),
+        )
+        return
+      }
+
+      const direction = distanceCommits ? Math.sign(x) : Math.sign(event.velocityX)
+      const exitVelocityX = direction * event.velocityX > 0 ? event.velocityX : 0
+      const gesture: ScreeningGesture = direction > 0 ? 'accepted' : 'declined'
+      decided.set(true)
+      scheduleOnRN(decisionHaptic)
+
+      if (reduceMotion) {
+        exitOpacity.set(
+          withTiming(
+            0,
+            { duration: 150, easing: EASE_OUT, reduceMotion: ReduceMotion.Never },
+            (finished) => {
+              if (finished) scheduleOnRN(onDecide, gesture)
+            },
+          ),
+        )
+        return
+      }
+
+      translateY.set(
+        withSpring(EXIT_Y, {
+          duration: 300,
+          dampingRatio: 1,
+          velocity: event.velocityY * 0.25,
+          overshootClamping: true,
+          reduceMotion: ReduceMotion.System,
+        }),
+      )
+      translateX.set(
+        withSpring(
+          direction * width * 1.3,
+          {
+            duration: 300,
+            dampingRatio: 1,
+            velocity: exitVelocityX,
+            overshootClamping: true,
+            reduceMotion: ReduceMotion.System,
+          },
+          (finished) => {
+            if (finished) scheduleOnRN(onDecide, gesture)
+          },
+        ),
+      )
+    },
+  })
 
   const hex = issueColorHex(issue.color) ?? FLOW_HEX
   const now = Date.now()
-  const rotate = pan.x.interpolate({
-    inputRange: [-width, 0, width],
-    outputRange: ['-9deg', '0deg', '9deg'],
-  })
-  const acceptOpacity = pan.x.interpolate({
-    inputRange: [0, COMMIT_PX],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  })
-  const declineOpacity = pan.x.interpolate({
-    inputRange: [-COMMIT_PX, 0],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  })
+  const cardStyle = useAnimatedStyle(() => ({
+    opacity: exitOpacity.get(),
+    transform: [
+      { translateX: translateX.get() },
+      { translateY: translateY.get() },
+      {
+        rotate: `${interpolate(
+          translateX.get(),
+          [-width, 0, width],
+          [-9, 0, 9],
+          Extrapolation.CLAMP,
+        )}deg`,
+      },
+    ],
+  }))
+  const acceptStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.get(), [0, COMMIT_PX], [0, 1], Extrapolation.CLAMP),
+  }))
+  const declineStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.get(), [-COMMIT_PX, 0], [1, 0], Extrapolation.CLAMP),
+  }))
   const blockers = issue.blockedByNotes.length
   const openChildren = Math.max(0, issue.childCount - issue.childDoneCount)
   const brief = issue.brief?.trim()
@@ -130,95 +225,99 @@ export function ScreeningCard({
     .join(' · ')
 
   return (
-    <Animated.View
-      testID="screening-card"
-      accessibilityLabel={`Proposal ${issue.displayRef ?? `#${issue.seq}`}: ${issue.title}`}
-      {...responder.panHandlers}
-      style={[
-        styles.card,
-        elevation.raised,
-        { backgroundColor: flow.rowBg(hex), borderColor: alpha(hex, 0.35) },
-        { transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }] },
-      ]}
-    >
+    <GestureDetector gesture={pan} touchAction="none" userSelect="none">
       <Animated.View
-        pointerEvents="none"
-        style={[styles.stamp, styles.stampLeft, styles.stampAccept, { opacity: acceptOpacity }]}
+        testID="screening-card"
+        accessibilityLabel={`Proposal ${issue.displayRef ?? `#${issue.seq}`}: ${issue.title}`}
+        style={[
+          styles.card,
+          elevation.raised,
+          { backgroundColor: flow.rowBg(hex), borderColor: alpha(hex, 0.35) },
+          cardStyle,
+        ]}
       >
-        <Text style={[styles.stampText, { color: color.accentTint }]}>START</Text>
-      </Animated.View>
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.stamp, styles.stampRight, styles.stampDecline, { opacity: declineOpacity }]}
-      >
-        <Text style={[styles.stampText, { color: color.danger }]}>WON'T FIX</Text>
-      </Animated.View>
-
-      <View style={styles.identity}>
-        <IdSquare issue={issue} state="queued" size={26} ringColor={flow.rowBg(hex)} />
-        <View style={styles.identityText}>
-          <Text style={styles.ref}>{issue.displayRef ?? `#${issue.seq}`}</Text>
-          <Text style={styles.origin} numberOfLines={1}>
-            {repoName}
-            {` · proposed ${relativeTime(issue.createdAt, now)}`}
-          </Text>
-        </View>
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`Open task ${issue.displayRef ?? `#${issue.seq}`}`}
-          onPress={onOpen}
-          hitSlop={10}
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.stamp, styles.stampLeft, styles.stampAccept, acceptStyle]}
         >
-          <Text style={styles.open}>Open ↗</Text>
-        </PressableScale>
-      </View>
+          <Text style={[styles.stampText, { color: color.accentTint }]}>START</Text>
+        </Animated.View>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.stamp, styles.stampRight, styles.stampDecline, declineStyle]}
+        >
+          <Text style={[styles.stampText, { color: color.danger }]}>WON'T FIX</Text>
+        </Animated.View>
 
-      <Text style={[styles.title, { color: flow.text(hex) }]} numberOfLines={3}>
-        {issue.title}
-      </Text>
-
-      <View style={styles.pills}>
-        <Pill label={issue.type} />
-        <Pill label={`P${issue.priority}`} toneKey={issue.priority <= 1 ? 'needsYou' : undefined} />
-        {blockers > 0 ? <Pill label={`blocked by ${blockers}`} toneKey="danger" /> : null}
-        {openChildren > 0 ? <Pill label={`${openChildren} sub-tasks`} /> : null}
-        {issue.origin === 'agent' ? <Pill label="agent proposal" /> : null}
-      </View>
-
-      <View style={styles.body}>
-        {description ? (
-          <Text style={styles.description} numberOfLines={brief ? 5 : 9}>
-            {description}
-          </Text>
-        ) : (
-          <Text style={styles.noDescription}>No summary was filed with this proposal.</Text>
-        )}
-        {brief ? (
-          <View style={styles.briefBlock}>
-            <Text style={styles.briefLabel}>BRIEF</Text>
-            <Text style={styles.brief} numberOfLines={5}>
-              {brief}
+        <View style={styles.identity}>
+          <IdSquare issue={issue} state="queued" size={26} ringColor={flow.rowBg(hex)} />
+          <View style={styles.identityText}>
+            <Text style={styles.ref}>{issue.displayRef ?? `#${issue.seq}`}</Text>
+            <Text style={styles.origin} numberOfLines={1}>
+              {repoName}
+              {` · proposed ${relativeTime(issue.createdAt, now)}`}
             </Text>
           </View>
-        ) : null}
-      </View>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={`Open task ${issue.displayRef ?? `#${issue.seq}`}`}
+            onPress={onOpen}
+            hitSlop={10}
+          >
+            <Text style={styles.open}>Open ↗</Text>
+          </PressableScale>
+        </View>
 
-      <View style={styles.facts}>
-        {parent ? (
-          <Text style={styles.fact} numberOfLines={1}>
-            {`under ${parent.displayRef ?? `#${parent.seq}`} · ${parent.title}`}
-          </Text>
-        ) : null}
-        {issue.dependencyNote ? (
-          <Text style={styles.fact} numberOfLines={1}>
-            {issue.dependencyNote}
-          </Text>
-        ) : null}
-        <Text style={styles.fact} numberOfLines={1}>
-          {`starts ${modelBits || issue.defaultAgent} on ⎇ ${issue.parentBranch}`}
+        <Text style={[styles.title, { color: flow.text(hex) }]} numberOfLines={3}>
+          {issue.title}
         </Text>
-      </View>
-    </Animated.View>
+
+        <View style={styles.pills}>
+          <Pill label={issue.type} />
+          <Pill
+            label={`P${issue.priority}`}
+            toneKey={issue.priority <= 1 ? 'needsYou' : undefined}
+          />
+          {blockers > 0 ? <Pill label={`blocked by ${blockers}`} toneKey="danger" /> : null}
+          {openChildren > 0 ? <Pill label={`${openChildren} sub-tasks`} /> : null}
+          {issue.origin === 'agent' ? <Pill label="agent proposal" /> : null}
+        </View>
+
+        <View style={styles.body}>
+          {description ? (
+            <Text style={styles.description} numberOfLines={brief ? 5 : 9}>
+              {description}
+            </Text>
+          ) : (
+            <Text style={styles.noDescription}>No summary was filed with this proposal.</Text>
+          )}
+          {brief ? (
+            <View style={styles.briefBlock}>
+              <Text style={styles.briefLabel}>BRIEF</Text>
+              <Text style={styles.brief} numberOfLines={5}>
+                {brief}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.facts}>
+          {parent ? (
+            <Text style={styles.fact} numberOfLines={1}>
+              {`under ${parent.displayRef ?? `#${parent.seq}`} · ${parent.title}`}
+            </Text>
+          ) : null}
+          {issue.dependencyNote ? (
+            <Text style={styles.fact} numberOfLines={1}>
+              {issue.dependencyNote}
+            </Text>
+          ) : null}
+          <Text style={styles.fact} numberOfLines={1}>
+            {`starts ${modelBits || issue.defaultAgent} on ⎇ ${issue.parentBranch}`}
+          </Text>
+        </View>
+      </Animated.View>
+    </GestureDetector>
   )
 }
 

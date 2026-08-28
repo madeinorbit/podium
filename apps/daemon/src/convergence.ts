@@ -1,6 +1,10 @@
 import type { PendingGrant } from './pending-grant'
 
-export { createSchemaGate, refuseSchemaRegression } from '@podium/runtime/update-schema'
+export {
+  createSchemaGate,
+  refuseSchemaRegression,
+  releaseCarriesNewMigrations,
+} from '@podium/runtime/update-schema'
 
 export const MAX_CONVERGENCE_ATTEMPTS = 2
 
@@ -100,6 +104,45 @@ export function disarmExitSeam(input: { provided?: () => void; shape: ProcessSha
   return refuseConvergence(input.shape) !== undefined
 }
 
+export interface GrantRestartDeps {
+  provided?: () => void
+  parentManaged: boolean
+  requestHandover(request: {
+    expectedVersion: string
+    releaseHadMigrations?: boolean
+  }): { ok: true; pid: number } | { ok: false; reason: string }
+  exit(code: number): void
+}
+
+/**
+ * Finish a successfully swapped machine grant through the process owner.
+ *
+ * A parent-managed desktop must replace its server and daemon together, so its
+ * child asks the parent to self-handover onto the exact granted version. A
+ * daemon-only desktop remains a direct shell child and takes the ordinary exit
+ * path; the shell respawns it from the external payload home.
+ */
+export function restartAfterGrant(
+  expectedVersion: string,
+  handover: { releaseHadMigrations?: boolean },
+  deps: GrantRestartDeps,
+): void {
+  if (deps.provided) {
+    deps.provided()
+    return
+  }
+  if (!deps.parentManaged) {
+    deps.exit(0)
+    return
+  }
+  const result = deps.requestHandover({ expectedVersion, ...handover })
+  if (!result.ok) {
+    throw new Error(
+      `machine-cannot-restart: no supervising parent to hand over to (${result.reason})`,
+    )
+  }
+}
+
 /**
  * THE REFUSAL A MACHINE WITH A MIGRATED DATABASE OWES ITS OPERATOR (POD-2213).
  *
@@ -150,6 +193,22 @@ export type BootVerdict =
   | { action: 'confirm'; state: 'current' }
   | { action: 'retry'; attempts: number }
   | { action: 'rollback'; state: 'rejected' | 'stuck'; detail: string }
+
+/**
+ * Decide whether boot reconciliation may consume its recovery marker.
+ *
+ * A bounded retry always keeps the marker with its spent attempt. A daemon-only
+ * confirmation can consume it immediately because that daemon is the whole
+ * supervised unit. In a parent-managed all-in-one, confirmation is provisional:
+ * the sibling server still has to pass the parent's complete health gate.
+ */
+export function shouldClearPendingGrantOnBoot(input: {
+  verdict: BootVerdict
+  parentHasServer: boolean
+}): boolean {
+  return input.verdict.action !== 'retry' &&
+    !(input.parentHasServer && input.verdict.action === 'confirm')
+}
 
 export function resolveOnBoot(ctx: {
   pending: PendingGrant | null

@@ -1,5 +1,6 @@
-import { renameSync } from 'node:fs'
+import { renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
+import { connectivityPath, readConnectivity } from '@podium/runtime/connectivity'
 import {
   configPath,
   type EnvSource,
@@ -11,6 +12,7 @@ import {
   ephemeralTunnelWarning,
   NETWORK_OPTIONS,
   networkOptionCommand,
+  type NetworkOption,
   validatePublicUrl,
 } from '@podium/runtime/setup'
 import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
@@ -38,6 +40,52 @@ export interface SetupDeps {
   setPassword?: (password: string) => Promise<void>
   /** Injected for testing; defaults to real systemd-install / detached-spawn. */
   startBackend?: (opts: StartBackendOpts) => Promise<StartBackendResult>
+  /** Injected for testing; defaults to observing the daemon cross-process connectivity. */
+  waitForEnrollment?: () => Promise<void>
+}
+
+const JOIN_CONNECT_TIMEOUT_MS = 30_000
+const JOIN_CONNECT_POLL_MS = 100
+
+/** Wait for this join attempt to reach an authenticated daemon handshake. The daemon's
+ * connectivity file is the cross-process truth: a parent PID or a started systemd unit says
+ * nothing about whether the source accepted the credential. */
+export async function waitForDaemonEnrollment(
+  opts: {
+    timeoutMs?: number
+    pollMs?: number
+    now?: () => number
+    sleep?: (ms: number) => Promise<void>
+  } = {},
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? JOIN_CONNECT_TIMEOUT_MS
+  const pollMs = opts.pollMs ?? JOIN_CONNECT_POLL_MS
+  const now = opts.now ?? Date.now
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  const deadline = now() + timeoutMs
+  let lastError: string | undefined
+  while (now() < deadline) {
+    const status = readConnectivity()
+    if (status?.state === 'connected') return
+    if (status?.state === 'unauthorized') {
+      throw new Error(
+        `daemon was rejected by the server (${status.authorizationReason ?? 'auth-failed'})`,
+      )
+    }
+    if (status?.state === 'blocked') {
+      throw new Error(
+        `daemon was blocked by the server (${status.blockedReason ?? 'unknown reason'})`,
+      )
+    }
+    lastError = status?.lastError ?? lastError
+    await sleep(pollMs)
+  }
+  throw new Error(
+    `daemon did not connect within ${Math.ceil(timeoutMs / 1_000)} seconds${
+      lastError ? ` (${lastError})` : ''
+    }`,
+  )
 }
 
 /** Default backend starter: systemd install (with detached fallback) or a detached spawn. Works
@@ -51,33 +99,41 @@ export async function startBackendEngine(opts: StartBackendOpts): Promise<StartB
   // leaves the old server/daemon running alongside the new one. No-op on a fresh box.
   const { stopBackend } = await import('./cli-lifecycle')
   await stopBackend()
+  // A stale connected/refused record belongs to a previous attempt and cannot prove this one.
+  // Clear it only after the previous backend has stopped, then let the new daemon be the writer.
+  if (mode === 'daemon') rmSync(connectivityPath(), { force: true })
   const what = mode === 'daemon' ? 'daemon' : 'server + daemon'
+  let result: StartBackendResult
   if (persistence === 'systemd') {
     const { installSystemd } = await import('./cli-systemd')
     const res = installSystemd(mode, port)
-    if (res.ok)
-      return {
+    if (res.ok) {
+      result = {
         effectivePersistence: 'systemd',
         message: `Installed + started the ${what} as a systemd service — survives reboot.`,
       }
+    } else {
+      const { serverUp } = await startDetachedStack(mode, port)
+      // Not an error the operator has to act on: the ${what} IS running. Say what we could not do,
+      // what we did instead, and the one consequence that matters (it won't come back on reboot).
+      const lines = [
+        `Could not install a systemd service — ${res.reason}.`,
+        `Started the ${what} detached instead: working now, but it will not come back after a reboot.`,
+      ]
+      if (!serverUp) lines.push('It did not come up, though — check ~/.podium/logs/.')
+      if (res.remedy) lines.push(res.remedy)
+      result = { effectivePersistence: 'detached', message: lines.join('\n') }
+    }
+  } else {
     const { serverUp } = await startDetachedStack(mode, port)
-    // Not an error the operator has to act on: the ${what} IS running. Say what we could not do,
-    // what we did instead, and the one consequence that matters (it won't come back on reboot).
-    const lines = [
-      `Could not install a systemd service — ${res.reason}.`,
-      `Started the ${what} detached instead: working now, but it will not come back after a reboot.`,
-    ]
-    if (!serverUp) lines.push('It did not come up, though — check ~/.podium/logs/.')
-    if (res.remedy) lines.push(res.remedy)
-    return { effectivePersistence: 'detached', message: lines.join('\n') }
+    result = {
+      effectivePersistence: 'detached',
+      message: serverUp
+        ? `Started the ${what} (detached) — runs until reboot. Use \`podium status\` / \`podium stop\` to manage.`
+        : 'Did not come up — check ~/.podium/logs/.',
+    }
   }
-  const { serverUp } = await startDetachedStack(mode, port)
-  return {
-    effectivePersistence: 'detached',
-    message: serverUp
-      ? `Started the ${what} (detached) — runs until reboot. Use \`podium status\` / \`podium stop\` to manage.`
-      : 'Did not come up — check ~/.podium/logs/.',
-  }
+  return result
 }
 
 /**
@@ -99,9 +155,14 @@ export function shouldRunCliSetup(opts: {
 
 type HostMode = 'all-in-one' | 'server'
 
+interface ReachabilityChoice {
+  publicUrl: string
+  networkOption: NetworkOption
+}
+
 /**
  * Reachability step: pick how to expose the relay, run the command, paste the URL. Returns
- * the validated URL, or undefined when the operator gave up. With `save` (the standalone
+ * the validated URL and exposure method, or undefined when the operator gave up. With `save` (the standalone
  * "change the URL" menu edit on an already-configured box) it persists immediately; the
  * full host flow passes save:false and writes config ONCE at the end — so a Ctrl-C midway
  * can't leave a configured-looking-but-passwordless box (issue #21).
@@ -111,7 +172,7 @@ async function reachabilityStep(
   port: number,
   mode: HostMode,
   opts: { save: boolean } = { save: true },
-): Promise<string | undefined> {
+): Promise<ReachabilityChoice | undefined> {
   io.print('Make this instance reachable (encrypted, no domain needed):')
   NETWORK_OPTIONS.forEach((o, i) => {
     io.print(`  ${i + 1}) ${o.label} — ${o.note}`)
@@ -132,14 +193,14 @@ async function reachabilityStep(
     const v = validatePublicUrl(pasted)
     if (v.ok) {
       if (opts.save) {
-        saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized })
+        saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized, networkOption: opt.id })
         io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
       } else {
         io.print(`\nThis instance will be reachable at ${v.normalized}.`)
       }
       const warning = ephemeralTunnelWarning(v.normalized)
       if (warning) io.print(`\nWarning: ${warning}`)
-      return v.normalized
+      return { publicUrl: v.normalized, networkOption: opt.id }
     }
     io.print(`  ${v.error}`)
   }
@@ -262,7 +323,7 @@ async function persistenceStep(
   mode: HostMode | 'daemon',
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
   options: { activateImmediately?: boolean } = {},
-): Promise<void> {
+): Promise<StartBackendResult> {
   const ans = (
     (await io.prompt('\nKeep Podium running as a systemd service (survives reboot)? [Y/n]: ')) ?? ''
   )
@@ -282,6 +343,7 @@ async function persistenceStep(
     savePersistence(res.effectivePersistence)
   }
   io.print(res.message)
+  return res
 }
 
 /**
@@ -311,9 +373,11 @@ export async function runJoinSetup(
   deps: SetupDeps = {},
 ): Promise<{ name: string; warning?: string; result: StartBackendResult }> {
   const startBackend = deps.startBackend ?? startBackendEngine
+  const waitForEnrollment = deps.waitForEnrollment ?? waitForDaemonEnrollment
   const { name, warning } = applyJoinToken(token)
   const result = await startBackend({ persistence, mode: 'daemon', port })
   savePersistence(result.effectivePersistence)
+  await waitForEnrollment()
   return { name, ...(warning ? { warning } : {}), result }
 }
 
@@ -331,13 +395,14 @@ async function hostStep(
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
   options: { askTelemetry?: boolean; activateImmediately?: boolean } = {},
 ): Promise<void> {
-  const publicUrl = await reachabilityStep(io, port, mode, { save: false })
-  if (!publicUrl) return
+  const reachability = await reachabilityStep(io, port, mode, { save: false })
+  if (!reachability) return
+  const { publicUrl, networkOption } = reachability
   if (!(await passwordStep(io, setPassword))) {
     io.print('Nothing saved — re-run `podium setup` to start over.')
     return
   }
-  saveConfig({ ...loadConfig(), mode, publicUrl })
+  saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
   io.print(`\nSaved. This instance is reachable at ${publicUrl}.`)
   await persistenceStep(io, port, mode, startBackend, {
     activateImmediately: options.activateImmediately,
@@ -380,6 +445,7 @@ async function joinStep(
   io: SetupIO,
   port: number,
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
+  waitForEnrollment: () => Promise<void>,
 ): Promise<void> {
   io.print('\nPaste the join code from the server (its Machines → Add machine screen).')
   const MAX_ATTEMPTS = 5
@@ -391,9 +457,10 @@ async function joinStep(
     }
     try {
       const { name, warning } = applyJoinToken(token)
-      io.print(`\nJoined as "${name}".`)
       if (warning) io.print(`\nWarning: ${warning}`)
       await persistenceStep(io, port, 'daemon', startBackend)
+      await waitForEnrollment()
+      io.print(`\nJoined as "${name}".`)
       return
     } catch (e) {
       io.print(`  ${(e as Error).message}`)
@@ -441,6 +508,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   }
   const setPassword = deps.setPassword ?? realSetPassword
   const startBackend = deps.startBackend ?? startBackendEngine
+  const waitForEnrollment = deps.waitForEnrollment ?? waitForDaemonEnrollment
   const mode = loadConfig().mode
   const hostsServer = mode === 'all-in-one' || mode === 'server'
 
@@ -468,7 +536,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   } else if (choice === '2') {
     await hostStep(io, port, 'server', setPassword, startBackend)
   } else if (choice === '3') {
-    await joinStep(io, port, startBackend)
+    await joinStep(io, port, startBackend, waitForEnrollment)
   } else if (choice === '4' && hostsServer) {
     await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one')
   } else if (choice === '5' && hostsServer) {

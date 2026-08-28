@@ -1,7 +1,7 @@
 import type { MachineId, UserId } from '@podium/model'
 import { createHash, randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import type { DaemonHandshake } from '@podium/protocol'
+import type { DaemonHandshake, UpdateKeyRotation } from '@podium/protocol'
 import {
   mintPairingToken,
   newLedgerTxnId,
@@ -76,6 +76,7 @@ export function authenticateDaemon(
       token?: string
       pairingGrant?: PairingGrant
       updatePubkey?: string
+      updateKeyRotations?: readonly UpdateKeyRotation[]
     }
   | { ok: false; reason: string } {
   const deps = host.deps
@@ -94,6 +95,7 @@ export function authenticateDaemon(
       return { ok: false, reason: 'invalid or expired code' }
     }
     const updatePubkey = deps.updatePubkey?.()
+    const updateKeyRotations = deps.updateKeyRotations?.()
     const name = frame.name ?? frame.hostname
     const ownerUserId = pairingGrant.ownerUserId ?? null
     const token = mintEnrolledToken(host, frame.machineId, ownerUserId)
@@ -118,6 +120,7 @@ export function authenticateDaemon(
       token,
       pairingGrant,
       ...(updatePubkey === undefined ? {} : { updatePubkey }),
+      ...(updateKeyRotations === undefined ? {} : { updateKeyRotations }),
     }
   }
   if (deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
@@ -133,7 +136,14 @@ export function authenticateDaemon(
       deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ??
       frame.hostname
     const updatePubkey = deps.updatePubkey?.()
-    return { ok: true, machineId: frame.machineId, name, ...(updatePubkey ? { updatePubkey } : {}) }
+    const updateKeyRotations = deps.updateKeyRotations?.()
+    return {
+      ok: true,
+      machineId: frame.machineId,
+      name,
+      ...(updatePubkey ? { updatePubkey } : {}),
+      ...(updateKeyRotations ? { updateKeyRotations } : {}),
+    }
   }
   // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
   return helloMissingRow(host, frame)
@@ -185,7 +195,13 @@ function helloMissingRow(
   host: EnrollmentHost,
   frame: Extract<DaemonHandshake, { type: 'hello' }>,
 ):
-  | { ok: true; machineId: MachineId; name: string; updatePubkey?: string }
+  | {
+      ok: true
+      machineId: MachineId
+      name: string
+      updatePubkey?: string
+      updateKeyRotations?: readonly UpdateKeyRotation[]
+    }
   | { ok: false; reason: string } {
   const ledger = host.deps.enrollment
   if (!ledger) return { ok: false, reason: HELLO_DENIED_REASON }
@@ -210,7 +226,14 @@ function helloMissingRow(
   })
   logVerdict(host, 're-enrolled', frame.machineId)
   const updatePubkey = host.deps.updatePubkey?.()
-  return { ok: true, machineId: frame.machineId, name, ...(updatePubkey ? { updatePubkey } : {}) }
+  const updateKeyRotations = host.deps.updateKeyRotations?.()
+  return {
+    ok: true,
+    machineId: frame.machineId,
+    name,
+    ...(updatePubkey ? { updatePubkey } : {}),
+    ...(updateKeyRotations ? { updateKeyRotations } : {}),
+  }
 }
 
 /**

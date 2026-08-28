@@ -3,13 +3,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, type Plugin, type PreviewServer, type ViteDevServer } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
-import { developmentSourceVersion } from '../../packages/runtime/src/source-version'
+import {
+  developmentSourceSha,
+  developmentSourceVersion,
+} from '../../packages/runtime/src/source-version'
 import { mobileRedirectLocation, NAVIGATION_FALLBACK_DENYLIST } from './mobile-routing'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 const productVersion = process.env.PODIUM_APP_VERSION ?? developmentSourceVersion(repoRoot)
+const sourceDigest = developmentSourceSha(repoRoot)
 
 // Hosts permitted by Vite's host check, comma-separated via PODIUM_ALLOWED_HOSTS. localhost and
 // IP-literal hosts are always allowed by Vite, so plain `localhost` dev needs nothing here; the
@@ -72,10 +76,10 @@ function mobileEntryRedirectPlugin(): Plugin {
   return {
     name: 'podium-mobile-entry-redirect',
     // Both source-mode Vite and built preview sit in front of the backend.
-    configureServer(server) {
+    configureServer(server: ViteDevServer) {
       server.middlewares.use(redirect)
     },
-    configurePreviewServer(server) {
+    configurePreviewServer(server: PreviewServer) {
       server.middlewares.use(redirect)
     },
   }
@@ -255,6 +259,14 @@ export default defineConfig(({ mode }) => {
         '@podium/protocol/update-refusal': fileURLToPath(
           new URL('../../packages/protocol/src/update/refusal.ts', import.meta.url),
         ),
+        /**
+         * Same door, same reason (POD-2502). The update chunk needs
+         * `isDevChannelVersion` as a VALUE; its leaf imports only
+         * `version-order`, which imports nothing.
+         */
+        '@podium/protocol/update-dev-version': fileURLToPath(
+          new URL('../../packages/protocol/src/update/dev-version.ts', import.meta.url),
+        ),
         '@podium/protocol': fileURLToPath(
           new URL('../../packages/protocol/src/index.ts', import.meta.url),
         ),
@@ -273,9 +285,18 @@ export default defineConfig(({ mode }) => {
         '@podium/harness/browser': fileURLToPath(
           new URL('../../packages/harness/src/browser.ts', import.meta.url),
         ),
-        // Subpath alias must precede the bare-package one — the bare alias also
-        // prefix-matches subpath imports and would resolve them to a path INSIDE
-        // index.ts (`.../index.ts/terminal-view`), which fails at build time.
+        // Subpath aliases must precede the bare-package one — the bare alias also
+        // prefix-matches subpath imports and would resolve them to paths INSIDE
+        // index.ts (`.../index.ts/keys`), which fails at build time.
+        '@podium/terminal-client/appearance': fileURLToPath(
+          new URL('../../packages/terminal-client/src/appearance.ts', import.meta.url),
+        ),
+        '@podium/terminal-client/keys': fileURLToPath(
+          new URL('../../packages/terminal-client/src/keys.ts', import.meta.url),
+        ),
+        '@podium/terminal-client/session-mount': fileURLToPath(
+          new URL('../../packages/terminal-client/src/session-mount.ts', import.meta.url),
+        ),
         '@podium/terminal-client/terminal-view': fileURLToPath(
           new URL('../../packages/terminal-client/src/terminal-view.ts', import.meta.url),
         ),
@@ -316,6 +337,36 @@ export default defineConfig(({ mode }) => {
        *
        * scripts/web-bundle-budget.ts fails the build if any of these is bundled
        * more than once again.
+       *
+       * THE ROWS BELOW THE BLANK LINE ARE THERE FOR BYTES, NOT FOR CRASHES
+       * (POD-2527), and they are the reason this list stopped being hand-picked.
+       *
+       * A split does not need a feature to break before it costs something. It
+       * lands in `sourcesContent` twice, and the eager SOURCE budget — which
+       * counts original text, not emitted code — then prices one vendor file at
+       * double. That is how a build in an agent worktree came to report
+       * `eager parsed source bytes: 7757776 exceeds 7700000` and be read as 58KB
+       * of app growth. It was not growth: @dnd-kit/core (104,325), @dnd-kit/
+       * utilities (7,960), @trpc/server (3,663) and clsx (388) were each in the
+       * bundle twice, which is 116,336 bytes — more than the whole overage.
+       * 7,757,776 less those four second copies is 7,641,440, which is what the
+       * same source measured in a checkout that resolved them once.
+       *
+       * That figure was first written here as 112,673 over THREE packages,
+       * missing @trpc/server. Re-derived from the failing dist in POD-2530.
+       *
+       * WHERE THE SECOND COPY CAME FROM. Not from a version conflict: it was the
+       * SAME version, from another checkout. `.worktrees/` sits inside the main
+       * checkout, so a worktree missing `apps/web/node_modules` walks up past its
+       * own root and finds `/…/podium/node_modules`. The escape is the same one
+       * the `@podium/harness/browser` alias above exists to stop, and it is why
+       * these rows belong here rather than in an install step — no install in
+       * THIS checkout can fix what another checkout's node_modules answers.
+       *
+       * Every one of these was measured resolving twice in a real build. The
+       * family siblings (`@dnd-kit/*`, `@codemirror/lang-*`) share the identical
+       * install layout as the ones that split, so which of them splits is an
+       * accident of import order rather than a property worth waiting to observe.
        */
       dedupe: [
         'react',
@@ -330,6 +381,35 @@ export default defineConfig(({ mode }) => {
         '@lezer/common',
         '@lezer/highlight',
         '@lezer/lr',
+
+        '@trpc/server',
+        'crelt',
+        'style-mod',
+        'clsx',
+        // `motion` is declared here, but bun hoists it and its two internal
+        // packages to the repo root. From a worktree the web build then
+        // resolved `motion-dom` twice — once from its own root and once by
+        // walking up into the parent checkout, since `.worktrees/` lives
+        // inside it — and the budget check refused the bundle. Containers
+        // never saw it because they have no parent checkout to walk up into,
+        // so this only ever failed for someone building from a worktree.
+        'motion',
+        'motion-dom',
+        'motion-utils',
+        '@dnd-kit/core',
+        '@dnd-kit/utilities',
+        '@dnd-kit/sortable',
+        '@dnd-kit/accessibility',
+        '@dnd-kit/modifiers',
+        '@blocknote/core',
+        '@blocknote/react',
+        '@blocknote/mantine',
+        '@codemirror/lang-css',
+        '@codemirror/lang-html',
+        '@codemirror/lang-javascript',
+        '@codemirror/lang-json',
+        '@codemirror/lang-markdown',
+        '@codemirror/lang-python',
       ],
     },
     // Source maps ship with EVERY build, as `hidden` (POD-1658): the `.map` files land
@@ -373,6 +453,20 @@ export default defineConfig(({ mode }) => {
       // the <meta name="podium-version"> the stamp writer injects, so a
       // packaged restamp can change the string without rebuilding JS.
       'import.meta.env.PODIUM_APP_VERSION': JSON.stringify(productVersion),
+      'import.meta.env.PODIUM_SOURCE_SHA': sourceDigest
+        ? JSON.stringify(sourceDigest)
+        : 'undefined',
+      /**
+       * ITERATION MODE (POD-2513, scripts/iterate.ts). Only `bun run iterate`
+       * exports this, and it only ever runs the DEV server — so every built
+       * dist gets the literal `false` here and the frame in
+       * `src/app/IterationModeFrame.tsx` shakes out of the bundle entirely.
+       * A boolean rather than the raw string, so a stray `PODIUM_ITERATION_MODE=0`
+       * in someone's shell cannot make a released page claim to be source.
+       */
+      'import.meta.env.PODIUM_ITERATION_MODE': JSON.stringify(
+        process.env.PODIUM_ITERATION_MODE === '1',
+      ),
     },
     server: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },
     preview: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },

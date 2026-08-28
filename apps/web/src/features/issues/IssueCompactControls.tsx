@@ -40,6 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
@@ -47,28 +48,17 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 import { IssueContextMenu } from './IssueContextMenu'
 import { StatusGlyph } from './issue-glyphs'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
-import { LaunchBox, type LaunchCommands } from './LaunchBox'
+import { issueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
 const SessionContextMenu = lazy(() =>
-  import('@/lib/SessionContextMenu').then((module) => ({
+  throughRestarts(() => import('@/lib/SessionContextMenu')).then((module) => ({
     default: module.SessionContextMenu,
   })),
 )
 
 const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
-
-/** Stages whose own name says somebody has picked the work up. Mirrors the
- *  flight deck's `UNDERWAY` bucket (client-core/viewmodels/mission.ts) with
- *  `review` added: work under review has been done too, and neither reads as
- *  something to "start". */
-const BEGUN_STAGES: ReadonlySet<IssueStage> = new Set<IssueStage>([
-  'planning',
-  'in_progress',
-  'review',
-  'shipping',
-])
 
 /**
  * The dock's reading scale (POD-725 §7). Written out rather than taken from
@@ -499,7 +489,17 @@ function PlacementMenu({
  * issue's state resolves to, and the shared issue context menu. Every other
  * lifecycle affordance lives in that menu rather than competing for the row.
  */
-export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.Element {
+export function IssueCompactControls({
+  issue,
+  onRename,
+}: {
+  issue: IssueViewModel
+  /** Open the head's inline title editor. Supplying it is what puts `Rename`
+   *  in the menu below (`renameEnabled: onRename !== undefined`) — this strip
+   *  has no editor of its own, so a menu entry with nowhere to land would be a
+   *  dead command (POD-1618). */
+  onRename?: () => void
+}): JSX.Element {
   // NO CROSSING INTO WORK HERE, SINCE POD-1457. A `Work on this` chip stood in
   // this strip, filled or outlined depending on what else had resolved, and it
   // sat one gap away from `Start work` — two adjacent controls whose labels both
@@ -602,16 +602,10 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
     updateIssue(issue.id, patch).catch(reportError)
   }
 
+  /** The chip is only ever Mark done (POD-1585): starting is the launch box's
+   *  button, and the two never coexist. */
   const runAction = (): void => {
-    if (!action) return
-    switch (action.kind) {
-      case 'mark-done':
-        requestClose('done')
-        return
-      case 'start-work':
-        startWork()
-        return
-    }
+    if (action?.kind === 'mark-done') requestClose('done')
   }
 
   /**
@@ -663,40 +657,29 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
     setDefaultEffort: (defaultEffort) => patchIssue({ defaultEffort }),
     setMachine: (machineId: MachineId | null) => patchIssue({ machineId }),
     startWork: () => startWork(),
-    addSession: () => {
-      void trpc.issues.addSession.mutate({ id: issue.id }).catch(reportError)
-    },
-    addShell: () => {
-      void trpc.issues.addShell.mutate({ id: issue.id }).catch(reportError)
-    },
   }
-
-  /**
-   * WORK HAS BEGUN — so the box wears its `+ Session` / `+ Shell` face and
-   * offers no `Start work` at all (POD-1457).
-   *
-   * Three independent proofs, any one of which settles it: an agent on it right
-   * now, a checkout it already delivers on, or a stage whose own NAME says
-   * somebody picked it up. The stage half is what the old reading missed — an
-   * `in_progress` task whose agent has exited is not unstarted work, and
-   * offering to "start" it named the wrong move for the state it was in.
-   *
-   * `review` is in the set on purpose: work under review has been done. What you
-   * might still want there is another session to act on the review, which is
-   * exactly what the other face offers.
-   */
-  const begun = active.length > 0 || Boolean(issue.worktreePath) || BEGUN_STAGES.has(issue.stage)
 
   /**
    * WHETHER THE BOX APPEARS AT ALL.
    *
-   * Not on a finished task — a closure, an archive, or the `done` lane is the
-   * end of the work, and the strip offers Reopen there instead. Not while the
-   * panel is asking the operator to Mark done either: that state means the work
-   * has LEFT for a spin-off, so starting is not the move, and it keeps the
-   * panel's one-yellow-object rule intact.
+   * Not once the work has begun (POD-1585) — the box is the instrument you
+   * LAUNCH with, and a task that already has an agent, a checkout or an
+   * underway stage has spent those decisions. It used to answer that state with
+   * a `+ Session` / `+ Shell` face, which put the panel's two loudest buttons on
+   * the one task that needed neither: another agent on running work is the
+   * flight deck's move, and a shell is a tab.
+   *
+   * Not on a finished task either — a closure, an archive, or the `done` lane is
+   * the end of the work, and the strip offers Reopen there instead. Not while
+   * the panel is asking the operator to Mark done: that state means the work has
+   * LEFT for a spin-off, so starting is not the move, and it keeps the panel's
+   * one-yellow-object rule intact.
    */
-  const launchable = !closed && issue.stage !== 'done' && action?.kind !== 'mark-done'
+  const launchable =
+    !closed &&
+    issue.stage !== 'done' &&
+    action?.kind !== 'mark-done' &&
+    !issueWorkBegun(issue, active.length)
 
   return (
     // TWO TIERS, AND THE GAP BETWEEN THEM IS THE POINT (POD-1457).
@@ -755,7 +738,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
                   className="whitespace-nowrap"
                   onClick={() => selectStatus(entry.value)}
                 >
-                  <StatusGlyph status={entry.status} size={12} />
+                  <StatusGlyph status={entry.status} size={12} decorative />
                   {entry.label}
                   {currentStatusValue === entry.value && (
                     <Check size={12} className="ml-auto text-text-faint" aria-hidden="true" />
@@ -779,10 +762,12 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           >
             <RotateCcw size={12} aria-hidden="true" /> Reopen issue
           </Button>
-        ) : action && !launchable ? (
+        ) : action?.kind === 'mark-done' ? (
           // THE PANEL'S ONE CHIP-SHAPED ACTION — Mark done, on an origin whose
           // work has left. Start work is no longer here: it is the launch box's
-          // button below, where it can say which agent it is about to spend.
+          // button below, where it can say which agent it is about to spend, and
+          // on work that has begun there is no start to offer at all (POD-1585)
+          // — this branch used to inherit one whenever the box stood down.
           //
           // The needs-you variant takes the SAME solid yellow rather than an
           // ochre-tinted outline. On paper that outline was 15% ochre over
@@ -823,14 +808,13 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           only ever start this task with whatever the filing agent happened to
           leave on it. Agent, model, effort and machine are all writes on the
           issue, so setting one here sets it everywhere; the button then simply
-          starts. It mounts only where nobody is on the task, so it always wears
-          its `Start work` face — see the box's `started` prop. */}
+          starts. It mounts only on work nobody has picked up, so `Start work` is
+          the only face it has. */}
       {launchable && (
         <LaunchBox
           issue={issue}
           busy={starting}
           starting={starting}
-          started={begun}
           commands={launchCommands}
           machines={machines}
           {...(placement
@@ -854,6 +838,7 @@ export function IssueCompactControls({ issue }: { issue: IssueViewModel }): JSX.
           anchor={menu}
           onClose={() => setMenu(null)}
           onRequestClose={requestClose}
+          {...(onRename ? { onRename: () => onRename() } : {})}
           // `dock`, not `sidebar`: identical in every respect but one — this
           // menu offers no `Open`, because the only place Open could land was
           // the Tasks tool, and this panel does not link there (POD-1457).

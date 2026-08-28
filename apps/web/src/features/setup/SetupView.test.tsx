@@ -10,6 +10,7 @@ const trpcMock = vi.hoisted(() => ({
   complete: vi.fn(),
   join: vi.fn(),
   connect: vi.fn(),
+  activate: vi.fn(),
   authStatus: vi.fn(),
 }))
 
@@ -26,6 +27,7 @@ vi.mock('@/app/trpc', async (importOriginal) => {
         complete: { mutate: trpcMock.complete },
         join: { mutate: trpcMock.join },
         connect: { mutate: trpcMock.connect },
+        activate: { mutate: trpcMock.activate },
       },
       auth: {
         status: { query: trpcMock.authStatus },
@@ -53,7 +55,12 @@ beforeEach(() => {
     command: 'tailscale funnel 18787',
     hint: 'Then paste the https URL it prints.',
   })
-  trpcMock.info.mockResolvedValue({ mode: null, publicUrl: null, serverUrl: null }) // first run
+  trpcMock.info.mockResolvedValue({
+    mode: null,
+    publicUrl: null,
+    networkOption: null,
+    serverUrl: null,
+  }) // first run
   trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
   trpcMock.connect.mockResolvedValue({ mode: 'all-in-one' })
   // POD-1554 made "a password is already set" PER-ACCOUNT: SetupView reads
@@ -114,7 +121,67 @@ describe('SetupView', () => {
     )
     expect(screen.getByText(/setup is saved; podium needs to restart/i)).toBeTruthy()
     expect(screen.queryByText(/how should this install run/i)).toBeNull()
-    expect(screen.getByRole('button', { name: /retry after restart/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy()
+  })
+
+  it('names the stale setting in words an operator can act on [POD-2766]', () => {
+    // "Something changed, restart" is what this screen used to say, and it left
+    // an operator unable to tell a change they made from one an unrelated call
+    // made for them — which is exactly how this state was reached.
+    render(
+      <SetupView
+        httpOrigin="http://localhost:18787"
+        onSaved={() => {}}
+        blockedState="restart-required"
+        staleFields={['persistence']}
+      />,
+    )
+    expect(screen.getByText(/how podium is kept running/i)).toBeTruthy()
+    // The config key itself is not what a human is shown.
+    expect(screen.queryByText(/^persistence$/)).toBeNull()
+  })
+
+  it('restarts the server from the browser, where no desktop shell exists [POD-2766]', async () => {
+    // THE REMEDY, ON THE SAME SCREEN AS THE PROBLEM. The locked-out operator was
+    // in a browser pointed at a remote box: a desktop-shell restart hook does not
+    // exist there, and "restart it on the server" was advice they could not take.
+    trpcMock.activate.mockResolvedValue({
+      state: 'restarting',
+      stale: ['persistence'],
+      from: 'dev',
+    })
+    render(
+      <SetupView
+        httpOrigin="https://sandbox.example.com"
+        onSaved={() => {}}
+        blockedState="restart-required"
+        staleFields={['persistence']}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /restart podium now/i }))
+    await act(async () => {
+      await flush()
+    })
+    expect(trpcMock.activate).toHaveBeenCalled()
+    expect(screen.getByText(/reconnects on its own/i)).toBeTruthy()
+  })
+
+  it('tells an unauthenticated operator to sign in rather than reporting a crash', async () => {
+    // `setup.activate` is served while the data plane is blocked but still needs
+    // an admin session. A raw 401 on this screen reads as "the restart is broken".
+    trpcMock.activate.mockRejectedValue(new Error('UNAUTHORIZED'))
+    render(
+      <SetupView
+        httpOrigin="https://sandbox.example.com"
+        onSaved={() => {}}
+        blockedState="restart-required"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /restart podium now/i }))
+    await act(async () => {
+      await flush()
+    })
+    expect(screen.getByText(/sign in as an admin/i)).toBeTruthy()
   })
 
   it('offers the native restart hook for activation pending in desktop', () => {
@@ -179,7 +246,7 @@ describe('SetupView', () => {
     ).toBe(true)
     expect(view.queryByText(/I understand that anyone who can reach this Podium URL/i)).toBeNull()
 
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     fireEvent.click(view.getByRole('radio', { name: /run without a podium password/i }))
@@ -193,6 +260,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
       acknowledgeNoPassword: true,
     })
     expect(onSaved).toHaveBeenCalled()
@@ -207,7 +275,7 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     fireEvent.change(view.getByLabelText(/^login password$/i), {
@@ -220,6 +288,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
       password: 'launch-code',
     })
   })
@@ -238,7 +307,7 @@ describe('SetupView', () => {
     expect(
       (view.getByRole('radio', { name: /keep current password/i }) as HTMLInputElement).checked,
     ).toBe(true)
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     await act(async () => {
@@ -249,6 +318,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
     })
   })
 
@@ -290,12 +360,12 @@ describe('SetupView', () => {
       await flush()
     })
     // Stable URL: no warning.
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     expect(view.queryByText(/quick tunnel/i)).toBeNull()
     // Quick-tunnel URL: inline warning, but the flow is not blocked.
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://random-words.trycloudflare.com' },
     })
     expect(view.getByText(/quick tunnel/i)).toBeTruthy()
@@ -368,7 +438,7 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://relay.ts.net' },
     })
     fireEvent.change(view.getByLabelText(/^login password$/i), { target: { value: 'pw' } })
@@ -379,6 +449,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://relay.ts.net',
       mode: 'server',
+      networkOption: 'tailscale-funnel',
       password: 'pw',
     })
     // …and takes a cookie for it before handing back, or the guard the password just enabled
@@ -401,7 +472,7 @@ describe('SetupView', () => {
         fireEvent.click(view.getByRole('button', { name: /continue/i }))
         await flush()
       })
-      fireEvent.change(view.getByLabelText(/public url/i), {
+      fireEvent.change(view.getByLabelText(/podium url/i), {
         target: { value: 'https://box.ts.net' },
       })
       fireEvent.change(view.getByLabelText(/^login password$/i), { target: { value: 'pw' } })

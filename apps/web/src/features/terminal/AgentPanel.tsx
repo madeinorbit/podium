@@ -16,8 +16,13 @@ import {
 import type { SessionId } from '@podium/model/browser'
 import { isSnoozed } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
-import { keySequence, type SpecialKey } from '@podium/terminal-client'
-import { ArrowSwipeKey, useTerminalSession, useVoiceInput } from '@podium/terminal-client-react'
+import { keySequence, type SpecialKey } from '@podium/terminal-client/keys'
+import {
+  ArrowSwipeKey,
+  preloadTerminalRuntime,
+  useTerminalSession,
+  useVoiceInput,
+} from '@podium/terminal-client-react'
 import {
   ArrowDownToLine,
   Ellipsis,
@@ -32,7 +37,7 @@ import {
   Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useSession, useSessionDraft, useStoreSelector } from '@/app/store'
@@ -56,7 +61,7 @@ import { agentBrandDot } from '@/lib/agent-tone'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
-import { isKnownRefPrefix } from '@/lib/markdown'
+import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
@@ -206,6 +211,37 @@ export function AgentPanel({
   )
   const session = useSession(sessionId)
   const spawnConfirmed = useStoreSelector((s) => !s.pendingSpawnIds.has(sessionId))
+  const observedOptimisticFirstPrompt = useStoreSelector((s) =>
+    s.pendingSpawnPrompts.get(sessionId),
+  )
+  // Replica confirmation retires the engine's prompt seed at the same time it
+  // can move this panel between live/parked/ended surface branches. Those
+  // branches remount ChatView, so retain the seed one level higher until the
+  // transcript explicitly echoes it; otherwise a fast terminal row can flash
+  // an empty conversation between confirmation and the transcript write.
+  const [heldOptimisticFirstPrompt, setHeldOptimisticFirstPrompt] = useState<{
+    sessionId: SessionId
+    text: string
+  } | null>(
+    observedOptimisticFirstPrompt === undefined
+      ? null
+      : { sessionId, text: observedOptimisticFirstPrompt },
+  )
+  useEffect(() => {
+    if (observedOptimisticFirstPrompt !== undefined) {
+      setHeldOptimisticFirstPrompt({ sessionId, text: observedOptimisticFirstPrompt })
+    }
+  }, [observedOptimisticFirstPrompt, sessionId])
+  const optimisticFirstPrompt =
+    observedOptimisticFirstPrompt ??
+    (heldOptimisticFirstPrompt?.sessionId === sessionId
+      ? heldOptimisticFirstPrompt.text
+      : undefined)
+  const settleOptimisticFirstPrompt = useCallback(() => {
+    setHeldOptimisticFirstPrompt((current) =>
+      current?.sessionId === sessionId ? null : current,
+    )
+  }, [sessionId])
   // Agent chrome needs durable issue fields (colour, branch, git state), not
   // session-derived rollups. `useReplicaIssues` intentionally invalidates on
   // every session row change to refresh those rollups, which would wake all
@@ -251,6 +287,7 @@ export function AgentPanel({
     surface,
     gates,
     mode: effectiveMode,
+    modeSettled,
     chatCapable,
     terminalOutlook,
     pickMode,
@@ -268,6 +305,15 @@ export function AgentPanel({
     }
     pickMode(mode)
   }
+  // Chat-first sessions do not need xterm. Native-first sessions begin loading
+  // after this paint, and the CLI tab starts the same cached import on intent.
+  // Once requested, keep the PTY mounted across later chat/native switches.
+  const terminalLikely = modeSettled && surface.kind === 'live' && effectiveMode === 'native'
+  const terminalRuntimeRequestedRef = useRef(terminalLikely)
+  if (terminalLikely) terminalRuntimeRequestedRef.current = true
+  useEffect(() => {
+    if (terminalLikely && !gates.terminalMounted) preloadTerminalRuntime()
+  }, [terminalLikely, gates.terminalMounted])
 
   // Switch-latency trace marks [POD-701] — both are no-ops (one null check in
   // markSwitch) unless a switch to THIS session is being traced.
@@ -497,7 +543,7 @@ export function AgentPanel({
     // against the new daemon). An optimistically-spawned session doesn't exist
     // server-side yet (#119) either — its one-shot attach would be dropped and
     // never retried, so `spawnConfirmed` holds the mount until the reconcile.
-    enabled: gates.terminalMounted,
+    enabled: gates.terminalMounted && terminalRuntimeRequestedRef.current,
     // The terminal stays mounted across a chat<->native toggle (Task 6): it's
     // kept alive (hidden under the chat overlay) with eligibility flipped here
     // instead of by a remount — see useTerminalSession's own setActive effect.
@@ -872,6 +918,8 @@ export function AgentPanel({
                         : 'text-text-dim hover:text-text-strong',
                     )}
                     onClick={() => pickModeWithTrace(m)}
+                    onPointerEnter={m === 'native' ? preloadTerminalRuntime : undefined}
+                    onFocus={m === 'native' ? preloadTerminalRuntime : undefined}
                   >
                     {m === 'chat' ? (
                       <MessageSquareText size={12} aria-hidden="true" />
@@ -1035,7 +1083,13 @@ export function AgentPanel({
               waking={sessionWaking(session)}
               queuedCount={session?.queuedMessageCount ?? 0}
             />
-            <ChatView sessionId={sessionId} active={active} />
+            <ChatView
+              sessionId={sessionId}
+              active={active}
+              initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
+              deferInitialTranscript={!spawnConfirmed}
+            />
           </>
         ) : (
           <HibernatedPane sessionId={sessionId} />
@@ -1055,7 +1109,13 @@ export function AgentPanel({
               {...(session.neverBound ? { neverBound: true as const } : {})}
               waking={sessionWaking(session)}
             />
-            <ChatView sessionId={sessionId} active={active} />
+            <ChatView
+              sessionId={sessionId}
+              active={active}
+              initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
+              deferInitialTranscript={!spawnConfirmed}
+            />
           </>
         ) : (
           <ExitedPane
@@ -1073,7 +1133,15 @@ export function AgentPanel({
         // switching modes never disposes and re-attaches the PTY. ChatView is
         // rendered as a sibling overlay on top when in chat mode.
         <>
-          {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
+          {effectiveMode === 'chat' && (
+            <ChatView
+              sessionId={sessionId}
+              active={active}
+              initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
+              deferInitialTranscript={!spawnConfirmed}
+            />
+          )}
           {/* THE ONE HONEST NATIVE PANE [POD-2290]. Reachable only through the
               switcher's stickiness — a session that once had a terminal and
               stopped having one — because the switch is never withdrawn under

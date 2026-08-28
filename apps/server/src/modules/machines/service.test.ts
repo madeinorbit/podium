@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { asUserId, asAccountId, asMachineId, asSessionId } from '@podium/model'
+import { asAccountId, asMachineId, asSessionId, asUserId } from '@podium/model'
+import type { DaemonPtyInputBatch } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, test } from 'vitest'
@@ -17,7 +18,13 @@ import { type MachinesDeps, MachinesService, type PairingGrant } from './service
 function makeService(): MachinesService {
   const deps = {
     instanceId: 'default',
-    store: {} as MachinesDeps['store'],
+    // POD-2700: `attach` records the durable `daemon` component, so the store
+    // stub has to answer that write. `false` = "nothing changed", which is the
+    // truthful answer for a fixture with no rows and keeps these socket-identity
+    // tests about sockets.
+    store: {
+      machines: { addMachineComponent: () => false },
+    } as unknown as MachinesDeps['store'],
     hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},
     clients: () => [],
@@ -76,6 +83,80 @@ describe('MachinesService daemon socket identity', () => {
 
     expect(svc.detach(MACHINE)).toBe(true)
     expect(svc.hasDaemon(MACHINE)).toBe(false)
+  })
+
+  test('one local participant owns update grants while the daemon keeps session traffic', () => {
+    const svc = makeService()
+    const daemon = recorder()
+    const local: ControlMessage[] = []
+    const participant = (message: Extract<ControlMessage, { type: 'updateGrant' }>) =>
+      local.push(message)
+    const grant = {
+      type: 'updateGrant',
+      grantId: 'g1',
+      target: {
+        version: '0.4.2',
+        critical: false,
+        artifacts: {
+          headless: {
+            delivery: 'feed',
+            platforms: {
+              'linux-x86_64': { url: 'https://x.test/a', digest: 'd', signature: 's' },
+            },
+          },
+        },
+      },
+    } as ControlMessage
+
+    svc.attach(MACHINE, daemon.send)
+    svc.attachUpdateParticipant(MACHINE, participant)
+    svc.toMachine(MACHINE, keystroke)
+    svc.toMachine(MACHINE, grant)
+
+    expect(daemon.got).toEqual([keystroke])
+    expect(local).toEqual([grant])
+    expect(() => svc.attachUpdateParticipant(MACHINE, () => {})).toThrow(/already has/i)
+  })
+
+  test('flushes queued control and canonical input in FIFO order without re-encoding', () => {
+    const svc = makeService()
+    const events: string[] = []
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0, 0xff, 0x1b),
+    }
+    svc.toMachine(MACHINE, keystroke)
+    svc.toPtyInput(MACHINE, input)
+    svc.attach(MACHINE, {
+      send: () => events.push('control'),
+      sendInput: (received) => {
+        expect(received.bytes).toEqual(input.bytes)
+        events.push('input')
+      },
+    })
+    svc.flushQueued(MACHINE)
+    expect(events).toEqual(['control', 'input'])
+  })
+
+  test('adapts canonical input to legacy base64 only at a function transport', () => {
+    const svc = makeService()
+    const sent: ControlMessage[] = []
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0, 0xff, 0x1b),
+    }
+    svc.attach(MACHINE, (message) => sent.push(message))
+    svc.toPtyInput(MACHINE, input)
+    expect(sent).toEqual([
+      {
+        type: 'input',
+        sessionId: asSessionId('s1'),
+        inputOrigin: 'human',
+        data: Buffer.from(input.bytes).toString('base64'),
+      },
+    ])
   })
 })
 

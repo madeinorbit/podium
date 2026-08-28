@@ -1,10 +1,10 @@
-import { asUserId, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
+import { asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { wireDaemonSocket } from './gateway/daemon-socket'
 import { PairingManager } from './hub/pairing'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
-import { wireDaemonSocket } from './gateway/daemon-socket'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -38,6 +38,8 @@ function fakeWs() {
   }
 }
 
+const frame = (value: unknown): string => JSON.stringify(value)
+
 describe('daemon socket auth', () => {
   it('ignores a pre-auth non-handshake frame, then attaches on a valid hello', () => {
     const store = new SessionStore(':memory:')
@@ -54,20 +56,15 @@ describe('daemon socket auth', () => {
     wireDaemonSocket(ws as never, reg)
 
     // First frame is junk (not a handshake) → ignored, no attach.
-    ws.emit(
-      'message',
-      Buffer.from(JSON.stringify({ type: 'input', sessionId: asSessionId('s'), data: '' })),
-    )
+    ws.emit('message', frame({ type: 'input', sessionId: asSessionId('s'), data: '' }))
     expect(attach).not.toHaveBeenCalled()
 
     // A valid hello whose token is in the store → attach + helloOk.
-    ws.emit(
-      'message',
-      Buffer.from(
-        JSON.stringify({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
-      ),
+    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    expect(attach).toHaveBeenCalledWith(
+      machinePrincipal('m1'),
+      expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
     )
-    expect(attach).toHaveBeenCalledWith(machinePrincipal('m1'), expect.any(Function))
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
   })
 
@@ -91,32 +88,31 @@ describe('daemon socket auth', () => {
 
     ws.emit(
       'message',
-      Buffer.from(
-        JSON.stringify({
-          type: 'hello',
-          machineId: 'local',
-          token: 'sekret',
-          hostname: 'thishost',
-        }),
-      ),
+      frame({
+        type: 'hello',
+        machineId: 'local',
+        token: 'sekret',
+        hostname: 'thishost',
+      }),
     )
-    expect(attach).toHaveBeenCalledWith(machinePrincipal('local'), expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(
+      machinePrincipal('local'),
+      expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+    )
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
 
     // A subsequent (post-auth) frame routes through the gateway mux under the
     // principal the TRANSPORT resolved — the frame body never names a machine.
     ws.emit(
       'message',
-      Buffer.from(
-        JSON.stringify({
-          type: 'bind',
-          sessionId: asSessionId('s1'),
-          cmd: 'claude',
-          cwd: '/tmp',
-          agentKind: 'claude-code',
-          geometry: { cols: 80, rows: 24 },
-        }),
-      ),
+      frame({
+        type: 'bind',
+        sessionId: asSessionId('s1'),
+        cmd: 'claude',
+        cwd: '/tmp',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+      }),
     )
     expect(onMsg).toHaveBeenCalledWith(
       machinePrincipal('local'),
@@ -129,17 +125,15 @@ describe('daemon socket auth', () => {
     onMsg.mockClear()
     ws.emit(
       'message',
-      Buffer.from(
-        JSON.stringify({
-          type: 'bind',
-          sessionId: asSessionId('s2'),
-          cmd: 'claude',
-          cwd: '/tmp',
-          agentKind: 'claude-code',
-          geometry: { cols: 80, rows: 24 },
-          machineId: 'attacker',
-        }),
-      ),
+      frame({
+        type: 'bind',
+        sessionId: asSessionId('s2'),
+        cmd: 'claude',
+        cwd: '/tmp',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+        machineId: 'attacker',
+      }),
     )
     expect(onMsg).toHaveBeenCalledWith(
       machinePrincipal('local'),
@@ -155,12 +149,7 @@ describe('daemon socket auth', () => {
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
-    ws.emit(
-      'message',
-      Buffer.from(
-        JSON.stringify({ type: 'hello', machineId: 'ghost', token: 'nope', hostname: 'box' }),
-      ),
-    )
+    ws.emit('message', frame({ type: 'hello', machineId: 'ghost', token: 'nope', hostname: 'box' }))
     expect(attach).not.toHaveBeenCalled()
     expect(ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
@@ -179,22 +168,23 @@ describe('daemon socket auth', () => {
 
     ws.emit(
       'message',
-      Buffer.from(
-        JSON.stringify({
-          type: 'pair',
-          code,
-          machineId: 'mNew',
-          hostname: 'newbox',
-          name: 'newbox',
-        }),
-      ),
+      frame({
+        type: 'pair',
+        code,
+        machineId: 'mNew',
+        hostname: 'newbox',
+        name: 'newbox',
+      }),
     )
     const paired = ws.sent.map((s) => JSON.parse(s)).find((m) => m.type === 'paired')
     expect(paired).toBeDefined()
     expect(typeof paired.token).toBe('string')
     expect(paired.token.length).toBeGreaterThan(0)
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(false)
-    expect(attach).toHaveBeenCalledWith(machinePrincipal('mNew'), expect.any(Function))
+    expect(attach).toHaveBeenCalledWith(
+      machinePrincipal('mNew'),
+      expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+    )
   })
 
   it('detaches the machine on close', () => {
@@ -210,10 +200,7 @@ describe('daemon socket auth', () => {
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit(
-      'message',
-      Buffer.from(JSON.stringify({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'h' })),
-    )
+    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'h' }))
     ws.emit('close')
     // Close detaches against THIS socket's send fn, so a superseded socket's late
     // close can't evict a daemon that has already reconnected.
@@ -235,12 +222,7 @@ describe('daemon socket auth', () => {
     wireDaemonSocket(ws as never, reg)
     // A failed handshake (bad token) never attaches — closing must not detach the
     // machine, which may well have a healthy daemon on another socket.
-    ws.emit(
-      'message',
-      Buffer.from(
-        JSON.stringify({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'h' }),
-      ),
-    )
+    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'h' }))
     ws.emit('close')
     expect(detach).not.toHaveBeenCalled()
   })

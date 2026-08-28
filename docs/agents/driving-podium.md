@@ -10,7 +10,8 @@ path). Written from actually doing it; every gotcha below cost a real failed run
 | Goal | Target | Notes |
 |---|---|---|
 | Test **unmerged branch** code | the committed Playwright harness (`tests/e2e/`) | Builds the branch web on `http://localhost:4317` + a relay/daemon (`serve-harness.ts`) on `:8799`. Isolated state; safe. **Use this to verify your own changes.** |
-| Dogfood / reproduce against **main** | the live app | `https://podium-host.example.com:55555` (tailscale TLS → web `:55556` → backend `:18787`). Runs `main` from source. **The user uses this — be careful.** |
+| Dogfood / reproduce against **main** | the live app | `https://podium-host.example.com:55555` (tailscale TLS → installed server `:18787`, which serves `apps/web/dist`). **The user uses this — be careful.** |
+| Unmerged **web UI** changes on the VPS | `bun run iterate` (Vite `:55566`) | Hot-reload beside the live server; see `docs/iteration-mode.md`. Do not retarget `:55555`. |
 
 Run the harness specs: `cd tests/e2e && npx playwright test <spec> --project=chromium-desktop --timeout=90000`. See `tests/e2e/browser/clickable-files.browser.e2e.ts` for a complete worked example (terminal click → editor → save; wrapped-URL → new tab).
 
@@ -147,7 +148,7 @@ expensive SQLite caller stacks only when needed.
 ## Setup gotchas
 
 - **Force the native terminal**: `await page.addInitScript(() => localStorage.setItem('podium.panelMode','native'))` **before** `goto` — else you land in chat view and `__podium`/the xterm isn't mounted.
-- **Live URL**: use the tailscale HTTPS URL with `ignoreHTTPSErrors: true`. `localhost:55556` is the raw web, but same-origin WS routing is wired through `:55555` — prefer it.
+- **Live URL**: use the tailscale HTTPS URL (`:55555` → installed `:18787`) with `ignoreHTTPSErrors: true`. For HMR against the live backend, use `bun run iterate` (`docs/iteration-mode.md`) on `:55566` / `:55565` — never retarget `:55555`.
 - **Ad-hoc Playwright script** (outside the repo): import from `@playwright/test` (bun nests `playwright-core`, so it's not a top-level package). For a script in `/tmp`, symlink `node_modules`: `ln -sfn <repo>/node_modules /tmp/x/node_modules`. Chromium is cached in `~/.cache/ms-playwright` (`npx playwright install chromium` if not).
 
 ## Authenticating against a password-protected instance

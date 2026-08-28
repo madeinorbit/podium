@@ -1,18 +1,19 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { FIRST_ADMIN_USER_ID, type ServerReadiness } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
-import { loadConfig } from '@podium/runtime/config'
+import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { InstanceService } from './modules/instance/service'
 import { resolvePrincipal } from './command-principal'
+import { desktopUpdaterEndpoint, InstanceService } from './modules/instance/service'
 
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { createServerReadiness } from './server-readiness'
 import { OPERATOR } from './test-support/capabilities'
 
 /**
@@ -44,6 +45,49 @@ function makeHarness() {
 function caller() {
   harness ??= makeHarness()
   return harness.caller
+}
+
+/**
+ * A caller that CAN restart its own process — the two context members POD-2766
+ * added, which the default harness deliberately leaves unset so `activate`
+ * refuses rather than claiming a restart nothing performed.
+ */
+function activationHarness(opts: {
+  readiness: () => ServerReadiness
+  requestCoordinatorRestart?: () => void
+}) {
+  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
+  const repos = new RepoRegistry(registry, registry.sessionStore)
+  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const users = registry.sessionStore.users
+  return appRouter.createCaller({
+    registry,
+    repos,
+    superagent,
+    users,
+    capability: OPERATOR,
+    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    readiness: opts.readiness,
+    ...(opts.requestCoordinatorRestart
+      ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
+      : {}),
+  })
+}
+
+const pendingOn = (stale: readonly ('mode' | 'persistence')[]): ServerReadiness => ({
+  state: 'activation_pending',
+  reason: 'restart_required',
+  dataPlane: 'blocked',
+  controlPlane: 'available',
+  stale,
+})
+
+const READY: ServerReadiness = {
+  state: 'ready',
+  reason: null,
+  dataPlane: 'available',
+  controlPlane: 'available',
 }
 
 /** The first admin's credential — what "a password is set" means after POD-1554. */
@@ -101,13 +145,19 @@ describe('setup tRPC', () => {
     expect(await caller().setup.info()).toEqual({
       mode: null,
       publicUrl: null,
+      networkOption: null,
       serverUrl: null,
       appVersion,
     })
-    await caller().setup.complete({ publicUrl: 'https://box.ts.net', acknowledgeNoPassword: true })
+    await caller().setup.complete({
+      publicUrl: 'https://box.ts.net',
+      networkOption: 'tailscale-serve',
+      acknowledgeNoPassword: true,
+    })
     expect(await caller().setup.info()).toEqual({
       mode: 'all-in-one',
       publicUrl: 'https://box.ts.net',
+      networkOption: 'tailscale-serve',
       serverUrl: null,
       appVersion,
     })
@@ -167,6 +217,21 @@ describe('setup tRPC', () => {
   it('reports the update channel (default stable)', async () => {
     expect(await caller().setup.channel()).toMatchObject({ channel: 'stable', envForced: false })
   })
+  it('reports the dev shell endpoint from the deployment public URL', async () => {
+    saveConfig({
+      ...loadConfig(),
+      updateChannel: 'dev',
+      publicUrl: 'https://podium.test/',
+    })
+    expect(await caller().setup.channel()).toMatchObject({
+      channel: 'dev',
+      desktopUpdateEndpoint: 'https://podium.test/updates/feed/dev/latest.json',
+    })
+    expect(
+      desktopUpdaterEndpoint('dev', 'http://127.0.0.1:18787'),
+      'an all-in-one page origin must never become a native updater endpoint',
+    ).toBeUndefined()
+  })
   it('sets the update channel and persists it', async () => {
     // POD-1882: the mutation answers with the EFFECTIVE fleet default, not a bare
     // string, so the caller learns whether the environment overrode the write.
@@ -176,6 +241,151 @@ describe('setup tRPC', () => {
     })
     expect(await caller().setup.channel()).toMatchObject({ channel: 'edge', envForced: false })
     expect(loadConfig().updateChannel).toBe('edge')
+  })
+})
+
+/**
+ * POD-2766 — SETTING A PASSWORD MUST NOT LOOK LIKE A RECONFIGURATION.
+ *
+ * The incident, end to end and in one place: `setup.complete` carries the login
+ * password, so an operator setting one on a live box called it; it back-filled
+ * `persistence`, which the running process compares against what it booted with;
+ * readiness went `activation_pending`; the data plane closed; and login sits
+ * behind the data plane, so the person who could restart it was locked out.
+ *
+ * These tests run the real command against a real config file and derive real
+ * readiness from it — no stubbed diff — because the defect lived exactly in the
+ * seam between the two.
+ */
+describe('a credential change does not trip the topology guard [POD-2766]', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-activation-'))
+    process.env.PODIUM_STATE_DIR = dir
+    harness = undefined
+  })
+  afterEach(() => {
+    process.env.PODIUM_STATE_DIR = priorStateDir
+    harness = undefined
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** Readiness for a process that booted with whatever is on disk RIGHT NOW —
+   *  the honest way to model "the server was already running when this call
+   *  arrived". */
+  function readinessAsIfBootedNow() {
+    const bootConfig = loadConfig()
+    return createServerReadiness({ bootConfig, hasLiveAgentMachine: () => true })
+  }
+
+  it('leaves readiness untouched when only the password changes', async () => {
+    // A CONTAINER, which is the shape that broke: it runs the binary directly, so
+    // its config records no `persistence` — which at config v2 is an ANSWER
+    // ("not headless-managed"), not a gap waiting to be filled.
+    saveConfig({ mode: 'all-in-one', publicUrl: 'https://sandbox.example.com' })
+    const readiness = readinessAsIfBootedNow()
+    expect(readiness()).toMatchObject({ state: 'ready', dataPlane: 'available' })
+
+    await caller().setup.complete({
+      publicUrl: 'https://sandbox.example.com',
+      password: 'operator',
+    })
+
+    expect(await verifyPasswordHash('operator', credentialHash())).toBe(true)
+    // THE ASSERTION THIS ISSUE EXISTS FOR.
+    expect(readiness()).toMatchObject({ state: 'ready', dataPlane: 'available' })
+    // And the reason it holds: the box's own answer about how it is supervised
+    // was not overwritten by a call that had nothing to say about it.
+    expect(loadConfig().persistence).toBeUndefined()
+  })
+
+  it('still records a persistence choice on a genuinely first run', async () => {
+    // The back-fill is not deleted, only scoped. A box that has never chosen a
+    // mode is choosing everything now, and the web setup cannot self-daemonize —
+    // recording the choice for the next `podium` invocation is the whole point.
+    await caller().setup.complete({
+      publicUrl: 'https://box.ts.net',
+      acknowledgeNoPassword: true,
+    })
+    expect(loadConfig().persistence).toBe('systemd')
+  })
+
+  it('still blocks the data plane when a boot-relevant field really changes', async () => {
+    // The guard is CORRECT and stays armed. This is the case it exists for: the
+    // running process is all-in-one and the file now says server-only.
+    saveConfig({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
+    const readiness = readinessAsIfBootedNow()
+    await caller().setup.complete({
+      publicUrl: 'https://box.ts.net',
+      mode: 'server',
+      acknowledgeNoPassword: true,
+    })
+    expect(readiness()).toMatchObject({
+      state: 'activation_pending',
+      dataPlane: 'blocked',
+      controlPlane: 'available',
+      stale: ['mode'],
+    })
+  })
+})
+
+describe('setup.activate — the restart an operator can actually reach [POD-2766]', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-activate-'))
+    process.env.PODIUM_STATE_DIR = dir
+    harness = undefined
+  })
+  afterEach(() => {
+    process.env.PODIUM_STATE_DIR = priorStateDir
+    harness = undefined
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('restarts the process when the instance is activation-pending', async () => {
+    const restart = vi.fn()
+    const result = await activationHarness({
+      readiness: () => pendingOn(['persistence']),
+      requestCoordinatorRestart: restart,
+    }).setup.activate()
+    expect(restart).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ state: 'restarting', stale: ['persistence'] })
+  })
+
+  it('refuses on a healthy instance, so it never becomes a remote bounce lever', async () => {
+    const restart = vi.fn()
+    await expect(
+      activationHarness({
+        readiness: () => READY,
+        requestCoordinatorRestart: restart,
+      }).setup.activate(),
+    ).rejects.toThrow(/nothing to activate/i)
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it('says so, rather than pretending, when the installation cannot restart itself', async () => {
+    await expect(
+      activationHarness({ readiness: () => pendingOn(['mode']) }).setup.activate(),
+    ).rejects.toThrow(/cannot restart itself/i)
+  })
+
+  it('refuses a member: a session must not let anyone drop everyone else transport', () => {
+    // The contract's `admin` floor, enforced in the service the way this family
+    // enforces everything (see `setLoginRequired`, which verifies the caller's own
+    // credential rather than leaning on the router).
+    const restart = vi.fn()
+    const service = new InstanceService({
+      callerUserId: FIRST_ADMIN_USER_ID,
+      users: {
+        get: () => ({ role: 'member' }),
+        credentialFor: () => undefined,
+        setPasswordHash: () => {},
+      },
+      readiness: () => pendingOn(['persistence']),
+      requestCoordinatorRestart: restart,
+    })
+    expect(() => service.activate()).toThrow(/only an admin/i)
+    expect(restart).not.toHaveBeenCalled()
   })
 })
 

@@ -19,7 +19,13 @@
  */
 type Selector<T> = (store: unknown) => T
 
-const ROWS = Number(new URLSearchParams(location.search).get('rows') ?? 24)
+const params = new URLSearchParams(location.search)
+const ROWS = Number(params.get('rows') ?? 24)
+/** `?started=1` gives the working rows a worktree — the ALREADY-RUNNING task,
+ *  which the row menu answers differently from an unstarted one (POD-1470:
+ *  "Run now" becomes "Assign agent"). Off by default so the fixture the other
+ *  harness shots were measured against does not move. */
+const STARTED = params.get('started') === '1'
 
 const rows = new Map<string, string>()
 const listeners = new Set<() => void>()
@@ -70,7 +76,7 @@ function session(id: string, issueId: string, working: boolean) {
   return {
     sessionId: id,
     agentKind: 'claude-code',
-    cwd: '/repo',
+    cwd: '/home/podium/podium',
     title: id,
     status: 'live',
     controllerId: null,
@@ -96,7 +102,7 @@ function session(id: string, issueId: string, working: boolean) {
 function issue(id: string, seq: number, title: string, over: Record<string, unknown> = {}) {
   return {
     id,
-    repoPath: '/repo',
+    repoPath: '/home/podium/podium',
     seq,
     title,
     description: '',
@@ -165,6 +171,7 @@ const issues = [
   ...TITLES.slice(5, ROWS).map((t, i) =>
     issue(`work-${i}`, 969 - i, t, {
       ...(i % 3 === 0 ? { childCount: 9, childDoneCount: 4 } : {}),
+      ...(STARTED ? { worktreePath: `/repo/.worktrees/work-${i}`, branch: `work-${i}` } : {}),
     }),
   ),
   // A closed tail, so the fold under the group has something to open.
@@ -191,7 +198,13 @@ const sessions = issues
   .map((i, index) => session(`s-${i.id}`, i.id, index % 4 === 0))
 
 const store = {
-  repos: [{ path: '/repo', kind: 'repository' as const, branch: 'main', worktrees: [] }],
+  repos: [
+    { path: '/home/podium/podium', kind: 'repository' as const, branch: 'main', worktrees: [] },
+    // A project nobody has worked yet (POD-1469): it contributes no ROW, so the
+    // column can only band it from the project tree. This is the fixture for
+    // `Start first task`.
+    { path: '/home/podium/tailwind', kind: 'repository' as const, branch: 'main', worktrees: [] },
+  ],
   sessions,
   machines: [],
   pins: { panels: [], worktrees: [], repos: [] },

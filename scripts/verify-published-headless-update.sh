@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
-# Verify the artifact that was actually published by the headless release workflow.
+# Verify the artifacts that were actually published by the headless release workflow.
 #
 # This is intentionally separate from verify-headless-update.sh: that script exercises the
 # source seam with an ephemeral fixture key and a local feed. This script downloads the
-# release manifest and x64 bundle from GitHub, runs the shipped binary against the real
-# production signature, then proves that the same binary rejects a locally tampered copy.
+# real release from GitHub and interrogates what is on the release page.
+#
+# TWO KINDS OF PROOF, because a Linux runner can only execute one of the four platforms:
+#
+#   linux-x86_64 (CASES 1-2) — the strongest proof available: RUN the shipped binary
+#     against the real production signature, watch it complete a swap, then watch the
+#     same binary reject a locally tampered copy.
+#
+#   the other three (CASE 3) — the release page must carry each bundle, its signature and
+#     a SHA256SUMS line; the manifest must name every platform; each tarball must verify
+#     under Podium's release key (the check `podium update` will make on that machine);
+#     and each bundle must survive the shipped-bundle assertions, which for Darwin include
+#     the ad-hoc code signature and its JIT entitlements.
+#
+# What is deliberately NOT claimed here: that a Darwin bundle EXECUTES. That needs a Mac
+# and is run by hand until CI has a Mac verifier (spec section 8b; POD-2520).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,7 +42,7 @@ require_command() {
   fi
 }
 
-for command in gh jq curl cp grep mktemp python3 tar tee seq; do
+for command in gh jq curl cp grep mktemp python3 tar tee seq bun rcodesign sha256sum; do
   require_command "$command"
 done
 
@@ -183,4 +197,28 @@ grep -q 'signature verification FAILED' "$BAD_LOG" || {
   exit 1
 }
 
-echo "PUBLISHED HEADLESS UPDATE VERIFIED — real $CHANNEL artifact SWAPPED; tampered copy REJECTED"
+# --- CASE 3: every published platform, including the ones this runner cannot run ---
+#
+# CASES 1 and 2 proved the linux-x86_64 bundle by running it. The other three cannot be
+# executed here, so they are checked against everything that does not require running
+# them. That check is its own script so it can be run against a local release directory
+# during development, without a published release to download.
+echo "=== CASE 3: all published platforms present, summed, signed and well-formed ==="
+
+ALL_DIR="$WORK/all"
+mkdir -p "$ALL_DIR"
+gh release download "$RELEASE" --repo "$REPO" \
+  --pattern 'podium-headless-*.tar.gz' \
+  --pattern 'podium-headless-*.tar.gz.sig' \
+  --pattern 'podium-update.json' \
+  --pattern 'client-root-digest.sha256' \
+  --pattern 'SHA256SUMS' \
+  --dir "$ALL_DIR" --clobber >/dev/null 2>&1 || {
+    echo "ABORT: could not download the full published asset set for $REPO@$RELEASE" >&2
+    exit 1
+  }
+bash scripts/assert-release-platform-set.sh "$ALL_DIR" || exit 1
+
+echo "PUBLISHED HEADLESS UPDATE VERIFIED — real $CHANNEL linux-x86_64 artifact SWAPPED;"
+echo "tampered copy REJECTED; all four platforms published, summed, signed and asserted."
+echo "NOT claimed here: macOS EXECUTION (needs a Mac — spec section 8b, POD-2520)."

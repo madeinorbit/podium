@@ -30,8 +30,11 @@ export function paletteIssueMenuData(input: {
   return createIssueMenuData({
     issues: [issue],
     allIssues: input.issues,
-    eligibility: issueMenuEligibility([issue], 'board'),
-    surface: 'board',
+    // ITS OWN SURFACE (POD-1470), no longer borrowing the board's. The palette
+    // is not a list of tasks: it acts on the one already in focus, so it keeps
+    // the entries the lists dropped.
+    eligibility: issueMenuEligibility([issue], 'palette'),
+    surface: 'palette',
     handoffEnabled: input.handoffEnabled && handoff !== null,
     handoff: handoff
       ? {

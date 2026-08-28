@@ -5,7 +5,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionId, MachineId } from '@podium/model'
+import type { MachineId, SessionId } from '@podium/model'
 import type {
   LiveServerMessage,
   MachinePrincipal,
@@ -273,6 +273,14 @@ export class SessionClientPlane {
     this.ports.clientControl.onFrame(principal, client, message)
   }
 
+  onSessionClientInput(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    sessionId: SessionId,
+    bytes: Uint8Array,
+  ): void {
+    this.ports.clientControl.onInputBytes(principal, client, sessionId, bytes)
+  }
   /** Hand an issue the worktree its session is actually working in [spec:SP-4ef9].
    *  Two ways in: the agent DECLARES it (`podium worktree`), or the HARNESS makes its
    *  own worktree and the session's hooks start reporting from it (Claude's

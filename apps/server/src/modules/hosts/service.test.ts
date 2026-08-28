@@ -94,6 +94,7 @@ function harness(input: {
   idleShellMinutes?: number | null
   fail?: Set<string>
   proven?: Set<string>
+  daemonRequest?: HostsDeps['daemonRequest']
 }) {
   const settings = PodiumSettings.parse({
     hibernation: {
@@ -146,11 +147,13 @@ function harness(input: {
     terminalProofMissing: (sessionId) => !(input.proven?.has(sessionId) ?? true),
     // The auto-hibernate sweep makes no daemon round-trip, so an inert
     // correlator is enough here — a call to one would be the failure.
-    daemonRequest: {
-      request: vi.fn(),
-      settle: vi.fn(),
-      nextRequestId: vi.fn(),
-    } as unknown as HostsDeps['daemonRequest'],
+    daemonRequest:
+      input.daemonRequest ??
+      ({
+        request: vi.fn(),
+        settle: vi.fn(),
+        nextRequestId: vi.fn(),
+      } as unknown as HostsDeps['daemonRequest']),
     toMachine: (machineId, message) => {
       toMachine.push({ machineId, type: message.type })
     },
@@ -851,5 +854,62 @@ describe('idle-session cap', () => {
 
       expect(shellParked).toEqual(['older'])
     })
+  })
+})
+
+describe('reclaim disk estimate cache', () => {
+  it('returns measuring immediately, then serves the completed bytes for the same path sets', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0)
+    const request = vi.fn(async () => ({
+      recoverableBytes: 7 * 1024 ** 3,
+      measuredAt: '2026-08-23T12:00:00.000Z',
+    }))
+    const { service } = harness({
+      sessions: [],
+      maxIdleSessions: null,
+      daemonRequest: {
+        request,
+        settle: vi.fn(),
+        nextRequestId: vi.fn(),
+      } as unknown as HostsDeps['daemonRequest'],
+    })
+
+    expect(
+      service.reclaimDiskEstimate(
+        ['/r', '/r/.worktrees/a'],
+        ['/r/.worktrees/a'],
+        asMachineId('local'),
+      ),
+    ).toEqual({ status: 'measuring', recoverableBytes: null, measuredAt: null })
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1))
+    await Promise.resolve()
+
+    expect(
+      service.reclaimDiskEstimate(
+        ['/r/.worktrees/a', '/r'],
+        ['/r/.worktrees/a'],
+        asMachineId('local'),
+      ),
+    ).toEqual({
+      status: 'ready',
+      recoverableBytes: 7 * 1024 ** 3,
+      measuredAt: '2026-08-23T12:00:00.000Z',
+    })
+    expect(request).toHaveBeenCalledTimes(1)
+
+    now.mockReturnValue(5 * 60_000 + 1)
+    expect(
+      service.reclaimDiskEstimate(
+        ['/r/.worktrees/a', '/r'],
+        ['/r/.worktrees/a'],
+        asMachineId('local'),
+      ),
+    ).toEqual({
+      status: 'measuring',
+      recoverableBytes: null,
+      measuredAt: null,
+    })
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
+    now.mockRestore()
   })
 })

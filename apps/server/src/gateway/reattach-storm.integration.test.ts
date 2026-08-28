@@ -40,11 +40,18 @@
  * terminated), and on both of the client plane's outbound doors.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type MachineId } from '@podium/model'
-import { CAP_METADATA_DELTA, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import {
+  CAP_METADATA_DELTA,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  decodeBinaryEnvelope,
+  PtyOutputBinaryMetadata,
+  type ServerMessage,
+  WIRE_VERSION,
+} from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
@@ -68,6 +75,12 @@ describe('a daemon reattach storm', () => {
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-reattach-storm-'))
+    // The data plane is intentionally withheld on an unconfigured instance. Seed the
+    // minimal all-in-one config before boot so these real sockets exercise the gateway.
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     handle = await startServer({ port: 0 })
     machineId = handle.registry.modules.machines.hostMachineId
@@ -145,6 +158,80 @@ describe('a daemon reattach storm', () => {
       },
     }
   }
+
+  it('sends negotiated PTY output through Bun as a binary WebSocket message', async () => {
+    const ws = new WebSocket('ws://127.0.0.1:' + handle.port + '/client')
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve())
+      ws.once('error', reject)
+    })
+
+    const sessionId = asSessionId(sessionIds[0]!)
+    const attached = new Promise<void>((resolve, reject) => {
+      const onMessage = (raw: import('ws').RawData, isBinary: boolean): void => {
+        if (isBinary) return
+        try {
+          const message = JSON.parse(raw.toString()) as ServerMessage
+          if (message.type !== 'attached' || message.sessionId !== sessionId) return
+          ws.off('message', onMessage)
+          resolve()
+        } catch (error) {
+          reject(error)
+        }
+      }
+      ws.on('message', onMessage)
+    })
+    ws.send(
+      JSON.stringify({
+        type: 'hello',
+        clientId: '',
+        viewport: { cols: 80, rows: 24, dpr: 1 },
+        caps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+      }),
+    )
+    ws.send(JSON.stringify({ type: 'attach', sessionId }))
+    await attached
+
+    const binary = new Promise<Uint8Array>((resolve) => {
+      const onMessage = (raw: import('ws').RawData, isBinary: boolean): void => {
+        if (!isBinary) return
+        ws.off('message', onMessage)
+        resolve(new Uint8Array(raw as Buffer))
+      }
+      ws.on('message', onMessage)
+    })
+    const payload = Buffer.from([0x00, 0xff, 0xe2, 0x82])
+    handle.registry.gateway.routeDaemonFrame(machineId, {
+      type: 'agentFrame',
+      sessionId,
+      seq: 0,
+      data: payload.toString('base64'),
+    })
+
+    const decoded = decodeBinaryEnvelope(await binary, PtyOutputBinaryMetadata)
+    expect(decoded.metadata).toMatchObject({
+      type: 'ptyOutput',
+      sessionId,
+      seq: 0,
+      epoch: 0,
+    })
+    expect(Buffer.from(decoded.payload)).toEqual(payload)
+    ws.close()
+  })
+
+  it('closes only a client connection that sends unnegotiated binary', async () => {
+    const ws = new WebSocket('ws://127.0.0.1:' + handle.port + '/client')
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve())
+      ws.once('error', reject)
+    })
+    const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()))
+    ws.send(Buffer.from([0, 0, 0, 0]))
+    await closed
+    expect(await fetch('http://127.0.0.1:' + handle.port + '/health').then((r) => r.text())).toBe(
+      'ok',
+    )
+  })
 
   it(
     'keeps /health answering, and keeps every client socket alive and fed',

@@ -8,9 +8,14 @@ import {
   runIndexRefreshJob,
   runMemoryBreakdownJob,
 } from './discovery-jobs'
+import {
+  type ReclaimDiskEstimateJobInput,
+  runReclaimDiskEstimateJob,
+} from './reclaim-disk-estimate'
 
 export type WorkerJob =
   | { id: string; kind: 'memoryBreakdown'; input: MemoryBreakdownJobInput }
+  | { id: string; kind: 'reclaimDiskEstimate'; input: ReclaimDiskEstimateJobInput }
   | { id: string; kind: 'indexRefresh'; input: IndexRefreshJobInput }
 export type WorkerResult =
   | { id: string; ok: true; value: unknown }
@@ -31,6 +36,8 @@ if (parentPort) {
     try {
       let value: unknown
       if (job.kind === 'memoryBreakdown') value = runMemoryBreakdownJob(job.input)
+      else if (job.kind === 'reclaimDiskEstimate')
+        value = await runReclaimDiskEstimateJob(job.input)
       else if (job.kind === 'indexRefresh')
         value = await runIndexRefreshJob(job.input, indexCache(job.input.cachePath))
       else throw new Error(`unknown job kind: ${(job as { kind: string }).kind}`)

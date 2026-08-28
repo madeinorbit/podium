@@ -20,7 +20,20 @@
  * and learns to dismiss both.
  */
 
-export type SkewSource = 'boot-digest' | 'dropped-frames'
+/**
+ * `assets-replaced` is the THIRD reporter (POD-2721), and it is about a
+ * different disagreement from the other two. Those two are about the WIRE: this
+ * build cannot read what this server sends. This one is about the BYTES: the
+ * server has swapped the website out from under a page that is still holding
+ * URLs from the build it replaced. The wire can be perfectly fine — in the
+ * incident it was byte-identical — while every chunk this page has not yet
+ * fetched is already gone.
+ *
+ * It shares this surface because it shares the sentence a person needs ("this
+ * page and this server are not the same app; reload") and because two banners
+ * for one class of problem is how people learn to ignore both.
+ */
+export type SkewSource = 'boot-digest' | 'dropped-frames' | 'assets-replaced'
 
 export interface SkewNotice {
   source: SkewSource

@@ -171,6 +171,8 @@ export const BUILD_STAMP_FILE = 'podium-build.json'
 
 /** `<meta name>` the stamp writer injects so the page can read the product version. */
 export const PRODUCT_VERSION_META = 'podium-version'
+/** Source checkout identity carried by the loaded HTML, independent of its display version. */
+export const SOURCE_DIGEST_META = 'podium-source-digest'
 
 /** What {@link BUILD_STAMP_FILE} contains. Every field optional: it is read from
  *  disk, possibly written by an older build, and a reader that assumes a shape

@@ -4,11 +4,15 @@ import {
   classifySkew,
   parseServerVersion,
   type ServerVersion,
+  type SkewVerdict,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
+import { isIterationMode } from '@/lib/iteration-mode'
+import { pageBundleVersion } from '@/lib/logging/build-version'
 import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
+import { askServedAssets, type ServedAssetsAnswer } from '@/lib/served-assets'
 
 /**
  * Wire-version handshake for the web client. A cached PWA shell can outlive a server redeploy
@@ -30,7 +34,10 @@ const log = createLogger('web:version-guard')
 const MAX_RELOADS = 2
 
 /** Result of a version check: matched, a hard-reload was triggered, or the loop guard tripped. */
-export type VersionCheck = 'ok' | 'reloaded' | 'blocked' | 'server-behind'
+export type VersionCheck = 'ok' | 'reloaded' | 'blocked' | 'server-behind' | 'iteration'
+
+/** Re-exported so callers of `checkServedAssets` need only this module. */
+export type { ServedAssetsAnswer }
 
 /**
  * Evict the PWA service worker + every cache, then hard-reload. Best-effort: a failure in
@@ -112,6 +119,32 @@ function clearReloadCounter(): void {
 }
 
 /**
+ * What to say when an iterate page does not match the server it is proxying to.
+ *
+ * NAME THE RIGHT MISMATCH. The common case on a VPS is `schema-skew` — the
+ * installed server was built from an older commit than the branch being
+ * iterated on, so the wire VERSIONS agree and only the schema digest differs.
+ * A message about wire numbers there reads "wire 2 against this bundle's 2",
+ * which is the sentence that sends someone looking for a bug in the numbers.
+ */
+export function iterationSkewMessage(verdict: SkewVerdict): string {
+  const lead = 'ITERATION MODE: this page is the web UI from source'
+  const tail =
+    'Reloading cannot fix it — the fresh bundle is the same source. Release your server-side ' +
+    'changes through a dev release, or keep to UI-only work.'
+  if (verdict === 'schema-skew') {
+    return `${lead}, and the installed server it talks to was built from a different commit, so
+      the two disagree about the wire schema. Some data it sends may not decode. ${tail}`
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+  return `${lead}, and it speaks a ${verdict === 'client-too-new' ? 'newer' : 'older'} wire
+    protocol than the installed server it talks to. ${tail}`
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
  * Fetch the server's `/version` and hard-reload when this cached bundle is out of sync with it:
  * either the bundle predates the server's `minSupportedVersion`, or the two `wireVersion`s differ.
  *
@@ -120,9 +153,15 @@ function clearReloadCounter(): void {
  * - Mismatch persisting after `MAX_RELOADS` reloads AT THE SAME SERVED BUILD → `'blocked'`
  *   (logged), no reload, so a broken deploy can't spin the tab in an endless reload loop. A
  *   server that starts serving a different build resets the budget (POD-2253).
+ * - Mismatch in ITERATION MODE → `'iteration'`, never a reload: the page is source and the
+ *   fresh bundle would be the same source (POD-2513).
  * - Network / parse error → `'ok'` (never block the app on a flaky `/version`).
  */
-export async function checkServerVersion(httpOrigin: string): Promise<VersionCheck> {
+export async function checkServerVersion(
+  httpOrigin: string,
+  /** Injected for the test; production reads the build define. */
+  iterating: boolean = isIterationMode(),
+): Promise<VersionCheck> {
   let server: ReturnType<typeof parseServerVersion>
   try {
     const res = await fetch(`${httpOrigin}/version`)
@@ -139,6 +178,24 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
     // be describing a problem that no longer exists.
     clearReloadBudgetNote()
     return 'ok'
+  }
+
+  /**
+   * ITERATION MODE (POD-2513, spec §7): this page is SOURCE, served by
+   * `bun run iterate` in front of the installed server. A mismatch here is the
+   * expected state of any branch that has touched the protocol, and it is the
+   * one mismatch a reload provably cannot fix — the fresh bundle is the same
+   * source. Reloading would burn both attempts and then report the SERVED build
+   * as stale, which is the wrong diagnosis about the wrong build. Say what is
+   * actually true and leave the budget untouched, so a tab that later loads the
+   * installed app starts with a full one.
+   *
+   * The check sits after the `ok` branch on purpose: a matching iterate page is
+   * simply fine, and nothing about this mode should suppress that.
+   */
+  if (iterating) {
+    reportSkew({ source: 'boot-digest', severe: false, message: iterationSkewMessage(verdict) })
+    return 'iteration'
   }
 
   /**
@@ -209,6 +266,107 @@ export async function checkServerVersion(httpOrigin: string): Promise<VersionChe
   await forceReload()
   return 'reloaded'
 }
+
+/**
+ * THE SENTENCE A PAGE IS OWED BEFORE ITS ASSETS RUN OUT (POD-2721).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS NOT `checkServerVersion`
+ * ---------------------------------------------------------------------------
+ *
+ * That check is about the WIRE. It asks whether this bundle can still read what
+ * this server sends, and in the incident this exists for the answer was yes: the
+ * wire version and the schema digest were byte-identical across the swap, so it
+ * looked, correctly, at a perfectly compatible pair and said nothing. Meanwhile
+ * every lazy chunk the page had not yet fetched had been deleted from the
+ * server's disk, and the first thing that told the page so was a failed dynamic
+ * import that took the interface down.
+ *
+ * Those are two different disagreements and they need two different checks. This
+ * one compares the entry chunk the page was loaded from against the entry chunk
+ * the server is serving now — see `classifyAssets` — which is the only pair that
+ * answers "are the URLs I am holding still there?".
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT ONLY TELLS
+ * ---------------------------------------------------------------------------
+ *
+ * It never reloads, and it never touches the wire guard's reload budget.
+ *
+ * A page in this state is not broken; it is INCOMPLETE. Everything already
+ * loaded still works and the socket has reconnected, so taking the tab away
+ * would discard a half-written message to solve a problem the person may not
+ * meet for an hour. And an automatic action is the one ingredient POD-2608's
+ * unclearable reload loop required — a banner cannot loop, because a render is
+ * not an attempt.
+ *
+ * The escalation belongs where the cost changes: once a chunk really does fail,
+ * the page is already showing a crash screen with nothing left to lose, and
+ * THERE the reload is the primary button (see `AppErrorPage`). Quiet while it
+ * costs nothing; one click exactly when it costs something.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT ASKS `/version` RATHER THAN THE PAGE'S OWN STAMP
+ * ---------------------------------------------------------------------------
+ *
+ * A page cannot answer this from anything it fetches for itself: `/podium-build.json`
+ * returns whatever is on disk NOW, which after a swap is the build that replaced
+ * it — the page would be comparing the new build against itself. Only the server
+ * can name the bytes it is currently handing out. The page's half of the pair
+ * comes from its own `<script>` element, which is the one fact about it that no
+ * later swap can move.
+ */
+export async function checkServedAssets(
+  httpOrigin: string,
+  /** Injected for the test; production reads the entry script off this document. */
+  page: string | undefined = pageBundleVersion(),
+): Promise<ServedAssetsAnswer> {
+  const { answer, servedBundle, servedVersion } = await askServedAssets(httpOrigin, page)
+  /**
+   * NOT REACHABLE IS NOT THE SAME AS NOT KNOWN (POD-2762).
+   *
+   * Both used to answer `unknown`, and folding them together cost the
+   * interface: a chunk that failed while the server was mid-restart was
+   * indistinguishable from a chunk that failed for a reason nobody could name,
+   * so both landed on the crash page. They are opposite situations. A server
+   * that ANSWERS and is serving a different build has moved the assets, and the
+   * page should be offered a reload. A server that answers NOTHING has not
+   * moved anything — it is coming back, usually within seconds, and the page
+   * should wait for it.
+   *
+   * An unreachable server still says NOTHING here: `reportSkew` is for a build
+   * disagreement, and a socket that is briefly down is not one. All that
+   * changed is that the caller can now tell the two apart.
+   */
+  if (answer !== 'replaced') return answer
+
+  log.warn('served web bundle has been replaced under this page', {
+    page,
+    served: servedBundle,
+    servedVersion,
+  })
+  reportSkew({
+    source: 'assets-replaced',
+    // Not severe: what has already loaded still works. The wording carries the
+    // whole of the warning, and overstating it here would outrank a genuine
+    // "nothing decodes" notice that deserves the louder banner.
+    severe: false,
+    message: ASSETS_REPLACED_SENTENCE,
+  })
+  return 'replaced'
+}
+
+/**
+ * Direction-neutral on purpose. The incident produced a crash in each direction
+ * — a page from the old build after the update landed, and a page from the new
+ * build after the coordinator rolled back onto the old one 88 seconds later —
+ * so "updated" would be the wrong word half the time. What is always true is
+ * that the two are no longer the same app.
+ */
+export const ASSETS_REPLACED_SENTENCE =
+  'Podium’s server is now serving a different app build than this page is running. ' +
+  'Anything this page has not already loaded will fail. Reload to pick up the build ' +
+  'the server is serving.'
 
 /**
  * THE TAB THAT CANNOT PRESS ITS OWN BUTTON (POD-2253).

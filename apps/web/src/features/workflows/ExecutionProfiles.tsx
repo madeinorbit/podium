@@ -41,6 +41,8 @@ import { CommandButton, Empty, Field } from './workflow-ui'
 const PLACEMENT_WORDS: Record<string, string> = {
   available: 'available',
   unreachable: 'offline — try again later',
+  // POD-2700: a THIRD refusal, not a shade of offline. Nothing to try again for.
+  incapable: 'runs no Podium daemon — it can never execute here',
   unauthorized: 'no access — ask its owner',
   unplaced: 'no machine chosen',
   unknown: 'unknown machine',
@@ -146,13 +148,21 @@ export function ExecutionProfiles({
                 ))}
               </select>
             </Field>
-            {(options.unauthorized.length > 0 || options.unreachable.length > 0) && (
+            {(options.unauthorized.length > 0 ||
+              options.unreachable.length > 0 ||
+              options.incapable.length > 0) && (
               <p className="text-[11px] text-muted-foreground" data-placement-refusals>
                 {options.unauthorized.length > 0 && (
                   <span className="block">
                     {options.unauthorized.length} machine
                     {options.unauthorized.length === 1 ? '' : 's'} not offered — no access; ask the
                     owner.
+                  </span>
+                )}
+                {options.incapable.length > 0 && (
+                  <span className="block">
+                    {options.incapable.length} machine
+                    {options.incapable.length === 1 ? '' : 's'} not offered — runs no Podium daemon.
                   </span>
                 )}
                 {options.unreachable.length > 0 && (

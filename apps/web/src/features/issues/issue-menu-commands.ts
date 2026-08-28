@@ -1,3 +1,4 @@
+import { spawnIssueAgent } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
   asMachineId,
@@ -150,9 +151,7 @@ export function runIssueMenuCommand(
       return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { color })))
     }
     case 'agent':
-      return data.first.worktreePath
-        ? deps.trpc.issues.addSession.mutate(value ? { id, agentKind: value } : { id })
-        : deps.trpc.issues.start.mutate(value ? { id, agentKind: value } : { id })
+      return spawnIssueAgent(deps.trpc.issues, value ? { id, agentKind: value } : { id })
     case 'labels':
       return Promise.all(
         toggleLabelAcross(data.issues, value).map((patch) =>

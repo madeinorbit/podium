@@ -128,8 +128,9 @@ export function panelSurface(input: {
  * gate being asked about it.
  */
 export interface PanelGates {
-  /** The PTY may attach. True for a warm, HIDDEN panel too — that is the point
-   *  of the warm set: switching back catches up instead of re-attaching. */
+  /** The PTY may attach or remain attached. AgentPanel combines this with its
+   *  one-way runtime request, so an initial chat surface stays renderer-free
+   *  while a terminal loaded earlier remains warm. */
   readonly terminalMounted: boolean
   /**
    * The native pane's DOM exists at all — the terminal container, its startup

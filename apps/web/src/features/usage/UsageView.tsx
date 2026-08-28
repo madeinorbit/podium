@@ -16,6 +16,9 @@ import {
 import { type CSSProperties, type JSX, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import { useStoreSelector } from '@/app/store'
+import { QuotaLedger } from './QuotaLedger'
+import { Unfilled } from './Unfilled'
+import { type QuotaLedgerFeed, useQuotaLedger } from './useQuotaLedger'
 import { formatClock, type UsageFeed, useArrived, useUsageFeed } from './useUsageFeed'
 
 /**
@@ -51,6 +54,7 @@ import { formatClock, type UsageFeed, useArrived, useUsageFeed } from './useUsag
 export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const feed = useUsageFeed(trpc)
+  const ledger = useQuotaLedger(trpc)
   const cold = feed.buckets === null
   const arrived = useArrived(!cold)
   const summary = usageSummary(feed.buckets ?? [], Date.now())
@@ -69,9 +73,26 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
       {cold && feed.failed ? (
         <UsageUnreachable onRetry={feed.retry} />
       ) : feed.buckets?.length === 0 ? (
-        <div className="usage-empty">No token usage recorded yet.</div>
+        /* THIS BRANCH MUST NOT CONSULT THE LEDGER. It is decided on the first
+           paint, when the ledger read is still in flight — so a condition
+           involving it reads "no strips" from a null answer, paints this message,
+           and then swaps to the full body a poll later. That is exactly the
+           resize-on-arrival the sheet promises not to do. The ledger renders
+           inside the empty state instead, so an operator who did not code this
+           week still sees their window history rather than losing it to a message
+           about tokens. */
+        <div className="usage-body usage-body-empty">
+          <div className="usage-empty">No token usage recorded yet.</div>
+          <QuotaLedger ledger={ledger.ledger} cold={ledger.ledger === null} feed={ledger} />
+        </div>
       ) : (
-        <UsageBody feed={feed} summary={summary} cold={cold} arrived={arrived} />
+        <UsageBody
+          feed={feed}
+          ledger={ledger}
+          summary={summary}
+          cold={cold}
+          arrived={arrived}
+        />
       )}
     </AppSheet>
   )
@@ -127,11 +148,13 @@ function UsageUnreachable({ onRetry }: { onRetry: () => void }): JSX.Element {
 
 function UsageBody({
   feed,
+  ledger,
   summary,
   cold,
   arrived,
 }: {
   feed: UsageFeed
+  ledger: QuotaLedgerFeed
   summary: UsageSummaryView
   cold: boolean
   arrived: boolean
@@ -169,6 +192,7 @@ function UsageBody({
         <UsageTrace summary={summary} cold={cold} arrived={arrived} />
         <UsageComposition summary={summary} cold={cold} />
         <UsageModels summary={summary} cold={cold} />
+        <QuotaLedger ledger={ledger.ledger} cold={ledger.ledger === null} feed={ledger} />
       </div>
       <UsageProvenance summary={summary} cold={cold} />
     </div>
@@ -761,6 +785,3 @@ function UsageModels({ summary, cold }: { summary: UsageSummaryView; cold: boole
  * standing in for content and belongs to a different kind of product; and not a
  * `0` or an `—`, both of which are claims about the number.
  */
-function Unfilled({ ch }: { ch: number }): JSX.Element {
-  return <span className="usage-unfilled" style={{ width: `${ch}ch` }} aria-hidden="true" />
-}

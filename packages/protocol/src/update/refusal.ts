@@ -60,6 +60,20 @@
  */
 
 /**
+ * An authenticated artifact endpoint keeps its fail-closed HTTP disposition
+ * while carrying the narrower reason to the downloader in this header. The
+ * value is deliberately closed: an ordinary 404, a stale version, and an
+ * unavailable origin must not be promoted into a security finding.
+ */
+export const UPDATE_ARTIFACT_REFUSAL_HEADER = 'x-podium-update-artifact-refusal'
+
+/**
+ * The publishing server re-read stored bytes and found that they no longer
+ * match the digest recorded when the release was published.
+ */
+export const UPDATE_ARTIFACT_INTEGRITY_REFUSAL = 'integrity-failed'
+
+/**
  * What an operator is being told, and therefore what copy is owed.
  *
  * Open at the wire (a newer server may send a code this bundle predates, and
@@ -69,10 +83,24 @@
 export type MachineFailureCode =
   /** The machine's checkout is not clean, so git delivery would not be safe. */
   | 'machine-dirty-checkout'
-  /** No artifact this machine can use: wrong platform, or no offered delivery. */
+  /** No artifact this machine can use: no offered delivery, or none at all. */
   | 'machine-unsupported'
+  /**
+   * THE RELEASE PREDATES THE MACHINE (POD-2783).
+   *
+   * A dev target's platform list is built from the fleet AT MINT TIME, so a
+   * machine that enrolled afterwards is not in it and never will be — the
+   * release is immutable. Its own code because the remedy is the opposite of
+   * every other refusal's: there is nothing to fix, nothing to retry, and the
+   * next release built carries this platform.
+   */
+  | 'machine-platform-absent'
+  /** Podium publishes no package for that platform at all, so no release will. */
+  | 'machine-platform-unpublished'
   /** The machine went quiet. THE ONLY MEMBER THAT MEANS "NOT ANSWERING". */
   | 'machine-unreachable'
+  /** A live participant reported an unexpected local error while applying the update. */
+  | 'machine-update-failed'
   /** Server and daemon share one PID with nothing to restart it (POD-2210). */
   | 'machine-cannot-restart'
   /** Its database has applied a migration the target does not define. */
@@ -87,6 +115,8 @@ export type MachineFailureCode =
   | 'machine-delivery-unavailable'
   /** The package failed digest or signature verification and was refused. */
   | 'machine-artifact-rejected'
+  /** This machine cannot reach the address embedded in the published release. */
+  | 'artifact-unreachable'
   /** It restarted but did not come back on the target version. */
   | 'machine-update-not-confirmed'
   /** The server retracted the target while this machine was mid-flight. */
@@ -194,7 +224,9 @@ const UPDATE_FAILURE_MATCHERS = [
     token: 'dirty-working-tree',
     pattern: /dirty[-_\s]working[-_\s]tree|local (?:files|edits)|uncommitted/i,
     code: 'machine-dirty-checkout',
-    example: 'git delivery failed: dirty-working-tree',
+    example:
+      'The source checkout has 2 uncommitted changes and no longer matches HEAD (aaaaaaa). ' +
+      'Commit or stash them to publish dev+aaaaaaa.',
   },
 
   // --- what the convergence planner refused --------------------------------
@@ -210,11 +242,28 @@ const UPDATE_FAILURE_MATCHERS = [
     code: 'machine-unsupported',
     example: 'cannot converge: unsupported-delivery',
   },
+  /**
+   * THE TWO PLATFORM REFUSALS (POD-2783), which wore one token until a human
+   * connected a Mac to a Linux-only fleet and was sent to an operator who had
+   * nothing to fix. `platform-not-published` leads because it is the narrower
+   * claim; the two sentences do not overlap, and keeping them adjacent is what
+   * makes that reviewable.
+   */
+  {
+    token: 'platform-not-published',
+    pattern: /platform[-_\s]not[-_\s]published/i,
+    code: 'machine-platform-unpublished',
+    example:
+      'cannot converge: platform-not-published — Podium publishes no package for ' +
+      'windows-x86_64, so 0.1.5 contains none and no later release will.',
+  },
   {
     token: 'unsupported-platform',
     pattern: /unsupported[-_\s]platform/i,
-    code: 'machine-unsupported',
-    example: 'cannot converge: unsupported-platform',
+    code: 'machine-platform-absent',
+    example:
+      'cannot converge: unsupported-platform — 0.1.5 contains no package for darwin-aarch64. ' +
+      'It was built for linux-x86_64.',
   },
 
   // --- what a git delivery step said ---------------------------------------
@@ -277,10 +326,21 @@ const UPDATE_FAILURE_MATCHERS = [
   },
   {
     token: 'delivery-misconfigured',
+    /**
+     * The first two alternatives are RETIRED PRODUCERS kept for daemons that
+     * predate the delivery-kind retirement (see {@link RETIRED_PRODUCER_TOKENS}).
+     * The live producers are the last two, in `update-delivery.ts`.
+     */
     pattern:
-      /(?:git delivery requires a configured checkout runner|platform delivery requires an artifact URL|bundle delivery requires the server update key)/i,
+      /(?:git delivery requires a configured checkout runner|platform delivery requires an artifact URL|bundle delivery requires the server update key|feed delivery requires an artifact URL|this target requires the server update key)/i,
     code: 'machine-delivery-unavailable',
-    example: 'git delivery requires a configured checkout runner',
+    example: 'feed delivery requires an artifact URL',
+  },
+  {
+    token: 'artifact-address-unreachable',
+    pattern: /^artifact address unreachable:/i,
+    code: 'artifact-unreachable',
+    example: 'artifact address unreachable: https://missing.example/a.tgz — ECONNREFUSED',
   },
   {
     token: 'download-http-status',
@@ -358,6 +418,32 @@ export const UPDATE_FAILURE_EXAMPLES = Object.fromEntries(
 ) as Record<UpdateFailureToken, string>
 
 /**
+ * TOKENS THAT OUTLIVED THEIR PRODUCER, named rather than left to drift.
+ *
+ * The `git` and `bundle` delivery kinds were retired when `dev` became a pulled
+ * feed (spec §1, disposition 5), so nothing in THIS build writes these
+ * sentences any more. The rows stay because the wire is older than the build:
+ * a fleet machine still running a daemon from before the retirement can report
+ * one, and dropping the pattern would send that refusal straight back into
+ * `machine-unreachable` — the exact defect this whole table exists to prevent.
+ *
+ * Listed here so the honesty check in `apps/daemon/src/refusal-tokens.test.ts`
+ * stays a ratchet. That test drives every token from a REAL constructor; a
+ * token with no producer would otherwise have to be quietly excused, and an
+ * excuse with no register is how a table fills up with patterns matching
+ * nothing. Anything added here is a deliberate, reviewable claim that the only
+ * producer left is an older peer.
+ */
+export const RETIRED_PRODUCER_TOKENS: readonly UpdateFailureToken[] = [
+  'invalid-git-reference',
+  'git-status-failed',
+  'git-fetch-failed',
+  'git-checkout-failed',
+  'git-timed-out',
+  'git-cancelled',
+]
+
+/**
  * Which token a `detail` sentence carries, or `undefined` when it carries none.
  *
  * `undefined` is a real answer and not a failure: a machine can report free
@@ -379,14 +465,15 @@ export function matchUpdateFailureToken(
 /**
  * The code a `detail` sentence resolves to.
  *
- * UNRECOGNIZED FALLS TO `machine-unreachable`, STILL — because for the one
- * remaining case that reaches here unnamed (a machine that said nothing at all
- * before its clock ran out) that is the honest answer, and the alternative is a
- * generic "could not finish" that tells the operator nothing about where to
- * look. What changed in POD-2241 is that it is no longer the answer for eleven
- * sentences that said something precise.
+ * ABSENT DETAIL means `machine-unreachable`: the machine said nothing before
+ * its clock ran out. Non-empty unrecognized detail is the opposite — a live
+ * participant reported an error this version does not know how to classify.
+ * Preserve it as `machine-update-failed`; relabelling an errno as connectivity
+ * sends the operator to debug a machine that demonstrably answered.
  */
 export function classifyUpdateFailureDetail(detail: string | undefined): MachineFailureCode {
-  const token = matchUpdateFailureToken(detail)
-  return token === undefined ? 'machine-unreachable' : CODE_FOR_UPDATE_FAILURE_TOKEN[token]
+  const normalized = detail?.trim()
+  if (!normalized) return 'machine-unreachable'
+  const token = matchUpdateFailureToken(normalized)
+  return token === undefined ? 'machine-update-failed' : CODE_FOR_UPDATE_FAILURE_TOKEN[token]
 }

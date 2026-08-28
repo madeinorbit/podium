@@ -24,12 +24,12 @@
  * When the row is retuned again, those move with it and the ghost follows for
  * free — which is the only way this stays true.
  *
- * THE BAND NAMES THE PROJECT. `WORK IN PODIUM`, not `WORK`: on an empty list
- * the band is the only thing on screen saying WHICH project is empty, and it
- * kills the "is this still loading, or am I pointed at the wrong repo?" doubt
- * that a bare heading leaves open. The string is the repo name the spawn row
- * directly above it already shows, so the two cannot disagree; with no repo
- * resolved it falls back to plain `WORK`. It is a STATIC band — there is
+ * THE BAND NAMES NOTHING, BECAUSE THERE IS NOTHING TO NAME (POD-1469). It used
+ * to read `WORK IN PODIUM` — the repo the spawn row above it was pointed at —
+ * because an empty column left the operator wondering which project they were
+ * looking at. Every project in the fleet now draws its own band, so by the time
+ * this surface renders there is no project to name: it is the no-repos state,
+ * and `Add repository` sits on the line above it. It is a STATIC band — there is
  * nothing under it to fold, so it takes the shape and the ground but not the
  * chevron.
  *
@@ -40,7 +40,6 @@
 import type { JSX } from 'react'
 import { GhostBar, GhostPreview } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
-import { useDefaultSpawn } from './spawn-row'
 import { ID_GUTTER_W, META_COL_W } from './WorkRowShell'
 import { SECTION_BAND_CLASS, SECTION_BAND_LABEL_CLASS } from './work-folds'
 
@@ -111,15 +110,16 @@ function GhostWorkRow({
 }
 
 export function WorkListEmpty(): JSX.Element {
-  // Read only for the band's project name. `bindChord: false` — the spawn row
-  // above this one owns ⌘N, and two mounted owners spawn two agents from one
-  // press.
-  const { defaultTarget } = useDefaultSpawn(undefined, { bindChord: false })
-  const project = defaultTarget?.repoName
+  // NO PROJECT NAME LEFT TO SHOW (POD-1469). This surface used to read the
+  // spawn row's default target to write `WORK IN PODIUM` — but a project in the
+  // fleet now draws its OWN band with `Start first task` under it, so the only
+  // state that still reaches here is the one with no project at all. `WORK` is
+  // then the honest heading, and the door out is `Add repository` on the line
+  // directly above.
   return (
     <>
       <div className={SECTION_BAND_CLASS} data-testid="work-empty-band">
-        <span className={SECTION_BAND_LABEL_CLASS}>{project ? `Work in ${project}` : 'Work'}</span>
+        <span className={SECTION_BAND_LABEL_CLASS}>Work</span>
         <span className="shell-type-micro flex-none font-mono tabular-nums text-muted-foreground">
           0
         </span>

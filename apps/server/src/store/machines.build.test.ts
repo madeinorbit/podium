@@ -31,14 +31,14 @@ describe('machine build report', () => {
     store.machines.setMachineBuild(
       'm1',
       { appVersion: '0.4.2', wireSchemaDigest: 'abc', installKind: 'installed' },
-      ['update.delivery.feed', 'update.delivery.bundle'],
+      ['update.delivery.feed', 'podium.shipping-train'],
       '2026-08-04T00:00:00.000Z',
     )
     const m = store.machines.getMachine('m1')
     expect(m?.appVersion).toBe('0.4.2')
     expect(m?.wireSchemaDigest).toBe('abc')
     expect(m?.installKind).toBe('installed')
-    expect(m?.deliveryCaps).toEqual(['update.delivery.feed', 'update.delivery.bundle'])
+    expect(m?.deliveryCaps).toEqual(['update.delivery.feed', 'podium.shipping-train'])
     store.close()
   })
 

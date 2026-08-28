@@ -51,6 +51,8 @@ export interface PanelArbitration {
   /** The effective chat-vs-native pick. Meaningful only while live, but reported
    *  unconditionally because viewState carries it for every visible session. */
   readonly mode: PanelMode
+  /** True once the effective mode no longer depends on the settings request. */
+  readonly modeSettled: boolean
   readonly chatCapable: boolean
   /** Three-valued "does this session have a terminal" — `unknown` until the
    *  daemon has said. The panel needs the third value to tell an honest wait
@@ -92,15 +94,22 @@ export function usePanelSurface(input: {
   // Fetch the startScreen setting once; default to 'native' while loading. This
   // drives the configurable default mode for sessions the user has never toggled.
   const [startScreen, setStartScreen] = useState<'native' | 'chat' | 'auto'>('native')
+  const [startScreenSettled, setStartScreenSettled] = useState(false)
   useEffect(() => {
+    let cancelled = false
     trpc.settings.get
       .query()
       .then((s) => {
+        if (cancelled) return
         setStartScreen(s.roles.coding.startScreen)
+        setStartScreenSettled(true)
       })
       .catch(() => {
-        /* keep default */
+        if (!cancelled) setStartScreenSettled(true)
       })
+    return () => {
+      cancelled = true
+    }
   }, [trpc])
 
   // Per-session mode is restored from the store (persisted via ui-state) so a
@@ -111,6 +120,7 @@ export function usePanelSurface(input: {
   // the modeled, persisted and reported mode the same value.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
   const savedMode = panelMode[sessionId]
+  const deviceDefault = uiState.get(PANEL_MODE_DEFAULT_KEY)
   // A login failure is only actionable in the native terminal, where the user
   // can run the agent's login command. Force that surface transiently; do not
   // persist the forced mode over the user's chat preference.
@@ -124,21 +134,36 @@ export function usePanelSurface(input: {
         terminalCapable,
         serverFamily: session?.driverFamily === 'server',
         saved: savedMode,
-        deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
+        deviceDefault,
       })
+  // Shells cannot show chat, and explicit per-session/device choices are already
+  // authoritative. Fresh chat-capable sessions wait for the setting request so
+  // the provisional native fallback cannot pull xterm into a chat-first load.
+  //
+  // A forced login surface is settled by the same rule: the mode is not a
+  // provisional fallback there, it is the one surface the failure is actionable
+  // on, so it must not wait on a setting it will ignore.
+  const modeSettled =
+    loginRequired ||
+    !chatCapable ||
+    savedMode !== undefined ||
+    deviceDefault === 'chat' ||
+    deviceDefault === 'native' ||
+    startScreenSettled
   // Effects can run after a newer render has already handled a user click. Read
   // the current saved value at effect time so the initial materialization cannot
   // write the mode captured by an older render back over that pick.
   const savedModeRef = useRef(savedMode)
   savedModeRef.current = savedMode
   useEffect(() => {
+    if (!modeSettled) return
     // An explicit per-session choice is already durable. Rewriting it from the
     // derived fallback creates a stale writer when a warm/hidden panel mounts
     // while another panel is being switched.
     if (savedModeRef.current !== undefined) return
     if (loginRequired) return
     setPanelMode(sessionId, mode)
-  }, [sessionId, mode, loginRequired, setPanelMode])
+  }, [sessionId, mode, loginRequired, modeSettled, setPanelMode])
 
   const pickMode = (m: PanelMode): void => {
     // Persist the per-session override in the store (#35)…
@@ -200,5 +225,5 @@ export function usePanelSurface(input: {
   })
   if (gates.modeSwitchOffered) switchOfferedRef.current.offered = true
 
-  return { surface, gates, mode, chatCapable, terminalOutlook: terminal, pickMode }
+  return { surface, gates, mode, modeSettled, chatCapable, terminalOutlook: terminal, pickMode }
 }

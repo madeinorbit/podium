@@ -35,6 +35,7 @@ export function PropertyMenu({
   onSelect,
   allowFreeText = false,
   placeholder = 'Filter…',
+  footnote,
 }: {
   trigger: ReactNode
   options: PropertyOption[]
@@ -42,6 +43,15 @@ export function PropertyMenu({
   onSelect: (value: string) => void
   allowFreeText?: boolean
   placeholder?: string
+  /**
+   * A line under the options saying what is NOT in them, and why (POD-2700).
+   *
+   * A machine picker that silently drops the rows that cannot do the job is
+   * indistinguishable from a broken filter — which is how an operator ended up
+   * staring at a menu with one useless entry and no explanation. The menu states
+   * its case here instead of shrinking without comment.
+   */
+  footnote?: string
 }): JSX.Element {
   const [query, setQuery] = useState('')
   const filtered = filterPropertyOptions(options, query)
@@ -93,6 +103,9 @@ export function PropertyMenu({
             Use “{query.trim()}”
           </DropdownMenuItem>
         )}
+        {footnote ? (
+          <p className="px-2 pt-1.5 pb-1 text-[10.5px] leading-snug text-text-faint">{footnote}</p>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )

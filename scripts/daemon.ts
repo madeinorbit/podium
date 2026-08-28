@@ -5,13 +5,9 @@
  * with backoff, so it can start before the server is ready and survive a server restart
  * without dropping running agents (the abduco masters live in their own systemd scopes).
  *
- * Runs on Node (tsx) today:
- *   node_modules/.bin/tsx --conditions=@podium/source scripts/daemon.ts
- * It also boots under Bun:
+ * Runs under Bun:
  *   bun --conditions=@podium/source scripts/daemon.ts
- * The PTY backend is selected at runtime (@podium/harness): node-pty under Node,
- * Bun.Terminal under Bun — so the native addon is never loaded on Bun, and persistence
- * uses node:sqlite/bun:sqlite accordingly. (Default deployment is still Node.)
+ * Agent PTYs use Bun.Terminal and persistence uses bun:sqlite.
  *
  * Boot/shutdown semantics live in the shared kernel (@podium/runtime/boot): crash net
  * first, boot watchdog (the split daemon is where the real boot-wedge risk lives —

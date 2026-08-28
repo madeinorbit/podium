@@ -74,9 +74,72 @@ describe('claudeRecordToItems', () => {
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({
       role: 'user',
-      text: '[Image #1]does this look right?',
+      text: 'does this look right?',
       toolPaths: ['/home/u/.podium/uploads/s1/abc.png'],
       tags: [{ kind: 'image', label: 'abc.png' }],
+    })
+  })
+
+  it('strips the bare [Image #N] placeholder that sits ahead of the prompt', () => {
+    // POD-1605: the placeholder carries no path, so path harvesting left it in
+    // place and every pasted screenshot showed a literal "[Image #1]" glued to
+    // the front of the message. Two images means two placeholders, and the
+    // numbered source form must still win the paths.
+    const items = claudeRecordToItems({
+      type: 'user',
+      uuid: 'u9',
+      timestamp: '2026-06-12T10:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'BBBB' } },
+          {
+            type: 'text',
+            text:
+              '[Image #1][Image #2]compare these\n' +
+              '[Image #1: source: /home/u/.podium/uploads/s1/a.png]\n' +
+              '[Image #2: source: /home/u/.podium/uploads/s1/b.png]',
+          },
+        ],
+      },
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      role: 'user',
+      text: 'compare these',
+      toolPaths: ['/home/u/.podium/uploads/s1/a.png', '/home/u/.podium/uploads/s1/b.png'],
+      tags: [
+        { kind: 'image', label: 'a.png' },
+        { kind: 'image', label: 'b.png' },
+      ],
+    })
+  })
+
+  it('keeps a placeholder-only turn as a text-less media item', () => {
+    // The human pasted a screenshot and typed nothing. Stripping both markers
+    // empties the text — the item must survive on its tags, not vanish.
+    const items = claudeRecordToItems({
+      type: 'user',
+      uuid: 'u10',
+      timestamp: '2026-06-12T10:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          {
+            type: 'text',
+            text: '[Image #1]\n[Image: source: /home/u/.podium/uploads/s1/only.png]',
+          },
+        ],
+      },
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      role: 'user',
+      text: '',
+      toolPaths: ['/home/u/.podium/uploads/s1/only.png'],
+      tags: [{ kind: 'image', label: 'only.png' }],
     })
   })
 
@@ -641,6 +704,108 @@ describe('claudeRecordToItems toolPaths', () => {
     ).toEqual([])
     // 'file' without a filename is not renderable either.
     expect(claudeRecordToItems({ type: 'attachment', attachment: { type: 'file' } })).toEqual([])
+  })
+
+  // THE MID-TURN PROMPT (POD-1468). A message typed while the agent is working
+  // is taken as queued input and folded into the running turn, so it is written
+  // ONLY as a queued_command attachment — never as a type:'user' record. This
+  // branch dropped it, which left the feed showing answers with no question, and
+  // left the chat's optimistic bubble stuck below those answers (it retires on a
+  // matching user item, and none ever came).
+  it('renders a human queued_command as the user turn it is', () => {
+    const items = claudeRecordToItems({
+      type: 'attachment',
+      uuid: 'c0b7ca65',
+      timestamp: '2026-08-21T14:04:01.755Z',
+      attachment: {
+        type: 'queued_command',
+        prompt: 'Is there any drawback to this change?',
+        commandMode: 'prompt',
+        origin: { kind: 'human' },
+        timestamp: '2026-08-21T14:03:51.441Z',
+      },
+    })
+    expect(items).toEqual([
+      {
+        id: 'c0b7ca65',
+        role: 'user',
+        // The ENQUEUE time, not the moment the turn swallowed it — this is what
+        // sorts the question back above the answer it caused.
+        ts: '2026-08-21T14:03:51.441Z',
+        text: 'Is there any drawback to this change?',
+      },
+    ])
+  })
+
+  // Nine in ten queued_command records are these: the harness waking the agent
+  // with a background-task result. Same drop the promptSource:'system' turns get.
+  it('drops a task-notification queued_command (harness wakeup, not a prompt)', () => {
+    expect(
+      claudeRecordToItems({
+        type: 'attachment',
+        attachment: {
+          type: 'queued_command',
+          prompt: '<task-notification><task-id>bdn4</task-id></task-notification>',
+          commandMode: 'task-notification',
+          timestamp: '2026-08-21T14:03:51.441Z',
+        },
+      }),
+    ).toEqual([])
+  })
+
+  // A peer session's cross-session message is real, but it is not the operator;
+  // rendering it as a "You" bubble would say it was.
+  it('drops a queued_command from a non-human origin', () => {
+    expect(
+      claudeRecordToItems({
+        type: 'attachment',
+        attachment: {
+          type: 'queued_command',
+          prompt: '<cross-session-message from="uds:/run/…">status?</cross-session-message>',
+          commandMode: 'prompt',
+          origin: { kind: 'peer' },
+        },
+      }),
+    ).toEqual([])
+  })
+
+  // Older transcripts wrote no `origin` at all. By then commandMode has already
+  // excluded the injected kinds, so the prompt is the human's.
+  it('keeps a queued_command with no origin field', () => {
+    const [item] = claudeRecordToItems({
+      type: 'attachment',
+      uuid: 'u9',
+      attachment: { type: 'queued_command', prompt: 'go on', commandMode: 'prompt' },
+    })
+    expect(item?.role).toBe('user')
+    expect(item?.text).toBe('go on')
+  })
+
+  // An image pasted into the composer mid-turn rides in as the same marker text
+  // a normal user turn carries; harvest it rather than print the raw marker.
+  it('harvests image markers out of a queued_command prompt', () => {
+    const [item] = claudeRecordToItems({
+      type: 'attachment',
+      uuid: 'u10',
+      attachment: {
+        type: 'queued_command',
+        prompt: 'look at this\n[Image: source: /up/shot.png]',
+        commandMode: 'prompt',
+        origin: { kind: 'human' },
+      },
+    })
+    expect(item?.text).toBe('look at this')
+    expect(item?.toolPaths).toEqual(['/up/shot.png'])
+    expect(item?.tags).toEqual([{ kind: 'image', label: 'shot.png' }])
+  })
+
+  it('drops a queued_command whose prompt is empty', () => {
+    expect(
+      claudeRecordToItems({
+        type: 'attachment',
+        attachment: { type: 'queued_command', prompt: '   ', commandMode: 'prompt' },
+      }),
+    ).toEqual([])
   })
 
   // Duplicate-key guard: two 'file' attachment records for the SAME path (a

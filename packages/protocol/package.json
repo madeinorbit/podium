@@ -19,6 +19,11 @@
       "types": "./dist/daemon.d.ts",
       "import": "./dist/daemon.js"
     },
+    "./update-dev-version": {
+      "@podium/source": "./src/update/dev-version.ts",
+      "types": "./dist/update/dev-version.d.ts",
+      "import": "./dist/update/dev-version.js"
+    },
     "./update-refusal": {
       "@podium/source": "./src/update/refusal.ts",
       "types": "./dist/update/refusal.d.ts",
@@ -45,6 +50,7 @@
   },
   "devDependencies": {
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "5.0.0-beta.6"
   }
 }

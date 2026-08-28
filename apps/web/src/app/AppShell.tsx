@@ -1,13 +1,13 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useReducedMotion } from 'motion/react'
+import { selectedMissionRoot } from '@podium/client-core/viewmodels'
+import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
-import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { WaitingForServer } from '@/components/WaitingForServer'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import {
   hasActivationState,
@@ -15,23 +15,41 @@ import {
   shouldStartRemoteClientAtHandoff,
 } from '@/features/setup/activation-route'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
+import { SetupGate } from '@/features/setup/SetupGate'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
-import { recoverFromWireSkew } from '@/features/setup/version-guard'
+import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
+import { loadAgentPanel } from '@/features/terminal/AgentPanelLazy'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
-import { SidebarRail } from '@/features/worklist/SidebarRail'
+import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
+import {
+  COLUMN_FOLD_EASE,
+  COLUMN_FOLD_MS,
+  ResizableAside,
+  ResizableColumn,
+  SIDEBAR_RAIL_WIDTH,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_KEY,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+} from '@/features/worklist/sidebar-common'
+import { useColumnFold } from '@/features/worklist/use-column-fold'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import type { KernelAssembly } from '@/lib/kernelReplica'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { onReconnect } from '@/lib/on-reconnect'
+import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
-import { useKernelReplica } from '@/lib/use-kernel-replica'
+import { useFileDropGuard } from '@/lib/use-file-drop-guard'
+import { type AuthBootstrap, useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
@@ -69,35 +87,80 @@ import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
 
+/**
+ * EVERY LAZY SURFACE GOES THROUGH `throughRestarts` (POD-2762).
+ *
+ * The incident was Settings, and nothing about it was about Settings: any chunk
+ * fetched after first paint can be asked for during the seconds a server is
+ * handing over, and every one of them took the interface down when it was. So
+ * the wrapper goes on all of them rather than on the one that happened to be
+ * clicked, and it is deliberately shaped to leave these declarations reading
+ * the way they always did.
+ */
 // The app lands on the work list. Loading Workspace here used to pull the chat,
 // terminal and editor stack into first paint before a workspace was selected.
 const Workspace = lazy(() =>
-  import('./Workspace').then((module) => ({ default: module.Workspace })),
+  throughRestarts(() => import('./Workspace')).then((module) => ({ default: module.Workspace })),
 )
 const SettingsView = lazy(() =>
-  import('@/features/settings/SettingsView').then((module) => ({ default: module.SettingsView })),
+  throughRestarts(() => import('@/features/settings/SettingsView')).then((module) => ({
+    default: module.SettingsView,
+  })),
 )
 const UsageView = lazy(() =>
-  import('@/features/usage/UsageView').then((module) => ({ default: module.UsageView })),
+  throughRestarts(() => import('@/features/usage/UsageView')).then((module) => ({
+    default: module.UsageView,
+  })),
 )
 // FlightDeck already unmounts when folded. Deferring its module in exactly that
 // state changes no subscriptions or retained component state.
 const FlightDeck = lazy(() =>
-  import('./FlightDeck').then((module) => ({ default: module.FlightDeck })),
+  throughRestarts(() => import('./FlightDeck')).then((module) => ({ default: module.FlightDeck })),
 )
 const OnboardingWizard = lazy(() =>
-  import('@/features/setup/OnboardingWizard').then((module) => ({
+  throughRestarts(() => import('@/features/setup/OnboardingWizard')).then((module) => ({
     default: module.OnboardingWizard,
   })),
 )
 const ApprovalDialog = lazy(() =>
-  import('./ApprovalDialog').then((module) => ({ default: module.ApprovalDialog })),
+  throughRestarts(() => import('./ApprovalDialog')).then((module) => ({
+    default: module.ApprovalDialog,
+  })),
 )
 const AutoContinueDialog = lazy(() =>
-  import('./AutoContinueDialog').then((module) => ({ default: module.AutoContinueDialog })),
+  throughRestarts(() => import('./AutoContinueDialog')).then((module) => ({
+    default: module.AutoContinueDialog,
+  })),
+)
+/**
+ * THE HOVER PREVIEW IS A GESTURE SURFACE, and it was the eager graph's single
+ * largest leaf that no first paint can reach (POD-2730).
+ *
+ * `RefMiniviewHost` renders `null` until a ref is hovered — its own call site
+ * below says so — and `RefPrefixSync` renders `null` always. Neither can put a
+ * pixel on the first frame. Between them they were dragging 134,542 bytes of
+ * eager source in, and only 34,904 of that is this app's code: the card mounts
+ * a `<Select>`, and `@base-ui/react`'s select is 27 modules and ~90 KB that
+ * nothing else on the first paint uses.
+ *
+ * Deferred the way every other gesture surface here is (see
+ * INTERACTION_ONLY_MODULES in scripts/web-bundle-budget.ts, which now fails the
+ * build by name if this comes back eager). The first hover pays one chunk
+ * fetch; `prefetchAfterFirstPaint` below spends the idle time after the shell
+ * mounts so that in practice it has already arrived.
+ */
+const RefMiniviewHost = lazy(() =>
+  throughRestarts(() => import('@/components/RefMiniview')).then((module) => ({
+    default: module.RefMiniviewHost,
+  })),
+)
+const RefPrefixSync = lazy(() =>
+  throughRestarts(() => import('@/components/RefMiniview')).then((module) => ({
+    default: module.RefPrefixSync,
+  })),
 )
 function RouteFallback(): JSX.Element {
-  return <div className="flex min-h-0 min-w-0 flex-1" aria-hidden="true" />
+  return <WaitingForServer className="flex min-h-0 min-w-0 flex-1" />
 }
 
 function SheetFallback({
@@ -113,7 +176,9 @@ function SheetFallback({
 }): JSX.Element {
   return (
     <AppSheet label={label} title={title} onClose={onClose} className={className}>
-      <div className="min-h-0 flex-1" aria-hidden="true" />
+      {/* The sheet chrome is already up, so this is the one place the operator
+          is looking when a restart eats the chunk behind it (POD-2762). */}
+      <WaitingForServer className="flex min-h-0 flex-1" />
     </AppSheet>
   )
 }
@@ -154,16 +219,48 @@ function KernelHubAttach({
       }),
     [hub, httpOrigin],
   )
+  /**
+   * THE MOMENT THE ASSETS CAN HAVE MOVED (POD-2721).
+   *
+   * A server cannot swap the website it serves without going away and coming
+   * back, so a socket that dropped and reconnected is the exact — and only —
+   * instant worth re-asking "am I still the app you are serving?". That makes
+   * this free: no polling, no timer, one `/version` read per genuine outage.
+   *
+   * It is also the answer to the awkward part of this problem, which is that a
+   * page cannot ask the server what to do when the server it was talking to has
+   * just been replaced. It does not have to. It only has to notice that what it
+   * reconnected TO is not what it was loaded FROM, and the reconnect is where
+   * that becomes askable again.
+   *
+   * The "down and back, never merely `ok`" rule is the subtle half, so it lives
+   * in `onReconnect` where it is tested against the sequence the sandbox
+   * actually logged — a socket that closed and was back inside two seconds.
+   */
+  useEffect(
+    () =>
+      onReconnect(hub.onConnectionHealth.bind(hub), () => {
+        void checkServedAssets(httpOrigin)
+      }),
+    [hub, httpOrigin],
+  )
   return null
 }
 
-export function AppShell(): JSX.Element {
+export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
+  // Whole-window, and mounted at the top so it also covers the boot and error
+  // screens — a drag released over a loading app would navigate it away too.
+  useFileDropGuard()
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
-  const kernel = useKernelReplica({ trpc: gateTrpc, httpOrigin: config.httpOrigin })
+  const kernel = useKernelReplica({
+    trpc: gateTrpc,
+    auth,
+    httpOrigin: config.httpOrigin,
+  })
 
   // Queued offline writes the boot migration could not simply carry across
   // (POD-1232). Shown once, as a toast rather than a console line, because the
@@ -176,19 +273,18 @@ export function AppShell(): JSX.Element {
 
   // The store must not mount until its private replica is open. The engine reads
   // rows synchronously at construction, so there is no usable fallback assembly.
+  let shell: JSX.Element
   if (kernel.status === 'resolving') {
-    return (
+    shell = (
       <TooltipProvider>
         <LoadingScreen />
       </TooltipProvider>
     )
-  }
-
-  // Not one screen: the gate's failure is a category, and a browser with no
-  // session gets the sign-in screen rather than an error about a replica it was
-  // never going to be allowed to open (POD-1304).
-  if (kernel.status === 'failed') {
-    return (
+  } else if (kernel.status === 'failed') {
+    // Not one screen: the gate's failure is a category, and a browser with no
+    // session gets the sign-in screen rather than an error about a replica it was
+    // never going to be allowed to open (POD-1304).
+    shell = (
       <TooltipProvider>
         <ReplicaFailureScreen
           cause={kernel.cause}
@@ -197,68 +293,74 @@ export function AppShell(): JSX.Element {
         />
       </TooltipProvider>
     )
-  }
-
-  return (
-    <TooltipProvider>
-      {/* The update surface wraps the whole shell (POD-2102): its panel renders
+  } else {
+    shell = (
+      <TooltipProvider>
+        {/* The update surface wraps the whole shell (POD-2102): its panel renders
           here in the corner, and its indicator renders far below in the status
           strip. One provider so the two are the same state, never two pictures
           of one update. */}
-      <UpdatesProvider httpOrigin={config.httpOrigin}>
-        {appError ? (
-          <AppErrorPage
-            title={'Podium lost its\nline to the server.'}
-            eyebrow="Connection / dropped"
-            message="Your board is open on the host and your agents are still running there; this window just cannot reach it. The exact fault is below."
-            detail={appError}
-            trace={{ from: 'this browser', to: 'server' }}
-            fields={[{ label: 'Server', value: config.httpOrigin }]}
-            retryLabel="Reconnect"
-            onRetry={() => setAppError(null)}
-          />
-        ) : (
-          <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
-            <StoreProvider
-              // The principal the boot gate resolved from the authenticated
-              // transport — the runtime, its socket, its replica and its outbox
-              // are all bound to it, and a change to it rebuilds all three
-              // (POD-404). Never read from the URL or a raw storage key.
-              principal={kernel.principal}
-              config={config}
-              onFatalError={setAppError}
-              createReplicaFn={kernel.assembly.createReplicaFn}
-              feed={kernel.assembly.feed}
-              createOutboxFn={kernel.assembly.createOutboxFn}
-            >
-              <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
-              <RoutedDensityProvider>
-                <ThemeUiStateMirror />
-                <BrowserOpenOverlay />
-                <ConfirmProvider>
-                  {/* Above both TopBar and the view outlet: the command bar's centre
+        <UpdatesProvider httpOrigin={config.httpOrigin}>
+          {appError ? (
+            <AppErrorPage
+              title={'Podium lost its\nline to the server.'}
+              eyebrow="Connection / dropped"
+              message="Your board is open on the host and your agents are still running there; this window just cannot reach it. The exact fault is below."
+              detail={appError}
+              trace={{ from: 'this browser', to: 'server' }}
+              fields={[{ label: 'Server', value: config.httpOrigin }]}
+              retryLabel="Reconnect"
+              onRetry={() => setAppError(null)}
+            />
+          ) : (
+            <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
+              <StoreProvider
+                // The principal the boot gate resolved from the authenticated
+                // transport — the runtime, its socket, its replica and its outbox
+                // are all bound to it, and a change to it rebuilds all three
+                // (POD-404). Never read from the URL or a raw storage key.
+                principal={kernel.principal}
+                config={config}
+                onFatalError={setAppError}
+                createReplicaFn={kernel.assembly.createReplicaFn}
+                feed={kernel.assembly.feed}
+                createOutboxFn={kernel.assembly.createOutboxFn}
+              >
+                <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
+                <RoutedDensityProvider>
+                  <ThemeUiStateMirror />
+                  <BrowserOpenOverlay />
+                  <ConfirmProvider>
+                    {/* Above both TopBar and the view outlet: the command bar's centre
                     is a portal target the active mode fills (POD-365). */}
-                  <ToolbarSlotProvider>
-                    <AppBody syncProgress={kernel.assembly.progress} />
-                  </ToolbarSlotProvider>
-                </ConfirmProvider>
-              </RoutedDensityProvider>
-            </StoreProvider>
-          </ErrorBoundary>
-        )}
-      </UpdatesProvider>
-      {/* Clear of the command bar, not through it: 24px put a two-line toast
+                    <ToolbarSlotProvider>
+                      <AppBody syncProgress={kernel.assembly.progress} />
+                    </ToolbarSlotProvider>
+                  </ConfirmProvider>
+                </RoutedDensityProvider>
+              </StoreProvider>
+            </ErrorBoundary>
+          )}
+        </UpdatesProvider>
+        {/* Clear of the command bar, not through it: 24px put a two-line toast
           straight across the bar's controls, which is where the operator is
           working. --topbar-h plus the bar's own 10px rhythm gap (POD-1159).
           The safe-area term stays — it is what makes the toast tappable in
           standalone PWA mode on a notched phone. */}
-      <Toaster
-        position="top-center"
-        offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}
-        mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 8px)' }}
-      />
-    </TooltipProvider>
-  )
+        <Toaster
+          position="top-center"
+          offset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 10px)' }}
+          mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + var(--topbar-h) + 8px)' }}
+        />
+      </TooltipProvider>
+    )
+  }
+
+  // Setup/version and the private replica both depend on auth, but not on each
+  // other. Mount the setup gate beside the replica effect and keep the shell
+  // itself behind the setup decision. An unreachable auth bootstrap is also
+  // recovered inside the replica effect, so that check stays parallel too.
+  return <SetupGate>{shell}</SetupGate>
 }
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
@@ -316,6 +418,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   const closeOverlay = (): void => setView(baseView)
   const workspaceActive = baseView === 'workspace'
   const sessions = useStoreSelector((s) => s.sessions)
+  const flightDeckMissionId = selectedMissionRoot(issues, sessions, selectedIssueId)?.id ?? 'empty'
   const trpc = useStoreSelector((s) => s.trpc)
   const {
     state: activationState,
@@ -488,8 +591,11 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     }
     flightDeckAnimation.current?.cancel()
     const animation = shell.animate([{ width: `${from}px` }, { width: `${to}px` }], {
-      duration: 280,
-      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      // The left column's curve, since POD-1672 gave the shell's folds one that
+      // is not the drawer's (`COLUMN_FOLD_EASE`). Two columns of one shell decelerating
+      // differently is how a window stops feeling like a single object.
+      duration: COLUMN_FOLD_MS,
+      easing: COLUMN_FOLD_EASE,
       fill: 'both',
     })
     flightDeckAnimation.current = animation
@@ -536,6 +642,27 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     })
     animateFlightDeckWidth(44, target, () => setFlightDeckWidth(null))
   }
+
+  // THE LEFT FOLD (POD-1584). The work list and the identity rail are separate
+  // subtrees, so flipping `sidebarCollapsed` swapped one for the other in a
+  // single frame and ~250px of window arrived or vanished with no gesture
+  // attached to it. Every other column in this shell folds; the left one — the
+  // one an operator opens and shuts most — read as a glitch.
+  //
+  // The mechanics are the flight deck's above, lifted into a hook so the
+  // gesture has somewhere to be tested and the harness can drive the shipping
+  // code rather than a copy of it. See `use-column-fold.ts`.
+  const persistedSidebarWidth = (): number => {
+    const stored = Number(uiState.get(SIDEBAR_WIDTH_KEY))
+    return Number.isFinite(stored) && stored >= SIDEBAR_WIDTH_MIN && stored <= SIDEBAR_WIDTH_MAX
+      ? stored
+      : SIDEBAR_WIDTH_DEFAULT
+  }
+  const sidebarFold = useColumnFold({
+    foldedWidth: SIDEBAR_RAIL_WIDTH,
+    openWidth: persistedSidebarWidth,
+    onFold: setSidebarCollapsed,
+  })
   const setRightPanel = (panel: RightPanelTab | null): void => {
     if (!panelAllowed(panel)) return
     setRightPanelStored(panel)
@@ -543,7 +670,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   }
   const lastRightPanel = useRef<RightPanelTab>('issue')
   if (visibleRightPanel) lastRightPanel.current = visibleRightPanel
-  const toggleLeftSidebar = (): void => setSidebarCollapsed(!sidebarCollapsed)
+  const toggleLeftSidebar = (): void => sidebarFold.fold(!sidebarCollapsed)
   const toggleFlightDeck = (): void => {
     if (flightDeckCollapsed) expandFlightDeck()
     else collapseFlightDeck()
@@ -562,6 +689,36 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — seed the store from the persisted panel.
   useEffect(() => {
     if (rightPanel === 'superagent') setSuperOpen(true)
+  }, [])
+  /**
+   * The surfaces POD-2730 moved out of the eager graph that the operator is
+   * LIKELY to reach, warmed on the first idle after the shell paints. Deferring
+   * them is about what the browser must parse before it can render; it is not an
+   * argument for making the operator wait for a chunk later. See
+   * prefetchAfterFirstPaint.
+   *
+   * SETTINGS JOINED THEM ON DIFFERENT GROUNDS (POD-2762). The other two are
+   * warmed because a hitch would be felt; this one is warmed because of WHEN it
+   * is reached. Settings is where a person goes to look at an update — which is
+   * to say, the surface most likely to be opened during the exact seconds its
+   * chunk cannot be fetched. Warming it moves that fetch into the quiet minutes
+   * beforehand.
+   *
+   * It is a COMPLEMENT AND NOT A SUBSTITUTE, and the distinction is the reason
+   * this is only one line of this issue: it narrows the window, it does not
+   * close it. A tab opened mid-handover never gets a quiet minute, and every
+   * other lazy surface still has the same exposure. `throughRestarts` is what
+   * addresses the class; this just makes the common case commoner.
+   */
+  useEffect(() => {
+    const cancels = [
+      prefetchAfterFirstPaint(loadAgentPanel),
+      prefetchAfterFirstPaint(() => import('@/components/RefMiniview')),
+      prefetchAfterFirstPaint(() => import('@/features/settings/SettingsView')),
+    ]
+    return () => {
+      for (const cancel of cancels) cancel()
+    }
   }, [])
   useEffect(() => {
     if (superOpen === lastSuperOpen.current) return
@@ -717,40 +874,61 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
               so switching modes swaps the CONTENT REGION rather than the window
               (POD-365). The engraved column, dock and rail are workspace
               instruments and stay with the workspace. */}
-            {sidebarCollapsed ? (
-              <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-                <button
-                  data-pressable
-                  type="button"
-                  className="collapsed-sidebar-expand"
-                  aria-label="Expand sidebar"
-                  title="Expand sidebar"
-                  onClick={() => setSidebarCollapsed(false)}
-                >
-                  {/* 15px, not 13: the control is the column's whole header
-                      band now (POD-1178), and a 13px glyph read as a speck
-                      parked in the middle of it. */}
-                  <ChevronRight size={15} aria-hidden="true" />
-                </button>
-                <SidebarRail />
-              </aside>
-            ) : (
-              <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
-                <ResizableAside>
-                  <SidebarUnified />
-                </ResizableAside>
-                <button
-                  data-pressable
-                  type="button"
-                  className="sidebar-collapse-control"
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar"
-                  onClick={() => setSidebarCollapsed(true)}
-                >
-                  <ChevronLeft size={12} aria-hidden="true" />
-                </button>
-              </div>
-            )}
+            {/* THE OPEN COLUMN STAYS MOUNTED FOR THE WHOLE FOLD, both ways
+                (POD-1584). Swapping the rail in on the press instead would
+                leave a 58px rail sitting in a wrapper still 300px wide, with a
+                quarter of the window's worth of empty ground closing beside it
+                — the fold has to CLIP a column, not slide a gap shut. Clipping
+                this one ends the collapse on its leftmost 58px, which is the
+                identity-tile gutter the rail already is, so the cut at the end
+                lands on matching pixels. */}
+            <div
+              ref={sidebarFold.ref}
+              className="sidebar-shell"
+              data-sidebar-shell={sidebarCollapsed ? 'folded' : 'open'}
+              data-sidebar-folding={sidebarFold.folding ? 'true' : undefined}
+              style={{ width: sidebarFold.width ?? undefined }}
+            >
+              {sidebarCollapsed && !sidebarFold.folding ? (
+                <CollapsedSidebar onExpand={() => sidebarFold.fold(false)} />
+              ) : (
+                <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
+                  <ResizableAside>
+                    <SidebarUnified />
+                  </ResizableAside>
+                  <button
+                    data-pressable
+                    type="button"
+                    className="sidebar-collapse-control"
+                    aria-label="Collapse sidebar"
+                    title="Collapse sidebar"
+                    onClick={() => sidebarFold.fold(true)}
+                  >
+                    <ChevronLeft size={12} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              {/* THE GHOST OF THE FOLDED COLUMN (POD-1658). Rendered only while
+                  the fold runs, pinned over the clip, and dissolved in or out by
+                  the hook. It is what the swap at the end of the gesture happens
+                  UNDERNEATH: by then this is already an opaque rail sitting on
+                  the pixels the real one is about to occupy, so the frame where
+                  the work list becomes the rail has nothing visible in it. Inert
+                  and aria-hidden — there are briefly two rails in the tree and
+                  only one of them is the column. */}
+              {sidebarFold.folding && (
+                <div ref={sidebarFold.ghostRef} className="sidebar-fold-ghost" aria-hidden="true">
+                  {/* The lid and what is on it are two layers (POD-1672). The
+                      ghost holds still and carries the opacity and the blur —
+                      it is what covers the clip, and a cover that moves is a
+                      gap. This node carries the slide that makes the rail
+                      ARRIVE instead of appear. */}
+                  <div ref={sidebarFold.ghostContentRef} className="sidebar-fold-ghost-inner">
+                    <CollapsedSidebar />
+                  </div>
+                </div>
+              )}
+            </div>
             {workspaceActive && (
               <div
                 ref={flightDeckShellRef}
@@ -770,7 +948,10 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                     className="max-w-[45vw]"
                   >
                     <Suspense fallback={<RouteFallback />}>
-                      <FlightDeck onCollapse={collapseFlightDeck} />
+                      {/* The arrival latch and the scrolling node both belong
+                          to one mission; carrying either into the next one
+                          turns its existing sessions into late arrivals. */}
+                      <FlightDeck key={flightDeckMissionId} onCollapse={collapseFlightDeck} />
                     </Suspense>
                   </ResizableColumn>
                 )}
@@ -848,9 +1029,13 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
         </Suspense>
         {commandPaletteEnabled && <CommandPaletteBoundary />}
         {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
-          floating miniview. Both render nothing until there's something to show. */}
-        <RefPrefixSync />
-        <RefMiniviewHost />
+          floating miniview. Both render nothing until there's something to show —
+          which is why both are lazy (POD-2730). `fallback={null}` is the same
+          nothing they render once loaded, so the boundary is invisible. */}
+        <Suspense fallback={null}>
+          <RefPrefixSync />
+          <RefMiniviewHost />
+        </Suspense>
       </IssueExplorerProvider>
     </OperatorFocusProvider>
   )

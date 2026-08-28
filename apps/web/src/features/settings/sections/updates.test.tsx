@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { asMachineId } from '@podium/model'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 
@@ -8,7 +9,13 @@ const trpc = {
     info: { query: vi.fn() },
     setChannel: { mutate: vi.fn() },
   },
-  updates: { fleet: { query: vi.fn() }, checkNow: { mutate: vi.fn() } },
+  updates: {
+    fleet: { query: vi.fn() },
+    checkNow: { mutate: vi.fn() },
+    proposal: { query: vi.fn().mockResolvedValue(null) },
+    approveProposal: { mutate: vi.fn().mockResolvedValue(null) },
+    repairPayload: { mutate: vi.fn() },
+  },
   operations: { history: { query: vi.fn() } },
 }
 
@@ -35,16 +42,38 @@ let developing = false
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
 
 let webVersion = '0.4.1'
-vi.mock('@/lib/logging/build-version', () => ({ pageBuildVersion: () => webVersion }))
+let webDigest: string | undefined
+vi.mock('@/lib/logging/build-version', () => ({
+  pageBuildVersion: () => webVersion,
+  pageBuildDigest: () => webDigest,
+}))
 
-const { UpdatesSection } = await import('./updates')
+const { SETTINGS_RELEASE_PROPOSAL_POLL_MS, UpdatesSection } = await import('./updates')
+
+/**
+ * Move the DOCUMENT, not a stub of the source module.
+ *
+ * `uiSource()` decides the built-in-copy case from the page's own origin, so
+ * driving that origin is what proves the row consults the real source rather
+ * than naming one. A mocked module would leave a hard-coded "Live server" in
+ * the component looking exactly as correct as the real call.
+ */
+const BROWSER_URL = 'http://podium.local/'
+function pageServedFrom(url: string): void {
+  ;(window as unknown as { happyDOM: { setURL: (u: string) => void } }).happyDOM.setURL(url)
+}
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  trpc.updates.proposal.query.mockReset().mockResolvedValue(null)
+  trpc.updates.approveProposal.mutate.mockReset().mockResolvedValue(null)
   vi.unstubAllGlobals()
+  vi.useRealTimers()
+  pageServedFrom(BROWSER_URL)
   developing = false
   webVersion = '0.4.1'
+  webDigest = undefined
   machines[0]!.updateChannelOverride = null
   machines[0]!.targetUnavailableReason = null
   machines[0]!.targetVersion = null
@@ -68,6 +97,79 @@ function quietHistory(): void {
 }
 
 describe('UpdatesSection', () => {
+  it('tracks a moved proposal and approves exactly the SHA and version on screen', async () => {
+    vi.useFakeTimers()
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+    const first = {
+      headSha: 'aaaaaaa',
+      version: '0.4.2-dev.1+aaaaaaa',
+      runningVersion: 'dev+7777777',
+      branch: 'main',
+      commits: [{ sha: 'aaaaaaa', summary: 'First proposal' }],
+      addedMigrations: [],
+      state: 'pending',
+    }
+    const latest = {
+      ...first,
+      headSha: 'bbbbbbb',
+      version: '0.4.2-dev.2+bbbbbbb',
+      commits: [{ sha: 'bbbbbbb', summary: 'Latest proposal' }],
+    }
+    trpc.updates.proposal.query.mockResolvedValueOnce(first).mockResolvedValue(latest)
+
+    render(<UpdatesSection />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.getByText('First proposal')).toBeTruthy()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SETTINGS_RELEASE_PROPOSAL_POLL_MS)
+    })
+    expect(screen.getByText('Latest proposal')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build and publish' }))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(trpc.updates.approveProposal.mutate).toHaveBeenCalledWith({
+      headSha: latest.headSha,
+      version: latest.version,
+    })
+  })
+
+  it('uses the server range and states an empty changelog without fleet data', async () => {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: 'dev+aaaaaaa' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+    trpc.updates.proposal.query.mockResolvedValue({
+      headSha: 'aaaaaaa',
+      version: '0.4.2-dev.1+aaaaaaa',
+      runningVersion: 'dev+aaaaaaa',
+      branch: 'main',
+      commits: [],
+      addedMigrations: [],
+      state: 'pending',
+    })
+
+    render(<UpdatesSection />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId('settings-release-proposal-server-transition').textContent).toContain(
+      'Server: dev (aaaaaaa) → dev.1 (aaaaaaa)',
+    )
+    expect(screen.getByText('No changes since what this server is running.')).toBeTruthy()
+  })
+
   it('shows the running version, target, and per-machine version state', async () => {
     trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
@@ -92,16 +194,20 @@ describe('UpdatesSection', () => {
 
     render(<UpdatesSection />)
 
-    expect(await screen.findByText('0.4.1')).toBeTruthy()
-    expect(screen.getByText('0.4.2')).toBeTruthy()
+    expect(await screen.findByText('0.4.2')).toBeTruthy()
     expect(screen.getByText('ludovico')).toBeTruthy()
-    expect(screen.getByText('Behind target')).toBeTruthy()
+    // Behind with nobody having accepted the offer is the mechanism working.
+    expect(screen.getByText('Update available')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
   })
 
+  /**
+   * Spec §2.2b's display rule, both halves: agreement collapses to ONE line, and
+   * a divergence opens the whole breakdown with each row marked.
+   */
   it('keeps one running-version line when every present component agrees', async () => {
     vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', currentVersion: '0.4.1' })
-    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'edge', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
     quietHistory()
     trpc.updates.fleet.query.mockResolvedValue({
@@ -119,9 +225,70 @@ describe('UpdatesSection', () => {
 
     await screen.findByText('None published')
     expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
+    expect(screen.getByTestId('running-version').textContent).toBe('0.4.1')
     expect(screen.queryByText('Server')).toBeNull()
-    expect(screen.queryByText('Phone app')).toBeNull()
+    expect(screen.queryByText('Phone')).toBeNull()
     expect(screen.queryByText('Desktop app')).toBeNull()
+  })
+
+  it('keeps one running-version line when labels differ but build digests agree', async () => {
+    webVersion = '0.1.1-edge.1'
+    webDigest = 'a5f041c'
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: 'dev+a5f041c' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: 'dev+a5f041c',
+      sourceDigest: 'a5f041c',
+      servedWebDigest: 'a5f041c',
+      servedMobileWeb: {
+        present: true,
+        appVersion: '0.1.1-edge.1',
+        digest: 'a5f041c',
+      },
+    })
+
+    render(<UpdatesSection />)
+
+    await screen.findByText('None published')
+    expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
+  })
+
+  it('marks a shell that trails its server on Development as expected', async () => {
+    vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'macos', currentVersion: '0.1.0-edge.20' })
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({ ...emptyFleet, appVersion: '0.4.1' })
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
+    const desktop = screen.getByTestId('component-version-desktop')
+    expect(desktop.textContent).toContain('0.1.0-edge.20')
+    expect(desktop.textContent).toContain('Expected.')
+    expect(desktop.textContent).toContain('Development runs the Edge app frame')
+    // The shell's own version, never one inferred from the server beside it.
+    expect(desktop.textContent).not.toContain('0.4.1')
+  })
+
+  it('shows a present phone export whose build identity is unavailable', async () => {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.4.1',
+      servedWebDigest: '47a01e3',
+      servedMobileWeb: { present: true },
+    })
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
+    expect(screen.getByText('Phone')).toBeTruthy()
+    expect(screen.getByText('Build identity unavailable')).toBeTruthy()
   })
 
   it('names each component when the phone bundle comes from a different build', async () => {
@@ -144,9 +311,11 @@ describe('UpdatesSection', () => {
 
     expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
     expect(screen.getByText('Server')).toBeTruthy()
-    expect(screen.getByText('Web app')).toBeTruthy()
-    expect(screen.getByText('Phone app')).toBeTruthy()
-    expect(screen.getByText('Different build from web app')).toBeTruthy()
+    expect(screen.getByText('Interface')).toBeTruthy()
+    expect(screen.getByText('Phone')).toBeTruthy()
+    expect(screen.getByTestId('component-version-phone').textContent).toContain(
+      'built from different source',
+    )
     expect(screen.getByText('Desktop app')).toBeTruthy()
     expect(screen.queryByText('aaaaaaa')).toBeNull()
   })
@@ -170,9 +339,90 @@ describe('UpdatesSection', () => {
 
     expect(await screen.findByTestId('component-version-breakdown')).toBeTruthy()
     expect(screen.getByText('Server')).toBeTruthy()
-    expect(screen.getByText('Web app')).toBeTruthy()
-    expect(screen.getByText('Phone app')).toBeTruthy()
+    expect(screen.getByText('Interface')).toBeTruthy()
+    expect(screen.getByText('Phone')).toBeTruthy()
     expect(screen.queryByText('Desktop app')).toBeNull()
+  })
+
+  /**
+   * Spec §2.1 durability layer 3, and the reason the Interface row exists at
+   * all: the shell fell back to the copy baked into the .app, which can be
+   * frozen at whatever shipped. Every version agrees here, so the ONLY thing
+   * that can open the breakdown is the row having actually asked where this
+   * document came from.
+   */
+  it('opens the breakdown for the built-in copy, even when every version agrees', async () => {
+    pageServedFrom('tauri://localhost/')
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'edge', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({ ...emptyFleet, appVersion: '0.4.1' })
+
+    render(<UpdatesSection />)
+
+    const source = await screen.findByTestId('component-version-interface')
+    expect(source.textContent).toContain('Built-in copy')
+    expect(source.textContent).toContain('fell back to the interface built into the app')
+    expect(screen.queryByTestId('running-version')).toBeNull()
+  })
+
+  it('collapses on the same data when the page came from the server', async () => {
+    // The twin of the case above, one fact apart: same versions, ordinary
+    // origin. If the row stopped consulting the real source, one of this pair
+    // would have to be wrong.
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'edge', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({ ...emptyFleet, appVersion: '0.4.1' })
+
+    render(<UpdatesSection />)
+
+    expect((await screen.findByTestId('running-version')).textContent).toBe('0.4.1')
+    expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
+  })
+
+  it('shows every version in the operator display form', async () => {
+    // POD-2502: a minted development version reads `dev.8 (77f0e91)`, never the
+    // raw lineage string, and that holds for every row this panel prints.
+    vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'macos', currentVersion: '0.1.1-edge.4' })
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.1.1-dev.7+ab12cd3' })
+    quietHistory()
+    webVersion = '0.1.1-dev.7+ab12cd3'
+    trpc.updates.fleet.query.mockResolvedValue({
+      ...emptyFleet,
+      appVersion: '0.1.1-dev.7+ab12cd3',
+      targetVersion: '0.1.1-dev.8+77f0e91',
+    })
+
+    render(<UpdatesSection />)
+
+    expect((await screen.findByTestId('component-version-server')).textContent).toContain(
+      'dev.7 (ab12cd3)',
+    )
+    expect(screen.getByTestId('component-version-interface').textContent).toContain(
+      'dev.7 (ab12cd3)',
+    )
+    expect(screen.getByText('dev.8 (77f0e91)')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('0.1.1-dev.7+ab12cd3')
+    expect(document.body.textContent).not.toContain('0.1.1-dev.8+77f0e91')
+  })
+
+  it('says where the running interface came from', async () => {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'edge', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.2' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue({ ...emptyFleet, appVersion: '0.4.2' })
+    // A page whose build trails the server it is talking to: mid-rollout, and
+    // the row has to say so rather than look like a fault.
+    webVersion = '0.4.1'
+
+    render(<UpdatesSection />)
+
+    const source = await screen.findByTestId('component-version-interface')
+    expect(source.textContent).toContain('0.4.1')
+    expect(source.textContent).toContain('Expected.')
+    expect(source.textContent).toContain('Reloading')
   })
 
   it('keeps the channel selector writable', async () => {
@@ -212,9 +462,42 @@ describe('UpdatesSection', () => {
 
     await waitFor(() => {
       expect(trpc.setup.setChannel.mutate).toHaveBeenCalledWith({ channel: 'stable' })
-      expect(persist).toHaveBeenCalledWith('stable')
+      expect(persist).toHaveBeenCalledWith('stable', undefined)
     })
     expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('repairs this Mac payload through its ordinary machine grant', async () => {
+    ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      launchMode: 'all-in-one',
+      machineId: asMachineId('machine-ludovico'),
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+    }
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    trpc.updates.repairPayload.mutate.mockResolvedValue({
+      outcome: { result: 'granted', version: '0.4.1' },
+      fleet: emptyFleet,
+    })
+
+    render(<UpdatesSection />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair payload' }))
+
+    await waitFor(() =>
+      expect(trpc.updates.repairPayload.mutate).toHaveBeenCalledWith({
+        id: 'machine-ludovico',
+      }),
+    )
+    expect(
+      await screen.findByText(
+        'Repair granted. Podium will download the current payload and restart.',
+      ),
+    ).toBeTruthy()
   })
 
   /**
@@ -366,7 +649,7 @@ describe('UpdatesSection', () => {
       expect(document.body.textContent).not.toContain('No target:')
     })
 
-    it('says a supervised machine is the desktop app’s to update', async () => {
+    it('shows a desktop-supervised machine as an ordinary fleet update', async () => {
       trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
       trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
       quietHistory()
@@ -375,7 +658,33 @@ describe('UpdatesSection', () => {
 
       render(<UpdatesSection />)
 
-      expect(await screen.findByText('Managed by Podium Desktop')).toBeTruthy()
+      expect(await screen.findByText('Update available')).toBeTruthy()
+      expect(document.body.textContent).not.toContain('Managed by Podium Desktop')
+    })
+
+    /**
+     * §8c decision 14: nothing applies itself, so a machine sitting behind its
+     * target is waiting for a person. A machine that TOOK the update and never
+     * arrived is the different case, and only that one wears the warning.
+     */
+    it('separates a machine waiting to be updated from one that is stuck', async () => {
+      trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+      trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.2' })
+      quietHistory()
+      trpc.updates.fleet.query.mockResolvedValue({
+        ...emptyFleet,
+        appVersion: '0.4.2',
+        targetVersion: '0.4.2',
+        allMachines: [
+          { id: 'machine-ludovico', version: '0.4.1', state: 'stuck', online: true, busy: false },
+        ],
+      })
+
+      render(<UpdatesSection />)
+
+      expect(await screen.findByText('Stuck behind target')).toBeTruthy()
+      expect(screen.queryByText('Update available')).toBeNull()
+      expect(document.body.textContent).toContain('never arrived on it')
     })
   })
 

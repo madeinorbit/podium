@@ -10,6 +10,7 @@ import type {
   MachineId,
   SessionId,
   SessionMeta,
+  UpdateChannel,
 } from '@podium/model'
 import {
   actorAgent,
@@ -27,11 +28,13 @@ import {
 import type {
   LiveServerMessage,
   LocalPortableStateControl,
+  UpdateKeyRotation,
   VisibilityResolver,
 } from '@podium/protocol'
 import {
   formatIssueRef,
   isTerminalOperationState,
+  platformTargetFor,
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -76,6 +79,8 @@ import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
+import { QuotaBackfill } from './modules/quota-history/backfill'
+import { QuotaSampler } from './modules/quota-history/service'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
@@ -125,7 +130,7 @@ import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
-import { SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
+import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
@@ -154,11 +159,11 @@ import {
   updateOperationKind,
 } from './modules/updates/operation'
 import { UpdateReconciler } from './modules/updates/reconciler'
-import { resolveReleaseTarget } from './modules/updates/release-target'
+import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
-import { StewardService } from './steward'
+import { JANITOR_STEWARD_EVENT_LIMIT, StewardService } from './steward'
 import { SessionStore } from './store'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
@@ -185,6 +190,17 @@ interface SessionRegistryOptions {
   targetVersion?: () => string | undefined
   /** Public half of this server's update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
+  /** Signed transition path to the current update key. */
+  updateKeyRotations?: () => readonly UpdateKeyRotation[]
+  /**
+   * This installation's own `dev` feed — address, origin fence, trust root and
+   * machine credential. Read PER RESOLVE, because a Settings write to Public URL
+   * or a remote machine joining the fleet both change the answer.
+   *
+   * Absent (an installed server, or a source server that cannot name an address
+   * its fleet could reach) means there is no dev feed to pull.
+   */
+  devChannelFeed?: () => ChannelFeed | undefined
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -235,6 +251,23 @@ export interface RegistryModules {
    * server that simply does not converge stragglers, not a broken one.
    */
   updatesReconciler?: UpdateReconciler
+  /**
+   * TELLING A RUNNING OPERATION THAT THE FLEET MOVED (POD-2741).
+   *
+   * The daemon path already does this: `onUpdateStatus` in this file calls the
+   * service and then this, because "the same frame is the running operation's
+   * progress event". The COORDINATOR's own participant reports through
+   * `startLocalUpdateParticipant`, which is handed a bare `updates` service and
+   * therefore updated the service and told the operation nothing — so the
+   * coordinator could refuse a target in 264 ms while its place in the wave sat
+   * at `granted` until the step spent its whole silence budget. Exposed so the
+   * composition root can give the local participant the same seam.
+   *
+   * OPTIONAL for the same reason as the reconciler above: a hand-built module
+   * set without it is a server whose operations do not learn from local status,
+   * not a broken one.
+   */
+  updateFleetBridge?: { onFleetChanged(): void }
   rpc: DaemonRpcService
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
@@ -345,10 +378,25 @@ export class SessionRegistry {
   private readonly steward: StewardService
   /** Event-log retention timers (issue #61) — modules/events. */
   private readonly eventRetention: EventLogRetention
+  /**
+   * The quota window ledger's writer (POD-1571). STARTED, unlike the two retired
+   * timers near it, and it has to be: quota is a live pull-through read that
+   * nothing polls on a schedule, so without this timer a window that elapses
+   * while no client is open leaves no record at all — and unlike a cache, that
+   * history cannot be recomputed later from anything on disk.
+   */
+  private readonly quotaSampler: QuotaSampler
+  /** One-shot boot import of the quota history the harnesses wrote themselves
+   *  (POD-1571) — Codex rollouts and Grok's billing log. Claude keeps none. */
+  private readonly quotaBackfill: QuotaBackfill
   /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
   private readonly ledger: Ledger
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
+  /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
+   *  above walks the message LEDGER; this one re-arms the drains that actually
+   *  move bytes, which had no timer at all. */
+  private readonly queuedInputSweep: ReturnType<typeof setInterval>
   /** Stalled-approval deadline (POD-2223) — modules/approvals. */
   private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
@@ -449,6 +497,7 @@ export class SessionRegistry {
       this.store.repos,
     )
     let updates: UpdatesService | undefined
+    let targetChanged: ((channel: UpdateChannel) => void) | undefined
     // Forward-declared for the same reason `updates` is: the update SERVICE has
     // to be able to ask whether a durable operation holds the lifecycle group
     // (single-flight's other half, P6), and the operations module is composed
@@ -458,6 +507,7 @@ export class SessionRegistry {
       instanceId,
       ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
+      ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
       store: this.store,
       targetVersion: (machineId) =>
         updates ? updates.targetVersion(machineId) : options.targetVersion?.(),
@@ -505,6 +555,10 @@ export class SessionRegistry {
           state: 'current',
           online: machine.online,
           busy: false,
+          // Explicit source checkouts are visible machines, but they are not
+          // package rollout targets. Unknown stays absent and therefore fails
+          // toward visibility for older daemons.
+          ...(machine.installKind ? { installKind: machine.installKind } : {}),
           // How this machine can take delivery, as its daemon reported. Without
           // it the wave grants updates a machine has already said it cannot
           // use, and the fleet learns by failing (POD-2004).
@@ -512,12 +566,37 @@ export class SessionRegistry {
           // A daemon inside Podium Desktop is the shell's to update, never the
           // wave's — the planner refuses to select it (POD-2099).
           ...(machine.supervised ? { supervised: true } : {}),
+          // WHICH BYTES IT COULD RUN (POD-2783), in the release manifest's own
+          // vocabulary, through the SAME function the mint keys the manifest by
+          // — so "the platforms this release contains" and "this machine's
+          // platform" cannot be two spellings of one fact. Absent until the
+          // daemon reports an inventory, and absent means eligible; a fleet
+          // that fell back to the publishing host's platform here would answer
+          // the join-late question with a guess about the very machine it is
+          // about.
+          ...(machine.inventory
+            ? { platform: platformTargetFor(machine.inventory.os, machine.inventory.arch) }
+            : {}),
         })),
       channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),
       now: this.now,
+      ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       nextGrantId: () => randomUUID(),
-      resolveTarget: resolveReleaseTarget,
+      // EVERY channel through one resolver (spec §1). `dev` needs this
+      // installation's own feed descriptor, which only the composition root can
+      // state; without one the resolver refuses `dev` by name rather than
+      // resolving something else.
+      resolveTarget: (channel) =>
+        resolveReleaseTarget(channel, {
+          ...(channel === 'dev' ? { feed: options.devChannelFeed?.() } : {}),
+        }),
+      // `dev` on a source host is the one channel this server both PUBLISHES
+      // into and PULLS from, so a refresh must not walk its own newer identity
+      // back to the last release. Asked per call, because a server becomes a
+      // publisher (or stops being one) only across a restart but the fleet's
+      // registration does not.
+      locallyPublished: (channel) => channel === 'dev' && options.devChannelFeed?.() !== undefined,
       concurrency: 3,
       // Read per call for the same reason `MachinesService` reads it per call:
       // Settings → Updates writes the fleet default into config.json, and an
@@ -532,6 +611,7 @@ export class SessionRegistry {
       // (POD-2228). This process has no memory of having published it.
       exclusiveOperationVersion: (channel) =>
         exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      onTargetChanged: (channel) => targetChanged?.(channel),
     })
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({
@@ -817,6 +897,10 @@ export class SessionRegistry {
           exists: machine !== undefined,
           online: machines.hasDaemon(machineId),
           capable: machine?.wireSchemaDigest === wireSchemaDigest(),
+          // POD-2700. `undefined` components mean NOT RECORDED, which must not
+          // refuse — same reading as everywhere else — so only an evaluated row
+          // that lacks the component answers `false`.
+          hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
         }
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
@@ -1174,6 +1258,7 @@ export class SessionRegistry {
       getSettings: () => this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
       spawnSession: (o) =>
         sessionsSvc.createSession({
+          ...(o.sessionId ? { sessionId: o.sessionId } : {}),
           cwd: o.cwd,
           agentKind: o.agentKind as AgentKind,
           ...(o.issueId ? { issueId: o.issueId } : {}),
@@ -1185,9 +1270,10 @@ export class SessionRegistry {
           ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
         }),
       repoOp: (op, cwd, args, machineId) => rpc.repoOp(op, cwd, args, machineId),
+      resolveMachine: (requested, cwd) => machines.resolveMachine(requested, cwd),
       requireMachineForRepo: (machineId, repoPath) =>
         machines.requireMachineForRepo(machineId, repoPath),
-      machineHoldingRepo: (cwd) => machines.machineHoldingRepo(cwd),
+      requireIssueHomeMachine: (machineId) => machines.requireRepoHostStructure(machineId),
       // Machine-pinned start (POD-1386/POD-1405/POD-1424): resolve the repository on the
       // target by IDENTITY — the repoId-keyed resolver handoff already uses, so a pin
       // finds the repo instead of demanding the source's path — then materialise the
@@ -1232,10 +1318,16 @@ export class SessionRegistry {
       // and picks the live member session to poke — see modules/sessions.
       onMailSent: (row) =>
         this.bus.emit('issue.mailSent', {
+          issueId: row.id,
           seq: row.seq,
-          ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
       onIssueClosed: (input) => stopClosedIssue?.(input),
+    })
+    // Coordinator defaults are lifecycle-derived, not caller discipline. The
+    // first eligible agent born on an issue takes an empty coordinator seat;
+    // later sessions and every explicit set/clear remain untouched.
+    this.bus.on('session.created', ({ sessionId, issueId }) => {
+      if (issueId) issues.ensureCoordinator(issueId, sessionId, { onlyMember: true })
     })
     const applySessionDerived = (event: EventMap['issue.sessionDerived']): void => {
       switch (event.kind) {
@@ -1319,24 +1411,37 @@ export class SessionRegistry {
       // the sender is told its message was queued, the session never comes back,
       // and nothing anywhere records why. A refused wake looked identical to a
       // broken one for as long as it took to read this line (POD-1650).
+      // A LOG IS NOT A SIGNAL (POD-1703). The line below records why; it does not
+      // tell the person who sent the message, who is still looking at a bubble
+      // that says pending. `onWakeUnavailable` raises the same needs-attention
+      // the spawn-budget path raises, on every row addressed to this session.
       if (!authorized.ok) {
-        log.warn('wake refused — input stays queued for an explicit resume', {
-          sessionId,
-          reason: authorized.reason ?? 'not authorized',
-        })
+        const reason = authorized.reason ?? 'not authorized'
+        log.warn('wake refused — input stays queued for an explicit resume', { sessionId, reason })
+        messagesSvc.onWakeUnavailable(sessionId, `refused: ${reason}`)
         return
       }
       void issueSessionLifecycle
         .resurrectSession({ sessionId })
         .then((result) => {
-          if (!result.ok)
+          if (!result.ok) {
             log.warn('wake-on-queue failed', {
               sessionId,
               reason: result.reason,
             })
+            messagesSvc.onWakeUnavailable(sessionId, result.reason ?? 'wake failed')
+            return
+          }
+          // THE WAKE IS AN ELIGIBILITY EDGE (POD-1703). A bind normally re-arms
+          // the drain, but a resume that comes back without one — an already-live
+          // session, a race with the daemon's own bind — left the row waiting for
+          // the next reconnect. Re-arming here costs a no-op when the bind path
+          // already ran.
+          sessionsSvc.inbox.drain(sessionId)
         })
         .catch((err) => {
           log.warn('wake-on-queue failed', { sessionId, err })
+          messagesSvc.onWakeUnavailable(sessionId, 'wake threw')
         })
     })
     // The `session.listChanged` republish tail is GONE (POD-1574). It re-derived
@@ -2360,6 +2465,11 @@ export class SessionRegistry {
       engine: operationsModule.engine,
       updates: updatesService,
     })
+    // A PUBLISH, A RE-RESOLVE OR A WITHDRAWAL, all three (POD-3040). It does the
+    // ordinary fleet pass and, before it, corrects any deferred promise the
+    // moved target has just falsified — including one left by an update that
+    // already finished, which is what an all-offline fleet always leaves.
+    targetChanged = () => updateFleetBridge.onTargetChanged()
     /**
      * THE STANDING RECONCILIATION (§3.6, POD-2105). Offline machines are
      * `deferred` at plan time so an update can finish without them; this is what
@@ -2556,6 +2666,7 @@ export class SessionRegistry {
       updates: updatesService,
       operations: operationsModule,
       updatesReconciler: reconciler,
+      updateFleetBridge,
       rpc,
       serverTransfer,
       loginPropagation,
@@ -2757,6 +2868,15 @@ export class SessionRegistry {
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
+    // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
+    // it is cheap — `drain` is single-flight and returns immediately on a
+    // session with an empty queue or one already draining — and because what it
+    // heals is a person waiting on a message that has already been accepted.
+    this.queuedInputSweep = setInterval(
+      () => sessionsSvc.inbox.sweepQueuedInputs(),
+      QUEUED_INPUT_SWEEP_MS,
+    )
+    this.queuedInputSweep.unref?.()
     // An approved op whose daemon takes the frame and never answers must not sit
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
@@ -2780,6 +2900,16 @@ export class SessionRegistry {
     // the janitor's fence to protect — see IssueGitWatch.
     this.issueGitWatch = new IssueGitWatch(issues)
     this.issueGitWatch.start()
+    // Reads through the same fan-out `quota.summary` serves, so the sampler adds
+    // no new path to the daemons — only a clock behind the one that exists.
+    this.quotaSampler = new QuotaSampler(this.store.quotaHistory, () =>
+      this.modules.rpc.agentQuotaAll(),
+    )
+    this.quotaSampler.start()
+    this.quotaBackfill = new QuotaBackfill(this.store.quotaHistory, (sinceMs) =>
+      this.modules.rpc.quotaHistoryAll(sinceMs),
+    )
+    this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()
@@ -2876,8 +3006,11 @@ export class SessionRegistry {
     // write against the store this shutdown is about to close (POD-2772).
     this.adoptedSuperagent?.dispose()
     this.eventRetention.dispose()
+    this.quotaSampler.dispose()
+    this.quotaBackfill.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
+    clearInterval(this.queuedInputSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.modules.issueSessionLifecycle.dispose()
@@ -2891,8 +3024,10 @@ export class SessionRegistry {
     this.steward.dispose()
   }
 
-  /** Fenced janitor entry: one steward poll with deliveries-before-cursor-advance. */
+  /** Fenced janitor entry: one bounded steward poll with
+   * deliveries-before-cursor-advance. First ownership seeds past the source
+   * topology's intentionally dark history. */
   runStewardTick(): Promise<void> {
-    return this.steward.tick()
+    return this.steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
   }
 }

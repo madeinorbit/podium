@@ -11,7 +11,7 @@ import type {
 import { asIssueId, asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
-import { sessionsForIssue } from './issue-util'
+import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
 import { findSessionById } from './modules/sessions/session-by-id'
 import type { SessionStore, Subscription } from './store'
@@ -292,6 +292,7 @@ export interface StewardDeps {
     | 'maxEventId'
     | 'listEnabledSubscriptions'
     | 'markDelivered'
+    | 'activateJanitorSteward'
   >
   facts: SessionStore['notificationFacts']
   /** Ledger read for the "already-communicated" suppression [POD-913, design
@@ -334,7 +335,16 @@ export interface StewardDeps {
 }
 
 const CURSOR_KEY = 'cursor'
+/** A janitor tick is background work: bound one request tightly enough that the
+ * coordinating server can keep serving while a genuinely interrupted janitor
+ * catches up. The first ownership claim skips dark-run history entirely. */
+export const JANITOR_STEWARD_EVENT_LIMIT = 10
 const COMPLETION_NOTE_TAG = '[completion-note]'
+
+export interface StewardTickOptions {
+  owner?: 'janitor'
+  limit?: number
+}
 
 /** The closed issue's latest completion-note comment body (tag stripped), else its
  *  title. `comments` is the issue's thread, fetched by the caller via
@@ -462,12 +472,24 @@ export class StewardService {
 
   /** One poll: read past the cursor, coalesce, handle, then advance. Public so
    *  tests drive it directly instead of waiting on real timers. */
-  async tick(): Promise<void> {
+  async tick(options: StewardTickOptions = {}): Promise<void> {
     if (!this.deps.getSettings().steward?.enabled) return
+    if (options.owner === 'janitor') {
+      const seededAt = this.deps.store.activateJanitorSteward()
+      if (seededAt !== undefined) {
+        log.info('janitor steward ownership activated — seeded to current event head', {
+          cursor: seededAt,
+        })
+        return
+      }
+    }
     // Cheap housekeeping even on an otherwise empty tick [spec:SP-ba61].
     this.arbiter.retireExpired(this.now())
     const cursor = this.resolveCursor()
-    const events = this.deps.store.listEventsSince(cursor)
+    const events = this.deps.store.listEventsSince(
+      cursor,
+      options.limit === undefined ? undefined : { limit: options.limit },
+    )
     if (events.length === 0) return
     // Coalesce: all events for the same key form one batch this poll.
     const batches = new Map<string, StewardEvent[]>()
@@ -713,12 +735,19 @@ export class StewardService {
     if (sub.deliverNudge) {
       const causer = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
       const text = subscriptionNudge(sub, e)
-      const targets = this.subscriberNudgeTargets(sub, sessions).filter(
+      const candidates = this.subscriberNudgeTargets(sub, sessions).filter(
         (s) =>
           (s.status === 'live' || s.status === 'starting') &&
           s.agentKind !== 'shell' &&
           s.sessionId !== causer,
       )
+      const targets =
+        sub.subscriberKind === 'issue'
+          ? preferIssueCoordinator(
+              candidates,
+              this.deps.issues.getMeta(sub.subscriberId)?.coordinatorSessionId,
+            )
+          : candidates
       for (const s of targets) {
         // Already-communicated (§07b): targets here are already live/starting
         // (no wake-rights concern — see handleSessionParentNudge's note).
@@ -821,7 +850,7 @@ export class StewardService {
       // and a shell would have the text typed into bash. The nudge itself stays
       // single-line with no backticks and no agent-authored note interpolated —
       // the note lives in the issue comment only.
-      const targets = sessionsForIssue(
+      const candidates = sessionsForIssue(
         dependent.worktreePath,
         this.deps.listSessions(),
         dependent.id,
@@ -831,6 +860,7 @@ export class StewardService {
           s.agentKind !== 'shell' &&
           s.sessionId !== causedBy,
       )
+      const targets = preferIssueCoordinator(candidates, dependent.coordinatorSessionId)
       for (const s of targets) {
         // Already-communicated (§07b): the closer may have mailed the
         // dependent directly instead of relying on this nudge.
@@ -1002,7 +1032,7 @@ export class StewardService {
     // Resolved once for the already-communicated check below — the child whose
     // transition drove this coalesced nudge.
     const lastChild = this.deps.issues.list(parent.repoPath).find((w) => w.seq === lastChildSeq)
-    const targets = sessionsForIssue(
+    const candidates = sessionsForIssue(
       parent.worktreePath,
       this.deps.listSessions(),
       parent.id,
@@ -1012,6 +1042,7 @@ export class StewardService {
         s.agentKind !== 'shell' &&
         !causedBy.has(s.sessionId),
     )
+    const targets = preferIssueCoordinator(candidates, parent.coordinatorSessionId)
     for (const s of targets) {
       // Already-communicated (§07b): the child may have mailed the parent
       // directly instead of relying on this nudge (targets are already

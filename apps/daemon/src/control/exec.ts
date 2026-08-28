@@ -7,10 +7,12 @@ import { promisify } from 'node:util'
 import { bindHarnessExec, buildResolvedInventory, harnessMcpConfigTransport } from '@podium/harness'
 import type { UsageBucketWire } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import type { QuotaHistorySampleWire } from '@podium/protocol'
 import { bundleStagePath } from '../handoff-package'
 import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
 import { buildHarnessExec } from '../harness-exec.js'
 import { repoOpCommand } from '../repo-op'
+import { scanQuotaHistory } from '../quota-history-scan'
 import { scanHostUsage } from '../usage-scan'
 import type { ControlHandlers, DaemonContext } from './context'
 import {
@@ -269,6 +271,38 @@ async function runAgentQuotaScan(
   ctx.send({ type: 'agentQuotaResult', requestId: msg.requestId, hostname: hostname(), agents })
 }
 
+/**
+ * Recover past quota windows from harness files on this host (POD-1571).
+ *
+ * NOT memoised, unlike the usage scan beside it. This is a one-shot the server
+ * runs at boot to seed the ledger, not a poll — and a walk of every Codex rollout
+ * is expensive enough that holding its result for a caller who will not ask again
+ * would be memory spent on nothing.
+ */
+async function runQuotaHistoryScan(
+  ctx: DaemonContext,
+  msg: Extract<ControlMessage, { type: 'quotaHistoryRequest' }>,
+): Promise<void> {
+  let samples: QuotaHistorySampleWire[] = []
+  try {
+    samples = await scanQuotaHistory({
+      sinceMs: msg.sinceMs,
+      machineId: ctx.machineId,
+      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+    })
+  } catch {
+    // A harness we cannot read is a harness with no recoverable history, which
+    // is already the answer for Claude. An empty result says exactly that.
+    samples = []
+  }
+  ctx.send({
+    type: 'quotaHistoryResult',
+    requestId: msg.requestId,
+    hostname: hostname(),
+    samples,
+  })
+}
+
 async function runGitHubCli(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'githubCliRequest' }>,
@@ -284,7 +318,12 @@ async function runGitHubCli(
 
 export const execHandlers: Pick<
   ControlHandlers,
-  'repoOpRequest' | 'harnessExecRequest' | 'usageRequest' | 'agentQuotaRequest' | 'githubCliRequest'
+    | 'repoOpRequest'
+  | 'harnessExecRequest'
+  | 'usageRequest'
+  | 'agentQuotaRequest'
+  | 'quotaHistoryRequest'
+  | 'githubCliRequest'
 > = {
   repoOpRequest: (ctx, msg) => {
     void runRepoOp(ctx, msg)
@@ -297,6 +336,9 @@ export const execHandlers: Pick<
   },
   agentQuotaRequest: (ctx, msg) => {
     void runAgentQuotaScan(ctx, msg)
+  },
+  quotaHistoryRequest: (ctx, msg) => {
+    void runQuotaHistoryScan(ctx, msg)
   },
   githubCliRequest: (ctx, msg) => {
     void runGitHubCli(ctx, msg)

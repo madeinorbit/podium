@@ -22,13 +22,14 @@
  */
 import {
   asMachineId,
-  machinesWithRepo,
+  type MachineId,
   type MachineWire,
-  resolveTargetMachine,
+  machinesWithRepo,
   type RecentSession,
   type RepoMachines,
+  resolveTargetMachine,
   type SelectableMachine,
-  type MachineId,
+  structuralRejection,
 } from '@podium/model'
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,18 @@ export type MachineAvailability =
   | 'unreachable'
   /** Visible but `use` NOT granted. Waiting will not help; ask the owner. */
   | 'unauthorized'
+  /**
+   * Visible and `use` granted, but this machine runs NO PODIUM DAEMON
+   * (POD-2700). The structural member this vocabulary was missing.
+   *
+   * It is a third answer for the same reason `unauthorized` is a second one:
+   * `incapable` and `unreachable` produce the same empty list and mean opposite
+   * things. "It is offline" invites the user to wake it up; a server-only
+   * coordinator has nothing to wake. Before this member existed, every surface
+   * built on `machineViews` reported such a machine as `unreachable` — the exact
+   * collapse M5 forbids, one axis further down.
+   */
+  | 'incapable'
 
 export interface MachineView<M extends SelectableMachine = SelectableMachine> {
   readonly machine: M
@@ -86,7 +99,18 @@ export function machineViews<M extends SelectableMachine>(
     out.push({
       machine,
       grants,
-      availability: !grants.use ? 'unauthorized' : machine.online ? 'available' : 'unreachable',
+      // ORDER IS THE CONTRACT: authorization, then structure, then liveness —
+      // the canonical `unauthorized` → `no-daemon` → `offline` of POD-2700 §3.2,
+      // spelled in this vocabulary. A denied machine still answers
+      // `unauthorized` and nothing else, so its hidden state cannot be read off
+      // the availability it reports.
+      availability: !grants.use
+        ? 'unauthorized'
+        : structuralRejection(machine) === 'no-daemon'
+          ? 'incapable'
+          : machine.online
+            ? 'available'
+            : 'unreachable',
     })
   }
   return out
@@ -138,6 +162,9 @@ export type SpawnTargetRefusal =
   | 'no-repo'
   /** Machines hold the repo, but the principal lacks `use` on all of them. */
   | 'unauthorized'
+  /** They hold the repo and are usable, but none runs a Podium daemon
+   *  (POD-2700). Distinct from `unreachable`: waiting cannot fix it. */
+  | 'incapable'
   /** The principal may use them; none is online. */
   | 'unreachable'
 
@@ -184,7 +211,12 @@ export function resolveSpawnTargetMachine<S extends RecentSession, M extends Sel
   const useGranted = withRepoViews.filter((v) => v.grants.use)
   if (useGranted.length === 0) return { refusal: 'unauthorized' }
 
-  const online = useGranted.filter((v) => v.availability === 'available').map((v) => v.machine)
+  // Structural before live, so a fleet whose only repo-holder runs no daemon is
+  // told THAT rather than told to wait for a daemon that does not exist.
+  const capable = useGranted.filter((v) => v.availability !== 'incapable')
+  if (capable.length === 0) return { refusal: 'incapable' }
+
+  const online = capable.filter((v) => v.availability === 'available').map((v) => v.machine)
   if (online.length === 0) return { refusal: 'unreachable' }
 
   const machineId = resolveTargetMachine(repo, [...sessions], online)

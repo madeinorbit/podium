@@ -37,6 +37,7 @@
       },
       "devDependencies": {
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "apps/daemon": {
@@ -52,6 +53,7 @@
         "@podium/protocol": "workspace:*",
         "@podium/pty": "workspace:*",
         "@podium/runtime": "workspace:*",
+        "@podium/sync": "workspace:*",
         "@podium/transcript": "workspace:*",
         "@xterm/headless": "^5.5.0",
         "ws": "^8.18.0",
@@ -59,6 +61,7 @@
       "devDependencies": {
         "@podium/sync": "workspace:*",
         "@types/ws": "^8.5.13",
+        "hono": "^4.6.14",
         "tsx": "^4.22.4",
         "typescript": "^6.0.3",
         "vitest": "5.0.0-beta.6",
@@ -69,6 +72,7 @@
       "version": "0.1.0",
       "devDependencies": {
         "@tauri-apps/cli": "^2",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "apps/janitor": {
@@ -102,6 +106,7 @@
         "@podium/terminal-client-react": "workspace:*",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-community/netinfo": "12.0.1",
+        "@react-native/virtualized-lists": "0.86.0",
         "@trpc/client": "^11.18.0",
         "expo": "~57.0.2",
         "expo-blur": "~57.0.0",
@@ -121,15 +126,21 @@
         "react-dom": "19.2.3",
         "react-native": "0.86.0",
         "react-native-gesture-handler": "~3.0.2",
+        "react-native-reanimated": "4.5.0",
         "react-native-safe-area-context": "~5.7.0",
         "react-native-screens": "4.25.2",
         "react-native-svg": "15.15.4",
         "react-native-web": "^0.21.2",
+        "react-native-worklets": "0.10.0",
       },
       "devDependencies": {
         "@testing-library/react": "^16.3.2",
+        "@types/chai": "^5.2.2",
+        "@types/node": "^25.9.1",
         "@types/react": "~19.2.2",
+        "@types/react-dom": "^19.0.0",
         "happy-dom": "^20.0.0",
+        "sharp": "^0.33.5",
         "typescript": "~6.0.3",
         "vitest": "5.0.0-beta.6",
       },
@@ -212,6 +223,7 @@
         "lucide-react": "^1.18.0",
         "marked": "^18.0.5",
         "motion": "^12.42.2",
+        "motion-dom": "^12.42.2",
         "qrcode.react": "^4.2.0",
         "react": "19.2.7",
         "react-dom": "19.2.7",
@@ -221,18 +233,24 @@
         "use-stick-to-bottom": "1.1.6",
       },
       "devDependencies": {
+        "@playwright/test": "^1.60.0",
         "@tailwindcss/vite": "^4.3.1",
         "@testing-library/react": "^16.3.2",
+        "@testing-library/user-event": "^14.6.1",
+        "@types/chai": "^5.2.2",
+        "@types/node": "^25.9.1",
         "@types/react": "^19.0.0",
         "@types/react-dom": "^19.0.0",
         "@vite-pwa/assets-generator": "^1.0.2",
         "@vitejs/plugin-react": "^6.0.2",
         "fake-indexeddb": "^6.2.5",
+        "sharp": "^0.33.5",
         "tailwindcss": "^4.3.1",
         "tw-animate-css": "^1.4.0",
         "typescript": "^6.0.3",
         "vite": "^8.0.16",
         "vite-plugin-pwa": "^1.3.0",
+        "vitest": "5.0.0-beta.6",
         "workbox-window": "^7.4.1",
       },
     },
@@ -264,8 +282,10 @@
         "@tanstack/db": "^0.6.16",
         "@tanstack/db-sqlite-persistence-core": "^0.2.8",
         "@tanstack/react-db": "^0.1.94",
+        "zod": "^3.24.0",
       },
       "devDependencies": {
+        "@testing-library/react": "^16.3.2",
         "@types/node": "^24.0.0",
         "@types/react": "^19.0.0",
         "fake-indexeddb": "^6.2.5",
@@ -300,6 +320,7 @@
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/harness": {
@@ -315,6 +336,7 @@
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/issue-client": {
@@ -329,6 +351,7 @@
       },
       "devDependencies": {
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/logger": {
@@ -336,6 +359,7 @@
       "version": "0.0.0",
       "devDependencies": {
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/model": {
@@ -347,6 +371,7 @@
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/protocol": {
@@ -359,6 +384,7 @@
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/pty": {
@@ -373,9 +399,7 @@
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
-      },
-      "optionalDependencies": {
-        "node-pty": "^1.0.0",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/runtime": {
@@ -388,7 +412,9 @@
         "zod": "^3.24.0",
       },
       "devDependencies": {
+        "@types/node": "^25.9.1",
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/sync": {
@@ -401,6 +427,7 @@
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@trpc/client": "^11.0.0",
+        "drizzle-orm": "1.0.0-rc.4",
         "ws": "^8.18.0",
         "zod": "^3.24.0",
       },
@@ -422,6 +449,7 @@
       },
       "devDependencies": {
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "packages/terminal-client": {
@@ -475,6 +503,7 @@
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "scripts": {
@@ -483,7 +512,6 @@
       "dependencies": {
         "@podium/client-core": "workspace:*",
         "@podium/commands": "workspace:*",
-        "@podium/daemon": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/issue-client": "workspace:*",
         "@podium/model": "workspace:*",
@@ -492,12 +520,18 @@
         "@podium/runtime": "workspace:*",
         "@podium/server": "workspace:*",
         "@podium/sync": "workspace:*",
+        "@podium/terminal-client": "workspace:*",
         "@podium/transcript": "workspace:*",
       },
       "devDependencies": {
+        "@trpc/client": "^11.0.0",
         "@types/bun": "^1.3.14",
+        "@types/node": "^25.9.1",
+        "@types/ws": "^8.18.1",
+        "hono": "^4.6.14",
         "typescript": "^6.0.3",
         "vitest": "5.0.0-beta.6",
+        "ws": "^8.18.0",
       },
     },
     "services/telemetry-relay": {
@@ -509,6 +543,17 @@
       },
       "devDependencies": {
         "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
+      },
+    },
+    "tests/acceptance": {
+      "name": "@podium/acceptance",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/client-core": "workspace:*",
+        "@podium/model": "workspace:*",
+        "@podium/runtime": "workspace:*",
+        "@trpc/client": "^11.0.0",
       },
     },
     "tests/e2e": {
@@ -518,8 +563,10 @@
         "@podium/client-core": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/pty": "workspace:*",
+        "@podium/runtime": "workspace:*",
         "@podium/sync": "workspace:*",
         "@podium/terminal-client": "workspace:*",
         "@trpc/client": "^11.0.0",
@@ -529,6 +576,7 @@
         "@playwright/test": "^1.60.0",
         "@types/ws": "^8.5.13",
         "fake-indexeddb": "^6.2.5",
+        "vitest": "5.0.0-beta.6",
       },
     },
     "tests/keyecho": {
@@ -546,9 +594,6 @@
         "typescript": "^6.0.3",
         "vitest": "5.0.0-beta.6",
       },
-      "optionalDependencies": {
-        "node-pty": "^1.0.0",
-      },
     },
     "tooling/tsconfig": {
       "name": "@podium/tsconfig",
@@ -556,6 +601,7 @@
     },
   },
   "patchedDependencies": {
+    "react-native-worklets@0.10.0": "patches/react-native-worklets@0.10.0.patch",
     "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch",
     "expo-sqlite@57.0.1": "patches/expo-sqlite@57.0.1.patch",
   },
@@ -1175,6 +1221,8 @@
     "@oxc-project/types": ["@oxc-project/types@0.133.0", "", {}, "sha512-KzkdCd6Uxqnf6l3HOw1xfatAlUURA0g14cvBYFyJ5SaNOQbOUvBr9PKArcPcrNIeRsBdgcUzOGrhKveVpvOIGA=="],
 
     "@playwright/test": ["@playwright/test@1.60.0", "", { "dependencies": { "playwright": "1.60.0" }, "bin": { "playwright": "cli.js" } }, "sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag=="],
+
+    "@podium/acceptance": ["@podium/acceptance@workspace:tests/acceptance"],
 
     "@podium/agent-runtime": ["@podium/agent-runtime@workspace:packages/agent-runtime"],
 
@@ -2538,8 +2586,6 @@
 
     "negotiator": ["negotiator@0.6.3", "", {}, "sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg=="],
 
-    "node-addon-api": ["node-addon-api@7.1.1", "", {}, "sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ=="],
-
     "node-domexception": ["node-domexception@1.0.0", "", {}, "sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ=="],
 
     "node-fetch": ["node-fetch@3.3.2", "", { "dependencies": { "data-uri-to-buffer": "^4.0.0", "fetch-blob": "^3.1.4", "formdata-polyfill": "^4.0.10" } }, "sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA=="],
@@ -2547,8 +2593,6 @@
     "node-forge": ["node-forge@1.4.0", "", {}, "sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ=="],
 
     "node-int64": ["node-int64@0.4.0", "", {}, "sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw=="],
-
-    "node-pty": ["node-pty@1.1.0", "", { "dependencies": { "node-addon-api": "^7.1.0" } }, "sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg=="],
 
     "node-releases": ["node-releases@2.0.47", "", {}, "sha512-Uzmd6LXpouKo8EUK68IjH4+E01w/hXyV3R3g/geCJo+rXLNfh1xucB+LOzYEOQPSiUK3h/xZf0cQGcSsmyL2Og=="],
 
@@ -2754,7 +2798,7 @@
 
     "react-native-is-edge-to-edge": ["react-native-is-edge-to-edge@1.3.1", "", { "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-NIXU/iT5+ORyCc7p0z2nnlkouYKX425vuU1OEm6bMMtWWR9yvb+Xg5AZmImTKoF9abxCPqrKC3rOZsKzUYgYZA=="],
 
-    "react-native-reanimated": ["react-native-reanimated@4.5.1", "", { "dependencies": { "react-native-is-edge-to-edge": "^1.3.1", "semver": "^7.7.3" }, "peerDependencies": { "react": "*", "react-native": "0.83 - 0.86", "react-native-worklets": "0.10.x" } }, "sha512-RnMvtDuR+68ig864gAvZCOdZehqhC5rFmMo0kn+ARfgVSTvFeF6IFLBVgMPUu0KwihaapEyW24WRi6nEyy1kSA=="],
+    "react-native-reanimated": ["react-native-reanimated@4.5.0", "", { "dependencies": { "react-native-is-edge-to-edge": "^1.3.1", "semver": "^7.7.3" }, "peerDependencies": { "react": "*", "react-native": "0.83 - 0.86", "react-native-worklets": "0.10.x" } }, "sha512-+iPfvK34PKKYP/p/4TaBliFkbfvjGDIvXuiiaxvISP5ip7sWegvlacwU/uAV6zNDSSmX0tDyER7PurPMKGDipA=="],
 
     "react-native-safe-area-context": ["react-native-safe-area-context@5.7.0", "", { "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-/9/MtQz8ODphjsLdZ+GZAIcC/RtoqW9EeShf7Uvnfgm/pzYrJ75y3PV/J1wuAV1T5Dye5ygq4EAW20RoBq0ABQ=="],
 
@@ -2764,7 +2808,7 @@
 
     "react-native-web": ["react-native-web@0.21.2", "", { "dependencies": { "@babel/runtime": "^7.18.6", "@react-native/normalize-colors": "^0.74.1", "fbjs": "^3.0.4", "inline-style-prefixer": "^7.0.1", "memoize-one": "^6.0.0", "nullthrows": "^1.1.1", "postcss-value-parser": "^4.2.0", "styleq": "^0.1.3" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0" } }, "sha512-SO2t9/17zM4iEnFvlu2DA9jqNbzNhoUP+AItkoCOyFmDMOhUnBBznBDCYN92fGdfAkfQlWzPoez6+zLxFNsZEg=="],
 
-    "react-native-worklets": ["react-native-worklets@0.10.2", "", { "dependencies": { "@babel/plugin-transform-arrow-functions": "^7.27.1", "@babel/plugin-transform-class-properties": "^7.28.6", "@babel/plugin-transform-classes": "^7.28.6", "@babel/plugin-transform-nullish-coalescing-operator": "^7.28.6", "@babel/plugin-transform-optional-chaining": "^7.28.6", "@babel/plugin-transform-shorthand-properties": "^7.27.1", "@babel/plugin-transform-template-literals": "^7.27.1", "@babel/plugin-transform-unicode-regex": "^7.27.1", "@babel/preset-typescript": "^7.28.5", "@babel/types": "^7.27.1", "convert-source-map": "^2.0.0", "semver": "^7.7.4" }, "peerDependencies": { "@babel/core": "*", "@react-native/metro-config": "*", "react": "*", "react-native": "0.83 - 0.86" } }, "sha512-LX27ejYI8veeDp59Z3rjo2pYyPa9euzSH8GUlem7cnNqfsDtGum8PQpkbzrqhLsWH0CjdeHR7p3sncCyYbwaVw=="],
+    "react-native-worklets": ["react-native-worklets@0.10.0", "", { "dependencies": { "@babel/plugin-transform-arrow-functions": "^7.27.1", "@babel/plugin-transform-class-properties": "^7.28.6", "@babel/plugin-transform-classes": "^7.28.6", "@babel/plugin-transform-nullish-coalescing-operator": "^7.28.6", "@babel/plugin-transform-optional-chaining": "^7.28.6", "@babel/plugin-transform-shorthand-properties": "^7.27.1", "@babel/plugin-transform-template-literals": "^7.27.1", "@babel/plugin-transform-unicode-regex": "^7.27.1", "@babel/preset-typescript": "^7.28.5", "@babel/types": "^7.27.1", "convert-source-map": "^2.0.0", "semver": "^7.7.4" }, "peerDependencies": { "@babel/core": "*", "@react-native/metro-config": "*", "react": "*", "react-native": "0.83 - 0.86" } }, "sha512-JhE6IxDf6iabC0qu3+TAKA4v9RlluXmoIngPQX7/QUByf75lfrsHZ6/dQhyjEWnp1EEQiwzz8Cpew140ZcewDw=="],
 
     "react-number-format": ["react-number-format@5.4.5", "", { "peerDependencies": { "react": "^0.14 || ^15.0.0 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^0.14 || ^15.0.0 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-y8O2yHHj3w0aE9XO8d2BCcUOOdQTRSVq+WIuMlLVucAm5XNjJAy+BoOJiuQMldVYVOKTMyvVNfnbl2Oqp+YxGw=="],
 

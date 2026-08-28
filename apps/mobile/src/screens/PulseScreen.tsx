@@ -592,7 +592,9 @@ function pct(part: number, whole: number): number {
 
 function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
   return (
-    <View style={styles.switcher}>
+    // A `tablist` around the tabs, because `aria-selected` is only meaningful on
+    // a tab that sits in one.
+    <View style={styles.switcher} role="tablist">
       {(
         [
           ['now', 'Now'],
@@ -604,7 +606,11 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
           <PressableScale
             key={key}
             accessibilityRole="tab"
+            // `aria-selected` beside `accessibilityState`: react-native-web 0.21 reads
+            // only the former, so the web build announced no state at all. The role
+            // here really is `tab`, so `aria-selected` is the right spelling. [POD-1664]
             accessibilityState={{ selected: active }}
+            aria-selected={active}
             accessibilityLabel={key === 'now' ? 'Now — capacity' : 'Seven days — usage'}
             onPress={() => onChange(key)}
             style={[styles.tab, active && styles.tabActive]}

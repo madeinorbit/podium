@@ -20,9 +20,11 @@
  * difference is that what is already on disk can be named.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
+import { duplicateReport } from './web-bundle-duplicates'
 
 interface SourceMap {
   readonly sources: readonly string[]
@@ -38,7 +40,28 @@ interface Bytes {
 interface ChunkReport extends Bytes {
   readonly file: string
   readonly sources: readonly string[]
+  /** `[source, bytes of original text]`, in map order. See bytesByOwner. */
+  readonly sourceSizes: readonly (readonly [string, number])[]
   readonly sourceBytes: number
+}
+
+/**
+ * THE PREVIOUS BUILD, ON DISK, SO A BREACH CAN SAY WHAT CHANGED (POD-2730).
+ *
+ * `scripts/web-bundle-baseline.json`, refreshed by hand with `--write-baseline`.
+ * A committed file rather than a cache: the point is that moving the reference
+ * point is a diff somebody reads, and that a CI box with no previous `dist` can
+ * still answer "what grew" on the first build it ever runs.
+ *
+ * It is NOT a gate and nothing fails because it is out of date — the ceilings
+ * below are the gate. It only decides how useful the failure is, which is why
+ * `label` is recorded next to the numbers: a delta against a baseline six weeks
+ * old is still worth printing, as long as the reader knows that is what it is.
+ */
+interface Baseline {
+  readonly label: string
+  readonly eager: Bytes & { readonly sourceBytes: number }
+  readonly eagerBytesByOwner: Record<string, number>
 }
 
 interface SourcesReport {
@@ -94,11 +117,64 @@ const INTERACTION_ONLY_MODULES = [
   'SessionContextMenu.tsx',
 ] as const
 
-/** Heavy leaf renderers whose callers deliberately load them after the shell. */
+/**
+ * Heavy leaf renderers whose callers deliberately load them after the shell.
+ *
+ * THE LAST THREE ARE THE PANEL BODIES (POD-2730), and they are a different size
+ * of claim from the rest of this list. `AgentPanel` is the session surface —
+ * the terminal and the chat view and everything they render — and it was
+ * imported statically by both of its call sites, so first paint carried xterm
+ * plus its WebGL addon (390,297 bytes), `marked`, `dompurify` and the whole chat
+ * block vocabulary. `DockShellPanel` was the second door into xterm, static in a
+ * dock whose other six panels were all already lazy. `RefMiniview` renders
+ * `null` until a ref is HOVERED and brought `@base-ui/react`'s select with it.
+ *
+ * None of the three can paint until something arrives that first paint does not
+ * have: a synced replica naming a session, a click on the shell tab, a hover.
+ * Deferring them took the eager graph from 7,722,192 bytes to 6,189,048.
+ *
+ * If this fires, an eager module imported one of them directly instead of
+ * through `lazy(() => import(...))`. For the panel bodies the shared lazy
+ * binding is `src/features/terminal/AgentPanelLazy.tsx` — import from there, not
+ * from `AgentPanel` itself, or two call sites become two component identities
+ * and a tab moving between them remounts its terminal.
+ */
 const DEFERRED_FIRST_PAINT_MODULES = [
   'src/app/Workspace.tsx',
+  'packages/model/src/predicates/machine-capability.ts',
+  'packages/model/src/predicates/machine-handoff.ts',
+  'src/app/IterationModeFrame.tsx',
+  'src/lib/machine-version-skew.ts',
   'src/features/mobile-handoff/MobileHandoffQr.tsx',
   'src/features/chat/TranscriptFeed.tsx',
+  'src/features/terminal/AgentPanel.tsx',
+  'src/features/terminal/DockShellPanel.tsx',
+  'src/components/RefMiniview.tsx',
+] as const
+
+/**
+ * VENDOR CODE THAT MUST NOT BE ON THE FIRST PAINT (POD-2730) — named by PACKAGE,
+ * because the module above it is not the thing that is expensive.
+ *
+ * The list above is a list of OUR modules, and it holds as long as nobody adds a
+ * new door. These four are the doors themselves: 390,297 bytes of terminal
+ * renderer that cannot draw before a PTY exists, and 144,014 bytes of markdown
+ * pipeline that cannot run before there is a message to render. A guard on
+ * `AgentPanel.tsx` says nothing if a NEW eager module imports `@xterm/xterm`
+ * directly, and that is exactly how both of them got in: not through one
+ * decision, but through a second import edge added later, under a byte ceiling
+ * that could only answer in totals.
+ *
+ * So this is checked against the package a source was installed from rather
+ * than against any file we control. Each entry names something whose whole job
+ * begins AFTER the first frame.
+ */
+const POST_PAINT_VENDOR_PACKAGES = [
+  '@xterm/xterm',
+  '@xterm/addon-webgl',
+  '@xterm/addon-fit',
+  'dompurify',
+  'marked',
 ] as const
 
 /**
@@ -132,51 +208,28 @@ const BROWSER_HOSTILE_SOURCES = [
 const BROWSER_HOSTILE_EXCEPTIONS = ['packages/harness/src/browser.ts'] as const
 
 /**
- * PACKAGES THAT MUST BE BUNDLED EXACTLY ONCE (POD-2469).
+ * THE DUPLICATE CHECK LIVES NEXT DOOR, in web-bundle-duplicates.ts: the
+ * packages a second copy BREAKS (SINGLETON_PACKAGES), the ones a second copy may
+ * legitimately be signed off for (ACCEPTED_DUPLICATE_PACKAGES), and the pure
+ * detection over source paths.
  *
- * Like BROWSER_HOSTILE_SOURCES above, this is a correctness check wearing a size
- * check's clothes. Every package here hands out objects that its own code then
- * recognises with `instanceof` or by reference, so a second copy in the bundle
- * does not cost bytes — it breaks the feature. `@codemirror/state` is the one
- * that taught us: `EditorState.create` walks the extension set, meets a `Facet`
- * minted by the other copy, fails the check and throws "Unrecognized extension
- * value in extension set". The file panel died on mount in edit and
- * side-by-side mode; view mode renders a preview, so it looked fine.
- *
- * `@lezer/highlight` is the quiet one. Its `tags` are the objects a grammar
- * marks its tree with AND the objects `HighlightStyle` matches against, so a
- * split there throws nothing at all — the code just stops being coloured.
- *
- * WHAT MAKES A COPY. One entry in the lockfile is not one module: what counts
- * is the resolved path on disk, and a mixed node_modules yields two of them for
- * the same version. `apps/web/node_modules/@codemirror/` carries symlinks into
- * `node_modules/.bun/` for some of these and not others, so some imports landed
- * on the `.bun` copy and the rest on the hoisted root one. That is why the fix
- * is `resolve.dedupe` in apps/web/vite.config.ts rather than an install step,
- * and why this check counts DISTINCT RESOLVED PATHS rather than chunks.
- *
- * If this fires, something reached one of these packages by a path `dedupe` does
- * not cover — a new dependency of its own, or a specifier not on that list.
+ * It is a separate module because THIS file reads `apps/web/dist` at module
+ * scope: importing anything from it requires a built website standing by, so a
+ * check kept here could only ever be exercised by building one. That is how the
+ * gate came to have no test of its own ability to refuse — the only proof was a
+ * dist in a sibling worktree, which is deleted with the worktree (POD-2530).
  */
-const SINGLETON_PACKAGES = [
-  '@codemirror/state',
-  '@codemirror/view',
-  '@codemirror/language',
-  '@codemirror/autocomplete',
-  '@codemirror/commands',
-  '@codemirror/search',
-  '@codemirror/lint',
-  '@lezer/common',
-  '@lezer/highlight',
-  '@lezer/lr',
-  'react',
-  'react-dom',
-] as const
-
 const args = process.argv.slice(2)
 const checkBudget = args.includes('--check')
+const writeBaseline = args.includes('--write-baseline')
 const dist = resolve(args.find((arg) => !arg.startsWith('--')) ?? 'apps/web/dist')
+/** `apps/web/dist` → the checkout root, with the trailing slash ownerOf strips. */
+const repoRoot = `${resolve(dist, '..', '..', '..')}/`
 const indexHtml = readFileSync(join(dist, 'index.html'), 'utf8')
+const baselinePath = fileURLToPath(new URL('./web-bundle-baseline.json', import.meta.url))
+const baseline: Baseline | null = existsSync(baselinePath)
+  ? (JSON.parse(readFileSync(baselinePath, 'utf8')) as Baseline)
+  : null
 
 function compressedBytes(path: string): Bytes {
   const contents = readFileSync(path)
@@ -205,16 +258,74 @@ function sourceMapFor(jsFile: string): SourceMap {
 
 function chunkReport(jsFile: string): ChunkReport {
   const map = sourceMapFor(jsFile)
+  const sourceSizes = map.sources.map(
+    (source, index) =>
+      [source, Buffer.byteLength(map.sourcesContent?.[index] ?? '', 'utf8')] as const,
+  )
   return {
     file: jsFile,
     ...compressedBytes(join(dist, jsFile)),
     sources: map.sources,
-    sourceBytes: map.sources.reduce(
-      (total, _source, index) =>
-        total + Buffer.byteLength(map.sourcesContent?.[index] ?? '', 'utf8'),
-      0,
-    ),
+    sourceSizes,
+    sourceBytes: sourceSizes.reduce((total, [, bytes]) => total + bytes, 0),
   }
+}
+
+/**
+ * WHO OWNS A SOURCE — the unit a person can actually act on.
+ *
+ * A breach used to name one number, and a number names no cause and suggests no
+ * fix (POD-2730: the build said `7722192 exceeds 7700000` and it took a whole
+ * issue to learn that the 24,320 bytes were nine files of an unrelated reload
+ * fix, with nothing in them to defer). Per-MODULE is too fine to read — the
+ * eager graph is over a thousand of them — and a total is too coarse. The owner
+ * is the right grain: an npm package, a workspace package, or a feature
+ * directory. That is the thing you either defer or accept.
+ */
+function ownerOf(source: string): string {
+  const absolute = resolve(join(dist, 'assets'), source)
+  const at = absolute.lastIndexOf('/node_modules/')
+  if (at >= 0) {
+    const parts = absolute.slice(at + '/node_modules/'.length).split('/')
+    return `npm:${parts[0]?.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0]}`
+  }
+  const parts = absolute.replace(repoRoot, '').split('/')
+  if (parts[0] === 'packages') return `pkg:${parts[1]}`
+  if (parts[0] === 'apps' && parts[1] === 'web') return `web:${parts.slice(2, 5).join('/')}`
+  return parts.join('/')
+}
+
+function bytesByOwner(chunks: readonly ChunkReport[]): Record<string, number> {
+  const totals = new Map<string, number>()
+  for (const chunk of chunks)
+    for (const [source, bytes] of chunk.sourceSizes) {
+      const owner = ownerOf(source)
+      totals.set(owner, (totals.get(owner) ?? 0) + bytes)
+    }
+  return Object.fromEntries([...totals].sort((left, right) => right[1] - left[1]))
+}
+
+/** `1,493,244` — these numbers are read by people, next to each other. */
+function withThousands(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+function ownerLines(owners: Record<string, number>, limit: number, sign = false): string[] {
+  return Object.entries(owners)
+    .slice(0, limit)
+    .map(([owner, bytes]) => {
+      const value = (sign && bytes > 0 ? '+' : '') + withThousands(bytes)
+      return `    ${value.padStart(12)}  ${owner}`
+    })
+}
+
+/** `@xterm/xterm/lib/xterm.js` — a bundled source named the way a person would
+ *  name it, not as the `../../../../node_modules/.bun/@xterm+xterm@5.5.0/…`
+ *  spelling a source map records relative to whichever directory the build ran
+ *  in. Error text is read; it is not a path anyone pastes. */
+function readableSource(source: string): string {
+  const at = source.lastIndexOf('/node_modules/')
+  return at >= 0 ? source.slice(at + '/node_modules/'.length) : source.replace(/^(\.\.\/)+/, '')
 }
 
 function htmlJsReferences(html: string): string[] {
@@ -263,21 +374,30 @@ const allChunkSourcePaths = allChunks.flatMap((chunk) =>
   chunk.sources.map((source) => resolve(join(dist, 'assets'), source)),
 )
 
-/** Distinct on-disk installations of `pkg` that reached the bundle. Keyed by the
- *  directory the sources sit in rather than by version or lockfile entry: one
- *  entry can still be two modules, and it is the module identity that decides
- *  whether `instanceof` holds. See SINGLETON_PACKAGES. */
-function packageInstallations(sourcePaths: readonly string[], pkg: string): string[] {
-  const needle = `node_modules/${pkg}/`
-  return [
-    ...new Set(
-      sourcePaths.flatMap((path) => {
-        const at = path.lastIndexOf(needle)
-        return at < 0 ? [] : [path.slice(0, at + needle.length - 1)]
-      }),
-    ),
-  ].sort()
-}
+/**
+ * WHAT IS IN THE BUNDLE MORE THAN ONCE — over every package, not a list
+ * (POD-2527).
+ *
+ * SINGLETON_PACKAGES is a list of packages a second copy BREAKS. It was read as
+ * if it were the list of packages a second copy MATTERS for, and the gap between
+ * those two readings is the whole of POD-2527. `@dnd-kit/core` is not a
+ * singleton — two copies throw nothing — but the eager source budget counts
+ * `sourcesContent`, so a split put 104,325 bytes of vendor text into the total
+ * twice. With `@dnd-kit/utilities` (7,960), `@trpc/server` (3,663) and `clsx`
+ * (388) that is 116,336 bytes, and the build said `eager parsed source bytes:
+ * 7757776 exceeds 7700000`. Read as 58KB of app growth, it sent a whole issue
+ * looking for a module to lazy-load. There was none: 7,757,776 less those four
+ * second copies is 7,641,440, which is what the same source measured in a
+ * checkout that resolved them once.
+ *
+ * (The figure first recorded here was 112,673 over three packages — the same
+ * measurement with `@trpc/server` missed, and 3,663 bytes short. Corrected in
+ * POD-2530 by re-deriving it from the failing dist.)
+ *
+ * The detection itself, and the accept list beside it, are in
+ * web-bundle-duplicates.ts, where they can be tested without a built website.
+ */
+const duplicates = duplicateReport(allChunkSourcePaths)
 
 const report = {
   dist,
@@ -299,6 +419,11 @@ const report = {
     deferredFirstPaintSources: DEFERRED_FIRST_PAINT_MODULES.flatMap((module) =>
       matchingSources(eagerChunks, module),
     ),
+    postPaintVendorSources: POST_PAINT_VENDOR_PACKAGES.flatMap((pkg) =>
+      matchingSources(eagerChunks, `node_modules/${pkg}/`),
+    ),
+    /** Every eager byte, attributed. See ownerOf — this is what a breach prints. */
+    bytesByOwner: bytesByOwner(eagerChunks),
   },
   settings: {
     file: basename(settings.file),
@@ -310,10 +435,10 @@ const report = {
     commandSources: matchingSources([settings], 'packages/commands/src/'),
   },
   allBrowserChunks: {
-    duplicatedSingletons: SINGLETON_PACKAGES.flatMap((pkg) => {
-      const installations = packageInstallations(allChunkSourcePaths, pkg)
-      return installations.length > 1 ? [{ package: pkg, installations }] : []
-    }),
+    duplicatedPackages: duplicates.duplicated,
+    acceptedDuplicatePackages: duplicates.accepted,
+    unusedDuplicateAcceptances: duplicates.unusedAcceptances,
+    illegalDuplicateAcceptances: duplicates.illegalAcceptances,
     ownershipMatrixSources: matchingSources(allChunks, 'packages/model/src/annotations/matrix.ts'),
     browserHostileSources: BROWSER_HOSTILE_SOURCES.flatMap((fragment) =>
       matchingSources(allChunks, fragment).filter(
@@ -325,10 +450,48 @@ const report = {
 
 console.log(JSON.stringify(report, null, 2))
 
+if (writeBaseline) {
+  const next: Baseline = {
+    label: process.env.PODIUM_BUNDLE_BASELINE_LABEL ?? 'unlabelled',
+    eager: {
+      raw: report.eager.raw,
+      gzip: report.eager.gzip,
+      brotli: report.eager.brotli,
+      sourceBytes: report.eager.sourceBytes,
+    },
+    eagerBytesByOwner: report.eager.bytesByOwner,
+  }
+  writeFileSync(baselinePath, `${JSON.stringify(next, null, 2)}\n`)
+  console.error(`[web-bundle-budget] wrote ${basename(baselinePath)} (${next.label})`)
+}
+
 if (checkBudget) {
   const errors: string[] = []
+  /**
+   * A BYTE BREACH PRINTS WHAT IS IN THE GRAPH, NOT JUST HOW MUCH (POD-2730).
+   *
+   * The failure this replaces read `eager parsed source bytes: 7722192 exceeds
+   * 7700000` and stopped there. That sentence is true and useless: it blocks
+   * packaging, which blocks every sandbox and every gate run, and the person it
+   * blocks has no way to tell 22 KB of one deferrable module from 22 KB spread
+   * over nine files of the bugfix they were landing. Both had happened in the
+   * same week. Working out which cost a whole issue each time.
+   *
+   * So a breach now says three things. WHAT IS BIG — the largest owners in the
+   * eager graph, which is where the paydown would come from. WHAT MOVED — the
+   * same owners diffed against the recorded baseline, which usually names the
+   * commit's own footprint in one line. And WHICH — with more than one budget
+   * red, they are printed as one block rather than one line each, because they
+   * are one fact about one graph.
+   *
+   * Only on breach. A passing build stays quiet; the full owner map is in the
+   * JSON on stdout for anyone who wants it without failing first.
+   */
+  const breached: string[] = []
   const atMost = (label: string, actual: number, budget: number) => {
-    if (actual > budget) errors.push(`${label}: ${actual} exceeds ${budget}`)
+    if (actual <= budget) return
+    errors.push(`${label}: ${actual} exceeds ${budget} (over by ${withThousands(actual - budget)})`)
+    breached.push(label)
   }
 
   // THE PAYLOAD BUDGETS GO UP, AND THIS IS THE RAISE THE NOTE BELOW WARNED ABOUT
@@ -358,9 +521,25 @@ if (checkBudget) {
   // budget going red means the browser downloads more, which is a real cost to
   // every session on open, and three of these four are payload. This raise buys
   // nothing but room to keep working; the next one needs a paydown, not a note.
-  atMost('eager raw bytes', report.eager.raw, 2_260_000)
-  atMost('eager gzip bytes', report.eager.gzip, 680_000)
-  atMost('eager Brotli bytes', report.eager.brotli, 566_000)
+  // ALL FOUR CEILINGS COME DOWN (2026-08-24, POD-2730), and they come down
+  // together because the paydown below is one move that paid all four.
+  //
+  //                    was          measured after      new ceiling   headroom
+  //     raw            2,260,000        1,458,334         1,650,000    191,666
+  //     gzip             680,000          460,501           520,000     59,499
+  //     Brotli           566,000          395,176           447,000     51,824
+  //     source         7,700,000        6,189,048         7,000,000    810,952
+  //
+  // Three payload budgets that had gone thin — the note above measured 3,736 /
+  // 1,880 / 3,231 bytes of headroom in August and said the next feature of any
+  // size would turn one red — now have ~13%, which is the same fraction the
+  // source budget gets. One fraction rather than four judgements: they measure
+  // the same graph through four lenses, so a paydown that moves one moves all
+  // four, and a proportional rule means the four go red at roughly the same
+  // point instead of one becoming the sentinel by accident.
+  atMost('eager raw bytes', report.eager.raw, 1_650_000)
+  atMost('eager gzip bytes', report.eager.gzip, 520_000)
+  atMost('eager Brotli bytes', report.eager.brotli, 447_000)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
   // (2026-08-16; see the measured split above) → 7_700_000 (2026-08-17, on the
   // release line; the first 0.1.0 edge build measured 7,689,167 while every
@@ -437,48 +616,70 @@ if (checkBudget) {
   // red means shipping more to the browser. That is not this argument, and it does
   // not get this raise.
   //
-  // 7_700_000 -> 7_780_000 (2026-08-21, POD-2470). THE PAYDOWN CAME FIRST, and it
-  // is in this same commit: `packages/protocol/src/messages/runtime.ts` was the
-  // agent-runtime epic's W1 contract filed as ONE module, and `./sync.ts` parses
-  // `PendingInteractionWire` out of it as the `pendingInteraction` metadata feed
-  // arm — so importing one browser-facing schema dragged all 55,193 bytes of the
-  // contract into the eager graph, including ~19k of daemon-plane request/result
-  // envelopes no browser can receive. Eager Zod schemas are built at module
-  // scope, so no bundler shakes them out; only the import edge decides. Splitting
-  // the interaction half into `./runtime-interactions.ts` and leaving the daemon
-  // plane behind `@podium/protocol/daemon` — which is the rule `messages/index.ts`
-  // and `daemon.ts` BOTH already state, and which W1 broke — took 25,314 bytes
-  // out. The wire is untouched: schema digest 86b2d689b1e6358f either side.
+  // 7_700_000 → 7_000_000 (2026-08-24, POD-2730). DOWN 700,000, against a graph
+  // that came down 1,533,144 — and the gap between those two numbers is the
+  // whole point of this entry.
   //
-  // What is left is 46,626 over, and it is the epic's growth that CANNOT be
-  // deferred, measured against the merge-base 1bda60ae6:
-  //   runtime-interactions.ts  29,866  the browser parses these at runtime
-  //   AgentPanel.tsx           +7,670  \
-  //   panel-surface.ts         +5,006   | the terminal panel IS the workspace
-  //   startup-overlay.ts       +4,235   | first paint
-  //   use-panel-surface.ts     +1,757  /
-  //   protocol terminal.ts     +5,992  \
-  //   message-class.ts         +2,509   | wire + entity schemas the client
-  //   model machine.ts         +3,376   | parses on every frame
-  //   model session.ts         +2,029   |
-  //   sync/host.ts             +2,416  /
-  //   client-core viewmodels   +7,681  session-status, ui-state, socket-hub,
-  //                                    machine-selection, replica, contract
-  // Deferring any one in isolation is not available: none is behind a gesture,
-  // and each is reached by the shell's own first render.
+  // WHAT WENT WRONG WAS NOT A NUMBER, IT WAS THE ABSENCE OF ROOM. POD-2718 paid
+  // this ceiling down and landed at 7,697,872 — 2,128 bytes under, 0.03%. The
+  // very next commit to touch apps/web was POD-2721, a reload fix, and it added
+  // 24,320 bytes across nine files (protocol +5,995, features/setup +5,276,
+  // ErrorBoundary +3,866, served-website +2,338, chunk-load-failure +2,064, and
+  // four smaller). Every one of those is the bugfix doing its job. There was
+  // nothing in it to defer and nothing in it to blame, and it broke packaging —
+  // which blocks every sandbox and every gate run in the repo. A ratchet whose
+  // clearance is smaller than one ordinary commit is not a ratchet. It is a
+  // tripwire on unrelated work, and this file's own history is a record of
+  // paying for that: five raises, each one landing back within ~57k, each note
+  // saying the next move had to be a paydown.
   //
-  // The three payload budgets all IMPROVED and pass with room — raw 2,185,261 of
-  // 2,260,000, gzip 657,105 of 680,000, Brotli 548,241 of 566,000 — so nothing
-  // the browser downloads got worse; this metric counts commented source text.
+  // WHERE THE 1,533,144 CAME FROM. Not from features, and not from a second copy
+  // of anything — the duplicate report was empty and an independent pass over
+  // the eager source maps found zero bytes double-counted, so this was placement
+  // and only placement. Three surfaces that first paint cannot reach stopped
+  // being eager, all three the shape POD-1239 and POD-2190 established:
   //
-  // THE REAL LEVER IS NOW ENFORCED, not left for the next person to rediscover:
-  // `AppShell.tsx` used to import `Workspace` eagerly while SettingsView,
-  // UsageView, FlightDeck, OnboardingWizard and the dialogs were all `lazy()`.
-  // Workspace pulls AgentPanel -> ChatView -> the whole chat and terminal stack,
-  // even though the app lands on the work list. It now sits beside
-  // `TranscriptFeed.tsx` in DEFERRED_FIRST_PAINT_MODULES above, so the build
-  // fails by name if either edge returns instead of waiting for a workspace.
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_780_000)
+  //   AgentPanel (both call sites, through AgentPanelLazy)  — the session body:
+  //     the terminal, the chat view, xterm + its WebGL addon (390,297), marked,
+  //     dompurify. Cannot render before the replica names a session.
+  //   DockShellPanel (RightDock)                            — the second door to
+  //     xterm, and the one static import among that dock's seven panels.
+  //   RefMiniview (AppShell)                                — renders null until
+  //     a ref is hovered; brought @base-ui/react's select (~90k) with it.
+  //
+  // Each is guarded by name in DEFERRED_FIRST_PAINT_MODULES, and the four vendor
+  // packages behind them by POST_PAINT_VENDOR_PACKAGES, so the boundary is a
+  // build failure rather than a convention. The bytes were checked out of the
+  // graph rollup actually built, not inferred from the import shape.
+  //
+  // WHY 7_000_000 AND NOT 6_250_000. 810,952 bytes of clearance, 13.1%. Measured
+  // against what this file has recorded of ordinary drift — 53,497 bytes over
+  // ~20 commits of shell work, 24,320 for one bugfix — that is somewhere between
+  // 30 and 300 commits, i.e. months. Tighter would re-create the defect this
+  // entry exists to fix; looser would hand the paydown straight back, and the
+  // eager graph would grow into it without anyone deciding to spend it. 700,000
+  // is banked as a real reduction and 810,952 is lent to whoever works here next.
+  //
+  // AND THE NEXT PAYDOWN DOES NOT START FROM A BLANK PAGE. Measured in the same
+  // graph after this move, still eager: @dnd-kit 133,557 across four packages (a
+  // drag cannot precede a pointer down, but Workspace's DndContext wraps the
+  // pane area structurally, so that one is a refactor rather than a `lazy()`),
+  // tailwind-merge 105,606 (reached by `cn()`, so genuinely everywhere), and
+  // sonner 65,887. None of it is needed to keep this gate honest for months, and
+  // the owner table a breach now prints is how the next person finds the list
+  // without re-deriving it.
+  //
+  // KEPT AT 7_000_000 THROUGH THE AGENT-RUNTIME MERGE (POD-3070). The epic's own
+  // entry had raised this to 7_780_000 for growth it could not defer — AgentPanel
+  // +7,670, panel-surface +5,006, startup-overlay +4,235, use-panel-surface +1,757
+  // — and every one of those now sits BEHIND `AgentPanelLazy`, which is the
+  // deferral this ratchet was cut against. What the epic adds that is still eager
+  // is the schema half: runtime-interactions.ts and the protocol/model/viewmodel
+  // growth around it, ~54k, against 810,952 of clearance. The epic's `Workspace`
+  // deferral survives in DEFERRED_FIRST_PAINT_MODULES above, so both sides' named
+  // guards hold. Raising the ceiling to carry growth that is no longer eager would
+  // hand the paydown straight back.
+  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_000_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)
@@ -491,24 +692,69 @@ if (checkBudget) {
   if (report.eager.commandSources.length > 0)
     errors.push(`command sources are eager: ${report.eager.commandSources.join(', ')}`)
 
-  // The other check phrased as a crash rather than as weight. See
-  // SINGLETON_PACKAGES for why a duplicate here is a broken feature and not a
-  // bigger download, and note that one of these fails silently: a split
-  // `@lezer/highlight` stops colouring code without throwing anything.
-  if (report.allBrowserChunks.duplicatedSingletons.length > 0) {
-    const { duplicatedSingletons: duplicated } = report.allBrowserChunks
+  // The check that must speak BEFORE the byte ceilings do, because it is the one
+  // that explains them. A split package is counted twice in `sourcesContent`, so
+  // it arrives at the source budget as anonymous growth — and that is how a
+  // duplicated @dnd-kit came to be reported as "58KB over" and hunted as a
+  // recently-eager module for a day (POD-2527). It runs over every package in
+  // the bundle rather than SINGLETON_PACKAGES, because costing bytes and
+  // breaking a feature are two different reasons to be here and only the second
+  // one was ever listed.
+  if (report.allBrowserChunks.duplicatedPackages.length > 0) {
+    const { duplicatedPackages: duplicated } = report.allBrowserChunks
+    const breaking = duplicated.filter(({ breaksTheFeature }) => breaksTheFeature)
+    const outgrown = duplicated.filter(({ acceptedInstallations }) => acceptedInstallations)
     errors.push(
       `${duplicated.length} package(s) are in the bundle more than once: ` +
         `${duplicated.map(({ package: pkg, installations }) => `${pkg} (${installations.length})`).join(', ')}. ` +
-        `Each hands out objects its own code recognises with instanceof, so a second copy breaks ` +
-        `the feature rather than costing bytes — POD-2469 was EditorState.create throwing ` +
-        `"Unrecognized extension value in extension set", which killed the file panel on mount in ` +
-        `edit and side-by-side mode, and a split @lezer/highlight does the same thing silently by ` +
-        `simply not colouring code. One lockfile entry is not one module: pin the specifier in ` +
-        `resolve.dedupe in apps/web/vite.config.ts. Installations: ` +
+        (outgrown.length > 0
+          ? `${outgrown
+              .map(
+                ({ package: pkg, installations, acceptedInstallations }) =>
+                  `${pkg} was signed off for ${acceptedInstallations} installation(s) and there are ${installations.length}`,
+              )
+              .join('; ')} — the count on the accept list is not the count in the bundle, so the ` +
+            `entry does not describe this split. Re-measure it and either correct the entry or fix ` +
+            `the split; do not widen the number to make the build pass. `
+          : '') +
+        `A second copy is never free: it is counted twice in the eager source budget, so it ` +
+        `also shows up there as growth with no feature behind it. ` +
+        (breaking.length > 0
+          ? `${breaking.map(({ package: pkg }) => pkg).join(', ')} ` +
+            `additionally hand out objects their own code recognises with instanceof, so a split ` +
+            `BREAKS them rather than costing bytes — POD-2469 was EditorState.create throwing ` +
+            `"Unrecognized extension value in extension set", which killed the file panel on mount ` +
+            `in edit and side-by-side mode, and a split @lezer/highlight does the same thing ` +
+            `silently by simply not colouring code. `
+          : '') +
+        `One lockfile entry is not one module, and the second copy is often not even in this ` +
+        `checkout: .worktrees/ sits inside the main checkout, so a worktree missing ` +
+        `apps/web/node_modules walks up past its own root into the main one. Pin the specifier in ` +
+        `resolve.dedupe in apps/web/vite.config.ts — or, if the two copies are DELIBERATE and ` +
+        `both versions are needed, record them in ACCEPTED_DUPLICATE_PACKAGES in ` +
+        `scripts/web-bundle-duplicates.ts with what each one is for; dedupe is the wrong advice ` +
+        `for a split somebody chose. Installations: ` +
         `${duplicated.flatMap(({ installations }) => installations).join(', ')}`,
     )
   }
+
+  // An accept list that only ever grows stops being a set of decisions and
+  // becomes a set of holes. Both of these are faults in the LIST, not in the
+  // bundle, and both are fixed by deleting the entry.
+  if (report.allBrowserChunks.unusedDuplicateAcceptances.length > 0)
+    errors.push(
+      `${report.allBrowserChunks.unusedDuplicateAcceptances.join(', ')} sits in ` +
+        `ACCEPTED_DUPLICATE_PACKAGES but is not bundled more than once any more. Delete the ` +
+        `entry: kept, it would silently accept the next split of that package, which nobody has ` +
+        `agreed to.`,
+    )
+
+  if (report.allBrowserChunks.illegalDuplicateAcceptances.length > 0)
+    errors.push(
+      `${report.allBrowserChunks.illegalDuplicateAcceptances.join(', ')} cannot be accepted as a ` +
+        `duplicate: it is in SINGLETON_PACKAGES, where a second copy does not cost bytes but ` +
+        `breaks the feature outright. Remove the entry and fix the split.`,
+    )
 
   // Deliberately phrased as a crash, not as weight: this is the one check here
   // whose breach means a route does not render at all. See
@@ -538,8 +784,20 @@ if (checkBudget) {
 
   if (report.eager.deferredFirstPaintSources.length > 0)
     errors.push(
-      `deferred leaf renderer is back in first paint: ${report.eager.deferredFirstPaintSources.join(', ')}`,
+      `deferred first-paint module is back in first paint: ${report.eager.deferredFirstPaintSources.map(readableSource).join(', ')}`,
     )
+
+  if (report.eager.postPaintVendorSources.length > 0) {
+    const { postPaintVendorSources: vendor } = report.eager
+    errors.push(
+      `${vendor.length} source(s) from a package whose work begins AFTER the first frame are ` +
+        `eager — the terminal renderer cannot draw before a PTY exists and the markdown ` +
+        `pipeline cannot run before there is a message (POD-2730). Find the import edge that ` +
+        `reaches them from the app shell and put it behind lazy(() => import(...)): ` +
+        `${vendor.slice(0, 5).map(readableSource).join(', ')}` +
+        (vendor.length > 5 ? `, and ${vendor.length - 5} more` : ''),
+    )
+  }
 
   const allowedSettingsCommandSources = new Set([
     'packages/commands/src/settings/write-plan.ts',
@@ -553,6 +811,53 @@ if (checkBudget) {
 
   if (errors.length > 0) {
     for (const error of errors) console.error(`[web-bundle-budget] ${error}`)
+    if (breached.length > 0) {
+      const note = (line: string) => console.error(`[web-bundle-budget] ${line}`)
+      note('')
+      note(`WHAT IS IN THE EAGER GRAPH (${withThousands(report.eager.sourceBytes)} bytes of`)
+      note('original source, largest owners first — this is where a paydown comes from):')
+      for (const line of ownerLines(report.eager.bytesByOwner, 12)) note(line)
+      if (baseline) {
+        const owners = new Set([
+          ...Object.keys(baseline.eagerBytesByOwner),
+          ...Object.keys(report.eager.bytesByOwner),
+        ])
+        const moved = Object.fromEntries(
+          [...owners]
+            .map(
+              (owner) =>
+                [
+                  owner,
+                  (report.eager.bytesByOwner[owner] ?? 0) -
+                    (baseline.eagerBytesByOwner[owner] ?? 0),
+                ] as const,
+            )
+            .filter(([, delta]) => delta !== 0)
+            .sort((left, right) => Math.abs(right[1]) - Math.abs(left[1])),
+        )
+        const total = report.eager.sourceBytes - baseline.eager.sourceBytes
+        note('')
+        note(
+          `SINCE THE RECORDED BASELINE (${baseline.label}): ` +
+            `${total > 0 ? '+' : ''}${withThousands(total)} bytes eager source.`,
+        )
+        if (Object.keys(moved).length > 0)
+          for (const line of ownerLines(moved, 10, true)) note(line)
+        else note('    nothing moved — this build matches the baseline owner for owner.')
+        note('')
+        note(
+          'A diff spread thinly over the owners you were editing is drift, not a module to ' +
+            'defer: the ceiling is what is wrong, and raising it needs the reasoning and the ' +
+            'headroom written into this file, not just a bigger number.',
+        )
+      } else {
+        note('')
+        note(
+          `no ${basename(baselinePath)} on disk, so this cannot say what GREW — only what is ` +
+            'big. Record one with `bun scripts/web-bundle-budget.ts <dist> --write-baseline`.',
+        )
+      }
+    }
     process.exitCode = 1
   }
 }

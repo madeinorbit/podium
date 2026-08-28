@@ -341,7 +341,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'HandoffSession',
     entity: 'session',
-    site: 'packages/model/src/predicates/machine-selection.ts',
+    site: 'packages/model/src/predicates/machine-handoff.ts',
     role: 'R5',
     purpose: 'The three facts the handoff-target predicate needs to pick a machine.',
     distinctSemantics:
@@ -968,7 +968,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'HandoffIssue',
     entity: 'issue',
-    site: 'packages/model/src/predicates/machine-selection.ts',
+    site: 'packages/model/src/predicates/machine-handoff.ts',
     role: 'R5',
     purpose: 'The two issue facts the handoff-target predicate reads.',
     distinctSemantics:

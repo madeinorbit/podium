@@ -19,6 +19,8 @@ export interface MachinePairingProps {
   onMakeServerAfterPairChange: (value: boolean) => void
   onChangeUrl?: () => void
   onReviewPairedMachine: () => void
+  /** Mint a new one-use code after this one has paired a machine. */
+  onNewCode: () => void
   /** Guided VPS copy and hierarchy; the generic Settings surface keeps its full controls. */
   variant?: 'default' | 'vps'
 }
@@ -120,6 +122,7 @@ export function MachinePairing(props: MachinePairingProps): JSX.Element {
           onMakeServerAfterPairChange={props.onMakeServerAfterPairChange}
           pairedMachine={props.newMachine}
           onReviewPairedMachine={props.onReviewPairedMachine}
+          onNewCode={props.onNewCode}
           busy={props.loading}
           variant={props.variant}
         />
@@ -140,6 +143,7 @@ export interface PairingCodeDisplayProps {
   onMakeServerAfterPairChange: (value: boolean) => void
   pairedMachine: Pick<MachineWire, 'id' | 'name'> | null
   onReviewPairedMachine: () => void
+  onNewCode: () => void
   busy?: boolean
   variant?: 'default' | 'vps'
 }
@@ -157,6 +161,7 @@ export function PairingCodeDisplay({
   onMakeServerAfterPairChange,
   pairedMachine,
   onReviewPairedMachine,
+  onNewCode,
   busy = false,
   variant = 'default',
 }: PairingCodeDisplayProps): JSX.Element {
@@ -209,6 +214,38 @@ export function PairingCodeDisplay({
   }
 
   const guidedVps = variant === 'vps'
+
+  if (pairedMachine) {
+    return (
+      <div
+        className={cn(
+          'min-w-0 space-y-3 rounded-md border border-success/30 bg-success/5 px-3 py-2.5',
+          guidedVps && 'rounded-[12px] px-5 py-4',
+        )}
+        role="status"
+        aria-live="polite"
+      >
+        <p className={cn('settings-prose', guidedVps && 'text-[13.5px] leading-[1.5]')}>
+          <strong className="font-medium text-foreground">{pairedMachine.name}</strong> is paired.
+          That one-use code has been spent, and its command will not work again.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" disabled={busy} onClick={onNewCode}>
+            {busy ? 'Creating…' : 'Create another code'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={onReviewPairedMachine}
+          >
+            Review transfer
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -376,27 +413,6 @@ export function PairingCodeDisplay({
             </label>
           )}
         </>
-      )}
-      {pairedMachine && (
-        <div
-          className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-[12px]"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="min-w-0 flex-1 text-muted-foreground">
-            <strong className="text-foreground">{pairedMachine.name}</strong> is paired, and the
-            server reports it is ready for transfer review.
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            className="flex-none"
-            disabled={busy}
-            onClick={onReviewPairedMachine}
-          >
-            Review transfer
-          </Button>
-        </div>
       )}
       <div className={cn('flex flex-col gap-1.5', guidedVps && 'gap-2')}>
         <div className="flex items-center justify-between gap-2">

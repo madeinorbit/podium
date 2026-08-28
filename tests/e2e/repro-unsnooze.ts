@@ -1,7 +1,7 @@
 /**
  * LIVE reproduction + proof for #170 Fix 2 — the stuck "Unsnoozed" tag.
  *
- * Stands up an ISOLATED podium (own port + state dir, node-pty, no scope) that
+ * Stands up an ISOLATED podium (own port + state dir, Bun.Terminal, no scope) that
  * serves the built web same-origin, seeds one repo + one issue with a session,
  * snoozes then UNSNOOZES it (so it enters returned-from-defer with the tag), then
  * drives a real browser to OPEN the issue and asserts the tag clears — the exact
@@ -67,7 +67,11 @@ function inlineWorkerClient(): DiscoveryWorkerClient {
               for (const h of handlers) h({ id: job.id, ok: true, value })
             } catch (err) {
               for (const h of handlers)
-                h({ id: job.id, ok: false, error: err instanceof Error ? err.message : String(err) })
+                h({
+                  id: job.id,
+                  ok: false,
+                  error: err instanceof Error ? err.message : String(err),
+                })
             }
           })()
         },
@@ -84,7 +88,7 @@ function inlineWorkerClient(): DiscoveryWorkerClient {
 
 async function main() {
   process.env.PODIUM_NO_SCOPE = '1'
-  process.env.PODIUM_PTY_BACKEND = 'node-pty'
+  process.env.PODIUM_PTY_BACKEND = 'bun-terminal'
   reapHarnessSessions(PORT)
   const { stateDir } = applyHarnessEnv(PORT)
   mkdirSync(stateDir, { recursive: true })
@@ -98,7 +102,11 @@ async function main() {
   const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
     kind === 'shell'
       ? agentLaunchCommand(kind, opts)
-      : { cmd: process.execPath, args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'both'], cwd: KEYECHO_PKG }
+      : {
+          cmd: process.execPath,
+          args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'both'],
+          cwd: KEYECHO_PKG,
+        }
 
   const server = await startServer({ port: PORT })
   const daemon = await startDaemon({
@@ -113,7 +121,11 @@ async function main() {
   log(`server on :${server.port}, state=${stateDir}`)
 
   const issues = server.registry.issues
-  const created = issues.create({ repoPath: REPO_ROOT, title: 'Repro Unsnooze Tag', origin: 'human' })
+  const created = issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Repro Unsnooze Tag',
+    origin: 'human',
+  })
   server.registry.createSession({ agentKind: 'claude-code', cwd: REPO_ROOT, issueId: created.id })
   // The exact user flow: snooze (future) then Unsnooze — undefer backdates deferUntil,
   // landing the issue in returned-from-defer (top of WORK + "Unsnoozed" tag).

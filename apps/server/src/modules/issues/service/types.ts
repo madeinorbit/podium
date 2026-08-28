@@ -1,14 +1,14 @@
 import type {
+  AccountId,
   ArtifactId,
   IssueId,
   IssueTree,
   IssueTreeNode,
   IssueTreeSession,
   IssueWire,
+  MachineId,
   SessionId,
   SessionMeta,
-  MachineId,
-  AccountId,
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -170,6 +170,7 @@ export interface IssueDeps {
    *  their exact initiating session/operator when known, with `issue:<id>` as the
    *  legacy direct-service fallback. [spec:SP-ccb2] */
   spawnSession(o: {
+    sessionId?: SessionId
     cwd: string
     /** Explicit issue attachment (POD-529): the workflow knows the issue, so the
      *  session must not fall back to cwd-derived attachment (or a DRAFT birth ref). */
@@ -202,28 +203,31 @@ export interface IssueDeps {
     args?: Record<string, string>,
     machineId?: MachineId,
   ): Promise<{ ok: boolean; output: string }>
+  /**
+   * Resolve the target an unpinned machine operation would choose for cwd.
+   *
+   * Worktree writers call this before their first operation, persist the result,
+   * and pass that same id to the operation. Optional only for the existing unit
+   * fixtures; production injects the daemon router's exact resolver.
+   */
+  resolveMachine?(requested: string | undefined, cwd: string): MachineId
   /** Pre-flight for an explicit machine pin: throws (actionable message) when the
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: MachineId, repoPath: string): void
   /**
-   * The online machine that HOLDS this repository path, or undefined.
+   * Pre-flight for HOMING an issue on a machine (POD-2700): throws when the
+   * machine can never hold a worktree because it runs no Podium daemon.
    *
-   * A worktree's recorded machine and the machine its git op runs on have to agree,
-   * and the only way to guarantee that is to decide once and use the answer for
-   * both. Neither of the two obvious shortcuts does it: an absent machineId is
-   * re-resolved against the fleet at call time, so the answer moves; and assuming
-   * the host retargets every issue whose repository lives elsewhere, which is how
-   * POD-2651 broke starts for repositories registered to another machine.
-   *
-   * Deliberately NOT `pickMachineForRepo`, whose fallback is the first online
-   * daemon: for a path no machine has registered that is an arbitrary machine, and
-   * a worktree needs the repository, not merely somewhere to run. Undefined here
-   * means "nobody holds it" and the caller falls back to the host on purpose.
-   *
-   * Optional so existing test deps literals stay valid; absent = host behaviour.
+   * Separate from `requireMachineForRepo` above because the two guard different
+   * moments and must NOT be merged. That one runs at START, against a resolved
+   * repo path, and refuses an offline machine — correct there, since starting
+   * actually needs the daemon. This one runs when the PROPERTY is set, where
+   * offline is fine (the machine may be exactly the right home once it wakes)
+   * and only the durable answer is knowable. Injected by the relay; optional so
+   * the existing test deps literals stay valid.
    */
-  machineHoldingRepo?(cwd: string): MachineId | undefined
+  requireIssueHomeMachine?(machineId: MachineId): void
   /**
    * Prepare a machine-pinned start (POD-1424): put the right REPOSITORY on the target
    * (resolved by repo IDENTITY, cloned on absence — POD-1386) and the right COMMITS in
@@ -372,6 +376,8 @@ export interface CreateIssueInput
       | 'color'
       | 'draft'
     > {
+  /** Client-minted id for the first session when `startNow` is true. */
+  startSessionId?: SessionId
   /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
   stage?: 'proposed' | 'backlog'
   startNow: boolean

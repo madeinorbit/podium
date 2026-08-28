@@ -1,3 +1,4 @@
+import type { BootRelevantConfigField } from '@podium/model'
 import type { PodiumMode } from '@podium/runtime'
 // Browser-safe shared example used by the CLI prompt and telemetry preview too.
 import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
@@ -183,11 +184,20 @@ export function TelemetryStep({
   )
 }
 
+/** What each boot-relevant field is CALLED to an operator. The readiness route
+ *  publishes config keys; a screen that repeated `persistence` at someone would be
+ *  telling them the name of a variable, not what changed about their server. */
+const STALE_FIELD_LABELS: Record<BootRelevantConfigField, string> = {
+  mode: 'what this machine runs (all-in-one or server-only)',
+  persistence: 'how Podium is kept running (its service setup)',
+}
+
 export function SetupView({
   httpOrigin,
   onSaved,
   localDefault = false,
   blockedState,
+  staleFields,
 }: {
   httpOrigin: string
   onSaved: () => void
@@ -195,6 +205,10 @@ export function SetupView({
   localDefault?: boolean
   /** Server-enforced blocked states that permit no setup mutation from this browser. */
   blockedState?: 'remote-setup' | 'restart-required'
+  /** Which boot-relevant settings this process is stale on, from `/setup/config`
+   *  (POD-2766). Empty or absent on an older server that does not publish them —
+   *  the screen then says only that a restart is needed, as it always did. */
+  staleFields?: readonly BootRelevantConfigField[]
 }): ReactNode {
   const trpc = useMemo(() => makeTrpc(httpOrigin), [httpOrigin])
   const [step, setStep] = useState<'local' | 'mode' | 'network'>(localDefault ? 'local' : 'mode')
@@ -206,6 +220,9 @@ export function SetupView({
   // setup.join succeeded but flagged the server URL as an ephemeral quick tunnel — the
   // config IS applied; surface the warning (like the CLI does) before moving on.
   const [joinWarning, setJoinWarning] = useState<string | null>(null)
+  /** "Restarting…" is not an error and not a success — the server drops the
+   *  connection to comply, so this is a separate line from `error`. */
+  const [activationNote, setActivationNote] = useState<string | null>(null)
   // daemon joins with a one-paste code; client just needs the remote URL.
   const needsJoinCode = mode === 'daemon'
   const needsServerUrl = mode === 'client'
@@ -252,6 +269,37 @@ export function SetupView({
     }
   }
 
+  /**
+   * Ask the server to replace its own process so it adopts the saved config.
+   *
+   * `setup.activate` is served while the data plane is blocked — that is the
+   * point of the control plane — but it still needs an authenticated admin, so a
+   * 401 here is not a failure to report as one: it means "log in first", and the
+   * login screen in front of this gate can now succeed where it used to 503.
+   *
+   * The server goes away mid-flight by design. A rejected request is therefore
+   * WEAK evidence of failure, so the note stays neutral and the poll in SetupGate
+   * is what confirms recovery.
+   */
+  async function activateNow(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    setActivationNote(null)
+    try {
+      await trpc.setup.activate.mutate()
+      setActivationNote('Restarting. This page reconnects on its own once Podium is back.')
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      setError(
+        /unauthorized|forbidden|401|403/i.test(message)
+          ? 'Sign in as an admin on this server to restart it.'
+          : message,
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (blockedState === 'restart-required') {
     return (
       <div className="setup-view mx-auto flex max-w-lg flex-col gap-4 p-6">
@@ -260,19 +308,41 @@ export function SetupView({
             Setup is saved; Podium needs to restart
           </h1>
           <p className="text-[13px] text-muted-foreground">
-            Restart Podium on the server so it can activate the new setup, then retry. No setup
-            choices need to be entered again.
+            Podium is running with the settings it started up with. A restart adopts what is saved.
+            Nothing needs to be entered again.
           </p>
+          {/* NAMING THE STALE SETTING (POD-2766). "Something changed, restart" is
+              what an operator got before, and it left them unable to tell an
+              intended change from one an unrelated call made by accident — which
+              is exactly how this state was reached. */}
+          {staleFields && staleFields.length > 0 ? (
+            <p className="mt-2 text-[13px] text-muted-foreground">
+              Waiting to take effect:{' '}
+              {staleFields.map((field) => STALE_FIELD_LABELS[field]).join(', ')}.
+            </p>
+          ) : null}
         </div>
+        {/* THE REMEDY, ON THE SAME SCREEN AS THE PROBLEM. The desktop shell
+            restarts its own process; a browser talking to a server asks the
+            server to restart itself through the control plane, which stays open
+            while the data plane is blocked. The reload is the last resort for a
+            server too old to offer either. */}
         {desktopRestart ? (
           <Button type="button" onClick={desktopRestart}>
             Restart Podium
           </Button>
         ) : (
-          <Button type="button" variant="outline" onClick={() => window.location.reload()}>
-            Retry after restart
+          <Button type="button" disabled={busy} onClick={activateNow}>
+            {busy ? 'Restarting…' : 'Restart Podium now'}
           </Button>
         )}
+        {activationNote ? (
+          <p className="text-[13px] text-muted-foreground">{activationNote}</p>
+        ) : null}
+        {error ? <p className="text-[13px] text-destructive">{error}</p> : null}
+        <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+          Retry
+        </Button>
       </div>
     )
   }

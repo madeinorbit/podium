@@ -141,7 +141,19 @@ export const hostsMemoryBreakdownContract = {
   conflict: 'n/a',
 } as const satisfies CommandContract<typeof hostsMemoryBreakdownInput>
 
-export const HOST_CONTRACTS = { memoryBreakdown: hostsMemoryBreakdownContract } as const
+export const hostsReclaimInventoryContract = {
+  ...hostsMemoryBreakdownContract,
+  name: 'hosts.reclaimInventory',
+  redaction: {
+    ...hostsMemoryBreakdownContract.redaction,
+    note: 'The output names registered checkout paths and unowned git worktrees on a machine the caller may use. Paths are derived server-side from the repos and issues tables; callers supply only a machine id and cannot aim the walk at arbitrary files.',
+  },
+} as const satisfies CommandContract<typeof hostsMemoryBreakdownInput>
+
+export const HOST_CONTRACTS = {
+  memoryBreakdown: hostsMemoryBreakdownContract,
+  reclaimInventory: hostsReclaimInventoryContract,
+} as const
 
 export type HostContractName = keyof typeof HOST_CONTRACTS
 

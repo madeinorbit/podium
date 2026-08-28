@@ -1,9 +1,18 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, asUserId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+import {
+  FIRST_ADMIN_USER_ID,
+  asIssueId,
+  asSessionId,
+  asUserId,
+  type IssueId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model'
 import { SELF_REF_RULE } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
+import { createPrimeInjector } from '../../daemon/src/prime-injector'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
@@ -33,8 +42,9 @@ function harness(sessions: SessionMeta[] = []) {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
+    resolveMachine: vi.fn(() => store.hostMachineId),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-06T00:00:00.000Z',
@@ -118,6 +128,7 @@ describe('attachSession', () => {
     expect(w.id).toBe(target.id)
     expect(issueBySession.get(asSessionId('s1'))).toBe(target.id)
     expect(svc.get(draft.id)).toBeNull() // empty draft deleted
+    expect(w.coordinatorSessionId).toBe('s1')
   })
 
   it('self-attach is a no-op', () => {
@@ -217,7 +228,10 @@ describe('attachSession', () => {
   it('newSubissue with no current issue requires targetId as parent', () => {
     const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
     expect(() =>
-      svc.attachSession({ sessionId: asSessionId('s1'), newSubissue: { title: 'x', origin: 'human' } }),
+      svc.attachSession({
+        sessionId: asSessionId('s1'),
+        newSubissue: { title: 'x', origin: 'human' },
+      }),
     ).toThrow(/no parent/)
     const parent = svc.create({ repoPath: '/r', title: 'P', startNow: false })
     const w = svc.attachSession({
@@ -313,7 +327,10 @@ describe('attachSession', () => {
     const origin = svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
     issueBySession.set(asSessionId('s1'), origin.id)
     expect(() =>
-      svc.attachSession({ sessionId: asSessionId('s1'), newSpinoff: { title: 'x', origin: 'agent' } }),
+      svc.attachSession({
+        sessionId: asSessionId('s1'),
+        newSpinoff: { title: 'x', origin: 'agent' },
+      }),
     ).toThrow(/--confirm-rehome/)
     expect(() =>
       svc.attachSession({
@@ -326,7 +343,10 @@ describe('attachSession', () => {
     // Unattached session with no --id: nothing to spin off from.
     issueBySession.delete(asSessionId('s1'))
     expect(() =>
-      svc.attachSession({ sessionId: asSessionId('s1'), newSpinoff: { title: 'x', origin: 'human' } }),
+      svc.attachSession({
+        sessionId: asSessionId('s1'),
+        newSpinoff: { title: 'x', origin: 'human' },
+      }),
     ).toThrow(/no origin/)
   })
 
@@ -408,7 +428,9 @@ describe('attachSession', () => {
   it('throws without --id/--subissue and on unknown target', () => {
     const { svc } = harness([sess(asSessionId('s1'))])
     expect(() => svc.attachSession({ sessionId: asSessionId('s1') })).toThrow(/attach needs/)
-    expect(() => svc.attachSession({ sessionId: asSessionId('s1'), targetId: 'iss_nope' })).toThrow()
+    expect(() =>
+      svc.attachSession({ sessionId: asSessionId('s1'), targetId: 'iss_nope' }),
+    ).toThrow()
   })
 })
 
@@ -472,6 +494,51 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain('close with the new work untouched')
     expect(text).toContain('--confirm-rehome')
     expect(text).toContain('native subagent must not self-attach')
+  })
+
+  it('bound real issue with a prompt-derived title is told to retitle it now', () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Please investigate why task naming stopped working correctly',
+      startNow: false,
+    })
+
+    const text = svc.prime({ boundIssueId: issue.id })
+    expect(text).toContain("This issue's title violates the 3–5 word rule")
+    expect(text).toContain(`podium issue update --id ${issue.seq} --title "…"`)
+  })
+
+  it('bound real issue with a compliant title gets no retitle nudge', () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Prompt-derived title correction',
+      startNow: false,
+    })
+
+    expect(svc.prime({ boundIssueId: issue.id })).not.toContain(
+      `podium issue update --id ${issue.seq} --title "…"`,
+    )
+  })
+
+  it('SessionStart injects the real-issue retitle nudge as additional context', async () => {
+    const { svc } = harness()
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Please investigate why task naming stopped working correctly',
+      startNow: false,
+    })
+    const injector = createPrimeInjector(async () => ({
+      ok: true,
+      result: svc.prime({ boundIssueId: issue.id }),
+    }))
+
+    const response = await injector.respondTo(asSessionId('session-start'), {
+      hook_event_name: 'SessionStart',
+    })
+    const context = JSON.parse(response!).hookSpecificOutput.additionalContext as string
+    expect(context).toContain(`podium issue update --id ${issue.seq} --title "…"`)
   })
 
   /**

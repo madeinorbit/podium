@@ -1,7 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
+import type { Geometry } from '@podium/model'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
-import type { Geometry } from '@podium/model'
 import { createTitleScanner } from './osc-title.js'
 
 const CTRL_L = Uint8Array.of(0x0c)
@@ -23,8 +23,8 @@ export interface SpawnOptions {
 
 export interface AgentFrame {
   seq: number
-  /** base64 of raw PTY output bytes */
-  data: string
+  /** Raw PTY output bytes, copied from the backend-owned read buffer. */
+  data: Uint8Array
 }
 
 export interface AgentSession {
@@ -33,8 +33,10 @@ export interface AgentSession {
   /** Live terminal title (OSC 0/1/2) the agent set, emitted on each change. */
   onTitle(cb: (title: string) => void): () => void
   onExit(cb: (code: number) => void): () => void
-  /** base64 of input bytes to inject into the PTY */
+  /** Legacy base64 adapter for input bytes; new callers should use writeBytes. */
   write(dataBase64: string): void
+  /** Canonical PTY input boundary: write the exact bytes without text conversion. */
+  writeBytes(data: Uint8Array): void
   resize(cols: number, rows: number): void
   /**
    * Force a real repaint even when geometry is unchanged. `hard` additionally
@@ -85,7 +87,7 @@ export function spawnAgent(
     rows: opts.rows,
     cwd: opts.cwd ?? process.cwd(),
     // The frontend is xterm.js, which renders 24-bit color. TERM=xterm-256color is set
-    // explicitly (not via node-pty's `name`) so BOTH backends advertise it identically.
+    // explicitly so every launch advertises the same terminal capabilities.
     // COLORTERM is the companion signal supports-color/chalk read to unlock truecolor;
     // without it agents like Claude Code degrade to a 256-color approximation. We assert
     // both after process.env (the frontend's capability doesn't depend on how the daemon
@@ -112,7 +114,7 @@ export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }):
 
   proc.onData((bytes: Uint8Array) => {
     const buf = Buffer.from(bytes)
-    const frame: AgentFrame = { seq, data: buf.toString('base64') }
+    const frame: AgentFrame = { seq, data: buf }
     seq += 1
     for (const cb of [...frameCbs]) cb(frame)
     for (const raw of titleScanner.push(decoder.write(buf))) {
@@ -144,6 +146,10 @@ export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }):
     onExit(cb) {
       exitCbs.add(cb)
       return () => exitCbs.delete(cb)
+    },
+    writeBytes(data) {
+      if (disposed) return
+      proc.write(data)
     },
     write(dataBase64) {
       if (disposed) return

@@ -282,6 +282,20 @@ describe('stopSession [spec:SP-9904]', () => {
       if (op === 'status') return { ok: true, output: '## issue/x\n' }
       return { ok: true, output: '' }
     })
+    // The remote machine has to EXIST and run a daemon, because homing an issue
+    // on it is now guarded (POD-2700): an issue's machine is where its worktree
+    // lives, so a row that runs no Podium daemon can never be one. Registering it
+    // is also what this test always meant — it is about routing git ops to
+    // another machine, and a machine id nothing has ever paired is not that.
+    reg.sessionStore.machines.upsertMachine({
+      id: 'machine-remote',
+      name: 'machine-remote',
+      hostname: 'machine-remote',
+      tokenHash: 'h',
+      ownerUserId: null,
+    })
+    reg.sessionStore.machines.addMachineComponent('machine-remote', 'daemon')
+    reg.modules.machines.invalidateMachineCache()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Remote free',

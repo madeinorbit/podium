@@ -19,6 +19,40 @@ export default defineConfig({
     extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
     alias: [
       { find: /^react-native$/, replacement: 'react-native-web' },
+      // The composer harness (POD-1659) pulls the real component, which reaches
+      // for three Expo modules a plain vite page has no runtime for. Stub the
+      // two that only matter on device; safe-area is a hook, so it gets a
+      // module rather than a provider tree.
+      {
+        find: /^expo-blur$/,
+        replacement: fileURLToPath(new URL('./harness/stub-expo-blur.tsx', import.meta.url)),
+      },
+      {
+        find: /^expo-haptics$/,
+        replacement: fileURLToPath(new URL('./harness/stub-expo-haptics.ts', import.meta.url)),
+      },
+      {
+        find: /^react-native-safe-area-context$/,
+        replacement: fileURLToPath(new URL('./harness/stub-safe-area.ts', import.meta.url)),
+      },
+      {
+        find: /^lucide-react-native$/,
+        replacement: fileURLToPath(new URL('./harness/stub-lucide.tsx', import.meta.url)),
+      },
+      // The backend-rail harness (POD-1677) pulls the real rail, whose model
+      // picker is the app's one BottomSheet — reanimated, gesture-handler and
+      // worklets, none of which a plain vite page has a runtime for. Every
+      // captured state has the sheet closed, so a closed sheet is the whole
+      // contract. Anchored per import site: a bare suffix match would rewrite
+      // the specifier into a relative-plus-absolute path.
+      {
+        find: /^\.\/BottomSheet$/,
+        replacement: fileURLToPath(new URL('./harness/stub-bottom-sheet.tsx', import.meta.url)),
+      },
+      {
+        find: /^\.\.\/src\/components\/BottomSheet$/,
+        replacement: fileURLToPath(new URL('./harness/stub-bottom-sheet.tsx', import.meta.url)),
+      },
       // react-native-svg's package entry points at Flow-typed native source
       // (its `react-native` export condition), which nothing here can parse,
       // and its web barrel re-exports an XML/uri layer with its own tangles.
@@ -27,7 +61,7 @@ export default defineConfig({
         find: /^react-native-svg$/,
         replacement: fileURLToPath(
           new URL(
-            '../../node_modules/react-native-svg/lib/module/elements.web.js',
+            '../../node_modules/react-native-svg/lib/module/ReactNativeSVG.web.js',
             import.meta.url,
           ),
         ),
@@ -49,6 +83,18 @@ export default defineConfig({
         find: /^react-dom\/client$/,
         replacement: fileURLToPath(new URL('../../node_modules/react-dom/client', import.meta.url)),
       },
+    ],
+  },
+  // Nothing in this graph may reach React Native's Flow-typed source. The
+  // aliases above redirect every native package the composer touches; excluding
+  // them from prebundling keeps the optimizer from resolving the originals.
+  optimizeDeps: {
+    exclude: [
+      'expo-blur',
+      'expo-haptics',
+      'lucide-react-native',
+      'react-native-safe-area-context',
+      'react-native-svg',
     ],
   },
   server: { port: 8091, strictPort: true },

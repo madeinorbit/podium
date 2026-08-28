@@ -115,7 +115,52 @@ describe('SessionRegistry', () => {
     ])
   })
 
-  it('routes an explicit host id to the host daemon when another daemon is the fleet default', async () => {
+  it('defaults the first issue agent to coordinator without overriding clear or claim', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const issue = reg.modules.issues.create({
+        repoPath: '/proj',
+        title: 'Coordinator default',
+        startNow: false,
+      })
+
+      reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/proj',
+        issueId: issue.id,
+      })
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBeUndefined()
+
+      const first = reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/proj',
+        issueId: issue.id,
+      }).sessionId
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBe(first)
+
+      // Explicit clear survives a later teammate joining: with two eligible
+      // agents there is no unambiguous default to invent.
+      reg.modules.issues.setCoordinator(issue.id, null)
+      const second = reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/proj',
+        issueId: issue.id,
+      }).sessionId
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBeUndefined()
+
+      // An issue claim by a bound agent fills the empty seat, but never replaces
+      // an explicit handoff.
+      reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBe(second)
+      reg.modules.issues.setCoordinator(issue.id, first)
+      reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
+      expect(reg.modules.issues.get(issue.id)?.coordinatorSessionId).toBe(first)
+    } finally {
+      reg.dispose()
+    }
+  })
+
+  it('records and reuses repo-affine targets for host and remote worktrees', async () => {
     const store = new SessionStore(':memory:', asMachineId('host-under-test'))
     store.machines.upsertMachine({
       id: 'remote-first',
@@ -131,15 +176,16 @@ describe('SessionRegistry', () => {
       tokenHash: 'host-token',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
-    store.machines.setMachineInventory(
-      store.hostMachineId,
-      JSON.stringify({
-        os: 'linux',
-        arch: 'x64',
-        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
-        tools: [],
-      }),
-    )
+    const inventory = JSON.stringify({
+      os: 'linux',
+      arch: 'x64',
+      agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+      tools: [],
+    })
+    store.machines.setMachineInventory(asMachineId('remote-first'), inventory)
+    store.machines.setMachineInventory(store.hostMachineId, inventory)
+    store.repos.addRepo('/host/project', store.hostMachineId)
+    store.repos.addRepo('/remote/project', asMachineId('remote-first'))
 
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const remote: ControlMessage[] = []
@@ -158,23 +204,34 @@ describe('SessionRegistry', () => {
       }
 
     try {
-      // Without the explicit host route, repo affinity falls through to the first
-      // online daemon. Attach the remote first so this test distinguishes the seams.
+      // Attach the remote first so default ordering cannot accidentally make the
+      // host case pass; repository affinity must select each registered owner.
       reg.gateway.attachDaemon('remote-first', answerRepoOps('remote-first', remote))
       reg.gateway.attachDaemon(store.hostMachineId, answerRepoOps(store.hostMachineId, host))
-      const issue = reg.modules.issues.create({
-        repoPath: '/r',
+      const hostIssue = reg.modules.issues.create({
+        repoPath: '/host/project',
         title: 'Host routed',
         startNow: false,
       })
+      const remoteIssue = reg.modules.issues.create({
+        repoPath: '/remote/project',
+        title: 'Remote routed',
+        startNow: false,
+      })
 
-      const started = await reg.modules.issues.start(issue.id)
+      const hostStarted = await reg.modules.issues.start(hostIssue.id)
+      const remoteStarted = await reg.modules.issues.start(remoteIssue.id)
 
-      expect(started.machineId).toBe(store.hostMachineId)
+      expect(hostStarted.machineId).toBe(store.hostMachineId)
+      expect(remoteStarted.machineId).toBe('remote-first')
       expect(
         host.filter((message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd'),
       ).toHaveLength(1)
-      expect(remote.filter((message) => message.type === 'repoOpRequest')).toHaveLength(0)
+      expect(
+        remote.filter(
+          (message) => message.type === 'repoOpRequest' && message.op === 'worktreeAdd',
+        ),
+      ).toHaveLength(1)
     } finally {
       reg.dispose()
     }
@@ -1355,11 +1412,28 @@ describe('SessionRegistry', () => {
     expect(otherInitial.every((machine) => machine.use !== undefined)).toBe(true)
 
     const denied = ownerInitial.find((machine) => machine.id === 'shared')
-    const unreachable = ownerInitial.find((machine) => machine.id === TEST_MACHINE)
+    const hostRow = ownerInitial.find((machine) => machine.id === TEST_MACHINE)
     expect(denied).toMatchObject({ online: false, use: 'denied' })
-    expect(unreachable).toMatchObject({ online: false, use: 'granted' })
+    expect(hostRow).toMatchObject({ online: false, use: 'granted' })
     expect(agentCapabilityRejection(denied!, 'shell')).toBe('unauthorized')
-    expect(agentCapabilityRejection(unreachable!, 'shell')).toBe('offline')
+    // THREE ANSWERS NOW, NOT TWO (POD-2700). `TEST_MACHINE` is the boot-time host
+    // row: the server has stamped its own `server` component on it and no daemon
+    // has ever attached, so the honest answer is that it runs none — NOT that it
+    // is offline, which would tell its user to wait for something that has never
+    // existed. The unauthorized-vs-not distinction this test exists for is
+    // unchanged and asserted above; what follows pins the new split so the two
+    // cannot quietly collapse back into one.
+    expect(hostRow?.components).toEqual(['server'])
+    expect(agentCapabilityRejection(hostRow!, 'shell')).toBe('no-daemon')
+    // A machine that HAS a daemon and is merely disconnected still answers
+    // `offline` — the distinction, stated as a comparison against the SAME row
+    // rather than asserted about one of them in isolation.
+    expect(
+      agentCapabilityRejection(
+        { ...hostRow, id: TEST_MACHINE, online: false, components: ['server', 'daemon'] as const },
+        'shell',
+      ),
+    ).toBe('offline')
 
     owner.sent.length = 0
     other.sent.length = 0
@@ -1554,18 +1628,99 @@ describe('SessionRegistry', () => {
       title: '✳ rename functionality',
     })
 
+    // The leading `✳` is a frame of the harness's own terminal spinner, not part
+    // of the title, and it is stripped before anything is stored or sent
+    // (POD-1607) — otherwise each frame is a different string and every frame is
+    // a broadcast to every client.
     expect(c.sent).toContainEqual({
       type: 'sessionTitleChanged',
       sessionId,
-      title: '✳ rename functionality',
+      title: 'rename functionality',
     })
     // Not a full list rebroadcast.
     expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
-    // Late joiners see it via listSessions().
+    // Late joiners see it via listSessions() — also without the frame, so the
+    // session does not keep whichever one the spinner happened to stop on.
     expect(reg.modules.sessions.listSessions().at(0)).toMatchObject({
+      sessionId,
+      title: 'rename functionality',
+    })
+  })
+
+  it('says nothing more while only the spinner frame turns', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
+    const c = sink()
+    attachTestClient(reg.clientGateway, c.send)
+    c.sent.length = 0
+
+    for (const frame of ['✳', '✶', '✷', '✸']) {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'title',
+        sessionId,
+        title: `${frame} rename functionality`,
+      })
+    }
+
+    // One title, one broadcast — however many frames the harness paints.
+    expect(c.sent.filter((m) => m.type === 'sessionTitleChanged')).toHaveLength(1)
+  })
+
+  it('a re-reported identical title still locks, so no prompt renames the session', () => {
+    // `titleLocked` is live-only (SessionLiveOverlay carries no storage column)
+    // while `title` is durable, so a restarted server holds a titled but UNLOCKED
+    // session and the reattached harness re-reports the SAME title. Treating that
+    // as "nothing changed" and skipping the lock would leave the prompt-title
+    // fallback free to rename the session to its first prompt. Asserted through
+    // the consequence rather than the private flag.
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
+    const store = new SessionStore(file, TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'title',
       sessionId,
       title: '✳ rename functionality',
     })
+    store.close()
+
+    // THE RESTART. The row comes back titled; `titleLocked` does not come back
+    // at all, because nothing ever wrote it down.
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
+    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
+    const c = sink()
+    attachTestClient(reg2.clientGateway, c.send)
+
+    // The reattached harness re-reports the title it already had.
+    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+      type: 'title',
+      sessionId,
+      title: '✶ rename functionality',
+    })
+    // Now a first prompt arrives. It must NOT rename the session.
+    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [{ id: 'u1', role: 'user', text: 'Refactor the transcript reader', cursor: 'c1' }],
+      tail: 'c1',
+    })
+
+    expect(
+      reg2.modules.sessions.listSessions().find((s) => s.sessionId === sessionId),
+    ).toMatchObject({ title: 'rename functionality' })
+    expect(
+      c.sent.filter((m) => m.type === 'sessionTitleChanged' && m.title !== 'rename functionality'),
+    ).toEqual([])
   })
 
   it('ignores a title for an unknown session', () => {
@@ -1601,7 +1756,9 @@ describe('SessionRegistry', () => {
       sessionId,
       title: '✳ working',
     })
-    expect(store.sessions.loadSessions().at(0)).toMatchObject({ title: '✳ working' })
+    // Persisted without the harness's spinner frame (POD-1607): the row must not
+    // keep whichever frame the spinner happened to stop on.
+    expect(store.sessions.loadSessions().at(0)).toMatchObject({ title: 'working' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
       sessionId,

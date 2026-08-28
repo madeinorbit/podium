@@ -167,6 +167,7 @@ export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
   port?: number
+  networkOption?: NetworkOption
 }): PodiumConfig {
   assertConfigWritable()
   const prev = loadConfig()
@@ -179,6 +180,7 @@ export function applySetup(input: {
     ...prev,
     mode,
     publicUrl: input.publicUrl,
+    ...(input.networkOption === undefined ? {} : { networkOption: input.networkOption }),
     ...(input.port === undefined ? {} : { port: input.port }),
     // Web setup can't start the backend from inside the serving process (stopping
     // the old one would kill the request in flight), but it CAN record the
@@ -186,7 +188,22 @@ export function applySetup(input: {
     // `podium` invocation sees a managed config whose backend is not up and
     // brings it up; there is no separate "intent" field and no plan state for
     // the gap (issue #20, retired). A box that already chose keeps its choice.
-    ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
+    //
+    // ONLY ON FIRST RUN, and this condition is load-bearing (POD-2766). `persistence`
+    // is BOOT-RELEVANT: the running server compares it against the value it booted
+    // with and declares itself stale when they differ. Back-filling it on EVERY
+    // call meant `setup.complete` — which also carries the login password — wrote a
+    // process-shape field on a box that had never asked for one, and a password
+    // change tripped a topology guard and blocked the data plane behind it.
+    //
+    // It is not merely a redundant write either. POD-333 made absence an ANSWER at
+    // config v2: a configured box that names no `persistence` is one that is not
+    // headless-managed (the desktop sidecar, a container running the binary
+    // directly). Writing `systemd` over that answer tells the box something untrue
+    // about itself. `prev.mode` unset is the only moment nobody has answered yet.
+    ...(prev.mode === undefined && prev.persistence === undefined
+      ? { persistence: 'systemd' as const }
+      : {}),
   }
   saveConfig(cfg)
   return cfg
@@ -198,13 +215,18 @@ export function applySetup(input: {
  * / `podium setup`) and the web setup's `setup.join` tRPC. Throws on a malformed token.
  * PATCHES the existing config (issue #20 — a wholesale replace made `install.sh --channel
  * edge --join …` silently revert to stable): preserves updateChannel, port, persistence,
- * updateFeed; drops only the host-mode fields a daemon must not keep (publicUrl)
+ * updateFeed; drops only the host-mode fields a daemon must not keep (publicUrl/networkOption)
  * and any stale pairCode.
  */
 export function applyJoin(token: string): { name: string; warning?: string } {
   assertConfigWritable()
   const p = decodeJoin(token)
-  const { publicUrl: _hostOnly, pairCode: _stale, ...prev } = loadConfig()
+  const {
+    publicUrl: _hostOnly,
+    networkOption: _hostNetworkOption,
+    pairCode: _stale,
+    ...prev
+  } = loadConfig()
   saveConfig({
     ...prev,
     mode: 'daemon',

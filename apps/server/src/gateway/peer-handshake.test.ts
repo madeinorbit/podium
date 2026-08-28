@@ -7,26 +7,40 @@
  */
 
 import { createHash } from 'node:crypto'
-import { asUserId, asMachineId, asSessionId } from '@podium/model'
-import { machineUseAllowed, WIRE_VERSION } from '@podium/protocol'
+import { asMachineId, asSessionId, asUserId } from '@podium/model'
+import {
+  BINARY_ENVELOPE_MAX_MESSAGE_BYTES,
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  DaemonPtyInputMetadata,
+  type DaemonPtyOutputMetadata,
+  decodeBinaryEnvelope,
+  encodeBinaryEnvelope,
+  machineUseAllowed,
+  WIRE_VERSION,
+} from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { PairingManager } from '../hub/pairing'
 import { SessionRegistry } from '../relay'
 import { SessionStore } from '../store'
 import { wireDaemonSocket } from './daemon-socket'
 import { createMachineDirectory } from './machine-directory'
+import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
 function fakeWs() {
+  const binarySent: Uint8Array[] = []
   const sent: string[] = []
   const handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
   return {
+    binarySent,
     sent,
     readyState: 1,
     bufferedAmount: 0,
+    sendBinary: (bytes: Uint8Array) => binarySent.push(bytes.slice()),
     send: (s: string) => sent.push(s),
-    terminate: () => {},
+    terminate: vi.fn(),
     on: (ev: string, cb: (...a: unknown[]) => void) => {
       ;(handlers[ev] ??= []).push(cb)
     },
@@ -51,9 +65,71 @@ const registryWithMachine = (id = 'm1', token = 'tok', updatePubkey?: string) =>
   })
 }
 
-const frame = (o: unknown) => Buffer.from(JSON.stringify(o))
+const frame = (o: unknown): string => JSON.stringify(o)
+const binaryFrame = (metadata: unknown, payload = new Uint8Array()): Buffer => {
+  const metadataBytes = Buffer.from(JSON.stringify(metadata))
+  const result = Buffer.alloc(4 + metadataBytes.byteLength + payload.byteLength)
+  result.writeUInt32BE(metadataBytes.byteLength, 0)
+  metadataBytes.copy(result, 4)
+  result.set(payload, 4 + metadataBytes.byteLength)
+  return result
+}
+
+const authenticatedSocket = (caps: string[]) => {
+  const reg = registryWithMachine()
+  const ws = fakeWs()
+  wireDaemonSocket(ws as never, reg)
+  ws.emit(
+    'message',
+    frame({
+      type: 'peerHello',
+      v: WIRE_VERSION,
+      caps,
+      credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
+    }),
+  )
+  return { reg, ws }
+}
 
 describe('the daemon socket speaks the permanent envelope', () => {
+  it('retains offered and actually accepted daemon capabilities separately', () => {
+    const reg = registryWithMachine()
+    const hello = (caps: string[]) =>
+      frame({
+        type: 'peerHello',
+        v: WIRE_VERSION,
+        caps,
+        credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
+      })
+    const negotiated = receiveDaemonFrame(
+      createDaemonAcceptor({
+        machines: reg.modules.machines,
+        connectionId: 'caps-negotiated',
+      }),
+      hello([CAP_TERMINAL_OUTPUT_BINARY_V1, 'future.daemon.cap']),
+    )
+    expect(negotiated).toMatchObject({
+      kind: 'established',
+      offeredCaps: [CAP_TERMINAL_OUTPUT_BINARY_V1, 'future.daemon.cap'],
+      acceptedCaps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+      reply: { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1] },
+    })
+
+    const unoffered = receiveDaemonFrame(
+      createDaemonAcceptor({
+        machines: reg.modules.machines,
+        connectionId: 'caps-unoffered',
+      }),
+      hello([]),
+    )
+    expect(unoffered).toMatchObject({
+      kind: 'established',
+      offeredCaps: [],
+      acceptedCaps: [],
+      reply: { caps: [] },
+    })
+  })
+
   it('authenticates an envelope hello carrying a machine token', () => {
     const reg = registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
@@ -71,12 +147,150 @@ describe('the daemon socket speaks the permanent envelope', () => {
     )
     expect(attach).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
-      expect.any(Function),
+      expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
     )
     // The envelope peer gets the envelope reply, and it names the id the SERVER
     // resolved rather than anything the peer claimed.
     const reply = ws.sent.map((s) => JSON.parse(s) as { type: string; assignedId?: string })
     expect(reply[0]).toMatchObject({ type: 'peerHelloOk', assignedId: 'm1' })
+  })
+
+  it('routes negotiated native binary output with exact bytes and source frames', () => {
+    const reg = registryWithMachine()
+    const route = vi.spyOn(reg.gateway, 'routeDaemonOutput').mockImplementation(() => {})
+    const ws = fakeWs()
+    wireDaemonSocket(ws as never, reg)
+    ws.emit(
+      'message',
+      frame({
+        type: 'peerHello',
+        v: WIRE_VERSION,
+        caps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+        credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
+      }),
+    )
+    const payload = Uint8Array.of(0x00, 0xff, 0xe2, 0x82, 0x1b)
+    const metadata: DaemonPtyOutputMetadata = {
+      v: 1,
+      type: 'ptyOutput',
+      sessionId: asSessionId('binary-session'),
+      sourceFrames: 3,
+    }
+    const encoded = encodeBinaryEnvelope(metadata, payload)
+    ws.emit('message', Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength))
+    expect(route).toHaveBeenCalledOnce()
+    const batch = route.mock.calls[0]![1]
+    expect(batch).toMatchObject({ sessionId: 'binary-session', sourceFrames: 3 })
+    expect(batch.bytes).toEqual(payload)
+    expect(ws.terminate).not.toHaveBeenCalled()
+  })
+
+  it('serves exact binary PTY input only after the daemon negotiates it', () => {
+    const reg = registryWithMachine()
+    const attach = vi.spyOn(reg.gateway, 'attachDaemon')
+    const ws = fakeWs()
+    wireDaemonSocket(ws as never, reg)
+    ws.emit(
+      'message',
+      frame({
+        type: 'peerHello',
+        v: WIRE_VERSION,
+        caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+        credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
+      }),
+    )
+    const transport = attach.mock.calls[0]?.[1] as {
+      sendInput(input: import('@podium/protocol').DaemonPtyInputBatch): void
+    }
+    const payload = Uint8Array.of(0, 0xff, 0x1b, 0x0d)
+    transport.sendInput({ sessionId: asSessionId('s1'), inputOrigin: 'human', bytes: payload })
+    expect(ws.binarySent).toHaveLength(1)
+    const framed = ws.binarySent[0]
+    expect(framed).toBeDefined()
+    if (!framed) throw new Error('expected one binary PTY input frame')
+    const decoded = decodeBinaryEnvelope(framed, DaemonPtyInputMetadata)
+    expect(decoded.metadata).toMatchObject({
+      sessionId: 's1',
+      inputOrigin: 'human',
+    })
+    expect(decoded.payload).toEqual(payload)
+    expect(ws.sent.filter((value) => value.includes('"type":"input"'))).toHaveLength(0)
+  })
+
+  it('terminates pre-auth binary locally while another daemon remains routable', () => {
+    const reg = registryWithMachine()
+    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+    const bad = fakeWs()
+    const healthy = fakeWs()
+    wireDaemonSocket(bad as never, reg)
+    wireDaemonSocket(healthy as never, reg)
+    bad.emit('message', Buffer.from([0, 0, 0, 0]))
+    expect(bad.terminate).toHaveBeenCalledOnce()
+    healthy.emit(
+      'message',
+      frame({
+        type: 'hello',
+        machineId: 'm1',
+        token: 'tok',
+        hostname: 'box',
+      }),
+    )
+    healthy.emit('message', frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }))
+    expect(route).toHaveBeenCalledOnce()
+    expect(healthy.terminate).not.toHaveBeenCalled()
+  })
+
+  it('terminates binary output after a handshake that did not negotiate it', () => {
+    const { reg, ws } = authenticatedSocket([])
+    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+    const binary = binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', sourceFrames: 1 })
+    ws.emit('message', binary)
+    ws.emit('message', frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }))
+    expect(ws.terminate).toHaveBeenCalledOnce()
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['truncated', Buffer.from([0, 0, 0])],
+    ['wrong plane', binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', seq: 1, epoch: 0 })],
+    [
+      'unsupported version',
+      binaryFrame({ v: 2, type: 'ptyOutput', sessionId: 's1', sourceFrames: 1 }),
+    ],
+    [
+      'nonpositive source frames',
+      binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', sourceFrames: 0 }),
+    ],
+    [
+      'unsafe source frames',
+      binaryFrame({
+        v: 1,
+        type: 'ptyOutput',
+        sessionId: 's1',
+        sourceFrames: Number.MAX_SAFE_INTEGER,
+      }),
+    ],
+    ['oversized', Buffer.allocUnsafe(BINARY_ENVELOPE_MAX_MESSAGE_BYTES + 1)],
+  ])('terminates negotiated %s binary output', (_name, binary) => {
+    const { ws } = authenticatedSocket([CAP_TERMINAL_OUTPUT_BINARY_V1])
+    ws.emit('message', binary)
+    expect(ws.terminate).toHaveBeenCalledOnce()
+  })
+
+  it('keeps an old daemon on one canonical legacy decode', () => {
+    const { reg, ws } = authenticatedSocket([])
+    const routeOutput = vi.spyOn(reg.gateway, 'routeDaemonOutput').mockImplementation(() => {})
+    const routeFrame = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
+    ws.emit(
+      'message',
+      frame({ type: 'agentFrameBatch', sessionId: 'legacy', frames: ['AP8=', ''] }),
+    )
+    expect(routeOutput).toHaveBeenCalledOnce()
+    const batch = routeOutput.mock.calls[0]![1]
+    expect(batch).toMatchObject({ sessionId: 'legacy', sourceFrames: 2 })
+    expect(batch.bytes).toEqual(Uint8Array.of(0x00, 0xff))
+    expect(routeFrame).not.toHaveBeenCalled()
+    expect(ws.terminate).not.toHaveBeenCalled()
   })
 
   it('publishes the current server key on an ordinary reconnect', () => {
@@ -137,7 +351,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     // Attached as an ordinary machine; no elevation, and no accepted caps.
     expect(attach).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
-      expect.any(Function),
+      expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
     )
     expect(JSON.parse(ws.sent[0] ?? '{}')).toMatchObject({ type: 'peerHelloOk', caps: [] })
   })

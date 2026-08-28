@@ -18,7 +18,7 @@ import { AgentKind } from '@podium/model'
 export type SessionWirePrincipal = SessionStatePrincipal
 
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { MetadataChange } from '@podium/protocol'
+import type { DaemonPtyInputBatch, MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
@@ -71,6 +71,7 @@ export interface SessionRepositoryPorts {
   observationLeases: SessionObservationLeases
   autoContinue(): AutoContinueController
   toMachine(machineId: MachineId, message: ControlMessage): void
+  toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
   flushBroadcasts(): void
   runScheduledBroadcast(): void
@@ -410,6 +411,8 @@ export class SessionRepository {
       geometry: { ...(r.geometry ?? { cols: 80, rows: 24 }) },
       machineId,
       toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
+      sendInput: (input) =>
+        this.ports.toPtyInput(this.sessions.get(r.id)?.machineId ?? machineId, input),
       onActivity: () => {
         this.persist(session)
         this.broadcastSessions()

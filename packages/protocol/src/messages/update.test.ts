@@ -25,14 +25,40 @@ describe('update frames', () => {
       type: 'updateStatus',
       grantId: 'g1',
       state: 'restarting',
+      targetVersion: '0.4.2',
       version: '0.4.1',
     })
     expect(s.state).toBe('restarting')
+    expect(s.targetVersion).toBe('0.4.2')
   })
 
   it('is routable as a daemon-to-server frame', () => {
     const m = DaemonMessage.parse({ type: 'updateStatus', state: 'current', version: '0.4.2' })
     expect(m.type).toBe('updateStatus')
+  })
+
+  it('routes the development artifact probe as a correlated request and result', () => {
+    const url = 'http://source:18787/updates/dev-bundle/dev%2Babc1234?token=authenticated-route'
+    expect(
+      ControlMessage.parse({
+        type: 'devArtifactProbeRequest',
+        requestId: 'up1',
+        url,
+      }),
+    ).toEqual({ type: 'devArtifactProbeRequest', requestId: 'up1', url })
+    expect(
+      DaemonMessage.parse({
+        type: 'devArtifactProbeResult',
+        requestId: 'up1',
+        ok: false,
+        detail: 'Unable to connect',
+      }),
+    ).toEqual({
+      type: 'devArtifactProbeResult',
+      requestId: 'up1',
+      ok: false,
+      detail: 'Unable to connect',
+    })
   })
 
   it('carries no machineId: the machine comes from the authenticated transport', () => {

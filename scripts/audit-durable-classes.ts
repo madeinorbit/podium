@@ -395,7 +395,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     row: null,
     notEntityState:
       'Daemon-local convergence recovery marker. It records one server grant and its bounded retry count so boot can confirm, retry, or stop after a failed restart; it is not an owned product entity, is never replicated, and deleting it only discards recovery context.',
-    writeSites: ['apps/daemon/src/host-runtime.ts', 'apps/daemon/src/pending-grant.ts'],
+    writeSites: ['apps/daemon/src/host-runtime.ts', 'packages/runtime/src/update-pending.ts'],
   },
   {
     store: '<stateDir>/update-signing-key.json',
@@ -495,11 +495,6 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
       file: 'packages/pty/src/abduco-bin.ts',
       reason:
         'Materializes the embedded `abduco` BINARY under `<stateDir>/bin` so a PTY can be attached. An executable extracted from the shipped bundle is not state: it is byte-identical for every install and is re-extracted if deleted.',
-    },
-    {
-      file: 'apps/daemon/src/pending-grant.ts',
-      reason:
-        '`pending-update.json` records that a convergence is IN FLIGHT — which target, which version to roll back to, how many attempts — and exists only to survive the daemon restart that sits in the middle of a swap (POD-1670). It is written immediately before the restart and cleared the moment the boot health gate resolves, so it describes an operation rather than anything anybody owns. A corrupt or absent marker is read as absent BY DESIGN, because a daemon that crashed mid-write must still boot; forgetting an in-flight convergence is recoverable by the next grant, an unbootable daemon is not.',
     },
     {
       file: 'apps/server/src/migrations/restore.ts',

@@ -3,6 +3,7 @@ import {
   discoveredPlacement,
   type ProposalPlacement,
   reposToViews,
+  spawnIssueAgent,
 } from '@podium/client-core/viewmodels'
 import {
   DEFER_NEXT_MESSAGE,
@@ -258,9 +259,7 @@ export function IssueContextMenu({
     )
   const assignAgent = (agentKind: string): void =>
     run(() =>
-      first.worktreePath
-        ? trpc.issues.addSession.mutate(agentKind ? { id: first.id, agentKind } : { id: first.id })
-        : trpc.issues.start.mutate(agentKind ? { id: first.id, agentKind } : { id: first.id }),
+      spawnIssueAgent(trpc.issues, agentKind ? { id: first.id, agentKind } : { id: first.id }),
     )
   const close = (reason: IssueCloseReason): void => {
     if (onRequestClose) {
@@ -416,7 +415,7 @@ export function IssueContextMenu({
         onClose()
         return
       case 'start':
-        assignAgent('')
+        run(() => trpc.issues.start.mutate({ id: first.id }))
         return
       case 'rename':
         rename()

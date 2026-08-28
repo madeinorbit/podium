@@ -6,7 +6,12 @@ import {
   type SessionId,
   type MachineId,
 } from '@podium/model'
-import type { LiveServerMessage, MachinePrincipal, ObservationInputOrigin } from '@podium/protocol'
+import type {
+  DaemonPtyOutputBatch,
+  LiveServerMessage,
+  MachinePrincipal,
+  ObservationInputOrigin,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
@@ -281,6 +286,12 @@ export class SessionDaemonLifecycle {
         return session.terminal.lastUserInputAtMs > Date.parse(offerCreatedAt)
     }
   }
+
+  handleOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
+    const session = this.sessions.get(batch.sessionId)
+    if (!session || session.machineId !== principal.machine) return
+    session.terminal.acceptOutput(batch.bytes, batch.sourceFrames)
+  }
   handle(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
     const machineId = principal.machine
     switch (msg.type) {
@@ -377,15 +388,23 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'agentFrame':
-        // The bridge's msg.seq is ignored — the Session assigns its own monotonic
-        // seq so the client cursor stays stable across daemon reattaches.
-        this.sessions.get(msg.sessionId)?.terminal.onFrame(msg.data)
+        this.handleOutput(principal, {
+          sessionId: msg.sessionId,
+          sourceFrames: 1,
+          bytes: Buffer.from(msg.data, 'base64'),
+        })
         break
       case 'agentFrameBatch': {
-        // Keep the daemon's coalescing across the server→client boundary. Terminal
-        // output is a byte stream, so concatenating the batch is byte-exact while
-        // avoiding one JSON encode + websocket send per tiny PTY read.
-        this.sessions.get(msg.sessionId)?.terminal.onFrames(msg.frames)
+        if (msg.frames.length === 0) break
+        const bytes =
+          msg.frames.length === 1
+            ? Buffer.from(msg.frames[0]!, 'base64')
+            : Buffer.concat(msg.frames.map((data) => Buffer.from(data, 'base64')))
+        this.handleOutput(principal, {
+          sessionId: msg.sessionId,
+          sourceFrames: msg.frames.length,
+          bytes,
+        })
         break
       }
       case 'agentExit': {

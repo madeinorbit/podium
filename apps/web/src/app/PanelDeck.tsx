@@ -8,12 +8,16 @@ import {
   Suspense,
   useCallback,
 } from 'react'
-import { AgentPanel } from '@/features/terminal/AgentPanel'
+import { AgentPanel } from '@/features/terminal/AgentPanelLazy'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
 import { type DeckItem, type PaneRect, panelBoxStyle } from './panel-deck'
+import { PanelVisible } from './panel-visible'
 
 const FilePanel = lazy(() =>
-  import('@/features/files/FilePanel').then((m) => ({ default: m.FilePanel })),
+  throughRestarts(() => import('@/features/files/FilePanel')).then((m) => ({
+    default: m.FilePanel,
+  })),
 )
 
 /** Keys that are only ever a modifier being held — pressing one alone is not input. */
@@ -150,21 +154,33 @@ export function PanelDeck({
             }
             {...(visible ? promotionFor(item.id) : undefined)}
           >
-            {item.kind === 'session' ? (
-              <AgentPanel
-                sessionId={asSessionId(item.id)}
-                active={visible}
-                focused={visible && item.id === focusedTabId}
-              />
-            ) : item.file ? (
-              <Suspense fallback={null}>
-                <FilePanel
-                  scope={item.file.scope}
-                  path={item.file.path}
-                  onClose={() => onCloseFile(item.id)}
-                />
-              </Suspense>
-            ) : null}
+            {/* A hidden warm panel paints nothing, so nothing inside it should be
+                waking once a second to re-render (POD-1607). `useNow` reads this
+                and freezes; it resamples in a LAYOUT effect on reveal, so the
+                clock is never painted at the value it stopped at. */}
+            <PanelVisible visible={visible}>
+              {item.kind === 'session' ? (
+                // `fallback={null}` renders the same empty pane box the warm-set
+                // guard above already renders for a pane that is not resident yet,
+                // so a not-yet-resolved chunk looks like a pane that has not been
+                // warmed rather than like a broken panel.
+                <Suspense fallback={null}>
+                  <AgentPanel
+                    sessionId={asSessionId(item.id)}
+                    active={visible}
+                    focused={visible && item.id === focusedTabId}
+                  />
+                </Suspense>
+              ) : item.file ? (
+                <Suspense fallback={null}>
+                  <FilePanel
+                    scope={item.file.scope}
+                    path={item.file.path}
+                    onClose={() => onCloseFile(item.id)}
+                  />
+                </Suspense>
+              ) : null}
+            </PanelVisible>
           </div>
         )
       })}

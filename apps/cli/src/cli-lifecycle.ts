@@ -14,7 +14,7 @@ import {
 } from '@podium/runtime/config'
 import { type ConnectivityStatus, readConnectivity } from '@podium/runtime/connectivity'
 import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
-import { instanceServiceName } from '@podium/runtime/instance'
+import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {
@@ -82,17 +82,20 @@ export function renderStatus(view: StatusView): string {
     `Podium${instanceLabel} — mode: ${config.mode ?? '(unset — run `podium setup`)'}` +
       (config.persistence ? `, persistence: ${config.persistence}` : ''),
   )
-  // Which roles are relevant to this deployment mode. A host (`all-in-one`) box runs the split —
-  // server + janitor + daemon — so that's what we report (the `all-in-one` role is only the
-  // desktop in-process sidecar, which doesn't use this CLI). If an `all-in-one` record is
-  // nonetheless live, surface it too.
+  // Which roles are relevant to this deployment mode. Parent-supervised hosts
+  // report parent + server + daemon (janitor is a server worker). The
+  // `all-in-one` role is only the desktop in-process sidecar.
   const roles: RunRole[] =
     config.mode === 'all-in-one'
       ? byRole.has('all-in-one')
         ? ['all-in-one']
-        : ['server', 'janitor', 'daemon']
+        : byRole.has('parent')
+          ? ['parent', 'server', 'daemon']
+          : ['server', 'janitor', 'daemon']
       : config.mode === 'server'
-        ? ['server', 'janitor']
+        ? byRole.has('parent')
+          ? ['parent', 'server']
+          : ['server', 'janitor']
         : config.mode === 'daemon'
           ? ['daemon']
           : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
@@ -120,12 +123,10 @@ function systemctlUser(args: string[]): void {
   execFileSync('systemctl', ['--user', ...args], { stdio: 'inherit' })
 }
 
-export function selectedUnits(instanceId: string = resolveInstanceId()): [string, string, string] {
-  return [
-    instanceServiceName('daemon', instanceId),
-    instanceServiceName('janitor', instanceId),
-    instanceServiceName('server', instanceId),
-  ]
+export function selectedUnits(instanceId: string = resolveInstanceId()): string[] {
+  // Prefer the parent unit; keep legacy peers listed so `podium stop` still
+  // tears down pre-migration installs.
+  return [desiredParentUnit(instanceId), ...legacyUnitNames(instanceId)]
 }
 
 function hasSystemctl(): boolean {
@@ -220,6 +221,10 @@ export async function stopBackend(): Promise<void> {
 
 /** The components `podium logs` knows how to tail, in the order it shows them. */
 const LOG_COMPONENTS = [
+  // The supervisor, first because it is the process that starts the others and
+  // the only one that can explain why one of them is missing [POD-2505]. Without
+  // a name here its log existed and nothing showed it.
+  'parent',
   'server',
   'janitor',
   'daemon',
@@ -459,12 +464,14 @@ export async function logsCommand(argv: string[]): Promise<void> {
   const config = loadConfig()
   const { follow, pretty, components } = parseLogsArgs(argv)
   if (config.persistence === 'systemd') {
-    const [daemonUnit, janitorUnit, serverUnit] = selectedUnits()
+    const units = selectedUnits()
+    const unitFlags = units.map((u) => `-u ${u}`).join(' ')
+    const parentOrServer = units[0]
     console.log(
       'Under systemd — view logs with:\n' +
-        `  journalctl --user -u ${serverUnit} -u ${janitorUnit} -u ${daemonUnit} -f\n` +
+        `  journalctl --user ${unitFlags} -f\n` +
         '\nRecords are NDJSON, one object per line. To read them as a table:\n' +
-        `  journalctl --user -u ${serverUnit} -o cat | jq -r '"\\(.ts) \\(.level) \\(.ns) \\(.msg)"'`,
+        `  journalctl --user -u ${parentOrServer} -o cat | jq -r '"\\(.ts) \\(.level) \\(.ns) \\(.msg)"'`,
     )
     return
   }

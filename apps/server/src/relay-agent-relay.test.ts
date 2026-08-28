@@ -721,7 +721,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   beforeEach(() => {
     registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    A = registry.issues.create({ repoPath, title: 'epic root', startNow: false }) as typeof A
+    A = registry.issues.create({ repoPath, title: 'Agent relay epic', startNow: false }) as typeof A
     registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
     const wtA = registry.issues.get(A.id)?.worktreePath as string
     // Two sessions on the SAME issue — siblings in the sidebar, which is exactly the
@@ -795,6 +795,16 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     expect(prime).toContain(`under #${A.seq}`)
     // The sibling's display name is quoted so the agent can avoid duplicating it.
     expect(prime).toContain('Merge lock lease expiry')
+  })
+
+  it('primes a session on a prompt-titled real issue to retitle the issue', async () => {
+    registry.issues.update(A.id, {
+      title: 'Please investigate why task naming stopped working correctly',
+    })
+
+    const prime = String((await relay(asSessionId(sA), 'issues', 'prime', { repoPath })).result)
+    expect(prime).toContain("This issue's title violates the 3–5 word rule")
+    expect(prime).toContain(`podium issue update --id ${A.seq} --title "…"`)
   })
 
   it('says nothing about titles once the session HAS a name', async () => {

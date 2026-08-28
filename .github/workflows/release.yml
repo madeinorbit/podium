@@ -15,54 +15,226 @@ concurrency:
   group: headless-release-${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}
   cancel-in-progress: false
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            runner: blacksmith-4vcpu-ubuntu-2204
-          # The compiled daemon embeds a native abduco helper, so ARM64 builds on
-          # GitHub's native ARM64 runner rather than cross-compiling an x64 helper.
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+  # ONE LINUX JOB, FOUR PLATFORMS [spec:SP-6144 section 8b].
+  #
+  # This used to be a matrix — x64 on Blacksmith Ubuntu, arm64 on a native ARM runner —
+  # because the compiled daemon embeds a native abduco helper and the helper had to be
+  # built on the architecture that would run it. `zig cc` builds that helper for every
+  # target from here. `rcodesign` does not add the Darwin signature — `bun build --compile`
+  # already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out). rcodesign REPLACES
+  # that with identifier podium plus the five Bun JIT entitlement keys. Drop rcodesign
+  # and the binary still "signs"; what breaks is JIT, at runtime. Adding both Darwin
+  # platforms costs one more compile each, not one more runner each.
+  headless:
+    name: cross-build all headless platforms
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '1.3.14' }
+      # zig cross-compiles the abduco helper. rcodesign re-signs Darwin Mach-Os with
+      # Bun's JIT entitlements — it does not add the signature (Bun already did).
+      - uses: mlugg/setup-zig@v1
+        with: { version: '0.16.0' }
+      - name: Install rcodesign
+        run: sudo -E bash scripts/ci-install-rcodesign.sh
+      # The abduco cache is content-addressed on the vendored source, so this key is the
+      # honest one: touch abduco.c and every platform's helper is rebuilt.
+      - uses: actions/cache@v4
+        with:
+          path: dist-bun/abduco-cache
+          key: abduco-cross-${{ hashFiles('packages/pty/vendor/abduco/abduco.c') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: headless-cross-${{ hashFiles('bun.lock') }}
+      # --ignore-scripts: the compiled headless runtime uses Bun.Terminal and never
+      # loads node-pty. esbuild ships a platform package.
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Build four signed headless bundles
+        env:
+          PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
+        run: bun scripts/release.ts --channel "$PODIUM_RELEASE_CHANNEL" --prepare-cross
+      # Interrogate what will actually be uploaded, not the build tree it came from.
+      # A wrong-architecture helper, a lost Darwin signature or a stub binary fails HERE,
+      # before anything reaches a release page.
+      - name: Assert every bundle is what it claims to be
+        run: |
+          set -euo pipefail
+          HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
+          for pair in "linux-x86_64:linux-x64" "linux-aarch64:linux-arm64" \
+                      "darwin-aarch64:darwin-arm64" "darwin-x86_64:darwin-x64"; do
+            platform="${pair%%:*}"; asset="${pair##*:}"
+            bash scripts/assert-headless-bundle.sh \
+              "dist-bun/release/podium-headless-${asset}.tar.gz" "$platform" \
+              --source-commit "$GITHUB_SHA" \
+              --abduco "dist-bun/abduco-cache/${platform}-${HASH}"
+          done
+      # RUN the one bundle this runner can run, BEFORE publishing it. Everything above
+      # interrogates tarballs without executing anything — the only option for the three
+      # platforms a Linux x64 runner cannot run, and no excuse at all for the fourth. A
+      # bundle that passes every static check and then fails to start is precisely the
+      # regression cross-compilation introduces. The published smoke does run it, but
+      # only after publication, which is too late to stop.
+      - name: Run the cross-built linux-x64 bundle
+        run: bash scripts/smoke-headless-bundle.sh dist-bun/release/podium-headless-linux-x64.tar.gz
+      # PROVE THE GATE ABOVE CAN SAY NO, on every release, rather than remembering that
+      # it once could. A green from a check that cannot go red is a claim nobody made —
+      # and this harness earned its place immediately: its first run found that the
+      # entitlement check had never been exercised by anything.
+      #
+      # It compiles one throwaway Darwin binary, which is a SECOND darwin compile in this
+      # job. Measured on this hardware: 0.68 s and 67 MB, deleted straight after. It buys the only
+      # honest test of the "was this re-signed, or is it still Bun's linker signature?"
+      # discriminator — no cheaper substitute produces a genuine LINKER_SIGNED binary,
+      # and re-signing the shipped one with a different identifier would prove a
+      # different check. Kept deliberately, at a cost that is a rounding error next to
+      # the four real compiles above.
+      - name: Prove the bundle assertions can fail
+        run: |
+          bash scripts/prove-headless-assertions-can-fail.sh \
+            dist-bun/release/podium-headless-darwin-arm64.tar.gz \
+            dist-bun/release/podium-headless-linux-x64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: headless-cross
+          path: dist-bun/release/*
+          if-no-files-found: error
+
+  # TEMPORARY — the A/B control for the matrix collapse, to be deleted after the first
+  # release that ships both legs.
+  #
+  # It builds linux-aarch64 the old way, on a real ARM runner, so `ab-check` below can
+  # compare the two on hardware of that architecture. It uploads to its OWN artifact
+  # name: the publisher refuses two descriptors claiming one platform, and the native
+  # bundle must never be the one that ships.
+  ab-native-arm64:
+    name: A/B control — native arm64 build
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '1.3.14' }
       - uses: actions/cache@v4
         with:
-          path: |
-            ~/.bun/install/cache
-            packages/agent-bridge/src/abduco.bin
-          key: headless-${{ matrix.arch }}-${{ hashFiles('bun.lock') }}
-      # --ignore-scripts: the compiled headless runtime uses Bun.Terminal and never
-      # loads node-pty. esbuild ships a platform package; build-bun compiles abduco.
+          path: ~/.bun/install/cache
+          key: headless-native-arm64-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
-      - name: Build signed ${{ matrix.arch }} headless artifact
+      - name: Build the native arm64 headless artifact
         env:
           PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
-        run: bun scripts/release.ts --channel "$PODIUM_RELEASE_CHANNEL" --prepare-arch ${{ matrix.arch }}
+        run: bun scripts/release.ts --channel "$PODIUM_RELEASE_CHANNEL" --prepare-arch arm64
       - uses: actions/upload-artifact@v4
         with:
-          name: headless-${{ matrix.arch }}
+          name: headless-ab-native-arm64
           path: dist-bun/release/*
           if-no-files-found: error
 
+  # The behavioural half of the A/B, ON ARM HARDWARE. The assertions in `headless` prove
+  # the cross-built arm64 bundle is shaped right without running it; only this job can
+  # prove it RUNS. It gates publish: for the one release this control exists, a
+  # cross-built bundle that misbehaves on its own architecture must not ship.
+  ab-check:
+    name: A/B — cross vs native on arm64
+    needs: [headless, ab-native-arm64]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: headless-cross, path: ab/cross }
+      - uses: actions/download-artifact@v4
+        with: { name: headless-ab-native-arm64, path: ab/native }
+      - name: Compare the cross-built and native arm64 bundles
+        run: |
+          bash scripts/ab-headless-cross-vs-native.sh \
+            ab/cross/podium-headless-linux-arm64.tar.gz \
+            ab/native/podium-headless-linux-arm64.tar.gz
+
   publish:
-    needs: build
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    needs: [headless, ab-check]
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '1.3.14' }
+      # The stable bridge proof runs the privileged real-release lane against the
+      # prepared bytes. It skips the target build, but still packages the lane's
+      # isolated coordinator and therefore needs the checkout-local release
+      # toolchain. Edge never executes these setup steps or the proof.
+      - uses: mlugg/setup-zig@v1
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        with: { version: '0.16.0' }
+      - uses: dtolnay/rust-toolchain@stable
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+      - name: Install rcodesign for stable bridge proof
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: sudo -E bash scripts/ci-install-rcodesign.sh
+      - name: Install checkout-local proof dependencies
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Ensure the real-release base image is available
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: docker pull ubuntu:24.04
+      - name: Build the locked desktop signature verifier
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: >-
+          cargo build --release --locked
+          --manifest-path scripts/stable-candidate-minisign/Cargo.toml
+      # Only the cross artifact. The native A/B leg stages under the same asset name and
+      # must never reach the release.
       - uses: actions/download-artifact@v4
         with:
-          pattern: headless-*
+          name: headless-cross
           path: dist-bun/release
-          merge-multiple: true
-      - name: Publish one multi-architecture release
+      # PUBLISHING IS ONE ACT (POD-2796). Most headless releases mint no shell, so the
+      # previous release's `latest.json` has to come forward onto this one or installed
+      # desktop apps lose the endpoint they poll. This used to be `gh release download
+      # … || true`, which put "this channel has no previous release" and "GitHub could
+      # not be reached" into the same silent catch — and a stable cut is a NEW release,
+      # so nothing carried means `releases/latest/download/latest.json` starts 404ing
+      # for every shell already installed, while the run reports success. The script
+      # asks what the standing release holds and lets only a clean 404 mean "nothing to
+      # carry"; every other answer fails this step and the publish below never runs.
+      - name: Carry forward the standing desktop shell reference
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bun scripts/carry-forward-desktop-manifest.ts --channel "$PODIUM_RELEASE_CHANNEL" --dir dist-bun/release
+      # POD-2789 owns making this a complete, fail-closed pair. This issue starts
+      # exactly after that boundary: release.ts writes the final headless manifest
+      # without GH_TOKEN, then a byte-for-byte published v0.1.0 install must accept
+      # the complete candidate before any release create/upload can run.
+      - name: Prepare the complete stable candidate
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: bun scripts/release.ts --channel stable --tag "$PODIUM_RELEASE_TAG" --publish-dir dist-bun/release
+      - name: Seal the stable candidate bytes
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: |
+          snapshot="$RUNNER_TEMP/stable-release-candidate.json"
+          bun scripts/release-candidate-snapshot.ts \
+            --dir dist-bun/release --write "$snapshot"
+          echo "PODIUM_RELEASE_CANDIDATE_SNAPSHOT=$snapshot" >>"$GITHUB_ENV"
+      - name: Prove the stable candidate from published v0.1.0
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${PODIUM_RELEASE_TAG#v}"
+          PODIUM_UPDATE_E2E_ONLY=real-release \
+          PODIUM_UPDATE_E2E_REAL_TARGET_DIR="$GITHUB_WORKSPACE/dist-bun/release" \
+          PODIUM_UPDATE_E2E_REAL_TARGET_VERSION="$version" \
+          PODIUM_UPDATE_E2E_REAL_DESKTOP_VERIFIER="$GITHUB_WORKSPACE/scripts/stable-candidate-minisign/target/release/podium-stable-candidate-minisign" \
+          PODIUM_UPDATE_E2E_OUTPUT_DIR="$RUNNER_TEMP/stable-bridge-evidence" \
+            bash scripts/docker-update-e2e.sh
+      - name: Preserve stable bridge proof evidence
+        if: always() && env.PODIUM_RELEASE_CHANNEL == 'stable'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-bridge-proof
+          path: ${{ runner.temp }}/stable-bridge-evidence
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish one multi-platform release
         env:
           GH_TOKEN: ${{ github.token }}
         run: bun scripts/release.ts --channel "$PODIUM_RELEASE_CHANNEL" --tag "$PODIUM_RELEASE_TAG" --publish-dir dist-bun/release
@@ -74,6 +246,21 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: '1.3.14' }
+      # The published smoke opens the Darwin bundles it cannot execute, so it needs the
+      # Mach-O signature reader — and zig, to rebuild the reference abduco helpers it
+      # checks the published binaries against. Without those references the embedded-helper
+      # check could only be waived, and a waived check reads as a pass.
+      - uses: mlugg/setup-zig@v1
+        with: { version: '0.16.0' }
+      - name: Install rcodesign
+        run: sudo -E bash scripts/ci-install-rcodesign.sh
+      - uses: actions/cache@v4
+        with:
+          path: dist-bun/abduco-cache
+          key: abduco-cross-${{ hashFiles('packages/pty/vendor/abduco/abduco.c') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
       - name: Verify the published assets and signature
         env:
           GH_TOKEN: ${{ github.token }}

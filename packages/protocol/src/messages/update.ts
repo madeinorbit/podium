@@ -16,9 +16,39 @@ export const UpdateGrantMessage = z.object({
   type: z.literal('updateGrant'),
   /** Correlates the grant with the status reports it produces, across a restart. */
   grantId: z.string().min(1),
+  /**
+   * Explicit repair re-delivers the current target even when its version label
+   * already matches. Optional so older peers read every ordinary grant unchanged.
+   */
+  repair: z.boolean().optional(),
+  /** Publisher key that made this artifact signature; diagnostic only on the daemon. */
+  updatePubkey: z.string().min(1).optional(),
   target: UpdateTarget,
 })
 export type UpdateGrantMessage = z.infer<typeof UpdateGrantMessage>
+
+/**
+ * Before a development target is published, the coordinator asks each remote
+ * managed daemon to prove that the target's exact authenticated artifact route
+ * is reachable from that machine. This is deliberately not an update grant:
+ * probing must have no install side effect and must finish before the signed
+ * target enters the fleet read model.
+ */
+export const DevArtifactProbeRequestMessage = z.object({
+  type: z.literal('devArtifactProbeRequest'),
+  requestId: z.string(),
+  url: z.string().url(),
+})
+export type DevArtifactProbeRequestMessage = z.infer<typeof DevArtifactProbeRequestMessage>
+
+export const DevArtifactProbeResultMessage = z.object({
+  type: z.literal('devArtifactProbeResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  status: z.number().int().min(100).max(599).optional(),
+  detail: z.string().optional(),
+})
+export type DevArtifactProbeResultMessage = z.infer<typeof DevArtifactProbeResultMessage>
 
 /** Where a machine is, relative to its grant. */
 export const CONVERGENCE_STATES = [
@@ -46,6 +76,12 @@ export type ConvergenceState = (typeof CONVERGENCE_STATES)[number]
 export const UpdateStatusMessage = z.object({
   type: z.literal('updateStatus'),
   grantId: z.string().min(1).optional(),
+  /**
+   * Target named by a durable boot-recovery report. This lets a terminal
+   * report survive the coordinator replacing its original grant id while the
+   * packaged process was down, without applying an old report to a new target.
+   */
+  targetVersion: z.string().min(1).optional(),
   state: z.enum(CONVERGENCE_STATES),
   /** A label, never parsed or ordered as a semver. */
   version: z.string().min(1),

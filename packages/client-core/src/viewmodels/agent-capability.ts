@@ -4,6 +4,7 @@ import {
   agentProbeTimeoutDescription,
   harnessRejection,
 } from '@podium/model'
+import type { MachineAvailability } from './slices/machines/authority'
 
 export const SIGNED_OUT_HINT = 'signed out'
 
@@ -32,6 +33,12 @@ export function agentCapabilityReason(
       return undefined
     case 'unauthorized':
       return `You don’t have access to run agents on ${machineName}. Ask its owner.`
+    case 'no-daemon':
+      // POD-2700. NOT "offline": this machine runs no Podium daemon, so it can
+      // never run an agent and there is nothing for the user to wait for. The
+      // two used to read the same, which is how a server-only coordinator sat in
+      // a menu looking like a laptop with its lid closed.
+      return `${machineName} runs no Podium daemon, so it can’t run agents.`
     case 'offline':
       return `${machineName} is offline.`
     case 'inventory-unavailable':
@@ -53,6 +60,8 @@ export function agentCapabilityHint(
   switch (rejection) {
     case 'unauthorized':
       return 'no access'
+    case 'no-daemon':
+      return 'no daemon'
     case 'offline':
       return 'offline'
     case 'inventory-unavailable':
@@ -131,17 +140,24 @@ export function agentFleetStatus(
  * already resolved use permission and reachability. */
 export function candidateFromAvailability<M extends HandoffMachine & { name: string }>(
   machine: M,
-  availability: 'available' | 'unreachable' | 'unauthorized',
+  availability: MachineAvailability,
   agentKind: string,
 ): AgentCandidate {
+  // The canonical ordering of POD-2700 §3.2, translated from the availability
+  // vocabulary: unauthorized, then structural, then live, then harness detail.
+  // `incapable` maps to `no-daemon` rather than to `offline`, which is the whole
+  // point of adding the member — a machine that runs no daemon must not be
+  // described to a user as one that is merely asleep.
   const rejection: AgentCapabilityRejection | undefined =
     availability === 'unauthorized'
       ? 'unauthorized'
-      : availability === 'unreachable'
-        ? 'offline'
-        : machine.inventory === undefined
-          ? undefined
-          : harnessRejection(machine, agentKind)
+      : availability === 'incapable'
+        ? 'no-daemon'
+        : availability === 'unreachable'
+          ? 'offline'
+          : machine.inventory === undefined
+            ? undefined
+            : harnessRejection(machine, agentKind)
   return {
     machineName: machine.name,
     ...(rejection ? { rejection } : {}),

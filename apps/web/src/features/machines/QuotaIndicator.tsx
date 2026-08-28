@@ -85,18 +85,20 @@ function worstPercent(groups: AccountQuotaGroup[]): number {
   return worst
 }
 
-/** One independently usable quota pool: its gating meter plus its model buckets. */
+/** One provider/account slot. Unreadable slots stay present with no percentage. */
 interface QuotaPool {
   group: AccountQuotaGroup
-  percent: number
+  percent: number | null
   models: AccountQuotaGroup['windows']
 }
 
 function quotaPools(groups: AccountQuotaGroup[]): QuotaPool[] {
-  return groups.flatMap((group) => {
-    if (group.status !== 'ok' || group.windows.length === 0) return []
+  return groups.map((group) => {
+    if (group.status !== 'ok' || group.windows.length === 0) {
+      return { group, percent: null, models: [] }
+    }
     const { gating, models } = splitQuotaWindows(group.windows)
-    return [{ group, percent: Math.max(...gating.map((w) => w.usedPercent)), models }]
+    return { group, percent: Math.max(...gating.map((w) => w.usedPercent)), models }
   })
 }
 
@@ -166,7 +168,9 @@ export function QuotaIndicator({
   const groups = groupQuotaByAccount(machines ?? [])
   const pools = quotaPools(groups)
   const surging = useQuotaSurge(
-    pools.map((pool) => ({ key: pool.group.key, percent: pool.percent })),
+    pools.flatMap((pool) =>
+      pool.percent === null ? [] : [{ key: pool.group.key, percent: pool.percent }],
+    ),
   )
   if (!machines || groups.length === 0) return null
 
@@ -181,6 +185,9 @@ export function QuotaIndicator({
     const poolSummary = pools
       .map(({ group, percent, models }) => {
         const account = group.account?.email ? ` (${group.account.email})` : ''
+        if (percent === null) {
+          return `${agentLabel(group.agent)}${account} ${statusNote(group) || 'quota unavailable'}`
+        }
         // Each model bucket is named in the label — the rail segment is the
         // glance, this is what a screen reader reads out.
         const scoped = models
@@ -191,7 +198,6 @@ export function QuotaIndicator({
       .join('; ')
     return (
       <HealthPopover
-        pinOnClick={false}
         popupClassName="health-popover-quota"
         trigger={
           <button
@@ -205,14 +211,16 @@ export function QuotaIndicator({
             <span className="header-quota-label">quota</span>
             <span className="header-quota-pools" role="presentation">
               {pools.map(({ group, percent, models }) => {
-                const poolKey = percentTone(percent)
-                const poolTone = TONE[poolKey]
+                const poolKey = percent === null ? null : percentTone(percent)
+                const poolTone = poolKey ? TONE[poolKey] : null
                 const meter = (
                   <span className="header-meter header-quota-meter">
-                    <span
-                      className={cn('block h-full', poolTone.fill)}
-                      style={{ width: `${percent}%` }}
-                    />
+                    {poolTone && (
+                      <span
+                        className={cn('block h-full', poolTone.fill)}
+                        style={{ width: `${percent}%` }}
+                      />
+                    )}
                   </span>
                 )
                 return (
@@ -251,9 +259,15 @@ export function QuotaIndicator({
                     )}
                     {/* 30px of meter is ~3% per pixel; the number is what tells
                         you a pool is at 78 rather than 62. */}
-                    <span className="header-value" data-tone={poolKey}>
-                      {Math.round(percent)}%
-                    </span>
+                    {percent === null ? (
+                      <span className="header-quota-unavailable" aria-hidden="true">
+                        N/A
+                      </span>
+                    ) : (
+                      <span className="header-value" data-tone={poolKey}>
+                        {Math.round(percent)}%
+                      </span>
+                    )}
                   </span>
                 )
               })}
@@ -261,7 +275,7 @@ export function QuotaIndicator({
           </button>
         }
       >
-        {() => <QuotaPanel groups={groups} now={Date.now()} />}
+        <QuotaPanel groups={groups} now={Date.now()} />
       </HealthPopover>
     )
   }

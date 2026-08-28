@@ -1,11 +1,16 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { defaultInstancePorts } from '@podium/runtime/instance'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  enableSystemdUnits,
   installSystemd,
+  maskSystemdUnitsRuntime,
+  removeUserUnits,
   renderDaemonUnit,
   renderJanitorUnit,
+  renderParentUnit,
   renderServerUnit,
   renderSystemdFiles,
   userUnitDir,
@@ -120,7 +125,8 @@ describe('renderJanitorUnit', () => {
     const u = renderJanitorUnit({ port: 18787 })
     expect(u).toContain('Description=Podium durable maintenance janitor')
     expect(u).toContain('After=network-online.target podium-server.service')
-    expect(u).toContain('ExecStart=%h/.local/bin/podium janitor --server http://localhost:18787')
+    expect(u).toContain('Environment=PODIUM_PORT=18787')
+    expect(u).toContain('ExecStart=%h/.local/bin/podium janitor\n')
     expect(u).toContain('Restart=always')
     expect(u).toContain('RestartPreventExitStatus=78')
   })
@@ -128,79 +134,59 @@ describe('renderJanitorUnit', () => {
   it('binds a named janitor only to its named server and command', () => {
     const u = renderJanitorUnit({ instanceId: 'blue', port: 23000 })
     expect(u).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(u).toContain('Environment=PODIUM_PORT=23000')
     expect(u).toContain('After=network-online.target podium-blue-server.service')
-    expect(u).toContain(
-      'ExecStart=%h/.local/bin/podium-blue janitor --server http://localhost:23000',
-    )
+    expect(u).toContain('ExecStart=%h/.local/bin/podium-blue janitor\n')
+  })
+})
+
+describe('renderParentUnit', () => {
+  it('is Type=notify with watchdog, Restart=always, takeover, interactive tier', () => {
+    const u = renderParentUnit()
+    expect(u).toContain('Type=notify')
+    expect(u).toContain('WatchdogSec=90')
+    expect(u).toContain('Restart=always')
+    expect(u).toContain('ExecStart=%h/.local/bin/podium parent --takeover')
+    expect(u).toContain('CPUWeight=900')
+    expect(u).toContain('IOWeight=500')
+    expect(u).toContain('MemoryLow=2G')
+    expect(u).toContain('WantedBy=default.target')
   })
 })
 
 describe('systemd profile rendering', () => {
-  it('packages runtime services without an update timer', () => {
+  it('packaged profile emits exactly podium.service', () => {
     const files = renderSystemdFiles({ profile: 'packaged', instanceId: 'default' }).units
-    expect(files['podium-daemon.service']).toBe(renderDaemonUnit())
-    expect(files['podium-server.service']).toBe(renderServerUnit())
-    expect(Object.keys(files).filter((name) => name.includes('update'))).toEqual([])
+    expect(Object.keys(files)).toEqual(['podium.service'])
+    expect(files['podium.service']).toBe(renderParentUnit({ profile: 'packaged' }))
+    expect(files['podium-server.service']).toBeUndefined()
+    expect(files['podium-daemon.service']).toBeUndefined()
+    expect(files['podium-janitor.service']).toBeUndefined()
   })
 
-  it('keeps packaged units instance-scoped', () => {
+  it('keeps the packaged parent instance-scoped', () => {
     const files = renderSystemdFiles({ profile: 'packaged', instanceId: 'blue', port: 23000 }).units
-    expect(files['podium-blue-server.service']).toContain('Environment=PODIUM_INSTANCE=blue')
-    expect(files['podium-blue-daemon.service']).toContain(
-      'ExecStart=%h/.local/bin/podium-blue daemon',
+    expect(Object.keys(files)).toEqual(['podium-blue.service'])
+    expect(files['podium-blue.service']).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(files['podium-blue.service']).toContain(
+      'ExecStart=%h/.local/bin/podium-blue parent --takeover',
     )
-    expect(files['podium-blue-janitor.service']).toContain(
-      'ExecStart=%h/.local/bin/podium-blue janitor --server http://localhost:23000',
-    )
-    expect(Object.keys(files).filter((name) => name.includes('update'))).toEqual([])
+    expect(files['podium-blue.service']).toContain('Environment=PODIUM_PORT=23000')
   })
 
-  it('renders explicit redeploy and health units without a git-HEAD watcher', () => {
+  it('dev profile emits exactly the parent unit — extras are dropped', () => {
     const files = renderSystemdFiles({ profile: 'dev', instanceId: 'blue', port: 23000 }).units
-    expect(files['podium-blue-server.service']).toContain('Environment=PODIUM_INSTANCE=blue')
-    expect(files['podium-blue-server.service']).toContain('Environment=PODIUM_PORT=23000')
-    expect(files['podium-blue-daemon.service']).toContain(
-      'After=network-online.target podium-blue-server.service',
-    )
-    expect(files['podium-blue-janitor.service']).toContain(
-      'scripts/cli.ts janitor --server http://localhost:23000',
-    )
-    expect(files['podium-blue-janitor.service']).toContain('Environment=PODIUM_INSTANCE=blue')
-    expect(files['podium-blue-redeploy.service']).toBeDefined()
-    expect(files['podium-blue-redeploy.path']).toBeUndefined()
-    expect(files['podium-blue-health.service']).toContain(
-      'Environment=PODIUM_HEALTH_UNIT=podium-blue-server.service',
-    )
-    expect(files['podium-blue-health.timer']).toContain('Unit=podium-blue-health.service')
-    expect(Object.keys(files).filter((name) => name.includes('update'))).toEqual([])
-  })
-
-  /**
-   * POD-1663: a redeploy that moved the maintenance protocol/schema left the
-   * long-lived janitor skewed against the new server. It exited 78, and
-   * RestartPreventExitStatus kept it stopped for good — steward-poll, and with it
-   * ALL durable message delivery, stopped silently for 14 hours. The revive hook
-   * lives in `podium update`, which this git-HEAD path never calls, so the redeploy
-   * itself has to carry the janitor.
-   */
-  it('restarts the janitor with the server, clearing a compatibility block first', () => {
-    const files = renderSystemdFiles({ profile: 'dev', instanceId: 'blue', port: 23000 }).units
-    const redeploy = files['podium-blue-redeploy.service'] ?? ''
-    const restart = redeploy
-      .split('\n')
-      .find((line) => line.startsWith('ExecStart=/usr/bin/systemctl --user restart'))
-    expect(restart).toBeDefined()
-    // The janitor must be restarted in the SAME step as the server, or it keeps
-    // running the module graph the previous deploy gave it.
-    expect(restart).toContain('podium-blue-janitor.service')
-    expect(restart).toContain('podium-blue-server.service')
-    expect(restart).toContain('podium-blue-daemon.service')
-    // A janitor already blocked on exit 78 (or sitting on a hit start-limit) will not
-    // come back from `restart` alone; the failure state has to be cleared, and that
-    // clear must not fail the deploy when the unit is healthy or absent.
-    expect(redeploy).toContain(
-      'ExecStart=-/usr/bin/systemctl --user reset-failed podium-blue-janitor.service',
-    )
+    expect(Object.keys(files)).toEqual(['podium-blue.service'])
+    expect(files['podium-blue.service']).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(files['podium-blue.service']).toContain('Environment=PODIUM_PORT=23000')
+    expect(files['podium-blue.service']).toContain('Environment=PODIUM_DEV_SOURCE_ROOT=')
+    expect(files['podium-blue.service']).toContain('podium-blue parent --takeover')
+    expect(files['podium-blue.service']).not.toContain('--conditions=@podium/source')
+    expect(files['podium-blue-redeploy.service']).toBeUndefined()
+    expect(files['podium-blue-health.service']).toBeUndefined()
+    expect(files['podium-blue-health.timer']).toBeUndefined()
+    expect(files['podium-blue-backend.service']).toBeUndefined()
+    expect(files['podium-blue-server.service']).toBeUndefined()
   })
 })
 
@@ -213,6 +199,107 @@ describe('userUnitDir', () => {
     } finally {
       if (prev === undefined) delete process.env.XDG_CONFIG_HOME
       else process.env.XDG_CONFIG_HOME = prev
+    }
+  })
+})
+
+describe('migration systemd operations', () => {
+  it('keeps the configured port authoritative while the legacy three-unit topology is armed', () => {
+    const instanceId = 'update-e2e'
+    const configuredPort = 18_787
+    const derivedDefault = defaultInstancePorts(instanceId).server
+    expect(derivedDefault).not.toBe(configuredPort)
+
+    // This is the population the topology migration starts from, not a fresh
+    // parent-only install: three packaged role units remain live until the new
+    // parent proves healthy. All three must resolve the operator's configured
+    // port through the same runtime source for that entire safety window.
+    const legacyUnits = {
+      server: renderServerUnit({ profile: 'packaged', instanceId, port: configuredPort }),
+      daemon: renderDaemonUnit({
+        profile: 'packaged',
+        instanceId,
+        port: configuredPort,
+        local: true,
+      }),
+      janitor: renderJanitorUnit({ instanceId, port: configuredPort }),
+    }
+    const resolvedPorts = Object.fromEntries(
+      Object.entries(legacyUnits).map(([role, unit]) => [
+        role,
+        unit.match(/^Environment=PODIUM_PORT=(\d+)$/m)?.[1],
+      ]),
+    )
+
+    expect(
+      resolvedPorts,
+      `legacy migration roles must all read configured :${configuredPort}, not named default :${derivedDefault}`,
+    ).toEqual({
+      server: String(configuredPort),
+      daemon: String(configuredPort),
+      janitor: String(configuredPort),
+    })
+  })
+
+  it('arms the parent without starting it; start is a separate migration step', () => {
+    const commands: Array<{ cmd: string; args: string[] }> = []
+    enableSystemdUnits(['podium.service'], {
+      run: (cmd, args) => commands.push({ cmd, args }),
+    })
+    expect(commands).toEqual([
+      { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
+      { cmd: 'systemctl', args: ['--user', 'enable', 'podium.service'] },
+    ])
+    expect(commands.flatMap(({ args }) => args)).not.toContain('--now')
+  })
+
+  it('masks legacy units only in the runtime manager state', () => {
+    const commands: Array<{ cmd: string; args: string[] }> = []
+    maskSystemdUnitsRuntime(['podium-server.service'], {
+      run: (cmd, args) => commands.push({ cmd, args }),
+    })
+    expect(commands).toEqual([
+      {
+        cmd: 'systemctl',
+        args: ['--user', 'mask', '--runtime', 'podium-server.service'],
+      },
+    ])
+  })
+
+  it('stops every legacy unit before deleting any unit file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-systemd-remove-'))
+    const units = ['podium-server.service', 'podium-daemon.service']
+    for (const unit of units) writeFileSync(join(dir, unit), unit)
+    const commands: Array<{ cmd: string; args: string[] }> = []
+    const stopped: string[] = []
+    try {
+      await removeUserUnits(units, {
+        unitDir: () => dir,
+        run: (cmd, args) => commands.push({ cmd, args }),
+        afterStop: (unit) => {
+          stopped.push(unit)
+          expect(units.every((name) => existsSync(join(dir, name)))).toBe(true)
+        },
+        beforeRemove: () => {
+          expect(stopped).toEqual(units)
+          expect(units.every((name) => existsSync(join(dir, name)))).toBe(true)
+        },
+      })
+      expect(commands).toEqual([
+        { cmd: 'systemctl', args: ['--user', 'unmask', ...units] },
+        {
+          cmd: 'systemctl',
+          args: ['--user', 'disable', '--now', 'podium-server.service'],
+        },
+        {
+          cmd: 'systemctl',
+          args: ['--user', 'disable', '--now', 'podium-daemon.service'],
+        },
+        { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
+      ])
+      expect(units.some((name) => existsSync(join(dir, name)))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })
@@ -246,6 +333,15 @@ describe('installSystemd update-timer retirement', () => {
     const { dir, commands } = install(mode)
     expect(readdirSync(dir).filter((name) => name.includes('update'))).toEqual([])
     expect(commands.flatMap(({ args }) => args).filter((arg) => arg.includes('update'))).toEqual([])
+  })
+
+  it.each([
+    'all-in-one',
+    'server',
+    'daemon',
+  ] as const)('fresh %s installs write exactly podium.service', (mode) => {
+    const { dir } = install(mode)
+    expect(readdirSync(dir)).toEqual(['podium.service'])
   })
 
   it.each([

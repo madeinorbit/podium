@@ -33,8 +33,10 @@ import {
 } from './headless'
 import {
   AgentQuotaRequestMessage,
+  QuotaHistoryRequestMessage,
   MemoryBreakdownRequestMessage,
   ReclaimAttachmentsMessage,
+  ReclaimDiskEstimateRequestMessage,
   UsageRequestMessage,
 } from './host'
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
@@ -79,7 +81,7 @@ import {
   SpawnMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
-import { UpdateGrantMessage } from './update'
+import { DevArtifactProbeRequestMessage, UpdateGrantMessage } from './update'
 import {
   WorkspaceCleanRequestMessage,
   WorkspaceExportRequestMessage,
@@ -109,8 +111,10 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HeadlessBindMessage,
   UsageRequestMessage,
   AgentQuotaRequestMessage,
+  QuotaHistoryRequestMessage,
   InventoryRequestMessage,
   ModelProbeRequestMessage,
+  DevArtifactProbeRequestMessage,
   UpdateGrantMessage,
   ImageUploadRequestMessage,
   SpawnMessage,
@@ -133,6 +137,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RedrawMessage,
   MemoryBreakdownRequestMessage,
   ReclaimAttachmentsMessage,
+  ReclaimDiskEstimateRequestMessage,
   TranscriptReadRequestMessage,
   FileReadRequestMessage,
   FileAssetRequestMessage,

@@ -109,6 +109,40 @@ describe('operationView — the seven states', () => {
     expect(result.indicatorLabel).toBe('Podium 0.4.3 is available')
   })
 
+  it('renders a permanent legacy verifier blocker without an update action', () => {
+    const result = operationView({
+      operation: null,
+      offer: {
+        state: 'blocked',
+        version: '0.4.3',
+        blockedNote:
+          'flatblock needs host-local repair before it can verify instance-signed development updates.',
+      },
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    })
+
+    expect(result.state).toBe('offer')
+    expect(result.title).toBe('Host-local repair required')
+    expect(result.subtitle).toMatch(/flatblock needs host-local repair/i)
+    expect(result.primary).toBeUndefined()
+    expect(result.indicator).toBe('attention')
+  })
+
+  it('keeps host-local repair visible while offering grantable places', () => {
+    const result = operationView({
+      operation: null,
+      offer: { ...OFFER, blockedNote: 'flatblock needs host-local repair.' },
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    })
+
+    expect(result.primary).toMatchObject({ kind: 'start' })
+    expect(result.deferredNote).toBe('flatblock needs host-local repair.')
+  })
+
   /**
    * THE UNREAD OPERATION, WITH AN OFFER ALREADY IN HAND (POD-2307).
    *
@@ -405,6 +439,68 @@ describe('operationView — the seven states', () => {
     expect(result.indicator).toBe('idle-dot')
   })
 
+  it('does not claim everywhere or reconnect for a permanent legacy trust deferment', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [{ id: 'machines', title: 'Updating your machines', state: 'done' }],
+      deferred: [{ id: 'm_legacy', name: 'flatblock', reason: 'legacy-instance-trust' }],
+    })
+    const result = view(payload)
+    expect(result.state).toBe('done')
+    expect(result.title).toBe('Podium 0.4.3 was applied where supported')
+    expect(result.deferredNote).toMatch(/flatblock needs host-local repair/i)
+    expect(result.deferredNote).toMatch(/reconnecting will not clear/i)
+    expect(result.indicatorLabel).toBe('Host-local repair still required')
+    expect(JSON.stringify(result)).not.toMatch(/everywhere/)
+  })
+
+  /**
+   * "…will update when it reconnects" stops being true the moment the package
+   * it would have taken is replaced or withdrawn (POD-3040). A finished
+   * operation keeps showing its deferred note, so the note has to stop
+   * promising delivery it can no longer make.
+   */
+  it('stops promising a reconnect once the deferred target was superseded', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [{ id: 'machines', title: 'Updating your machines', state: 'done' }],
+      deferred: [{ id: 'm_laptop', name: 'laptop', reason: 'target-superseded' }],
+    })
+    const result = view(payload)
+    expect(result.deferredNote).toMatch(/replaced by a newer one/i)
+    expect(result.deferredNote).toMatch(/will take the current update instead/i)
+    expect(result.deferredNote).not.toMatch(/when it reconnects/i)
+  })
+
+  it('says withdrawn rather than replaced when the channel is offering nothing', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [{ id: 'machines', title: 'Updating your machines', state: 'done' }],
+      deferred: [{ id: 'm_laptop', name: 'laptop', reason: 'target-unavailable' }],
+    })
+    const result = view(payload)
+    expect(result.deferredNote).toMatch(/withdrawn/i)
+    expect(result.deferredNote).not.toMatch(/when it reconnects/i)
+  })
+
+  it('keeps the reconnect promise for machines whose target is still on offer', () => {
+    const payload = operationPayload({
+      state: 'done',
+      finishedAt: NOW,
+      steps: [{ id: 'machines', title: 'Updating your machines', state: 'done' }],
+      deferred: [
+        { id: 'm_laptop', name: 'laptop', reason: 'target-superseded' },
+        { id: 'm_mac', name: 'macbook', reason: 'offline' },
+      ],
+    })
+    const result = view(payload)
+    expect(result.deferredNote).toMatch(/laptop did not come back/i)
+    expect(result.deferredNote).toMatch(/macbook will update when it reconnects/i)
+  })
+
   it('keeps asking a straggler tab to reload after the operation itself finished', () => {
     const result = view(operationPayload({ state: 'done', finishedAt: NOW }), { local: BEHIND })
     expect(result.state).toBe('waiting-you')
@@ -671,6 +767,24 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
     }
   })
 
+  it('shows an unexpected local update error instead of unreachable guidance', () => {
+    const diagnostic =
+      'ENOENT: no such file or directory, open /state/runtime/pending-update.json.tmp'
+    const presented = presentOperationError({
+      code: 'machine-update-failed',
+      detail: diagnostic,
+      places: ['fleet-a'],
+    })
+
+    expect(presented.message).toMatch(/fleet-a.*unexpected update failure/i)
+    expect(presented.nextAction).toMatch(/technical detail.*error it reported/i)
+    expect(presented.detail).toContain(diagnostic)
+    expect(presented.detail).toContain('code: machine-update-failed')
+    expect(`${presented.message} ${presented.nextAction}`).not.toMatch(
+      /stopped responding|check (?:that )?machine is running/i,
+    )
+  })
+
   it('keeps desktop check failures distinct with one useful next action', () => {
     const cases = [
       {
@@ -748,6 +862,46 @@ describe('operationView — action rejections (the retired POD-2091 bug)', () =>
 
     expect(result.error?.message).toBe('Nothing has been published on the stable channel yet.')
     expect(result.primary).toBeUndefined()
+  })
+
+  it('names a permanently unreachable artifact and offers no retry', () => {
+    const result = operationView({
+      operation: null,
+      offer: OFFER,
+      local: NOT_BEHIND,
+      surface: 'desktop-remote',
+      now: NOW,
+      actionError: {
+        code: 'artifact-unreachable',
+        message:
+          'This machine cannot reach https://missing.example/podium.tar.gz from the published release.',
+      },
+    })
+
+    expect(result.state).toBe('failed')
+    expect(result.error?.message).toMatch(/cannot reach the artifact address/i)
+    expect(result.error?.nextAction).toMatch(/new release/i)
+    expect(result.error?.detail).toContain('https://missing.example/podium.tar.gz')
+    expect(result.primary).toBeUndefined()
+    expect(JSON.stringify(result)).not.toMatch(/try again/i)
+  })
+
+  it('keeps a permanently unreachable artifact terminal after the operation records it', () => {
+    const result = view(
+      operationPayload({
+        state: 'failed',
+        error: {
+          code: 'artifact-unreachable',
+          message:
+            'artifact address unreachable: https://missing.example/podium.tar.gz — ECONNREFUSED',
+        },
+      }),
+    )
+
+    expect(result.state).toBe('failed')
+    expect(result.error?.detail).toContain('https://missing.example/podium.tar.gz')
+    expect(result.primary).toBeUndefined()
+    expect(JSON.stringify(result)).not.toMatch(/try again/i)
   })
 
   /**

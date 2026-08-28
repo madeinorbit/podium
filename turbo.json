@@ -24,6 +24,41 @@
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": []
     },
+    "@podium/scripts#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/**",
+        "$TURBO_ROOT$/packages/**",
+        "$TURBO_ROOT$/services/**",
+        "$TURBO_ROOT$/tests/**",
+        "!$TURBO_ROOT$/**/.turbo/**",
+        "$TURBO_ROOT$/vitest.acceptance.config.ts",
+        "$TURBO_ROOT$/vitest.agent-smoke.config.ts",
+        "$TURBO_ROOT$/vitest.integration.config.ts"
+      ],
+      "outputs": []
+    },
+    "@podium/daemon#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/server/src/**"],
+      "outputs": []
+    },
+    "@podium/server#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/cli/src/**",
+        "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/drizzle.config.ts"
+      ],
+      "outputs": []
+    },
+    "@podium/mobile#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/src/features/setup/**"],
+      "outputs": []
+    },
     "@podium/web#test": {
       "dependsOn": [],
       "inputs": [

@@ -169,11 +169,55 @@ describe('MachinesPanel hosting affordances', () => {
 // POD-838/POD-1873: each row shows the daemon's reported build version and compares it
 // with that machine's selected channel target. Legacy projections fall back to the server.
 describe('MachinesPanel version skew', () => {
-  function setTrpcWithVersion(appVersion: string) {
+  function setTrpcWithVersion(appVersion: string, allMachines: unknown[] = []) {
     storeState.trpc = {
       setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion }) } },
+      updates: { fleet: { query: vi.fn().mockResolvedValue({ machines: [], allMachines }) } },
     } as unknown as Store['trpc']
   }
+
+  /**
+   * §2.2b / §8c decision 14: two machines can both be "behind", and only one of
+   * them is anybody's problem. Nothing applies itself, so a pending offer is the
+   * mechanism working; a machine that took the grant and never arrived is not.
+   */
+  it('keeps the warning colour for the machine that is stuck, not the one that is waiting', async () => {
+    const behind = {
+      inventory: {
+        os: 'linux' as const,
+        arch: 'x64' as const,
+        podiumVersion: '0.4.1',
+        agents: [],
+        tools: [],
+      },
+      appVersion: '0.4.1',
+      targetVersion: '0.5.0',
+      versionState: 'behind' as const,
+    }
+    storeState.machines = [machine(behind)]
+    setTrpcWithVersion('0.5.0')
+    const waiting = render(<MachinesPanel />)
+
+    const pending = await screen.findByText(/update available/i)
+    expect(pending.className).not.toContain('warning')
+    waiting.unmount()
+
+    storeState.machines = [machine(behind)]
+    setTrpcWithVersion('0.5.0', [
+      {
+        id: storeState.machines[0]?.id,
+        version: '0.4.1',
+        state: 'stuck',
+        online: true,
+        busy: false,
+      },
+    ])
+    render(<MachinesPanel />)
+
+    const stuck = await screen.findByText('stuck')
+    expect(stuck.className).toContain('warning')
+    expect(screen.queryByText(/update available/i)).toBeNull()
+  })
 
   it('shows the daemon version and badges a machine behind the server', async () => {
     storeState.machines = [
@@ -264,9 +308,9 @@ describe('MachinesPanel version skew', () => {
 })
 
 /**
- * POD-2103, spec §4/§6.3 — the update row's copy. Two rules: a daemon Podium
- * Desktop owns cannot be Applied from here, and a server precondition is never
- * shown as if it were an error the operator caused.
+ * POD-2103, spec §4/§6.3 — the update row's copy. Desktop supervision now owns
+ * only process crashes; payload delivery is the same fleet operation as every
+ * other installed machine.
  */
 describe('MachinesPanel update rows', () => {
   function setUpdateTrpc() {
@@ -278,18 +322,16 @@ describe('MachinesPanel update rows', () => {
 
   const applyButton = () => screen.getByRole('button', { name: /apply update to/i })
 
-  it('will not offer to Apply an update to a desktop-supervised daemon', async () => {
+  it('offers the ordinary Apply path to a desktop-supervised daemon', async () => {
     storeState.machines = [
       machine({ name: 'macbook', online: true, supervised: true, targetVersion: '0.5.0' }),
     ]
     setUpdateTrpc()
     render(<MachinesPanel />)
 
-    expect(await screen.findByText('Managed by Podium Desktop')).toBeTruthy()
-    expect(
-      screen.getByText('Managed by Podium Desktop on this machine — it updates when the app does.'),
-    ).toBeTruthy()
-    expect(applyButton().hasAttribute('disabled')).toBe(true)
+    expect(await screen.findByText('Target 0.5.0')).toBeTruthy()
+    expect(applyButton().hasAttribute('disabled')).toBe(false)
+    expect(screen.queryByText(/Managed by Podium Desktop/)).toBeNull()
   })
 
   it('still offers Apply to an ordinary fleet machine', async () => {
@@ -710,6 +752,27 @@ describe('MachinesPanel server transfer', () => {
     expect((await screen.findByRole('dialog')).textContent).toMatch(/laptop to vps/i)
   })
 
+  it('removes a spent code even when the paired machine is not transfer-eligible', async () => {
+    const current = machine({ id: asMachineId('source'), name: 'laptop', online: true })
+    const paired = machine({ id: asMachineId('paired'), name: 'workstation', online: true })
+    storeState.machines = [current]
+    setServerTransferTrpc(vi.fn(), vi.fn().mockResolvedValue(status({ targetEligibility: [] })))
+    const view = render(<MachinesPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add machine' }))
+    expect(await screen.findByText('CODE')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /copy command/i })).toBeTruthy()
+
+    storeState.machines = [current, paired]
+    view.rerender(<MachinesPanel />)
+
+    expect(await screen.findByText(/one-use code has been spent/i)).toBeTruthy()
+    expect(screen.queryByText('CODE')).toBeNull()
+    expect(screen.queryByRole('button', { name: /copy command/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /create another code/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /review transfer/i })).toBeNull()
+  })
+
   it('does not recommend a server when adding before the first or after the second machine', async () => {
     setServerTransferTrpc(vi.fn())
     render(<MachinesPanel />)
@@ -834,6 +897,15 @@ describe('MachinesPanel update action', () => {
   }
 
   const applyButton = () => screen.getByRole('button', { name: /apply update to ludovico/i })
+
+  it('shows source ownership instead of a package Apply control', async () => {
+    storeState.machines = [managed({ installKind: 'source' })]
+    setUpdateTrpc({})
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('Source checkout')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /apply update to ludovico/i })).toBeNull()
+  })
 
   it('says nothing about an update it never watched', async () => {
     storeState.machines = [managed({ appVersion: 'dev+4f36e8e' })]

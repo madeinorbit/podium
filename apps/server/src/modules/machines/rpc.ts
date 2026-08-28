@@ -21,6 +21,7 @@ import type {
   BrowseDirsResultMessage,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
+  DevArtifactProbeResultMessage,
   DirListResultMessage,
   DirOp,
   FileAssetResultMessage,
@@ -39,6 +40,7 @@ import type {
   ObservationInputOrigin,
   PortableCredentialBundle,
   PortableCredentialKind,
+  QuotaHistorySampleWire,
   RepoOp,
   ServerTransferManifest,
   ServerTransferManifestEntry,
@@ -199,7 +201,9 @@ const USAGE = daemonRequestKind<{
   buckets: UsageBucketWire[]
 }>('us')
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
+const QUOTA_HISTORY = daemonRequestKind<{ samples: QuotaHistorySampleWire[] }>('qh')
 const MODEL_PROBE = daemonRequestKind<Record<string, ModelChoiceWire[]>>('mp')
+const DEV_ARTIFACT_PROBE = daemonRequestKind<Payload<DevArtifactProbeResultMessage>>('up')
 const TRANSCRIPT_READ = daemonRequestKind<TranscriptSlice>('tr')
 const IMAGE_UPLOAD = daemonRequestKind<{ path: string; error?: string }>('iu')
 const FILE_READ = daemonRequestKind<Payload<FileReadResultMessage>>('fr')
@@ -296,8 +300,12 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
       hostname: msg.hostname,
       agents: msg.agents,
     }),
+  quotaHistoryResult: (broker, machineId, msg) =>
+    void broker.settle(QUOTA_HISTORY, msg.requestId, machineId, { samples: msg.samples }),
   modelProbeResult: (broker, machineId, msg) =>
     void broker.settle(MODEL_PROBE, msg.requestId, machineId, msg.byAgent),
+  devArtifactProbeResult: (broker, machineId, msg) =>
+    void broker.settle(DEV_ARTIFACT_PROBE, msg.requestId, machineId, payloadOf(msg)),
   imageUploadResult: (broker, machineId, msg) =>
     void broker.settle(IMAGE_UPLOAD, msg.requestId, machineId, {
       path: msg.path,
@@ -546,6 +554,31 @@ export class DaemonRpcService {
   }
 
   /**
+   * Recover past quota windows from harness files on every online host (POD-1571).
+   *
+   * A generous timeout, and deliberately: this walks every Codex session rollout
+   * on the machine — over a thousand files on a working box — where `agentQuota`
+   * beside it makes three HTTP calls. Nothing waits on it; it seeds the ledger in
+   * the background at boot, once.
+   */
+  async quotaHistoryAll(sinceMs: number): Promise<QuotaHistorySampleWire[]> {
+    const machineIds = this.deps.onlineMachineIds()
+    if (machineIds.length === 0) return []
+    const perMachine = await Promise.all(
+      machineIds.map((machineId) =>
+        this.request(
+          QUOTA_HISTORY,
+          120_000,
+          () => ({ samples: [] }),
+          (requestId) => ({ type: 'quotaHistoryRequest', requestId, sinceMs }),
+          machineId,
+        ),
+      ),
+    )
+    return perMachine.flatMap((r) => r.samples)
+  }
+
+  /**
    * ENUMERATE ONE MACHINE'S MODELS ON THAT MACHINE (POD-1466).
    *
    * The probe shells out to the agent CLIs, so it only ever sees the host it runs
@@ -564,6 +597,30 @@ export class DaemonRpcService {
       20_000,
       () => ({}),
       (requestId) => ({ type: 'modelProbeRequest', requestId }),
+      machineId,
+    )
+  }
+
+  /**
+   * Prove the exact authenticated development artifact route from one managed
+   * machine. A timeout is a failed proof, never permission to publish.
+   */
+  probeDevArtifact(
+    url: string,
+    machineId: MachineId,
+  ): Promise<Payload<DevArtifactProbeResultMessage>> {
+    return this.request(
+      DEV_ARTIFACT_PROBE,
+      20_000,
+      () => ({
+        ok: false,
+        detail: 'the machine did not answer the artifact reachability probe',
+      }),
+      (requestId) => ({
+        type: 'devArtifactProbeRequest',
+        requestId,
+        url,
+      }),
       machineId,
     )
   }

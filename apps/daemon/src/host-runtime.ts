@@ -11,7 +11,7 @@ import {
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
-import type { PeerBuild } from '@podium/protocol'
+import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
 import {
@@ -28,13 +28,14 @@ import {
   stateDir,
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
-import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
+import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
+import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
-import { withGitBudget } from '@podium/runtime/update-delivery-git'
 import type { RawData } from 'ws'
+import { type ProvisionedAccountHomeSource, provisionedAccountHome } from './account-home'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
-import { provisionedAccountHome, type ProvisionedAccountHomeSource } from './account-home'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
@@ -46,17 +47,20 @@ import {
   createSchemaGate,
   MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
+  releaseCarriesNewMigrations,
   resolveOnBoot,
+  restartAfterGrant,
+  shouldClearPendingGrantOnBoot,
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { createFrameSink } from './frame-sink'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
-import { createGitRunner } from './git-runner'
 import { createGrantRunner } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
+import { DaemonHarnessRuntime } from './harness-runtime'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostLoad, sampleHostMemory } from './host-metrics'
@@ -71,7 +75,6 @@ import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pendin
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
-import { DaemonHarnessRuntime } from './harness-runtime'
 import { createReattachGates } from './reattach-gates'
 import { createCodexHost } from './runtime/codex-app-server'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
@@ -114,8 +117,9 @@ export interface DaemonHostRuntime {
   readonly agentRelayPort: number
   /** Source-transfer seam: pause/drain daemon portable writers, or resume after safe abort. */
   readonly portableState: PortableStateControl
-  connected(): void
+  connected(): { convergedVersion?: string }
   receive(raw: RawData): void
+  receiveBinaryInput(metadata: DaemonPtyInputMetadata, payload: Uint8Array): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }
 
@@ -201,6 +205,7 @@ export async function createDaemonHostRuntime(args: {
   build: PeerBuild
   installDir: string | undefined
   send: (message: DaemonMessage) => void
+  sendOutput: (batch: DaemonPtyOutputBatch) => void
   acknowledgeQueueDrainReport: (reportId: string) => void
   acknowledgeRuntimeEvent: (deliveryId: string) => void
   /** Test-only runtime seam for exercising the returned host close contract. */
@@ -208,7 +213,7 @@ export async function createDaemonHostRuntime(args: {
   /** Test-only server-child process effects; production uses real process probes. */
   testServerReapIo?: ServerReapIo
 }): Promise<DaemonHostRuntime> {
-  const { options: opts, instance, build, installDir, send: sendUpstream } = args
+  const { options: opts, instance, build, installDir, send: sendUpstream, sendOutput } = args
   /**
    * THE AGENT RUNTIME CONTRACT'S TERMINAL DRIVER (POD-1761 W3), when the flag is
    * on for this daemon or for an individual session.
@@ -513,11 +518,13 @@ export async function createDaemonHostRuntime(args: {
     log.error(diagnostic.title, { code: diagnostic.code, detail: diagnostic.body })
   }
 
-  const outputScheduler = new OutputScheduler({
-    flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
-  })
+  const outputScheduler = new OutputScheduler({ flush: sendOutput })
 
-  const reconcilePendingUpdate = (): void => {
+  const parentHasServer =
+    process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
+
+  const reconcilePendingUpdate = (): string | undefined => {
+    if (parentHasServer) return
     const pending = readPendingGrant(instance.runtimeDir)
     if (!pending) return
 
@@ -554,6 +561,7 @@ export async function createDaemonHostRuntime(args: {
     send({
       type: 'updateStatus',
       grantId: pending.grantId,
+      targetVersion: pending.targetVersion,
       state,
       version: runningVersion,
       ...(detail ? { detail } : {}),
@@ -562,7 +570,10 @@ export async function createDaemonHostRuntime(args: {
       writePendingGrant(instance.runtimeDir, { ...pending, attempts: verdict.attempts })
       return
     }
-    clearPendingGrant(instance.runtimeDir)
+    if (shouldClearPendingGrantOnBoot({ verdict, parentHasServer })) {
+      clearPendingGrant(instance.runtimeDir)
+    }
+    return verdict.action === 'confirm' ? pending.targetVersion : undefined
   }
 
   /**
@@ -598,19 +609,34 @@ export async function createDaemonHostRuntime(args: {
   const grantRunner = createGrantRunner({
     currentVersion: () => build.appVersion ?? 'dev',
     caps: deliveryCaps(build),
-    fetchArtifact: (asset, delivery, signal, onProgress) =>
-      fetchArtifact(asset, delivery, {
+    ...(process.env.PODIUM_UNDER_PARENT === '1'
+      ? {
+          installTarget: (
+            target: import('@podium/protocol').UpdateTarget,
+            publisherPubkey?: string,
+          ) =>
+            requestParentSwap({
+              expectedVersion: target.version,
+              target: target as unknown as Record<string, unknown>,
+              ...(identity.updatePubkey ? { pinnedPubkey: identity.updatePubkey } : {}),
+              ...(publisherPubkey ? { publisherPubkey } : {}),
+            }),
+        }
+      : {}),
+    fetchArtifact: (asset, trust, signal, onProgress, publisherPubkey) =>
+      fetchArtifact(asset, {
         fetch: globalThis.fetch,
+        // BOTH ROOTS ARE OFFERED; the TARGET picks. `pubkey` is the baked
+        // release key, `pinnedPubkey` the one this daemon pinned when it paired
+        // — and `trust`, stamped by the server's resolver from the channel, is
+        // what decides between them. This daemon never infers it (spec §1).
         pubkey: PODIUM_UPDATE_PUBKEY,
-        pinnedPubkey: identity.updatePubkey,
+        ...(identity.updatePubkey ? { pinnedPubkey: identity.updatePubkey } : {}),
+        ...(publisherPubkey ? { publisherPubkey } : {}),
+        ...(trust ? { trust } : {}),
         // Delivery decides WHEN there is news; `applyGrant` turns each one into
         // an `updateStatus` frame (POD-2101).
         ...(onProgress ? { onProgress } : {}),
-        // One budget per convergence, established at the moment delivery
-        // starts rather than once for the life of the daemon — and bound to
-        // THIS grant's abort, so a superseding grant cancels the git steps
-        // instead of waiting out their timeout.
-        git: { run: withGitBudget(createGitRunner(signal)) },
         ...(signal ? { signal } : {}),
       }),
     swap: (bytes) => {
@@ -618,13 +644,40 @@ export async function createDaemonHostRuntime(args: {
       return swapHeadlessBundle(bytes, installDir)
     },
     refuse: (target) => convergenceRefusal ?? schemaGate(target),
+    releaseHadMigrations: (target) => {
+      try {
+        return releaseCarriesNewMigrations(target, readAppliedMigrations())
+      } catch {
+        // The gate immediately above already refuses an unreadable ledger.
+        // Preserve unknown if the second read races with a filesystem failure.
+        return undefined
+      }
+    },
     writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
-    restart: opts.restartAfterUpdate ?? (() => process.exit(0)),
+    restart: (expectedVersion, handover) =>
+      restartAfterGrant(expectedVersion, handover, {
+        ...(opts.restartAfterUpdate ? { provided: opts.restartAfterUpdate } : {}),
+        parentManaged: process.env.PODIUM_UNDER_PARENT === '1',
+        requestHandover: (request) => requestParentHandover(request),
+        exit: process.exit,
+      }),
     report: (status) => send(status),
     now: Date.now,
   })
-  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) =>
-    grantRunner.apply(grant)
+  const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) => {
+    if (!parentHasServer) return grantRunner.apply(grant)
+    send({
+      type: 'updateStatus',
+      grantId: grant.grantId,
+      targetVersion: grant.target.version,
+      state: 'rejected',
+      version: build.appVersion ?? 'dev',
+      detail:
+        'duplicate update route: this all-in-one daemon is session-only; ' +
+        'the parent-backed local participant owns this machine',
+    })
+    return Promise.resolve()
+  }
 
   const ctx: DaemonContext = {
     send,
@@ -931,7 +984,7 @@ export async function createDaemonHostRuntime(args: {
     timer.unref?.()
   }
 
-  const connected = (): void => {
+  const connected = (): { convergedVersion?: string } => {
     if (!kickedOff) {
       kickedOff = true
       discoveryLoop.start()
@@ -953,13 +1006,14 @@ export async function createDaemonHostRuntime(args: {
       reapStaleAbducoBindTemps()
     }
     for (const diagnostic of portConflicts) send({ type: 'machineDiagnostic', ...diagnostic })
-    reconcilePendingUpdate()
+    const convergedVersion = reconcilePendingUpdate()
     pushDurableSessionCensus()
     void reportInventory(ctx)
     void replayPendingBindingReceipts().catch((error) =>
       log.warn('Codex identity receipt replay failed', { err: error }),
     )
     browserOpen.replay()
+    return convergedVersion ? { convergedVersion } : {}
   }
 
   const close = async (closeOpts?: { reapSessions?: boolean }): Promise<void> => {
@@ -1024,6 +1078,7 @@ export async function createDaemonHostRuntime(args: {
     portableState: portableStateFence,
     connected,
     receive: (raw) => frameGuard.receive(raw),
+    receiveBinaryInput: (metadata, payload) => frameGuard.receiveBinaryInput(metadata, payload),
     close,
   }
 }

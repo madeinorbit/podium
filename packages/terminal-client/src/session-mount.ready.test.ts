@@ -20,7 +20,7 @@ function withResizeObserver(): void {
 function fakeHub(): {
   hub: SocketHub
   attached: () => void
-  frame: (text: string) => void
+  frame: (bytes: Uint8Array) => void
 } {
   let cbs: SessionCallbacks = {}
   const connection = {
@@ -37,7 +37,7 @@ function fakeHub(): {
     },
     detach: () => {},
   } as unknown as SocketHub
-  return { hub, attached: () => cbs.onAttached?.(), frame: (text: string) => cbs.onFrame?.(text) }
+  return { hub, attached: () => cbs.onAttached?.(), frame: (bytes: Uint8Array) => cbs.onFrame?.(bytes) }
 }
 
 describe('session-mount onReady', () => {
@@ -70,9 +70,9 @@ describe('session-mount onReady', () => {
       onReady,
     })
 
-    frame('') // empty replay is not "ready"
+    frame(new Uint8Array()) // empty replay is not "ready"
     expect(onReady).not.toHaveBeenCalled()
-    frame('hello')
+    frame(new TextEncoder().encode('hello'))
     expect(onReady).toHaveBeenCalledTimes(1)
 
     mounted.dispose()

@@ -19,7 +19,15 @@ const sharedAliases = sharedVitestConfig.resolve.alias.filter(
 export default defineConfig({
   resolve: {
     ...sharedVitestConfig.resolve,
-    alias: sharedAliases,
+    alias: [
+      {
+        find: /^@\/features\/chat\/TranscriptFeedBoundary$/,
+        replacement: fileURLToPath(
+          new URL('./src/features/chat/TranscriptFeedBoundary.vitest.ts', import.meta.url),
+        ),
+      },
+      ...sharedAliases,
+    ],
     // apps/mobile pins react-dom 19.2.3, which bun hoists to the repo root;
     // dedupe makes every import resolve the web app's react-dom 19.2.7.
     dedupe: ['react', 'react-dom'],

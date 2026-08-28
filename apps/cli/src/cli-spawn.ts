@@ -1,8 +1,7 @@
-// Detached spawn + ensure-up for the split headless backend. In the non-systemd persistence
-// mode, setup (and a bare `podium` on a configured box) launch the server, janitor, and optional
-// daemon as independent detached processes: setsid, stdio → ~/.podium/logs/<role>.log, unref'd so
-// the launcher can exit. Spawn-and-forget (no auto-restart) — see the design spec:
-// docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
+// Detached spawn + ensure-up for the split headless backend. Under the parent
+// model [POD-2505] a host box starts one detached `parent` which supervises
+// server (+ janitor worker) and optional daemon. Daemon-only joins still spawn
+// a bare daemon. See docs/internal/superpowers/specs/2026-08-20-updater-convergence-spec.md
 import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
@@ -37,7 +36,7 @@ export interface SpawnOpts {
 
 /** Spawn one component detached, logging to ~/.podium/logs/<role>.log. Returns its PID. */
 export function spawnDetached(
-  sub: 'server' | 'janitor' | 'daemon',
+  sub: 'parent' | 'server' | 'janitor' | 'daemon',
   opts: SpawnOpts = {},
 ): number | undefined {
   mkdirSync(logDir(), { recursive: true })
@@ -93,61 +92,31 @@ export async function waitForHealth(
 export { rolesForMode } from '@podium/runtime/transfer-lifecycle'
 
 /**
- * Start the detached split for a host box: server first (wait for /health), then the janitor and
- * optional daemon pointed at it. Returns whether the server came up.
+ * Start the detached parent-supervised stack. Daemon-only joins also go through
+ * the parent (daemon-only role config); the parent replaces the run-registry trio.
  */
 export async function startDetachedStack(
   mode: PodiumConfig['mode'],
   port: number,
 ): Promise<{ serverUp: boolean }> {
-  // Joined worker: a bare `podium daemon` reads serverUrl + pairCode from config and dials the
-  // REMOTE server — no local server, no `--local`.
-  if (mode === 'daemon') {
-    spawnDetached('daemon', {})
-    return { serverUp: true }
-  }
-  // Host modes: the local server first, then the LOCAL daemon (`--local`) pointed at it.
-  const roles = rolesForMode(mode)
-  let serverUp = true
-  if (roles.includes('server')) {
-    spawnDetached('server', { port })
-    serverUp = await waitForHealth(port)
-  }
-  if (roles.includes('janitor') && serverUp) {
-    spawnDetached('janitor', { port, serverUrl: localServerUrl(port) })
-  }
-  if (roles.includes('daemon') && serverUp) {
-    spawnDetached('daemon', { port, local: true })
-  }
-  return { serverUp }
+  if (mode === 'client') return { serverUp: false }
+  spawnDetached('parent', { port })
+  if (mode === 'daemon') return { serverUp: true }
+  return { serverUp: await waitForHealth(port) }
 }
 
 /**
- * Ensure the configured backend is running (bare `podium` on a configured, detached box). Starts
- * any role that the run registry shows down. systemd-managed installs are handled by the caller
- * via systemctl; this covers the detached case. Returns the roles it (re)started.
+ * Ensure the configured backend is running (bare `podium` on a configured, detached box).
+ * Every managed mode starts/restarts the parent when it is down; the parent owns children.
  */
 export async function ensureDetachedUp(
   config: PodiumConfig,
   port: number,
 ): Promise<{ started: RunRole[] }> {
-  const roles = rolesForMode(config.mode)
-  const down = roles.filter((r) => !liveRecord(r))
-  if (down.length === 0) return { started: [] }
-  // Joined worker: bare `podium daemon` (remote, config-driven) — not the local `--local` split.
-  if (config.mode === 'daemon') {
-    spawnDetached('daemon', {})
-    return { started: down }
-  }
-  if (down.includes('server')) {
-    spawnDetached('server', { port })
-    await waitForHealth(port)
-  }
-  if (down.includes('janitor')) {
-    spawnDetached('janitor', { port, serverUrl: localServerUrl(port) })
-  }
-  if (down.includes('daemon')) {
-    spawnDetached('daemon', { port, local: true })
-  }
-  return { started: down }
+  if (config.mode === 'client') return { started: [] }
+  if (liveRecord('parent')) return { started: [] }
+  spawnDetached('parent', { port })
+  if (config.mode !== 'daemon') await waitForHealth(port)
+  return { started: ['parent'] }
 }
+

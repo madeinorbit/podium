@@ -1,29 +1,29 @@
-import { asMachineId } from '@podium/model'
-import type { MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
+import type { MachineId } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import { validatePublicUrl } from '@podium/runtime/setup'
-import { TransferJournal, isActiveTransfer } from './journal'
+import { isActiveTransfer, TransferJournal } from './journal'
 import { TransferLock } from './lock'
 import {
-  MAX_TRANSFER_BYTES,
-  TRANSFER_SPACE_MARGIN_BYTES,
   assertSnapshotCapacity,
   createPortableSnapshot,
   estimatePortableBytes,
+  MAX_TRANSFER_BYTES,
   manifestWithDigest,
+  TRANSFER_SPACE_MARGIN_BYTES,
 } from './snapshot'
 import {
-  SERVER_TRANSFER_CONFIRMATION,
-  TRANSFER_FAILURE_CODES,
-  type ServerTransferAuthorization,
   type PromotedTargetMetadata,
+  SERVER_TRANSFER_CONFIRMATION,
+  type ServerTransferAuthorization,
   type ServerTransferInput,
   type ServerTransferManifest,
   type ServerTransferOutcome,
   type ServerTransferRpc,
   type TargetHealthProof,
+  TRANSFER_FAILURE_CODES,
   type TransferFailureCode,
   type TransferProof,
   type TransferRecord,
@@ -35,6 +35,14 @@ export interface ServerTransferTargetState {
   exists: boolean
   online: boolean
   capable: boolean
+  /**
+   * The target durably runs a Podium daemon (POD-2700). A transfer drives the
+   * promotion THROUGH the target's daemon, so a row without one can never
+   * become the server — and reporting that as `offline` would offer "wait for
+   * it" as the fix. Supplied by the composition root from the machine's
+   * recorded components.
+   */
+  hasDaemon: boolean
 }
 
 export interface ServerTransferDeps {
@@ -221,6 +229,10 @@ export class ServerTransferService {
           return { targetMachineId: id, eligible: false, reason: 'current-server' } as const
         }
         const target = this.deps.targetState(asMachineId(id))
+        // Structural before live, the canonical ordering of POD-2700 §3.2.
+        if (!target.hasDaemon) {
+          return { targetMachineId: id, eligible: false, reason: 'no-daemon' } as const
+        }
         if (!target.online) {
           return { targetMachineId: id, eligible: false, reason: 'offline' } as const
         }
@@ -660,6 +672,12 @@ export class ServerTransferService {
     const target = this.deps.targetState(targetMachineId)
     if (!target.exists)
       throw fail(TRANSFER_FAILURE_CODES.TARGET_NOT_FOUND, 'target machine is unavailable')
+    if (!target.hasDaemon) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_NO_DAEMON,
+        'target machine runs no Podium daemon and cannot become the server',
+      )
+    }
     if (!target.online)
       throw fail(TRANSFER_FAILURE_CODES.TARGET_OFFLINE, 'target machine is offline')
     if (!target.capable) {

@@ -170,38 +170,34 @@ describe('resolvePlan — launch matrix', () => {
     expect(plan({}, ['setup', '--vps'])).toMatchObject({ kind: 'usage-error' })
   })
 
-  it('systemd-recorded box, bare invocation → start both units (all-in-one)', () => {
+  it('systemd-recorded box, bare invocation → the parent unit', () => {
     expect(plan({ mode: 'all-in-one', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-server.service', 'podium-janitor.service', 'podium-daemon.service'],
+      units: ['podium.service'],
       mode: 'all-in-one',
       port: 18787,
     })
   })
-  it('systemd-recorded server box → server + janitor; daemon box → daemon only', () => {
+  it('systemd-recorded server and daemon boxes both use the parent unit', () => {
     expect(plan({ mode: 'server', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-server.service', 'podium-janitor.service'],
+      units: ['podium.service'],
       mode: 'server',
       port: 18787,
     })
     expect(plan({ mode: 'daemon', serverUrl: 'wss://relay', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-daemon.service'],
+      units: ['podium.service'],
       mode: 'daemon',
       port: 18787,
     })
   })
-  it('routes named managed instances only to their own units', () => {
+  it('routes named managed instances only to their own parent unit', () => {
     expect(
       plan({ mode: 'all-in-one', persistence: 'systemd' }, [], { PODIUM_INSTANCE: 'blue' }),
     ).toEqual({
       kind: 'systemd-managed',
-      units: [
-        'podium-blue-server.service',
-        'podium-blue-janitor.service',
-        'podium-blue-daemon.service',
-      ],
+      units: ['podium-blue.service'],
       mode: 'all-in-one',
       // A named instance binds its OWN derived port, not the default one — the
       // plan carries the port because ensuring the split may mean installing it.
@@ -222,11 +218,21 @@ describe('resolvePlan — launch matrix', () => {
       port: 18787,
     })
   })
-  it('explicit component subcommand on a managed box runs in-process (it IS a component)', () => {
+  it('legacy explicit server component leaves janitor ownership to its sibling unit', () => {
     const p = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'])
     expect(p).toMatchObject({
       kind: 'in-process',
       roles: { server: true, janitor: false, daemon: false },
+      claimRole: 'server',
+    })
+  })
+  it('parent-supervised server component owns its janitor worker', () => {
+    const p = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'], {
+      PODIUM_UNDER_PARENT: '1',
+    })
+    expect(p).toMatchObject({
+      kind: 'in-process',
+      roles: { server: true, janitor: true, daemon: false },
       claimRole: 'server',
     })
   })
@@ -265,7 +271,7 @@ describe('resolvePlan — launch matrix', () => {
     // what arrives here is an ordinary managed box.
     expect(plan({ mode: 'all-in-one', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-server.service', 'podium-janitor.service', 'podium-daemon.service'],
+      units: ['podium.service'],
       mode: 'all-in-one',
       port: 18787,
     })
@@ -399,6 +405,24 @@ describe('resolvePlan — utility subcommands', () => {
       }),
     ).toEqual({ kind: 'update', channel: 'stable', feedOverride: 'http://env' })
   })
+  it('routes payload repair through the local or paired coordinator', () => {
+    expect(plan({ mode: 'all-in-one', port: 19001 }, ['update', '--repair'])).toEqual({
+      kind: 'repair-payload',
+      serverUrl: 'http://localhost:19001',
+      pairedDaemon: false,
+    })
+    expect(
+      plan({ mode: 'daemon', serverUrl: 'wss://hub.example' }, ['update', '--repair']),
+    ).toEqual({
+      kind: 'repair-payload',
+      serverUrl: 'wss://hub.example',
+      pairedDaemon: true,
+    })
+    expect(plan({ mode: 'client' }, ['update', '--repair'])).toMatchObject({
+      kind: 'usage-error',
+    })
+  })
+
   it('help: help/--help/-h anywhere, except the sub-CLIs that render their own', () => {
     expect(plan({}, ['help'])).toEqual({ kind: 'help' })
     expect(plan({}, ['--help'])).toEqual({ kind: 'help' })
@@ -641,6 +665,12 @@ describe('resolvePlan — utility subcommands', () => {
   it('set-server: target required', () => {
     expect(plan({}, ['set-server', 'wss://x'])).toEqual({ kind: 'set-server', target: 'wss://x' })
     expect(plan({}, ['set-server'])).toMatchObject({ kind: 'usage-error' })
+  })
+  it('routes explicit update-key recovery without entering launch mode', () => {
+    expect(plan({}, ['update-key', 'trust', 'new-key'])).toEqual({
+      kind: 'update-key',
+      args: ['trust', 'new-key'],
+    })
   })
   it('routes internal server-transfer lifecycle workers without entering launch mode', () => {
     expect(plan({}, ['server-transfer-promote', '11111111-1111-4111-8111-111111111111'])).toEqual({

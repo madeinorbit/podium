@@ -117,15 +117,16 @@ describe('server transfer role reconciliation', () => {
     )
 
     expect(outcome.proven).toBe(true)
-    expect(written).toEqual(['janitor'])
-    expect(enabled).toEqual(['podium-janitor.service'])
+    // Parent-supervised topology: missing peer is the parent unit, not janitor.
+    expect(written).toEqual(['parent'])
+    expect(enabled).toEqual(['podium.service'])
     expect(disarmed).toEqual([])
     expect(outcome.roleTransition.stopped).toEqual([])
   })
 
   it('retires stale roles only in the explicit post-response daemon seam', async () => {
     saveConfig({ mode: 'server', publicUrl: 'https://source.example' })
-    const present = new Set<RunRole>(['server', 'janitor', 'daemon', 'all-in-one'])
+    const present = new Set<RunRole>(['parent', 'server', 'janitor', 'daemon', 'all-in-one'])
     const stopped: RunRole[] = []
     const supervisor: RoleSupervisor = {
       roleLive: (role) => present.has(role),
@@ -146,11 +147,11 @@ describe('server transfer role reconciliation', () => {
     })
     expect(demotion.changed).toBe(true)
     expect(stopped).toEqual([])
-    expect(present).toEqual(new Set(['server', 'janitor', 'daemon', 'all-in-one']))
+    expect(present).toEqual(new Set(['parent', 'server', 'janitor', 'daemon', 'all-in-one']))
 
     await expect(prepareForegroundDaemon({ supervisor })).resolves.toEqual({
       owner: 'foreground',
-      stopped: ['server', 'janitor', 'daemon'],
+      stopped: ['parent', 'server', 'janitor', 'daemon'],
       started: [],
     })
     expect(present.has('all-in-one')).toBe(true)
@@ -254,8 +255,8 @@ describe('server transfer role reconciliation', () => {
 
   it('renders only instance-scoped fixed units', () => {
     expect(roleUnit('server', 'blue')).toBe('podium-blue-server.service')
-    expect(roleUnitBody('daemon', { port: 23000 }, 'blue')).toContain(
-      'ExecStart=%h/.local/bin/podium-blue daemon',
-    )
+    const daemon = roleUnitBody('daemon', { port: 23000 }, 'blue')
+    expect(daemon).toContain('ExecStart=%h/.local/bin/podium-blue daemon')
+    expect(daemon).toContain('Environment=PODIUM_PORT=23000')
   })
 })

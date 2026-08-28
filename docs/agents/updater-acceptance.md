@@ -44,16 +44,16 @@ bun run test:related -- apps/server/src/modules/operations/engine.ts apps/server
 
 The module layout these names come from, since the operation rewrite moved most of it:
 
-| Concern | Module |
-| --- | --- |
+| Concern                                                                              | Module                                                                                      |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
 | Generic operation lifecycle: identity, single-flight, sequencing, liveness, adoption | `apps/server/src/modules/operations/engine.ts` (+ `store.ts`, `transitions.ts`, `kinds.ts`) |
-| What an update operation *is* — the plan, the steps, the asks | `apps/server/src/modules/updates/operation.ts` |
-| Fleet choreography for one operation: canary, widening, concurrency | `apps/server/src/modules/updates/wave.ts` |
-| Background convergence of stragglers, with no operation at all | `apps/server/src/modules/updates/reconciler.ts` |
-| Artifact download, digest + signature verification, progress reporting | `packages/runtime/src/update-delivery.ts` |
-| The one panel, its states and its single dismiss verb | `apps/web/src/features/updates/UpdatePanel.tsx` |
-| Operation → what a person reads | `apps/web/src/features/updates/operation-view.ts` |
-| Offer → what a person reads, before any operation exists | `apps/web/src/features/updates/update-view.ts` |
+| What an update operation _is_ — the plan, the steps, the asks                        | `apps/server/src/modules/updates/operation.ts`                                              |
+| Fleet choreography for one operation: canary, widening, concurrency                  | `apps/server/src/modules/updates/wave.ts`                                                   |
+| Background convergence of stragglers, with no operation at all                       | `apps/server/src/modules/updates/reconciler.ts`                                             |
+| Artifact download, digest + signature verification, progress reporting               | `packages/runtime/src/update-delivery.ts`                                                   |
+| The one panel, its states and its single dismiss verb                                | `apps/web/src/features/updates/UpdatePanel.tsx`                                             |
+| Operation → what a person reads                                                      | `apps/web/src/features/updates/operation-view.ts`                                           |
+| Offer → what a person reads, before any operation exists                             | `apps/web/src/features/updates/update-view.ts`                                              |
 
 Then drive the changed interaction in the real branch app using
 `docs/agents/driving-podium.md`. For a failure-panel change, induce a failure, click **Hide**
@@ -109,7 +109,7 @@ the group wedged: the panel keeps its identity and step positions across the rec
 finishes. Two things to check specifically, because both have been wrong before:
 
 - the adopted step is not immediately failed for the DEAD process's silence — the successor
-  restarts the clock on the places it is waiting on, so a step is judged on how long *it* has
+  restarts the clock on the places it is waiting on, so a step is judged on how long _it_ has
   been quiet;
 - a stall the operation already recorded SURVIVES the restart. A restart must not buy a
   fresh silence budget, or a wedged step can be revived indefinitely by restarting.
@@ -125,8 +125,7 @@ the caller. Then confirm the group is released on the terminal transition and a 
 can start.
 
 **Stalled download.** Interrupt the artifact transfer mid-flight (a proxy that accepts the
-connection and then stops sending is the cheapest way) on a machine taking bundle or feed
-delivery. Required behaviour: progress frames stop, the step goes `stalled` rather than
+connection and then stops sending is the cheapest way) on a machine taking feed delivery. Required behaviour: progress frames stop, the step goes `stalled` rather than
 sitting in `downloading` forever, the panel says which machine stopped reporting rather than
 showing a generic spinner, and the download eventually fails on its hard deadline instead of
 holding the operation open. Then let it recover instead of failing, and confirm the stall is
@@ -152,49 +151,108 @@ converge with nobody looking, and no second human decision. What to prove:
   behind, and confirm nothing installs: a new version is an offer, and convergence that
   starts itself is auto-update nobody asked for.
 
-### 4. Source checkout / git delivery drive
+### 3a. macOS external payload and fleet-of-one
 
-Use a disposable source checkout on an old commit and a separate target commit. Start it as
-a named instance so its state, ports, daemon, and update target cannot touch the default
-instance. Follow `docs/multi-instance.md` for identity selection.
+The signed .app is now the frame and recovery seed, not the live server/daemon/web
+installation. On first backend-bearing boot, and only when the complete payload directory is
+absent, the shell copies Contents/Resources/payload to the Application Support payload home,
+marks its launchers executable, recursively removes com.apple.quarantine, and starts the thin
+parent there. Presence is the sole seed decision: boot does not inspect health and never
+overwrites an existing directory.
 
-In the UI, verify this sequence with real clicks:
+Three former desktop dispositions are retired deliberately:
 
-1. Disable the checkout HEAD watcher, move the checkout to the target, and prove the
-   coordinating server PID does not change before approval.
-2. The panel names the target version and only the affected development-authority places
-   in user language; edge/stable-selected machines are not counted against the dev target.
-3. Clicking **Update Podium** changes the same non-modal panel to applying.
-4. Every selected development machine reaches the exact target and reconnects as
-   `current` before the coordinating server requests its guarded restart. Prove this
-   from the server's raw post-reconnect machine identity, not an optimistic update status
-   emitted before the old daemon exits.
-5. The source daemon selects git delivery; an installed daemon must not select git merely
-   because it is offered.
-6. Sessions remain usable while the server/daemon reconnect.
-7. The panel reaches current and disappears; `/version`, fleet status, and the checkout HEAD
-   all report the target, while the HEAD watcher remains disabled.
-8. Repeat once more from the new version to catch stale target, pending-marker, and restart
-   state that only appear on the second cycle.
+- build-report.ts no longer empties delivery capabilities for a supervised daemon.
+  PODIUM_DESKTOP_SUPERVISED describes crash ownership only; an installed Mac reports feed
+  delivery like any other installed machine.
+- wave.ts and the standing reconciler no longer exclude supervised machines. The
+  all-in-one server coordinates its own host as a fleet of one; daemon-only Macs take the
+  same grants from their paired remote coordinator.
+- operation.ts no longer mints the required desktop-install ask. A payload operation uses
+  the ordinary machine step, so schema gating, canary/waves, progress, stuck detection,
+  restart proof, rollback, and operation adoption remain visible. The constant and
+  post-restart cleanup remain only to adopt operations persisted by an older server.
 
-Run two negative variants against disposable checkouts:
+For every Mac payload candidate, prove these cases on a disposable Application Support root:
 
-- make the checkout dirty and confirm the update refuses without reset, clean, `--hard`, or
-  `--force`, preserving the local file exactly;
-- offer no delivery compatible with the machine and confirm a fail-closed refusal, followed
-  by a dismissible panel that explains the next useful action.
+- **Fresh install:** payload directory absent → one seed copy; the daemon registers, then a
+  normal grant catches the seed up to the current channel target.
+- **No overwrite:** an existing incomplete or corrupt directory is left untouched during
+  boot and the shell shows the baked payload-repair page when the local UI cannot serve.
+- **Repair:** Settings and podium update --repair force an equal-version grant through the
+  coordinator. If the coordinator cannot serve, the baked page atomically restores the
+  signed seed, retains the damaged directory beside it, restarts the parent, and ordinary
+  reconciliation catches it up.
+- **Shell untouched:** publish a dev payload target, apply it to the Mac, and confirm the
+  .app version and bytes do not change while the Application Support payload does.
+- **Handover supervision:** observe the old parent report its detached successor, the shell
+  follow that verified payload executable, and Quit terminate the current successor rather
+  than only the original child.
+- **Gatekeeper:** launch the seeded copy after quarantine removal and launch a
+  grant-delivered, digest/signature-verified copy. Record codesign --verify --deep --strict
+  and the actual launcher exit/version for both.
 
-The exact launch and target-publication commands should live beside the delivery
-implementation once POD-1738 settles them; do not replace this real UI drive with a pure
-planner test.
+**Transition release gate.** The first release containing this layout must be cut with a
+v\* tag, not by the headless-only workflow dispatch. That one tag starts both release
+workflows and therefore mints a new notarized Mac shell which knows the external payload
+home. Old shells continue using Contents/Resources; publishing only new headless payloads
+would strand them, so the companion desktop artifacts are release-blocking for this cut.
+After that transition, ordinary payload releases do not require another shell unless frame
+code changes.
 
-### 5. Installed headless bundle/feed drive
+### 4. RETIRED — source checkout / git delivery drive
 
-On a disposable installed instance, publish a signed bundle/feed target and repeat the UI
-sequence above. Verify the machine uses bundle or feed delivery, validates the pinned
-per-server key where required, swaps only its instance-owned install, restarts, reconnects,
-and reports the target version. Repeat with a missing/wrong pin and a corrupted artifact;
-both must fail closed and leave the old install bootable.
+**Deleted deliberately, 2026-08-21 (POD-2503, spec §1 and disposition 5).** This section
+required a real UI drive of a machine converging a git checkout to a granted sha, plus two
+negative variants: a dirty checkout that must refuse without `reset`/`clean`/`--hard`, and a
+machine offered no delivery it could take.
+
+The `git` delivery kind no longer exists. Exactly one machine in the reference topology runs
+from source — the publisher on ludovico — and it is not a fleet consumer; once POD-2512 lands
+it becomes an installed consumer like every other machine. A daemon running from source now
+reports NO delivery capability at all, so it is never granted anything, and there is no code
+path left for either the positive drive or the dirty-checkout refusal to exercise.
+
+WHAT WAS LOST AND WHERE IT WENT, so this is a retirement rather than a gap:
+
+- The **dirty-checkout refusal** still exists, but on the PUBLISHER rather than on a
+  consumer: `assertSourceMatchesHead` in `dev-bundle.ts` fails closed before a release is
+  built, because an edited checkout cannot produce a bundle of the commit it claims. That is
+  now covered by drive 5's dev-channel leg (below) — publish from a dirty tree and confirm
+  the release is refused with the offending paths named, and the working tree untouched.
+- The **unsupported-delivery refusal** is unchanged and moves to drive 5: a machine that
+  cannot take what the target offers must be shown as deferred with a reason, never granted
+  and left to fail.
+- The **twice-around** requirement (repeat from the new version, to catch stale target,
+  pending-marker and restart state that only appear on the second cycle) moves to drive 5 and
+  is not optional there.
+
+### 5. Installed headless feed drive — INCLUDING the dev channel
+
+On a disposable installed instance, publish a signed feed target and repeat the UI sequence
+above. Verify the machine uses feed delivery, swaps only its instance-owned install, restarts,
+reconnects, and reports the target version. Repeat with a corrupted artifact and with a
+signature made by the wrong key; both must fail closed and leave the old install bootable.
+
+Run it on the DEV channel as well as a release channel, because per-channel trust is the one
+thing the two legs do not share (spec §1):
+
+- the dev leg must verify against the key the daemon pinned at pairing, and the release leg
+  against the baked release key. Prove BOTH directions of the mistake: a dev-signed artifact
+  offered on a release-channel target, and a release-signed artifact offered on a dev target.
+  Each must be refused with a signature failure and nothing swapped. Also the missing half:
+  an instance-trusted target reaching a daemon that pinned no key at all must refuse closed
+  before any download, with nothing swapped.
+- the dev feed is machine-authenticated: an unauthenticated request for either the manifest
+  or an artifact must be refused with 401 before anything is opened.
+- a release-channel manifest naming an artifact URL outside the release feed must be refused
+  at RESOLVE time, before any download.
+- publish from a dirty checkout and confirm the release is refused, the offending paths are
+  named, and the local files are preserved exactly.
+- offer no delivery the machine can take and confirm a fail-closed refusal, followed by a
+  dismissible panel that explains the next useful action.
+- repeat once more from the new version, to catch stale target, pending-marker and restart
+  state that only appear on the second cycle.
 
 ### 6. Signed desktop release drive
 
@@ -214,18 +272,18 @@ Linux AppImage run does not substitute for this macOS proof.
 
 ## Release acceptance table
 
-| Surface | Positive path | Required negative path | Proof of completion |
-| --- | --- | --- | --- |
-| Source checkout | Git delivery and reconnect, twice | Dirty checkout; unsupported delivery | HEAD, `/version`, and fleet target agree |
-| Installed headless | Signed bundle/feed swap | Tamper; missing/wrong pinned key | On-disk version and reconnect agree |
-| Web update panel | Available to applying to current | Connection/delivery failure can be dismissed | Real click observed in branch app |
-| Linux desktop | Signed AppImage replacement | Signature/install failure | Re-launched on-disk AppImage reports target |
-| macOS desktop | Production-signed install and restart | Broken artifact/native fallback | Restarted notarized app reports target |
-| Multiple instances | Only selected instance updates | Other named instance stays untouched | State, ports, services, and bundle remain disjoint |
-| Operation adoption | Successor server adopts and finishes the same operation | Unregistered kind surfaces `operation-adoption-failed` | Operation id and step positions unchanged across the restart |
-| Single-flight | Second start refused, naming the holder | Two starts racing the async plan window still yield one | Only one non-terminal operation in the group, throughout |
-| Stalled download | Stall is shown, named, and recovers | Hard deadline fails it rather than holding the operation open | Stall count survives on the step after recovery |
-| Straggler reconciliation | Reconnected machine converges unattended | Refused machine is not re-granted on repeated reconnects; publishing alone installs nothing | Fleet row attributes the move to the reconciler; grant count does not climb |
+| Surface                      | Positive path                                               | Required negative path                                                                        | Proof of completion                                                                    |
+| ---------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Installed headless (release) | Signed feed swap and reconnect, twice                       | Tamper; wrong signing key                                                                     | On-disk version and reconnect agree                                                    |
+| Installed headless (dev)     | Signed feed swap from the pulled dev feed                   | Cross-channel key; missing pinned key; unauthenticated feed request; dirty publisher checkout | On-disk version and reconnect agree; refusals name the cause                           |
+| Web update panel             | Available to applying to current                            | Connection/delivery failure can be dismissed                                                  | Real click observed in branch app                                                      |
+| Linux desktop                | Signed AppImage replacement                                 | Signature/install failure                                                                     | Re-launched on-disk AppImage reports target                                            |
+| macOS payload                | Signed seed, then ordinary fleet grant with frame untouched | Existing corrupt directory; equal-version repair; quarantine                                  | Application Support payload and fleet report target; notarized frame version unchanged |
+| Multiple instances           | Only selected instance updates                              | Other named instance stays untouched                                                          | State, ports, services, and bundle remain disjoint                                     |
+| Operation adoption           | Successor server adopts and finishes the same operation     | Unregistered kind surfaces `operation-adoption-failed`                                        | Operation id and step positions unchanged across the restart                           |
+| Single-flight                | Second start refused, naming the holder                     | Two starts racing the async plan window still yield one                                       | Only one non-terminal operation in the group, throughout                               |
+| Stalled download             | Stall is shown, named, and recovers                         | Hard deadline fails it rather than holding the operation open                                 | Stall count survives on the step after recovery                                        |
+| Straggler reconciliation     | Reconnected machine converges unattended                    | Refused machine is not re-granted on repeated reconnects; publishing alone installs nothing   | Fleet row attributes the move to the reconciler; grant count does not climb            |
 
 An updater candidate is not accepted while any applicable row lacks its positive path,
 negative path, or post-restart proof. If a platform cannot be exercised on the current host,

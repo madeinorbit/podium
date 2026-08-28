@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { readOrCreateUpdateSigningKey } from './signing-key'
+import { readOrCreateDevArtifactToken, readOrCreateUpdateSigningKey } from './signing-key'
 
 const dirs: string[] = []
 
@@ -42,5 +42,26 @@ describe('server update signing key', () => {
     writeFileSync(join(dir, 'update-signing-key.json'), '{"privateKey":"bad","publicKey":"bad"}')
 
     expect(() => readOrCreateUpdateSigningKey(dir)).toThrow(/invalid persisted update signing key/)
+  })
+
+  it('mints the artifact token once and keeps the manifest credential across restart', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-update-token-'))
+    dirs.push(dir)
+
+    const first = readOrCreateDevArtifactToken(dir)
+    const restarted = readOrCreateDevArtifactToken(dir)
+
+    expect(restarted).toBe(first)
+    expect(statSync(join(dir, 'dev-artifact-token')).mode & 0o777).toBe(0o600)
+  })
+
+  it('refuses a malformed artifact token instead of invalidating published URLs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-update-token-'))
+    dirs.push(dir)
+    writeFileSync(join(dir, 'dev-artifact-token'), 'rotated-or-corrupt\n')
+
+    expect(() => readOrCreateDevArtifactToken(dir)).toThrow(
+      /invalid persisted development artifact token/,
+    )
   })
 })

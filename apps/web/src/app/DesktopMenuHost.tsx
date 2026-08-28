@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useState } from 'react'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { AboutPodium } from './AboutPodium'
 import {
@@ -13,7 +14,9 @@ import {
 import { DesktopCloseTab } from './use-desktop-close-tab'
 
 const RepoScanFlow = lazy(() =>
-  import('@/features/setup/RepoScanFlow').then((module) => ({ default: module.RepoScanFlow })),
+  throughRestarts(() => import('@/features/setup/RepoScanFlow')).then((module) => ({
+    default: module.RepoScanFlow,
+  })),
 )
 
 export function DesktopMenuHost({

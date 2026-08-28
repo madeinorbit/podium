@@ -2,15 +2,20 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   type DeliveryReceipt,
+  HOST_REPOS,
   IssueColor,
+  type IssueId,
   type IssueShowWire,
   type IssueTreeNode,
   type IssueTreeSession,
   type IssueWire,
   machineByRef,
+  machineRejectionMessage,
+  machinesFor,
   type NameableMachine,
-  type IssueId,
+  type SelectableMachine,
   type SessionId,
+  structuralEligibility,
 } from '@podium/model'
 import {
   bareSelfRefCount,
@@ -103,9 +108,31 @@ async function machineIdForRef(c: IssueTrpc, ref: string): Promise<string> {
   if (!c.machines) {
     throw new Error('this client cannot resolve machine names (no machines.list)')
   }
-  const machines = (await c.machines.list.query({})) as NameableMachine[]
+  const machines = (await c.machines.list.query({})) as (NameableMachine & SelectableMachine)[]
   const match = machineByRef(machines, ref)
-  if (match) return match.id
+  if (match) {
+    // CAN IT ACTUALLY HOLD THE ISSUE (POD-2700 §2.3)? An issue's machine is
+    // where its worktree is cut and its agents run, and until now this resolved
+    // a name and stopped — so `podium issue create --machine source` cheerfully
+    // homed work on the coordinator, exactly as the web did. Structural only:
+    // an OFFLINE machine is a perfectly good home for work that starts when it
+    // wakes, and refusing it here would be a new bug in place of the old one.
+    //
+    // The server refuses this too (`requireIssueHomeMachine`); this exists so
+    // the human is told at the point they typed the name, with the list of
+    // machines that would have worked — the shape `machineIdForRef`'s
+    // unknown-machine refusal below already has.
+    const rejection = structuralEligibility(match, HOST_REPOS)
+    if (rejection === undefined) return match.id
+    const eligible = machinesFor(machines, HOST_REPOS)
+      .map((machine) => machine.name)
+      .join(', ')
+    throw new Error(
+      `${machineRejectionMessage(match.name, rejection, 'hold an issue')}${
+        eligible ? ` — try: ${eligible}` : ''
+      }`,
+    )
+  }
   const known = machines.map((machine) => machine.name).join(', ')
   throw new Error(
     known

@@ -1,13 +1,12 @@
-import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, mono, monoLabel, radius } from '../theme/theme'
 import { AsciiWordmark } from './AsciiWordmark'
 
 /**
  * Cold-start splash — the web AsciiLoader ported [POD-131]: the wordmark
- * reveals cell-by-cell with a sparkle then shimmers, over a mono LOADING
- * ticker. Shown while fonts load, the replica hydrates, and the auth probe
- * runs (the app previously showed a blank dark view in these gaps).
+ * reveals cell-by-cell with a sparkle then settles, over a static mono loading
+ * label. Shown while fonts load, the replica hydrates, and the auth probe runs
+ * (the app previously showed a blank dark view in these gaps).
  */
 export function BootSplash({
   label = 'LOADING',
@@ -19,17 +18,14 @@ export function BootSplash({
   /** Exact measured fraction, or null/undefined when the server has no denominator. */
   progress?: number | null | undefined
 } = {}) {
-  const [dots, setDots] = useState(1)
   const measuredProgress =
     progress === null || progress === undefined ? null : Math.max(0, Math.min(1, progress))
-  useEffect(() => {
-    const id = setInterval(() => setDots((d) => (d % 3) + 1), 500)
-    return () => clearInterval(id)
-  }, [])
   return (
-    <View style={styles.root} accessibilityState={{ busy: true }} testID="boot-splash">
+    // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads only
+    // the former, so the web build announced no state at all. [POD-1664]
+    <View style={styles.root} accessibilityState={{ busy: true }} aria-busy testID="boot-splash">
       <AsciiWordmark color={color.text} fontSize={5.5} variant="reveal" />
-      <Text style={styles.label}>{`${label}${'.'.repeat(dots)}`}</Text>
+      <Text style={styles.label}>{`${label}...`}</Text>
       {detail ? <Text style={styles.detail}>{detail}</Text> : null}
       {measuredProgress !== null ? (
         <View

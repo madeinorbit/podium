@@ -32,7 +32,6 @@ import {
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
-import { selectMailNudgeSession } from '../../issue-util'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
@@ -47,6 +46,7 @@ import {
   SYSTEM_INBOX_PRINCIPAL,
   terminalSessionSendFailureReason,
 } from './inbox'
+import { type IssueMailNudgeEvent, nudgeIssueMail } from './issue-mail-nudge'
 import { SessionLaunchConfig } from './launch-config'
 import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
 import type { Session } from './session'
@@ -255,6 +255,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     observationLeases: bag.observationLeases,
     autoContinue: () => bag.autoContinue,
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
+    toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
     broadcastSessions: () => bag.broadcastSessions(),
     flushBroadcasts: () => bag.broadcasts.flush(),
     runScheduledBroadcast: () => bag.broadcasts.runScheduled(),
@@ -292,6 +293,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.machines.resolveMachineForAgent(requested, cwd, agentKind, use),
     onSpawnTargetLogin: (input) => bag.deps.onSpawnTargetLogin?.(input),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
+    toPtyInput: (machineId, input) => bag.toPtyInput(machineId, input),
     broadcastSessions: () => bag.broadcastSessions(),
     soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
@@ -354,9 +356,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bumpAttempts: (id) => bag.store.sync.bumpQueuedAttempts(id),
       resetAttempts: (id) => bag.store.sync.resetQueuedAttempts(id),
       delete: (id) => bag.store.sync.deleteQueuedMessage(id),
+      // The same per-session tally that seeds Session.queuedMessageCount at
+      // boot, read as a work list for the queue sweep (POD-1703).
+      sessionsWithPending: () => [...bag.store.sync.queuedMessageCounts().keys()],
     },
     daemon: {
-      sendInput: (machineId, message) => bag.toMachine(machineId, message),
+      sendInput: (machineId, input) => bag.toPtyInput(machineId, input),
     },
     authorization: {
       authorizeAtDrain: (input) => bag.authorizeQueuedInputAtApply(input),
@@ -887,6 +892,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     state: bag.state,
     store: bag.store,
     toMachine: (mid: string, msg: unknown) => bag.toMachine(mid, msg),
+    toPtyInput: (mid: string, input: unknown) => bag.toPtyInput(mid, input),
     view: bag.view,
   })
   // Revival needs sessionStart.spawn, workspace, repository, launchConfig,
@@ -934,40 +940,39 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       : []
     bag.autoContinue.onSettingsChanged(nowEnabled, ids)
   })
-  // Agent mail send-time nudge (issue #103): poke the target issue's live agent
-  // session so mail is noticed without polling. The nudge carries NO message
-  // body — an idempotent "check your inbox" poke. Selection: a single idle
-  // live agent gets an immediate sendText; otherwise the most recently active
-  // live agent gets a durable queued send; no live agents → nothing (the mail
-  // surfaces via prime / the stop-hook).
-  bag.bus.on(
-    'issue.mailSent',
-    ({ seq, worktreePath }: { seq: number; worktreePath?: string | null }) => {
-      const members = bag.view.listForIssue(worktreePath ?? null, undefined)
-      const target = selectMailNudgeSession(members)
-      if (!target) return
-      const text = `You have mail on issue #${seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`
-      // MIGRATED, WITH BOTH ARMS PRESERVED EXACTLY (POD-1761 W4, C4).
-      //
-      // The obvious move is to collapse these two into one `when-ready`: that is
-      // what the mode has always been approximating — "now if it can take it,
-      // next turn boundary otherwise" — and it is what would finally retire
-      // `selectMailNudgeSession`'s phase peek, which W4 was asked to do.
-      //
-      // I did not, and the reason is durability rather than nerve. `when-ready`
-      // is the daemon's IN-MEMORY path; the busy-agent arm here is the DURABLE
-      // outbox, so collapsing them would silently drop any outstanding nudge
-      // across a daemon restart. That is a delivery-semantics change, and this
-      // item's rule is that behavioural improvements leave as subissues rather
-      // than riding in on a migration. POD-2043 carries the collapse, to be done
-      // when the operator flips the default and the trade can be judged on its
-      // own.
-      //
-      // What DOES change: both arms stop calling the legacy verbs directly, so
-      // the nudge gets a receipt and the C5 guard has nothing to except here.
-      if (target.mode === 'send')
-        bag.receiptSender.send('now', { sessionId: target.sessionId, text })
-      else void bag.receiptSender.send('queue', { sessionId: target.sessionId, text })
-    },
+  // Agent mail send-time nudge (issue #103): resolve membership and the
+  // coordinator from the canonical issue id at delivery time. The nudge carries
+  // no body; prime/inbox remain the durable pull path when nobody is live.
+  //
+  // MIGRATED, WITH BOTH ARMS PRESERVED EXACTLY (POD-1761 W4, C4).
+  //
+  // The obvious move is to collapse these two into one `when-ready`: that is
+  // what the mode has always been approximating — "now if it can take it,
+  // next turn boundary otherwise" — and it is what would finally retire
+  // the selection helper's phase peek, which W4 was asked to do.
+  //
+  // I did not, and the reason is durability rather than nerve. `when-ready`
+  // is the daemon's IN-MEMORY path; the busy-agent arm here is the DURABLE
+  // outbox, so collapsing them would silently drop any outstanding nudge
+  // across a daemon restart. That is a delivery-semantics change, and this
+  // item's rule is that behavioural improvements leave as subissues rather
+  // than riding in on a migration. POD-2043 carries the collapse, to be done
+  // when the operator flips the default and the trade can be judged on its
+  // own.
+  //
+  // What DOES change: both arms stop calling the legacy verbs directly, so
+  // the nudge gets a receipt and the C5 guard has nothing to except here.
+  bag.bus.on('issue.mailSent', (event: IssueMailNudgeEvent) =>
+    nudgeIssueMail(
+      {
+        issueMeta: (issueId) => bag.deps.issueAccess.getMeta(issueId) ?? undefined,
+        sessionsForIssue: (worktreePath, issueId) => bag.view.listForIssue(worktreePath, issueId),
+        sendText: (input) => {
+          bag.receiptSender.send('now', input)
+        },
+        queueText: (input) => bag.receiptSender.send('queue', input),
+      },
+      event,
+    ),
   )
 }

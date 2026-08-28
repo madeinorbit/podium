@@ -4,25 +4,29 @@
  * Turbo's cache key covers tracked file content (`$TURBO_DEFAULT$`, bun.lock,
  * tooling/tsconfig) but is blind to the install environment: bunfig.toml and the
  * node_modules layout are never hashed, so a linker flip or a broken install keeps
- * reporting a stale green (POD-1343 saw 22/22 cached green with zero
- * node_modules/@podium links). This wrapper closes that hole and makes uncached
+ * reporting a stale green. This wrapper closes that hole and makes uncached
  * runs deliberate:
  *
- *   1. Refuses to run when node_modules/@podium has no usable links or points
- *      outside this checkout — a cached green in that environment is not evidence.
- *      A dangling link left behind for a deleted workspace is inert and remains in
- *      the fingerprint; Bun does not remove those links on a frozen install.
- *   2. Fingerprints the environment (bunfig.toml content + @podium link census)
- *      into PODIUM_CHECK_ENV_HASH, declared in turbo.json `globalEnv`, so any
- *      environment drift is an automatic cache MISS — no --force needed.
+ *   1. Resolves every declared workspace edge and every exercised @podium subpath
+ *      from its owning workspace, and walks the linked tree for third-party
+ *      breakage the workspace census cannot see. Missing, dangling, undeclared, or
+ *      external resolutions are refused regardless of the installer's linker topology.
+ *   2. Fingerprints the environment (the effective install configuration and the
+ *      topology it produced, plus the resolution census) into PODIUM_CHECK_ENV_HASH,
+ *      declared in turbo.json `globalEnv`, so any environment drift is an automatic
+ *      cache MISS — no --force needed. Fingerprinting the tracked bunfig.toml alone
+ *      was not enough: an install driven by an external `--config` leaves that file
+ *      untouched, so hoisted and global-store layouts shared one identity (POD-2774).
  *   3. Refuses --force / TURBO_FORCE unless an explicit reason is given via
  *      --uncached-because="<reason>". A forced 22-package run costs ~3m of CPU
  *      (110x the cached 2s) on a host shared with a live Podium instance.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { arch, cpus, freemem, platform } from 'node:os'
+import { arch, cpus, freemem, homedir, platform, tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { type InstallTopology, readInstallTopology } from './install-topology'
+import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 export interface ForceDecision {
   forceRequested: boolean
@@ -35,12 +39,27 @@ export interface ForceDecision {
 const REFUSAL = `\
 uncached typecheck refused.
 
-A forced run recomputes all 22 packages (~3m14s of CPU, measured) instead of
-reusing the cache (~2s) — 110x — on a host shared with a live Podium instance.
-The cache key already covers source files, bun.lock, tooling/tsconfig, and the
-install environment (bunfig.toml + node_modules/@podium census via
-PODIUM_CHECK_ENV_HASH), so installs, linker changes, and base swaps are
-noticed automatically.
+A forced run recomputes every package (24 of them; ~3m14s of CPU when that was
+last measured at 22) instead of reusing the cache (~2s) on a host shared with a
+live Podium instance.
+
+WHAT THE KEY COVERS: each package's own tracked files; the task hashes of the
+packages it depends on; bun.lock and tooling/tsconfig; the effective install
+configuration, install topology, and workspace resolution census (via
+PODIUM_CHECK_ENV_HASH), so installs, linker changes and base swaps are noticed
+automatically; and, for packages that import sources outside their own directory
+by relative path, those directories as explicit turbo inputs.
+
+WHAT IT STILL CANNOT SEE (POD-2807). That last clause is hand-maintained in
+turbo.json, and the guard that keeps it honest — "keeps every typecheck cache
+key over the sources that task actually reads", in scripts/test-configuration.test.ts
+— runs under 'bun run test', not here. It reads relative imports statically, so
+a package that escapes its directory some other way (a tsconfig "paths" alias, an
+"include" glob pointing outside, a computed specifier) is still invisible to it.
+This refusal used to claim the key covered source files full stop; it did not,
+and a red sat behind a replayed green for three days on the strength of that
+sentence. Treat the list above as the limit of what is checked, not as proof
+that nothing is missing.
 
 If you still believe the cache is wrong, state why:
 
@@ -101,9 +120,12 @@ export function decideForce(
 }
 
 export interface EnvCensus {
-  bunfig: string
-  /** sorted "name:relative-target" or "name!DANGLING" entries under node_modules/@podium */
-  links: string[]
+  /** effective install configuration and the topology it produced */
+  install: InstallTopology
+  /** sorted owner/specifier/relative-realpath records */
+  resolutions: string[]
+  /** every reason this environment may not serve or produce a cached result */
+  admissionErrors: string[]
   runtime: {
     bun: string
     platform: string
@@ -111,71 +133,45 @@ export interface EnvCensus {
   }
 }
 
-export interface WorkspaceLinksHealth {
-  healthy: string[]
-  dangling: string[]
-  external: string[]
-  error: string | null
-}
-
-/**
- * External targets are unsafe because their contents can change without moving
- * this fingerprint. Dangling targets cannot provide code and are safe to retain
- * in the fingerprint when at least one real in-checkout workspace link exists.
- */
-export function assessWorkspaceLinks(links: string[]): WorkspaceLinksHealth {
-  const healthy = links.filter((link) => !link.includes('!'))
-  const dangling = links.filter((link) => link.endsWith('!DANGLING'))
-  const external = links.filter((link) => link.endsWith('!EXTERNAL'))
-  const error =
-    healthy.length === 0
-      ? 'node_modules/@podium has no usable in-checkout workspace links'
-      : external.length > 0
-        ? `node_modules/@podium points outside this checkout: ${external.join(', ')}`
-        : null
-  return { healthy, dangling, external, error }
-}
-
 /** Environment fingerprint: hashed into the turbo cache key via globalEnv. */
 export function fingerprint(census: EnvCensus): string {
   return createHash('sha256')
-    .update(census.bunfig)
+    .update(census.install.config.join('\0'))
     .update('\0')
-    .update(census.links.join(','))
+    .update(census.install.layout.join('\0'))
+    .update('\0')
+    .update(census.resolutions.join('\0'))
     .update('\0')
     .update(`${census.runtime.bun}:${census.runtime.platform}:${census.runtime.arch}`)
     .digest('hex')
 }
 
 export function readCensus(root: string): EnvCensus {
-  const bunfig = existsSync(join(root, 'bunfig.toml'))
-    ? readFileSync(join(root, 'bunfig.toml'), 'utf8')
-    : ''
-  const dir = join(root, 'node_modules', '@podium')
-  let links: string[] = []
-  if (existsSync(dir)) {
-    links = readdirSync(dir)
-      .sort()
-      .map((name) => {
-        const packageJson = join(dir, name, 'package.json')
-        if (!existsSync(packageJson)) return `${name}!DANGLING`
-        const target = realpathSync(join(dir, name))
-        const rel = relative(realpathSync(root), target)
-        if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-          return `${name}!EXTERNAL`
-        }
-        return `${name}:${rel}`
-      })
-  }
+  const install = readInstallTopology(root)
+  const resolution = readWorkspaceResolutionCensus(root)
   return {
-    bunfig,
-    links,
+    install,
+    resolutions: resolution.records,
+    admissionErrors: [...resolution.errors, ...install.errors],
     runtime: {
       bun: Bun.version,
       platform: platform(),
       arch: arch(),
     },
   }
+}
+
+/**
+ * One refusal for every cached entry point. A cached green is a claim about an
+ * environment; if the environment is already broken the claim is not evidence,
+ * so this has to run before turbo can serve or record a hit.
+ */
+export function admissionRefusal(census: EnvCensus, lane: string): string | null {
+  if (census.admissionErrors.length === 0) return null
+  return (
+    `${lane} refused: this install cannot produce or replay a trustworthy cached ` +
+    `result (POD-1343, POD-2774).\n- ${census.admissionErrors.join('\n- ')}`
+  )
 }
 
 function projectCacheIdentity(root: string): string {
@@ -201,33 +197,28 @@ function projectCacheIdentity(root: string): string {
 }
 
 /**
- * Where every worktree of this repository shares one Turbo cache.
+ * One durable cache per repository per host, shared by every sibling worktree.
  *
- * THE DEFAULT MUST NOT BE VOLATILE. It used to fall back to `tmpdir()`, and on a
- * host that clears /tmp at boot the whole cache died with the machine: after one
- * reboot the cache's oldest entry was seventeen minutes old, and every session
- * afterwards paid to repopulate it from nothing. A cache that a reboot deletes
- * reads to an agent exactly like a cache that never worked, and the conclusion
- * they draw — that a fresh worktree is a cold start — is wrong and expensive.
- *
- * So the default lives inside the repository's OWN boundary: `projectCacheIdentity`
- * already resolves any linked worktree to the common git dir, which is the one
- * place all of them agree on, is never committed, never appears in `git status`,
- * and outlives every checkout that comes and goes around it.
- *
- * `XDG_CACHE_HOME` still wins when set to an absolute path — that is a real user
- * preference and also persistent. A RELATIVE value is treated as unset: resolving
- * it against each worktree would silently produce a separate cache per checkout,
- * which is the failure this function exists to prevent.
+ * The key is the common git directory, so linked worktrees of one repository land in
+ * the same place and a result produced in one is readable from the next — that sharing
+ * is the whole return on the cache. Two things used to threaten it. TMPDIR is reminted
+ * per agent session and per test file in this repository, so an XDG-less host silently
+ * gave every session its own cache and its own cold start; and /tmp does not survive a
+ * reboot. $HOME/.cache — the XDG default — is stable for both, so it is preferred over
+ * the temporary directory, which now only catches a host with no usable home.
  */
-export function sharedTurboCacheDir(root: string): string {
-  const identity = projectCacheIdentity(root)
-  const configuredBase = process.env.XDG_CACHE_HOME
-  if (configuredBase && isAbsolute(configuredBase)) {
-    const projectKey = createHash('sha256').update(identity).digest('hex').slice(0, 16)
-    return join(configuredBase, 'podium', 'turbo', projectKey)
-  }
-  return join(identity, 'podium-turbo-cache')
+export function sharedTurboCacheDir(root: string, env = process.env, home = homedir()): string {
+  const projectKey = createHash('sha256')
+    .update(projectCacheIdentity(root))
+    .digest('hex')
+    .slice(0, 16)
+  // Each candidate is only valid when absolute. A relative value is treated as unset:
+  // resolving it against each worktree would silently produce separate caches.
+  const cacheBase =
+    [env.XDG_CACHE_HOME, home && join(home, '.cache')].find(
+      (candidate): candidate is string => !!candidate && isAbsolute(candidate),
+    ) ?? join(tmpdir(), 'podium-cache')
+  return join(cacheBase, 'podium', 'turbo', projectKey)
 }
 
 /** Peak RSS of one tsgo, rounded up from 817MB measured on this repo. The cap is
@@ -312,12 +303,9 @@ export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
 async function main() {
   const root = join(import.meta.dir, '..')
   const census = readCensus(root)
-  const links = assessWorkspaceLinks(census.links)
-  if (links.error) {
-    console.error(
-      `typecheck refused: ${links.error}; a cached green there would be unsafe (POD-1343). ` +
-        'Run `bun install` first.',
-    )
+  const refusal = admissionRefusal(census, 'typecheck')
+  if (refusal) {
+    console.error(refusal)
     process.exit(1)
   }
   const decision = decideForce(

@@ -554,6 +554,6 @@ describe('composer, queue, offer and activity', () => {
         turnRunning: false,
         justSent: false,
       }),
-    ).toEqual({ label: 'error: Provider rate limit reached', tone: 'error' })
+    ).toEqual({ label: 'rate limited', tone: 'error' })
   })
 })

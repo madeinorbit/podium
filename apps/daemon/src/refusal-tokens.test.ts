@@ -1,19 +1,19 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   classifyUpdateFailureDetail,
   type MachineFailureCode,
   matchUpdateFailureToken,
   planConvergence,
+  RETIRED_PRODUCER_TOKENS,
+  UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+  UPDATE_ARTIFACT_REFUSAL_HEADER,
   UPDATE_FAILURE_EXAMPLES,
   UPDATE_FAILURE_TOKENS,
   type UpdateFailureToken,
 } from '@podium/protocol'
 import { fetchArtifact } from '@podium/runtime/update-delivery'
-import {
-  convergeViaGit,
-  GIT_ABORTED_STATUS,
-  GIT_TIMED_OUT_STATUS,
-  type GitRun,
-} from '@podium/runtime/update-delivery-git'
 import { describe, expect, it } from 'vitest'
 import {
   createSchemaGate,
@@ -57,7 +57,7 @@ async function detailsFromApplyGrant(
       currentVersion: () => '0.1.3',
       caps: [],
       platform: 'linux-x86_64',
-      fetchArtifact: async () => ({ git: true }),
+      fetchArtifact: async () => ({ bytes: new Uint8Array([1]) }),
       swap: () => {},
       writePending: () => {},
       restart: () => {},
@@ -70,31 +70,6 @@ async function detailsFromApplyGrant(
   )
   return details
 }
-
-/** A git runner that answers each subcommand from a plan. */
-const gitRunner =
-  (plan: Record<string, { status: number; stdout?: string }>): GitRun =>
-  async (_cmd, args) => {
-    const step = args[2] ?? ''
-    const answer = plan[step] ?? { status: 0, stdout: '' }
-    return { status: answer.status, stdout: answer.stdout ?? '' }
-  }
-
-/** The sentence `fetchArtifact` throws for a git convergence, verbatim. */
-async function gitDeliveryDetail(
-  plan: Record<string, { status: number; stdout?: string }>,
-): Promise<string> {
-  try {
-    await fetchArtifact({ repo: '/repo', sha: 'abc1234' } as never, 'git', {
-      git: { run: gitRunner(plan) },
-    } as never)
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error)
-  }
-  throw new Error('expected the git delivery to fail')
-}
-
-const CLEAN = { status: { status: 0, stdout: '' }, 'rev-parse': { status: 0, stdout: 'deadbee' } }
 
 describe('every refusal a daemon can produce is classified by the shared table', () => {
   /**
@@ -157,13 +132,119 @@ describe('every refusal a daemon can produce is classified by the shared table',
     expect(classifyUpdateFailureDetail(detail)).toBe('machine-schema-unreadable')
   })
 
+  /**
+   * An effect inside `applyGrant` threw while the participant was alive enough
+   * to report the exception. This is the exact opposite of silence: the raw
+   * errno must survive as support detail and must not be relabelled as a dead
+   * machine by the coordinator.
+   */
+  it('keeps an unexpected pending-marker write failure out of unreachable', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pending-write-refusal-'))
+    try {
+      const [detail] = await detailsFromApplyGrant({
+        target: {
+          version: '0.1.5',
+          artifacts: {
+            headless: {
+              delivery: 'feed',
+              platforms: {
+                'linux-x86_64': {
+                  url: 'https://x.test/a',
+                  digest: 'd',
+                  signature: 's',
+                },
+              },
+            },
+          },
+        },
+        caps: ['update.delivery.feed'],
+        // The pre-fix marker write: its parent directory does not exist.
+        writePending: () => writeFileSync(join(root, 'runtime', 'pending-update.json.tmp'), '{}'),
+      })
+
+      expect(detail).toMatch(/ENOENT.*pending-update\.json\.tmp/i)
+      expect(matchUpdateFailureToken(detail)).toBeUndefined()
+      expect(classifyUpdateFailureDetail(detail)).toBe('machine-update-failed')
+      expect(classifyUpdateFailureDetail(detail)).not.toBe('machine-unreachable')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  /**
+   * WHAT THE MAC ACTUALLY GOT TOLD (POD-2783).
+   *
+   * A macOS daemon joining a Linux-only fleet was granted a release minted
+   * before it enrolled and reported the bare token `unsupported-platform`. The
+   * sentence has to carry the two facts that make the situation legible — which
+   * platform this machine is, and which platforms the release was built for —
+   * or the copy above it can only guess, which is how an operator was sent to
+   * check a release nobody can change.
+   */
+  it('reports which platform it is and which the release carries, through applyGrant', async () => {
+    const [detail] = await detailsFromApplyGrant({
+      target: {
+        version: '0.1.5',
+        artifacts: {
+          headless: {
+            delivery: 'feed',
+            platforms: {
+              'linux-x86_64': { url: 'https://x', digest: 'd', signature: 's' },
+            },
+          },
+        },
+      },
+      caps: ['update.delivery.feed'],
+      platform: 'darwin-aarch64',
+    })
+    expect(detail).toContain('darwin-aarch64')
+    expect(detail).toContain('linux-x86_64')
+    expect(detail).toContain('0.1.5')
+    expect(classifyUpdateFailureDetail(detail)).toBe('machine-platform-absent')
+  })
+
+  /**
+   * The other half of the split: a platform Podium publishes for nobody must
+   * not be told that a later release will include it. Only the daemon knows
+   * which of the two it is, so only the daemon can write the token apart.
+   */
+  it('writes a distinct token for a platform no release will ever carry', async () => {
+    const [detail] = await detailsFromApplyGrant({
+      target: {
+        version: '0.1.5',
+        artifacts: {
+          headless: {
+            delivery: 'feed',
+            platforms: {
+              'linux-x86_64': { url: 'https://x', digest: 'd', signature: 's' },
+            },
+          },
+        },
+      },
+      caps: ['update.delivery.feed'],
+      platform: 'windows-x86_64',
+    })
+    expect(matchUpdateFailureToken(detail)).toBe('platform-not-published')
+    expect(classifyUpdateFailureDetail(detail)).toBe('machine-platform-unpublished')
+  })
+
   /** The planner's three refusals, through the wrapper `applyGrant` puts on them. */
   it('classifies every convergence-planner refusal, as applyGrant reports it', async () => {
     const cases: Array<[UpdateFailureToken, { version: string; artifacts: object }, string[]]> = [
       ['no-artifact', { version: '0.1.5', artifacts: {} }, []],
       [
         'unsupported-delivery',
-        { version: '0.1.5', artifacts: { headless: { delivery: 'git', repo: '/r', sha: 'a' } } },
+        {
+          version: '0.1.5',
+          artifacts: {
+            headless: {
+              delivery: 'feed',
+              platforms: {
+                'linux-x86_64': { url: 'https://x.test/a', digest: 'd', signature: 's' },
+              },
+            },
+          },
+        },
         [],
       ],
       [
@@ -198,33 +279,33 @@ describe('every refusal a daemon can produce is classified by the shared table',
   })
 
   /**
-   * Every git step, driven through `convergeViaGit` and the wrapper
-   * `fetchArtifact` puts on it. ALL of these used to be `machine-unreachable` —
-   * a machine that had just reported a precise git failure was described to the
-   * operator as having stopped responding, and promised a resumption that was
-   * never coming.
+   * THE TOKENS WHOSE PRODUCER IS GONE, and why the rows stay.
+   *
+   * Every git-delivery sentence used to be produced in this file, driven
+   * through `convergeViaGit`. Git delivery is retired, so nothing in this build
+   * writes any of them — but the wire is older than the build, and a fleet
+   * machine still running a pre-retirement daemon can report one. Dropping the
+   * patterns would send those refusals straight back to `machine-unreachable`,
+   * which is the exact defect this table exists to prevent.
+   *
+   * They are therefore excused BY NAME, from a register in the shared package,
+   * and the honesty check below is what makes that excuse a ratchet rather than
+   * a comment: a token that quietly loses its producer cannot slip through, it
+   * has to be added here, in a diff someone reads.
    */
-  it('classifies every git delivery step failure as a delivery failure', async () => {
-    const cases: Array<[UpdateFailureToken, Record<string, { status: number; stdout?: string }>]> =
-      [
-        ['dirty-working-tree', { status: { status: 0, stdout: ' M file\n' } }],
-        ['git-status-failed', { status: { status: 1 } }],
-        ['git-fetch-failed', { ...CLEAN, fetch: { status: 1 } }],
-        ['git-checkout-failed', { ...CLEAN, fetch: { status: 0 }, checkout: { status: 1 } }],
-        ['git-timed-out', { status: { status: GIT_TIMED_OUT_STATUS } }],
-        ['git-cancelled', { status: { status: GIT_ABORTED_STATUS } }],
-      ]
-    for (const [token, plan] of cases) {
-      const detail = await gitDeliveryDetail(plan)
-      expect(matchUpdateFailureToken(detail), token).toBe(token)
+  it('keeps the retired git tokens classified for daemons that predate the retirement', () => {
+    for (const token of RETIRED_PRODUCER_TOKENS) {
+      const example = UPDATE_FAILURE_EXAMPLES[token]
+      expect(matchUpdateFailureToken(example), token).toBe(token)
+      expect(classifyUpdateFailureDetail(example), token).not.toBe('machine-unreachable')
     }
-
-    // The one git refusal that comes from the ARGUMENTS rather than a step.
-    const invalid = await convergeViaGit({ repo: '', sha: 'abc' }, { run: gitRunner({}) })
-    expect(invalid.ok).toBe(false)
+    // The register is a claim about what this build no longer writes, so it may
+    // never quietly grow to cover a token something here really does produce.
     expect(
-      matchUpdateFailureToken(`git delivery failed: ${invalid.ok ? '' : invalid.reason}`),
-    ).toBe('invalid-git-reference')
+      RETIRED_PRODUCER_TOKENS.every(
+        (token) => token.startsWith('git-') || token === 'invalid-git-reference',
+      ),
+    ).toBe(true)
   })
 
   /**
@@ -237,8 +318,8 @@ describe('every refusal a daemon can produce is classified by the shared table',
     try {
       await fetchArtifact(
         { url: 'https://example/a.tgz', digest: 'sha256-nope', signature: 'sig' } as never,
-        'feed',
         {
+          pubkey: 'k',
           fetch: async () => ({
             ok: true,
             status: 200,
@@ -254,14 +335,54 @@ describe('every refusal a daemon can produce is classified by the shared table',
     expect(classifyUpdateFailureDetail(detail)).toBe('machine-artifact-rejected')
   })
 
+  /**
+   * THE ORIGIN'S HALF OF THE SAME CONTROL (POD-2739).
+   *
+   * A tampered artifact whose SIZE changed never reaches the digest check
+   * above: the publishing server sees the mismatch first and answers a
+   * fail-closed 404 carrying {@link UPDATE_ARTIFACT_REFUSAL_HEADER}. Without
+   * that marker the sentence is `artifact download returned 404`, which is
+   * `download-failed` — a network problem, to whoever reads it. Both arms are
+   * driven through the real producer here, because the whole point is that the
+   * two 404s must not classify alike.
+   */
+  it('classifies an integrity-marked 404 as a rejected artifact, and a bare one as transport', async () => {
+    const download = async (headers: Record<string, string>): Promise<string> => {
+      try {
+        await fetchArtifact(
+          { url: 'https://example/a.tgz', digest: 'sha256-nope', signature: 'sig' } as never,
+          {
+            pubkey: 'k',
+            fetch: async () => new Response('not found', { status: 404, headers }),
+          } as never,
+        )
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+      throw new Error('a 404 must not resolve')
+    }
+
+    const marked = await download({
+      [UPDATE_ARTIFACT_REFUSAL_HEADER]: UPDATE_ARTIFACT_INTEGRITY_REFUSAL,
+    })
+    expect(matchUpdateFailureToken(marked), marked).toBe('artifact-unverified')
+    expect(classifyUpdateFailureDetail(marked), marked).toBe('machine-artifact-rejected')
+
+    const bare = await download({})
+    expect(matchUpdateFailureToken(bare), bare).toBe('download-http-status')
+    expect(classifyUpdateFailureDetail(bare), bare).toBe('download-failed')
+  })
+
   it('classifies the delivery misconfigurations as unavailable rather than unreachable', async () => {
     const details: string[] = []
-    for (const [asset, delivery] of [
-      [{ delivery: 'git' }, 'git'],
-      [{ digest: 'd' }, 'feed'],
+    for (const [asset, deps] of [
+      // No URL to fetch from…
+      [{ digest: 'd', signature: 's' }, { pubkey: 'k' }],
+      // …and a target naming the pinned root on a daemon that pinned nothing.
+      [{ url: 'https://x.test/a', digest: 'd', signature: 's' }, { trust: 'instance' }],
     ] as const) {
       try {
-        await fetchArtifact(asset as never, delivery, {} as never)
+        await fetchArtifact(asset as never, deps as never)
       } catch (error) {
         details.push(error instanceof Error ? error.message : String(error))
       }
@@ -276,14 +397,41 @@ describe('every refusal a daemon can produce is classified by the shared table',
   it('classifies a bad HTTP status from the artifact fetch as a download failure', async () => {
     let detail = ''
     try {
-      await fetchArtifact({ url: 'https://example/a.tgz', digest: 'd' } as never, 'feed', {
-        fetch: async () => ({ ok: false, status: 404 }),
-      } as never)
+      await fetchArtifact(
+        { url: 'https://example/a.tgz', digest: 'd' } as never,
+        {
+          pubkey: 'k',
+          fetch: async () => ({ ok: false, status: 404 }),
+        } as never,
+      )
     } catch (error) {
       detail = error instanceof Error ? error.message : String(error)
     }
     expect(matchUpdateFailureToken(detail)).toBe('download-http-status')
     expect(classifyUpdateFailureDetail(detail)).toBe('download-failed')
+  })
+
+  it('classifies an unreachable published artifact address as permanent', async () => {
+    let detail = ''
+    try {
+      await fetchArtifact(
+        {
+          url: 'https://missing.example/a.tgz?X-Amz-Signature=secret',
+          digest: 'd',
+        } as never,
+        {
+          fetch: async () => {
+            throw Object.assign(new Error('host lookup failed'), { code: 'ENOTFOUND' })
+          },
+        } as never,
+      )
+    } catch (error) {
+      detail = error instanceof Error ? error.message : String(error)
+    }
+    expect(detail).toContain('https://missing.example/a.tgz')
+    expect(detail).not.toContain('secret')
+    expect(matchUpdateFailureToken(detail)).toBe('artifact-address-unreachable')
+    expect(classifyUpdateFailureDetail(detail)).toBe('artifact-unreachable')
   })
 
   /**
@@ -318,9 +466,8 @@ describe('every refusal a daemon can produce is classified by the shared table',
   /**
    * A SUPERSEDED GRANT MUST STAY SILENT, which is why `git-cancelled` and the
    * superseded-download sentence have no operator copy in practice: the run
-   * that would report them returns first. Pinned rather than assumed — the
-   * table carries a row for the cancelled case anyway, because "unreportable"
-   * is a property of this one call site.
+   * that would report them returns first. Pinned rather than assumed —
+   * "unreportable" is a property of this one call site, not of the sentence.
    */
   it('reports nothing at all when a newer grant supersedes the one in flight', async () => {
     const controller = new AbortController()
@@ -332,15 +479,22 @@ describe('every refusal a daemon can produce is classified by the shared table',
         grantId: 'g1',
         target: {
           version: '0.1.5',
-          artifacts: { headless: { delivery: 'git', repo: '/r', sha: 'abc1234' } },
+          artifacts: {
+            headless: {
+              delivery: 'feed',
+              platforms: {
+                'linux-x86_64': { url: 'https://x.test/a', digest: 'd', signature: 's' },
+              },
+            },
+          },
         },
       } as never,
       {
         currentVersion: () => '0.1.3',
-        caps: ['update.delivery.git'],
+        caps: ['update.delivery.feed'],
         platform: 'linux-x86_64',
         fetchArtifact: async () => {
-          throw new Error('git delivery failed: cancelled')
+          throw new Error('artifact download was superseded by a newer grant')
         },
         swap: () => {},
         writePending: () => {},

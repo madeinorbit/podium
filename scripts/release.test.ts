@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildHeadlessManifest,
   buildHeadlessManifestForPlatforms,
+  legacyPairingNotice,
   packagedWebDigest,
   readDefinedMigrations,
 } from './release'
@@ -111,5 +112,110 @@ describe('packagedWebDigest', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * WHY THIS LIVES IN THE PUBLISHER AND NOT IN THE RESOLVER (POD-2794).
+ *
+ * v0.1.0's rule is exact version equality between `podium-update.json` and
+ * `latest.json`, on every channel, with no override — POD-2769 measured it by
+ * executing the v0.1.0 resolver source against real published manifests. Those
+ * binaries are already in the field and cannot be patched, so the only lever is
+ * what we put on the feed they read.
+ */
+describe('legacyPairingNotice', () => {
+  it('says nothing when the desktop manifest carries the headless version', () => {
+    expect(
+      legacyPairingNotice({ channel: 'stable', headlessVersion: '0.2.0', desktopVersion: '0.2.0' }),
+    ).toBeUndefined()
+  })
+
+  it('refuses a headless version the staged desktop manifest does not name', () => {
+    const refusal = legacyPairingNotice({
+      channel: 'stable',
+      headlessVersion: '0.2.0',
+      desktopVersion: '0.1.1',
+    })
+    // The sentence has to carry the consequence, because the failure it prevents
+    // is one nobody can see: the old install reports no update and says nothing.
+    expect(refusal).toContain('0.2.0')
+    expect(refusal).toContain('0.1.1')
+    expect(refusal).toContain('no update available')
+    // No waiver to mention: the notice is unconditional. A refusal here would be
+    // waived on essentially every release (spec 5 has an unchanged shell carry
+    // its own older version forward), and a refusal waived by default is the
+    // ceremony the next real refusal hides behind.
+    expect(refusal).not.toContain('--accept-legacy-stranding')
+  })
+
+  it('refuses an edge release that staged no desktop manifest, naming what persists', () => {
+    // THE DEFAULT-BREAKS CASE. `gh release upload --clobber` only replaces assets
+    // this run staged, so an unbuilt desktop leaves the PREVIOUS latest.json on
+    // the rolling release at its own older version. An absent staged manifest is
+    // not "no claim", it is "the old claim stands".
+    const refusal = legacyPairingNotice({ channel: 'edge', headlessVersion: '0.2.0' })
+    expect(refusal).toContain('previous release')
+    expect(refusal).toContain('older version')
+  })
+
+  it('refuses a stable release that staged no desktop manifest, naming the 404', () => {
+    // Stable differs: each cut is its own tag, so there is nothing to persist and
+    // `releases/latest/download/latest.json` simply 404s. Same stranding, and the
+    // old resolver reports it as the channel having nothing.
+    const refusal = legacyPairingNotice({ channel: 'stable', headlessVersion: '0.2.0' })
+    expect(refusal).toContain('404')
+    expect(refusal).not.toContain('previous release')
+  })
+
+  it('never suggests restamping the manifest as the way out', () => {
+    // The rejected repair, kept rejected. latest.json is also the Tauri updater
+    // endpoint baked into every shipped shell, so restamping it at the headless
+    // version would offer shells bytes that still report the old version after
+    // installing -- a silent headless stranding traded for a desktop update loop.
+    const refusal = legacyPairingNotice({ channel: 'edge', headlessVersion: '0.2.0' }) ?? ''
+    expect(refusal).toMatch(/must carry a desktop build at its own version/)
+    expect(refusal).not.toMatch(/restamp|rewrite|edit latest\.json/i)
+  })
+})
+
+describe('the legacy pairing notice is actually wired into publishing', () => {
+  // A notice nothing prints is not a notice. Driving `publishPreparedHeadless`
+  // for real would need a full staged bundle set AND a GH_TOKEN, and would then
+  // be one edit away from shelling out to `gh`, so the wiring is pinned
+  // structurally -- but on the two properties that carry the behaviour, both of
+  // which can fire.
+  const source = readFileSync(join(import.meta.dirname, 'release.ts'), 'utf8')
+
+  it('prints the notice from the publish path', () => {
+    expect(source).toContain('const notice = legacyPairingNotice({')
+    expect(source).toContain('if (notice) console.log(notice)')
+  })
+
+  it('prints it AFTER the local-build exit, so staging a release stays quiet', () => {
+    // A developer building on their own machine is not stranding anybody.
+    const localExit = source.indexOf('set GH_TOKEN to publish.')
+    const notice = source.indexOf('const notice = legacyPairingNotice({')
+    expect(localExit).toBeGreaterThan(-1)
+    expect(notice).toBeGreaterThan(localExit)
+  })
+
+  it('carries no waiver, so it cannot decay into ceremony', () => {
+    // POD-2796 measured the cost of the refusal this replaced: the mismatch is
+    // the normal state of every release that did not rebuild the shell, so the
+    // waiver would have been passed routinely and stopped meaning anything.
+    expect(source).not.toContain('acceptLegacyStranding')
+    expect(source).not.toContain('--accept-legacy-stranding')
+  })
+})
+
+describe('the accepted candidate seal is before every GitHub mutation', () => {
+  const source = readFileSync(join(import.meta.dirname, 'release.ts'), 'utf8')
+
+  it('checks the proof snapshot after preparation and before any gh command', () => {
+    const seal = source.indexOf('verifyCandidateSnapshot(p.dir, acceptedSnapshot)')
+    expect(seal).toBeGreaterThan(source.indexOf('set GH_TOKEN to publish.'))
+    expect(seal).toBeLessThan(source.indexOf("spawnSync('gh'"))
+    expect(seal).toBeLessThan(source.indexOf("execFileSync('gh'"))
   })
 })

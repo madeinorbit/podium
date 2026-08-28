@@ -6,7 +6,7 @@ import {
 } from '@podium/model/browser'
 import { ListTree, Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,9 @@ import {
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
 import { deriveIssuesViewModel, type IssuesDisplayPatch } from './issues-view-model'
 import { NewIssueDialog } from './NewIssueDialog'
+
+const ResponsiveIssueList = memo(IssueListView)
+const ResponsiveIssuesKanban = memo(IssuesKanban)
 
 /**
  * Issues is a composer, not a second view-model. The published issue projection
@@ -98,17 +101,48 @@ export function IssuesView(): JSX.Element {
   const updateDisplay = (patch: IssuesDisplayPatch): void => {
     setDisplay({ ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } })
   }
-  const toggleExpand = (id: IssueId): void =>
-    setExpanded((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const toggleExpand = useCallback(
+    (id: IssueId): void =>
+      setExpanded((current) => {
+        const next = new Set(current)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      }),
+    [],
+  )
+
+  // Free-text changes are urgent for the controlled field and deferred for the
+  // 674-row board model. Primitive dependencies keep this object stable during
+  // the urgent render, so the derivation and memoized result tree both bail out.
+  const deferredText = useDeferredValue(filter.text)
+  const { priority, type, assignee, label, status, stage, archived, deleted } = filter
+  const deferredFilter = useMemo<BoardFilter>(
+    () => ({
+      ...(deferredText !== undefined ? { text: deferredText } : {}),
+      ...(priority !== undefined ? { priority } : {}),
+      ...(type !== undefined ? { type } : {}),
+      ...(assignee !== undefined ? { assignee } : {}),
+      ...(label !== undefined ? { label } : {}),
+      ...(status !== undefined ? { status } : {}),
+      ...(stage !== undefined ? { stage } : {}),
+      ...(archived !== undefined ? { archived } : {}),
+      ...(deleted !== undefined ? { deleted } : {}),
+    }),
+    [deferredText, priority, type, assignee, label, status, stage, archived, deleted],
+  )
 
   const view = useMemo(
-    () => deriveIssuesViewModel({ issues, display, filter, expanded, isMobile, openIssueId }),
-    [issues, display, filter, expanded, isMobile, openIssueId],
+    () =>
+      deriveIssuesViewModel({
+        issues,
+        display,
+        filter: deferredFilter,
+        expanded,
+        isMobile,
+        openIssueId,
+      }),
+    [issues, display, deferredFilter, expanded, isMobile, openIssueId],
   )
 
   const runMut = useCallback((promise: Promise<unknown>): void => {
@@ -274,20 +308,23 @@ export function IssuesView(): JSX.Element {
    * selection — and the guard follows POD-1278's rule: it is raised only when it
    * has something to name.
    */
-  const rowStatus = (id: IssueId, value: string): void => {
-    const intent = parseIssueStatusValue(value)
-    if (!intent) return
-    if (intent.kind === 'close') {
-      const target = issues.find((issue) => issue.id === id)
-      if (target && !needsCloseGuard(target)) {
-        runMut(closeIssue(id, intent.reason))
+  const rowStatus = useCallback(
+    (id: IssueId, value: string): void => {
+      const intent = parseIssueStatusValue(value)
+      if (!intent) return
+      if (intent.kind === 'close') {
+        const target = issues.find((issue) => issue.id === id)
+        if (target && !needsCloseGuard(target)) {
+          runMut(closeIssue(id, intent.reason))
+          return
+        }
+        setBulkClose({ ids: [id], reason: intent.reason })
         return
       }
-      setBulkClose({ ids: [id], reason: intent.reason })
-      return
-    }
-    runMut(updateIssue(id, { stage: intent.stage }))
-  }
+      runMut(updateIssue(id, { stage: intent.stage }))
+    },
+    [closeIssue, issues, needsCloseGuard, runMut, updateIssue],
+  )
   const bulkCloseTargets = useMemo(
     () =>
       bulkClose
@@ -406,7 +443,7 @@ export function IssuesView(): JSX.Element {
         </div>
       )}
       {view.layout === 'list' ? (
-        <IssueListView
+        <ResponsiveIssueList
           groups={view.rowGroups}
           display={display}
           onOpen={setOpenIssueId}
@@ -421,7 +458,7 @@ export function IssuesView(): JSX.Element {
           onScrollTop={rememberListScroll}
         />
       ) : (
-        <IssuesKanban
+        <ResponsiveIssuesKanban
           columns={view.orderedByStage}
           allIssues={issues}
           badges={display.badges}

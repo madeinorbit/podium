@@ -23,25 +23,33 @@
  *    lands cannot report the case it exists for.
  */
 import {
+  buildsDiffer,
+  classifyAssets,
   classifySkew,
+  isDevChannelVersion,
   type Operation,
   parseBuildStamp,
   parseServerVersion,
+  type ReleaseProposal,
+  ReleaseProposal as ReleaseProposalSchema,
   type ServerVersion,
   WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isServerUnavailable, makeTrpc } from '@/app/trpc'
-import { pageBuildVersion } from '@/lib/logging/build-version'
+import { noteActiveUpdate } from '@/lib/active-update'
+import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from '@/lib/logging/build-version'
 import {
   isNativeDesktopUpdateError,
   type NativeDesktopUpdateChannel,
   type NativeDesktopUpdateProgress,
   nativeDesktopBridge,
   onNativeDesktopUpdateProgress,
+  persistNativeDesktopUpdateChannel,
 } from '@/lib/nativeDesktop'
 import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from '@/lib/reload-budget'
+import { servedWebsiteForPage } from '@/lib/served-website'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import {
   type ActionError,
@@ -84,6 +92,7 @@ export interface UpdateMachineState {
   id: string
   name?: string
   version: string
+  installKind?: string
   state: 'current' | 'granted' | 'downloading' | 'restarting' | 'rejected' | 'stuck'
   online: boolean
   busy: boolean
@@ -95,6 +104,12 @@ export interface UpdateFleetState {
   behind: number
   converging: number
   failed: number
+  blocked?: number
+  blockers?: readonly {
+    id: string
+    name?: string
+    reason: 'legacy-instance-trust'
+  }[]
   preparation?: {
     webReady: boolean
     bundleReady: boolean
@@ -125,6 +140,10 @@ export interface UpdateStateResult {
   server: ServerVersion
   fleet: UpdateFleetState
   pending: PanelActionKind | null
+  proposal: ReleaseProposal | null | undefined
+  proposalPending: boolean
+  proposalError?: string
+  approveProposal: () => Promise<void>
   /** Every action goes through here, and every rejection comes back as view state. */
   run: (kind: PanelActionKind) => Promise<void>
   checkNow: () => Promise<void>
@@ -156,14 +175,16 @@ function defaultServerName(httpOrigin: string): string | undefined {
 export function surfaceFromDesktopBridge(): UpdateSurface {
   const bridge = nativeDesktopBridge()
   if (!bridge) return window.location.pathname.startsWith('/mobile') ? 'mobile' : 'web'
+  // launchMode is authoritative. Served-local all-in-one loads http://127.0.0.1
+  // from the sidecar — that page origin must NOT be classified as desktop-remote.
   if (bridge.launchMode === 'all-in-one' || bridge.launchMode === 'server') {
     return 'desktop-all-in-one'
   }
   if (bridge.launchMode === 'daemon' || bridge.launchMode === 'client') {
     return 'desktop-remote'
   }
-  // Older shells omit launchMode. Their page origin still establishes the same
-  // ownership fact: bundled tauri:// UI is local; an http(s) page is remote.
+  // Older shells omit launchMode. Fall back to page origin: baked tauri:// is
+  // local; any http(s) page on those shells was remote-only (pre-served-local).
   return window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost'
     ? 'desktop-all-in-one'
     : 'desktop-remote'
@@ -203,8 +224,7 @@ function phoneBehind(server: ServerVersion, expectedDigest: string): boolean {
 export function desktopChannelOf(channel: unknown): NativeDesktopUpdateChannel | undefined {
   const selected =
     typeof channel === 'string' ? channel : (channel as { channel?: string } | undefined)?.channel
-  if (selected === 'dev' || selected === 'edge') return 'edge'
-  if (selected === 'stable') return 'stable'
+  if (selected === 'dev' || selected === 'edge' || selected === 'stable') return selected
   return undefined
 }
 
@@ -215,20 +235,30 @@ const UNKNOWN_DESKTOP_CHANNEL = 'The desktop update channel could not be determi
  * replays this idempotent read. A failure or an unfamiliar payload stays
  * unread; neither is permission to choose a feed.
  */
-async function readDesktopChannel(
-  queryChannel: () => Promise<unknown>,
-): Promise<NativeDesktopUpdateChannel> {
-  const channel = desktopChannelOf(await queryChannel())
+async function readDesktopChannel(queryChannel: () => Promise<unknown>): Promise<{
+  channel: NativeDesktopUpdateChannel
+  endpoint: string | undefined
+}> {
+  const raw = await queryChannel()
+  const channel = desktopChannelOf(raw)
   if (channel === undefined) throw new Error(UNKNOWN_DESKTOP_CHANNEL)
-  return channel
+  const endpoint =
+    raw &&
+    typeof raw === 'object' &&
+    typeof (raw as { desktopUpdateEndpoint?: unknown }).desktopUpdateEndpoint === 'string'
+      ? (raw as { desktopUpdateEndpoint: string }).desktopUpdateEndpoint
+      : undefined
+  return { channel, endpoint }
 }
 
-async function readDesktopUpdate(
-  channel: NativeDesktopUpdateChannel,
-): Promise<DesktopUpdateInfo | undefined> {
+async function readDesktopUpdate(selection: {
+  channel: NativeDesktopUpdateChannel
+  endpoint: string | undefined
+}): Promise<DesktopUpdateInfo | undefined> {
+  await persistNativeDesktopUpdateChannel(selection.channel, selection.endpoint)
   const check = nativeDesktopBridge()?.checkUpdate
   if (!check) return undefined
-  const next = await check(channel)
+  const next = await check(selection.channel)
   return next ? { version: next.version, critical: next.critical, notes: next.notes } : undefined
 }
 
@@ -426,6 +456,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [actionError, setActionError] = useState<ActionError | undefined>()
   const [note, setNote] = useState<string | undefined>()
   const [pending, setPending] = useState<PanelActionKind | null>(null)
+  const [proposal, setProposal] = useState<ReleaseProposal | null | undefined>()
+  const [proposalPending, setProposalPending] = useState(false)
+  const [proposalError, setProposalError] = useState<string | undefined>()
   const [acknowledged, setAcknowledged] = useState<string | undefined>(() => readAcknowledged())
   const [checkedAt, setCheckedAt] = useState<number | undefined>()
 
@@ -440,10 +473,10 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
 
     let cancelled = false
     void readDesktopChannel(queryChannel)
-      .then(async (channel) => {
+      .then(async (selection) => {
         if (cancelled) return
-        setDesktopChannel(channel)
-        const info = await readDesktopUpdate(channel)
+        setDesktopChannel(selection.channel)
+        const info = await readDesktopUpdate(selection)
         if (!cancelled) setDesktopUpdate(info)
       })
       .catch(() => {})
@@ -456,7 +489,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   // The shell's own installer, which used to report nothing at all (spec §5).
   useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
 
-  const active = isOperationActive(live)
+  const active = isOperationActive(live) || proposal?.state === 'building'
 
   const query = usePolledQuery<{
     operation: Operation | null | undefined
@@ -464,6 +497,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     fleet: UpdateFleetState | undefined
     serverRaw: unknown
     buildRaw: unknown
+    proposal: ReleaseProposal | null | undefined
   }>({
     key: `updates.operation:${options.httpOrigin}`,
     intervalMs: active ? ACTIVE_POLL_MS : IDLE_POLL_MS,
@@ -472,7 +506,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     // panel the operation it could read.
     read: async () => {
       const live = await safelyReadOperation(() => readActiveOperation(trpc))
-      const [latest, fleet, serverRaw, buildRaw] = await Promise.all([
+      const [latest, fleet, serverRaw, buildRaw, proposal] = await Promise.all([
         // The OUTCOME, which `active` cannot carry: it filters terminal states
         // out by design, so "done" and "failed" would blink out of existence at
         // the moment they became true. Only asked when nothing is running.
@@ -488,18 +522,38 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
           : Promise.resolve(undefined),
         readJson(`${options.httpOrigin}/version`),
         readJson(`${options.httpOrigin}/${BUILD_STAMP_FILE}`),
+        safely(async () => {
+          const raw = await trpc.updates.proposal.query()
+          return raw === null ? null : ReleaseProposalSchema.parse(raw)
+        }),
       ])
-      return { operation: live, latest, fleet, serverRaw, buildRaw }
+      return { operation: live, latest, fleet, serverRaw, buildRaw, proposal }
     },
     // Folded in the read's OWN turn: a reading routed through `data` and a
     // follow-up effect lands one flush late, and the panel is supposed to move
     // when the answer does.
-    onData: ({ operation: live, latest, fleet, serverRaw, buildRaw }) => {
+    onData: ({ operation: live, latest, fleet, serverRaw, buildRaw, proposal }) => {
       const at = clock()
       if (live) {
         watched.current.add(live.id)
         rememberWatched(live.id, at)
       }
+      /**
+       * THE ONE FACT A PAGE CANNOT ASK FOR ONCE IT NEEDS IT (POD-2762).
+       *
+       * When the server stops answering, the chunk-recovery path has to decide
+       * how patient to be, and the only thing that could tell it — "is this a
+       * handover or is something wrong?" — is the server that has just gone
+       * quiet. This poll is where that was last knowable, so it leaves the
+       * answer somewhere a code path with no store, no context and no socket
+       * can still read it.
+       *
+       * Only on an arm that actually ANSWERED: `undefined` means the read
+       * failed, and a failed read is not evidence that nothing is running. It
+       * would be exactly the wrong moment to conclude that, because a read
+       * failing is the first sign of the outage this fact exists to explain.
+       */
+      if (live !== undefined) noteActiveUpdate(isOperationActive(live), at)
       // A failed arm is not a negative answer. Keep the last fact — including
       // the initial unknown — until that arm itself succeeds.
       if (live !== undefined) setOperation(live)
@@ -507,6 +561,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       if (serverRaw !== undefined) setServer(parseServerVersion(serverRaw))
       if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
       if (fleet !== undefined) setFleetState(fleet)
+      if (proposal !== undefined) setProposal(proposal)
       setNow(at)
     },
   })
@@ -557,14 +612,30 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const localVersion = pageBuildVersion()
   const target = server.target
   const desktopTargeted = surface !== 'web' && target?.artifacts.desktop !== undefined
-  const serverBehind = Boolean(
-    target?.version !== undefined &&
-      server.appVersion !== undefined &&
-      server.appVersion !== target.version,
-  )
   const targetWebDigest = target?.artifacts.web?.digest
+  const serverDiffers = target
+    ? buildsDiffer(
+        { version: server.appVersion, digest: server.sourceDigest },
+        { version: target.version, digest: targetWebDigest },
+      )
+    : false
+  const sourceCannotTakeTarget = server.installKind === 'source' && serverDiffers
+  const serverBehind = server.installKind !== 'source' && serverDiffers
   const phoneStale = targetWebDigest !== undefined && phoneBehind(server, targetWebDigest)
   const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
+  /**
+   * Is the website this page was loaded from still the one being served?
+   * (POD-2721 — see `behind` below for why this is a fact of its own.)
+   *
+   * `servedWebsiteForPage` is what keeps this from becoming an offer nobody can
+   * clear: it answers only for a page this origin actually served, and only with
+   * the dist that page belongs to. A baked desktop shell and an iteration-mode
+   * page get `undefined`, because their assets are somewhere a reload cannot
+   * reach.
+   */
+  const assets = classifyAssets(servedWebsiteForPage(server, options.httpOrigin), {
+    bundle: pageBundleVersion(),
+  })
 
   const touched = target
     ? computeTouched({
@@ -573,10 +644,16 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         fleetBehind: fleet.behind,
         serverBehind,
         sourceAppFollowsServer:
-          (surface === 'web' || surface === 'mobile') && target.version.startsWith('dev+'),
+          (surface === 'web' || surface === 'mobile') && isDevChannelVersion(target.version),
         phoneBehind: phoneStale,
       })
     : { app: false, server: serverBehind, machines: fleet.behind > 0, phone: false }
+  if (sourceCannotTakeTarget) {
+    // A source checkout cannot turn target package bytes into a new checkout.
+    // Keep packaged fleet consumers in the offer, but promise no local move.
+    touched.app = false
+    touched.phone = false
+  }
   if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const offerInput: UpdateInput = {
@@ -588,6 +665,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     touched,
     skew,
     ...(desktopUpdate ? { desktopUpdate } : {}),
+    ...(assets === 'replaced' ? { assetsReplaced: true } : {}),
   }
   /**
    * A manual check is the one time the panel says "nothing to do". It is asked
@@ -611,13 +689,47 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * served dist, which is the server's business and is already a step of the
    * operation. A service worker holding a newer build is the same fact arriving
    * by another route.
+   *
+   * -------------------------------------------------------------------------
+   * WHY THE SERVED BUNDLE IS ONE OF THE REASONS (POD-2721)
+   * -------------------------------------------------------------------------
+   *
+   * The operation comparison below is the RIGHT question asked with a currency
+   * that cannot always answer it. `buildsDiffer` reads source digests first, so
+   * two builds of ONE commit are equal to it — and the first successful
+   * end-to-end update was exactly that: a packaged `0.1.1-edge.2` replaced by a
+   * dev release `0.1.1-dev.1+a55ec3d`, both from `a55ec3d`. It said "not behind"
+   * about a page whose every unloaded chunk had just been deleted, and the panel
+   * offered nothing until the interface crashed. That digest short-circuit is
+   * POD-2608's fix for the opposite failure and it stays; what it needed was a
+   * fact of its own currency.
+   *
+   * Two other things the served bundle fixes, both structural:
+   *
+   *  - IT DOES NOT NEED AN OPERATION. Every route to a reload used to run
+   *    through `operation.details.target`, so a tab that was not watching the
+   *    update — a second window, a phone, a tab opened afterwards — could not be
+   *    told at all. What the server is serving is a fact about the server, and
+   *    every tab reads the same one.
+   *  - IT IS SYMMETRIC. `replaced` is an inequality, not an ordering, so a page
+   *    stranded by a ROLLBACK is offered the same reload as one stranded by an
+   *    update. POD-2721 produced one crash of each kind, ninety seconds apart.
    */
-  const operationTarget = ((operation?.details as { target?: { version?: unknown } } | undefined)
-    ?.target?.version ?? undefined) as string | undefined
+  const operationTarget = (
+    operation?.details as
+      | { target?: { version?: string; artifacts?: { web?: { digest?: string } } } }
+      | undefined
+  )?.target
+  const operationTargetVersion = operationTarget?.version
   const behind =
     options.needRefresh ||
     skew !== 'ok' ||
-    (operationTarget !== undefined && operationTarget !== localVersion)
+    assets === 'replaced' ||
+    (operationTargetVersion !== undefined &&
+      buildsDiffer(
+        { version: localVersion, digest: pageBuildDigest() },
+        { version: operationTargetVersion, digest: operationTarget?.artifacts?.web?.digest },
+      ))
 
   const installUpdate = nativeDesktopBridge()?.installUpdate
   /**
@@ -644,9 +756,23 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     typeof installUpdate === 'function' &&
     desktopChannel !== undefined &&
     (desktopUpdate !== undefined || desktopTargeted || desktopAsked)
-  const expectedDesktopVersion = desktopAsked
-    ? operationTarget
-    : (desktopUpdate?.version ?? (desktopTargeted ? target?.version : undefined))
+  const minimumDesktopBridge = target?.minRequired?.desktopBridge
+  const shellBridgeVersion = nativeDesktopBridge()?.bridgeVersion ?? 0
+  const bridgeIncompatibility =
+    surface.startsWith('desktop') &&
+    typeof minimumDesktopBridge === 'number' &&
+    shellBridgeVersion < minimumDesktopBridge
+      ? {
+          code: 'desktop-bridge-incompatible',
+          message:
+            'This server needs desktop bridge ' +
+            minimumDesktopBridge +
+            ', but this shell provides ' +
+            shellBridgeVersion +
+            '.',
+        }
+      : undefined
+  const expectedDesktopVersion = desktopUpdate?.version
 
   /**
    * The silent hard-reload budget, explained after the fact (spec §6.2.3). The
@@ -666,7 +792,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     surface,
     now,
     ...(desktopProgress && pending === 'install-desktop' ? { desktopProgress } : {}),
-    ...(actionError ? { actionError } : {}),
+    ...((bridgeIncompatibility ?? actionError)
+      ? { actionError: bridgeIncompatibility ?? actionError }
+      : {}),
     ...((note ?? budgetNote) ? { note: note ?? budgetNote } : {}),
   })
 
@@ -752,9 +880,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     setDesktopChannel(undefined)
     try {
       await trpc.updates.checkNow.mutate().catch(() => {})
-      const channel = await readDesktopChannel(queryChannel)
-      setDesktopChannel(channel)
-      const info = await readDesktopUpdate(channel)
+      const selection = await readDesktopChannel(queryChannel)
+      setDesktopChannel(selection.channel)
+      const info = await readDesktopUpdate(selection)
       setDesktopUpdate(info)
       setCheckedAt(clock())
       refresh()
@@ -764,6 +892,25 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       setPending(null)
     }
   }, [clock, queryChannel, refresh, trpc])
+
+  const approveProposal = useCallback(async (): Promise<void> => {
+    setProposalPending(true)
+    setProposalError(undefined)
+    try {
+      if (!proposal) throw new Error('There is no development release proposal to approve.')
+      const raw = await trpc.updates.approveProposal.mutate({
+        headSha: proposal.headSha,
+        version: proposal.version,
+      })
+      setProposal(raw === null ? null : ReleaseProposalSchema.parse(raw))
+      refresh()
+    } catch (error) {
+      setProposalError(errorMessage(error) ?? 'The development release was not approved.')
+      refresh()
+    } finally {
+      setProposalPending(false)
+    }
+  }, [proposal, refresh, trpc])
 
   /**
    * "I have seen this outcome." Clears a local action error and, for a terminal
@@ -784,6 +931,10 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     server,
     fleet,
     pending,
+    proposal,
+    proposalPending,
+    ...(proposalError ? { proposalError } : {}),
+    approveProposal,
     run,
     checkNow,
     acknowledge,

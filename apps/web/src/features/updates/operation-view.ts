@@ -143,7 +143,7 @@ export interface UpdatePanelView {
   note?: string
   /** Asks this surface cannot act on, rendered honestly (P5). */
   awaitingElsewhere: string[]
-  /** "2 machines will update when they reconnect" (§3.6). */
+  /** Deferred-place truth: transient reconnects and permanent host-local repair blockers. */
   deferredNote?: string
   indicator: IndicatorState
   indicatorLabel: string
@@ -400,15 +400,62 @@ function elsewhereAsks(operation: Operation, surface: UpdateSurface): string[] {
     .map(askLine)
 }
 
+function deferredSubject(deferred: readonly { name?: string }[]): string {
+  const names = deferred.flatMap((place) => (place.name ? [place.name] : []))
+  if (names.length > 0 && names.length <= 3) return names.join(', ')
+  return deferred.length + ' machine' + (deferred.length === 1 ? '' : 's')
+}
+
 function deferredNote(operation: Operation): string | undefined {
   const deferred = operation.deferred ?? []
   if (deferred.length === 0) return undefined
-  const names = deferred.flatMap((place) => (place.name ? [place.name] : []))
-  const subject =
-    names.length > 0 && names.length <= 3
-      ? names.join(', ')
-      : `${deferred.length} machine${deferred.length === 1 ? '' : 's'}`
-  return `${subject} will update when ${deferred.length === 1 && names.length === 1 ? 'it reconnects' : 'they reconnect'}.`
+  const legacy = deferred.filter((place) => place.reason === 'legacy-instance-trust')
+  /**
+   * THE RELEASE THESE MACHINES WERE WAITING FOR IS GONE (POD-3040).
+   *
+   * Retention is finite, so a machine that slept through a newer publish is no
+   * longer waiting for anything this operation can deliver. "Will update when
+   * it reconnects" would be a reassurance about work that cannot happen, so it
+   * gets its own sentence — and one that says the machine is not stranded.
+   */
+  const gone = deferred.filter(
+    (place) => place.reason === 'target-superseded' || place.reason === 'target-unavailable',
+  )
+  const reconnecting = deferred.filter(
+    (place) => place.reason !== 'legacy-instance-trust' && !gone.includes(place),
+  )
+  const notes: string[] = []
+  if (legacy.length > 0) {
+    const subject = deferredSubject(legacy)
+    notes.push(
+      subject +
+        (legacy.length === 1 ? ' needs' : ' need') +
+        ' host-local repair before ' +
+        (legacy.length === 1 ? 'it can verify' : 'they can verify') +
+        ' instance-signed development updates. Reconnecting will not clear this blocker.',
+    )
+  }
+  if (gone.length > 0) {
+    const subject = deferredSubject(gone)
+    const superseded = gone.some((place) => place.reason === 'target-superseded')
+    notes.push(
+      subject +
+        ' did not come back before this update\'s package was ' +
+        (superseded ? 'replaced by a newer one' : 'withdrawn') +
+        '. ' +
+        (gone.length === 1 ? 'It' : 'They') +
+        ' will take the current update instead.',
+    )
+  }
+  if (reconnecting.length > 0) {
+    const subject = deferredSubject(reconnecting)
+    notes.push(
+      subject +
+        ' will update when ' +
+        (reconnecting.length === 1 ? 'it reconnects.' : 'they reconnect.'),
+    )
+  }
+  return notes.join(' ')
 }
 
 /**
@@ -501,6 +548,11 @@ function errorCopy(
         nextAction: 'Try again once the reason above is resolved.',
       }
     // The desktop shell's half of the taxonomy (POD-2135).
+    case 'desktop-bridge-incompatible':
+      return {
+        message: message ?? 'This Podium server needs a newer desktop shell.',
+        nextAction: 'Update Podium Desktop before continuing.',
+      }
     case 'debug-build':
       return {
         message: 'Desktop updates are turned off in this development build.',
@@ -647,6 +699,18 @@ function offerView(input: OperationViewInput): UpdatePanelView {
       version: offer.version,
     }
   }
+  if (offer.state === 'blocked') {
+    return {
+      state: 'offer',
+      title: 'Host-local repair required',
+      subtitle: offer.blockedNote,
+      version: offer.version,
+      steps: [],
+      awaitingElsewhere: [],
+      indicator: 'attention',
+      indicatorLabel: 'Host-local repair required',
+    }
+  }
   if (offer.state === 'local-stale') {
     const primary = localAction(input)
     return {
@@ -678,6 +742,7 @@ function offerView(input: OperationViewInput): UpdatePanelView {
     ...(offer.notes ? { notes: offer.notes } : {}),
     restartNote: offer.restartNote,
     ...(offer.reason ? { reason: offer.reason } : {}),
+    ...(offer.blockedNote ? { deferredNote: offer.blockedNote } : {}),
     primary,
     awaitingElsewhere: [],
     indicator: offer.state === 'required' ? 'attention' : 'idle-dot',
@@ -709,6 +774,10 @@ export function operationView(input: OperationViewInput): UpdatePanelView {
   // cancel, a spent reload budget), not about the operation, so it rides on
   // whatever the operation happens to be saying right now.
   return input.note && view.state !== 'none' ? { ...view, note: input.note } : view
+}
+
+function failureCanRetry(code: string | undefined): boolean {
+  return code !== 'artifact-unreachable'
 }
 
 function computeView(input: OperationViewInput): UpdatePanelView {
@@ -746,7 +815,9 @@ function computeView(input: OperationViewInput): UpdatePanelView {
         : input.actionError.code === 'no-release-on-channel' ||
             input.actionError.code === 'invalid-update-channel' ||
             input.actionError.code === 'updater-unavailable' ||
-            input.actionError.code === 'update-check-failed'
+            input.actionError.code === 'update-check-failed' ||
+            input.actionError.code === 'desktop-bridge-incompatible' ||
+            !failureCanRetry(input.actionError.code)
           ? undefined
           : { kind: 'retry' as const, label: 'Try again', pendingLabel: 'Trying again…' }
     return {
@@ -785,7 +856,15 @@ function computeView(input: OperationViewInput): UpdatePanelView {
       state: 'failed',
       title: version ? `Podium ${version} could not be applied` : 'Podium update failed',
       error,
-      primary: { kind: 'retry', label: 'Try again', pendingLabel: 'Trying again…' },
+      ...(failureCanRetry(operation.error?.code)
+        ? {
+            primary: {
+              kind: 'retry' as const,
+              label: 'Try again',
+              pendingLabel: 'Trying again…',
+            },
+          }
+        : {}),
       indicator: 'attention',
       indicatorLabel: 'Update failed',
     }
@@ -813,13 +892,26 @@ function computeView(input: OperationViewInput): UpdatePanelView {
           primary?.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
       }
     }
+    const permanentlyDeferred = (operation.deferred ?? []).some(
+      (place) => place.reason === 'legacy-instance-trust',
+    )
     return {
       ...base,
       state: 'done',
-      title: version ? `Podium is on ${version} everywhere` : 'Podium is up to date everywhere',
+      title: permanentlyDeferred
+        ? version
+          ? 'Podium ' + version + ' was applied where supported'
+          : 'Podium was updated where supported'
+        : version
+          ? 'Podium is on ' + version + ' everywhere'
+          : 'Podium is up to date everywhere',
       ...(deferred ? { subtitle: deferred } : {}),
-      indicator: 'idle-dot',
-      indicatorLabel: version ? `Podium is on ${version}` : 'Podium is up to date',
+      indicator: permanentlyDeferred ? 'attention' : 'idle-dot',
+      indicatorLabel: permanentlyDeferred
+        ? 'Host-local repair still required'
+        : version
+          ? 'Podium is on ' + version
+          : 'Podium is up to date',
     }
   }
 

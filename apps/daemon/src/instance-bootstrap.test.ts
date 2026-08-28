@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { INSTANCE_UUID_PATTERN } from '@podium/runtime/instance'
+import { INSTANCE_UUID_PATTERN, instanceSocketRuntimeDir } from '@podium/runtime/instance'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 
 const roots: string[] = []
@@ -33,6 +33,7 @@ describe('bootstrapDaemonInstance', () => {
     delete process.env.TMUX_TMPDIR
 
     const boot = bootstrapDaemonInstance()
+    const socketDir = instanceSocketRuntimeDir('blue', root)
 
     expect(boot).toMatchObject({
       instanceId: 'blue',
@@ -58,8 +59,8 @@ describe('bootstrapDaemonInstance', () => {
     expect(marker.version).toBe(2)
     expect(marker.instanceId).toBe('blue')
     expect(marker.instanceUuid).toMatch(INSTANCE_UUID_PATTERN)
-    expect(process.env.ABDUCO_SOCKET_DIR).toBe(join(root, 'runtime', 'abduco'))
-    expect(process.env.TMUX_TMPDIR).toBe(join(root, 'runtime', 'tmux'))
+    expect(process.env.ABDUCO_SOCKET_DIR).toBe(socketDir)
+    expect(process.env.TMUX_TMPDIR).toBe(socketDir)
   })
 
   it('does not create a Unix hook socket path on Windows', () => {
@@ -94,5 +95,29 @@ describe('bootstrapDaemonInstance', () => {
     const second = bootstrapDaemonInstance({ acquireGuards: true, guardDir, guardIo: io })
     expect(second.instanceUuid).toBe(first.instanceUuid)
     second.releaseGuards()
+  })
+
+  it('moves an overlong Codex hook socket to the bounded instance runtime root', () => {
+    const base = mkdtempSync(join(tmpdir(), 'podium-daemon-instance-'))
+    roots.push(base)
+    const root = join(base, 'x'.repeat(90))
+    process.env.PODIUM_INSTANCE = 'blue'
+    process.env.PODIUM_STATE_DIR = root
+    delete process.env.ABDUCO_SOCKET_DIR
+    delete process.env.TMUX_TMPDIR
+
+    expect(bootstrapDaemonInstance().hookSocketPath).toBe(
+      join(instanceSocketRuntimeDir('blue', root), 'codex-hooks.sock'),
+    )
+  })
+
+  it('refuses an explicit overlong hook path with the instance and Linux limit', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-daemon-instance-'))
+    roots.push(root)
+    process.env.PODIUM_INSTANCE = 'blue'
+    process.env.PODIUM_STATE_DIR = root
+    expect(() =>
+      bootstrapDaemonInstance({ socketPath: `/tmp/${'x'.repeat(104)}` }),
+    ).toThrow(/instance 'blue'.*108 bytes.*107 pathname bytes/)
   })
 })

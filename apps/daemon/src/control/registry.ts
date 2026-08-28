@@ -13,6 +13,7 @@ import { inventoryHandlers } from './inventory'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
 import { transcriptHandlers } from './transcripts'
+import { updateHandlers } from './update'
 import { workspaceHandlers } from './workspace'
 
 /**
@@ -36,6 +37,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...approvalHandlers,
   ...credentialHandlers,
   ...inventoryHandlers,
+  ...updateHandlers,
   ...serverTransferHandlers,
   ...shippingHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),

@@ -24,17 +24,33 @@
  * socket confers exactly what a remote pairing confers and nothing more.
  */
 
-import { type DaemonHandshakeReply, type MachinePrincipal, type PeerHelloReply } from '@podium/protocol'
+import { createLogger } from '@podium/logger'
+import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  type DaemonHandshakeReply,
+  type DaemonPtyInputBatch,
+  type DaemonPtyOutputBatch,
+  DaemonPtyOutputMetadata,
+  decodeBinaryEnvelope,
+  encodeBinaryEnvelope,
+  type MachinePrincipal,
+  type PeerHelloReply,
+} from '@podium/protocol'
 import {
   type ControlMessage,
   encodeDaemonMessage,
   parseDaemonMessage,
 } from '@podium/protocol/daemon'
 import type { PairingGrant } from '../modules/machines/service'
+import { DEPLOYMENT, perf } from '../modules/perf/registry'
 import type { SessionRegistry } from '../relay'
+import type { DaemonControlTransport } from './daemon-ports'
 import { createDaemonAcceptor, receiveDaemonFrame, recordHelloBuild } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
+
+const log = createLogger('server:gateway:daemon')
 
 /** Freshly-attached daemons get polled this often (see the attach site) … */
 const INVENTORY_SETTLE_INTERVAL_MS = 10_000
@@ -50,6 +66,53 @@ const nextDaemonConnectionId = (): number => {
   daemonConnectionSeq += 1
   return daemonConnectionSeq
 }
+
+type BinaryProtocolFailure = 'preAuth' | 'unnegotiated' | 'malformed'
+
+const terminateBinaryProtocolFailure = (
+  ws: GatewaySocket,
+  failure: BinaryProtocolFailure,
+  byteLength: number,
+  error?: unknown,
+): void => {
+  perf.record(
+    'phase',
+    failure === 'malformed'
+      ? 'terminal.output.daemon.protocol.malformedBinary'
+      : 'terminal.output.daemon.protocol.unnegotiatedBinary',
+    0,
+    DEPLOYMENT,
+    byteLength,
+  )
+  log.warn('terminated a daemon connection after binary protocol failure', {
+    failure,
+    ...(error === undefined ? {} : { err: error }),
+  })
+  ws.terminate()
+}
+
+const decodeLegacyOutput = (
+  message: ReturnType<typeof parseDaemonMessage>,
+): DaemonPtyOutputBatch | null => {
+  if (message.type === 'agentFrame')
+    return {
+      sessionId: message.sessionId,
+      sourceFrames: 1,
+      bytes: Buffer.from(message.data, 'base64'),
+    }
+  if (message.type === 'agentFrameBatch') {
+    if (message.frames.length === 0) return null
+    const decoded = message.frames.map((frame) => Buffer.from(frame, 'base64'))
+    return {
+      sessionId: message.sessionId,
+      sourceFrames: decoded.length,
+      bytes: decoded.length === 1 ? decoded[0]! : Buffer.concat(decoded),
+    }
+  }
+  return null
+}
+
+const decodeDaemonOutputFrame = (raw: Buffer) => decodeBinaryEnvelope(raw, DaemonPtyOutputMetadata)
 
 /**
  * Per-daemon-socket lifecycle: hold the connection unauthenticated until the
@@ -76,7 +139,19 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   // not a machine id, so nothing on this path can substitute a payload value.
   let principal: MachinePrincipal | undefined
   // The send fn registered for THIS socket — the identity `close` detaches against.
+  let acceptedCaps = new Set<string>()
   let send: ((msg: ControlMessage) => void) | undefined
+  let failed = false
+  let transport: DaemonControlTransport | undefined
+  const failBinary = (
+    failure: BinaryProtocolFailure,
+    byteLength: number,
+    error?: unknown,
+  ): void => {
+    if (failed) return
+    failed = true
+    terminateBinaryProtocolFailure(ws, failure, byteLength, error)
+  }
   // Reply helper. The reply `type` literals (helloOk/paired/…) collide with members
   // of other encode() unions, so annotate the value as a DaemonHandshakeReply to
   // pin it to the handshake schema.
@@ -91,8 +166,39 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     connectionId: `daemon-${nextDaemonConnectionId()}`,
   })
   ws.on('message', (raw) => {
+    if (failed) return
+    if (typeof raw !== 'string') {
+      if (principal === undefined) {
+        failBinary('preAuth', raw.byteLength)
+        return
+      }
+      if (!acceptedCaps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)) {
+        failBinary('unnegotiated', raw.byteLength)
+        return
+      }
+      let decoded: ReturnType<typeof decodeDaemonOutputFrame>
+      try {
+        decoded = decodeDaemonOutputFrame(raw)
+      } catch (error) {
+        failBinary('malformed', raw.byteLength, error)
+        return
+      }
+      perf.record(
+        'phase',
+        'terminal.output.daemon.binary',
+        0,
+        DEPLOYMENT,
+        decoded.payload.byteLength,
+      )
+      registry.gateway.routeDaemonOutput(principal, {
+        sessionId: decoded.metadata.sessionId,
+        sourceFrames: decoded.metadata.sourceFrames,
+        bytes: decoded.payload,
+      })
+      return
+    }
     if (principal === undefined) {
-      const outcome = receiveDaemonFrame(acceptor, raw.toString())
+      const outcome = receiveDaemonFrame(acceptor, raw)
       // A pre-auth frame that is not a handshake is dropped on the floor: it never
       // reaches a port and no principal exists (unchanged behaviour).
       if (outcome.kind === 'ignored') return
@@ -106,6 +212,23 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       }
       if (outcome.kind !== 'established') return
       principal = outcome.principal
+      acceptedCaps = new Set(outcome.acceptedCaps)
+      perf.record(
+        'phase',
+        acceptedCaps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)
+          ? 'terminal.output.daemon.capability.binary'
+          : 'terminal.output.daemon.capability.base64',
+        0,
+        DEPLOYMENT,
+      )
+      perf.record(
+        'phase',
+        acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)
+          ? 'terminal.input.daemon.capability.binary'
+          : 'terminal.input.daemon.capability.base64',
+        0,
+        DEPLOYMENT,
+      )
       recordHelloBuild(registry.modules.machines, outcome.machineId, {
         build: outcome.build,
         caps: outcome.offeredCaps,
@@ -124,8 +247,49 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // failure — `traffic-before-ack` in the shared dialer — instead of looping.)
       // The plane applies its own budget (POD-391): this file never names a byte
       // count, so it cannot name the client plane's.
-      send = DAEMON_PLANE_LIVENESS.sink(ws).send
-      registry.gateway.attachDaemon(principal, send)
+      const sink = DAEMON_PLANE_LIVENESS.sink(ws)
+      send = sink.send
+      transport = {
+        send,
+        sendInput: (input: DaemonPtyInputBatch) => {
+          if (acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
+            const framed = encodeBinaryEnvelope(
+              {
+                v: 1,
+                type: 'ptyInput',
+                sessionId: input.sessionId,
+                inputOrigin: input.inputOrigin,
+                ...(input.attribution ? { attribution: input.attribution } : {}),
+              },
+              input.bytes,
+            )
+            perf.record(
+              'phase',
+              'terminal.input.daemon.binary',
+              0,
+              DEPLOYMENT,
+              input.bytes.byteLength,
+            )
+            sink.sendBinary(framed)
+            return
+          }
+          perf.record(
+            'phase',
+            'terminal.input.daemon.base64',
+            0,
+            DEPLOYMENT,
+            input.bytes.byteLength,
+          )
+          send?.({
+            type: 'input',
+            sessionId: input.sessionId,
+            inputOrigin: input.inputOrigin,
+            data: Buffer.from(input.bytes).toString('base64'),
+            ...(input.attribution ? { attribution: input.attribution } : {}),
+          })
+        },
+      }
+      registry.gateway.attachDaemon(principal, transport)
       // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
       // FIRST and installs Codex/Claude/Grok after, while the daemon's own inventory
       // loop only re-reports once a minute. Everything that gates on capability reads
@@ -159,7 +323,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     // Post-handshake: the acceptor is asked FIRST, so a hello arriving on a live
     // connection is refused as an ordering violation rather than being parsed as
     // application traffic (a re-handshake would be a principal-swap primitive).
-    const routed = receiveDaemonFrame(acceptor, raw.toString())
+    const routed = receiveDaemonFrame(acceptor, raw)
     if (routed.kind === 'rejected') {
       reply(routed.reply)
       return
@@ -169,7 +333,20 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // is this socket's authenticated one — a machine id in the payload (there
       // is no such field today, and an injected one is inert) can never become
       // the routing identity.
-      registry.gateway.routeDaemonFrame(principal, parseDaemonMessage(raw.toString()))
+      const message = parseDaemonMessage(raw)
+      const output = decodeLegacyOutput(message)
+      if (output !== null) {
+        perf.record(
+          'phase',
+          'terminal.output.daemon.base64',
+          0,
+          DEPLOYMENT,
+          output.bytes.byteLength,
+        )
+        registry.gateway.routeDaemonOutput(principal, output)
+        return
+      }
+      registry.gateway.routeDaemonFrame(principal, message)
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.
@@ -177,8 +354,9 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     }
   })
   ws.on('close', () => {
+    acceptedCaps.clear()
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
-    if (principal && send) registry.gateway.detachDaemon(principal, send)
+    if (principal && transport) registry.gateway.detachDaemon(principal, transport)
   })
 }

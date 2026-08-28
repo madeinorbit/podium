@@ -37,10 +37,7 @@ const TAURI_DIR = join(REPO_ROOT, 'apps/desktop/src-tauri')
  * same file). Relative to the tauri dir, as the config writes them.
  */
 const BUILD_PLACEHOLDERS = [
-  { path: 'resources/web', dir: true },
-  { path: 'resources/mobile', dir: true },
-  { path: 'resources/licenses', dir: true },
-  { path: 'resources/podium', dir: false },
+  { path: 'resources/payload', dir: true },
   { path: '../../web/dist', dir: true },
 ] as const
 

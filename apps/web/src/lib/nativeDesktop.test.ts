@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type NativeDesktopBridge, nativeDesktopBridge } from './nativeDesktop'
+import {
+  desktopUpdateEndpoint,
+  type NativeDesktopBridge,
+  nativeDesktopBridge,
+  persistNativeDesktopUpdateChannel,
+} from './nativeDesktop'
 
 const desktopGlobal = globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }
 
@@ -37,6 +42,48 @@ describe('nativeDesktopBridge', () => {
     desktopGlobal.__PODIUM_DESKTOP__ = bridge
 
     expect(nativeDesktopBridge()?.installUpdate).toBeTypeOf('function')
+  })
+
+  it('persists dev with this server latest.json and release channels without an endpoint', async () => {
+    const persist = vi.fn(async () => {})
+    desktopGlobal.__PODIUM_DESKTOP__ = {
+      platform: 'linux',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      setUpdateChannel: persist,
+    }
+
+    const endpoint = 'https://podium.test/updates/feed/dev/latest.json'
+    expect(desktopUpdateEndpoint('dev', endpoint)).toBe(endpoint)
+    expect(desktopUpdateEndpoint('edge', endpoint)).toBeUndefined()
+    await persistNativeDesktopUpdateChannel('dev', endpoint)
+    await persistNativeDesktopUpdateChannel('edge', endpoint)
+    expect(persist).toHaveBeenNthCalledWith(
+      1,
+      'dev',
+      'https://podium.test/updates/feed/dev/latest.json',
+    )
+    expect(persist).toHaveBeenNthCalledWith(2, 'edge', undefined)
+  })
+
+  it('exposes the local daemon connectivity reader when the shell provides it', async () => {
+    const status = {
+      state: 'unauthorized' as const,
+      serverUrl: 'wss://podium.example',
+      authorizationReason: 'peerHelloRejected: invalid or expired code',
+      updatedAt: '2026-08-26T10:00:00.000Z',
+    }
+    desktopGlobal.__PODIUM_DESKTOP__ = {
+      platform: 'linux',
+      launchMode: 'daemon',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      daemonConnectivity: vi.fn(async () => status),
+    }
+
+    await expect(nativeDesktopBridge()?.daemonConnectivity?.()).resolves.toEqual(status)
   })
 
   it('tolerates an older shell that has none of the update commands', () => {

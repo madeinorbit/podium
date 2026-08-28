@@ -82,23 +82,27 @@ describe('UpdatesService', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it('widens once the canary reports current at the target version', () => {
+  it('does not widen when the canary only reports target before reconnecting', () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.tick()
     svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
     svc.tick()
-    expect(send.mock.calls.length).toBeGreaterThan(1)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(svc.fleet()[0]).toMatchObject({ state: 'restarting' })
   })
 
   it('carries one authorization from the canary into the wider wave', () => {
-    const { svc, send } = make([m('a'), m('b'), m('c')])
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc, send } = make(machines)
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
 
     expect(svc.authorize()).toEqual(['a'])
     expect(send).toHaveBeenCalledTimes(1)
 
-    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    const canary = machines[0]
+    if (canary) canary.version = '0.4.2'
+    svc.fleet()
     expect(send).toHaveBeenCalledTimes(3)
   })
 
@@ -162,7 +166,7 @@ describe('UpdatesService', () => {
       artifacts: {
         web: { digest: '47a01e3' },
         headless: {
-          delivery: 'bundle',
+          delivery: 'feed',
           platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } },
         },
       },
@@ -188,7 +192,7 @@ describe('UpdatesService', () => {
       artifacts: {
         web: { digest: '47a01e3' },
         headless: {
-          delivery: 'bundle',
+          delivery: 'feed',
           platforms: { 'linux-x64': { url: 'http://x', digest: 'd', signature: 's' } },
         },
       },
@@ -197,10 +201,13 @@ describe('UpdatesService', () => {
   })
 
   it('resets canary health when the target changes', () => {
-    const { svc, send } = make([m('a'), m('b'), m('c')])
+    const machines = [m('a'), m('b'), m('c')]
+    const { svc, send } = make(machines)
     svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     svc.tick()
-    svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+    const canary = machines[0]
+    if (canary) canary.version = '0.4.2'
+    svc.fleet()
     svc.setTarget({ version: '0.4.3', critical: false, artifacts: {} } as never)
     send.mockClear()
     svc.tick()
@@ -298,7 +305,7 @@ describe('UpdatesService', () => {
     svc.authorize()
     svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
-    expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+    expect(svc.fleet()[0]).toMatchObject({ state: 'restarting', version: '0.4.2' })
     expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
 
     const machine = machines[0]
@@ -361,6 +368,30 @@ describe('UpdatesService', () => {
       })
     })
 
+    it('refuses a source checkout explicitly without issuing a grant', () => {
+      const { svc, send } = make([m('source', { installKind: 'source' })])
+      svc.setTarget(target)
+
+      expect(svc.authorizeMachine(asMachineId('source'))).toEqual({
+        result: 'source-checkout',
+      })
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('grants an equal-version payload when the operator requests repair', () => {
+      const { svc, send } = make([m('current', { version: '0.4.2' })])
+      svc.setTarget(target)
+
+      expect(svc.repairMachine(asMachineId('current'))).toEqual({
+        result: 'granted',
+        version: '0.4.2',
+      })
+      expect(send).toHaveBeenCalledWith(
+        asMachineId('current'),
+        expect.objectContaining({ type: 'updateGrant', repair: true }),
+      )
+    })
+
     it('explains an unresolved authority rather than reporting a missing grant', () => {
       const { svc } = make([m('a')])
       expect(svc.authorizeMachine(asMachineId('a'))).toMatchObject({ result: 'no-target' })
@@ -404,15 +435,20 @@ describe('UpdatesService', () => {
      * fixes it and clicks Apply on that row.
      */
     it('keeps widening after a human applies one refused machine', () => {
-      const { svc } = make([m('a'), m('b'), m('c'), m('d'), m('e'), m('f')])
+      const machines = [m('a'), m('b'), m('c'), m('d'), m('e'), m('f')]
+      const { svc } = make(machines)
       svc.setTarget(target)
 
       expect(svc.tick()).toEqual(['a'])
       // The canary holds the target: the bundle is proven for this channel.
-      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      const canary = machines[0]
+      if (canary) canary.version = '0.4.2'
       expect(svc.tick()).toEqual(['b', 'c', 'd'])
-      svc.onStatus(asMachineId('b'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
-      svc.onStatus(asMachineId('c'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      const b = machines[1]
+      const c = machines[2]
+      if (b) b.version = '0.4.2'
+      if (c) c.version = '0.4.2'
+      svc.fleet()
       svc.onStatus(asMachineId('d'), {
         type: 'updateStatus',
         state: 'rejected',
@@ -439,14 +475,19 @@ describe('UpdatesService', () => {
      * before it moves the rest.
      */
     it('still re-proves a canary when the retry is fleet-wide', () => {
-      const { svc } = make([m('a'), m('b'), m('c'), m('d'), m('e'), m('f')])
+      const machines = [m('a'), m('b'), m('c'), m('d'), m('e'), m('f')]
+      const { svc } = make(machines)
       svc.setTarget(target)
 
       expect(svc.tick()).toEqual(['a'])
-      svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      const canary = machines[0]
+      if (canary) canary.version = '0.4.2'
       expect(svc.tick()).toEqual(['b', 'c', 'd'])
-      svc.onStatus(asMachineId('b'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
-      svc.onStatus(asMachineId('c'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      const b = machines[1]
+      const c = machines[2]
+      if (b) b.version = '0.4.2'
+      if (c) c.version = '0.4.2'
+      svc.fleet()
       svc.onStatus(asMachineId('d'), {
         type: 'updateStatus',
         state: 'rejected',
@@ -541,6 +582,97 @@ describe('UpdatesService', () => {
       expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant', grantId: 'g2' })
     })
 
+    it('does not replay a terminal boot report for a different target', () => {
+      const { svc } = makeClock([m('a')])
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.3',
+        state: 'stuck',
+        version: '0.4.1',
+        detail: 'belongs to another release',
+      })
+
+      svc.setTarget(target)
+
+      expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.1' })
+    })
+
+    it('keeps a packaged crash report after the coordinator replaced its grant', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'restarting',
+        version: '0.4.1',
+      })
+
+      // The operation spends its bounded retry while the crashed packaged
+      // process is down, so g2 is now the coordinator's correlation id. The
+      // durable marker that survives the process crash still names g1.
+      expect(svc.reissueGrants('dev')).toEqual(['a'])
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.2',
+        state: 'rejected',
+        version: '0.4.1',
+        detail: 'attempt 2 of 2 did not reach 0.4.2 (running 0.4.1); applying again will retry it',
+      })
+
+      const failed = svc.fleet()[0]
+      expect(failed).toMatchObject({
+        state: 'rejected',
+        version: '0.4.1',
+        detail: expect.stringContaining('did not reach 0.4.2'),
+      })
+      expect(classifyMachineFailure(failed?.detail)).toBe('machine-update-not-confirmed')
+      expect(svc.operationActive('dev')).toBe(false)
+    })
+
+    it('does not apply a recovered crash report to a different packaged target', () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      svc.authorize()
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'restarting',
+        version: '0.4.1',
+      })
+      expect(svc.reissueGrants('dev')).toEqual(['a'])
+
+      svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.3',
+        state: 'rejected',
+        version: '0.4.1',
+        detail: 'belongs to another release',
+      })
+
+      expect(svc.fleet()[0]).toMatchObject({
+        state: 'granted',
+        version: '0.4.1',
+      })
+      expect(svc.fleet()[0]).not.toHaveProperty('detail')
+      expect(svc.operationActive('dev')).toBe(true)
+    })
+
+    it('does not re-grant a source checkout from legacy in-flight state', () => {
+      const source = { ...m('a'), installKind: 'installed' }
+      const { svc, send } = make([source])
+      svc.setTarget(target)
+      svc.authorize()
+      source.installKind = 'source'
+      send.mockClear()
+
+      expect(svc.reissueGrants('dev')).toEqual([])
+      expect(send).not.toHaveBeenCalled()
+    })
+
     it('does not re-grant a machine that is offline or already at the target', () => {
       const { svc, send } = make([m('a', { online: false }), m('b', { version: '0.4.2' })])
       svc.setTarget(target)
@@ -616,7 +748,8 @@ describe('UpdatesService', () => {
     })
 
     it('converges a daemon that reports no percentage at all', () => {
-      const { svc } = make([m('a')])
+      const machines = [m('a')]
+      const { svc } = make(machines)
       svc.setTarget(target)
       svc.authorize()
       svc.onStatus(asMachineId('a'), {
@@ -633,6 +766,9 @@ describe('UpdatesService', () => {
         state: 'current',
         version: '0.4.2',
       })
+      expect(svc.fleet()[0]).toMatchObject({ state: 'restarting', version: '0.4.2' })
+      const machine = machines[0]
+      if (machine) machine.version = '0.4.2'
       expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
     })
   })
@@ -791,8 +927,12 @@ describe('target refresh bookkeeping', () => {
   const target = { version: '1.0.0', critical: false, artifacts: {} } as never
 
   const build = (
-    resolveTarget: (channel: 'edge' | 'stable') => Promise<never>,
-    opts: { fleetChannel?: UpdateChannel; machines?: unknown[] } = {},
+    resolveTarget: (channel: UpdateChannel) => Promise<never>,
+    opts: {
+      fleetChannel?: UpdateChannel
+      machines?: unknown[]
+      locallyPublished?: (channel: UpdateChannel) => boolean
+    } = {},
   ) => {
     let clock = 1_000
     const svc = new UpdatesService({
@@ -804,6 +944,7 @@ describe('target refresh bookkeeping', () => {
       nextGrantId: () => 'g1',
       concurrency: 3,
       resolveTarget,
+      ...(opts.locallyPublished ? { locallyPublished: opts.locallyPublished } : {}),
       fleetChannel: () => opts.fleetChannel ?? 'stable',
     })
     return { svc, advance: (ms: number) => (clock += ms) }
@@ -885,23 +1026,44 @@ describe('target refresh bookkeeping', () => {
     })
   })
 
-  it('records dev as checked without polling anything — dev is publisher-pushed', async () => {
-    const { svc } = build(async () => target, { fleetChannel: 'dev' })
-    await svc.refreshTarget('dev')
-    expect(svc.channelChecks()).toEqual([
-      {
-        channel: 'dev',
-        checkedAt: 1_000,
-        outcome: {
-          status: 'unavailable',
-          reason: 'Development target is not currently published by this source server.',
-        },
-      },
-    ])
+  /**
+   * DEV IS RESOLVED, NOT REPORTED ON (spec §1).
+   *
+   * This used to assert the opposite: `refreshTarget('dev')` polled nothing and
+   * only reported on whatever the publisher had already pushed, because there
+   * was no dev feed to ask. There is one now, so dev takes the same three lines
+   * every other channel takes — including recording the feed's own reason when
+   * it cannot answer, which is what makes "nothing is published" distinguishable
+   * from "we have not looked".
+   */
+  it('resolves dev through the same resolver as every other channel', async () => {
+    const resolveTarget = vi.fn(async (_channel: UpdateChannel) => target)
+    const { svc } = build(resolveTarget as never, { fleetChannel: 'dev' })
 
-    svc.setTarget('dev', target)
     await svc.refreshTarget('dev')
-    expect(svc.channelChecks()[0]?.outcome).toEqual({ status: 'ok' })
+
+    expect(resolveTarget.mock.calls.map(([channel]) => channel)).toEqual(['dev'])
+    expect(svc.target('dev')).toBe(target)
+    expect(svc.channelChecks()).toEqual([
+      { channel: 'dev', checkedAt: 1_000, outcome: { status: 'ok' } },
+    ])
+  })
+
+  it('records the dev feed’s own reason when it cannot answer', async () => {
+    const { svc } = build(
+      async () => {
+        throw new Error('dev target unavailable: release manifest returned HTTP 404')
+      },
+      { fleetChannel: 'dev' },
+    )
+
+    await svc.refreshTarget('dev')
+
+    expect(svc.target('dev')).toBeUndefined()
+    expect(svc.channelChecks()[0]?.outcome).toEqual({
+      status: 'unavailable',
+      reason: 'dev target unavailable: release manifest returned HTTP 404',
+    })
   })
 
   describe('checkNow', () => {
@@ -1081,12 +1243,17 @@ describe('target refresh bookkeeping', () => {
       expect(svc.operationActive('stable')).toBe(false)
     })
 
-    it('is false again once the machine reports it reached the target', () => {
-      const { svc } = make([m('a')])
+    it('is false again once the machine reconnects at the target', () => {
+      const machines = [m('a')]
+      const { svc } = make(machines)
       svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
       svc.authorize('dev')
       svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
+      expect(svc.operationActive('dev')).toBe(true)
+      const machine = machines[0]
+      if (machine) machine.version = '0.4.2'
+      svc.fleet()
       expect(svc.operationActive('dev')).toBe(false)
     })
   })
@@ -1236,7 +1403,7 @@ describe('UpdatesService.operationChannel', () => {
  *
  * The panel's whole OFFER is derived from `server.target` — `use-update-state`
  * reads `/version` and `describeUpdate` has nothing to show without it. That
- * target used to be `devPublisher.publishTarget() ?? updates.target()`, and
+ * target used to be assembled from publisher identity or `updates.target()`, and
  * `target()` defaults to `dev`: both halves asked the development authority. On
  * a stable installation the publisher is disabled and the dev authority has
  * nothing, so `/version` carried no target at all and a machine that was
@@ -1268,27 +1435,78 @@ describe('UpdatesService.advertisedTarget', () => {
     expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
   })
 
-  /**
-   * The drive's exact configuration: a SOURCE host pinned to stable, whose dev
-   * publisher is alive and offering a `dev+` identity. The publisher must not
-   * speak for an authority the host does not follow — that is precisely the
-   * `dev+03a2892` the panel showed while the operation planned `0.1.3`.
-   */
-  it('does not let the development publisher speak for a stable-pinned host', () => {
+  it('does not let a development feed speak for a stable-pinned host', () => {
     const svc = shipped([m('host', { channel: 'stable' })])
     svc.setTarget('stable', t('0.1.3'))
+    svc.setTarget('dev', t('0.1.2-dev.3+03a2892'))
 
-    expect(svc.advertisedTarget('host', t('dev+03a2892'))?.version).toBe('0.1.3')
+    expect(svc.advertisedTarget('host')?.version).toBe('0.1.3')
   })
 
-  /** A development coordinator is unchanged: the publisher still wins, and the
-   *  service's own dev target is still the fallback when it has nothing. */
-  it('still prefers the published development bundle on a dev-pinned host', () => {
+  it('advertises only a feed-published development target on a dev-pinned host', () => {
     const svc = shipped([m('host', { channel: 'dev' })])
-    svc.setTarget('dev', t('dev+aaaaaaa'))
+    const packed = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: {
+        web: { digest: 'bbbbbbb' },
+        headless: {
+          delivery: 'feed',
+          platforms: {
+            'linux-x86_64': {
+              url: 'https://podium.example.test/updates/feed/dev/x.tar.gz?token=secret',
+              digest: 'd',
+              signature: 's',
+            },
+          },
+        },
+      },
+    } as unknown as never
+    svc.setTarget('dev', packed)
+    const advertised = svc.advertisedTarget('host')
+    expect(advertised?.artifacts.headless).toBeDefined()
+    expect(advertised?.version).toBe('0.1.2-dev.5+bbbbbbb')
+  })
 
-    expect(svc.advertisedTarget('host', t('dev+bbbbbbb'))?.version).toBe('dev+bbbbbbb')
-    expect(svc.advertisedTarget('host')?.version).toBe('dev+aaaaaaa')
+  it('advertises no update when HEAD has only a pre-release proposal', () => {
+    const svc = shipped([m('host', { channel: 'dev' })])
+    expect(svc.advertisedTarget('host')).toBeUndefined()
+  })
+
+  /**
+   * `/version` is the unauthenticated pre-boot probe. The feed target carries
+   * the artifact token in the query string so the daemon can fetch; that token
+   * must not ride the probe. The standing channel target keeps it — grants
+   * read that, not the advertisement.
+   */
+  it('does not put a tokenised artifact URL on the advertised target', () => {
+    const packed = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: {
+        headless: {
+          delivery: 'feed',
+          platforms: {
+            'linux-x86_64': {
+              url: 'http://127.0.0.1:18787/updates/feed/dev/x.tar.gz?token=secret',
+              digest: 'd',
+              signature: 's',
+            },
+          },
+        },
+      },
+    } as unknown as never
+    const svc = shipped([m('host', { channel: 'dev' })])
+    svc.setTarget('dev', packed)
+
+    const advertised = svc.advertisedTarget('host')
+    const advertisedUrl = advertised?.artifacts.headless?.platforms['linux-x86_64']?.url
+    expect(advertisedUrl).toBeDefined()
+    expect(advertisedUrl).not.toContain('token=')
+    expect(advertisedUrl).not.toContain('secret')
+    expect(svc.target('dev')?.artifacts.headless?.platforms['linux-x86_64']?.url).toContain(
+      'token=secret',
+    )
   })
 
   it('follows an edge-pinned host onto edge', () => {
@@ -1320,5 +1538,273 @@ describe('UpdatesService.advertisedTarget', () => {
     svc.setTarget('dev', t('dev+aaaaaaa'))
 
     expect(svc.advertisedTarget('host')).toBeUndefined()
+  })
+})
+
+/**
+ * A CHANNEL THIS SERVER ALSO PUBLISHES INTO MUST NOT BE WALKED BACKWARDS.
+ *
+ * `dev` on a source host has two producers for the length of the transition to
+ * the release-proposal flow: the FEED (what has been released) and the local
+ * publisher's identity (what this checkout IS). When HEAD moves without a
+ * release they disagree, and the daily refresh would otherwise pull the last
+ * release over a newer identity — walking the read model back to a previous
+ * commit every time the tick fired.
+ *
+ * The exception is narrow on purpose. Every other channel must still be able to
+ * move BACKWARDS, because the server is authority and a bad release has to be
+ * withdrawable; a resolver that only went forward would make rollback
+ * structurally impossible.
+ */
+describe('a channel this server also publishes into', () => {
+  const versioned = (version: string) =>
+    ({ version, critical: false, artifacts: {} }) as unknown as never
+
+  const publisherHost = (resolveTarget: (channel: UpdateChannel) => Promise<never>) =>
+    new UpdatesService({
+      machines: () => [m('a', { channel: 'dev' })] as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      resolveTarget,
+      locallyPublished: (channel) => channel === 'dev',
+      fleetChannel: () => 'dev',
+    })
+
+  it('holds its own newer identity against an older release from the feed', async () => {
+    const svc = publisherHost(async () => versioned('0.1.2-dev.4+aaaaaaa'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+
+    expect(await svc.refreshTarget('dev')).toBe(true)
+
+    expect(svc.target('dev')?.version).toBe('0.1.2-dev.5+bbbbbbb')
+    // The CHECK still succeeded — the feed answered, and saying otherwise would
+    // make Settings read "we have not looked" when we had.
+    expect(svc.channelChecks()[0]?.outcome).toEqual({ status: 'ok' })
+  })
+
+  it('takes a NEWER release from the feed, which is the whole point of pulling', async () => {
+    const svc = publisherHost(async () => versioned('0.1.2-dev.6+ccccccc'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+
+    await svc.refreshTarget('dev')
+
+    expect(svc.target('dev')?.version).toBe('0.1.2-dev.6+ccccccc')
+  })
+
+  it('takes the same version again, so an identity gains its artifacts', async () => {
+    // The ordinary publish: the identity for this HEAD is already standing, and
+    // the feed answers with the same version now carrying real bytes.
+    const packed = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: {
+        headless: {
+          delivery: 'feed',
+          platforms: { 'linux-x86_64': { url: 'https://x/a', digest: 'd', signature: 's' } },
+        },
+      },
+    } as unknown as never
+    const svc = publisherHost(async () => packed)
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+
+    await svc.refreshTarget('dev')
+
+    expect(svc.target('dev')?.artifacts.headless).toBeDefined()
+  })
+
+  /**
+   * THE PRODUCTION ORDER, which is the reverse of the case above. The publisher
+   * writes the manifest, the resolver pulls a deliverable, THEN every `/version`
+   * poll (and the tail of `requestBuild`) publishes the identity for the same
+   * HEAD. Same version, no bytes. Replacing the standing target with that
+   * descriptor is how an already-published package sat on "Waiting for the
+   * update package" until the machines step timed out.
+   */
+  it('does not let an identity overwrite a published feed target of the same version', () => {
+    const packed = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: {
+        headless: {
+          delivery: 'feed',
+          platforms: { 'linux-x86_64': { url: 'https://x/a', digest: 'd', signature: 's' } },
+        },
+      },
+    } as unknown as never
+    const identity = {
+      version: '0.1.2-dev.5+bbbbbbb',
+      critical: false,
+      artifacts: { web: { digest: 'bbbbbbb' } },
+    } as unknown as never
+    const { svc } = make([m('a', { channel: 'dev' })])
+
+    svc.setTarget('dev', packed)
+    svc.setTarget('dev', identity)
+
+    expect(svc.target('dev')?.artifacts.headless).toBeDefined()
+    expect(svc.target('dev')?.artifacts.headless?.platforms['linux-x86_64']?.url).toBe(
+      'https://x/a',
+    )
+  })
+
+  it('holds against an UNORDERABLE answer too, rather than guessing', async () => {
+    const svc = publisherHost(async () => versioned('not-a-version'))
+    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+
+    await svc.refreshTarget('dev')
+
+    expect(svc.target('dev')?.version).toBe('0.1.2-dev.5+bbbbbbb')
+  })
+
+  it('still lets a channel it does NOT publish into roll backwards', async () => {
+    // A withdrawn release. The server is authority and rollback must work.
+    const svc = new UpdatesService({
+      machines: () => [m('a', { channel: 'stable' })] as never,
+      send: vi.fn(),
+      now: () => 1_000,
+      nextGrantId: () => 'g1',
+      concurrency: 3,
+      resolveTarget: async () => versioned('0.4.1'),
+      locallyPublished: (channel) => channel === 'dev',
+      fleetChannel: () => 'stable',
+    })
+    svc.setTarget('stable', versioned('0.4.2'))
+
+    await svc.refreshTarget('stable')
+
+    expect(svc.target('stable')?.version).toBe('0.4.1')
+  })
+})
+
+/**
+ * THE GRANT SIDE OF THE OFFER (POD-2783).
+ *
+ * Not counting a machine as behind removes the BUTTON. These are the two paths
+ * that can still reach a grant with the button gone — the standing wave, and a
+ * human pressing Apply on that machine's own Settings row — and both have to
+ * answer the same way, or the fix is only cosmetic.
+ */
+describe('a release that predates a machine', () => {
+  const linuxOnly = {
+    version: '0.4.2',
+    critical: false,
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: {
+          'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+        },
+      },
+    },
+  } as never
+
+  const mac = (over: Record<string, unknown> = {}) =>
+    m('mac', {
+      platform: 'darwin-aarch64',
+      deliveryCaps: ['update.delivery.feed'],
+      ...over,
+    })
+
+  it('is never granted to that machine by the standing wave', () => {
+    const { svc, send } = make([mac()])
+    svc.setTarget(linuxOnly)
+    svc.tick()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('still waves the machines it was built for', () => {
+    const { svc, send } = make([m('vps', { platform: 'linux-x86_64' }), mac()])
+    svc.setTarget(linuxOnly)
+    svc.tick()
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0]?.[0]).toBe('vps')
+  })
+
+  /** The per-row Apply is a human asking directly, and it gets a direct answer
+   *  rather than a grant the machine will refuse minutes later. */
+  it('answers a per-row Apply with the platform fact instead of granting', () => {
+    const { svc, send } = make([mac()])
+    svc.setTarget(linuxOnly)
+    expect(svc.authorizeMachine(asMachineId('mac'))).toEqual({
+      result: 'platform-not-in-release',
+      platform: 'darwin-aarch64',
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('answers a per-row Repair the same way, for the same reason', () => {
+    const { svc, send } = make([mac()])
+    svc.setTarget(linuxOnly)
+    expect(svc.repairMachine(asMachineId('mac'))).toMatchObject({
+      result: 'platform-not-in-release',
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('leaves a machine that has reported no platform alone', () => {
+    const { svc, send } = make([m('mute', { deliveryCaps: ['update.delivery.feed'] })])
+    svc.setTarget(linuxOnly)
+    svc.tick()
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a machine that predates channel-keyed trust', () => {
+  const instanceTarget = {
+    version: '0.4.2',
+    critical: false,
+    trust: 'instance',
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: {
+          'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+        },
+      },
+    },
+  } as never
+
+  const flatblock = () =>
+    m('flatblock', {
+      platform: 'linux-x86_64',
+      deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+    })
+
+  it('is never granted the instance-trusted feed by the standing wave', () => {
+    const { svc, send } = make([flatblock()])
+    svc.setTarget(instanceTarget)
+    svc.tick()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('answers direct Apply with the verifier-generation fact', () => {
+    const { svc, send } = make([flatblock()])
+    svc.setTarget(instanceTarget)
+    expect(svc.authorizeMachine(asMachineId('flatblock'))).toEqual({
+      result: 'legacy-instance-trust',
+      version: '0.4.2',
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('does not pretend an in-band Repair can bypass the same verifier', () => {
+    const { svc, send } = make([flatblock()])
+    svc.setTarget(instanceTarget)
+    expect(svc.repairMachine(asMachineId('flatblock'))).toEqual({
+      result: 'legacy-instance-trust',
+      version: '0.4.2',
+    })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('continues to grant a current feed-only daemon', () => {
+    const { svc, send } = make([
+      m('current', { platform: 'linux-x86_64', deliveryCaps: ['update.delivery.feed'] }),
+    ])
+    svc.setTarget(instanceTarget)
+    expect(svc.authorizeMachine(asMachineId('current'))).toMatchObject({ result: 'granted' })
+    expect(send).toHaveBeenCalledOnce()
   })
 })

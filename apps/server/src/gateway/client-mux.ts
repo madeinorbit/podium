@@ -38,9 +38,10 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { UserId, UserRole } from '@podium/model'
+import type { SessionId, UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
+  CAP_TERMINAL_INPUT_BINARY_V1,
   type ClientMessage,
   type FeedCursorField,
   type PresenceRoomClientMessage,
@@ -119,6 +120,10 @@ export interface ClientTransport {
   send: ClientConn['send']
   /** Lower-budget lossy sink for stream.live room fan-out. */
   sendStream?: ClientConn['sendStream']
+  /** Explicit binary sink for negotiated terminal output. */
+  sendBinary?: ClientConn['sendBinary']
+  /** Lower-budget binary sink for live terminal output. */
+  sendBinaryStream?: ClientConn['sendBinaryStream']
 }
 
 /**
@@ -188,6 +193,8 @@ export class ClientMux {
       // only input; nothing a client can send participates.
       principal,
       send: transport.send,
+      ...(transport.sendBinary ? { sendBinary: transport.sendBinary } : {}),
+      ...(transport.sendBinaryStream ? { sendBinaryStream: transport.sendBinaryStream } : {}),
       sendStream:
         transport.sendStream ??
         ((message) => {
@@ -267,6 +274,17 @@ export class ClientMux {
     this.deps.ports.sessions.onClientDetached(conn.principal, conn)
   }
 
+  acceptsClientInputBinary(id: string): boolean {
+    return this.deps.registry.get(id)?.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ?? false
+  }
+
+  /** Route canonical PTY bytes under the socket-derived client principal. */
+  routeClientInputBytes(id: string, sessionId: SessionId, bytes: Uint8Array): void {
+    const conn = this.deps.registry.get(id)
+    if (!conn?.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) || bytes.byteLength === 0) return
+    this.deps.ports.sessions.onSessionClientInput(conn.principal, conn, sessionId, bytes)
+  }
+
   /**
    * Route ONE inbound client frame to the port that owns it.
    *
@@ -310,6 +328,11 @@ export class ClientMux {
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
     if (msg.type === 'hello') {
+      this.deps.registry.deliver(conn, {
+        type: 'welcome',
+        clientId: conn.id,
+        caps: conn.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ? [CAP_TERMINAL_INPUT_BINARY_V1] : [],
+      })
       this.renegotiate(conn, msg.wireVersion, msg.feedCursor)
     }
   }

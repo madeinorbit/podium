@@ -1,8 +1,8 @@
 import { expect, type Page, test } from '@playwright/test'
 
-/** Two marks in the demo row, eight dots each: the whole cell animating and
- *  nothing else looping beside it. */
-const MARK_WAVES = Array.from({ length: 16 }, () => 'podium-mark-wave')
+/** Two marks in the demo row, one compositor frame strip each, and nothing else
+ * looping beside them. */
+const MARK_WAVES = Array.from({ length: 2 }, () => 'podium-mark-frames')
 
 async function animationNames(page: Page): Promise<string[]> {
   return page
@@ -14,6 +14,15 @@ async function animationNames(page: Page): Promise<string[]> {
           animation instanceof CSSAnimation ? animation.animationName : animation.constructor.name,
         ),
     )
+}
+
+async function mountStatusSpinner(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const spinner = document.createElement('span')
+    spinner.className = 'status-strip-spinner'
+    spinner.dataset.testid = 'status-spinner-probe'
+    document.body.append(spinner)
+  })
 }
 
 test('real app: spinner persists while one-shot morphs settle and timer flips to ago', async ({
@@ -29,7 +38,7 @@ test('real app: spinner persists while one-shot morphs settle and timer flips to
   await expect(page.locator('.motion-demo-timer .pod-mark')).toBeVisible()
   await expect
     .poll(() => animationNames(page))
-    .toEqual(expect.arrayContaining(['podium-mark-wave', 'podium-ignite', 'podium-tick-in']))
+    .toEqual(expect.arrayContaining(['podium-mark-frames', 'podium-ignite', 'podium-tick-in']))
 
   const timer = page.locator('.motion-demo-timer')
   const firstClock = await timer.textContent()
@@ -76,4 +85,41 @@ test('real app: reduced motion freezes the spinner and removes morphs', async ({
   await expect(page.locator('.pod-mark')).toHaveCount(0)
   await expect(page.locator('.motion-demo-timer')).toHaveText('just now')
   await expect.poll(() => animationNames(page)).toEqual([])
+})
+
+test('real app: status spinner advances one transform strip', async ({ page }) => {
+  await page.goto('/?e2e=1&motion-demo=1')
+  await mountStatusSpinner(page)
+  const spinner = page.getByTestId('status-spinner-probe')
+  await expect
+    .poll(() =>
+      spinner.evaluate((element) =>
+        element.getAnimations({ subtree: true }).map((animation) => ({
+          name: animation instanceof CSSAnimation ? animation.animationName : '(waapi)',
+          properties:
+            animation.effect instanceof KeyframeEffect
+              ? [
+                  ...new Set(
+                    animation.effect
+                      .getKeyframes()
+                      .flatMap((frame) =>
+                        Object.keys(frame).filter(
+                          (key) =>
+                            !['offset', 'easing', 'composite', 'computedOffset'].includes(key),
+                        ),
+                      ),
+                  ),
+                ].sort()
+              : [],
+        })),
+      ),
+    )
+    .toEqual([{ name: 'status-strip-braille', properties: ['transform'] }])
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect
+    .poll(() =>
+      spinner.evaluate((element) => element.getAnimations({ subtree: true }).length),
+    )
+    .toBe(0)
 })

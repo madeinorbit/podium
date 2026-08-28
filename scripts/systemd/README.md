@@ -1,77 +1,43 @@
-# Podium dev-host systemd units (podium-host)
+# Podium systemd units
 
-These files are generated copies of the source-based dev-host profile in
-`apps/cli/src/cli-systemd.ts`. Render them before installing:
+These files are generated copies of the renderer in `apps/cli/src/cli-systemd.ts`. The development
+profile runs the installed bundle and points its publisher at the checkout; it does not execute the
+server or parent from TypeScript source. Render it after the one-time initial bundle install:
 
 ```sh
 bun --conditions=@podium/source scripts/render-systemd.ts --profile dev
-cp scripts/systemd/podium-*.service scripts/systemd/podium-*.timer ~/.config/systemd/user/
+cp scripts/systemd/podium.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now podium-server.service podium-janitor.service podium-daemon.service podium-health.timer
-# verify the watchdog took: all three should read "active (running)" with a Watchdog line
-systemctl --user status podium-server podium-janitor podium-daemon | grep -iE 'active|watchdog'
+systemctl --user enable --now podium.service
+systemctl --user status podium | grep -iE 'active|watchdog'
 ```
 
-Topology: the **split backend** on :18787 serves the built PWA itself: `podium-server`
-(coordinating relay + HTTP/tRPC + WebSockets), `podium-janitor` (durable maintenance), and
-`podium-daemon` (all per-agent PTY / transcript / discovery / metrics work), which connects to the server over
-`ws://localhost:18787/daemon` and reconnects with backoff. Splitting them is what stops
-a misbehaving agent or a reattach storm from starving the relay loop. All three run from
-source via `--conditions=@podium/source`. Moving the checkout publishes a signed
-development target; the visible **Update Podium** action runs the guarded
-`podium-redeploy.service` only after development-channel machines converge. No
-path unit is rendered: moving the checkout cannot restart the coordinating
-server without approval.
+Topology: **one** user unit, `podium.service`. It runs the thin parent
+(`podium parent --takeover`), which spawns the server and daemon as OS
+children and hosts the janitor as a server worker. Type=notify + WatchdogSec
+covers a wedged parent; Restart=always is the crash-and-boot net. Interactive
+CPU/IO tiers stay on this unit; batch work still runs in transient scopes.
 
-All three backend units are `Type=notify` with watchdogs: they pet the systemd
-watchdog from their event loop (`packages/runtime/src/sd-notify.ts`), so a **wedged-but-alive**
-process (the documented big-paste msg-loop wedge — `Restart=always` only fires on
-EXIT) stops petting and systemd restarts it. The daemon especially needs this: it
-exposes no HTTP `/health` surface, so the watchdog is the only thing that catches it.
-If `systemctl --user status` ever shows a notify unit stuck `activating`, the
-`systemd-notify READY=1` isn't landing — fall back to `Type=simple` (drop the
-`Type`/`WatchdogSec`/`NotifyAccess` lines) until that's debugged; the sd-notify code
-is a no-op without `NOTIFY_SOCKET`, so it's safe either way.
-
-`podium-backend.service` is the legacy single-process unit (relay + daemon in one
-`scripts/host.ts`), kept as a disabled fallback. Run EITHER the split pair OR the
-combined backend — never both (they bind the same :18787).
+Existing 3-unit (or 8-definition) installs converge here on every boot: leftover
+units stay armed until the parent reports healthy, then they are stopped,
+disabled, and removed. Re-running reconciliation is a no-op.
 
 HTTPS (the primary URL) is served by **`tailscale serve`**, which terminates TLS
-on **:55555** and proxies to the Vite origin on :55556 — tailnet-internal (not
-Funnel), with auto-renewing certs. The mobile clipboard/paste API needs a secure
-context, which is why https is the primary origin; http://<host>:55556 stays as a
-plain fallback. Set it up once (the config persists in tailscaled across reboots):
+on **:55555** and proxies straight to the installed server on **:18787** —
+tailnet-internal (not Funnel), with auto-renewing certs:
 
 ```sh
-tailscale serve --bg --https=55555 http://127.0.0.1:55556
-tailscale serve status   # expect: https://<host>:55555 -> http://127.0.0.1:55556
+tailscale serve --bg --https=55555 http://127.0.0.1:18787
+tailscale serve status   # expect: https://<host>:55555 -> http://127.0.0.1:18787
 ```
 
-A separate public Funnel (e.g. another project on :443) is unaffected — this adds
-a serve entry on its own port rather than touching existing mappings.
+For hot-reload UI work **beside** this live path (source Vite, updater off), see
+[`docs/iteration-mode.md`](../../docs/iteration-mode.md) (`bun run iterate`).
 
-Where the web bundles come from: **the confirmed Update operation asks the
-server to build them**, in transient `--user` scopes at the batch tier
-(`podium-dev-web-build.scope`, `podium-dev-mobile-build.scope`). A checkout move,
-`/version` poll, or watchdog restart starts no build. The same explicit prepare
-step sequences the headless bundle behind the web dist, so it cannot pack a
-stale `apps/web/dist` under a new commit identity. Follow a running build with
-`systemctl --user status podium-dev-web-build.scope`, and a finished one in the
-server's journal. Note: the running app's service worker is the source of truth
-for installed clients — they pick up the new build via the "New version —
-Reload" prompt.
-
-Redeploy gates (`scripts/redeploy-wait.sh`, the `ExecStartPre` of
-`podium-redeploy.service`): wait for `.git/index.lock` to clear (bounded), then
-`bun install --frozen-lockfile` when dependency manifests changed since the last
-deployed HEAD (#173/#176), then `bun run typecheck` when any `*.ts`/`*.tsx`/`*.json`
-changed (or deps were installed) (#251). Any gate failing exits non-zero, which
-aborts the unit **before** `ExecStart` restarts a single service — a broken merge
-leaves the old deploy running instead of crash-looping the new one. The
-last-good HEAD lives in `.git/podium-redeploy-head`; deploys that touch no
-type-relevant file skip the typecheck entirely.
-
-The dev profile defaults to this host’s `/home/user/src/other/podium` checkout. Pass `--output`
-and render with a named instance when the host runs a separate instance; generated unit names and
-`Environment=PODIUM_INSTANCE` stay in lockstep with the packaged profile.
+The dev profile defaults to this host’s `/home/user/src/other/podium` checkout. Its service starts
+`~/.local/bin/podium`, while `PODIUM_DEV_SOURCE_ROOT` names that checkout solely as build input.
+Production units contain no publisher source root. The first source-to-installed cutover is a
+one-time supervised migration. Follow the tested
+[development-instance update and cutover guide](../../docs/updating-a-dev-instance.md);
+after that, every accepted dev release uses the ordinary verified swap, handover, health gate, and
+rollback. Pass `--output` and render with a named instance when the host runs a separate instance.

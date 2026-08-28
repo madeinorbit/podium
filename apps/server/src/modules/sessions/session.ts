@@ -20,7 +20,7 @@ import {
   type WorkState,
   WorkState as WorkStateSchema,
 } from '@podium/model'
-import type { SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
 import type { ConversationBinding, SessionRow } from '../../store'
@@ -70,6 +70,7 @@ export interface SessionInit {
   createdAt: string
   geometry: Geometry
   toDaemon: Send<ControlMessage>
+  sendInput?: Send<DaemonPtyInputBatch>
   /** The machine (daemon) this session runs on. REQUIRED: the caller has resolved a
    *  real machine before a Session object exists (POD-318), so there is no default to
    *  supply and no placeholder to adopt away from later. */
@@ -403,6 +404,7 @@ export class Session {
       agentKind: init.agentKind,
       geometry: init.geometry,
       toDaemon: init.toDaemon,
+      ...(init.sendInput ? { sendInput: init.sendInput } : {}),
       inputCount: init.inputCount,
       outputCount: init.outputCount,
       activityCount: init.activityCount,

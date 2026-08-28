@@ -1,9 +1,10 @@
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { currentSkew, resetSkewNotice } from '@/app/skew-notice'
+import { currentSkew, reportSkew, resetSkewNotice } from '@/app/skew-notice'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
 import {
+  checkServedAssets,
   checkServerVersion,
   forceReload,
   recoverFromWireSkew,
@@ -46,7 +47,7 @@ beforeEach(() => {
     keys: vi.fn().mockResolvedValue(['podium-precache', 'podium-runtime']),
     delete: cacheDelete,
   })
-  vi.stubGlobal('location', { reload })
+  vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/' })
   vi.stubGlobal('sessionStorage', {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -428,5 +429,277 @@ describe('recoverFromWireSkew', () => {
     expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 1 })).toBe('reloaded')
     expect(await recoverFromWireSkew(ORIGIN, { refusedFrames: 1 })).toBe('ignored')
     expect(reload).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * ITERATION MODE (POD-2513). A page served from source by `bun run iterate` sits
+ * in front of the INSTALLED server, so a wire mismatch is the expected state
+ * whenever the branch has touched the protocol — and no reload can resolve it,
+ * because the fresh bundle is the same source. Reloading twice and then
+ * declaring the served build stale would be two wasted reloads and a wrong
+ * diagnosis, on a page whose whole purpose is to differ.
+ */
+describe('checkServerVersion in iteration mode', () => {
+  const mismatched = () =>
+    versionResponse({ wireVersion: WIRE_VERSION + 1, minSupportedVersion: WIRE_VERSION + 1 })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetSkewNotice()
+  })
+
+  it('never reloads, and says the page is source rather than stale', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mismatched()))
+    expect(await checkServerVersion(ORIGIN, true)).toBe('iteration')
+    expect(reload).not.toHaveBeenCalled()
+    expect(currentSkew()?.message).toMatch(/iteration mode/i)
+  })
+
+  /**
+   * The common VPS case, and the one a wire-number sentence gets wrong: the
+   * installed server is simply an older commit, so both sides are on the same
+   * wire VERSION and only the schema digest differs. "wire 2 against this
+   * bundle's 2" was the first wording, seen in a real browser against the live
+   * server — it names two identical numbers and explains nothing.
+   */
+  it('names the commit difference, not the wire number, on a schema skew', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        versionResponse({
+          wireVersion: WIRE_VERSION,
+          minSupportedVersion: WIRE_VERSION,
+          wireSchemaDigest: 'a-different-build',
+        }),
+      ),
+    )
+    expect(await checkServerVersion(ORIGIN, true)).toBe('iteration')
+    const message = currentSkew()?.message ?? ''
+    expect(message).toMatch(/different commit/i)
+    expect(message).toMatch(/wire schema/i)
+    expect(message).not.toMatch(new RegExp(`wire ${WIRE_VERSION}\\b`))
+  })
+
+  it('spends no reload budget, so leaving iteration mode starts with a full one', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mismatched()))
+    await checkServerVersion(ORIGIN, true)
+    expect(store.get(COUNTER_KEY)).toBeUndefined()
+    expect(reloadBudgetSpent()).toBe(false)
+  })
+
+  it('still reports a clean match as ok — iteration mode suppresses nothing else', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        versionResponse({
+          wireVersion: WIRE_VERSION,
+          minSupportedVersion: WIRE_VERSION,
+          wireSchemaDigest: wireSchemaDigest(),
+        }),
+      ),
+    )
+    expect(await checkServerVersion(ORIGIN, true)).toBe('ok')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('reloads as usual when iteration mode is off', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mismatched()))
+    expect(await checkServerVersion(ORIGIN, false)).toBe('reloaded')
+    expect(reload).toHaveBeenCalled()
+  })
+})
+
+/**
+ * BEING TOLD, RATHER THAN FINDING OUT BY FAILING (POD-2721).
+ *
+ * This is the regression for the incident. A page was open across a server
+ * version change; the wire was byte-identical on both sides, so every existing
+ * check said "fine"; and the first thing that told the page its assets had moved
+ * was a lazy import 404 that took the whole interface down.
+ *
+ * The numbers below are the sandbox's own: one commit, `a55ec3d`, built twice —
+ * the packaged `bundle+Bw5YMffE` and the dev release `bundle+CFyX4Q_p`.
+ */
+describe('checkServedAssets', () => {
+  beforeEach(() => {
+    resetSkewNotice()
+  })
+
+  const SAME_WIRE = { wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }
+  const serving = (bundle: string) => ({
+    ...SAME_WIRE,
+    appVersion: '0.1.1-dev.1+a55ec3d',
+    sourceDigest: 'a55ec3d',
+    web: { present: true, appVersion: '0.1.1-dev.1+a55ec3d', digest: 'a55ec3d', bundle },
+  })
+
+  it('TELLS a page whose build the server has replaced', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('replaced')
+    const notice = currentSkew()
+    expect(notice?.source).toBe('assets-replaced')
+    expect(notice?.message).toMatch(/reload/i)
+  })
+
+  /**
+   * The incident produced a crash in EACH direction: a page from the old build
+   * after the update landed, and a page from the new build after the coordinator
+   * rolled back onto the old one 88 seconds later. A check that only fired when
+   * the server was NEWER would have reported the first and missed the second.
+   */
+  it('tells a page the server rolled back underneath just the same', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+Bw5YMffE'))))
+    expect(await checkServedAssets(ORIGIN, 'bundle+CFyX4Q_p')).toBe('replaced')
+    expect(currentSkew()?.source).toBe('assets-replaced')
+  })
+
+  it('fires where the wire check cannot: same wire, same commit, different bytes', async () => {
+    const body = serving('bundle+CFyX4Q_p')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(body)))
+    // The guard that exists today is satisfied, and reloads nothing.
+    expect(await checkServerVersion(ORIGIN, false)).toBe('ok')
+    expect(reload).not.toHaveBeenCalled()
+    expect(currentSkew()).toBeNull()
+    // The assets check is the one that has something to say.
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('replaced')
+    expect(currentSkew()).not.toBeNull()
+  })
+
+  it('says nothing when the page is running the build the server serves', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+Bw5YMffE'))))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('ok')
+    expect(currentSkew()).toBeNull()
+  })
+
+  /**
+   * IT NEVER RELOADS. Not on `replaced`, not on anything. The page is told and
+   * the person decides — the reload loop of POD-2608 needed an automatic action
+   * to loop, and this deliberately has none.
+   */
+  it('never reloads the page by itself, however sure it is', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')
+    expect(reload).not.toHaveBeenCalled()
+    expect(unregister).not.toHaveBeenCalled()
+  })
+
+  it('does not spend the wire guard’s reload budget', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')
+    expect(store.get(COUNTER_KEY)).toBeUndefined()
+    expect(reloadBudgetSpent()).toBe(false)
+  })
+
+  /** CAN SAY NO — each of these is an unidentifiable build, and silence is the answer. */
+  it('stays quiet when the page cannot name its own bundle', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    expect(await checkServedAssets(ORIGIN, undefined)).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('stays quiet against a server too old to report what it serves', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(SAME_WIRE)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  /**
+   * STILL QUIET, BUT NO LONGER MUTE (POD-2762).
+   *
+   * An unreachable `/version` used to answer `unknown`, which threw away the one
+   * thing it does know: the server is not there. That mattered because the
+   * caller has to choose between two opposite remedies — offer a reload because
+   * the assets moved, or wait because the server is coming back — and `unknown`
+   * cannot pick either, so a page mid-handover got the crash screen.
+   *
+   * What has NOT changed is that it says nothing to the user: no skew notice, no
+   * banner, no reload. A socket that is briefly down is not a build
+   * disagreement, and this function only reports those.
+   */
+  it('reports an unreachable server as unreachable, and still says nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unreachable')
+    expect(currentSkew()).toBeNull()
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  /**
+   * And the OTHER silence keeps its own answer. A server that answers but cannot
+   * name what it serves is `unknown` — a different situation from one that does
+   * not answer at all, and the whole point of the split is that they stop being
+   * the same word.
+   */
+  it('keeps "unknown" for a server that answers without naming a build', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(SAME_WIRE)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+  })
+
+  it('does not shout down a live severe wire notice with a milder one', async () => {
+    reportSkew({ source: 'dropped-frames', severe: true, message: 'nothing decodes' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(serving('bundle+CFyX4Q_p'))))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('replaced')
+    expect(currentSkew()?.severe).toBe(true)
+    expect(currentSkew()?.source).toBe('dropped-frames')
+  })
+})
+
+/**
+ * THE OFFER THAT COULD NEVER CLEAR, CAUGHT BEFORE IT SHIPPED.
+ *
+ * Some pages are not running the website the server they talk to is serving, and
+ * never will be: a desktop shell with a baked `tauri://` UI, an iteration-mode
+ * page served from source by Vite in front of an installed server, and any page
+ * under `/mobile`, whose Metro entry hash can never equal the Vite one. Compared
+ * against the desktop dist, every one of them is `replaced` on every poll —
+ * a banner recommending a reload that provably cannot change their assets.
+ *
+ * That is the POD-2608 failure mode reached by a new road, so it gets its own
+ * regression rather than a comment.
+ */
+describe('checkServedAssets and pages this server did not serve', () => {
+  beforeEach(() => {
+    resetSkewNotice()
+  })
+
+  const servingDesktop = {
+    wireVersion: WIRE_VERSION,
+    wireSchemaDigest: wireSchemaDigest(),
+    web: { present: true, appVersion: '0.1.1', bundle: 'bundle+CFyX4Q_p' },
+    mobileWeb: {
+      present: true,
+      appVersion: '0.1.1',
+      bundle: 'bundle+a833d1a61f7a6d85a8c7fe49922500f0',
+    },
+  }
+
+  it('stays quiet for a desktop shell running its own baked bundle', async () => {
+    vi.stubGlobal('location', { reload, origin: 'tauri://localhost', pathname: '/' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('stays quiet for an iteration-mode page served from source', async () => {
+    vi.stubGlobal('location', { reload, origin: 'http://localhost:5173', pathname: '/' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('measures a phone page against the phone export, which it matches', async () => {
+    vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/mobile/sessions' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+a833d1a61f7a6d85a8c7fe49922500f0')).toBe('ok')
+    expect(currentSkew()).toBeNull()
+  })
+
+  it('still tells a phone page when the phone export itself was replaced', async () => {
+    vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/mobile/sessions' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
+    expect(await checkServedAssets(ORIGIN, 'bundle+0000000000000000000000000000000f')).toBe(
+      'replaced',
+    )
+    expect(currentSkew()?.source).toBe('assets-replaced')
   })
 })

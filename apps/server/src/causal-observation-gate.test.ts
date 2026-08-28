@@ -22,10 +22,14 @@ describe('causal session observation gate', () => {
   it('restores one snapshot, emits only live edges, and survives restart idempotently', () => {
     const store = new SessionStore(':memory:')
     const sent: ControlMessage[] = []
-    const reg = new SessionRegistry(store, {
-      ntfy: vi.fn(),
-      telegram: vi.fn(),
-    }, { instanceId: 'default' })
+    const reg = new SessionRegistry(
+      store,
+      {
+        ntfy: vi.fn(),
+        telegram: vi.fn(),
+      },
+      { instanceId: 'default' },
+    )
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
@@ -537,7 +541,7 @@ describe('causal session observation gate', () => {
   it('rolls back resume and lease when conversation linking throws', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn())
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn<(msg: ControlMessage) => void>())
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',

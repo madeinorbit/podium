@@ -3,15 +3,29 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asSessionId } from '@podium/model'
-import { type PeerHello, type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  DaemonPtyOutputMetadata,
+  decodeBinaryEnvelope,
+  encodeBinaryEnvelope,
+  type PeerHello,
+  type PeerHelloReply,
+  WIRE_VERSION,
+} from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { readConnectivity } from '@podium/runtime/connectivity'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
+import {
+  readOrCreateUpdateSigningKey,
+  rotateUpdateSigningKey,
+} from '@podium/runtime/update-signing-key'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
-import { createDaemonConnection } from './connection-state'
 import { buildReport } from './build-report'
-import { loadIdentity } from './identity'
+import { createDaemonConnection } from './connection-state'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
+import { loadIdentity } from './identity'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
 import { createRuntimeEventOutbox } from './runtime-event-outbox'
 
@@ -44,6 +58,7 @@ function localOptions(
           reply: ok,
           machineId: MACHINE_ID,
           deliver: vi.fn(),
+          deliverOutput: vi.fn(),
           close: vi.fn(),
         }
       },
@@ -92,6 +107,7 @@ describe('daemon connection credential state machine', () => {
       { ...identity },
     )
     await state.start()
+    expect(hello?.caps).toContain(CAP_TERMINAL_OUTPUT_BINARY_V1)
     expect(hello).toMatchObject({
       type: 'peerHello',
       peerRole: 'machine',
@@ -103,12 +119,63 @@ describe('daemon connection credential state machine', () => {
     expect(hello?.build?.wireSchemaDigest).toBeTypeOf('string')
     expect(hello?.build?.installKind).toBeTypeOf('string')
     if (hello?.build?.installKind === 'source') {
-      expect(hello.caps).toContain('update.delivery.git')
+      // A source daemon offers NO delivery: it has no install directory, so a
+      // verified bundle is bytes it would have nowhere to put (spec §1).
+      expect(hello.caps).not.toContain('update.delivery.feed')
+      expect(hello.caps).toContain('shipping.train.v2')
     } else {
-      expect(hello?.caps).toEqual(
-        expect.arrayContaining(['update.delivery.feed', 'update.delivery.bundle']),
-      )
+      expect(hello?.caps).toEqual(expect.arrayContaining(['update.delivery.feed']))
     }
+    await state.close()
+  })
+
+  it('is session-only when the sibling server owns the parent update participant', async () => {
+    let hello: PeerHello | undefined
+    const build = {
+      ...buildReport(process.env, undefined),
+      installKind: 'installed' as const,
+    }
+    const state = createDaemonConnection({
+      options: localOptions((value) => (hello = value), { bootstrapToken: 'local-secret' }),
+      build,
+      reportUpdateIdentity: false,
+      machineId: MACHINE_ID,
+      identity: {},
+      receiveApplicationFrame: vi.fn(),
+      sendApplicationFrame: vi.fn(),
+      onConnected: vi.fn(),
+      onTerminal: vi.fn(),
+    })
+
+    await state.start()
+
+    expect(hello?.build).toBeUndefined()
+    expect(hello?.caps).not.toContain('update.delivery.feed')
+    expect(hello?.caps).toContain('shipping.train.v2')
+    await state.close()
+  })
+
+  it('persists the live process and boot convergence proof after authentication', async () => {
+    const options = localOptions(() => {})
+    const build = { ...buildReport(process.env, undefined), appVersion: '2.0.0' }
+    const state = createDaemonConnection({
+      options,
+      build,
+      machineId: MACHINE_ID,
+      identity: { token: 'token' },
+      receiveApplicationFrame: vi.fn(),
+      sendApplicationFrame: vi.fn(),
+      onConnected: () => ({ convergedVersion: '2.0.0' }),
+      onTerminal: vi.fn(),
+    })
+
+    await state.start()
+    expect(readConnectivity(options.identityDir as string)).toMatchObject({
+      state: 'connected',
+      processId: process.pid,
+      appVersion: '2.0.0',
+      convergedVersion: '2.0.0',
+    })
     await state.close()
   })
 
@@ -121,6 +188,7 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, updatePubkey: 'server-key-1' },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -137,11 +205,12 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, updatePubkey: 'server-key-2' },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
     const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
-    await expect(second.start()).rejects.toThrow(/server update key changed/i)
+    await expect(second.start()).rejects.toThrow(/publisher update key was replaced/i)
     expect(second.state).toBe('blocked')
     expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
   })
@@ -159,6 +228,7 @@ describe('daemon connection credential state machine', () => {
         },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -191,6 +261,7 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, updatePubkey: 'server-key-1' },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -201,6 +272,50 @@ describe('daemon connection credential state machine', () => {
     expect(state.state).toBe('connected')
     expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
     await state.close()
+  })
+
+  it('accepts a changed key only through a valid old-key-signed rotation', async () => {
+    const signingDir = temp()
+    const original = readOrCreateUpdateSigningKey(signingDir)
+    const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
+    const identityDir = firstOptions.identityDir as string
+    firstOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: { ...ok, issuedToken: 'token-1', updatePubkey: original.publicKey },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        deliverOutput: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const first = connection(firstOptions)
+    await first.start()
+    await first.close()
+
+    const rotated = rotateUpdateSigningKey(signingDir)
+    const secondOptions = localOptions(() => {}, { identityDir })
+    secondOptions.localLink = {
+      attach: () => ({
+        established: true,
+        reply: {
+          ...ok,
+          updatePubkey: rotated.publicKey,
+          updateKeyRotations: rotated.rotations,
+        },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        deliverOutput: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+
+    const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
+    await second.start()
+    expect(second.state).toBe('connected')
+    expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe(rotated.publicKey)
+    await second.close()
   })
 
   it('refuses a changed server key on ordinary reconnect', async () => {
@@ -216,6 +331,7 @@ describe('daemon connection credential state machine', () => {
         },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
@@ -231,12 +347,13 @@ describe('daemon connection credential state machine', () => {
         reply: { ...ok, updatePubkey: 'server-key-2' },
         machineId: MACHINE_ID,
         deliver: vi.fn(),
+        deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
     }
 
     const second = connection(secondOptions, loadIdentity({ dir: identityDir }))
-    await expect(second.start()).rejects.toThrow(/server update key changed/i)
+    await expect(second.start()).rejects.toThrow(/publisher update key was replaced/i)
     expect(second.state).toBe('blocked')
     expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
   })
@@ -260,18 +377,320 @@ describe('daemon connection credential state machine', () => {
 
 class FakeSocket extends EventEmitter {
   readyState = 1
-  sent: string[] = []
-  send(data: string): void {
+  sent: Array<string | Uint8Array> = []
+  closeImmediately = true
+  closeCalls = 0
+  send(data: string | Uint8Array): void {
     this.sent.push(data)
   }
   close(): void {
+    this.closeCalls += 1
+    this.readyState = 2
+    if (this.closeImmediately) this.finishClose()
+  }
+  finishClose(): void {
+    if (this.readyState === 3) return
     this.readyState = 3
     this.emit('close')
   }
   message(value: PeerHelloReply): void {
     this.emit('message', Buffer.from(JSON.stringify(value)) as RawData)
   }
+  binary(data: Uint8Array): void {
+    this.emit('message', data as RawData, true)
+  }
 }
+
+function remoteHarness() {
+  const socket = new FakeSocket()
+  const sendApplicationFrame = vi.fn()
+  const receiveApplicationFrame = vi.fn()
+  const receiveBinaryInput = vi.fn()
+  const state = createDaemonConnection({
+    options: { serverUrl: 'ws://server', identityDir: temp() },
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: { token: 'token' },
+    receiveApplicationFrame,
+    receiveBinaryInput,
+    sendApplicationFrame,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+    openSocket: () => socket,
+  })
+  return { socket, sendApplicationFrame, receiveApplicationFrame, receiveBinaryInput, state }
+}
+
+it('drops typed output while the daemon connection is disconnected', async () => {
+  const h = remoteHarness()
+  h.state.sendOutput({
+    sessionId: asSessionId('session-a'),
+    sourceFrames: 1,
+    bytes: Uint8Array.from([0xff]),
+  })
+  expect(h.sendApplicationFrame).not.toHaveBeenCalled()
+  await h.state.close()
+})
+
+it('converts remote typed output to one legacy payload without changing JSON sends', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message(ok)
+  await started
+
+  const outputBytes = Uint8Array.from([0x00, 0xff, 0x80])
+  h.state.sendOutput({
+    sessionId: asSessionId('session-a'),
+    sourceFrames: 3,
+    bytes: outputBytes,
+  })
+  expect(h.sendApplicationFrame).toHaveBeenNthCalledWith(1, h.socket, {
+    type: 'agentFrameBatch',
+    sessionId: 'session-a',
+    frames: ['AP+A', '', ''],
+  })
+
+  const diagnostic = {
+    type: 'machineDiagnostic',
+    code: 'still-json',
+    title: 'Still JSON',
+    body: 'The ordinary sender stays unchanged.',
+  } as const
+  h.state.send(diagnostic)
+  expect(h.sendApplicationFrame).toHaveBeenNthCalledWith(2, h.socket, diagnostic)
+  expect(h.sendApplicationFrame.mock.calls[1]![1]).toBe(diagnostic)
+
+  expect(() =>
+    h.state.sendOutput({
+      sessionId: asSessionId('session-a'),
+      sourceFrames: 0,
+      bytes: new Uint8Array(),
+    }),
+  ).toThrow(/sourceFrames in/)
+  expect(() =>
+    h.state.sendOutput({
+      sessionId: asSessionId('session-a'),
+      sourceFrames: Number.MAX_SAFE_INTEGER,
+      bytes: new Uint8Array(),
+    }),
+  ).toThrow(/sourceFrames in/)
+  await h.state.close()
+})
+
+it('sends exact binary output only when the remote handshake accepts it', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({
+    ...ok,
+    caps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
+  })
+  await started
+
+  const bytes = Uint8Array.of(0x00, 0xff, 0xe2, 0x82, 0x1b)
+  h.state.sendOutput({
+    sessionId: asSessionId('session-binary'),
+    sourceFrames: 4,
+    bytes,
+  })
+
+  const frame = h.socket.sent[1]
+  expect(frame).toBeInstanceOf(Uint8Array)
+  const decoded = decodeBinaryEnvelope(frame as Uint8Array, DaemonPtyOutputMetadata)
+  expect(decoded.metadata).toMatchObject({
+    sessionId: 'session-binary',
+    sourceFrames: 4,
+  })
+  expect(decoded.payload).toEqual(bytes)
+  expect(h.sendApplicationFrame).not.toHaveBeenCalled()
+  await h.state.close()
+})
+it('receives exact binary PTY input only when the remote handshake accepts it', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({
+    ...ok,
+    caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+  })
+  await started
+
+  const bytes = Uint8Array.of(0x00, 0xff, 0xc3, 0x28, 0x1b)
+  const frame = encodeBinaryEnvelope(
+    { v: 1, type: 'ptyInput', sessionId: asSessionId('session-binary'), inputOrigin: 'human' },
+    bytes,
+  )
+  h.socket.binary(frame)
+
+  expect(h.receiveBinaryInput).toHaveBeenCalledTimes(1)
+  expect(h.receiveBinaryInput.mock.calls[0]?.[0]).toMatchObject({
+    sessionId: 'session-binary',
+    inputOrigin: 'human',
+  })
+  expect(h.receiveBinaryInput.mock.calls[0]?.[1]).toEqual(bytes)
+  await h.state.close()
+})
+
+it('closes only the connection for unnegotiated binary PTY input', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({ ...ok, caps: [] })
+  await started
+  const frame = encodeBinaryEnvelope(
+    { v: 1, type: 'ptyInput', sessionId: asSessionId('session-binary'), inputOrigin: 'human' },
+    Uint8Array.of(0x61),
+  )
+  h.socket.binary(frame)
+  expect(h.socket.readyState).toBe(3)
+  expect(h.receiveBinaryInput).not.toHaveBeenCalled()
+})
+
+it('closes only the connection for malformed negotiated binary PTY input', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({
+    ...ok,
+    caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+  })
+  await started
+  h.socket.binary(Uint8Array.of(0, 0, 0))
+  expect(h.socket.readyState).toBe(3)
+  expect(h.receiveBinaryInput).not.toHaveBeenCalled()
+})
+
+it('ignores every later frame while an invalid binary socket is closing', async () => {
+  const h = remoteHarness()
+  h.socket.closeImmediately = false
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({
+    ...ok,
+    caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+  })
+  await started
+
+  h.socket.binary(Uint8Array.of(0, 0, 0))
+  expect(h.socket.readyState).toBe(2)
+  expect(h.socket.closeCalls).toBe(1)
+
+  const valid = encodeBinaryEnvelope(
+    { v: 1, type: 'ptyInput', sessionId: asSessionId('late'), inputOrigin: 'human' },
+    Uint8Array.of(0x61),
+  )
+  h.socket.binary(valid)
+  h.socket.emit(
+    'message',
+    Buffer.from(JSON.stringify({ type: 'redraw', sessionId: asSessionId('late') })) as RawData,
+    false,
+  )
+  h.state.send({ type: 'machineDiagnostic', code: 'late', title: 'late', body: 'late' })
+
+  expect(h.socket.closeCalls).toBe(1)
+  expect(h.receiveBinaryInput).not.toHaveBeenCalled()
+  expect(h.receiveApplicationFrame).not.toHaveBeenCalled()
+  expect(h.sendApplicationFrame).not.toHaveBeenCalled()
+  h.socket.finishClose()
+})
+it('clears accepted binary selection before a reconnect handshake', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket()]
+  let socketIndex = 0
+  let retry: (() => void) | undefined
+  const sendApplicationFrame = vi.fn()
+  const state = createDaemonConnection({
+    options: {
+      serverUrl: 'ws://server',
+      identityDir: temp(),
+      reconnectTimers: {
+        setTimeout: (fn) => {
+          retry = fn
+          return fn
+        },
+        clearTimeout: vi.fn(),
+      },
+    },
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: { token: 'token' },
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+    openSocket: () => sockets[socketIndex++] as FakeSocket,
+  })
+
+  const started = state.start()
+  sockets[0]!.emit('open')
+  sockets[0]!.message({ ...ok, caps: [CAP_TERMINAL_OUTPUT_BINARY_V1] })
+  await started
+  state.sendOutput({
+    sessionId: asSessionId('before-reconnect'),
+    sourceFrames: 1,
+    bytes: Uint8Array.of(0xff),
+  })
+  expect(sockets[0]!.sent[1]).toBeInstanceOf(Uint8Array)
+
+  sockets[0]!.emit('close')
+  retry?.()
+  sockets[1]!.emit('open')
+  sockets[1]!.message(ok)
+  state.sendOutput({
+    sessionId: asSessionId('after-reconnect'),
+    sourceFrames: 2,
+    bytes: Uint8Array.of(0x00, 0xff),
+  })
+  expect(sendApplicationFrame).toHaveBeenCalledWith(sockets[1], {
+    type: 'agentFrameBatch',
+    sessionId: 'after-reconnect',
+    frames: ['AP8=', ''],
+  })
+  expect(sockets[1]!.sent).toHaveLength(1)
+  await state.close()
+})
+
+it('delivers local typed output by reference without changing JSON sends', async () => {
+  const deliver = vi.fn()
+  const deliverOutput = vi.fn()
+  const options = localOptions(() => {}, { bootstrapToken: 'local-secret' })
+  options.localLink = {
+    attach: () => ({
+      established: true,
+      reply: ok,
+      machineId: MACHINE_ID,
+      deliver,
+      deliverOutput,
+      close: vi.fn(),
+    }),
+  }
+  const state = connection(options)
+  await state.start()
+
+  const bytes = Uint8Array.from([0x00, 0xff, 0x80])
+  const batch = {
+    sessionId: asSessionId('session-local'),
+    sourceFrames: 2,
+    bytes,
+  }
+  state.sendOutput(batch)
+  expect(deliverOutput).toHaveBeenCalledWith(batch)
+  expect(deliverOutput.mock.calls[0]![0]).toBe(batch)
+  expect(deliverOutput.mock.calls[0]![0].bytes).toBe(bytes)
+  expect(deliver).not.toHaveBeenCalled()
+
+  const diagnostic = {
+    type: 'machineDiagnostic',
+    code: 'local-json',
+    title: 'Local JSON',
+    body: 'The ordinary local sender stays unchanged.',
+  } as const
+  state.send(diagnostic)
+  expect(deliver).toHaveBeenCalledWith(diagnostic)
+  expect(deliver.mock.calls[0]![0]).toBe(diagnostic)
+  expect(deliverOutput).toHaveBeenCalledTimes(1)
+  await state.close()
+})
 
 it('reports transport loss as backoff and schedules a retry', async () => {
   const socket = new FakeSocket()
@@ -349,8 +768,8 @@ it('keeps the daemon boot identity when the live source changes before reconnect
     retry?.()
     sockets[1]?.emit('open')
 
-    const firstHello = JSON.parse(sockets[0]?.sent[0] ?? '{}') as PeerHello
-    const secondHello = JSON.parse(sockets[1]?.sent[0] ?? '{}') as PeerHello
+    const firstHello = JSON.parse(String(sockets[0]?.sent[0] ?? '{}')) as PeerHello
+    const secondHello = JSON.parse(String(sockets[1]?.sent[0] ?? '{}')) as PeerHello
     expect(firstHello.build?.appVersion).toBe('dev+aaaaaaa')
     expect(secondHello.build?.appVersion).toBe('dev+aaaaaaa')
   } finally {

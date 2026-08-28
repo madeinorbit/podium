@@ -31,6 +31,7 @@ import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
+import { sameWorktreePath } from './worktree-safety'
 
 /**
  * Board-organization fields only — pin / drag-reorder. These must not bump
@@ -842,6 +843,18 @@ export class IssueCrudModule {
     if ((input as { stage?: string }).stage === 'shipping') {
       throw new Error('shipping stage is system-owned and requires a ship order')
     }
+    // Same gate as `update` below, at the other door an issue can be homed
+    // through (`podium issue create --machine`, the new-issue dialog):
+    // POD-2700 §2.5 lists issue homing as an enforcement site, and refusing only
+    // one of the two entry points is how a guard becomes decorative.
+    if (input.machineId != null) this.store.d.requireIssueHomeMachine?.(input.machineId)
+    // Server-minted ids are unique by construction; a client-minted optimistic
+    // insert is not. Refuse it before allocating a sequence or touching storage:
+    // IssuesRepository upserts by id for ordinary updates, so allowing create to
+    // reach that seam would turn an additive command into an overwrite.
+    if (input.id && this.store.deps.store.issues.getIssue(input.id) !== null) {
+      throw new Error(`refusing to reuse an existing issue id: ${input.id}`)
+    }
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
     const repoId = this.store.deps.store.repos.resolveRepoIdForPath(input.repoPath)
@@ -1006,6 +1019,26 @@ export class IssueCrudModule {
     // is exactly how one person's pin became the issue's. It is split out first so
     // both branches below are assigning shared-row fields only.
     const { pinned: pinnedPatch, ...rowPatch } = patch
+    // HOMING AN ISSUE IS A MACHINE CHOICE (POD-2700 §2.5). The issue's machine
+    // is where its worktree lives and where its agents run, so a machine that
+    // runs no daemon can never be its home — refuse the property rather than
+    // letting the pin sit there and dead-end every later action on it. Only when
+    // the patch actually MOVES the pin: clearing it (`null`) and updates that do
+    // not mention it are untouched.
+    if (rowPatch.machineId != null && rowPatch.machineId !== row.machineId) {
+      this.store.d.requireIssueHomeMachine?.(rowPatch.machineId)
+    }
+    if (
+      rowPatch.worktreePath &&
+      this.store.d.store.repos
+        .listRepos(rowPatch.machineId ?? row.machineId ?? undefined)
+        .some((repo) => sameWorktreePath(repo.path, rowPatch.worktreePath as string))
+    ) {
+      throw new Error(
+        `refusing worktree path ${rowPatch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
+      )
+    }
+
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
       const prevPinnedAt = this.store.issueUserState(row.id)?.pinnedAt ?? null
@@ -1023,12 +1056,11 @@ export class IssueCrudModule {
     } else {
       Object.assign(row, rowPatch)
     }
-    // `update` is also the adoption seam for worktrees reported by a harness or
-    // supplied by an operator. A checkout without an explicit remote placement is
-    // on this host; never persist that fact as NULL, which clients cannot place in
-    // a multi-machine fleet.
-    if (row.worktreePath !== null && row.machineId === null) {
-      row.machineId = this.store.d.store.hostMachineId
+    // `update` is also an adoption seam for worktrees reported by a harness or
+    // supplied by an operator. Only a patch that actually supplies a worktree can
+    // establish placement; unrelated updates must not guess for historical NULL rows.
+    if ('worktreePath' in rowPatch && row.worktreePath !== null && row.machineId === null) {
+      row.machineId = this.store.resolveWorktreeMachine(undefined, row.worktreePath)
     }
     // parentBranch is an INPUT to derived gitState. Mutating it without
     // re-probing leaves the old snapshot (computed against the old base)
@@ -1469,8 +1501,30 @@ export class IssueCrudModule {
     return wire
   }
 
-  claim(id: string, assignee: UserId): IssueWire {
-    return this.update(id, { assignee, stage: 'in_progress' })
+  /** Fill an empty coordinator seat from a real issue member. Automatic callers
+   * use onlyMember so the first agent establishes the default without guessing
+   * among an existing team; an explicit issue claim may name its bound caller.
+   * Existing values — including intentional handoffs and dangling historical
+   * ids — are never replaced here. */
+  ensureCoordinator(id: string, sessionId: SessionId, opts?: { onlyMember?: boolean }): IssueWire {
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    if (row.coordinatorSessionId) return this.store.toWire(row)
+    const eligible = this.store
+      .sessionsFor(row)
+      .filter(
+        (session) =>
+          session.agentKind !== 'shell' && !session.archived && session.status !== 'exited',
+      )
+    const candidate = eligible.find((session) => session.sessionId === sessionId)
+    if (!candidate || (opts?.onlyMember && eligible.length !== 1)) {
+      return this.store.toWire(row)
+    }
+    return this.update(row.id, { coordinatorSessionId: candidate.sessionId })
+  }
+
+  claim(id: string, assignee: UserId, opts?: { actorSessionId?: SessionId }): IssueWire {
+    const claimed = this.update(id, { assignee, stage: 'in_progress' }, opts)
+    return opts?.actorSessionId ? this.ensureCoordinator(claimed.id, opts.actorSessionId) : claimed
   }
 
   /** Claim / set / clear the issue's designated coordinator session

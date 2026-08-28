@@ -26,6 +26,7 @@ function fakeSession(): AgentSession & { resizes: Array<[number, number]> } {
     onTitle: () => () => {},
     onExit: () => () => {},
     write: () => {},
+    writeBytes: () => {},
     resize: (cols, rows) => {
       resizes.push([cols, rows])
     },

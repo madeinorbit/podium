@@ -1,6 +1,5 @@
 import { fileURLToPath } from 'node:url'
 import type { PtyBackend } from '../../src/backends/index'
-import { resolveNodeExecutable } from '../../src/backends/resolve-node-executable.js'
 import { type AgentSession, spawnAgent } from '../../src/session'
 
 const FIX = (name: string): string => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url))
@@ -19,14 +18,14 @@ export interface TestPrimitives {
 function textOf(s: AgentSession): { raw: () => string; stripped: () => string } {
   let buf = ''
   s.onFrame((f) => {
-    buf += Buffer.from(f.data, 'base64').toString('utf8')
+    buf += Buffer.from(f.data).toString('utf8')
   })
   return { raw: () => buf, stripped: () => buf.replace(ANSI, '') }
 }
 function bytesOf(s: AgentSession): () => Buffer {
   const chunks: Buffer[] = []
   s.onFrame((f) => {
-    chunks.push(Buffer.from(f.data, 'base64'))
+    chunks.push(Buffer.from(f.data))
   })
   return () => Buffer.concat(chunks)
 }
@@ -49,7 +48,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
 
   describe(`pty behavior [${makeBackend().name}]`, () => {
     it('1: emits an initial frame with the PTY geometry', async () => {
-      const s = spawn('node', [FIX('fixture-tui.mjs')])
+      const s = spawn(process.execPath, [FIX('fixture-tui.mjs')])
       try {
         const c = textOf(s)
         await waitFor(() => c.raw().includes('cols=80 rows=24'))
@@ -61,7 +60,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 15000)
 
     it('2a: write byte-fidelity round-trips arbitrary bytes', async () => {
-      const s = spawn('node', [FIX('stdin-hex.mjs')])
+      const s = spawn(process.execPath, [FIX('stdin-hex.mjs')])
       try {
         const c = textOf(s)
         const cases: number[][] = [
@@ -89,8 +88,8 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
       // Under bun --bun, bare `node` is a Bun shim — resolve a real Node binary.
       const s = spawnAgent(
         {
-          cmd: resolveNodeExecutable(),
-          args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'raw'],
+          cmd: process.execPath,
+          args: [KEYECHO_CLI, '--mode', 'raw'],
           cols: 100,
           rows: 30,
           cwd: KEYECHO_DIR,
@@ -109,7 +108,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 25000)
 
     it('3: output is byte-exact across chunking (large blob)', async () => {
-      const s = spawn('node', [FIX('fixture-blob.mjs')])
+      const s = spawn(process.execPath, [FIX('fixture-blob.mjs')])
       try {
         const all = bytesOf(s)
         const START = Buffer.from('BLOB-START|')
@@ -134,7 +133,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 20000)
 
     it('4: reassembles a multi-byte OSC title split across reads', async () => {
-      const s = spawn('node', [FIX('fixture-title-split.mjs')])
+      const s = spawn(process.execPath, [FIX('fixture-title-split.mjs')])
       try {
         let got: string | undefined
         s.onTitle((tt) => {
@@ -148,7 +147,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 15000)
 
     it('5: parses an OSC title (BEL form) and dedups repeats', async () => {
-      const s = spawn('node', [FIX('echo-title.mjs')])
+      const s = spawn(process.execPath, [FIX('echo-title.mjs')])
       try {
         const titles: string[] = []
         s.onTitle((tt) => titles.push(tt))
@@ -160,7 +159,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 15000)
 
     it('6: resize delivers new geometry to the child', async () => {
-      const s = spawn('node', [FIX('fixture-tui.mjs')])
+      const s = spawn(process.execPath, [FIX('fixture-tui.mjs')])
       try {
         const c = textOf(s)
         await waitFor(() => c.raw().includes('cols=80 rows=24'))
@@ -173,7 +172,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 15000)
 
     it('7: redraw() forces a repaint at unchanged geometry', async () => {
-      const s = spawn('node', [FIX('fixture-tui.mjs')])
+      const s = spawn(process.execPath, [FIX('fixture-tui.mjs')])
       try {
         const c = textOf(s)
         await waitFor(() => c.raw().includes('last-input='))
@@ -188,7 +187,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 15000)
 
     it('8: emits exit code 0 on clean child exit', async () => {
-      const s = spawn('node', [FIX('fixture-tui.mjs')])
+      const s = spawn(process.execPath, [FIX('fixture-tui.mjs')])
       try {
         let code: number | undefined
         s.onExit((cc) => {
@@ -205,7 +204,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 15000)
 
     it('9: advertises TERM + COLORTERM to the child', async () => {
-      const s = spawn('node', [
+      const s = spawn(process.execPath, [
         '-e',
         // biome-ignore lint/suspicious/noTemplateCurlyInString: literal node -e source, not a JS template
         'process.stdout.write(`T=${process.env.TERM};C=${process.env.COLORTERM}`)',
@@ -221,7 +220,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 15000)
 
     it('10: assigns monotonically increasing frame seq', async () => {
-      const s = spawn('node', [FIX('fixture-tui.mjs')])
+      const s = spawn(process.execPath, [FIX('fixture-tui.mjs')])
       try {
         const seqs: number[] = []
         s.onFrame((f) => seqs.push(f.seq))
@@ -236,7 +235,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     }, 15000)
 
     it('11: dispose stops frames and kills the child', async () => {
-      const s = spawn('node', [FIX('fixture-tui.mjs')])
+      const s = spawn(process.execPath, [FIX('fixture-tui.mjs')])
       const c = textOf(s)
       await waitFor(() => c.raw().includes('PODIUM-FIXTURE'))
       const pid = s.pid

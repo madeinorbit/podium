@@ -8,7 +8,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import type { SessionOpenUrlMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createBrowserOpenManager, deriveCallbackTarget } from './browser-open'
+import { createBrowserOpenManager, deriveCallbackTarget, executeLoopbackGet } from './browser-open'
 import { browserOpenEnv } from './control/session'
 
 const dirs: string[] = []
@@ -17,6 +17,31 @@ afterEach(() => {
 })
 
 describe('browser-open callback capability', () => {
+  it('reaches a localhost callback listener bound to IPv6', async () => {
+    const paths: string[] = []
+    const server = createServer((request, response) => {
+      paths.push(request.url ?? '')
+      response.writeHead(200).end('ok')
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '::1', resolve)
+    })
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('callback server has no port')
+
+    try {
+      await expect(
+        executeLoopbackGet(
+          new URL(`http://localhost:${(address as AddressInfo).port}/oauth/callback?code=x`),
+        ),
+      ).resolves.toBe(200)
+      expect(paths).toEqual(['/oauth/callback?code=x'])
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
   it('derives only an explicit loopback redirect target', () => {
     const auth = new URL(
       'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback',

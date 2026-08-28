@@ -1,8 +1,9 @@
 /**
  * Render systemd files from the source-of-truth functions in cli-systemd.ts.
  *
- * Dev profile (the default) writes the source-based dev-host units under scripts/systemd and
- * refreshes the generated health probe beside them. Packaged profile writes the units that belong
+ * Dev profile (the default) writes installed dev-host units under scripts/systemd; an explicit
+ * publisher checkout points those services back at this tree. It also refreshes the generated
+ * health probe beside the units. Packaged profile writes the units that belong
  * in a headless release bundle; scripts/build-bun.ts uses the same API for the actual artifact.
  * Named instances use the same renderer and get instance-scoped unit names and environment.
  *

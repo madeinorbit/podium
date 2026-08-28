@@ -10,7 +10,7 @@ export function collect(session: AgentSession): Collector {
   let buffer = ''
   const seqs: number[] = []
   session.onFrame((f) => {
-    buffer += Buffer.from(f.data, 'base64').toString('utf8')
+    buffer += Buffer.from(f.data).toString('utf8')
     seqs.push(f.seq)
   })
   return {

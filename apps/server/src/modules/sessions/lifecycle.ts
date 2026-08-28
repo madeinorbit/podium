@@ -49,14 +49,14 @@ import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type {
+  DaemonPtyInputBatch,
+  DaemonPtyOutputBatch,
   InteractionEvent,
   MachinePrincipal,
   PendingInteraction,
   Principal,
 } from '@podium/protocol'
-import type {
-  TurnEvent,
-} from '@podium/protocol/daemon'
+import type { TurnEvent } from '@podium/protocol/daemon'
 import {
   type AgentInstruction,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -72,10 +72,7 @@ import {
   type SubscriptionRegistry,
   type SyncChangesSinceResult,
 } from '@podium/protocol'
-import {
-  type TurnReceipt,
-} from '@podium/protocol/daemon'
-import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
+import type { ControlMessage, DaemonMessage, TurnReceipt } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -228,6 +225,8 @@ export class SessionLifecycle {
   private readonly toMachine = (machineId: MachineId, msg: ControlMessage): void =>
     this.machines.toMachine(machineId, msg)
   private readonly rpc!: DaemonRpcService
+  private readonly toPtyInput = (machineId: MachineId, input: DaemonPtyInputBatch): void =>
+    this.machines.toPtyInput(machineId, input)
   readonly headless!: HeadlessService
   /** Durable viewer/shared-surface state, isolated behind explicit ports. */
   readonly state!: SessionStateService
@@ -758,8 +757,14 @@ export class SessionLifecycle {
   onSessionClientFrame(...args: any[]): void {
     ;(this.sessionClientPlane as any).onSessionClientFrame(...args)
   }
+  onSessionClientInput(...args: any[]): void {
+    ;(this.sessionClientPlane as any).onSessionClientInput(...args)
+  }
   onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
     this.daemonLifecycle.handle(principal, msg)
+  }
+  onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
+    this.daemonLifecycle.handleOutput(principal, batch)
   }
   transcriptFor(...args: any[]): any {
     return (this.sessionMetaOps as any).transcriptFor(...args)

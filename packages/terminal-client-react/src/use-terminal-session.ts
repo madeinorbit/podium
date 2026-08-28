@@ -1,8 +1,39 @@
 import type { ConnectionState, SocketHub } from '@podium/client-core/socket-transport'
 import type { SessionId } from '@podium/model'
-import { type MountedSession, mountSession, type TerminalAppearance } from '@podium/terminal-client'
+import type { TerminalAppearance } from '@podium/terminal-client/appearance'
+import type { MountedSession } from '@podium/terminal-client/session-mount'
 import type { RefObject } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { nativePromise } from './native-promise'
+
+type TerminalRuntime = typeof import('@podium/terminal-client/session-mount')
+
+let terminalRuntimePromise: Promise<TerminalRuntime> | undefined
+
+// Chunk fetches can fail while a deploy replaces assets or a connection drops.
+// Keep the initial shell deferred, but give the live mount two chances to recover.
+const TERMINAL_RUNTIME_RETRY_DELAYS_MS = [250, 1_000] as const
+
+function loadTerminalRuntime(): Promise<TerminalRuntime> {
+  // Metro implements split imports with a standards-compatible thenable, but
+  // that object is not a native Promise and has no `.catch()`. Normalize it at
+  // the boundary before the shared retry/cache logic uses Promise methods.
+  // Vite returns a native Promise here, so this stays a no-op on desktop.
+  terminalRuntimePromise ??= nativePromise(import('@podium/terminal-client/session-mount')).catch(
+    (cause) => {
+      terminalRuntimePromise = undefined
+      throw cause
+    },
+  )
+  return terminalRuntimePromise
+}
+
+/** Start the renderer chunk on terminal intent without mounting or attaching a PTY. */
+export function preloadTerminalRuntime(): void {
+  void loadTerminalRuntime().catch((cause) => {
+    console.error('Could not load the terminal renderer', cause)
+  })
+}
 
 export interface UseTerminalSessionOptions {
   /** The hub this session attaches through. Null/undefined → nothing mounts (a
@@ -147,34 +178,70 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
     // Optimistic until the attach reports the session's durable output counter:
     // a mount that never gets that far must not accuse the PTY of silence.
     setOutputSeen(true)
-    const mounted = mountSession(el, {
-      hub,
-      sessionId,
-      active: activeRef.current,
-      ...(appearanceRef.current ? { appearance: appearanceRef.current } : {}),
-      ...(gridModeRef.current ? { gridMode: gridModeRef.current } : {}),
-      ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
-      ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
-      ...(testRef.current ? { test: true } : {}),
-      ...(echoLatencyEnabledRef.current ? { echoLatencyEnabled: true } : {}),
-      ...(focusOnMountRef.current !== undefined ? { focusOnMount: focusOnMountRef.current } : {}),
-      ...(readyTimeoutMsRef.current !== undefined
-        ? { readyTimeoutMs: readyTimeoutMsRef.current }
-        : {}),
-      onReady: () => setReady(true),
-      onFrame: () => onFrameRef.current?.(),
-      onState: (state) => {
-        setOutputSeen(state.outputSeen)
-        onStateRef.current?.(state)
-      },
-    })
-    mountedRef.current = mounted
-    const offScroll = mounted.view.onScroll(() => setAtBottom(mounted.view.atBottom()))
-    const cleanupMounted = onMountedRef.current?.(mounted)
+    let cancelled = false
+    let mounted: MountedSession | null = null
+    let offScroll: (() => void) | undefined
+    let cleanupMounted: (() => void) | undefined
+    let runtimeRetryTimer: ReturnType<typeof setTimeout> | undefined
+    let runtimeRetryCount = 0
+
+    const mount = (): void => {
+      void loadTerminalRuntime().then(
+        ({ mountSession }) => {
+          if (cancelled) return
+          try {
+            const nextMounted = mountSession(el, {
+              hub,
+              sessionId,
+              active: activeRef.current,
+              ...(appearanceRef.current ? { appearance: appearanceRef.current } : {}),
+              ...(gridModeRef.current ? { gridMode: gridModeRef.current } : {}),
+              ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
+              ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
+              ...(testRef.current ? { test: true } : {}),
+              ...(echoLatencyEnabledRef.current ? { echoLatencyEnabled: true } : {}),
+              ...(focusOnMountRef.current !== undefined
+                ? { focusOnMount: focusOnMountRef.current }
+                : {}),
+              ...(readyTimeoutMsRef.current !== undefined
+                ? { readyTimeoutMs: readyTimeoutMsRef.current }
+                : {}),
+              onReady: () => setReady(true),
+              onFrame: () => onFrameRef.current?.(),
+              onState: (state) => {
+                setOutputSeen(state.outputSeen)
+                onStateRef.current?.(state)
+              },
+            })
+            mounted = nextMounted
+            mountedRef.current = nextMounted
+            offScroll = nextMounted.view.onScroll(() => setAtBottom(nextMounted.view.atBottom()))
+            const cleanup = onMountedRef.current?.(nextMounted)
+            cleanupMounted = typeof cleanup === 'function' ? cleanup : undefined
+          } catch (cause) {
+            console.error('Could not mount the terminal renderer', cause)
+          }
+        },
+        (cause) => {
+          if (cancelled) return
+          const retryDelay = TERMINAL_RUNTIME_RETRY_DELAYS_MS[runtimeRetryCount]
+          if (retryDelay === undefined) {
+            console.error('Could not load the terminal renderer after 3 attempts', cause)
+            return
+          }
+          runtimeRetryCount += 1
+          runtimeRetryTimer = setTimeout(mount, retryDelay)
+        },
+      )
+    }
+
+    mount()
     return () => {
+      cancelled = true
+      if (runtimeRetryTimer !== undefined) clearTimeout(runtimeRetryTimer)
       cleanupMounted?.()
-      offScroll()
-      mounted.dispose()
+      offScroll?.()
+      mounted?.dispose()
       mountedRef.current = null
     }
   }, [hub, sessionId, enabled])

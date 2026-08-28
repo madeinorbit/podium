@@ -52,6 +52,7 @@ if (problems.length) {
   process.exit(1)
 }
 
+const extra = rendered.healthProbe ? 1 : 0
 console.log(
-  `systemd-diff: ${Object.keys(rendered.units).length + 1} generated dev-host files match`,
+  `systemd-diff: ${Object.keys(rendered.units).length + extra} generated dev-host files match`,
 )

@@ -4,14 +4,14 @@ import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type APIRequestContext, expect, test } from '@playwright/test'
 import { harnessEnv } from '../harness-env'
-import { newSession, openApp, RELAY } from './_harness'
-
-test.skip(({ isMobile }) => isMobile, 'desktop compact-reference surfaces')
+import { gotoWorkspace, newSession, openApp, RELAY } from './_harness'
 
 const HTTP = RELAY.replace(/^ws/, 'http')
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url)).replace(/\/$/, '')
 const BUCKET = join(homedir(), '.claude', 'projects', REPO_ROOT.replace(/[^a-zA-Z0-9]/g, '-'))
 const HOOKS_DIR = join(harnessEnv(Number(process.env.PORT ?? 8799)).stateDir, 'hooks')
+
+test.describe.configure({ timeout: 180_000 })
 
 async function rpc<T>(
   request: APIRequestContext,
@@ -28,7 +28,10 @@ async function rpc<T>(
   return body.result?.data as T
 }
 
-async function bindTranscript(sessionId: string, transcriptPath: string): Promise<void> {
+async function bindTranscript(
+  sessionId: string,
+  transcriptPath: string,
+): Promise<{ hookUrl: string; binding: Record<string, string> }> {
   let baseUrl: string | undefined
   await expect
     .poll(async () => {
@@ -42,16 +45,20 @@ async function bindTranscript(sessionId: string, transcriptPath: string): Promis
     .toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\//)
   const hookUrl = baseUrl?.replace(/\/hooks\/[^/]+$/, `/hooks/${sessionId}`)
   if (!hookUrl) throw new Error('hook endpoint unavailable')
+  const binding = {
+    session_id: basename(transcriptPath, '.jsonl'),
+    transcript_path: transcriptPath,
+    cwd: REPO_ROOT,
+  }
   const response = await fetch(hookUrl, {
     method: 'POST',
     body: JSON.stringify({
       hook_event_name: 'SessionStart',
-      session_id: basename(transcriptPath, '.jsonl'),
-      transcript_path: transcriptPath,
-      cwd: REPO_ROOT,
+      ...binding,
     }),
   })
   expect(response.ok).toBe(true)
+  return { hookUrl, binding }
 }
 
 /** The daemon publishes harness inventory after server boot. Starting a session
@@ -78,7 +85,12 @@ test.afterEach(async () => {
   await rm(BUCKET, { recursive: true, force: true }).catch(() => {})
 })
 
-test('Tray and command palette use the live issue-reference glyph', async ({ page, request }) => {
+test('Tray and command palette use the live issue-reference glyph', async ({
+  page,
+  request,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'desktop compact-reference surfaces')
   const repos = await request.get(`${HTTP}/trpc/repos.list`)
   const repoPath = ((await repos.json()) as { result?: { data?: string[] } }).result?.data?.[0]
   if (!repoPath) throw new Error('harness registered no repo')
@@ -134,7 +146,11 @@ test('Tray and command palette use the live issue-reference glyph', async ({ pag
   ).toBeVisible()
 })
 
-test('chat issue references remain stable across issue updates', async ({ page, request }) => {
+test('chat issue references remain stable across issue updates', async ({
+  page,
+  request,
+  isMobile,
+}) => {
   const repos = await request.get(`${HTTP}/trpc/repos.list`)
   const repoPath = ((await repos.json()) as { result?: { data?: string[] } }).result?.data?.[0]
   if (!repoPath) throw new Error('harness registered no repo')
@@ -165,7 +181,12 @@ test('chat issue references remain stable across issue updates', async ({ page, 
       message: {
         role: 'assistant',
         stop_reason: 'end_turn',
-        content: [{ type: 'text', text: `${issue.displayRef} is ready for review` }],
+        content: [
+          {
+            type: 'text',
+            text: `${Array.from({ length: 60 }, (_, index) => `Stable transcript line ${index}`).join('\n\n')}\n\n${issue.displayRef} is ready for review`,
+          },
+        ],
       },
     }),
   ]
@@ -173,25 +194,54 @@ test('chat issue references remain stable across issue updates', async ({ page, 
   await writeFile(transcriptPath, `${transcript.join('\n')}\n`, 'utf8')
 
   await page.setViewportSize({ width: 1280, height: 900 })
-  await openApp(page)
+  if (isMobile) {
+    // The WebKit project carries a phone UA, which normally redirects to the
+    // separate Expo app. Keep this web-transcript boundary on the web surface.
+    await page.addInitScript(() => localStorage.setItem('podium.panelModeDefault', 'native'))
+    await page.goto(`/?server=${RELAY}&e2e=1&desktop=1`)
+    await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+      timeout: 45_000,
+    })
+    await gotoWorkspace(page)
+  } else {
+    await openApp(page)
+  }
   await newSession(page, 'Claude')
   const sessionId = await page
     .locator('div[data-session].absolute:visible')
     .first()
     .getAttribute('data-session')
   if (!sessionId) throw new Error('active harness session missing')
-  await bindTranscript(sessionId, transcriptPath)
+  const hook = await bindTranscript(sessionId, transcriptPath)
 
   await page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true').click()
   const chatRef = page
-    .locator(`.chat-md:visible a.ref-link--issue[data-ref="${issue.displayRef}"]`)
-    .first()
+    .locator(
+      `[data-feed-scroller]:visible .transcript-row a.ref-link--issue[data-ref="${issue.displayRef}"]`,
+    )
+    .last()
   await expect(chatRef).toBeVisible({ timeout: 20_000 })
-  await expect(chatRef).not.toHaveAttribute('data-issue-stage')
+  await expect(chatRef).toHaveAttribute('data-issue-stage', 'review')
+  await expect(chatRef).toHaveAttribute('data-issue-availability', 'present')
+  await expect(chatRef).toHaveAttribute('aria-label', `Review task ${issue.displayRef}: ${title}`)
   const original = await chatRef.elementHandle()
   if (!original) throw new Error('chat reference did not mount')
+  const originalText = await chatRef.evaluateHandle((element) => element.firstChild)
+  const originalRow = await chatRef.evaluateHandle((element) => element.closest('.transcript-row'))
+  const scroller = page.locator('[data-feed-scroller]:visible').first()
+  const distanceFromBottom = () =>
+    scroller.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+  await expect.poll(distanceFromBottom).toBeLessThan(3)
 
   await chatRef.evaluate((element) => {
+    const row = element.closest('.transcript-row')
+    if (!row) throw new Error('chat reference row missing')
+    ;(window as Window & { __issueRefChildMutations?: number }).__issueRefChildMutations = 0
+    new MutationObserver((records) => {
+      const childChanges = records.filter((record) => record.type === 'childList').length
+      const tracked = window as Window & { __issueRefChildMutations?: number }
+      tracked.__issueRefChildMutations = (tracked.__issueRefChildMutations ?? 0) + childChanges
+    }).observe(row, { attributes: true, childList: true, subtree: true })
     const range = document.createRange()
     range.selectNodeContents(element)
     const selection = window.getSelection()
@@ -200,20 +250,125 @@ test('chat issue references remain stable across issue updates', async ({ page, 
   })
 
   await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'done' } })
-  // Deliberately outlive the six-second transcript heartbeat as well as the
-  // issue-feed update. The alpha contract keeps transcript references static:
-  // issue state can update elsewhere without rewriting the selected message.
-  await page.waitForTimeout(7_000)
+  await expect(chatRef).toHaveAttribute('data-issue-stage', 'done')
+  await expect(chatRef).toHaveAttribute('data-issue-availability', 'present')
+  await expect(chatRef).toHaveAttribute('aria-label', `Done task ${issue.displayRef}: ${title}`)
+  await expect.poll(distanceFromBottom).toBeLessThan(3)
   expect(await original.evaluate((element) => element.isConnected)).toBe(true)
   expect(await chatRef.evaluate((element, before) => element === before, original)).toBe(true)
+  expect(
+    await chatRef.evaluate((element, before) => element.firstChild === before, originalText),
+  ).toBe(true)
+  expect(
+    await chatRef.evaluate(
+      (element, before) => element.closest('.transcript-row') === before,
+      originalRow,
+    ),
+  ).toBe(true)
+  expect(
+    await page.evaluate(
+      () => (window as Window & { __issueRefChildMutations?: number }).__issueRefChildMutations,
+    ),
+  ).toBe(0)
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(issue.displayRef)
-  await expect(chatRef).not.toHaveAttribute('data-issue-stage')
+
+  // A real upward wheel releases bottom-follow. An issue delta may recolor the
+  // selected chip but must not reclaim scroll authority or move the reader.
+  const scrollerBox = await scroller.boundingBox()
+  if (!scrollerBox) throw new Error('chat scroller has no layout box')
+  if (isMobile) {
+    // Playwright does not expose wheel input for mobile WebKit. Chromium covers
+    // the real input boundary; this branch verifies the same escaped state.
+    await scroller.evaluate((element) => {
+      element.scrollTop -= 900
+      element.dispatchEvent(new Event('scroll'))
+    })
+  } else {
+    await page.mouse.move(scrollerBox.x + scrollerBox.width / 2, scrollerBox.y + 80)
+    await page.mouse.wheel(0, -900)
+  }
+  await expect.poll(distanceFromBottom).toBeGreaterThan(300)
+  const escapedTop = await scroller.evaluate((element) => element.scrollTop)
+  await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'planning' } })
+  await expect(chatRef).toHaveAttribute('data-issue-stage', 'planning')
+  await expect
+    .poll(async () =>
+      Math.abs((await scroller.evaluate((element) => element.scrollTop)) - escapedTop),
+    )
+    .toBeLessThan(2)
+
+  const jump = page.getByRole('button', { name: 'Jump to bottom' }).locator('visible=true')
+  await expect(jump).toBeVisible()
+  await jump.click()
+  await expect.poll(distanceFromBottom).toBeLessThan(3)
+
+  // One submit followed by a redundant Enter and an issue update still creates
+  // one user row. The liveness leaf cannot perturb optimistic reconciliation.
+  const marker = `ISSUE_UPDATE_SEND_${Date.now()}`
+  const composer = page.locator('textarea:visible').last()
+  await composer.fill(marker)
+  await composer.press('Enter')
+  await composer.press('Enter')
+  await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'in_progress' } })
+  const sentRows = page.locator('.transcript-row').filter({ hasText: marker })
+  await expect(sentRows).toHaveCount(1, { timeout: 30_000 })
+  await expect.poll(distanceFromBottom, { timeout: 15_000 }).toBeLessThan(3)
+
+  // The working tail remains the same DOM object through another real issue
+  // update, so live state and its elapsed-time continuity are independent.
+  const working = await fetch(hook.hookUrl, {
+    method: 'POST',
+    body: JSON.stringify({
+      hook_event_name: 'UserPromptSubmit',
+      prompt: 'issue update working continuity',
+      ...hook.binding,
+    }),
+  })
+  expect(working.ok).toBe(true)
+  const tail = page.locator('[data-testid="feed-tail"][data-tail="working"]:visible').first()
+  await expect(tail).toBeVisible({ timeout: 15_000 })
+  const originalTail = await tail.elementHandle()
+  if (!originalTail) throw new Error('working tail did not mount')
+  await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'review' } })
+  await expect(chatRef).toHaveAttribute('data-issue-stage', 'review')
+  expect(await tail.evaluate((element, before) => element === before, originalTail)).toBe(true)
+  await expect(tail).toHaveAttribute('data-tail', 'working')
+  await expect.poll(distanceFromBottom).toBeLessThan(3)
+
+  if (process.env.ISSUE_CHIP_BETA_SHOT) {
+    await page.screenshot({ path: process.env.ISSUE_CHIP_BETA_SHOT })
+  }
+
+  const stopped = await fetch(hook.hookUrl, {
+    method: 'POST',
+    body: JSON.stringify({ hook_event_name: 'Stop', ...hook.binding }),
+  })
+  expect(stopped.ok).toBe(true)
+
+  // A stable issue/session world is already present before ChatView remounts.
+  // The decorator must still run once: it cannot rely on a later replica delta
+  // to retry after the feed-region host ref attaches.
+  await page.reload()
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 45_000,
+  })
+  await gotoWorkspace(page)
+  await page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true').click()
+  const reloadedRef = page
+    .locator(
+      `[data-feed-scroller]:visible .transcript-row a.ref-link--issue[data-ref="${issue.displayRef}"]`,
+    )
+    .last()
+  await expect(reloadedRef).toHaveAttribute('data-issue-stage', 'review', { timeout: 20_000 })
+  await expect(reloadedRef).toHaveAttribute('data-issue-availability', 'present')
 })
 
 test('chat proposal reference opens reliable approval and harness controls', async ({
   page,
   request,
+  isMobile,
 }) => {
+  test.skip(isMobile, 'desktop compact-reference surfaces')
   const repos = await request.get(`${HTTP}/trpc/repos.list`)
   const repoPath = ((await repos.json()) as { result?: { data?: string[] } }).result?.data?.[0]
   if (!repoPath) throw new Error('harness registered no repo')

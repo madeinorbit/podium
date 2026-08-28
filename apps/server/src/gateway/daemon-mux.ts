@@ -50,9 +50,9 @@
 
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
-import type { MachinePrincipal } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
+import type { DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import {
   type DaemonPortId,
   daemonPlaneClassFor,
@@ -60,7 +60,7 @@ import {
   type RpcDaemonFrame,
   type SessionsDaemonFrame,
 } from './daemon-frame-routing'
-import type { ControlSend, DaemonFeaturePorts, DaemonFrame } from './daemon-ports'
+import type { DaemonControlPeer, DaemonFeaturePorts, DaemonFrame } from './daemon-ports'
 
 const log = createLogger('server:gateway')
 
@@ -159,6 +159,8 @@ const DISPATCH: Dispatcher = {
   },
   memoryBreakdownResult: (ports, principal, msg) =>
     ports.hosts.onMemoryBreakdownResult(principal.machine, msg),
+  reclaimDiskEstimateResult: (ports, principal, msg) =>
+    ports.hosts.onReclaimDiskEstimateResult(principal.machine, msg),
 
   // ---- conversations: discovery is per-machine ----
   conversationsChanged: (ports, principal, msg) =>
@@ -200,7 +202,9 @@ const DISPATCH: Dispatcher = {
   harnessExecResult: toRpc,
   usageResult: toRpc,
   agentQuotaResult: toRpc,
+  quotaHistoryResult: toRpc,
   modelProbeResult: toRpc,
+  devArtifactProbeResult: toRpc,
   imageUploadResult: toRpc,
   transcriptReadResult: toRpc,
   fileReadResult: toRpc,
@@ -269,11 +273,11 @@ export class DaemonMux {
    * with the placeholder: rows are written under a real machine id from boot, so an
    * attaching daemon has nothing to claim — it just becomes reachable.
    */
-  attachDaemon(peer: DaemonPeer, send: ControlSend): void {
+  attachDaemon(peer: DaemonPeer, transport: DaemonControlPeer): void {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
-    machines.attach(machineId, send)
+    machines.attach(machineId, transport)
     // SAY THAT IT HAPPENED (POD-1585). Attach/detach ran silently, so a server
     // log with no daemon line looked identical whether the fleet was healthy or
     // no daemon had ever arrived — an instrument that cannot say NO. That silence
@@ -298,18 +302,23 @@ export class DaemonMux {
    * pre-module ordering (the hosts module drops this machine's health sample and
    * rebroadcasts where the inline delete used to sit).
    */
-  detachDaemon(peer: DaemonPeer, send?: ControlSend): void {
+  detachDaemon(peer: DaemonPeer, transport?: DaemonControlPeer): void {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
     // Below the supersede guard on purpose: a stale socket's late close is not a
     // machine going offline, and logging it as one would recreate the confusion
     // the attach line above exists to end.
-    if (!machines.detach(machineId, send)) return
+    if (!machines.detach(machineId, transport)) return
     log.info('daemon detached — the machine is now offline', { machineId })
     this.deps.bus.emit('machine.disconnected', { machineId })
     sessions.onMachineDetached(principal)
     machines.broadcastMachines()
+  }
+
+  routeDaemonOutput(peer: DaemonPeer, batch: DaemonPtyOutputBatch): void {
+    const principal = principalOf(peer)
+    this.deps.ports.sessions.onSessionDaemonOutput(principal, batch)
   }
 
   /**

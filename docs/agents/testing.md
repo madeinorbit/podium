@@ -105,7 +105,7 @@ independently Turbo-cached inside the server aggregate used by `bun run test:ful
 | `bun run test:acceptance` | Exact file `scripts/loop-split-load.integration.test.ts` via `vitest.acceptance.config.ts` | Successful `test:integration` | Loop-split load scheduling or its acceptance threshold |
 | `bun run test:acceptance:process` | Exact Bun file `scripts/loop-split-process.acceptance.bun.test.ts` | No parent command | Publication worker, user-systemd recovery, janitor/process recovery |
 | `bun run test:e2e` | Non-browser `tests/e2e/**/*.test.{ts,tsx}` selected through `vitest.integration.config.ts` | `oracle`; CI oracle matrix | A changed full-stack server↔daemon↔client flow cannot be covered at one boundary |
-| `bun run test:multi-instance` | Exact runtime file `scripts/multi-instance-runtime.integration.bun.test.ts`, exact managed-account file `scripts/managed-account-spawn.integration.test.ts`, and `scripts/install-sh.test.sh` | `oracle`; CI oracle matrix | Instance identity, state roots, ports, CLI routing, ownership, lifecycle, installer |
+| `bun run test:multi-instance` | Exact runtime files `scripts/multi-instance-runtime.integration.bun.test.ts` and `scripts/named-dev-release.integration.bun.test.ts`, exact managed-account file `scripts/managed-account-spawn.integration.test.ts`, and `scripts/install-sh.test.sh` | `oracle`; CI oracle matrix | Instance identity, state roots, ports, CLI routing, ownership, lifecycle, installer, named-instance release publishing |
 | `bun run test:browser -- --suite <stem>` | Named `tests/e2e/browser/<stem>.browser.e2e.ts` via `tests/e2e/playwright.config.ts` | Full browser command/CI project matrix | Only when the requested behavior requires a real browser interaction; scope to the changed surface |
 | `bun run test:browser` | Every `tests/e2e/browser/*.browser.e2e.ts`, across requested Playwright projects | CI browser matrix (non-blocking) | Scheduled browser census or explicit full-browser request; never normal agent validation |
 | `bun run test:bun` | `apps/daemon/test/**`, `packages/runtime/test/sqlite.bun.test.ts`, `scripts/lifecycle.integration.bun.test.ts` | No parent command | Bun-runner, compiled-daemon, worker isolation, or lifecycle changes |
@@ -308,10 +308,9 @@ hermetic setup, lane exclusions, and exit-status safeguards.
   ([docs/multi-instance.md](../multi-instance.md)) instead of hand-rolled
   `PODIUM_PORT`/`PODIUM_STATE_DIR` overrides.
 - **CI runs the oracle: unit + typecheck + integration + e2e + multi-instance**
-  [POD-295]. The light jobs (lint/typecheck/migrations/unit) install with
-  `--ignore-scripts`, so node-pty's native addon never exists there; the `oracle`
-  matrix job is the exception — it installs fully and adds abduco, because its
-  lanes spawn real PTYs. Agent-smoke is NEVER in CI (it bills real LLM quota) and
+  [POD-295]. CI installs with `--ignore-scripts`; real PTYs use Bun.Terminal and
+  Podium builds its vendored abduco on first use. Agent-smoke is NEVER in CI
+  (it bills real LLM quota) and
   runs only on explicit request.
 - **The oracle is the rewrite's behavioral contract** [POD-295]: `bun run oracle`
   runs all five lanes locally in one command (sequentially — the heavy lanes bind

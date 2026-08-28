@@ -7,8 +7,10 @@
     "@podium/client-core": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/logger": "workspace:*",
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/pty": "workspace:*",
+    "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@trpc/client": "^11.0.0",
@@ -17,6 +19,7 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "@types/ws": "^8.5.13",
-    "fake-indexeddb": "^6.2.5"
+    "fake-indexeddb": "^6.2.5",
+    "vitest": "5.0.0-beta.6"
   }
 }

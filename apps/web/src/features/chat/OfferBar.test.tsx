@@ -37,6 +37,46 @@ afterEach(() => {
 })
 
 describe('OfferBar', () => {
+  it('renders a URL in the detail as a link that opens a new window', () => {
+    const linked: SessionOffer = {
+      ...offer,
+      message: 'Preview is up\nOpen https://preview.example.com/login and try the flow.',
+    }
+    act(() => root.render(<OfferBar offer={linked} disabled={false} onAction={() => {}} />))
+
+    const link = container.querySelector<HTMLAnchorElement>('[data-testid="offer-detail"] a')
+    expect(link?.getAttribute('href')).toBe('https://preview.example.com/login')
+    // `_blank` is what the desktop shell's opener shim keys on to hand the URL
+    // to the OS browser; in a browser tab it is a new tab either way.
+    expect(link?.getAttribute('target')).toBe('_blank')
+    expect(link?.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(container.querySelector('[data-testid="offer-detail"]')?.textContent).toContain(
+      'Open https://preview.example.com/login and try the flow.',
+    )
+  })
+
+  it('does not collapse the fold when a link in the detail is clicked', () => {
+    const linked: SessionOffer = {
+      ...offer,
+      message: 'Preview is up\nOpen https://preview.example.com/login.',
+    }
+    act(() => root.render(<OfferBar offer={linked} disabled={false} onAction={() => {}} />))
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="offer-disclosure"]')?.click()
+    })
+    expect(
+      container.querySelector('[data-testid="offer-disclosure"]')?.getAttribute('aria-expanded'),
+    ).toBe('true')
+
+    const link = container.querySelector<HTMLAnchorElement>('[data-testid="offer-detail"] a')
+    // jsdom would otherwise "navigate"; the assertion is about the fold, not the open.
+    link?.addEventListener('click', (event) => event.preventDefault())
+    act(() => link?.click())
+    expect(
+      container.querySelector('[data-testid="offer-disclosure"]')?.getAttribute('aria-expanded'),
+    ).toBe('true')
+  })
+
   it('folds supporting actions by default while keeping the recommendation visible', () => {
     act(() => root.render(<OfferBar offer={offer} disabled={false} onAction={() => {}} />))
     expect(container.textContent).toContain('Tests are red on main')

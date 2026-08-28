@@ -233,3 +233,21 @@ export const IssueGitState = z.object({
   fallback: z.boolean().optional(),
 })
 export type IssueGitState = z.infer<typeof IssueGitState>
+
+/**
+ * THE PLACEHOLDER TITLE A DRAFT VESSEL IS MINTED WITH.
+ *
+ * Both mint sites use it — `IssueAttention.createDraftFor` on the server and the
+ * client's `optimisticSpawnIssue` — and so does the one READER that has to tell
+ * an unnamed draft from a named one (`issueDisplayTitle`), because naming a
+ * draft is what promotes it and the promotion is the server's to record: the
+ * rename's optimistic overlay carries the title while `draft` is still set.
+ *
+ * It lives in the MODEL rather than beside either mint site because the two
+ * sides cannot see each other — `apps/server` does not depend on
+ * `@podium/client-core` — and an exact string equality across a boundary with
+ * nothing holding the two literals together is a silent break: change one and
+ * every draft loses its name on both surfaces, with no type and no test to say
+ * so. Here, both sides import the same constant.
+ */
+export const DRAFT_ISSUE_TITLE = 'Draft'

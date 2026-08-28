@@ -22,6 +22,7 @@ import {
   hasUserSystemd,
   renderDaemonUnit,
   renderJanitorUnit,
+  renderParentUnit,
   renderServerUnit,
   systemdUnitActive,
   systemdUnitManaged,
@@ -52,7 +53,7 @@ export interface ManagedSupervisorDeps {
 /** The user-unit name for a managed role. */
 export function roleUnit(role: RunRole, id: string = resolveInstanceId()): string {
   if (role === 'all-in-one') throw new Error(`the all-in-one role has no unit of its own: ${role}`)
-  return instanceServiceName(role, id)
+  return instanceServiceName(role as 'parent' | 'server' | 'daemon' | 'janitor', id)
 }
 
 /** The rendered unit body for one role, from the shared renderers. */
@@ -62,14 +63,16 @@ export function roleUnitBody(
   id: string = resolveInstanceId(),
 ): string {
   switch (role) {
+    case 'parent':
+      return renderParentUnit({ instanceId: id, port: ctx.port })
     case 'server':
-      return renderServerUnit(id)
+      return renderServerUnit({ instanceId: id, port: ctx.port })
     case 'janitor':
       return renderJanitorUnit({ port: ctx.port, instanceId: id })
     case 'daemon':
       // Bare `podium daemon`: serverUrl + pair code come from config, which the cutover
       // (or promotion) has already rewritten — never pin a stale URL into the unit.
-      return renderDaemonUnit({ instanceId: id })
+      return renderDaemonUnit({ instanceId: id, port: ctx.port })
     case 'all-in-one':
       throw new Error(`no unit exists for the all-in-one role`)
   }
@@ -99,9 +102,10 @@ export function managedRoleSupervisor(
   const spawnRole =
     deps.spawnRole ??
     ((role, ctx) => {
+      if (role === 'parent') return spawnDetached('parent', { port: ctx.port })
       if (role === 'daemon') return spawnDetached('daemon', {})
       if (role === 'janitor')
-        // The janitor always dials the LOCAL server it keeps house for.
+        // Legacy peer janitor; parent-supervised installs host janitor in-server.
         return spawnDetached('janitor', {
           port: ctx.port,
           serverUrl: localServerUrl(ctx.port),
@@ -146,8 +150,12 @@ export function managedRoleSupervisor(
       if (liveRecord(role)) return
       if (systemd && role !== 'all-in-one' && unitActive(roleUnit(role))) return
       if (systemd) {
-        writeUnit(role, roleUnit(role), roleUnitBody(role, ctx))
-        enableUnits([roleUnit(role)])
+        // Unified topology: the only unit is the parent. Starting any host role
+        // writes/enables podium.service; the parent spawns the OS children.
+        const parent = roleUnit('parent')
+        if (unitActive(parent)) return
+        writeUnit('parent', parent, roleUnitBody('parent', ctx))
+        enableUnits([parent])
         return
       }
       spawnRole(role, ctx)
@@ -232,7 +240,7 @@ export async function retireSourceServingRoles(
     }
   }
   const stopped: RunRole[] = []
-  for (const role of ['server', 'janitor', 'daemon'] as const) {
+  for (const role of ['parent', 'server', 'janitor', 'daemon'] as const) {
     if (!supervisor.roleLive(role) && !supervisor.roleManaged?.(role)) continue
     await supervisor.stopRole(role)
     stopped.push(role)

@@ -8,13 +8,18 @@ import type {
   OperationStep,
   StepPlace,
   UpdateTarget,
+  UpdateTrustRoot,
 } from '@podium/protocol'
-import { classifyUpdateFailureDetail } from '@podium/protocol'
+import {
+  buildsDiffer,
+  classifyUpdateFailureDetail,
+  isHeadlessPlatform,
+  targetPlatforms,
+} from '@podium/protocol'
 import {
   DEFAULT_DOWNLOAD_TIMEOUT_MS,
   PROGRESS_REPORT_INTERVAL_MS,
 } from '@podium/runtime/update-delivery'
-import { GIT_CONVERGENCE_BUDGET_MS } from '@podium/runtime/update-delivery-git'
 import type {
   OperationKindDefinition,
   OperationPlan,
@@ -25,10 +30,15 @@ import type {
 } from '../operations/kinds'
 import type { UpdatesService } from './service'
 import {
+  IN_FLIGHT_STATES,
+  isPackagedRolloutTarget,
   machineCanTakeDelivery,
+  machineCanTakeTargetPlatform,
+  machineCanUseTargetTrust,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
+  type WaveRound,
 } from './wave'
 
 /**
@@ -86,7 +96,10 @@ export const UPDATE_STEP_MACHINES = 'machines'
 export const UPDATE_STEP_SERVER = 'server'
 export const UPDATE_STEP_WEB = 'web'
 
-/** §3.5: the one ask that gates correctness, and therefore the one marked required. */
+/**
+ * Legacy persisted operations may still carry this ask. New plans never mint it;
+ * adoption removes it once a post-transition server is already on the target.
+ */
 export const DESKTOP_INSTALL_ASK = 'desktop-install'
 /** §3.5: voluntary — an idle tab that has not reloaded must NOT hold the operation open. */
 export const RELOAD_SURFACES_ASK = 'reload-surfaces'
@@ -106,7 +119,23 @@ export const RELOAD_SURFACES_ASK = 'reload-surfaces'
 export const UPDATE_ERROR_CODES = [
   'machine-dirty-checkout',
   'machine-unsupported',
+  /**
+   * THE TWO PLATFORM REFUSALS (POD-2783), split apart from `machine-unsupported`
+   * because their next actions are opposites and neither is "check the release".
+   *
+   *  - `machine-platform-absent` — this release carries no bytes for that
+   *    machine's platform because the release was minted before the machine
+   *    joined the fleet. Nothing is broken; the next release built carries it.
+   *  - `machine-platform-unpublished` — Podium publishes no package for that
+   *    platform at all, so no release will ever carry it.
+   *
+   * A human hit the first one connecting a Mac to a Linux-only fleet, and was
+   * sent to an operator who had nothing to fix.
+   */
+  'machine-platform-absent',
+  'machine-platform-unpublished',
   'machine-unreachable',
+  'machine-update-failed',
   /**
    * The machine took no update because finishing one would have stopped it for
    * good (POD-2210): a Podium running as a single foreground process is server
@@ -162,6 +191,7 @@ export const UPDATE_ERROR_CODES = [
   'machine-delivery-failed',
   'machine-delivery-unavailable',
   'machine-artifact-rejected',
+  'artifact-unreachable',
   'machine-update-not-confirmed',
   /**
    * The server retracted the target while a machine was still applying it —
@@ -178,10 +208,48 @@ export const UPDATE_ERROR_CODES = [
 export type UpdateErrorCode = (typeof UPDATE_ERROR_CODES)[number]
 
 export type UpdateFailure =
-  | { code: 'machine-dirty-checkout'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-unsupported'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-unreachable'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-cannot-restart'; places: string[]; names: string[]; detail?: string }
+  | {
+      code: 'machine-dirty-checkout'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-unsupported'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-platform-absent'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-platform-unpublished'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-unreachable'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-update-failed'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-cannot-restart'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
   | {
       code: 'machine-schema-advanced'
       places: string[]
@@ -189,15 +257,67 @@ export type UpdateFailure =
       detail?: string
       databaseSnapshotPath?: string
     }
-  | { code: 'machine-schema-unknown'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-schema-unreadable'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-delivery-failed'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-delivery-unavailable'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-artifact-rejected'; places: string[]; names: string[]; detail?: string }
-  | { code: 'machine-update-not-confirmed'; places: string[]; names: string[]; detail?: string }
-  | { code: 'update-withdrawn'; places: string[]; names: string[]; detail?: string }
-  | { code: 'download-failed'; places?: string[]; names?: string[]; detail?: string }
-  | { code: 'server-did-not-reach-target'; observedVersion: string; targetVersion: string }
+  | {
+      code: 'machine-schema-unknown'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-schema-unreadable'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-delivery-failed'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-delivery-unavailable'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-artifact-rejected'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'artifact-unreachable'
+      places?: string[]
+      names?: string[]
+      detail?: string
+    }
+  | {
+      code: 'machine-update-not-confirmed'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'update-withdrawn'
+      places: string[]
+      names: string[]
+      detail?: string
+    }
+  | {
+      code: 'download-failed'
+      places?: string[]
+      names?: string[]
+      detail?: string
+    }
+  | {
+      code: 'server-did-not-reach-target'
+      observedVersion: string
+      targetVersion: string
+      /** The supervising parent's own account of what it did and why. */
+      parentReport?: string
+    }
   | { code: 'web-build-failed'; detail?: string }
   | { code: 'preparation-failed'; detail?: string }
 
@@ -214,21 +334,61 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
     case 'machine-dirty-checkout':
       return {
         code: failure.code,
-        message: `${subject(failure)} has local edits that prevent a safe update. Commit or stash them there, then try again.`,
+        message: `${subject(
+          failure,
+        )} has local edits that prevent a safe update. Commit or stash them there, then try again.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'machine-unsupported':
       return {
         code: failure.code,
-        message: `${subject(failure)} can't use this update's package. Check the release includes its platform.`,
+        message: `${subject(
+          failure,
+        )} can't use this update's package. Check the release includes its platform.`,
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    /**
+     * THE ONLY TWO ARMS THAT TELL AN OPERATOR TO DO NOTHING, and they are
+     * right to (POD-2783). The old sentence — "check the release includes its
+     * platform" — described a fix nobody can perform: a release is immutable,
+     * and its platform list was fixed by the fleet that existed when it was
+     * minted.
+     */
+    case 'machine-platform-absent':
+      return {
+        code: failure.code,
+        message: `${subject(
+          failure,
+        )} joined after this update was built, so it contains no package for that machine. The next update built will include it.`,
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-platform-unpublished':
+      return {
+        code: failure.code,
+        message: `${subject(
+          failure,
+        )} runs a platform Podium publishes no package for, so no update can install there.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'machine-unreachable':
       return {
         code: failure.code,
-        message: `${subject(failure)} stopped responding while updating. Check it's running; it will resume when it reconnects.`,
+        message: `${subject(
+          failure,
+        )} stopped responding while updating. Check it's running; it will resume when it reconnects.`,
+        places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'machine-update-failed':
+      return {
+        code: failure.code,
+        message:
+          `${subject(failure)} reported an unexpected update failure. The technical detail ` +
+          "below is the error it reported; check that machine's log and disk before trying again.",
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -238,7 +398,9 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         // Says what was NOT done first, because the operator's next question is
         // whether their checkout moved, and then the two ways out — the one that
         // takes five seconds, and the one that makes it not happen again.
-        message: `${subject(failure)} is running Podium as a single foreground process, so it cannot update itself. Nothing was changed. Stop it and start it again there to pick this up, or install it as a service with \`podium setup\`.`,
+        message: `${subject(
+          failure,
+        )} is running Podium as a single foreground process, so it cannot update itself. Nothing was changed. Stop it and start it again there to pick this up, or install it as a service with \`podium setup\`.`,
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -343,6 +505,16 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         places: failure.places,
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
+    case 'artifact-unreachable':
+      return {
+        code: failure.code,
+        message:
+          'This machine cannot reach the artifact address published for this update. The address ' +
+          'is part of the release and retrying cannot repair it; publish a new release at an ' +
+          'address this machine can reach.',
+        ...(failure.places ? { places: failure.places } : {}),
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
     case 'machine-update-not-confirmed':
       // Reported BY THE MACHINE'S OWN BOOT, so it is up. Nothing here claims
       // why the new version did not start; the detail says how far it got.
@@ -376,7 +548,9 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
     case 'server-did-not-reach-target':
       return {
         code: failure.code,
-        message: `The server restarted but came back on ${failure.observedVersion}. Nothing else was changed. Try again or check the server log.`,
+        message: failure.parentReport
+          ? `The server came back on ${failure.observedVersion}: ${failure.parentReport}`
+          : `The server restarted but came back on ${failure.observedVersion}. Nothing else was changed. Try again or check the server log.`,
         detail: `Expected ${failure.targetVersion}, observed ${failure.observedVersion}.`,
       }
     case 'web-build-failed':
@@ -436,6 +610,19 @@ export interface UpdateOperationDetails {
   fromVersion?: string
   /** Verified restore point available when this attempt began or created by it. */
   databaseSnapshotPath?: string
+  /**
+   * EVERY ROUND OF GRANTS THIS OPERATION'S WAVE ISSUED (POD-2754), oldest
+   * first — see {@link WaveRound} for why a record and not an observation.
+   *
+   * It is here, in the operation's own durable payload, because that is the one
+   * thing about a wave that outlives both the wave and the process running it:
+   * the coordinator replaces itself mid-update, and the service's copy dies with
+   * it. Written as the rounds happen, so the finished operation answers "was
+   * there a canary stage, and what was held back for it" to anybody reading it
+   * afterwards — including a check, which can never be looking at the right
+   * moment.
+   */
+  waveRounds?: WaveRound[]
   surface?: UpdateSurface
   [key: string]: unknown
 }
@@ -446,6 +633,61 @@ export function updateOperationDetails(operation: Operation): UpdateOperationDet
   const target = details.target
   if (!target || typeof target !== 'object' || typeof target.version !== 'string') return undefined
   return details
+}
+
+/**
+ * A round's identity, so the same round copied twice is stored once.
+ *
+ * Two DIFFERENT rounds cannot collide on it: a round exists because grants went
+ * out, and a machine granted in one round is `in-flight` for the next, so no two
+ * rounds of a wave carry the same grants — let alone in the same millisecond.
+ */
+const waveRoundKey = (round: WaveRound): string =>
+  [
+    round.at,
+    round.gate,
+    round.targetVersion,
+    round.granted.map((machine) => machine.id).join(','),
+    round.held.map((machine) => `${machine.id}:${machine.reason}`).join(','),
+  ].join('|')
+
+/**
+ * THE OPERATION'S COPY OF ITS OWN WAVE (POD-2754) — what it already carries,
+ * plus the rounds the live service has issued since and it has not yet written.
+ *
+ * Scoped twice, and both halves matter. To rounds no older than this operation,
+ * because the service's buffer spans every wave this process has served and an
+ * earlier update's canary is not this one's. And to rounds granting THIS
+ * target, because a publication mid-wave starts a different rollout.
+ *
+ * Carried rounds are never rewritten — only ever appended to. That is what makes
+ * the record survive the coordinator replacing itself halfway through its own
+ * update: the successor's service buffer is empty, and the rounds from before
+ * the handover are still there because nothing was in a position to overwrite
+ * them.
+ *
+ * `undefined` means "nothing new", so a caller writes only when there is
+ * something to write.
+ */
+export function mergedWaveRounds(
+  operation: Operation,
+  updates: UpdatesService,
+): WaveRound[] | undefined {
+  const details = updateOperationDetails(operation)
+  if (!details) return undefined
+  const since = operation.startedAt ?? operation.createdAt ?? 0
+  const carried = Array.isArray(details.waveRounds) ? details.waveRounds : []
+  const known = new Set(carried.map(waveRoundKey))
+  const fresh = updates
+    .waveRounds(details.channel)
+    .filter(
+      (round) =>
+        round.at >= since &&
+        round.targetVersion === details.target.version &&
+        !known.has(waveRoundKey(round)),
+    )
+  if (fresh.length === 0) return undefined
+  return [...carried, ...fresh]
 }
 
 /**
@@ -487,19 +729,23 @@ export interface UpdatePlanInput {
   channelOf: (machine: WaveMachine) => UpdateChannel
   /** This server's own build version, as `/version` reports it. */
   appVersion: string
+  /** This server's source identity, authoritative across deliberate display labels. */
+  sourceDigest?: string
+  /** Whether this coordinator owns a package that the operation may replace. */
+  serverInstallKind?: 'installed' | 'source'
   /** The served website's commit — BOTH dists, or undefined while they disagree. */
   servedWebDigest: string | undefined
   /** This server can pack a development tarball (the dev publisher is wired). */
   canPrepare: boolean
   /** This server can rebuild `apps/web/dist` without a restart. */
   canRebuildWeb: boolean
-  /** This server can restart itself onto the target (a source checkout). */
+  /** This server has a supervising parent that can hand over to the target. */
   canRestartServer: boolean
   /** Newest verified restore point, when one already exists. */
   databaseSnapshotPath?: string
   /** THIS host's machine id, so its own row can be recognised. */
   hostMachineId?: string
-  /** The coordinating server's bytes are owned by the native desktop shell. */
+  /** The coordinating server runs below a native crash-supervisor frame. */
   desktopSupervised?: boolean
   surface?: UpdateSurface
   /**
@@ -511,19 +757,40 @@ export interface UpdatePlanInput {
   retryOf?: string
 }
 
-/** A dev+ identity with no packed tarball still has to be packed before it can be delivered. */
+/**
+ * A TARGET WITH NOTHING TO DELIVER — the source host's own identity, before its
+ * release has been built and published into the feed.
+ *
+ * ASKED OF THE ARTIFACTS, NOT OF THE VERSION STRING. It used to be
+ * `version.startsWith('dev+')`, which stopped being true the moment development
+ * versions became orderable mints (`0.1.2-dev.4+abc1234`, POD-2502) — and would
+ * stop being true again at the next naming change. The property that actually
+ * matters is the one this names: the descriptor points at no bytes, so nobody
+ * can converge to it, and on a host that can publish, the answer is to build and
+ * publish a release. `canPrepare` is what fences that answer to such a host.
+ */
 export function needsDevelopmentBundle(target: {
   version: string
-  artifacts: { headless?: unknown }
+  artifacts: { headless?: unknown; headlessAlternatives?: readonly unknown[] }
 }): boolean {
-  return target.version.startsWith('dev+') && target.artifacts.headless === undefined
+  return (
+    target.artifacts.headless === undefined &&
+    (target.artifacts.headlessAlternatives ?? []).length === 0
+  )
 }
 
-/** What a pack adds to a bare identity, and the only thing it adds. */
-const PACKED_DELIVERY = 'bundle'
+/**
+ * What publishing adds to a bare identity, and the only thing it adds.
+ *
+ * `feed` on every channel now: `bundle` named "a tarball this server packed and
+ * pushed", which was a statement about who signed it rather than about how it
+ * travels, and it travels as a feed download like everything else (spec §1).
+ */
+const PACKED_DELIVERY = 'feed'
 
 type DeliverableTarget = {
   version: string
+  trust?: UpdateTrustRoot
   artifacts: {
     headless?: { delivery: string }
     headlessAlternatives?: readonly { delivery: string }[]
@@ -535,15 +802,17 @@ type DeliverableTarget = {
  *
  * The question used to be asked of the target alone — "has it been packed?" —
  * and that is what made git delivery an alternative offered ALONGSIDE the pack
- * rather than a substitute for it (POD-2195). A `dev+<sha>` identity is not
- * empty: it names a repo and a sha, which is everything a machine that owns the
- * checkout needs (spec §9.2 — no build, no download). It is only the machines
- * that cannot fetch git for which that identity is nothing.
+ * rather than a substitute for it (POD-2195). Git delivery is retired, so an
+ * identity target is now nothing to EVERY machine rather than nothing to only
+ * some, and this reduces to "does the descriptor name bytes this machine can
+ * take". The predicate stays because the caps question is still real: a target
+ * can name bytes a particular machine has told us it cannot install.
  */
 export function machineCanTakeTargetNow(
-  machine: Pick<WaveMachine, 'deliveryCaps' | 'supervised'>,
+  machine: Pick<WaveMachine, 'deliveryCaps'>,
   target: DeliverableTarget,
 ): boolean {
+  if (!machineCanUseTargetTrust(machine, target.trust)) return false
   const deliveries = offeredDeliveries(target)
   // Nothing offered and nothing packed is nothing to hand anyone. Granting it
   // anyway is how the fleet used to learn by failing.
@@ -554,10 +823,25 @@ export function machineCanTakeTargetNow(
 /** Is there anyone here this descriptor can be handed to as it stands? */
 export function fleetCanTakeTargetNow(
   target: DeliverableTarget,
-  machines: readonly Pick<WaveMachine, 'deliveryCaps' | 'supervised'>[],
+  machines: readonly Pick<WaveMachine, 'deliveryCaps'>[],
 ): boolean {
   if (!needsDevelopmentBundle(target)) return true
   return machines.some((machine) => machineCanTakeTargetNow(machine, target))
+}
+
+/**
+ * WILL A BUILD THIS SERVER RUNS EVER PRODUCE BYTES FOR THIS MACHINE (POD-2783)?
+ *
+ * The dev builder mints for `fleetHeadlessPlatforms` — every REGISTERED
+ * machine's platform, read at build time — so a machine that joined after the
+ * last release is in the next one by construction, and asking here is asking
+ * whether the vocabulary has a name for it at all.
+ *
+ * A machine that has never reported a platform counts as coverable, matching
+ * the unknown-caps rule: uncertainty stays visible rather than stranding it.
+ */
+function packWouldCoverPlatform(machine: Pick<WaveMachine, 'platform'>): boolean {
+  return machine.platform === undefined || isHeadlessPlatform(machine.platform)
 }
 
 /**
@@ -568,10 +852,33 @@ export function fleetCanTakeTargetNow(
  * the cost of being wrong runs the other way: skipping the pack for a machine
  * that turns out to need it buys a wave of rejections, while packing for one
  * that did not costs a build. So an unknown machine counts as needing it.
+ *
+ * IT IS DELIBERATELY NOT ASKED ABOUT PLATFORMS (POD-2783). This is only
+ * consulted when a pack is possible at all, which means an IDENTITY target with
+ * nothing published — and for one of those {@link machineCanTakeTargetNow} has
+ * already answered no. Re-minting an ALREADY PUBLISHED release to add a
+ * platform is a different act on a different contract (a published target is
+ * immutable), and planning a prepare step for it would only reach a runner that
+ * reports `done` without building.
  */
 function machineNeedsPack(machine: WaveMachine, target: DeliverableTarget): boolean {
+  if (!machineCanUseTargetTrust(machine, target.trust)) return false
   if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
   return !machineCanTakeTargetNow(machine, target)
+}
+
+/**
+ * Does this target, AS PUBLISHED, contain bytes this machine could run?
+ *
+ * An identity target contains nothing for anybody, and says so rather than
+ * blaming the machine's platform: what is missing there is the whole release.
+ */
+function machineCarriedBy(
+  machine: Pick<WaveMachine, 'platform'>,
+  target: DeliverableTarget,
+): boolean {
+  if (needsDevelopmentBundle(target)) return false
+  return machineCanTakeTargetPlatform(machine, targetPlatforms(target as UpdateTarget))
 }
 
 /**
@@ -610,6 +917,33 @@ function placeOf(machine: WaveMachine): StepPlace {
  * bearing: the panel renders "step 2 of 4" straight off this list, so a step
  * that was never going to do anything would make that sentence a lie.
  */
+/**
+ * WHY THIS MACHINE IS NOT IN THIS OPERATION — the honest name, not the nearest
+ * one (POD-2783).
+ *
+ * `cannot-take-delivery` was answering for a machine whose delivery was fine
+ * and whose PLATFORM the release simply did not contain, which is a different
+ * fact with a different remedy. Offline leads because it is a statement about
+ * reachability rather than about the release, and it is the one that clears on
+ * its own.
+ */
+function deferralReason(
+  machine: WaveMachine,
+  target: DeliverableTarget,
+  packable: boolean,
+): string {
+  if (!machine.online) return 'offline'
+  if (!machineCanUseTargetTrust(machine, target.trust)) return 'legacy-instance-trust'
+  // A machine that has never said what it is cannot be given a platform reason.
+  if (machine.platform === undefined) return 'cannot-take-delivery'
+  // …and this one is about the MACHINE alone, so no target can excuse it.
+  if (!isHeadlessPlatform(machine.platform)) return 'platform-not-published'
+  // An identity target is missing the whole release, not one platform of it.
+  if (needsDevelopmentBundle(target)) return 'cannot-take-delivery'
+  if (!machineCarriedBy(machine, target) && !packable) return 'platform-not-in-release'
+  return 'cannot-take-delivery'
+}
+
 export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const { target } = input
   const details: UpdateOperationDetails = {
@@ -621,8 +955,15 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   }
 
   const channelMachines = input.fleet.filter(
-    (machine) => input.channelOf(machine) === input.channel,
+    (machine) => input.channelOf(machine) === input.channel && isPackagedRolloutTarget(machine),
   )
+  const serverDiffers = buildsDiffer(
+    { version: input.appVersion, digest: input.sourceDigest },
+    { version: target.version, digest: target.artifacts.web?.digest },
+  )
+  // A source process can rebuild its own current checkout, but it cannot swap
+  // to a package for a different checkout. The operator owns that transition.
+  const sourceCannotTakeTarget = input.serverInstallKind === 'source' && serverDiffers
   const host = input.hostMachineId
     ? input.fleet.find((machine) => machine.id === input.hostMachineId)
     : undefined
@@ -630,55 +971,17 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   // machine report. Process ownership is the authoritative fact; a supervised
   // daemon row remains the backward-compatible corroborating signal.
   const desktopHosted = input.desktopSupervised === true || host?.supervised === true
+  const hostUpdatesThroughFleet =
+    host?.online === true && isPackagedRolloutTarget(host) && host.version !== target.version
   const steps: OperationPlan['steps'] = []
   const deferred: DeferredPlace[] = []
   const awaiting: AwaitingAsk[] = []
 
-  /**
-   * ALL-IN-ONE (§4, §5): the server lives INSIDE Podium Desktop on this
-   * machine, so server, janitor, daemon and web are one signed bundle that only
-   * the shell may replace. There is therefore no server/web runner for the HOST:
-   * the plan carries one required ask and settles into `waiting` after any
-   * OTHER connected machines finish their ordinary fleet wave. A browser
-   * looking at the same server renders that honestly and cannot act on it (P5).
-   *
-   * Derived from the HOST daemon's `supervised` flag rather than from the
-   * surface that clicked, because it is a fact about this installation and not
-   * about who is looking at it.
-   */
-  if (desktopHosted) {
-    /**
-     * `place` IS THE WORD A PERSON READS, not the machine's identity (POD-2182).
-     * Nothing matches an ask by its place — the engine resolves asks by `id`
-     * and the surfaces filter on `surface` — so the field's only job is the
-     * sentence the panel builds from it, which appends "on <place>" unless the
-     * chosen line already says it. Passing `host.id` here made that guard miss
-     * against a `detail` that names the machine, so the panel read "Finish this
-     * in Podium Desktop on ludovico. on m_01j…". The same expression as the
-     * detail keeps the two in step whether or not the machine has a name.
-     */
-    const hostPlace = host?.name ?? host?.id ?? input.hostMachineId ?? 'this machine'
-    const ask: AwaitingAsk = {
-      id: DESKTOP_INSTALL_ASK,
-      surface: 'desktop-all-in-one',
-      title: 'Install the update in Podium Desktop',
-      detail: `Finish this in Podium Desktop on ${hostPlace}.`,
-      place: hostPlace,
-      // REQUIRED: this is the ask that gates correctness. Nothing else moves
-      // until the shell installs and the successor server adopts (§5).
-      required: true,
-    }
-    awaiting.push(ask)
-  }
-
-  // A supervised daemon is the SHELL's to update, never the wave's (POD-2099,
-  // spec §4). It is excluded outright rather than deferred: deferred means
-  // "will be done later by us", and this one will never be ours to do.
+  // Desktop supervision is crash ownership only. Its host daemon is deliberately
+  // in this same behind set, so an all-in-one is a coordinator of a fleet of one.
   const behind = channelMachines.filter(
     (machine) =>
       machine.version !== target.version &&
-      machine.supervised !== true &&
-      (!desktopHosted || machine.id !== input.hostMachineId) &&
       (input.onlyMachines === undefined || input.onlyMachines.includes(machine.id)),
   )
 
@@ -701,7 +1004,11 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
    */
   const packable = needsDevelopmentBundle(target) && input.canPrepare
   if (packable && behind.some((machine) => machineNeedsPack(machine, target))) {
-    steps.push({ id: UPDATE_STEP_PREPARE, title: 'Preparing the update', state: 'pending' })
+    steps.push({
+      id: UPDATE_STEP_PREPARE,
+      title: 'Preparing the update',
+      state: 'pending',
+    })
   }
 
   /**
@@ -711,18 +1018,21 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
    * needs is a planned step of this very operation, not a state of the world.
    */
   const canTakeEventually = (machine: WaveMachine): boolean =>
-    machineCanTakeTargetNow(machine, target) ||
-    (packable && machineCanTakeDelivery(machine, [PACKED_DELIVERY]))
+    machineCanUseTargetTrust(machine, target.trust) &&
+    ((machineCanTakeTargetNow(machine, target) && machineCarriedBy(machine, target)) ||
+      (packable &&
+        machineCanTakeDelivery(machine, [PACKED_DELIVERY]) &&
+        packWouldCoverPlatform(machine)))
   const core = behind.filter((machine) => machine.online && canTakeEventually(machine))
-  // §3.6: a machine that is asleep must not hold the outcome open. It goes to
-  // `deferred` with an honest note and the standing reconciliation converges it
-  // when it reconnects.
+  // §3.6: a machine outside the live wave must not hold the outcome open. Deferred
+  // records distinguish transient offline delivery from permanent verifier incompatibility;
+  // only the former can converge merely by reconnecting.
   for (const machine of behind) {
     if (core.includes(machine)) continue
     deferred.push({
       id: machine.id,
       ...(machine.name ? { name: machine.name } : {}),
-      reason: machine.online ? 'cannot-take-delivery' : 'offline',
+      reason: deferralReason(machine, target, packable),
     })
   }
   if (core.length > 0) {
@@ -735,18 +1045,33 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
     })
   }
 
-  if (!desktopHosted && input.appVersion !== target.version && input.canRestartServer) {
-    steps.push({ id: UPDATE_STEP_SERVER, title: 'Updating your server', state: 'pending' })
+  if (
+    !desktopHosted &&
+    !hostUpdatesThroughFleet &&
+    input.serverInstallKind !== 'source' &&
+    serverDiffers &&
+    input.canRestartServer
+  ) {
+    steps.push({
+      id: UPDATE_STEP_SERVER,
+      title: 'Updating your server',
+      state: 'pending',
+    })
   }
 
   const expectedWeb = target.artifacts.web?.digest
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
   if (
     !desktopHosted &&
+    !sourceCannotTakeTarget &&
     webBehind &&
     (input.canRebuildWeb || input.canPrepare || input.canRestartServer)
   ) {
-    steps.push({ id: UPDATE_STEP_WEB, title: 'Serving the new app', state: 'pending' })
+    steps.push({
+      id: UPDATE_STEP_WEB,
+      title: 'Serving the new app',
+      state: 'pending',
+    })
     // VOLUNTARY, and that is the whole point of the flag: a tab that has not
     // reloaded is a straggler that self-serves on its next load (§3.5), so this
     // ask must never hold the operation in `waiting` the way the all-in-one
@@ -783,6 +1108,14 @@ export interface UpdateReality {
   servedWebDigest: string | undefined
   /** The machine directory, as the daemons' handshakes have refreshed it. */
   machineDirectory: readonly WaveMachine[]
+  /**
+   * The supervising parent's note about the release it installed, if it left one
+   * (`run/parent-outcome.json`). Set when the parent rolled the machine back, or
+   * could not and had to say why (decision 4). Without it the only thing this
+   * server can report is that it came back on the wrong version — true, but it
+   * reads as an unexplained failure when the parent in fact acted deliberately.
+   */
+  parentReport?: string
   now: number
 }
 
@@ -846,6 +1179,7 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
         code: 'server-did-not-reach-target',
         observedVersion: reality.appVersion,
         targetVersion,
+        ...(reality.parentReport ? { parentReport: reality.parentReport } : {}),
       })
       return {
         ...patchStep(next, UPDATE_STEP_SERVER, (step) => ({
@@ -862,6 +1196,37 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
       }
     }
     // `pending` and still behind: nothing happened yet, the step stands.
+  } else if (reality.parentReport && reality.appVersion !== targetVersion) {
+    // A successor that boots mid-handover adopts this operation, observes
+    // itself on the target, and blesses its own progress — the server step on
+    // one topology, its place in the machines wave on another (a coordinator
+    // is a fleet machine of its own wave, and may have no server step at all).
+    // When its health gate then fails and the parent rolls the machine back,
+    // the NEXT boot arrives here holding the parent's own rollback sentence
+    // while the finished step still stands. The blessing must not outrank
+    // that evidence: an update that was attempted and reverted settling as
+    // clean success is exactly the lie this operation exists to not tell.
+    const error = describeUpdateOperationFailure({
+      code: 'server-did-not-reach-target',
+      observedVersion: reality.appVersion,
+      targetVersion,
+      parentReport: reality.parentReport,
+    })
+    return {
+      ...(server
+        ? patchStep(next, UPDATE_STEP_SERVER, (step) => ({
+            ...step,
+            state: 'failed',
+            finishedAt: reality.now,
+            lastProgressAt: reality.now,
+            error,
+          }))
+        : next),
+      state: 'failed',
+      finishedAt: reality.now,
+      updatedAt: reality.now,
+      error,
+    }
   }
 
   const web = stepOf(next, UPDATE_STEP_WEB)
@@ -878,7 +1243,10 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
       // The build that was in flight died with its process. Back to `pending`
       // so the resumed plan RE-ENSURES it rather than watching for a report
       // nothing will ever send.
-      next = patchStep(next, UPDATE_STEP_WEB, (step) => ({ ...step, state: 'pending' }))
+      next = patchStep(next, UPDATE_STEP_WEB, (step) => ({
+        ...step,
+        state: 'pending',
+      }))
     }
   }
 
@@ -929,29 +1297,15 @@ export function reconcileUpdateOperation(operation: Operation, reality: UpdateRe
   if (prepare && (prepare.state === 'running' || prepare.state === 'stalled')) {
     // Same as `web`: the pack died with its process, and `ensure()` is
     // idempotent — it re-checks the descriptor before it rebuilds anything.
-    next = patchStep(next, UPDATE_STEP_PREPARE, (step) => ({ ...step, state: 'pending' }))
+    next = patchStep(next, UPDATE_STEP_PREPARE, (step) => ({
+      ...step,
+      state: 'pending',
+    }))
   }
 
-  /**
-   * THE ALL-IN-ONE ASK, ANSWERED FROM THE FAR SIDE OF THE RESTART (§3.4, §5).
-   *
-   * An all-in-one plan has NO STEPS: the whole update is the shell replacing
-   * itself, and the only thing holding the operation open is the required
-   * `desktop-install` ask. So nothing above this line can advance it, and
-   * nothing on the wire ever will either — the process that would have reported
-   * the install is the one that died, and the page that clicked the button died
-   * with it.
-   *
-   * What CAN be observed is the same fact the `server` step is judged on, read
-   * one layer out: the server reading these bytes lives INSIDE that shell, and
-   * it is now running the target. That is the install, seen from after the
-   * restart. Reality over memory, applied to an ask instead of a step.
-   *
-   * Without this the ask outlives the restart it was asking for, the reloaded
-   * panel offers "Restart Podium" for an update that is already installed —
-   * which then fails as `no-update-available`, because there is nothing left to
-   * install — and the operation sits in `waiting` until its ten-minute grace
-   * quietly calls it done, long after the user stopped believing it.
+  /** Retire the required ask left by a pre-transition persisted operation once
+   * its old shell has demonstrably returned on the target. New plans never mint
+   * this ask; all-in-one Macs now converge through their ordinary machine step.
    */
   if (reality.appVersion === targetVersion) {
     const awaiting = (next.awaiting ?? []).filter((ask) => ask.id !== DESKTOP_INSTALL_ASK)
@@ -977,6 +1331,10 @@ export interface UpdateOperationContext {
   channel: UpdateChannel
   /** This server's own build version. */
   appVersion: () => string
+  /** This server's source identity, independent of its display label. */
+  sourceDigest?: () => string | undefined
+  /** Explicit process install shape; absent remains unknown and actionable. */
+  serverInstallKind?: 'installed' | 'source'
   /** THIS host's machine id — how an all-in-one installation recognises itself. */
   hostMachineId?: string
   /** The coordinating server is a child of, and replaced by, Podium Desktop. */
@@ -993,7 +1351,11 @@ export interface UpdateOperationContext {
   requestWebRebuild?: () => void
   requestCoordinatorRestart?: () => void
   /** The dev publisher's readiness, for naming a failed website build. */
-  preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
+  preparation?: () => {
+    webReady: boolean
+    bundleReady: boolean
+    failureDetail?: string
+  }
   /** Server-owned snapshot seam; daemon places deliberately have none. */
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
   /** Verified recovery point to carry into a new operation's failure guidance. */
@@ -1076,8 +1438,20 @@ export const STEP_HEARTBEAT_INTERVAL_MS = 15_000
 export const UPDATE_BUDGETS = {
   /** `DEFAULT_DOWNLOAD_TIMEOUT_MS` in `@podium/runtime/update-delivery`. */
   downloadTimeoutMs: DEFAULT_DOWNLOAD_TIMEOUT_MS,
-  /** `GIT_CONVERGENCE_BUDGET_MS` — one budget for a whole git convergence. */
-  gitConvergenceMs: GIT_CONVERGENCE_BUDGET_MS,
+  /**
+   * THE LONGEST A HEALTHY MACHINE MAY SAY NOTHING, and where that number comes
+   * from now that git convergence is retired (spec disposition 5).
+   *
+   * It used to be `GIT_CONVERGENCE_BUDGET_MS`: a git convergence had no byte
+   * count to report against, so its whole run was one silence and the server
+   * had to out-wait it. Every delivery is now a feed download, which heartbeats
+   * every two seconds — so the bound that matters is the daemon's own hard
+   * deadline for a download that has stalled. Deriving it from the SAME
+   * constant the daemon enforces is what keeps the daemon failing first; a
+   * server that gives up earlier would age a machine into `stuck` while it was
+   * still working.
+   */
+  machineDeliverySilenceMs: DEFAULT_DOWNLOAD_TIMEOUT_MS,
   /** The daemon's download heartbeat cadence, `PROGRESS_REPORT_INTERVAL_MS`. */
   downloadHeartbeatMs: PROGRESS_REPORT_INTERVAL_MS,
   /** This server's own heartbeat cadence for steps it is watching. */
@@ -1095,11 +1469,11 @@ export const UPDATE_STEP_DEADLINES: Record<string, StepDeadlines> = {
   // Heartbeats now arrive while the pack runs, so this step is judged on
   // silence too rather than on its total alone.
   [UPDATE_STEP_PREPARE]: { silenceMs: 3 * 60_000, totalMs: 20 * 60_000 },
-  // Ten minutes, and now DERIVED: the git convergence budget plus a margin, so
+  // DERIVED: the daemon's own delivery silence bound plus a margin, so
   // whichever moves first stays coherent. Timer-armed by the engine rather than
   // ageing when someone reads `fleet()`.
   [UPDATE_STEP_MACHINES]: {
-    silenceMs: UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
+    silenceMs: UPDATE_BUDGETS.machineDeliverySilenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
     totalMs: 60 * 60_000,
   },
   // A restart reports nothing while it happens — this process is the thing
@@ -1172,15 +1546,34 @@ function elapsedLabel(elapsedMs: number): string {
 }
 
 /**
- * `prepare` — pack what the fleet will be handed (§3.1).
+ * `prepare` — RESOLVE AND PREFLIGHT what the fleet will be handed (§3.1, audit
+ * gap 21).
  *
- * REALITY FIRST: a target that already carries a headless artifact needs no
- * pack, whoever packed it. That is also what makes this safe to re-enter after
- * adoption, after a stall retry, and after a retry operation.
+ * The step used to be named for the one thing only a source host ever did:
+ * pack a tarball. That was always the wrong altitude — edge and stable never
+ * packed anything and simply had no such step — and it stopped describing even
+ * the dev channel once `dev` became a pulled feed. What every channel actually
+ * needs before a machine is granted anything is the same two facts, and they
+ * are what this step now stands for:
  *
- * It hands the build out and answers `running` rather than awaiting it. A pack
- * is a compile — awaiting it here would hold the engine's chain, and therefore
- * the tRPC mutation that started the operation, for the length of a build.
+ *  - RESOLVED: the channel's feed advertises exactly the version this operation
+ *    is delivering, pulled through `resolveReleaseTarget` like any other.
+ *  - PREFLIGHTED: that resolve is what HEADs every artifact URL the manifest
+ *    names and refuses a manifest with no schema declaration — so reaching the
+ *    end of this step means the bytes are reachable and the build has said what
+ *    database it can open, BEFORE any machine is told to go and fetch them.
+ *
+ * REALITY FIRST: a target that already carries a headless artifact is already
+ * resolved and preflighted, whoever published it. That is also what makes this
+ * safe to re-enter after adoption, after a stall retry, and after a retry
+ * operation.
+ *
+ * On a source host the fact is not yet true when the step starts, and making it
+ * true means building the release and publishing its manifest into the feed —
+ * the pre-release stage of §6, which is the ONLY channel-specific thing left
+ * here. It hands that build out and answers `running` rather than awaiting it:
+ * a build is a compile, and awaiting it would hold the engine's chain, and
+ * therefore the tRPC mutation that started the operation, for its whole length.
  */
 const prepareRunner: StepRunner<UpdateOperationContext> = {
   // Nothing has been handed to a machine yet, so cancelling costs a build (§3.2).
@@ -1269,97 +1662,123 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
    * selected once the operation is gone.
    */
   reversible: true,
-  ensure: async ({ operation, step, context }) => {
-    const details = updateOperationDetails(operation)
-    if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
-
-    /**
-     * A VERDICT THIS OPERATION DID NOT ASK FOR IS NOT THIS OPERATION'S VERDICT
-     * (POD-2201, spec §6.2, §7).
-     *
-     * The step used to settle before it authorized anything, so a machine whose
-     * last word — to a PREVIOUS operation, or to a cancel that left it `stuck` —
-     * was terminal decided this one in under ten milliseconds, with zero grants
-     * issued and nothing asked of the machine. The panel then offered Try again,
-     * which is another operation, which failed the same way: a button that
-     * looked like a way out and could not be one. Starting an update is a new
-     * human decision, and §6.2's promise is that a failure is never a dead end.
-     *
-     * WHY THIS IS NOT "MOVE `markAuthorized` UP". Forgetting a verdict on every
-     * pass would forget the one the wave is being failed on and re-grant on the
-     * next re-entry, forever — the hot loop POD-2105's terminal guard and its
-     * per-machine attempt cap exist to prevent. So it is asked per PLACE, and
-     * only of a place this operation has not yet put anything to: a place still
-     * `pending` has been granted nothing by this step, so any verdict against it
-     * was given to somebody else's decision. The moment a place is granted, its
-     * carried state stops being `pending` and its verdict settles the step in
-     * the usual way — one grant per human decision, on this route and on
-     * `authorizeMachine`'s alike.
-     *
-     * It runs before the delivery gate below rather than after, because it is a
-     * statement about authority and not about readiness: a step that is still
-     * waiting for its package must not be sitting on a stale refusal either.
-     */
-    const untouched = (step.places ?? [])
-      .filter((place) => place.state === undefined || place.state === 'pending')
-      .map((place) => place.id)
-    if (untouched.length > 0) context.updates.clearMachineVerdicts(details.channel, untouched)
-
-    const settled = settleMachines(operation, step, context)
-    if (settled) return settled
-
-    /**
-     * NEVER GRANT WHAT CANNOT BE DELIVERED — asked of the MACHINES this step is
-     * waiting on, not of the target alone (POD-2195).
-     *
-     * `prepare` is supposed to have left a packed descriptor published for this
-     * version; if it has not, ticking would hand an installed daemon a bare
-     * `dev+<sha>` identity it can only refuse — the fleet learning by failing,
-     * which is exactly the defect the delivery-capability work removed. Staying
-     * `running` instead means the step's own deadline decides, visibly, rather
-     * than a wave of rejections.
-     *
-     * But a machine that owns a checkout can take that identity TODAY: it names
-     * a repo and a sha, which is the whole of what git delivery needs. Asking
-     * only "has it been packed?" held such a machine behind a package it could
-     * never consume, for a package this plan may not even contain (spec §9.2).
-     * The wave planner does the same per-machine filtering at grant time, so a
-     * mixed fleet advances the git machines here and picks the rest up when the
-     * packed descriptor arrives.
-     */
-    const published = context.updates.target(details.channel) ?? details.target
-    const awaited = new Set((step.places ?? []).map((place) => place.id))
-    const waiting = context.updates.fleet().filter((machine) => awaited.has(machine.id))
-    if (!fleetCanTakeTargetNow(published, waiting)) {
-      return {
-        state: 'running',
-        detail: 'Waiting for the update package.',
-        ...projectMachines(operation, step, context),
-      }
+  /**
+   * WRITE THE WAVE DOWN ON THE WAY OUT (POD-2754), whatever the outcome was.
+   *
+   * The rounds this pass issued are in the service the moment `tick()` returns,
+   * and this is the last instant before the answer goes back to the engine — a
+   * `done` answer being the one that matters most, because it is the pass that
+   * ends the step, and after it nothing re-enters this runner to write anything.
+   * `finally`, so a runner that throws still leaves behind the grants it made.
+   */
+  ensure: async (args) => {
+    try {
+      return await ensureMachines(args)
+    } finally {
+      writeWaveRounds(args.operation, args.context)
     }
-
-    /**
-     * THE ONE AUTOMATIC RETRY, FOR A MACHINE MID-GRANT (§3.3, POD-2101).
-     *
-     * The engine re-enters `ensure()` after it has marked this step `stalled`,
-     * and by itself that would change nothing: the wave planner deliberately
-     * skips a machine it believes is mid-grant, so `tick()` would select nobody
-     * and the step would go straight back to waiting on the same silence. Re-
-     * issuing the grant is what a retry MEANS here — safe because the daemon's
-     * grant runner serializes: the same grant id is ignored, a newer one cancels
-     * the delivery in flight before taking over.
-     *
-     * `stalls` rather than `attempts`, because adoption after a server restart
-     * also re-enters this runner and that is not a stall — the successor should
-     * let the existing grants stand and watch them.
-     */
-    if ((step.stalls ?? 0) > 0) context.updates.reissueGrants(details.channel)
-
-    context.updates.markAuthorized(details.channel)
-    context.updates.tick(details.channel)
-    const progress = projectMachines(operation, step, context)
-    return { state: 'running', ...progress }
   },
+}
+
+function writeWaveRounds(operation: Operation, context: UpdateOperationContext): void {
+  const rounds = mergedWaveRounds(operation, context.updates)
+  if (rounds) context.recordOperationDetails?.(operation.id, { waveRounds: rounds })
+}
+
+const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
+  operation,
+  step,
+  context,
+}) => {
+  const details = updateOperationDetails(operation)
+  if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
+
+  /**
+   * A VERDICT THIS OPERATION DID NOT ASK FOR IS NOT THIS OPERATION'S VERDICT
+   * (POD-2201, spec §6.2, §7).
+   *
+   * The step used to settle before it authorized anything, so a machine whose
+   * last word — to a PREVIOUS operation, or to a cancel that left it `stuck` —
+   * was terminal decided this one in under ten milliseconds, with zero grants
+   * issued and nothing asked of the machine. The panel then offered Try again,
+   * which is another operation, which failed the same way: a button that
+   * looked like a way out and could not be one. Starting an update is a new
+   * human decision, and §6.2's promise is that a failure is never a dead end.
+   *
+   * WHY THIS IS NOT "MOVE `markAuthorized` UP". Forgetting a verdict on every
+   * pass would forget the one the wave is being failed on and re-grant on the
+   * next re-entry, forever — the hot loop POD-2105's terminal guard and its
+   * per-machine attempt cap exist to prevent. So it is asked per PLACE, and
+   * only of a place this operation has not yet put anything to: a place still
+   * `pending` has been granted nothing by this step, so any verdict against it
+   * was given to somebody else's decision. The moment a place is granted, its
+   * carried state stops being `pending` and its verdict settles the step in
+   * the usual way — one grant per human decision, on this route and on
+   * `authorizeMachine`'s alike.
+   *
+   * It runs before the delivery gate below rather than after, because it is a
+   * statement about authority and not about readiness: a step that is still
+   * waiting for its package must not be sitting on a stale refusal either.
+   */
+  const untouched = (step.places ?? [])
+    .filter((place) => place.state === undefined || place.state === 'pending')
+    .map((place) => place.id)
+  if (untouched.length > 0) context.updates.clearMachineVerdicts(details.channel, untouched)
+
+  const settled = settleMachines(operation, step, context)
+  if (settled) return settled
+
+  /**
+   * NEVER GRANT WHAT CANNOT BE DELIVERED — asked of the MACHINES this step is
+   * waiting on, not of the target alone (POD-2195).
+   *
+   * `prepare` is supposed to have left a packed descriptor published for this
+   * version; if it has not, ticking would hand an installed daemon a bare
+   * `dev+<sha>` identity it can only refuse — the fleet learning by failing,
+   * which is exactly the defect the delivery-capability work removed. Staying
+   * `running` instead means the step's own deadline decides, visibly, rather
+   * than a wave of rejections.
+   *
+   * But a machine that owns a checkout can take that identity TODAY: it names
+   * a repo and a sha, which is the whole of what git delivery needs. Asking
+   * only "has it been packed?" held such a machine behind a package it could
+   * never consume, for a package this plan may not even contain (spec §9.2).
+   * The wave planner does the same per-machine filtering at grant time, so a
+   * mixed fleet advances the git machines here and picks the rest up when the
+   * packed descriptor arrives.
+   */
+  const published = context.updates.target(details.channel) ?? details.target
+  const awaited = new Set((step.places ?? []).map((place) => place.id))
+  const waiting = context.updates.fleet().filter((machine) => awaited.has(machine.id))
+  if (!fleetCanTakeTargetNow(published, waiting)) {
+    return {
+      state: 'running',
+      detail: 'Waiting for the update package.',
+      ...projectMachines(operation, step, context),
+    }
+  }
+
+  /**
+   * THE ONE AUTOMATIC RETRY, FOR A MACHINE MID-GRANT (§3.3, POD-2101).
+   *
+   * The engine re-enters `ensure()` after it has marked this step `stalled`,
+   * and by itself that would change nothing: the wave planner deliberately
+   * skips a machine it believes is mid-grant, so `tick()` would select nobody
+   * and the step would go straight back to waiting on the same silence. Re-
+   * issuing the grant is what a retry MEANS here — safe because the daemon's
+   * grant runner serializes: the same grant id is ignored, a newer one cancels
+   * the delivery in flight before taking over.
+   *
+   * `stalls` rather than `attempts`, because adoption after a server restart
+   * also re-enters this runner and that is not a stall — the successor should
+   * let the existing grants stand and watch them.
+   */
+  if ((step.stalls ?? 0) > 0) context.updates.reissueGrants(details.channel)
+
+  context.updates.markAuthorized(details.channel)
+  context.updates.tick(details.channel)
+  const progress = projectMachines(operation, step, context)
+  return { state: 'running', ...progress }
 }
 
 /**
@@ -1450,8 +1869,16 @@ export function projectMachines(
     ) {
       return { ...place, ...(machine.name ? { name: machine.name } : {}) }
     }
-    if (targetVersion !== undefined && machine.version === targetVersion) {
-      return { ...place, state: 'current', percent: 100, name: machine.name ?? place.name }
+    if (
+      targetVersion !== undefined &&
+      context.updates.machineBootedAtTarget(machine.id as MachineId, targetVersion)
+    ) {
+      return {
+        ...place,
+        state: 'current',
+        percent: 100,
+        name: machine.name ?? place.name,
+      }
     }
     // A daemon that reported `restarting` and then disconnected has crossed the
     // handoff (`machineCrossedRestartBoundary`). Across a wire boundary its next
@@ -1462,7 +1889,11 @@ export function projectMachines(
       targetVersion !== undefined &&
       context.updates.machineCrossedRestartBoundary(machine.id as MachineId, targetVersion)
     ) {
-      return { ...place, state: 'restarting', name: machine.name ?? place.name }
+      return {
+        ...place,
+        state: 'restarting',
+        name: machine.name ?? place.name,
+      }
     }
     /**
      * A MACHINE THAT IS BEHIND IS NOT `current`, WHATEVER THE WAVE CALLS IT.
@@ -1507,9 +1938,7 @@ export function projectMachines(
     }
   }
 
-  const done = places.filter(
-    (place) => place.state === 'current' || place.state === 'restarting',
-  ).length
+  const done = places.filter((place) => place.state === 'current').length
   return { places, progress: { done, total: places.length } }
 }
 
@@ -1547,8 +1976,8 @@ export function describeUpdateStall(input: {
 
 /**
  * Has the wave reached an outcome? `done` when every planned machine is at the
- * target (or has crossed the restart boundary), `failed` when one reported a
- * verdict only a human can clear.
+ * target by raw reconnect identity, `failed` when one reported a verdict only
+ * a human can clear. Crossing the restart boundary remains in progress.
  */
 function settleMachines(
   operation: Operation,
@@ -1629,11 +2058,13 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
       try {
         await context.prepareCoordinatorUpdate(details.target)
       } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        const classified = classifyMachineFailure(detail)
         return {
           state: 'failed',
           error: describeUpdateOperationFailure({
-            code: 'download-failed',
-            detail: error instanceof Error ? error.message : String(error),
+            code: classified === 'artifact-unreachable' ? classified : 'download-failed',
+            detail,
           }),
         }
       }
@@ -1666,11 +2097,25 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
 }
 
 /**
- * `web` — the served website reaching the target commit (§3.1).
+ * `web` — VERIFY THE PAGE ROLLOUT AFTER THE RESTART (§3.1, audit gap 21).
  *
- * Reality first, and the reality is a stamp on disk. In the development flow
- * `prepare` has usually already produced it, so this step's common case is to
- * observe and finish without acting.
+ * Reality first, and the reality is the digest of the website this process is
+ * actually serving. The step's normal outcome is therefore to OBSERVE, not to
+ * act: on every channel the new `web/` dist ships inside the headless bundle
+ * and becomes current the moment the swap-and-restart of the `server` step
+ * completes, so by the time this step is reached the correct answer is usually
+ * already true. That restates dev-web-build's blast-radius rule (audit gap 22)
+ * from the operation's side: the dist only ever moves on an operator-approved
+ * update, and this is the step that confirms it moved.
+ *
+ * The rebuild it can still ask for is the source-host case, where there is no
+ * unpacked bundle behind the served dist and the website has to be produced
+ * from the checkout. That is the same pre-release stage `prepare` runs, and it
+ * is the last channel-specific thing on this path.
+ *
+ * Reloading open TABS is not this step's business and never blocks it: the
+ * reload ask is voluntary (§3.5), because a tab that has not reloaded is a
+ * straggler that self-serves on its next load.
  */
 const webRunner: StepRunner<UpdateOperationContext> = {
   /**
@@ -1703,7 +2148,10 @@ const webRunner: StepRunner<UpdateOperationContext> = {
         if (failure !== undefined) {
           return {
             state: 'failed',
-            error: describeUpdateOperationFailure({ code: 'web-build-failed', detail: failure }),
+            error: describeUpdateOperationFailure({
+              code: 'web-build-failed',
+              detail: failure,
+            }),
           }
         }
         return undefined
@@ -1777,16 +2225,9 @@ export const UPDATE_NOT_INSTALLED_ERROR_CODE = 'update-not-installed'
 /**
  * THE GRACE RAN OUT — WAS ANYTHING ACHIEVED? (POD-2186.)
  *
- * `expireWaiting` completes an operation whose steps all succeeded, and it is
- * right to: the update happened, and a browser tab that never reloaded is not a
- * reason to call it a failure. The all-in-one plan is the case that sentence
- * does not cover. Its entire content is one required `desktop-install` ask and
- * ZERO steps (§4, §5) — the shell owns the bytes, so there is nothing for a
- * runner to do — and completing it said "0.4.4 · succeeded" in Settings history
- * about a machine still running 0.4.3, made the panel's `done` branch claim
- * "Podium is on 0.4.4 everywhere", and made §3.7's answer to *did last night's
- * update finish?* a lie. The only reason anyone noticed was the offer coming
- * back on the next check.
+ * New all-in-one plans have an ordinary machine step. This still classifies a
+ * pre-transition persisted operation whose only content is the old required
+ * desktop-install ask; expiry must not rewrite "nobody installed it" as success.
  *
  * SO THE TEST IS "DID ANY STEP GET DONE", not "is this the all-in-one plan".
  * The question the framework is really asking is whether completing is honest,
@@ -1836,7 +2277,17 @@ export function createUpdateFleetBridge(deps: {
       placeIds: readonly string[],
       patch: StepProgressPatch,
     ): Promise<void>
+    /** Restate the note about places this operation is NOT waiting for (POD-3040). */
+    recordDeferred(id: string, deferred: readonly DeferredPlace[]): Promise<void>
     reensure(id: string, stepId: string, patch?: StepProgressPatch): Promise<void>
+    /** Where this bridge writes the wave rounds it just watched happen (POD-2754). */
+    recordDetails(id: string, patch: Record<string, unknown>): unknown
+    /**
+     * The most recent operations, newest first — how {@link onTargetChanged}
+     * reaches an update that has already FINISHED. That is the common case for
+     * a deferred promise, not an edge one (POD-3040).
+     */
+    history(kind?: string, limit?: number): { id: string; kind: string; operation: Operation | null }[]
   }
   updates: UpdatesService
   /**
@@ -1847,8 +2298,56 @@ export function createUpdateFleetBridge(deps: {
    * which is what the composition root's engine uses.
    */
   now?: () => number
-}): { onFleetChanged: () => void } {
-  return {
+}): { onFleetChanged: () => void; onTargetChanged: () => void } {
+  /**
+   * EVERY UPDATE WHOSE DEFERRED PROMISE IS STILL STANDING (POD-3040).
+   *
+   * ALL of the retained ones, not the newest — and that distinction is the
+   * whole point. A deferred promise belongs to the operation that made it, and
+   * operations keep happening: an all-offline update finishes with "laptop will
+   * update when it reconnects", then a second update runs on the machines that
+   * were awake and finishes with nothing deferred at all. Reading only the
+   * newest row — or only the active one — would find that second operation,
+   * have nothing to correct, and leave the first one promising delivery of a
+   * release that no longer exists. The stale sentence is precisely the one on
+   * the OLDER row.
+   *
+   * `history` is bounded by the same retention that bounds the list Settings →
+   * Updates renders, and it includes a running operation as well as finished
+   * ones, so this is the whole set of rows whose promise anybody can still
+   * read. Rows whose promise is still true cost one comparison each:
+   * {@link supersededDeferredPlaces} returns nothing for an empty `deferred`
+   * list and nothing for an operation whose exact target is still published, so
+   * an unrelated row is never written.
+   */
+  const restateStaleDeferredPromises = (): void => {
+    for (const row of deps.engine.history(UPDATE_OPERATION_KIND)) {
+      if (!row.operation) continue
+      const details = updateOperationDetails(row.operation)
+      if (!details) continue
+      const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
+      if (restated) void deps.engine.recordDeferred(row.id, restated)
+    }
+  }
+
+  const bridge = {
+    /**
+     * THE TARGET MOVED, so a deferred promise made against the old one may have
+     * stopped being true (POD-3040).
+     *
+     * This is the only event that can falsify it — a fleet event cannot change
+     * what is published — which is why the restatement lives here and not in
+     * `onFleetChanged`. It fires on all three of publication, re-resolution and
+     * withdrawal, and it corrects the note WITHOUT holding any rollout open:
+     * nothing is granted, no step is entered, and a finished operation stays
+     * finished (see {@link OperationEngine.recordDeferred}).
+     */
+    onTargetChanged: () => {
+      restateStaleDeferredPromises()
+      // …and then the ordinary fleet pass, which is what a target change has
+      // always driven: an active wave still has to be projected against it.
+      bridge.onFleetChanged()
+    },
     onFleetChanged: () => {
       const row = deps.engine.active(LIFECYCLE_EXCLUSION_GROUP)
       if (!row || row.kind !== UPDATE_OPERATION_KIND || !row.operation) return
@@ -1861,6 +2360,9 @@ export function createUpdateFleetBridge(deps: {
         channel: details.channel,
         appVersion: () => details.fromVersion ?? '',
         ...(deps.now ? { now: deps.now } : {}),
+        recordOperationDetails: (id, patch) => {
+          deps.engine.recordDetails(id, patch)
+        },
       }
 
       // §3.6: a deferred machine that woke up while its own step is still
@@ -1876,7 +2378,13 @@ export function createUpdateFleetBridge(deps: {
           row.id,
           UPDATE_STEP_MACHINES,
           admitted.map((place) => place.id),
-          { places, progress: { done: places.filter(isArrived).length, total: places.length } },
+          {
+            places,
+            progress: {
+              done: places.filter(isArrived).length,
+              total: places.length,
+            },
+          },
         )
         return
       }
@@ -1886,6 +2394,21 @@ export function createUpdateFleetBridge(deps: {
         state: 'running' as const,
         ...projectMachines(row.operation, step, context),
       }
+
+      /**
+       * THE WIDENING ROUND HAPPENS IN HERE (POD-2754).
+       *
+       * Both projections above read `fleet()`, and `fleet()` is one of the three
+       * things that advance a wave: the canary reconnecting on the target is
+       * what proves it, and the grant that widens to the rest goes out from
+       * inside that read. On a two-machine fleet that is also the LAST round, so
+       * if this bridge did not write it down nothing would — `settled` is `done`
+       * on the very next event and the runner is never entered again.
+       *
+       * Before the reports below, all of which can finish the step and with it
+       * the operation, and a finished operation accepts no more detail.
+       */
+      writeWaveRounds(row.operation, context)
 
       /**
        * A MACHINE THE WAVE WAS WAITING ON JUST CAME BACK (POD-2167).
@@ -1913,7 +2436,37 @@ export function createUpdateFleetBridge(deps: {
           (place) =>
             wasOffline.has(place.id) && place.state !== undefined && place.state !== 'offline',
         )
-      if (returned) {
+      /**
+       * …AND WHEN THE WAVE SIMPLY STOPPED (POD-2741).
+       *
+       * The edge above is the only re-entry this had, and an edge can be
+       * missed. Three things advance a wave — the runner's `ensure`, the
+       * operator's first click, and `fleet()`'s read continuation — and the
+       * continuation fires only for a machine it can judge `continuing`, which
+       * needs the pending grant saying one is outstanding. `pendingGrants` is
+       * IN-MEMORY, so it does not survive the coordinator replacing itself.
+       *
+       * After a self-handover the successor therefore has no pending grant for
+       * the coordinator that just converged, so the continuation cannot fire;
+       * and the machines still waiting are `pending` rather than `offline`, so
+       * the edge above cannot fire either. Both drive paths are out at once and
+       * only the step's silence deadline is left — about seven minutes, longer
+       * than any caller waits. Measured twice: `[source:current,
+       * fleet-a:pending, fleet-b:pending]` and not one tick in the following
+       * 300 s.
+       *
+       * So this asks a STATE rather than watching for an event: the step has
+       * work it has never granted, and nothing is in flight to finish it. That
+       * cannot be missed the way an edge can, and it costs nothing during a
+       * healthy wave because something is always in flight then.
+       */
+      const places = projected.places ?? []
+      const stalled =
+        settled === undefined &&
+        !places.some((place) => IN_FLIGHT_STATES.has(place.state as never)) &&
+        places.some((place) => place.state === 'pending')
+
+      if (returned || stalled) {
         void deps.engine.reensure(row.id, UPDATE_STEP_MACHINES, projected)
         return
       }
@@ -1921,24 +2474,18 @@ export function createUpdateFleetBridge(deps: {
       void deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, projected)
     },
   }
+  return bridge
 }
 
-const isArrived = (place: StepPlace): boolean =>
-  place.state === 'current' || place.state === 'restarting'
+const isArrived = (place: StepPlace): boolean => place.state === 'current'
 
 /**
  * WHICH DEFERRED PLACES MAY JOIN THE WAVE NOW (§3.6).
  *
- * A place is deferred because it was asleep (or could not take the artifact) at
- * plan time. The question here is the same one the plan asked, asked again
- * against the live fleet: is it online, is it still behind, is it ours to
- * update, and can it take what is being handed out? Anything else stays
- * deferred and converges through the standing reconciler after the operation
- * ends — which is the honest outcome, not a fallback.
- *
- * `supervised` is re-checked rather than assumed from the plan: a daemon that
- * became desktop-supervised between the plan and the reconnect is the shell's
- * now, and no wave may touch it (§4, P5).
+ * A transient place may join after reconnecting when the live fleet proves it can take the
+ * target. A legacy-instance-trust place cannot pass that proof: it stays deferred until a
+ * supported host-local repair replaces its updater and a new capability report removes the
+ * permanent blocker.
  */
 export function admissibleDeferredPlaces(
   operation: Operation,
@@ -1947,17 +2494,29 @@ export function admissibleDeferredPlaces(
 ): StepPlace[] {
   const deferred = operation.deferred ?? []
   if (deferred.length === 0) return []
-  const published = updates.target(details.channel) ?? details.target
+  const published = exactPublishedTarget(details, updates)
+  // THE EXACT TARGET IS GONE (POD-3040), so nobody joins this wave.
+  //
+  // Retention is finite: a newer publication supersedes this operation's
+  // target and the sweep reclaims its tarballs under the ordinary window. A
+  // machine that slept through that must not be admitted here — the grant it
+  // would receive carries whatever is published NOW, while every arrival check
+  // in this operation is fenced to `details.target.version`, so it would
+  // download a version this operation can never count and then be reported as
+  // silent. {@link supersededDeferredPlaces} gives it the honest word instead,
+  // and the ordinary reconciler converges it on the newest orderable target.
+  if (!published) return []
   const deliveries = offeredDeliveries(published)
   const fleet = new Map(updates.fleet().map((machine) => [machine.id, machine]))
   const admitted: StepPlace[] = []
   for (const place of deferred) {
     const machine = fleet.get(place.id)
     if (!machine?.online) continue
+    if (!isPackagedRolloutTarget(machine)) continue
     if (machine.version === details.target.version) continue
     if (updates.channelOf(machine) !== details.channel) continue
+    if (!machineCanUseTargetTrust(machine, published.trust)) continue
     if (deliveries.length > 0 && !machineCanTakeDelivery(machine, deliveries)) continue
-    if (machine.supervised === true) continue
     admitted.push({
       id: machine.id,
       ...(machine.name ? { name: machine.name } : {}),
@@ -1965,6 +2524,63 @@ export function admissibleDeferredPlaces(
     })
   }
   return admitted
+}
+
+/**
+ * THIS OPERATION'S TARGET, OR NOTHING (POD-3040).
+ *
+ * An operation is a promise about ONE immutable release, and every place it
+ * counts is judged against `details.target.version`. So the published target
+ * is usable here only while it is still that exact version; anything else —
+ * a newer publication, or a withdrawn channel — means the operation's target
+ * is no longer on offer, and falling back to `details.target` would have this
+ * operation reason from a release the server can no longer serve.
+ */
+function exactPublishedTarget(
+  details: UpdateOperationDetails,
+  updates: UpdatesService,
+): UpdateTarget | undefined {
+  const published = updates.target(details.channel)
+  if (!published) return undefined
+  return published.version === details.target.version ? published : undefined
+}
+
+/** §3.6: a deferred place whose exact target is no longer the one on offer. */
+export const DEFERRED_TARGET_SUPERSEDED = 'target-superseded'
+/** §3.6: a deferred place whose channel is currently offering nothing at all. */
+export const DEFERRED_TARGET_UNAVAILABLE = 'target-unavailable'
+
+/**
+ * THE WORD A DEFERRED MACHINE IS OWED WHEN ITS RELEASE IS GONE (POD-3040).
+ *
+ * Deferring an offline machine is what lets publication proceed without it,
+ * and the note it leaves — "will update when it reconnects" — is true only
+ * while the release it was deferred against still exists. Retention is finite,
+ * so eventually it does not: the sweep reclaims the tarballs a newer publish
+ * superseded, and the address in this operation's plan answers `not found`.
+ *
+ * Saying so is the whole obligation. The alternative — quietly handing the
+ * machine the newest bytes under this operation's name — would report a
+ * version this operation never planned as this operation's success, which is
+ * exactly the lie the exact-target fence exists to prevent. The machine is not
+ * stranded by the honesty: the ordinary reconciler converges it on whatever is
+ * published now, as a new operation, under its own name.
+ *
+ * Returns the rewritten deferred list, or `undefined` when nothing changed.
+ */
+export function supersededDeferredPlaces(
+  operation: Operation,
+  details: UpdateOperationDetails,
+  updates: UpdatesService,
+): DeferredPlace[] | undefined {
+  const deferred = operation.deferred ?? []
+  if (deferred.length === 0) return undefined
+  if (exactPublishedTarget(details, updates)) return undefined
+  const reason = updates.target(details.channel)
+    ? DEFERRED_TARGET_SUPERSEDED
+    : DEFERRED_TARGET_UNAVAILABLE
+  if (deferred.every((place) => place.reason === reason)) return undefined
+  return deferred.map((place) => ({ ...place, reason }))
 }
 
 /**
@@ -1986,6 +2602,8 @@ export function planInputFrom(context: UpdateOperationContext): UpdatePlanInput 
     fleet: context.updates.fleet(),
     channelOf: (machine) => context.updates.channelOf(machine),
     appVersion: context.appVersion(),
+    sourceDigest: context.sourceDigest?.(),
+    ...(context.serverInstallKind ? { serverInstallKind: context.serverInstallKind } : {}),
     servedWebDigest: context.servedWebDigest?.(),
     canPrepare: context.requestDestBundle !== undefined,
     canRebuildWeb: context.requestWebRebuild !== undefined,

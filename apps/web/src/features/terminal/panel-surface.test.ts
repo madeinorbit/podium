@@ -96,7 +96,7 @@ describe('panelGates', () => {
     expect(g.terminalActive).toBe(false)
   })
 
-  it('keeps the terminal mounted in chat mode but not active (the warm toggle)', () => {
+  it('permits an already-loaded terminal to stay mounted in chat mode', () => {
     const g = gatesFor(surfaceOf({ status: 'live', mode: 'chat' }))
     expect(g.terminalMounted).toBe(true)
     expect(g.terminalActive).toBe(false)

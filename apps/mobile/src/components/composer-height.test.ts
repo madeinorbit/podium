@@ -3,6 +3,7 @@ import {
   COMPOSER_LINE,
   COMPOSER_MAX_LINES,
   COMPOSER_MIN_HEIGHT,
+  composerAtRest,
   composerFieldHeight,
   composerMaxHeight,
   composerScrolls,
@@ -50,5 +51,18 @@ describe('composer cap under Dynamic Type', () => {
       expect(composerMaxHeight(bogus)).toBe(COMPOSER_LINE * COMPOSER_MAX_LINES)
     }
     expect(composerMaxHeight(COMPOSER_LINE * 40)).toBe(COMPOSER_LINE * 3 * COMPOSER_MAX_LINES)
+  })
+})
+
+describe('composer rest state', () => {
+  it('rests an empty field at whatever a line costs, not at the default one', () => {
+    expect(composerAtRest(null)).toBe(true)
+    expect(composerAtRest(COMPOSER_LINE)).toBe(true)
+    expect(composerAtRest(COMPOSER_LINE * 2)).toBe(false)
+    // Dynamic Type. A taller line still IS one line — reading this as "grown"
+    // is what stopped the feed being told the composer's height [POD-1666].
+    const large = COMPOSER_LINE * 2
+    expect(composerAtRest(large, large)).toBe(true)
+    expect(composerAtRest(large * 2, large)).toBe(false)
   })
 })

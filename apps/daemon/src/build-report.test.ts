@@ -52,11 +52,7 @@ describe('buildReport', () => {
     )
     expect(boot.installDir).toBe('/home/u/.local/share/podium')
     expect(boot.build).toMatchObject({ appVersion: '0.4.2', installKind: 'installed' })
-    expect(deliveryCaps(boot.build)).toEqual([
-      'update.delivery.feed',
-      'update.delivery.bundle',
-      'shipping.train.v2',
-    ])
+    expect(deliveryCaps(boot.build)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2'])
   })
 
   it('matches the server source identity for the same checkout', () => {
@@ -81,40 +77,32 @@ describe('buildReport', () => {
 })
 
 /**
- * A DESKTOP-SUPERVISED DAEMON IS THE SHELL'S, NOT THE FLEET'S (POD-2099).
- *
- * Three shapes, because the two platforms disagree about what a supervised
- * daemon looks like and neither disagreement may decide the outcome:
- * - macOS all-in-one runs the sidecar IN PLACE inside `Podium.app` and looks
- *   `installed` (feed+bundle caps — a grant would rename dirs in the signature);
- * - Linux copies the sidecar to `~/.podium/bin`, where it looks like a plain
- *   run and nothing about the path says "desktop";
- * - a standalone installed daemon on the same machine is an ordinary fleet
- *   machine and must keep its caps.
+ * Desktop supervision describes process ownership only. An installed external
+ * payload keeps feed delivery; a source daemon still cannot swap bytes merely
+ * because a shell happens to supervise it.
  */
 describe('desktop-supervised build report', () => {
   const supervisedEnv = { PODIUM_APP_VERSION: '0.4.2', PODIUM_DESKTOP_SUPERVISED: '1' }
 
-  it('flags the macOS all-in-one sidecar running in place inside the .app', () => {
-    const r = buildReport(supervisedEnv, '/Applications/Podium.app/Contents/Resources/podium')
+  it('flags the macOS external payload and keeps feed delivery', () => {
+    const r = buildReport(
+      supervisedEnv,
+      '/Users/u/Library/Application Support/app.podium.desktop/payload',
+    )
     expect(r).toMatchObject({ installKind: 'installed', supervised: true })
-    expect(deliveryCaps(r)).toEqual([])
+    expect(deliveryCaps(r)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2'])
   })
 
-  it('flags the Linux sidecar copied out of the bundle, which looks like a plain run', () => {
+  it('does not invent feed delivery for a supervised source daemon', () => {
     const r = buildReport(supervisedEnv, undefined)
     expect(r).toMatchObject({ installKind: 'source', supervised: true })
-    expect(deliveryCaps(r)).toEqual([])
+    expect(deliveryCaps(r)).toEqual(['shipping.train.v2'])
   })
 
   it('leaves a standalone installed daemon on the same machine untouched', () => {
     const r = buildReport({ PODIUM_APP_VERSION: '0.4.2' }, '/home/u/.local/share/podium')
     expect(r.supervised).toBeUndefined()
-    expect(deliveryCaps(r)).toEqual([
-      'update.delivery.feed',
-      'update.delivery.bundle',
-      'shipping.train.v2',
-    ])
+    expect(deliveryCaps(r)).toEqual(['update.delivery.feed', 'update.probe.artifact', 'shipping.train.v2'])
   })
 
   it('reads only the exact flag, never a truthy-looking value', () => {
@@ -132,23 +120,35 @@ describe('desktop-supervised build report', () => {
 })
 
 describe('deliveryCaps', () => {
-  it('offers feed and bundle for an installed build', () => {
+  it('offers the one surviving delivery kind for an installed build', () => {
     expect(deliveryCaps({ installKind: 'installed' })).toEqual([
       'update.delivery.feed',
-      'update.delivery.bundle',
+      'update.probe.artifact',
       'shipping.train.v2',
     ])
   })
 
-  it('offers only git for a source run, which cannot swap a bundle', () => {
-    expect(deliveryCaps({ installKind: 'source' })).toEqual([
-      'update.delivery.git',
-      'shipping.train.v2',
-    ])
+  /**
+   * A SOURCE RUN OFFERS NO DELIVERY AT ALL (spec §1, disposition 5).
+   *
+   * It used to offer `update.delivery.git` — "move my checkout to that sha" —
+   * and that kind is retired: exactly one machine runs from source, the
+   * publisher, and it is not a fleet consumer. Reporting `feed` instead would
+   * be worse than reporting nothing: it has no install directory, so it would
+   * download and verify a quarter of a gigabyte and then throw at the swap.
+   *
+   * It keeps the shipping-train capability, which is not about delivery.
+   */
+  it('offers no delivery for a source run, which has nowhere to install one', () => {
+    expect(deliveryCaps({ installKind: 'source' })).toEqual(['shipping.train.v2'])
   })
 
-  it('offers nothing at all when a desktop shell owns the bytes', () => {
-    expect(deliveryCaps({ installKind: 'installed', supervised: true })).toEqual([])
-    expect(deliveryCaps({ installKind: 'source', supervised: true })).toEqual([])
+  it('treats desktop supervision as process ownership, not delivery ownership', () => {
+    expect(deliveryCaps({ installKind: 'installed', supervised: true })).toEqual([
+      'update.delivery.feed',
+      'update.probe.artifact',
+      'shipping.train.v2',
+    ])
+    expect(deliveryCaps({ installKind: 'source', supervised: true })).toEqual(['shipping.train.v2'])
   })
 })

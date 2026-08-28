@@ -16,8 +16,10 @@ import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react-native'
 import {
   type ReactElement,
   type ReactNode,
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -44,6 +46,7 @@ import {
   envelopePrincipal,
   isChosenOption,
   type MobileTranscriptRow,
+  liveAssistantRow,
   machineContextLabel,
   parseAskQuestions,
   quoteTranscriptText,
@@ -198,7 +201,10 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={machineContextLabel(item.text)}
+        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+        // only the former, so the web build announced no state at all. [POD-1664]
         accessibilityState={{ expanded: open }}
+        aria-expanded={open}
         onPress={() => setOpen((value) => !value)}
         style={({ pressed }) => [styles.contextToggle, pressed && styles.contextPressed]}
       >
@@ -231,6 +237,7 @@ function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
         accessibilityRole="button"
         accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${toolBatchTitle(blocks)}`}
         accessibilityState={{ expanded }}
+        aria-expanded={expanded}
         onPress={() => setExpanded((value) => !value)}
         style={({ pressed }) => [styles.workLine, pressed && styles.workLinePressed]}
       >
@@ -447,6 +454,244 @@ function StreamingCaret({ reduceMotion }: { reduceMotion: boolean }) {
   return <Animated.Text style={[styles.streamingCaret, { opacity }]}>▋</Animated.Text>
 }
 
+interface TranscriptFeedRowProps {
+  row: Row
+  arrived: boolean
+  highlighted: boolean
+  dimmed: boolean
+  reduceMotion: boolean
+  liveQuestion: boolean
+  streaming: boolean
+  assetContext?: TranscriptAssetContext
+  onAnswer: (answer: AskQuestionAnswer) => Promise<void>
+  onRefPress?: (ref: string) => void
+  onRetryPending?: (turn: PendingTurn) => void
+  onHold: (text: string) => void
+}
+
+function sameAssetContext(
+  previous: TranscriptAssetContext | undefined,
+  next: TranscriptAssetContext | undefined,
+): boolean {
+  return (
+    previous === next ||
+    (previous !== undefined &&
+      next !== undefined &&
+      previous.httpOrigin === next.httpOrigin &&
+      previous.sessionId === next.sessionId &&
+      previous.cwd === next.cwd)
+  )
+}
+
+function sameRow(previous: Row, next: Row): boolean {
+  if (previous === next) return true
+  if (previous.key !== next.key || previous.kind !== next.kind || previous.turn !== next.turn)
+    return false
+  if (previous.kind === 'pending' || next.kind === 'pending') {
+    return (
+      previous.kind === 'pending' &&
+      next.kind === 'pending' &&
+      previous.pendingTurn === next.pendingTurn
+    )
+  }
+  if (previous.item !== next.item) return false
+  const previousBlocks = previous.blocks
+  const nextBlocks = next.blocks
+  if (previousBlocks === nextBlocks) return true
+  if (!previousBlocks || !nextBlocks || previousBlocks.length !== nextBlocks.length) return false
+  return previousBlocks.every(
+    (block, index) =>
+      block.item === nextBlocks[index]?.item && block.result === nextBlocks[index]?.result,
+  )
+}
+
+const TranscriptFeedRow = memo(
+  function TranscriptFeedRow({
+    row,
+    arrived,
+    highlighted,
+    dimmed,
+    reduceMotion,
+    liveQuestion,
+    streaming,
+    assetContext,
+    onAnswer,
+    onRefPress,
+    onRetryPending,
+    onHold,
+  }: TranscriptFeedRowProps) {
+    const message = (text: string, child: ReactNode) => (
+      <HoldableMessage text={text} onHold={onHold}>
+        {child}
+      </HoldableMessage>
+    )
+
+    let content: ReactNode
+    switch (row.kind) {
+      case 'user': {
+        const time = shortTime(row.item.ts)
+        content = message(
+          row.item.text,
+          <View style={styles.userWrap}>
+            <View style={styles.userCard}>
+              <MessageText
+                text={row.item.text.trim()}
+                style={styles.userText}
+                onRefPress={onRefPress}
+              />
+              <SharedFiles item={row.item} context={assetContext} showHeader={false} />
+            </View>
+            {time ? <Text style={styles.userMetaOutside}>{time}</Text> : null}
+          </View>,
+        )
+        break
+      }
+      case 'pending': {
+        const turn = row.pendingTurn
+        const failed = turn.failed
+        content = (
+          <View style={styles.userWrap}>
+            <View
+              style={[styles.userCard, failed ? styles.userCardFailed : styles.userCardPending]}
+            >
+              <MessageText text={row.pendingText} style={styles.userText} onRefPress={onRefPress} />
+              <PendingFiles files={turn.files ?? []} />
+              {failed ? (
+                <>
+                  <Text style={styles.pendingError}>{failed}</Text>
+                  {onRetryPending ? (
+                    <PressableScale
+                      accessibilityRole="button"
+                      accessibilityLabel="Send this message again"
+                      onPress={() => onRetryPending(turn)}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+                    >
+                      <Text style={styles.retryText}>Try again</Text>
+                    </PressableScale>
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+            <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
+              {failed ? 'not sent' : 'sending…'}
+            </Text>
+          </View>
+        )
+        break
+      }
+      case 'question':
+        content = <AskQuestionCard item={row.item} live={liveQuestion} onAnswer={onAnswer} />
+        break
+      case 'receipt':
+        content = <AskReceipt item={row.item} />
+        break
+      case 'tools':
+        content = <ToolsRun blocks={row.blocks ?? []} />
+        break
+      case 'shared':
+        content = <SharedFiles item={row.item} context={assetContext} />
+        break
+      case 'envelope':
+        content = row.envelope
+          ? message(
+              row.envelope.body,
+              <EnvelopeRow envelope={row.envelope} onRefPress={onRefPress} />,
+            )
+          : null
+        break
+      case 'context':
+        content = <MachineContextDisclosure item={row.item} />
+        break
+      case 'recap': {
+        const time = shortTime(row.item.ts)
+        content = message(
+          row.item.text,
+          <View style={styles.recap}>
+            <View style={styles.answerLabelRow}>
+              <Text style={styles.answerLabel}>Recap</Text>
+              {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
+            </View>
+            <MessageText
+              text={row.item.text.trim()}
+              style={styles.proseText}
+              onRefPress={onRefPress}
+            />
+          </View>,
+        )
+        break
+      }
+      case 'quiet':
+        content = (
+          <Text style={styles.quiet} numberOfLines={2}>
+            {row.quietText}
+          </Text>
+        )
+        break
+      case 'answer': {
+        const time = shortTime(row.item.ts)
+        content = message(
+          row.item.text,
+          <>
+            <View style={styles.answer}>
+              <View style={styles.answerLabelRow}>
+                <Text style={styles.answerLabel}>Answer</Text>
+                {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
+              </View>
+              <MessageText
+                text={row.item.text.trim()}
+                style={styles.proseText}
+                onRefPress={onRefPress}
+              />
+              {streaming ? <StreamingCaret reduceMotion={reduceMotion} /> : null}
+            </View>
+            <SharedFiles item={row.item} context={assetContext} showHeader={false} />
+          </>,
+        )
+        break
+      }
+      default:
+        content = message(
+          row.item.text,
+          <>
+            <MessageText
+              text={row.item.text.trim()}
+              style={styles.proseText}
+              onRefPress={onRefPress}
+            />
+            {streaming ? <StreamingCaret reduceMotion={reduceMotion} /> : null}
+            <SharedFiles item={row.item} context={assetContext} showHeader={false} />
+          </>,
+        )
+    }
+
+    return (
+      <FeedRowFrame
+        row={row}
+        arrived={arrived}
+        highlighted={highlighted}
+        dimmed={dimmed}
+        reduceMotion={reduceMotion}
+      >
+        {content}
+      </FeedRowFrame>
+    )
+  },
+  (previous, next) =>
+    sameRow(previous.row, next.row) &&
+    previous.arrived === next.arrived &&
+    previous.highlighted === next.highlighted &&
+    previous.dimmed === next.dimmed &&
+    previous.reduceMotion === next.reduceMotion &&
+    previous.liveQuestion === next.liveQuestion &&
+    previous.streaming === next.streaming &&
+    sameAssetContext(previous.assetContext, next.assetContext) &&
+    previous.onAnswer === next.onAnswer &&
+    previous.onRefPress === next.onRefPress &&
+    previous.onRetryPending === next.onRetryPending &&
+    previous.onHold === next.onHold,
+)
+
 /**
  * Jump-to-newest, floating ABOVE the prompt box (POD-724).
  *
@@ -533,6 +778,7 @@ function JumpToNewest({
 
 export function TranscriptList({
   items,
+  liveItem,
   live,
   onAnswer,
   onLoadOlder,
@@ -554,6 +800,8 @@ export function TranscriptList({
   findRequest = 0,
 }: {
   items: TranscriptItem[]
+  /** In-progress assistant prose, kept outside the stable settled item array. */
+  liveItem?: TranscriptItem
   live: boolean
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   /** Called when the user scrolls back to the oldest loaded item (paging). */
@@ -607,13 +855,32 @@ export function TranscriptList({
   const [atTail, setAtTail] = useState(true)
   /** Rows that arrived while the operator was reading further up. */
   const [unread, setUnread] = useState(0)
+  const answerRef = useRef(onAnswer)
+  const refPressRef = useRef(onRefPress)
+  const retryPendingRef = useRef(onRetryPending)
+  // Memoized rows need stable wrappers, but their targets must advance only
+  // after React commits. Render-time writes can leak handlers from a suspended
+  // or abandoned concurrent render into the still-visible previous tree.
+  useLayoutEffect(() => {
+    answerRef.current = onAnswer
+    refPressRef.current = onRefPress
+    retryPendingRef.current = onRetryPending
+  }, [onAnswer, onRefPress, onRetryPending])
+  const answerRow = useCallback((answer: AskQuestionAnswer) => answerRef.current(answer), [])
+  const pressRowRef = useCallback((ref: string) => refPressRef.current?.(ref), [])
+  const retryPendingRow = useCallback((turn: PendingTurn) => retryPendingRef.current?.(turn), [])
 
   const model = useMemo(
     () => buildMobileTranscript(items, { collapseContext }),
     [collapseContext, items],
   )
+  const liveRow = useMemo(
+    () => liveAssistantRow(liveItem, model.blocks.length),
+    [liveItem, model.blocks.length],
+  )
   const pending = useMemo(() => latestPendingQuestion(items), [items])
   const pendingKey = pending ? transcriptItemKey(pending) : null
+  const statePendingKey = pendingAsk ? transcriptItemKey(pendingAsk) : null
   const visibleModel = useMemo(
     () =>
       hidePendingQuestion
@@ -624,8 +891,11 @@ export function TranscriptList({
         : model,
     [hidePendingQuestion, model, pendingKey],
   )
-  const rows = useMemo(() => {
-    const built: Row[] = [...visibleModel.rows]
+  // The settled rows remain FlatList's stable data while transport text changes.
+  // Tail-only rows are a bounded suffix rendered in the footer, in the same
+  // order they had when all rows shared one array.
+  const suffixRows = useMemo(() => {
+    const built: Row[] = liveRow ? [liveRow] : []
     for (const turn of pendingTurns ?? []) {
       built.push({
         key: `pending:${turn.id}`,
@@ -657,7 +927,8 @@ export function TranscriptList({
       })
     }
     return built
-  }, [hidePendingQuestion, pendingAsk, pendingTurns, visibleModel.rows])
+  }, [hidePendingQuestion, liveRow, pendingAsk, pendingTurns])
+  const rows = visibleModel.rows
   const search = useMemo(
     () => searchMobileTranscript(visibleModel, findOpen ? query : '', cursor),
     [cursor, findOpen, query, visibleModel],
@@ -665,6 +936,8 @@ export function TranscriptList({
   const listRef = useRef<FlatList<Row>>(null)
   const seenKeys = useRef<Set<string> | null>(null)
   const previousKeys = useRef<string[]>([])
+  const seenSuffixKeys = useRef(new Set<string>())
+  const suffixCommitted = useRef(false)
   const lastFindRequest = useRef(findRequest)
 
   useEffect(() => {
@@ -691,6 +964,16 @@ export function TranscriptList({
     previousKeys.current = ordered
     return arrived
   }, [rows])
+  const suffixArrivedKeys = useMemo(() => {
+    const keys = suffixRows.map((row) => row.key)
+    return suffixCommitted.current
+      ? new Set(keys.filter((key) => !seenSuffixKeys.current.has(key)))
+      : new Set<string>()
+  }, [suffixRows])
+  useLayoutEffect(() => {
+    suffixCommitted.current = true
+    for (const row of suffixRows) seenSuffixKeys.current.add(row.key)
+  }, [suffixRows])
   const latestAssistantKey = useMemo(
     () => [...rows].reverse().find((row) => row.kind === 'prose' || row.kind === 'answer')?.key,
     [rows],
@@ -738,8 +1021,9 @@ export function TranscriptList({
       setUnread(0)
       return
     }
-    if (arrivedKeys.size > 0) setUnread((count) => count + arrivedKeys.size)
-  }, [arrivedKeys, atTail])
+    const arrivals = arrivedKeys.size + suffixArrivedKeys.size
+    if (arrivals > 0) setUnread((count) => count + arrivals)
+  }, [arrivedKeys, atTail, suffixArrivedKeys])
 
   useEffect(() => {
     if (search.activeRow === undefined) return
@@ -763,7 +1047,7 @@ export function TranscriptList({
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-      pinned.current = atTailRule({
+      const nextPinned = atTailRule({
         operatorMoved: operatorMoved.current,
         measuredAtTail: measureAtTail(
           contentOffset.y,
@@ -771,7 +1055,10 @@ export function TranscriptList({
           contentSize.height,
         ),
       })
-      setAtTail(pinned.current)
+      if (nextPinned !== pinned.current) {
+        pinned.current = nextPinned
+        setAtTail(nextPinned)
+      }
       if (contentOffset.y < 200) onLoadOlder?.()
     },
     [onLoadOlder],
@@ -797,158 +1084,6 @@ export function TranscriptList({
     return actions
   }, [actionText, onQuote])
 
-  const renderMessage = (text: string, child: React.ReactNode) => (
-    <HoldableMessage text={text} onHold={setActionText}>
-      {child}
-    </HoldableMessage>
-  )
-
-  const renderRow = (row: Row): React.ReactNode => {
-    switch (row.kind) {
-      case 'user': {
-        const time = shortTime(row.item.ts)
-        return renderMessage(
-          row.item.text,
-          <View style={styles.userWrap}>
-            <View style={styles.userCard}>
-              <MessageText
-                text={row.item.text.trim()}
-                style={styles.userText}
-                onRefPress={onRefPress}
-              />
-              <SharedFiles item={row.item} context={assetContext} showHeader={false} />
-            </View>
-            {time ? <Text style={styles.userMetaOutside}>{time}</Text> : null}
-          </View>,
-        )
-      }
-      case 'pending': {
-        const turn = row.pendingTurn
-        const failed = turn.failed
-        return (
-          <View style={styles.userWrap}>
-            <View
-              style={[styles.userCard, failed ? styles.userCardFailed : styles.userCardPending]}
-            >
-              <MessageText text={row.pendingText} style={styles.userText} onRefPress={onRefPress} />
-              {/* The LOCAL preview, not the uploaded copy: those bytes are
-                  already in hand, and fetching them back would show a grey chip
-                  with a UUID on it where the operator's photo should be until
-                  the round trip lands. */}
-              <PendingFiles files={turn.files ?? []} />
-              {failed ? (
-                <>
-                  <Text style={styles.pendingError}>{failed}</Text>
-                  {onRetryPending ? (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel="Send this message again"
-                      onPress={() => onRetryPending(turn)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                    >
-                      <Text style={styles.retryText}>Try again</Text>
-                    </PressableScale>
-                  ) : null}
-                </>
-              ) : null}
-            </View>
-            <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
-              {failed ? 'not sent' : 'sending…'}
-            </Text>
-          </View>
-        )
-      }
-      case 'question': {
-        // The state-drawn card is answerable on its own authority: it exists
-        // ONLY while the agent is waiting on this question, which the caller
-        // established from agent state — including on a session still `starting`,
-        // where `live` is false but the ask is every bit as real. The reader
-        // cannot tell (and must not need to tell) which source drew the card.
-        const stateDrawn = pendingAsk != null && transcriptItemKey(pendingAsk) === row.key
-        const isLivePending =
-          stateDrawn || (live && pending != null && transcriptItemKey(pending) === row.key)
-        return <AskQuestionCard item={row.item} live={isLivePending} onAnswer={onAnswer} />
-      }
-      case 'receipt':
-        return <AskReceipt item={row.item} />
-      case 'tools':
-        return <ToolsRun blocks={row.blocks ?? []} />
-      case 'shared':
-        return <SharedFiles item={row.item} context={assetContext} />
-      case 'envelope':
-        return row.envelope
-          ? renderMessage(
-              row.envelope.body,
-              <EnvelopeRow envelope={row.envelope} onRefPress={onRefPress} />,
-            )
-          : null
-      case 'context':
-        return <MachineContextDisclosure item={row.item} />
-      case 'recap': {
-        const time = shortTime(row.item.ts)
-        return renderMessage(
-          row.item.text,
-          <View style={styles.recap}>
-            <View style={styles.answerLabelRow}>
-              <Text style={styles.answerLabel}>Recap</Text>
-              {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
-            </View>
-            <MessageText
-              text={row.item.text.trim()}
-              style={styles.proseText}
-              onRefPress={onRefPress}
-            />
-          </View>,
-        )
-      }
-      case 'quiet':
-        return (
-          <Text style={styles.quiet} numberOfLines={2}>
-            {row.quietText}
-          </Text>
-        )
-      case 'answer': {
-        const time = shortTime(row.item.ts)
-        return renderMessage(
-          row.item.text,
-          <>
-            <View style={styles.answer}>
-              <View style={styles.answerLabelRow}>
-                <Text style={styles.answerLabel}>Answer</Text>
-                {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
-              </View>
-              <MessageText
-                text={row.item.text.trim()}
-                style={styles.proseText}
-                onRefPress={onRefPress}
-              />
-              {streaming && row.key === latestAssistantKey ? (
-                <StreamingCaret reduceMotion={reduceMotion} />
-              ) : null}
-            </View>
-            <SharedFiles item={row.item} context={assetContext} showHeader={false} />
-          </>,
-        )
-      }
-      default:
-        return renderMessage(
-          row.item.text,
-          <>
-            <MessageText
-              text={row.item.text.trim()}
-              style={styles.proseText}
-              onRefPress={onRefPress}
-            />
-            {streaming && row.key === latestAssistantKey ? (
-              <StreamingCaret reduceMotion={reduceMotion} />
-            ) : null}
-            <SharedFiles item={row.item} context={assetContext} showHeader={false} />
-          </>,
-        )
-    }
-  }
-
   return (
     <View style={styles.listFrame}>
       <FlatList
@@ -958,7 +1093,7 @@ export function TranscriptList({
         contentContainerStyle={[styles.content, { paddingBottom: space.md + bottomInset }]}
         refreshControl={refreshControl}
         {...refreshAccessibilityProps}
-        ListEmptyComponent={emptyComponent}
+        ListEmptyComponent={suffixRows.length === 0 ? emptyComponent : undefined}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScroll={onScroll}
         // Four ways to learn that the OPERATOR moved, because no single one
@@ -1003,20 +1138,47 @@ export function TranscriptList({
         }}
         ListFooterComponent={
           <>
+            {suffixRows.map((row) => (
+              <TranscriptFeedRow
+                key={row.key}
+                row={row}
+                arrived={suffixArrivedKeys.has(row.key)}
+                highlighted={false}
+                dimmed={query.trim().length > 0}
+                reduceMotion={reduceMotion}
+                liveQuestion={
+                  statePendingKey === row.key ||
+                  (live && pendingKey !== null && pendingKey === row.key)
+                }
+                streaming={streaming && row.key === liveRow?.key}
+                assetContext={assetContext}
+                onAnswer={answerRow}
+                onRefPress={onRefPress ? pressRowRef : undefined}
+                onRetryPending={onRetryPending ? retryPendingRow : undefined}
+                onHold={setActionText}
+              />
+            ))}
             <TranscriptTail state={tail} />
             {footer ? <View style={styles.footer}>{footer}</View> : null}
           </>
         }
         renderItem={({ item: row, index }) => (
-          <FeedRowFrame
+          <TranscriptFeedRow
             row={row}
             arrived={arrivedKeys.has(row.key)}
             highlighted={search.activeRow === index}
             dimmed={query.trim().length > 0 && !search.matchingRows.has(index)}
             reduceMotion={reduceMotion}
-          >
-            {renderRow(row)}
-          </FeedRowFrame>
+            liveQuestion={
+              statePendingKey === row.key || (live && pendingKey !== null && pendingKey === row.key)
+            }
+            streaming={streaming && liveRow === undefined && row.key === latestAssistantKey}
+            assetContext={assetContext}
+            onAnswer={answerRow}
+            onRefPress={onRefPress ? pressRowRef : undefined}
+            onRetryPending={onRetryPending ? retryPendingRow : undefined}
+            onHold={setActionText}
+          />
         )}
       />
 

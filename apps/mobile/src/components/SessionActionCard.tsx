@@ -1,7 +1,8 @@
+import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { SessionOffer } from '@podium/model'
 import { Lightbulb, X } from 'lucide-react-native'
 import { useState } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
@@ -118,7 +119,26 @@ export function SessionActionCard({
       <Text style={styles.headline}>{headline}</Text>
       {body ? (
         <Text style={styles.body} numberOfLines={2}>
-          {body}
+          {/* The URLs an agent wrote are the same links the desktop bar makes
+              clickable; here they open the phone's browser. Nested <Text> is
+              how React Native puts a tappable run inside a paragraph — an
+              overlaid Pressable would not follow the wrap. */}
+          {segmentOfferText(body).map((segment, index) =>
+            segment.kind === 'link' ? (
+              <Text
+                // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+                key={index}
+                accessibilityRole="link"
+                style={styles.link}
+                onPress={() => void Linking.openURL(segment.href).catch(() => {})}
+              >
+                {segment.text}
+              </Text>
+            ) : (
+              // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional
+              <Text key={index}>{segment.text}</Text>
+            ),
+          )}
         </Text>
       ) : null}
       {/* Failures get their own line rather than a slot in the eyebrow: at 390pt
@@ -262,6 +282,10 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small, 'prose'),
     marginTop: 5,
+  },
+  link: {
+    color: color.info,
+    textDecorationLine: 'underline',
   },
   actions: {
     flexDirection: 'row',

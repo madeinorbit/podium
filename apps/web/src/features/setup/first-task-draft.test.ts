@@ -28,8 +28,12 @@ describe('first-task activation draft', () => {
       title: 'Ship onboarding',
       description: 'Keep this prompt.',
       pendingIssueId: '',
+      createIssueId: '',
+      createSessionId: '',
       createMutationId: '',
       startMutationId: '',
+      attachmentPaths: [],
+      launchError: '',
     })
   })
 })

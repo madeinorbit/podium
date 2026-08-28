@@ -1,9 +1,14 @@
 import type { LucideIcon, LucideProps } from 'lucide-react'
 import { forwardRef } from 'react'
 
+type PerspectiveRoadProps = LucideProps & {
+  color?: string
+  strokeWidth?: number
+}
+
 /** Lucide-compatible road-in-perspective glyph from the approved Shipping
  * prototype. Kept local until Lucide ships an equivalent named icon. */
-export const PerspectiveRoad = forwardRef<SVGSVGElement, LucideProps>(function PerspectiveRoad(
+export const PerspectiveRoad = forwardRef<SVGSVGElement, PerspectiveRoadProps>(function PerspectiveRoad(
   { color = 'currentColor', size = 24, strokeWidth = 2, absoluteStrokeWidth, ...props },
   ref,
 ) {

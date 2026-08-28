@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { stateDir } from './config'
 
-export const RunRole = z.enum(['server', 'janitor', 'daemon', 'all-in-one'])
+export const RunRole = z.enum(['parent', 'server', 'janitor', 'daemon', 'all-in-one'])
 export type RunRole = z.infer<typeof RunRole>
 
 export const RunRecord = z.object({
@@ -146,19 +146,40 @@ export interface RegisterOptions {
   kill?: KillFn
   /** Injectable clock (ISO string) for tests. */
   nowIso?: () => string
+  /**
+   * Reclaim (SIGTERM, then SIGKILL) a live holder before claiming the role.
+   * Default true — the normal "there can be only one" semantics.
+   *
+   * FALSE FOR EXACTLY ONE CALLER: a successor parent during self-handover
+   * (POD-2505). Its predecessor is alive ON PURPOSE, still supervising a serving
+   * stack, and owns the decision about when to exit. Reclaiming it would SIGTERM
+   * it mid-handover, and its shutdown would take the children down with it — the
+   * precise failure this flag exists to make impossible.
+   */
+  reclaimExisting?: boolean
 }
 
 /**
  * Claim a role for THIS process: reclaim any stale/live holder, write our pidfile, and install
- * cleanup so the pidfile is removed on exit. Returns a cleanup fn (idempotent) the caller may also
- * invoke explicitly. Call this once, at component boot, before binding the port.
+ * cleanup so the pidfile is removed on actual process exit. Returns a cleanup fn (idempotent) the
+ * caller may also invoke explicitly. Call this once, at component boot, before binding the port.
+ *
+ * A delivered signal is not an exit: components can install asynchronous signal handlers and stay
+ * alive while they drain children. Removing the record on signal delivery makes a still-running
+ * supervisor undiscoverable during that interval, so signal handlers must never unregister it.
  */
 export async function registerProcess(
   role: RunRole,
   opts: RegisterOptions = {},
 ): Promise<() => void> {
-  const { port, mode, kill = process.kill, nowIso = () => new Date().toISOString() } = opts
-  await reclaim(role, { kill })
+  const {
+    port,
+    mode,
+    kill = process.kill,
+    nowIso = () => new Date().toISOString(),
+    reclaimExisting = true,
+  } = opts
+  if (reclaimExisting) await reclaim(role, { kill })
   writeRecord({
     role,
     pid: process.pid,
@@ -177,6 +198,5 @@ export async function registerProcess(
     if (cur?.pid === process.pid) removeRecord(role)
   }
   process.once('exit', cleanup)
-  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.once(sig, cleanup)
   return cleanup
 }

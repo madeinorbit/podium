@@ -2,6 +2,7 @@ import type { UsageBucketWire } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageView } from './UsageView'
+import { resetQuotaLedgerCache } from './useQuotaLedger'
 import { PENDING_REVEAL_MS, resetUsageCache } from './useUsageFeed'
 
 /**
@@ -12,10 +13,18 @@ import { PENDING_REVEAL_MS, resetUsageCache } from './useUsageFeed'
  */
 
 const summary = vi.hoisted(() => vi.fn())
+// The sheet reads a SECOND source since POD-1571: the quota window ledger. It is
+// a separate poll with its own cache, so it gets its own stub and its own reset.
+const history = vi.hoisted(() => vi.fn())
 // ONE store object for the whole file. Handing the selector a fresh literal each
 // render would change `trpc`'s identity every pass and re-run the feed's effect
 // forever — the real store returns the same client every time.
-const store = vi.hoisted(() => ({ trpc: { usage: { summary: { query: summary } } } }))
+const store = vi.hoisted(() => ({
+  trpc: {
+    usage: { summary: { query: summary } },
+    quota: { history: { query: history } },
+  },
+}))
 
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: typeof store) => unknown) => select(store),
@@ -46,7 +55,12 @@ const body = (): HTMLElement => screen.getByTestId('usage-sheet').querySelector(
 
 beforeEach(() => {
   resetUsageCache()
+  resetQuotaLedgerCache()
   summary.mockReset()
+  history.mockReset()
+  // The ledger is empty unless a test says otherwise: most of these assert the
+  // token sheet, and an empty ledger is the honest default for a fresh install.
+  history.mockResolvedValue([])
 })
 afterEach(() => {
   cleanup()
@@ -81,7 +95,14 @@ describe('UsageView loading', () => {
     ).toBeTruthy()
     // All three supporting rates hold their own slot in the masthead — they are
     // cells beside the figure now, not a sentence under it.
-    expect(body().querySelectorAll('.usage-reading-value .usage-unfilled')).toHaveLength(3)
+    expect(
+      body().querySelectorAll('.usage-readings .usage-reading-value .usage-unfilled'),
+    ).toHaveLength(3)
+    // The reset ledger is a region like any other and holds its own three slots,
+    // so the sheet does not grow a block when the quota read lands.
+    expect(
+      body().querySelectorAll('.quota-readings .usage-reading-value .usage-unfilled'),
+    ).toHaveLength(3)
     expect(body().querySelector('.usage-cache-saving .usage-unfilled')).toBeTruthy()
     expect(body().querySelectorAll('.usage-provider-row')).toHaveLength(2)
     expect(body().querySelectorAll('.usage-provider-row .usage-unfilled').length).toBeGreaterThan(0)

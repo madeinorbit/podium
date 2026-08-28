@@ -290,7 +290,7 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      // direct node-pty path keeps these fixtures/assertions deterministic (no tmux dependency)
+      // direct Bun.Terminal path keeps these fixtures/assertions deterministic (no tmux dependency)
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),

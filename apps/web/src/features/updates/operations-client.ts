@@ -110,8 +110,9 @@ export async function readLatestOperation(trpc: Trpc): Promise<Operation | null>
  * not a second one, and both tabs then render the same object — which is why
  * this answers nothing and lets the poll do the rendering.
  *
- * `surface` travels with the click because the plan depends on it: an
- * all-in-one server plans a desktop-install ask, a browser plans a reload.
+ * `surface` still identifies browser reload asks. Current all-in-one payloads
+ * use their fleet machine step; a desktop-install ask can only survive in a
+ * pre-transition persisted operation.
  */
 export async function startUpdate(trpc: Trpc, surface?: string): Promise<void> {
   try {

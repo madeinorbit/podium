@@ -1,21 +1,18 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type PeerBuild, wireSchemaDigest } from '@podium/protocol'
-import { SHIPPING_TRAIN_CAPABILITY } from '@podium/protocol/daemon'
+import { ARTIFACT_PROBE_CAPABILITY, SHIPPING_TRAIN_CAPABILITY } from '@podium/protocol/daemon'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
 
 const DEVELOPMENT_SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
- * WHETHER A DESKTOP APP OWNS THIS DAEMON'S BYTES.
+ * WHETHER A DESKTOP APP SUPERVISES THIS DAEMON'S PROCESS.
  *
  * Podium Desktop exports `PODIUM_DESKTOP_SUPERVISED=1` into the sidecar it
- * spawns (`apps/desktop/src-tauri/src/main.rs`). Such a daemon is part of a
- * signed application bundle: on the macOS all-in-one it runs IN PLACE inside
- * `Podium.app`, so a bundle swap would rename directories inside the signature;
- * on Linux the sidecar is copied to `~/.podium/bin`, where it looks like an
- * ordinary source or installed run and nothing would stop a wave from moving it.
- * Either way the shell update — never a fleet wave — is what updates it (P5).
+ * spawns (`apps/desktop/src-tauri/src/main.rs`). The flag now describes crash
+ * ownership only: payload bytes live outside the signed frame and take ordinary
+ * fleet grants. It remains on the report for topology and older-server compatibility.
  *
  * `=== '1'` exactly, matching every other reader of this flag
  * (`resolveLoggingMode`, `role-reconcile`, `server-transfer/lifecycle`).
@@ -70,21 +67,28 @@ export function captureDaemonBootBuild(
  * WHAT THIS DAEMON CAN TAKE DELIVERY OF — the caps it offers at handshake AND
  * the caps its own convergence planner is given.
  *
- * A SUPERVISED DAEMON OFFERS NOTHING. That is belt and braces rather than the
- * primary guard (the server's wave filter is, {@link
- * apps/server/src/modules/updates/wave.ts}): a server that predates `supervised`
- * still issues a grant, and this is what makes the grant a no-op instead of a
- * bundle swap inside a signed .app — `planConvergence` answers `cannot:
- * unsupported-delivery` for an empty cap set, so the daemon refuses it itself.
+ * Desktop supervision now describes crash ownership only. Its installed payload
+ * lives outside the signed frame, so a supervised daemon offers the same feed
+ * delivery capability as every other installed fleet machine (spec §2.2).
  *
- * Note the asymmetry with the SERVER's reading of an empty cap list: there,
- * empty means "never reported" and is permissive on purpose (an old daemon must
- * not be stranded). Here, empty is a first-person refusal, and the daemon is the
- * only party that can make it fail closed.
+ *
+ * A SOURCE DAEMON OFFERS NO DELIVERY EITHER, and for the same first-person
+ * reason (spec §1, disposition 5). It used to offer `update.delivery.git`,
+ * which meant "move my checkout to that sha" — a delivery kind that has now
+ * been retired, because exactly one machine still runs from source (the
+ * publisher) and it is not a fleet consumer. A source daemon has no install
+ * directory, so a feed artifact is bytes it could verify and then have nowhere
+ * to put; `swapHeadlessBundle` would throw at the last possible moment, after
+ * a quarter-gigabyte download. Reporting no delivery cap prevents accidental
+ * transport, while the explicit source install kind lets rollout planning omit
+ * it as a non-target rather than misreporting it as behind.
+ *
+ * It keeps {@link SHIPPING_TRAIN_CAPABILITY}, which is not about delivery: the
+ * cap set is open and additive, and stripping an unrelated capability would be
+ * a second, unannounced change.
  */
 export function deliveryCaps(build: Pick<PeerBuild, 'installKind' | 'supervised'>): string[] {
-  if (build.supervised === true) return []
   return build.installKind === 'source'
-    ? ['update.delivery.git', SHIPPING_TRAIN_CAPABILITY]
-    : ['update.delivery.feed', 'update.delivery.bundle', SHIPPING_TRAIN_CAPABILITY]
+    ? [SHIPPING_TRAIN_CAPABILITY]
+    : ['update.delivery.feed', ARTIFACT_PROBE_CAPABILITY, SHIPPING_TRAIN_CAPABILITY]
 }

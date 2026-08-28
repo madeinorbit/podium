@@ -19,11 +19,11 @@
 import {
   type AgentKind,
   type IssueWire,
-  formatAgentError,
   idleVerdictFinishedTurn,
   type SessionMeta,
 } from '@podium/model'
 import { attentionGroup } from '../focus'
+import { errorPhrase } from './error-phrase'
 
 // ---------------------------------------------------------------------------
 // Agent identity vocabulary — which agent this is, as opposed to what it is
@@ -194,7 +194,16 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
       }
     case 'errored':
       return {
-        label: `error: ${s.error ? formatAgentError(s.error) : 'unknown'}`,
+        // The WORDS, not the class token (POD-1601). This badge used to print
+        // `error: max_output_tokens` — a log line wearing a row's clothes, in
+        // the one place the operator reads fastest. Same table the task-level
+        // rollups use, so a row and the task above it never disagree.
+        //
+        // The provider's bounded detail rides along when it has one (POD-2604),
+        // so the badge still says WHICH failure and not only its category.
+        label: s.error?.detail
+          ? `${errorPhrase(s.error.class, 'lower')}: ${s.error.detail}`
+          : errorPhrase(s.error?.class, 'lower'),
         tone: 'error',
         showContinue: s.error?.retryable ?? false,
       }
@@ -202,6 +211,20 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
       return { label: 'ended', tone: 'muted', showContinue: false }
   }
 }
+
+/**
+ * How long an optimistic "Sending" claim may stand with NO word from the daemon
+ * about the turn it belongs to.
+ *
+ * It lives beside {@link chatActivity} because it is half of that function's
+ * contract, not a detail of either client. `chatActivity` ranks `justSent` above
+ * every verdict the previous turn left behind, and that is only honest while the
+ * claim is still the newest thing anyone knows — so each caller must end its own
+ * window as soon as `agentState.since` moves, and use this purely as a backstop
+ * for a session that reports nothing at all. Web and mobile both got that wrong
+ * independently before it was written down here (POD-1595).
+ */
+export const OPTIMISTIC_SEND_CEILING_MS = 30_000
 
 export interface ChatActivity {
   label: string
@@ -250,6 +273,32 @@ export function sessionWaking(meta: SessionMeta | undefined, justSent = false): 
  * up and their text goes in when it does. A stale "needs answer" from before the
  * hibernate is true but it is not the answer to the question they just asked by
  * pressing Enter, and it reads as "nothing happened".
+ *
+ * AND SO DOES SENDING (POD-1595). The same reasoning was applied to exactly one
+ * branch and then not to the rest. `justSent` used to be the LAST test in this
+ * function, under every verdict `agentBadge` produces — so a send into a session
+ * carrying an offer, a question, a plan, an error or an open todo list showed
+ * the operator, underneath the prompt they had just pressed Enter on, the state
+ * of the turn BEFORE it. "Waiting on your decision" is not a description of a
+ * message in flight, and it did not budge until the daemon's first observation
+ * of the new turn arrived, which for a prompt carrying large attachments is ten
+ * or fifteen seconds later. The feed read as though nothing had happened.
+ *
+ * Every one of those verdicts is a statement about the PREVIOUS turn, and
+ * pressing Enter is what answers them — so the send now outranks them all. What
+ * still outranks the send is anything describing work happening NOW: a `working`
+ * badge, and the PTY's own `busy` for uninstrumented kinds. Both are live
+ * observations rather than a turn's parting verdict, so neither can be the stale
+ * claim this is about. Freshness is the caller's job: `justSent` stays true only
+ * while the daemon has said nothing about the new turn (see `useChatSend`), so
+ * an ask raised three seconds into the turn still reaches the tail at once.
+ *
+ * NOTE THE SHAPE OF THE PTY BRANCH. It is asked TWICE rather than hoisted, and
+ * that is deliberate: `busy` outranks the optimistic send, but it does NOT
+ * outrank an attention badge, and it never did. Hoisting it to the top of the
+ * list to get the first of those would have bought the second by accident — an
+ * uninstrumented session with an offer and a live PTY would have read "Working…"
+ * and dropped the offer line entirely, with no send anywhere in sight.
  */
 export function chatActivity(
   meta: SessionMeta | undefined,
@@ -262,6 +311,14 @@ export function chatActivity(
   if (badge?.tone === 'working' && !parked) {
     return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
   }
+  const ptyWorking = !meta.agentState && meta.busy && !parked
+  // A live PTY beats the optimistic row — it is an observation of now — but the
+  // send still beats everything the last turn left behind.
+  if (justSent) {
+    return ptyWorking
+      ? { label: 'Working…', tone: 'working' }
+      : { label: 'Sending', tone: 'idle', transient: 'just-sent' }
+  }
   if (badge?.tone === 'attention') return { label: badge.label, tone: 'attention' }
   // Errors and meaningful passive stops belong at the end of the transcript,
   // too. They used to disappear here even though `agentBadge` had already
@@ -271,8 +328,7 @@ export function chatActivity(
   if (badge?.tone === 'idle' && (badge.label === 'interrupted' || badge.label === 'todos open')) {
     return { label: badge.label, tone: 'idle' }
   }
-  if (!meta.agentState && meta.busy && !parked) return { label: 'Working…', tone: 'working' }
-  if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
+  if (ptyWorking) return { label: 'Working…', tone: 'working' }
   return null
 }
 
@@ -322,6 +378,40 @@ export function sessionDotTone(s: SessionMeta): DotTone {
   // runs; otherwise it — and a fresh agent that hasn't started a turn — is blue.
   if (s.agentKind === 'shell') return s.busy ? 'working' : 'ready'
   return 'ready'
+}
+
+/**
+ * THE SESSION STOPPED ON AN ERROR — the one fact every issue-level rollup used
+ * to lose (POD-1601).
+ *
+ * The harness already publishes it: `agentBadge` names the failure, the
+ * session dot goes red, `attentionGroup` calls it `needsYou`. But nothing that
+ * summarises a TASK asked the question, so an issue whose only agent had died
+ * kept wearing the word its stage implied — `In review`, `Standing by` — and the
+ * one surface that could have said otherwise was the session row the operator
+ * had to unfold to reach.
+ *
+ * Deliberately NOT gated on `error.retryable`. Retryability answers "will
+ * Continue help", which is a question about the CONTROL to offer; whether the
+ * run stopped is a question about the STATE, and a fatal error is the one that
+ * least deserves to be silent.
+ */
+export function sessionErrored(s: SessionMeta): boolean {
+  return s.agentState?.phase === 'errored'
+}
+
+/** Sentence case, or null when this session did not stop on an error. */
+export function sessionErrorLabel(s: SessionMeta): string | null {
+  const state = s.agentState
+  if (state?.phase !== 'errored') return null
+  return errorPhrase(state.error?.class, 'sentence')
+}
+
+/** The same phrase in the worklist row's lower-case grammar. */
+export function sessionErrorLine(s: SessionMeta): string | null {
+  const state = s.agentState
+  if (state?.phase !== 'errored') return null
+  return errorPhrase(state.error?.class, 'lower')
 }
 
 /**

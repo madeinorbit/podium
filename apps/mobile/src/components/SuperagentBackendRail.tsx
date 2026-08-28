@@ -27,6 +27,12 @@ type PickerStep = 'model' | 'effort' | null
  * where you are about to use it. Same contract as the desktop BackendRail:
  * quiet Auto until someone chooses, every connector in one list, effort only
  * once a harness is pinned, send is the save.
+ *
+ * It rides INSIDE the composer capsule, at the leading end of the control row
+ * [POD-1677] — it used to be a third band slung under the box. So it sizes
+ * itself to whatever the row's fixed trailing pair leaves: one line, no
+ * wrapping, and the model chip gives up its width first because the effort
+ * chip's word is short and losing it would leave the row saying nothing.
  */
 export function SuperagentBackendRail({
   backend,
@@ -67,6 +73,7 @@ export function SuperagentBackendRail({
           label={modelLabel}
           quiet={backend.model === AUTO}
           accessibilityLabel="Model"
+          shrinks
           onPress={() => setStep('model')}
         />
         {agentKind && effortChoices.length > 0 ? (
@@ -128,12 +135,15 @@ function Pill({
   label,
   quiet,
   accessibilityLabel,
+  shrinks,
   onPress,
 }: {
   icon: typeof Cpu
   label: string
   quiet: boolean
   accessibilityLabel: string
+  /** Gives up width when the row runs out — the model chip, not the effort one. */
+  shrinks?: boolean
   onPress: () => void
 }) {
   return (
@@ -143,7 +153,11 @@ function Pill({
       onPress={onPress}
       hitSlop={6}
       scaleTo={0.97}
-      style={({ pressed }) => [styles.pill, pressed && styles.pillPressed]}
+      style={({ pressed }) => [
+        styles.pill,
+        shrinks && styles.pillShrinks,
+        pressed && styles.pillPressed,
+      ]}
     >
       <Icon as={icon} size={12} color={quiet ? color.textMicro : color.textFaint} />
       <Text style={[styles.pillLabel, quiet && styles.pillQuiet]} numberOfLines={1}>
@@ -174,7 +188,14 @@ function OptionList({
                 key={option.value}
                 accessibilityRole="button"
                 accessibilityLabel={option.group ? `${option.group} ${option.label}` : option.label}
+                // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
+                // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
+                // so the web build announced no state at all; and `aria-selected` is only
+                // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
+                // browser-visible way to say a button is the chosen one is `aria-pressed`.
+                // React Native still reads `accessibilityState` on device. [POD-1664]
                 accessibilityState={{ selected: on }}
+                aria-pressed={on}
                 onPress={() => onPick(option.value)}
                 scaleTo={0.99}
                 style={({ pressed }) => [
@@ -197,19 +218,20 @@ function OptionList({
 }
 
 const styles = StyleSheet.create({
+  /**
+   * One line, never two: this sits in the composer's control row, and a
+   * wrapped chip would grow the capsule by a whole band under the send disc.
+   */
   rail: {
+    flexShrink: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: 6,
-    paddingTop: space.sm,
-    // Keep this prompt-specific rail visually separate from the floating tab
-    // bar below it instead of letting the two capsules read as one cluster.
-    paddingBottom: space.sm,
   },
   pill: {
-    minHeight: 32,
-    maxWidth: '100%',
+    minHeight: 30,
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
@@ -219,11 +241,17 @@ const styles = StyleSheet.create({
     borderColor: color.borderStrong,
     backgroundColor: color.surface,
   },
+  pillShrinks: {
+    flexShrink: 1,
+    minWidth: 0,
+  },
   pillPressed: {
     backgroundColor: color.surfacePressed,
   },
   pillLabel: {
     ...sans(500),
+    flexShrink: 1,
+    minWidth: 0,
     color: color.text,
     fontSize: font.tiny,
   },

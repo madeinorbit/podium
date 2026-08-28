@@ -14,10 +14,8 @@ import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
  *   - *.integration.*         → spawns real processes / systemd scopes
  *   - real-agent smoke tests  → require a real agent binary (claude/codex); opt-in only
  *   - PTY smoke tests         → spawn a real PTY; integration lane
- *   - *.pty.test.ts, pty-behavior/, session.test, node-pty-backend.test, abduco*.test
- *                             → spawn real PTYs (node-pty native addon) or build/run abduco.
- *                               CI installs with --ignore-scripts, so node-pty's native
- *                               addon is never built there and any real spawn would throw.
+ *   - *.pty.test.ts, pty-behavior/, session.test, abduco*.test
+ *                             → spawn real Bun.Terminal PTYs or build/run abduco.
  *   - *.bun.test.ts           → `bun test` only (import bun:test); excluded in the base config
  *
  * Drift guard: scripts/test-configuration.test.ts asserts the lane invariants.
@@ -46,7 +44,6 @@ export const unitTestExclude = [
   '**/*.pty.test.{ts,tsx}',
   'packages/pty/test/pty-behavior/**',
   'packages/pty/test/session.test.ts',
-  'packages/pty/src/backends/node-pty-backend.test.ts',
   'packages/pty/src/abduco.test.ts',
   'packages/pty/src/abduco-bin.test.ts',
   'packages/pty/src/tmux.test.ts',

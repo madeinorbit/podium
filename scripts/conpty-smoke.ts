@@ -42,8 +42,9 @@ function fail(step: string, output: string): never {
 let output = ''
 let exited: { code: number } | undefined
 const session = spawnAgent({ cmd: shell, args, cols: 80, rows: 24 })
+const decoder = new TextDecoder()
 session.onFrame((f) => {
-  output += Buffer.from(f.data, 'base64').toString('utf8')
+  output += decoder.decode(f.data, { stream: true })
 })
 session.onExit((code) => {
   exited = { code }

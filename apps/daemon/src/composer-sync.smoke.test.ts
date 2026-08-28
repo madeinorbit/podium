@@ -1,35 +1,24 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
+import { bunTerminalBackend } from '@podium/pty'
 import { describe, expect, it } from 'vitest'
 import { ComposerSyncEngine } from './composer-sync'
 
-// Real-PTY smoke: drive the composer engine end-to-end over an actual PTY (node-pty)
+// Real-PTY smoke: drive the composer engine end-to-end over Bun.Terminal
 // — bytes → engine.onData → @xterm/headless screen → ComposerDriver.extract →
-// native-draft publish. Gated on node-pty being loadable (skips cleanly otherwise).
+// native-draft publish.
 //
 // The real-HARNESS injection/doubling smoke (spawn codex, inject a multiline draft,
 // assert zero duplication) needs a codex binary and lives as a CI/reviewer follow-up;
 // the doubling logic itself is covered deterministically by the scripted-PTY unit
 // test in composer-sync.test.ts.
-const nodeRequire = createRequire(import.meta.url)
 const PTY_EVENT_DEADLINE_MS = 60_000
-let pty: typeof import('node-pty') | null = null
-try {
-  const m = nodeRequire('node-pty') as typeof import('node-pty')
-  // Requiring node-pty loads the native addon; a throw here skips cleanly. Do not
-  // spawn a second probe process: every real PTY child must be reaped by its PID.
-  pty = m
-} catch {
-  pty = null
-}
 
-describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
+describe('composer-sync real PTY smoke', () => {
   it('scrapes a claude-style composer emitted over a real PTY and publishes it', async () => {
-    const nodePty = pty as NonNullable<typeof pty>
     const published: string[] = []
     let resolveFirstPublish: (text: string) => void = () => {}
     const firstPublish = new Promise<string>((resolve) => {
@@ -55,16 +44,21 @@ describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
     const fifoPath = join(fixtureDir, 'box.fifo')
     execFileSync('mkfifo', [fifoPath])
     // `cat` blocks opening the FIFO until the parent writes after registering onData.
-    const child = nodePty.spawn('cat', [fifoPath], { cols: 48, rows: 8 })
-    const childPid = child.pid
+    const child = bunTerminalBackend().spawn({
+      file: 'cat',
+      args: [fifoPath],
+      cols: 48,
+      rows: 8,
+    })
     let output = ''
     let resolveOutput: () => void = () => {}
     const outputReady = new Promise<void>((resolve) => {
       resolveOutput = resolve
     })
-    child.onData((d) => {
-      output += d
-      engine.onData(asSessionId('s1'), d)
+    child.onData((bytes) => {
+      const data = Buffer.from(bytes).toString('utf8')
+      output += data
+      engine.onData(asSessionId('s1'), data)
       if (output.includes('? for shortcuts')) resolveOutput()
     })
     let didExit = false
@@ -88,7 +82,7 @@ describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
       // FIFO rendezvous closes forkpty's unobservable spawn-to-listener gap without
       // sleeping: no payload byte exists until both data and exit listeners are live.
       writeFileSync(fifoPath, box)
-      // Bun/node-pty may deliver onExit before queued onData. The data signal, not
+      // PTY exit may arrive before queued data. The data signal, not
       // callback order, establishes that the PTY frame was consumed.
       await Promise.race([outputReady, failedDeadline])
       const first = await Promise.race([firstPublish, failedDeadline])
@@ -98,7 +92,7 @@ describe.skipIf(!pty)('composer-sync real PTY smoke', () => {
       if (deadline) clearTimeout(deadline)
       if (!didExit) {
         try {
-          process.kill(childPid, 'SIGTERM')
+          child.kill('SIGTERM')
         } catch {
           // already gone
         }

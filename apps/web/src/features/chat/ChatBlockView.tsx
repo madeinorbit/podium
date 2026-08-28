@@ -12,48 +12,19 @@ import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'luci
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
-import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
-import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
 import type { ChatBlock } from './chat'
+import { handleChatMdClick } from './chat-md-click'
 import { MachineContextRow } from './MachineContextRow'
 import { MetaGlyph } from './MetaGlyph'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
-
-/** Shared chat-md click handling: code-copy buttons, ref-link chips (#474 —
- *  plain click opens the floating miniview, Cmd/Ctrl-click jumps to the full
- *  view), and file links. Used by the ordinary turn body, the mail card AND the
- *  pinned brief's shelf — which is not a descendant of any row and so cannot
- *  inherit the delegation — so refs behave identically everywhere. */
-export function handleChatMdClick(
-  e: ReactMouseEvent,
-  sessionId: SessionId,
-  cwd: string,
-  openFile: (sessionId: SessionId, path: string) => void,
-): void {
-  if (handleCodeCopyClick(e)) return
-  const refA = (e.target as HTMLElement).closest('a.ref-link') as HTMLElement | null
-  if (refA) {
-    const ref = refA.getAttribute('data-ref')
-    if (ref) {
-      e.preventDefault()
-      activateRef(ref, e)
-    }
-    return
-  }
-  const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
-  if (!a) return
-  e.preventDefault()
-  const p = a.getAttribute('data-path')
-  if (p) openFile(sessionId, resolveAgainstCwd(cwd, p))
-}
 
 /** A row's place in its exchange (POD-376). `open` puts the air of a turn
  *  boundary in front of the row; `bind` pulls machine activity up under the

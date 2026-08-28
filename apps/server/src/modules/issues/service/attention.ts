@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import type { IssueId, IssueWire, SessionId, SessionMeta, UserId } from '@podium/model'
+import type { IssueId, IssueWire, MachineId, SessionId, SessionMeta, UserId } from '@podium/model'
+import { DRAFT_ISSUE_TITLE } from '@podium/model'
 import {
   attributionOf,
   type CommandPrincipal,
@@ -47,6 +48,7 @@ export class IssueAttentionModule {
       | 'markIssueRead'
       | 'markIssueUnread'
       | 'setIssueTucked'
+      | 'ensureCoordinator'
     >,
     private readonly hierarchy: () => {
       addDep(fromRef: string, toRef: string, type?: string): IssueWire
@@ -207,6 +209,7 @@ export class IssueAttentionModule {
     }
     if (prevId === target.id) return this.store.toWire(target) // self-attach: no-op
     setSessionIssueId(opts.sessionId, target.id)
+    this.crud().ensureCoordinator(target.id, opts.sessionId, { onlyMember: true })
     this.store.emitEvent('issue.session_attached', target.id, {
       seq: target.seq,
       sessionId: opts.sessionId,
@@ -299,14 +302,18 @@ export class IssueAttentionModule {
       .sessionsFor(origin)
       .filter((session) => !session.archived && session.status !== 'exited')
     if (remaining.length > 0) return
-    const pending = await this.originWorktreeIsPending(origin)
+    const worktreeMachineId = this.store.resolveWorktreeMachine(
+      origin.machineId,
+      origin.worktreePath,
+    )
+    const pending = await this.originWorktreeIsPending(origin, worktreeMachineId)
     if (!pending) return
     target.worktreePath = origin.worktreePath
     target.branch = origin.branch
     target.parentBranch = origin.parentBranch
-    // Taking over an existing checkout is an adoption, including for historical
-    // hub rows whose machine_id is still NULL until the dedicated backfill lands.
-    target.machineId = origin.machineId ?? this.store.d.store.hostMachineId
+    // Taking over an existing checkout is an adoption. Reuse the exact machine
+    // that inspected the origin worktree instead of assuming a NULL row is local.
+    target.machineId = worktreeMachineId
     origin.worktreePath = null
     origin.branch = null
     this.store.persistRow(origin)
@@ -316,7 +323,10 @@ export class IssueAttentionModule {
       this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
   }
 
-  private async originWorktreeIsPending(origin: IssueRow): Promise<boolean> {
+  private async originWorktreeIsPending(
+    origin: IssueRow,
+    worktreeMachineId: MachineId,
+  ): Promise<boolean> {
     const cached = this.store.gitStates.get(origin.id)
     if (cached) {
       if (cached.dirtyFiles > 0) return true
@@ -328,7 +338,7 @@ export class IssueAttentionModule {
       'status',
       origin.worktreePath,
       undefined,
-      origin.machineId ?? undefined,
+      worktreeMachineId,
     )
     if (!status.ok) return true
     const dirty = status.output
@@ -340,7 +350,7 @@ export class IssueAttentionModule {
       'isMergedInto',
       origin.repoPath,
       { branch: origin.branch, parentBranch: origin.parentBranch },
-      origin.machineId ?? undefined,
+      this.store.resolveWorktreeMachine(origin.machineId, origin.repoPath),
     )
     return !merged.ok
   }
@@ -381,7 +391,7 @@ export class IssueAttentionModule {
   ): IssueWire {
     return this.crud().create({
       repoPath,
-      title: 'Draft',
+      title: DRAFT_ISSUE_TITLE,
       startNow: false,
       draft: true,
       origin: 'human',

@@ -8,9 +8,8 @@
  *
  * Single dev process combining server + daemon; production runs them split (scripts/server.ts
  * + scripts/daemon.ts). Run under Bun from source — no build step, because the `@podium/source`
- * condition resolves the workspace packages to their `src`. The PTY backend is selected at
- * runtime (@podium/harness): Bun.Terminal under Bun, node-pty under Node — so the native
- * addon is never loaded on Bun. For the full app incl. the web UI use `bun run host`; backend only:
+ * condition resolves the workspace packages to their `src`. Agent PTYs use Bun.Terminal.
+ * For the full app incl. the web UI use `bun run host`; backend only:
  *   bun --conditions=@podium/source --watch scripts/host.ts   (== `bun run host:backend`)
  * No starter session — sessions are created from the Live UI.
  *

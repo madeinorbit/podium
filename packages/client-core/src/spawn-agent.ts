@@ -1,4 +1,4 @@
-import type { AgentKind, IssueId, RepoId, SessionId, MachineId } from '@podium/model'
+import type { AgentKind, IssueId, MachineId, MutationId, RepoId, SessionId } from '@podium/model'
 import type { RuntimeContractRequest } from '@podium/protocol'
 import type { PodiumClientApi } from './api'
 
@@ -12,6 +12,8 @@ export interface SpawnTarget {
   machineId?: MachineId
   placement?: 'allowed' | 'unauthorized' | 'unreachable'
 }
+
+export type TaskSpawnOutcome = 'started' | 'issue-only' | 'failed'
 
 /**
  * The network half of the "New <Agent> in <Repo>" spawn: create the session (in a
@@ -85,5 +87,40 @@ export async function createDraftAgent(args: {
     ...(args.model ? { model: args.model } : {}),
     ...(args.effort ? { effort: args.effort } : {}),
     ...(args.runtimeContract !== undefined ? { runtimeContract: args.runtimeContract } : {}),
+  })
+}
+
+/** Create and start a named task with client-minted issue/session identities.
+ * The matching optimistic rows can therefore stay mounted until replica truth
+ * replaces them, including the task's first prompt and chat route. */
+export async function createIssueAgent(args: {
+  trpc: PodiumClientApi
+  sessionId: SessionId
+  issueId: IssueId
+  mutationId: MutationId
+  target: SpawnTarget
+  title: string
+  description: string
+  brief?: string
+  parentBranch?: string
+  agentKind: AgentKind
+  model?: string
+  effort?: string
+}): Promise<void> {
+  assertSpawnPlacement(args.target)
+  await args.trpc.issues.create.mutate({
+    id: args.issueId,
+    startSessionId: args.sessionId,
+    repoPath: args.target.repoPath,
+    ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
+    title: args.title,
+    description: args.description,
+    ...(args.brief ? { brief: args.brief } : {}),
+    ...(args.parentBranch ? { parentBranch: args.parentBranch } : {}),
+    defaultAgent: args.agentKind,
+    ...(args.model ? { defaultModel: args.model } : {}),
+    ...(args.effort ? { defaultEffort: args.effort } : {}),
+    startNow: true,
+    mutationId: args.mutationId,
   })
 }

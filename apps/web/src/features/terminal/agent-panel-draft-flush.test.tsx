@@ -58,13 +58,9 @@ vi.mock('@podium/client-core/react', async () =>
   (await import('./test-support/presence-mock')).presenceSeamStub(),
 )
 
-vi.mock('@podium/terminal-client', async (orig) => {
-  const real = (await orig()) as Record<string, unknown>
-  return {
-    ...real,
-    mountSession: (el: unknown, opts: { active?: boolean }) => mountSessionMock(el, opts),
-  }
-})
+vi.mock('@podium/terminal-client/session-mount', () => ({
+  mountSession: (el: unknown, opts: { active?: boolean }) => mountSessionMock(el, opts),
+}))
 
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
@@ -86,7 +82,7 @@ const fakeHub = {
 
 const fakeTrpc = {
   settings: {
-    get: { query: vi.fn(async () => ({ sessionDefaults: { startScreen: 'native' as const } })) },
+    get: { query: vi.fn(async () => ({ roles: { coding: { startScreen: 'native' as const } } })) },
   },
 }
 
@@ -107,6 +103,7 @@ vi.mock('@/app/store', () => {
     sessions: storeSessions,
     machines: [],
     pendingSpawnIds: new Set<string>(),
+    pendingSpawnPrompts: new Map<string, string>(),
     repos: [],
     trpc: fakeTrpc,
     drafts: storeDrafts,

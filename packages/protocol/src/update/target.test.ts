@@ -24,51 +24,67 @@ describe('UpdateTarget', () => {
     expect(t.critical).toBe(false)
   })
 
-  it('parses a server-hosted bundle target', () => {
-    const t = UpdateTarget.parse({
-      version: 'dev+9f3a1c2',
-      artifacts: {
-        headless: {
-          delivery: 'bundle',
-          platforms: {
-            'linux-x86_64': {
-              url: 'https://server.test/update/headless.tar.gz',
-              digest: 'sha256-bbb',
-              signature: 'sig',
-            },
-          },
+  /**
+   * THE RETIRED KINDS ARE REFUSED, not ignored (spec §1, disposition 5).
+   *
+   * `bundle` and `git` used to be the other two arms of this union, and each had
+   * its own parse test here. A one-armed union is what makes their absence a
+   * REFUSAL rather than a shape that passes through `.passthrough()` and reaches
+   * a verifier that no longer knows what to do with it — so the tests that
+   * parsed them become the tests that prove they cannot be parsed.
+   */
+  it.each(['bundle', 'git'])('refuses a %s artifact, on either slot', (delivery) => {
+    expect(() =>
+      UpdateTarget.parse({
+        version: '0.1.2-dev.4+9f3a1c2',
+        artifacts: { headless: { delivery, platforms: {}, repo: '/r', sha: '9f3a1c2' } },
+      }),
+    ).toThrow()
+    expect(() =>
+      UpdateTarget.parse({
+        ...feedTarget,
+        artifacts: {
+          ...feedTarget.artifacts,
+          headlessAlternatives: [{ delivery, platforms: {}, repo: '/r', sha: '9f3a1c2' }],
         },
-      },
-    })
-    expect(t.artifacts.headless?.delivery).toBe('bundle')
-  })
-
-  it('parses a git target, which has a sha instead of a url', () => {
-    const t = UpdateTarget.parse({
-      version: 'dev+9f3a1c2',
-      artifacts: {
-        headless: { delivery: 'git', repo: '/home/u/src/podium', sha: '9f3a1c2' },
-      },
-    })
-    expect(t.artifacts.headless).toEqual({
-      delivery: 'git',
-      repo: '/home/u/src/podium',
-      sha: '9f3a1c2',
-    })
+      }),
+    ).toThrow()
   })
 
   it('parses ordered headless delivery alternatives without changing the primary', () => {
+    const alternative = {
+      delivery: 'feed',
+      platforms: {
+        'linux-aarch64': {
+          url: 'https://example.test/alt.tar.gz',
+          digest: 'sha256-alt',
+          signature: 'sig',
+        },
+      },
+    }
     const t = UpdateTarget.parse({
       ...feedTarget,
-      artifacts: {
-        ...feedTarget.artifacts,
-        headlessAlternatives: [{ delivery: 'git', repo: '/home/u/src/podium', sha: '9f3a1c2' }],
-      },
+      artifacts: { ...feedTarget.artifacts, headlessAlternatives: [alternative] },
     })
     expect(t.artifacts.headless?.delivery).toBe('feed')
-    expect(t.artifacts.headlessAlternatives).toEqual([
-      { delivery: 'git', repo: '/home/u/src/podium', sha: '9f3a1c2' },
-    ])
+    expect(t.artifacts.headlessAlternatives).toEqual([alternative])
+  })
+
+  /**
+   * THE TRUST ROOT IS OPTIONAL AND ABSENT MEANS `release`.
+   *
+   * The resolver stamps it, so every manifest published before it existed says
+   * nothing — and the baked release key is the narrower reading of silence: an
+   * instance-signed artifact checked against it simply fails.
+   */
+  it('carries a resolver-stamped trust root, and leaves it absent when none was set', () => {
+    expect(UpdateTarget.parse({ ...feedTarget, trust: 'instance' }).trust).toBe('instance')
+    expect(UpdateTarget.parse({ ...feedTarget, trust: 'release' }).trust).toBe('release')
+    expect(UpdateTarget.parse(feedTarget).trust).toBeUndefined()
+  })
+
+  it('refuses a trust root it has never heard of', () => {
+    expect(() => UpdateTarget.parse({ ...feedTarget, trust: 'whatever-i-say' })).toThrow()
   })
 
   it('rejects a feed artifact with no url', () => {
@@ -104,8 +120,13 @@ describe('UpdateTarget', () => {
   it('carries per-surface and per-platform minimum required versions', () => {
     const t = UpdateTarget.parse({
       ...feedTarget,
-      minRequired: { desktop: '0.4.0', mobile: { ios: '0.3.9', android: '0.4.0' } },
+      minRequired: {
+        desktop: '0.4.0',
+        desktopBridge: 2,
+        mobile: { ios: '0.3.9', android: '0.4.0' },
+      },
     })
+    expect(t.minRequired?.desktopBridge).toBe(2)
     expect(t.minRequired?.mobile?.ios).toBe('0.3.9')
   })
 

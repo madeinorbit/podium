@@ -195,7 +195,7 @@ function makeService(
     sourceSchemaVersion: () => 'schema-1',
     sourceWireSchemaDigest: 'wire-1',
     rpc,
-    targetState: () => ({ exists: true, online: true, capable: true }),
+    targetState: () => ({ exists: true, online: true, capable: true, hasDaemon: true }),
     localPromotedTransfer: () => undefined,
     sourceHealthy: vi.fn(),
     checkpoint: vi.fn(),
@@ -274,7 +274,7 @@ describe('ServerTransferService final-fence flow', () => {
     const fence = vi.fn()
     const service = makeService(fake.rpc, {
       fence,
-      targetState: () => ({ exists: true, online: false, capable: true }),
+      targetState: () => ({ exists: true, online: false, capable: true, hasDaemon: true }),
     })
 
     await expect(service.transfer(input, allow)).rejects.toMatchObject({ code: 'target-offline' })
@@ -447,6 +447,7 @@ describe('ServerTransferService final-fence flow', () => {
         exists: true,
         online: machineId === 'source-1' ? sourceOnline : true,
         capable: true,
+        hasDaemon: true,
       }),
     })
 

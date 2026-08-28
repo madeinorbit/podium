@@ -3,16 +3,46 @@
  * (POD-1203).
  *
  * Aliased over `@/app/store` by `vite.coldstart.config.ts`. Everything above it
- * — ColdStartComposer, PropertyMenu, the model/effort pickers, the attachment
- * strip and the shipping stylesheet — is exactly what ships; only the data
- * underneath is invented. That is the point: a screenshot of a re-implementation
- * proves nothing about the thing that ships.
+ * — ColdStartComposer, the capability agent menu, the model/effort pickers, the
+ * attachment strip and the shipping stylesheet — is exactly what ships; only
+ * the data underneath is invented. That is the point: a screenshot of a
+ * re-implementation proves nothing about the thing that ships.
+ *
+ * `?missing=cursor,opencode` and `?signedOut=grok` stamp those inventory
+ * states onto the stub host so a shot of the agent menu can show the shared
+ * refusal rows instead of a list of equally startable harnesses.
  *
  * `sessions.uploadImage` answers like the daemon does (an absolute path on the
  * machine that took the bytes) so a picked file walks the whole chip state
  * machine, `uploading` → `ready`, in front of the camera.
  */
 type Selector<T> = (store: unknown) => T
+
+/** The composer persists its draft through ui-state; a `get: () => null` stub
+ *  makes the box permanently forget what was typed, which the fold now depends
+ *  on (an unlaunched prompt must come back UNFOLDED). */
+const rows = new Map<string, string>()
+const listeners = new Set<() => void>()
+
+/** The harness's own handle on ui-state, so a browser probe can write the draft
+ *  key from OUTSIDE the box — which is what `New task` does in the real shell,
+ *  under a composer that is already mounted (POD-1469). */
+;(globalThis as { __harnessUi?: unknown }).__harnessUi = {
+  get: (key: string): string | null => rows.get(key) ?? null,
+  set: (key: string, value: string | null): void => {
+    if (value === null) rows.delete(key)
+    else rows.set(key, value)
+    for (const listener of listeners) listener()
+  },
+}
+
+const panelModes: { sessionId: string; mode: string }[] = []
+;(globalThis as { __harnessPanelModes?: unknown }).__harnessPanelModes = panelModes
+
+const params = new URLSearchParams(location.search)
+const harness = params.get('agent') ?? 'claude-code'
+const missing = new Set((params.get('missing') ?? '').split(',').filter(Boolean))
+const signedOut = new Set((params.get('signedOut') ?? '').split(',').filter(Boolean))
 
 const machine = {
   id: 'machine-a',
@@ -23,7 +53,11 @@ const machine = {
   inventory: {
     os: 'darwin' as const,
     arch: 'arm64' as const,
-    agents: [{ kind: 'claude-code' as const, installed: true, login: { state: 'in' as const } }],
+    agents: ['claude-code', 'codex', 'grok', 'opencode', 'cursor'].map((kind) => ({
+      kind: kind as 'claude-code',
+      installed: !missing.has(kind),
+      login: { state: signedOut.has(kind) ? ('out' as const) : ('in' as const) },
+    })),
     tools: [],
   },
 }
@@ -39,15 +73,59 @@ const store = {
     },
   ],
   machines: [machine],
-  uiState: { get: () => null, set: () => {} },
-  focusIssueSession: async () => null,
+  sessions: [],
+  uiState: {
+    get: (key: string): string | null => rows.get(key) ?? null,
+    set: (key: string, value: string | null): void => {
+      if (value === null) rows.delete(key)
+      else rows.set(key, value)
+      for (const listener of listeners) listener()
+    },
+    // The composer SUBSCRIBES to its draft key (POD-1469) — without this the
+    // harness box would not render a single character that was typed into it.
+    subscribe: (listener: () => void): (() => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  },
+  /** POD-1669: the composer sets the new session's panel surface from the
+   *  session `focusIssueSession` hands back, so the harness has to hand one
+   *  back or the chat half of that rule has nothing to act on. */
+  focusIssueSession: async () => 'session-harness',
+  // POD-1469: a promptless Launch starts the agent instead of creating a
+  // mission, so the harness has to carry the four store writes that path makes
+  // — otherwise the shot of the closed box is of a button that would throw.
+  spawnDraftAgent: () => ({ sessionId: 'session-harness', issueId: 'issue-harness' }),
+  spawnIssueAgent: () => ({
+    sessionId: 'session-task-harness',
+    issueId: 'issue-task-harness',
+    mutationId: 'mutation-task-harness',
+    settled: Promise.resolve(true),
+    outcome: Promise.resolve('started' as const),
+  }),
+  setSelectedIssueId: () => {},
+  setSelectedWorktree: () => {},
+  setPane: () => {},
+  /** POD-1669: which surface the launch asked the panel to open on is the
+   *  behaviour under test and it is a pure store write, so the harness records
+   *  it where a browser probe can read it back. */
+  setPanelMode: (sessionId: string, mode: string) => {
+    panelModes.push({ sessionId, mode })
+  },
+  setView: () => {},
   trpc: {
     settings: {
+      // `roles.coding` is what the box reads to open on the operator's harness
+      // (POD-1469), and `?agent=codex` is how the harness shows that the chip's
+      // glyph follows the selection rather than being Claude's clay forever.
       get: {
         query: async () => ({
-          sessionDefaults: { agent: 'claude-code' },
+          roles: { coding: { accountId: `native:${harness}` } },
           gitWorkflow: { defaultParentBranch: 'main' },
         }),
+      },
+      updatePersonal: {
+        mutate: async () => ({ roles: { coding: { accountId: `native:${harness}` } } }),
       },
     },
     issues: {

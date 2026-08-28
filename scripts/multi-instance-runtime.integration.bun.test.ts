@@ -5,9 +5,10 @@
  * Run: bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts
  */
 import { afterAll, describe, expect, it } from 'bun:test'
-import { type ChildProcess, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -19,19 +20,34 @@ import {
 import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
 import {
   ABDUCO_SUN_PATH_MAX,
   abducoSocketDir,
   abducoSocketPathBytes,
-  instanceAbducoSocketRoots,
   longestDurableLabelFor,
 } from '@podium/runtime/abduco-socket'
+import {
+  abducoSocketPath,
+  killAbducoSession,
+  resolveAbducoBin,
+  spawnAbducoAgent,
+} from '@podium/pty'
+import {
+  abducoSocketPathname,
+  applyInstanceRuntimeEnv,
+  durableSessionLabel,
+  instanceSocketRuntimeDir,
+  LINUX_UNIX_SOCKET_PATH_BYTES,
+} from '@podium/runtime/instance'
+import { encodeJoin } from '@podium/runtime/join'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import type { AppRouter } from '../apps/server/src/router'
 import { SessionStore } from '../apps/server/src/store'
+import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -55,33 +71,38 @@ interface RunningInstance extends InstanceSpec {
   output(): string
 }
 const running: RunningInstance[] = []
+let packagedCli: string | undefined
+const packagedSpecs: Array<{ executable: string; spec: InstanceSpec }> = []
+let packagedSource: RunningInstance | undefined
 
-const freePorts = (() => {
-  const servers = Array.from({ length: 6 }, () =>
-    Bun.serve({
+const allocatedPorts = new Set<number>()
+const freePort = (): number => {
+  while (true) {
+    const server = Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
       fetch: () => new Response('reserved'),
-    }),
-  )
-  const ports = servers.map((server) => server.port)
-  for (const server of servers) server.stop(true)
-  return ports
-})()
-const freePort = (): number => {
-  const port = freePorts.shift()
-  if (port === undefined) throw new Error('port pool exhausted')
-  return port
+    })
+    const port = server.port
+    server.stop(true)
+    // Throw rather than `continue`: a listening socket that reports no port is a
+    // broken assumption, and retrying it would spin this loop forever.
+    if (port === undefined) throw new Error('Bun.serve reported no port for a bound socket')
+    if (!allocatedPorts.has(port)) {
+      allocatedPorts.add(port)
+      return port
+    }
+  }
 }
 
-function makeSpec(id: InstanceSpec['id']): InstanceSpec {
-  const webDir = join(TEST_ROOT, `${id}-web`)
-  const agentHome = join(TEST_ROOT, `${id}-agent-home`)
+function makeSpec(id: InstanceSpec['id'], rootTag: string = id): InstanceSpec {
+  const webDir = join(TEST_ROOT, `${rootTag}-web`)
+  const agentHome = join(TEST_ROOT, `${rootTag}-agent-home`)
   mkdirSync(webDir, { recursive: true })
   mkdirSync(agentHome, { recursive: true })
   return {
     id,
-    stateDir: join(TEST_ROOT, `${id}-state`),
+    stateDir: join(TEST_ROOT, `${rootTag}-state`),
     agentHome,
     webDir,
     port: freePort(),
@@ -132,7 +153,7 @@ function instanceEnv(
     PODIUM_NO_RELAY: '1',
     PODIUM_ABDUCO: join(TEST_ROOT, 'missing-abduco'),
     PODIUM_NO_SCOPE: '1',
-    PODIUM_PTY_BACKEND: 'node-pty',
+    PODIUM_PTY_BACKEND: 'bun-terminal',
     PATH: RUNTIME_BIN,
     SHELL: '/bin/bash',
   })
@@ -143,6 +164,44 @@ function instanceEnv(
   return env
 }
 
+/** Compile the real packaged entry in an isolated tree so its fixed embedded-file
+ *  path cannot race with or depend on a developer's dist-bun artifacts. */
+function buildPackagedCli(): string {
+  if (packagedCli) return packagedCli
+  const buildRoot = join(TEST_ROOT, 'compiled-cli-build')
+  const scriptsDir = join(buildRoot, 'scripts')
+  const distDir = join(buildRoot, 'dist-bun')
+  mkdirSync(scriptsDir, { recursive: true })
+  mkdirSync(distDir, { recursive: true })
+  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts']) {
+    cpSync(join(ROOT, 'scripts', file), join(scriptsDir, file))
+  }
+  for (const dir of ['apps', 'packages', 'node_modules']) {
+    symlinkSync(join(ROOT, dir), join(buildRoot, dir), 'dir')
+  }
+
+  const embeddedAbduco = join(distDir, 'abduco.bin')
+  expect(buildVendoredAbduco(embeddedAbduco)).toBe(embeddedAbduco)
+  const executable = join(buildRoot, 'podium-cli')
+  execFileSync(
+    process.execPath,
+    [
+      'build',
+      '--compile',
+      '--conditions=@podium/source',
+      '--define',
+      'process.env.PODIUM_APP_VERSION="9.9.9"',
+      join(scriptsDir, 'cli-compiled.ts'),
+      join(buildRoot, 'apps/daemon/src/discovery-worker.ts'),
+      '--outfile',
+      executable,
+    ],
+    { cwd: buildRoot, stdio: 'pipe' },
+  )
+  packagedCli = executable
+  return packagedCli
+}
+
 function startInstance(
   spec: InstanceSpec,
   overrides: Record<string, string | undefined> = {},
@@ -151,7 +210,9 @@ function startInstance(
   // Say so explicitly now that an unconfigured process intentionally withholds
   // the operator data plane.
   mkdirSync(spec.stateDir, { recursive: true })
-  writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+  const configFile = join(spec.stateDir, 'config.json')
+  const config = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
+  writeFileSync(configFile, JSON.stringify({ ...config, mode: 'all-in-one' }))
   const child = spawn(
     process.execPath,
     ['--conditions=@podium/source', CLI, '--instance', spec.id, 'all'],
@@ -241,6 +302,61 @@ async function runCli(
   })
   return { code, stdout, stderr }
 }
+
+async function runPackagedCli(
+  executable: string,
+  spec: InstanceSpec,
+  args: string[],
+): Promise<CliResult> {
+  const child = spawn(executable, args, {
+    // A packaged executable must not depend on being launched from the checkout.
+    cwd: TEST_ROOT,
+    env: instanceEnv(spec, { PODIUM_APP_VERSION: undefined }),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout?.on('data', (chunk) => {
+    stdout += String(chunk)
+  })
+  child.stderr?.on('data', (chunk) => {
+    stderr += String(chunk)
+  })
+  const code = await new Promise<number>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error(`packaged CLI timed out: ${args.join(' ')}`))
+    }, 90_000)
+    child.once('error', reject)
+    child.once('exit', (value) => {
+      clearTimeout(timeout)
+      resolve(value ?? 1)
+    })
+  })
+  return { code, stdout, stderr }
+}
+
+function packagedDiagnostics(spec: InstanceSpec): string {
+  const files = [
+    'config.json',
+    'connectivity.json',
+    'logs/parent.log',
+    'logs/daemon.log',
+    'logs/parent.ndjson',
+    'logs/daemon.ndjson',
+    'run/parent.pid',
+    'run/daemon.pid',
+  ]
+  return files
+    .map((relative) => {
+      const path = join(spec.stateDir, relative)
+      return existsSync(path)
+        ? `--- ${relative} ---\n${readFileSync(path, 'utf8')}`
+        : `--- ${relative}: missing ---`
+    })
+    .join('\n')
+}
+
 function jsonOutput(result: CliResult): { data?: unknown } {
   const line = result.stdout
     .trim()
@@ -260,7 +376,21 @@ function trpc(spec: InstanceSpec, cookie?: string): ReturnType<typeof createTRPC
   })
 }
 
+async function packagedCoordinator(): Promise<RunningInstance> {
+  if (!packagedSource) {
+    packagedSource = startInstance(makeSpec('default', 'packaged-join-source'))
+    await waitUntil(
+      async () => (await version(packagedSource!))?.instanceId === 'default',
+      'packaged join source',
+    )
+  }
+  return packagedSource
+}
+
 afterAll(async () => {
+  for (const { executable, spec } of packagedSpecs) {
+    await runPackagedCli(executable, spec, ['stop']).catch(() => {})
+  }
   for (const instance of running) {
     if (instance.child.exitCode === null && instance.child.signalCode === null) {
       instance.child.kill('SIGKILL')
@@ -270,7 +400,292 @@ afterAll(async () => {
   rmSync(TEST_ROOT, { recursive: true, force: true })
 })
 
+describe('long instance durable sockets', () => {
+  it('arms the old overflow, starts a real bounded session, and refuses an impossible override', async () => {
+    const bin = resolveAbducoBin({ fresh: true })
+    if (!bin) throw new Error('multi-instance acceptance requires abduco')
+
+    const instanceId = `update-e2e-${'x'.repeat(21)}`
+    const sessionId = asSessionId(randomUUID())
+    const oldLabel = `podium-${instanceId}-${sessionId}`
+    const socketTestRoot = mkdtempSync('/tmp/podium-mi-socket-')
+    const stateDir = join(socketTestRoot, instanceId, 'state')
+    const oldSocketDir = join(stateDir, 'runtime', 'abduco')
+    const impossibleDir = join('/tmp', `podium-refusal-${process.pid}-${'x'.repeat(28)}`)
+    mkdirSync(oldSocketDir, { recursive: true })
+    const oldPath = abducoSocketPathname(
+      oldSocketDir,
+      oldLabel,
+      userInfo().username,
+      hostname(),
+    )
+    expect(Buffer.byteLength(oldPath)).toBeGreaterThan(LINUX_UNIX_SOCKET_PATH_BYTES)
+
+    const previous = {
+      PODIUM_INSTANCE: process.env.PODIUM_INSTANCE,
+      PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
+      PODIUM_ABDUCO: process.env.PODIUM_ABDUCO,
+      ABDUCO_SOCKET_DIR: process.env.ABDUCO_SOCKET_DIR,
+      TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+      PODIUM_NO_SCOPE: process.env.PODIUM_NO_SCOPE,
+    }
+    const restore = () => {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+
+    let session: Awaited<ReturnType<typeof spawnAbducoAgent>> | undefined
+    let label: string | undefined
+    try {
+      // ABDUCO_SOCKET_DIR is only abduco's first candidate. If it cannot bind there,
+      // the native tool silently falls through HOME, TMPDIR, and /tmp, so a relative
+      // label cannot force this negative control. An absolute name has no fallback and
+      // proves the legacy pathname itself exceeds sun_path before the bounded product
+      // derivation below is allowed to succeed.
+      const old = spawnSync(bin, ['-n', oldPath, '/bin/true'], {
+        env: { ...process.env, PODIUM_NO_SCOPE: '1' },
+        encoding: 'utf8',
+      })
+      expect(old.status).not.toBe(0)
+      expect(old.stderr).toMatch(/File name too long|Filename too long/)
+
+      process.env.PODIUM_INSTANCE = instanceId
+      process.env.PODIUM_STATE_DIR = stateDir
+      process.env.PODIUM_ABDUCO = bin
+      delete process.env.ABDUCO_SOCKET_DIR
+      delete process.env.TMUX_TMPDIR
+      process.env.PODIUM_NO_SCOPE = '1'
+      applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
+      label = durableSessionLabel(sessionId, instanceId)
+      expect(process.env.ABDUCO_SOCKET_DIR).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
+
+      session = await spawnAbducoAgent({
+        label,
+        cmd: '/bin/sh',
+        args: ['-c', 'sleep 30'],
+        cols: 80,
+        rows: 24,
+      })
+      expect(abducoSocketPath(label, process.env)).toBeDefined()
+      session.dispose()
+      session = undefined
+      await killAbducoSession(label)
+
+      mkdirSync(impossibleDir, { recursive: true })
+      const impossiblePath = abducoSocketPathname(
+        impossibleDir,
+        label,
+        userInfo().username,
+        hostname(),
+      )
+      expect(Buffer.byteLength(impossiblePath)).toBeGreaterThan(LINUX_UNIX_SOCKET_PATH_BYTES)
+      const raw = spawnSync(bin, ['-n', impossiblePath, '/bin/true'], {
+        env: { ...process.env, PODIUM_NO_SCOPE: '1' },
+        encoding: 'utf8',
+      })
+      expect(raw.status).not.toBe(0)
+      expect(raw.stderr).toMatch(/File name too long|Filename too long/)
+
+      await expect(
+        spawnAbducoAgent({
+          label,
+          cmd: '/bin/true',
+          cols: 80,
+          rows: 24,
+          env: { ABDUCO_SOCKET_DIR: impossibleDir, PODIUM_INSTANCE: instanceId },
+        }),
+      ).rejects.toThrow(
+        new RegExp(
+          `instance '${instanceId}'.*Linux sun_path \\(108 bytes.*107 pathname bytes usable\\)`,
+        ),
+      )
+    } finally {
+      session?.dispose()
+      if (label) await killAbducoSession(label)
+      restore()
+      rmSync(impossibleDir, { recursive: true, force: true })
+      rmSync(socketTestRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+})
+
 describe('multi-instance runtime isolation', () => {
+  it('keeps packaged diagnostics state-free while foreign roots still refuse mutation', () => {
+    const foreign = makeSpec('blue', 'foreign-blue')
+    mkdirSync(foreign.stateDir, { recursive: true })
+    writeFileSync(join(foreign.stateDir, 'belongs-to-something-else'), 'foreign state\n')
+    const executable = buildPackagedCli()
+    const run = (argv: string[]) =>
+      spawnSync(executable, argv, {
+        cwd: ROOT,
+        env: instanceEnv(foreign, {
+          PODIUM_ABDUCO: undefined,
+          PODIUM_ADOPT_STATE: undefined,
+          PODIUM_APP_VERSION: '9.9.9',
+          PODIUM_RUN_MODE: 'detached',
+        }),
+        encoding: 'utf8',
+      })
+
+    const versionResult = run(['--version'])
+    expect(versionResult.status, versionResult.stderr).toBe(0)
+    expect(versionResult.stdout.trim()).toBe('podium 9.9.9')
+
+    const helpResult = run(['--help'])
+    expect(helpResult.status, helpResult.stderr).toBe(0)
+    expect(helpResult.stdout).toContain('Usage: podium [command] [--flags]')
+
+    // Neither diagnostic may claim or otherwise populate the foreign root, including
+    // the packaged entry's embedded-abduco initialization.
+    expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
+    expect(existsSync(join(foreign.stateDir, 'bin', 'abduco'))).toBe(false)
+
+    const mutation = run(['channel', 'edge'])
+    expect(mutation.status).toBe(2)
+    expect(mutation.stderr).toContain('refusing to adopt non-empty state directory')
+    expect(mutation.stderr).toContain("for instance 'blue'")
+    expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
+    expect(existsSync(join(foreign.stateDir, 'config.json'))).toBe(false)
+  })
+  it('accepts a legitimate daemon from the compiled packaged join path', async () => {
+    const source = await packagedCoordinator()
+    const sourceApi = trpc(source)
+    const pairing = await sourceApi.machines.pairingCode.mutate()
+    const fleet = makeSpec('blue', 'packaged-accepted-member')
+    const executable = buildPackagedCli()
+    packagedSpecs.push({ executable, spec: fleet })
+    const token = encodeJoin({
+      v: 1,
+      serverUrl: `ws://127.0.0.1:${source.port}`,
+      pairCode: pairing.code,
+    })
+
+    const joined = await runPackagedCli(executable, fleet, [
+      'setup',
+      '--join',
+      token,
+      '--persist',
+      'detached',
+    ])
+
+    expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
+    expect(joined.stdout).toContain('podium joined as')
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+      machineId: string
+      token?: string
+    }
+    expect(identity.token).toBeTruthy()
+    await waitUntil(
+      async () =>
+        (await sourceApi.machines.list.query()).some(
+          (machine) => machine.id === identity.machineId && machine.online,
+        ),
+      'compiled packaged daemon enrollment',
+    )
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')),
+    ).toMatchObject({
+      state: 'connected',
+    })
+  }, 120_000)
+
+  it('returns nonzero with the auth reason when packaged join is rejected', async () => {
+    const source = await packagedCoordinator()
+    const fleet = makeSpec('blue', 'packaged-rejected-member')
+    const executable = buildPackagedCli()
+    packagedSpecs.push({ executable, spec: fleet })
+    const token = encodeJoin({
+      v: 1,
+      serverUrl: `ws://127.0.0.1:${source.port}`,
+      pairCode: 'not-a-valid-pair-code-00000000',
+    })
+
+    const rejected = await runPackagedCli(executable, fleet, [
+      'setup',
+      '--join',
+      token,
+      '--persist',
+      'detached',
+    ])
+
+    expect(
+      rejected.code,
+      `${rejected.stdout}\n${rejected.stderr}\n${packagedDiagnostics(fleet)}`,
+    ).not.toBe(0)
+    expect(rejected.stderr, packagedDiagnostics(fleet)).toContain(
+      'peerHelloRejected: invalid or expired code',
+    )
+    expect(rejected.stderr).toContain('daemon was rejected by the server')
+    expect(rejected.stdout).not.toContain('podium joined as')
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')),
+    ).toMatchObject({
+      state: 'unauthorized',
+    })
+  }, 120_000)
+
+  it('claims an absent named root before the compiled launcher materializes abduco', async () => {
+    const namedSpec = makeSpec('blue', 'cold-blue')
+    expect(existsSync(namedSpec.stateDir)).toBe(false)
+    const executable = buildPackagedCli()
+    const child = spawn(executable, ['channel', 'edge'], {
+      cwd: ROOT,
+      env: instanceEnv(namedSpec, {
+        PODIUM_ABDUCO: undefined,
+        PODIUM_ADOPT_STATE: undefined,
+        PODIUM_APP_VERSION: '9.9.9',
+        PODIUM_RUN_MODE: 'detached',
+      }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+    const code = await new Promise<number>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL')
+        reject(new Error('compiled CLI timed out'))
+      }, 20_000)
+      child.once('error', reject)
+      child.once('exit', (value) => {
+        clearTimeout(timeout)
+        resolve(value ?? 1)
+      })
+    })
+
+    expect(code, `${stdout}\n${stderr}`).toBe(0)
+    expect(existsSync(join(namedSpec.stateDir, 'bin', 'abduco'))).toBe(true)
+    expect(
+      JSON.parse(readFileSync(join(namedSpec.stateDir, 'instance.json'), 'utf8')),
+    ).toMatchObject({ instanceId: 'blue' })
+    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject(
+      {
+        updateChannel: 'edge',
+      },
+    )
+
+    const named = startInstance(namedSpec, {
+      PODIUM_ADOPT_STATE: undefined,
+      PODIUM_ABDUCO: join(namedSpec.stateDir, 'bin', 'abduco'),
+    })
+    await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'clean named server')
+    expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject(
+      {
+        mode: 'all-in-one',
+        updateChannel: 'edge',
+      },
+    )
+    named.child.kill('SIGKILL')
+    await new Promise<void>((resolve) => named.child.once('exit', () => resolve()))
+  })
+
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
     const compat = startInstance(makeSpec('default'))
     const namedSpec = makeSpec('blue')
@@ -312,9 +727,7 @@ describe('multi-instance runtime isolation', () => {
     // directory, which is both short enough and where sockets belong.
     expect(existsSync(join(compat.stateDir, 'runtime', 'abduco'))).toBe(false)
     expect(existsSync(join(named.stateDir, 'runtime', 'abduco'))).toBe(false)
-    // The pin still HAPPENED and the directory was really created — read
-    // against the same environment the named instance booted with.
-    const namedSocketRoot = instanceAbducoSocketRoots('blue', instanceEnv(namedSpec))[0] as string
+    const namedSocketRoot = instanceSocketRuntimeDir('blue', named.stateDir)
     expect(existsSync(namedSocketRoot)).toBe(true)
     // AND IT FITS, which is the property the old pin failed. Asserted with the
     // real user and host, because those bytes are in the same budget.

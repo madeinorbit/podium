@@ -1,15 +1,18 @@
 # Desktop releases
 
-Podium has two production desktop update channels:
+Podium desktop shells understand three update channels:
 
 - **stable** reads `releases/latest/download/latest.json`.
 - **edge** reads `releases/download/edge/latest.json`.
+- **dev** reads the attached source server’s `/updates/feed/dev/latest.json`. That manifest
+  references the current edge shell by GitHub asset URL; a dev release never builds or signs a
+  shell of its own.
 
 **Channel authority: the attached server first, the shell's own config only as a fallback.**
 When the page drives an update it passes the channel explicitly and that choice wins
 (`resolve_update_channel` takes it as its argument). The shell's own `updateChannel` — read
-from `$PODIUM_STATE_DIR/config.json`, falling back to `~/.podium/config.json` and then to
-`stable` — is what a shell resolves with when nobody supplied one: no server attached, or the
+from `$PODIUM_STATE_DIR/config.json`, falling back to `~/.podium/config.json` and then to the
+channel stamped into the installed build — is what a shell resolves with when nobody supplied one: no server attached, or the
 native fallback path below. One channel, resolved in one place, rather than the page and the
 shell each having an opinion.
 
@@ -19,13 +22,16 @@ is still updatable. It is a real dialog, not a log line. `PODIUM_UPDATE_TEST_AUT
 skips the confirmation and exists only for the verification script — never set it on a real
 install.
 
-Debug builds made by `tauri dev` do not contact either production feed or show the updater
-prompt. Development is not a release channel.
+Debug builds made by `tauri dev` do not contact any update feed or show the updater
+prompt. A released shell on the dev channel does: the page persists both `updateChannel: "dev"`
+and its server-specific `updateFeedEndpoint` into `config.json`, so the page-driven and native
+fallback paths check the same manifest.
 
 ## Releasing is one tag push
 
-Pushing a version tag releases both halves — headless assets and the desktop bundles — to the
-channel the tag names:
+Pushing a version tag publishes the headless release target to the named channel. It also
+publishes a desktop bundle only when the shell-input hash changed; otherwise it carries the
+standing shell manifest forward:
 
 | Tag | Channel | Assets land in |
 | --- | --- | --- |
@@ -42,20 +48,39 @@ The tag and the root `package.json` version must agree — the workflow checks a
 mismatch, because the tag names the release while `package.json` names the version the updater
 advertises, and a disagreement publishes a manifest nobody can install.
 
-Both workflows start from the same tag push. The desktop half waits for the release the headless
-half creates rather than failing on the ordering, so a notarized build is never discarded over a
-few seconds of race.
+Both workflows start from the same tag push. The desktop workflow validates the shell-input hash
+first and skips all platform builders when the standing shell already has that hash. When it does
+mint, it waits for the release the headless half creates rather than discarding a notarized build
+over a few seconds of ordering.
 
 ## Version and signing prerequisites
 
-The root `package.json` version is the source of truth for the desktop and bundled headless
-app. It must be greater than the version installed by the clients being updated. Use ordinary
-SemVer for stable (`0.2.0`) and an ordered prerelease for edge (`0.3.0-edge.1`, then
-`0.3.0-edge.2`). Re-publishing the same version does not trigger Tauri's updater.
+A shell’s version is the version baked into that shell artifact and reported by the native
+bridge. It is never derived from the headless target. Consequently a dev machine normally reports
+an edge shell version next to a newer dev headless version; that divergence is expected. Tauri
+installs only when `latest.json` names a shell version newer than the installed one.
+
+The desktop workflow hashes the shell inputs (`apps/desktop/src-tauri` plus
+`apps/desktop/scripts/stage-sidecar.ts`, which defines the staged-resource layout). It mints a new
+shell only when that hash differs from the standing channel shell. A headless-only release carries
+forward the standing `latest.json` and `desktop-shell-input.sha256`, so its shell version and URLs
+stay unchanged.
 
 GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The private key must match `plugins.updater.pubkey` in
 `apps/desktop/src-tauri/tauri.conf.json`; changing the key strands existing installations.
+
+### Windows installer
+
+The Windows x86_64 leg runs on `windows-latest` and builds an NSIS `-setup.exe`. The same
+installer is the Tauri updater payload, with its detached `.sig` included in `latest.json` under
+`windows-x86_64`. The regular Windows smoke compiles the Tauri executable without making an
+installer, launches it against a real local Podium server, and fails if native setup or the
+WebView2 window cannot stay alive.
+
+The Tauri updater signature verifies Podium updates, but it is not a Windows Authenticode
+signature. Until an Authenticode certificate is provisioned, Windows may show a publisher or
+SmartScreen warning for a freshly downloaded installer.
 
 ### macOS Developer ID signing and notarization
 
@@ -148,16 +173,26 @@ It refuses, before creating anything, a version that is not greater than the cur
 that is neither `X.Y.Z` nor `X.Y.Z-edge.N`, a dirty tree, a branch out of sync with its remote, and
 a tag that already exists.
 
-Both workflows then run from that tag. The desktop half builds Linux x86_64, macOS Apple Silicon,
-and macOS Intel in parallel, and only after all succeed does it deterministically regenerate and
-validate one `latest.json` against every detached signature and the channel's URLs. It uploads the
-AppImage, macOS DMGs, macOS updater archives, signatures, and manifest without replacing the
-headless assets.
+Both workflows then run from that tag. If the shell hash changed, the desktop half builds Linux
+x86_64, Windows x86_64, macOS Apple Silicon, and macOS Intel in parallel. Only after all succeed does it
+regenerate and validate `latest.json`, upload the signed shell assets (the AppImage, Windows NSIS
+installer, macOS DMGs, updater files, signatures, and manifest), and publish the new input hash. If the
+hash did not change, those jobs are skipped and the headless publisher re-uploads the standing
+manifest reference instead.
 
-Later pushes to `main` refresh the headless edge files in place and preserve the promoted desktop
-version until the next edge tag.
+`latest.json` carries `bridgeVersion`, and a headless manifest may raise
+`minRequired.desktopBridge` (or `minRequired.desktop` for a shell-version floor). The resolver and
+page enforce those explicit floors; headless and shell versions otherwise do not have to match.
 
-### Doing it by hand
+## Edge asset retention
+
+The rolling edge release prunes desktop assets only after the replacement manifest is uploaded.
+The pruning input is the set of asset URLs referenced by the current manifests, including updater
+archives, their detached-signature companions, and installer download URLs. It does not compare
+asset filenames with the headless version. Therefore a standing shell remains downloadable across
+any number of headless-only edge releases, while unreferenced older shell assets are removed.
+
+## Doing it by hand
 
 `release:cut` is a convenience, not a gate — the workflows respond to the tag alone. The equivalent
 long form, if you need to deviate:
@@ -216,16 +251,11 @@ For an edge hotfix the same shape applies with an edge version (`0.3.0-edge.5` o
 
 ## Existing-install bridge
 
-Desktop versions released before channel-aware endpoints always query stable. To move existing
-edge-configured installations onto the edge feed:
-
-1. Cut one stable bridge release containing the channel-aware updater.
-2. Let clients install and restart into that version.
-3. Cut a strictly newer edge desktop release.
-
-After the bridge restart, clients whose config already says `updateChannel: "edge"` will query
-the rolling edge manifest. There is no way for an older stable-only binary to discover that
-manifest directly.
+Desktop versions released before channel-aware endpoints always query stable. A stable bridge
+release is still required before those installations can discover edge. Dev additionally requires
+a shell that understands `updateChannel: "dev"` and `updateFeedEndpoint`; the attached page writes
+both before checking. Once that bridge shell is installed, each newly minted edge shell is offered
+through the dev server’s copied `latest.json` and exercises the real signed swap.
 
 ## Release verification
 
@@ -235,8 +265,8 @@ the quarantine attribute a `gh release download` does not) and open it. No warni
 Security approval step. `spctl --assess --type exec -vvv /Applications/Podium.app` should say
 `source=Notarized Developer ID`.
 
-For a real release, verify from an older signed AppImage or macOS app whose embedded public key
-matches the release signing key:
+For a real release, verify from an older signed AppImage, NSIS install, or macOS app whose embedded
+public key matches the release signing key:
 
 1. launch with an isolated `PODIUM_STATE_DIR` containing the intended `updateChannel`;
 2. observe the real update prompt;

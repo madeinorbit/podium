@@ -35,8 +35,10 @@ import {
 import {
   AgentQuotaResultMessage,
   HostMetricsMessage,
+  QuotaHistoryResultMessage,
   MachineDiagnosticMessage,
   MemoryBreakdownResultMessage,
+  ReclaimDiskEstimateResultMessage,
   UsageResultMessage,
 } from './host'
 import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
@@ -84,7 +86,7 @@ import {
   TranscriptMirrorResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
-import { UpdateStatusMessage } from './update'
+import { DevArtifactProbeResultMessage, UpdateStatusMessage } from './update'
 import {
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
@@ -184,12 +186,14 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HeadlessBindResultMessage,
   UsageResultMessage,
   AgentQuotaResultMessage,
+  QuotaHistoryResultMessage,
   ImageUploadResultMessage,
   SessionResumeRefMessage,
   SessionCwdMessage,
   SessionGitActivityMessage,
   NativeDraftMessage,
   InventoryReportMessage,
+  DevArtifactProbeResultMessage,
   UpdateStatusMessage,
   ModelProbeResultMessage,
   BindMessage,
@@ -218,6 +222,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HostMetricsMessage,
   MachineDiagnosticMessage,
   MemoryBreakdownResultMessage,
+  ReclaimDiskEstimateResultMessage,
   TranscriptDeltaMessage,
   TranscriptReadResultMessage,
   FileReadResultMessage,

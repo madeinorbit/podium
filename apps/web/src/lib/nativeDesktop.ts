@@ -3,7 +3,15 @@ export type NativeDesktopPlatform = 'macos' | 'windows' | 'linux'
 
 /** The shell's resolved launch mode (bootstrap.rs LaunchAction). Older shells omit it. */
 export type NativeDesktopLaunchMode = 'all-in-one' | 'server' | 'daemon' | 'client'
-export type NativeDesktopUpdateChannel = 'stable' | 'edge'
+export type NativeDesktopUpdateChannel = 'dev' | 'stable' | 'edge'
+
+export interface NativeDaemonConnectivity {
+  state: 'connected' | 'disconnected' | 'unauthorized' | 'blocked'
+  serverUrl?: string
+  authorizationReason?: string
+  blockedReason?: string
+  updatedAt: string
+}
 
 export interface NativeDesktopUpdateInfo {
   current_version: string
@@ -16,6 +24,8 @@ export interface NativeDesktopBridge {
   platform: NativeDesktopPlatform
   /** Shell package version. Older shells omit it. */
   currentVersion?: string
+  /** Versioned contract for methods and payloads on this injected bridge. */
+  bridgeVersion?: number
   launchMode?: NativeDesktopLaunchMode
   /** This device's paired machine id (~/.podium/daemon.json), if it ever paired. [spec:SP-3701] */
   machineId?: MachineId
@@ -42,7 +52,9 @@ export interface NativeDesktopBridge {
     expectedVersion?: string,
   ) => Promise<void>
   /** Persists the user's production feed choice for native update checks without a page. */
-  setUpdateChannel?: (channel: NativeDesktopUpdateChannel) => Promise<void>
+  setUpdateChannel?: (channel: NativeDesktopUpdateChannel, endpoint?: string) => Promise<void>
+  /** Restores the signed seed when the local payload cannot serve its repair grant. */
+  repairPayload?: () => Promise<void>
   /**
    * Opens a URL in the OS browser. Needed for the server's OWN URLs: the shell's link shim
    * only diverts cross-origin links, so a same-origin `_blank` lands in an in-app webview
@@ -64,6 +76,8 @@ export interface NativeDesktopBridge {
    * hub-minted pairing code. Caller restarts the shell afterwards (window.__PODIUM_RESTART__).
    */
   enableHosting?: (pairCode: string) => Promise<void>
+  /** Reads this shell's daemon-owned durable connection status. */
+  daemonConnectivity?: () => Promise<NativeDaemonConnectivity | null>
 }
 
 /**
@@ -162,7 +176,10 @@ export function onNativeDesktopUpdateProgress(
       .then((eventId) => {
         const unlisten = (): void => {
           void internals
-            .invoke('plugin:event|unlisten', { event: UPDATE_PROGRESS_EVENT, eventId })
+            .invoke('plugin:event|unlisten', {
+              event: UPDATE_PROGRESS_EVENT,
+              eventId,
+            })
             .catch(() => {})
         }
         if (disposed) unlisten()
@@ -176,6 +193,24 @@ export function onNativeDesktopUpdateProgress(
     disposed = true
     stop?.()
   }
+}
+
+export function desktopUpdateEndpoint(
+  channel: NativeDesktopUpdateChannel,
+  serverEndpoint: string | undefined,
+): string | undefined {
+  if (channel !== 'dev') return undefined
+  return serverEndpoint
+}
+
+export async function persistNativeDesktopUpdateChannel(
+  channel: NativeDesktopUpdateChannel,
+  serverEndpoint: string | undefined,
+): Promise<void> {
+  await nativeDesktopBridge()?.setUpdateChannel?.(
+    channel,
+    desktopUpdateEndpoint(channel, serverEndpoint),
+  )
 }
 
 export function nativeDesktopBridge(): NativeDesktopBridge | undefined {
@@ -205,10 +240,10 @@ export function isMacNativeShell(): boolean {
  * Declines (null) in the three cases where asking would be wrong or useless:
  * a plain browser, where the anchor already does the right thing; a shell older than
  * `openExternal`; and a CROSS-origin URL, which the shell's injected link shim already
- * diverts on its own — handing that one over too would open the page twice (all-in-one
- * mode loads the UI from `tauri://localhost`, so every server URL is cross-origin there).
- * What's left is a same-origin URL, which the shim deliberately skips and the webview would
- * answer with an in-app window.
+ * diverts on its own — handing that one over too would open the page twice. What's left
+ * is a same-origin URL (served-local all-in-one loads http://127.0.0.1 from the sidecar;
+ * baked-fallback tauri:// is cross-origin to the server and relies on the shim), which
+ * the shim deliberately skips and the webview would answer with an in-app window.
  */
 export function openInSystemBrowser(url: string): Promise<void> | null {
   const openExternal = nativeDesktopBridge()?.openExternal

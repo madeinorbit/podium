@@ -24,6 +24,7 @@ import {
   type PeerHelloRejected,
   type PeerIdentityClaims,
   type PeerRole,
+  type UpdateKeyRotation,
   localVersionSupport,
 } from './envelope'
 import { type CapabilityNegotiation, negotiateCapabilities } from './negotiation'
@@ -44,6 +45,8 @@ export type DialerStep =
       readonly issuedToken?: string
       /** The server update-signing key to persist alongside the pairing token. */
       readonly updatePubkey?: string
+      /** Old-key-signed path from a prior pin to updatePubkey. */
+      readonly updateKeyRotations?: readonly UpdateKeyRotation[]
     }
   | { readonly action: 'rejected'; readonly reply: PeerHelloRejected }
   | { readonly action: 'protocol-error'; readonly error: DialerProtocolError }
@@ -145,6 +148,9 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
         ...(reply.name === undefined ? {} : { name: reply.name }),
         ...(reply.issuedToken === undefined ? {} : { issuedToken: reply.issuedToken }),
         ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),
+        ...(reply.updateKeyRotations === undefined
+          ? {}
+          : { updateKeyRotations: reply.updateKeyRotations }),
       }
     },
   }

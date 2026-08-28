@@ -45,7 +45,8 @@ import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
+import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
+import { useServerAppVersion } from '@/lib/version-skew'
 
 const SERVER_TRANSFER_PHASES = [
   { key: 'preparing', label: 'Preparing' },
@@ -207,7 +208,11 @@ export function MachinesPanel({
   showOwnershipTransfer?: boolean
 } = {}): JSX.Element {
   const { machines, trpc, setSettingsTab } = useStoreSelector(
-    (s) => ({ machines: s.machines, trpc: s.trpc, setSettingsTab: s.setSettingsTab }),
+    (s) => ({
+      machines: s.machines,
+      trpc: s.trpc,
+      setSettingsTab: s.setSettingsTab,
+    }),
     shallowEqual,
   )
   const [now, setNow] = useState(() => Date.now())
@@ -243,18 +248,29 @@ export function MachinesPanel({
       .filter((target) => target.eligible === false && target.reason === 'unsupported')
       .map((target) => target.targetMachineId),
   )
-  const pairing = useMachinePairing({
-    trpc,
-    machines,
-    isNewMachineEligible: (machine) => eligibleTransferTargets.has(machine.id),
-  })
+  // Every successful enrollment spends the code, whether or not that machine
+  // can receive the server. Transfer eligibility is a later, separate choice.
+  const pairing = useMachinePairing({ trpc, machines })
   const activeTransferMachine =
     machines.find((machine) => machine.id === transferStatus.snapshot?.transfer?.targetMachineId) ??
     null
   const sourceMachine =
     machines.find((machine) => machine.id === transferStatus.snapshot?.sourceMachineId) ?? null
   const convergence = useFleetConvergence(trpc)
-  const newlyPairedMachine = makeServerAfterPair ? pairing.newMachine : null
+  const newlyPairedMachine =
+    makeServerAfterPair &&
+    pairing.newMachine !== null &&
+    eligibleTransferTargets.has(pairing.newMachine.id)
+      ? pairing.newMachine
+      : null
+
+  const mintForAnotherMachine = (): void => {
+    // A consumed code detected the machine against the previous baseline. Start
+    // the next watch from the fleet as it exists NOW, otherwise that same row
+    // keeps the replacement code looking consumed too.
+    pairing.watchForNewMachine()
+    void pairing.mint({ podiumManaged: pairing.podiumManaged })
+  }
 
   // Tick so relative times stay fresh.
   useEffect(() => {
@@ -321,8 +337,9 @@ export function MachinesPanel({
               recommendServer={recommendServer}
               makeServerAfterPair={makeServerAfterPair}
               onMakeServerAfterPairChange={setMakeServerAfterPair}
-              pairedMachine={newlyPairedMachine}
-              onNewCode={() => void pairing.mint({ podiumManaged: pairing.podiumManaged })}
+              pairedMachine={pairing.newMachine}
+              canReviewTransfer={newlyPairedMachine !== null}
+              onNewCode={mintForAnotherMachine}
               minting={pairing.loading}
               onReviewPairedMachine={() => {
                 if (newlyPairedMachine) {
@@ -588,6 +605,7 @@ function PairingCodeDisplay({
   makeServerAfterPair,
   onMakeServerAfterPairChange,
   pairedMachine,
+  canReviewTransfer,
   onReviewPairedMachine,
   onNewCode,
   minting,
@@ -602,6 +620,7 @@ function PairingCodeDisplay({
   makeServerAfterPair: boolean
   onMakeServerAfterPairChange: (value: boolean) => void
   pairedMachine: MachineWire | null
+  canReviewTransfer: boolean
   onReviewPairedMachine: () => void
   /** Mint a fresh code and join command for the same options. */
   onNewCode: () => void
@@ -615,6 +634,39 @@ function PairingCodeDisplay({
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
+  }
+
+  if (pairedMachine) {
+    return (
+      <div className="min-w-0 space-y-3">
+        <div
+          className="rounded-lg border border-success/30 bg-success/5 px-3 py-2.5"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="settings-prose">
+            <strong className="font-medium text-foreground">{pairedMachine.name}</strong> is paired.
+            That one-use code has been spent, and its command will not work again.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" disabled={minting} onClick={onNewCode}>
+            {minting ? 'Creating…' : 'Create another code'}
+          </Button>
+          {canReviewTransfer && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={minting}
+              onClick={onReviewPairedMachine}
+            >
+              Review transfer
+            </Button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -723,27 +775,11 @@ function PairingCodeDisplay({
         </div>
       </div>
 
-      {/* The end of the flow: still waiting, or paired. One line, never both. */}
-      {pairedMachine ? (
-        <div
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-success/30 bg-success/5 px-3 py-2.5"
-          role="status"
-        >
-          <span className="settings-prose min-w-0 flex-1">
-            <strong className="font-medium text-foreground">{pairedMachine.name}</strong> is paired,
-            and the server reports it is ready for transfer review.
-          </span>
-          <Button type="button" size="sm" className="flex-none" onClick={onReviewPairedMachine}>
-            Review transfer
-          </Button>
-        </div>
-      ) : (
-        joinCommand && (
-          <p className="settings-prose flex items-center gap-2" role="status">
-            <WorkingMark size={13} />
-            Waiting for the machine to run the command…
-          </p>
-        )
+      {joinCommand && (
+        <p className="settings-prose flex items-center gap-2" role="status">
+          <WorkingMark size={13} />
+          Waiting for the machine to run the command…
+        </p>
       )}
     </div>
   )
@@ -945,10 +981,44 @@ function MachineRow({
   }
 
   // POD-838/POD-1873: surface skew against this machine's selected channel target.
+  /**
+   * The row's durable components, in the words §4.1 asks for.
+   *
+   * `undefined` renders NOTHING — a server that predates the field has not
+   * answered the question, and inventing "no components" for it would badge the
+   * whole fleet as broken. `[]` DOES render, because that is an answer: the row
+   * exists and its daemon has never connected.
+   */
+  const components = machine.components
+  const componentsLabel =
+    components === undefined
+      ? null
+      : components.length === 0
+        ? 'Waiting for first connection'
+        : components.includes('daemon')
+          ? null
+          : components.includes('server')
+            ? 'Server only'
+            : 'No daemon'
+  const componentsTitle =
+    componentsLabel === 'Server only'
+      ? 'Runs the Podium server and no daemon — it cannot host repositories or run agents.'
+      : componentsLabel === 'Waiting for first connection'
+        ? 'Paired, but its daemon has never connected.'
+        : undefined
   const daemonVersion = machine.inventory?.podiumVersion
-  const needsUpdate = machineNeedsUpdate(machine, serverAppVersion)
   const updateTargetVersion =
     machine.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
+  /**
+   * WHY THE PILL IS NOT ALWAYS A WARNING (updater-convergence spec §2.2b).
+   *
+   * Nothing applies an update on its own on any channel (§8c decision 14), so a
+   * machine behind its target is normally just waiting for someone to press the
+   * button on the line below — the mechanism working, not a fault. The warning
+   * colour is kept for the machine that took the grant and never arrived, which
+   * is the one nobody can fix by pressing anything.
+   */
+  const skew = machineVersionSkew(machine, serverAppVersion, convergence?.state ?? null)
 
   const revoke = async () => {
     setRevoking(true)
@@ -986,7 +1056,10 @@ function MachineRow({
     setTransferring(true)
     setTransferError(null)
     try {
-      await trpc.machines.transferOwnership.mutate({ id: machine.id, newOwnerUserId: recipient })
+      await trpc.machines.transferOwnership.mutate({
+        id: machine.id,
+        newOwnerUserId: recipient,
+      })
       setTransferOpen(false)
       setRecipientId('')
       setConfirmName('')
@@ -1067,13 +1140,24 @@ function MachineRow({
                 </Badge>
               )}
 
-              {needsUpdate && (
+              {skew.badge && (
                 <Badge
-                  variant="warning"
+                  variant={skew.mark === 'unexpected' ? 'warning' : 'outline'}
                   className="h-4 flex-none px-1.5 text-[11px]"
-                  title={`This machine runs Podium ${daemonVersion}; its selected update target is ${updateTargetVersion}.`}
+                  // BOTH INTENTS, and neither is decoration. POD-2502's display
+                  // form keeps a minted dev version readable (`dev.5 (656f49b)`
+                  // rather than the raw lineage string), and the reason sentence
+                  // is what separates a machine waiting for someone to accept an
+                  // offer from one that took the grant and never arrived.
+                  title={`${skew.note ? `${skew.note} ` : ''}This machine runs Podium ${
+                    daemonVersion ? formatDisplayedVersion(daemonVersion) : daemonVersion
+                  }; its selected update target is ${
+                    updateTargetVersion
+                      ? formatDisplayedVersion(updateTargetVersion)
+                      : updateTargetVersion
+                  }.`}
                 >
-                  update available
+                  {skew.badge}
                 </Badge>
               )}
             </div>
@@ -1087,8 +1171,11 @@ function MachineRow({
               {daemonVersion && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="font-mono" title={`Podium ${daemonVersion} on this machine`}>
-                    {daemonVersion}
+                  <span
+                    className="font-mono"
+                    title={`Podium ${formatDisplayedVersion(daemonVersion)} on this machine`}
+                  >
+                    {formatDisplayedVersion(daemonVersion)}
                   </span>
                 </>
               )}
@@ -1096,6 +1183,19 @@ function MachineRow({
               <span className="tabular-nums">
                 {machine.online ? 'Online' : `Last seen ${relativeTime(machine.lastSeenAt, now)}`}
               </span>
+              {/* WHAT RUNS HERE (POD-2700 §4.1). The fleet panel is the one
+                  surface that shows EVERY machine, including the ones no picker
+                  may offer — an operator must be able to repair a machine that
+                  can do nothing else. So instead of filtering, it LABELS: a row
+                  reading "server only" is legible as a coordinator rather than
+                  as a permanently-offline mystery, which is how the operator
+                  read it while the repo screen was stuck on it. */}
+              {componentsLabel && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span title={componentsTitle}>{componentsLabel}</span>
+                </>
+              )}
               {serverTransferUnsupported && (
                 <>
                   <span aria-hidden="true">·</span>
@@ -1338,12 +1438,29 @@ const CONVERGENCE_PROGRESS_LABELS: Record<string, string> = {
 
 /** The outcome vocabulary the machine row speaks, keyed off the server's verdict. */
 export function describeApplyOutcome(
-  outcome: { result: string; state?: string; reason?: string; version?: string },
+  outcome: {
+    result: string
+    state?: string
+    reason?: string
+    version?: string
+    /** The machine's own platform, for the two POD-2783 refusals that are about it. */
+    platform?: string
+  },
   machineName: string,
 ): { tone: 'progress' | 'ok' | 'error'; message: string } {
   switch (outcome.result) {
     case 'granted':
-      return { tone: 'progress', message: `Updating ${machineName} to ${outcome.version}…` }
+      return {
+        tone: 'progress',
+        message: `Updating ${machineName} to ${outcome.version}…`,
+      }
+    case 'source-checkout':
+      return {
+        tone: 'error',
+        message:
+          machineName +
+          ' runs from a source checkout. Update its checkout and restart Podium from the terminal.',
+      }
     case 'already-current':
       return { tone: 'ok', message: `${machineName} is already up to date.` }
     case 'in-flight':
@@ -1351,13 +1468,47 @@ export function describeApplyOutcome(
         tone: 'progress',
         message: `${machineName} is already updating. Wait for it to finish.`,
       }
+    case 'legacy-instance-trust':
+      return {
+        tone: 'error',
+        message:
+          `${machineName} predates channel-keyed update trust. It can receive this development ` +
+          'feed, but its updater will verify it with the baked release key instead of the pinned ' +
+          'instance key. Changing or rotating that key cannot make this build use its pin; use ' +
+          'the supported host-local stranded-machine repair.',
+      }
+    /**
+     * THE ROW THAT CANNOT BE FIXED BY PRESSING IT AGAIN (POD-2783).
+     *
+     * A release's platform list is fixed when it is minted, so a machine that
+     * enrolled afterwards can never take that release. Saying so — and saying
+     * what does resolve it — is the whole point; the old path granted, waited,
+     * and then told the operator to go and check the release.
+     */
+    case 'platform-not-in-release':
+      return {
+        tone: 'error',
+        message:
+          `This update was built before ${machineName} joined, so it has no package for ` +
+          `${outcome.platform ?? 'its platform'}. The next update built will include it.`,
+      }
+    case 'platform-not-published':
+      return {
+        tone: 'error',
+        message:
+          `Podium publishes no package for ${outcome.platform ?? "that machine's platform"}, ` +
+          `so no update can install on ${machineName}.`,
+      }
     case 'offline':
       return {
         tone: 'error',
         message: `${machineName} is not connected. Bring it online, then apply again.`,
       }
     case 'unknown-machine':
-      return { tone: 'error', message: `${machineName} is no longer paired with this server.` }
+      return {
+        tone: 'error',
+        message: `${machineName} is no longer paired with this server.`,
+      }
     case 'no-target':
       return {
         tone: 'error',
@@ -1366,7 +1517,10 @@ export function describeApplyOutcome(
           : `No update is available for ${machineName} on its selected update source.`,
       }
     default:
-      return { tone: 'error', message: `Podium could not start the update on ${machineName}.` }
+      return {
+        tone: 'error',
+        message: `Podium could not start the update on ${machineName}.`,
+      }
   }
 }
 
@@ -1474,7 +1628,7 @@ function MachineUpdateControls({
   }
 
   const applyUpdate = async (): Promise<void> => {
-    if (busy || changingChannel || supervised || !machine.online || !targetVersion) return
+    if (busy || changingChannel || !machine.online || !targetVersion) return
     setApplying(true)
     setUpdateError(null)
     setUpdateStatus(null)
@@ -1497,17 +1651,12 @@ function MachineUpdateControls({
     }
   }
 
+  const sourceRun = machine.installKind === 'source'
   const alreadyCurrent =
     targetVersion !== null && machine.appVersion !== null && machine.appVersion === targetVersion
-  /**
-   * This daemon lives inside the signed Podium Desktop bundle, which owns its
-   * bytes (POD-2099, spec §4). No wave delivers to it and no Apply here ever
-   * could: the shell update is the only thing that moves it. Offering the button
-   * anyway was the dead end §6.1 bans — a control whose only outcome is a
-   * refusal the user cannot act on.
-   */
-  const supervised = machine.supervised === true
-  const targetLabel = targetVersion ? `Target ${targetVersion}` : 'Target unavailable'
+  const targetLabel = targetVersion
+    ? `Target ${formatDisplayedVersion(targetVersion)}`
+    : 'Target unavailable'
   // Busy spans the whole act: the mutation round trip AND the convergence it
   // authorized. The action stays disabled for both.
   const busy = applying || converging
@@ -1531,11 +1680,7 @@ function MachineUpdateControls({
           readable either way — the Target chip below never hides, and Settings →
           Updates discloses every machine that is pinned away from the fleet default,
           so an override can never become invisible by turning the flag off. */}
-      {supervised ? (
-        <span className="flex-none settings-micro" data-machine-supervised={machine.id}>
-          Managed by Podium Desktop
-        </span>
-      ) : developing ? (
+      {developing ? (
         <Select
           value={channel ?? FLEET_DEFAULT_VALUE}
           disabled={changingChannel || busy}
@@ -1594,45 +1739,31 @@ function MachineUpdateControls({
       {/* The action keeps one place in the row. Anything that can appear or
           disappear — reasons, errors, progress — lives on its own line below,
           so a click never moves the button out from under the pointer. */}
+      {sourceRun && <span className="settings-micro ml-auto flex-none">Source checkout</span>}
       <Button
         type="button"
         variant="outline"
         size="sm"
         className="ml-auto flex-none"
-        disabled={
-          busy ||
-          changingChannel ||
-          supervised ||
-          !machine.online ||
-          !targetVersion ||
-          alreadyCurrent
-        }
+        disabled={busy || changingChannel || !machine.online || !targetVersion || alreadyCurrent}
+        hidden={sourceRun}
         aria-busy={busy}
         aria-label={`Apply update to ${machine.name}`}
         title={
-          supervised
-            ? `Managed by Podium Desktop on this machine — it updates when the app does.`
-            : !machine.online
-              ? 'This machine must be online to apply its selected target.'
-              : (unavailableReason ?? undefined)
+          !machine.online
+            ? 'This machine must be online to apply its selected target.'
+            : (unavailableReason ?? undefined)
         }
         onClick={() => void applyUpdate()}
       >
         {busy ? 'Applying…' : alreadyCurrent ? 'Current' : retryable ? 'Try again' : 'Apply'}
       </Button>
 
-      {(supervised || unavailableReason || updateError || updateStatus) && (
+      {(unavailableReason || updateError || updateStatus) && (
         // min-w-0 as well as basis-full: a flex item's automatic minimum is its
         // min-content width, and these lines are `truncate` (nowrap), so without
         // it the longest reason set the row's width and ran off the pane.
         <div className="flex min-w-0 basis-full flex-col gap-0.5">
-          {/* The reason a disabled control is disabled belongs on the page, not
-              only in a title attribute nobody hovers. */}
-          {supervised && (
-            <span className="min-w-0 settings-micro">
-              Managed by Podium Desktop on this machine — it updates when the app does.
-            </span>
-          )}
           {unavailableReason && (
             <span
               className="min-w-0 truncate settings-micro text-warning!"

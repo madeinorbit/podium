@@ -136,7 +136,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const statTick = deps.statTick ?? createSharedStatTick()
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
   const screenObservers = new Map<SessionId, TerminalScreenObserver>()
-  const earlyScreenFrames = new Map<SessionId, { frames: string[]; bytes: number }>()
+  const earlyScreenFrames = new Map<SessionId, { frames: Uint8Array[]; bytes: number }>()
   // Per-session pending →idle wire emissions. Cancelled on non-idle transition
   // or session teardown so timers never leak across sessions.
   const pendingIdleEmits = new Map<SessionId, ReturnType<typeof setTimeout>>()
@@ -1341,7 +1341,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       if (screenObserver) {
         screenObservers.set(msg.sessionId, screenObserver)
         for (const frame of earlyFrames?.frames ?? []) {
-          screenObserver.onData(Buffer.from(frame, 'base64'))
+          screenObserver.onData(Buffer.from(frame))
         }
       }
     }
@@ -1611,18 +1611,18 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   /** Feed raw PTY output to the provider's event-driven screen mirror. */
-  const onFrame = (sessionId: SessionId, dataBase64: string): void => {
+  const onFrame = (sessionId: SessionId, data: Uint8Array): void => {
     const observer = screenObservers.get(sessionId)
     if (observer) {
-      observer.onData(Buffer.from(dataBase64, 'base64'))
+      observer.onData(Buffer.from(data))
       return
     }
     const pending = earlyScreenFrames.get(sessionId) ?? { frames: [], bytes: 0 }
-    pending.frames.push(dataBase64)
-    pending.bytes += dataBase64.length
+    pending.frames.push(data)
+    pending.bytes += data.byteLength
     while (pending.bytes > MAX_EARLY_SCREEN_BYTES && pending.frames.length > 1) {
       const discarded = pending.frames.shift()
-      pending.bytes -= discarded?.length ?? 0
+      pending.bytes -= discarded?.byteLength ?? 0
     }
     earlyScreenFrames.set(sessionId, pending)
   }

@@ -1,11 +1,14 @@
 import { createLogger } from '@podium/logger'
 import { asMachineId, type UpdateChannel } from '@podium/model'
-import type { UpdateTarget } from '@podium/protocol'
+import { targetPlatforms, type UpdateTarget } from '@podium/protocol'
 import { UPDATE_BUDGETS } from './operation'
 import { GRANT_TIMED_OUT_DETAIL, type MachineApplyOutcome, type UpdatesService } from './service'
 import {
   IN_FLIGHT_STATES,
+  isPackagedRolloutTarget,
   machineCanTakeDelivery,
+  machineCanTakeTargetPlatform,
+  machineCanUseTargetTrust,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
@@ -68,10 +71,19 @@ export type ReconcileRefusal =
   | 'operation-active'
   | 'unknown-machine'
   | 'no-target'
+  | 'not-packaged-rollout-target'
   | 'at-target'
   | 'offline'
-  | 'supervised'
   | 'cannot-take-delivery'
+  | 'legacy-instance-trust'
+  /**
+   * The release carries no bytes for this machine's platform, because it was
+   * minted before the machine joined the fleet (POD-2783). Named apart from
+   * `cannot-take-delivery` because it never clears: no reconnect and no retry
+   * changes an immutable release, and a background process poking a permanent
+   * fact is how this one got granted twice on every wake.
+   */
+  | 'platform-not-in-release'
   | 'in-flight'
   | 'terminal'
   | 'attempts-exhausted'
@@ -129,7 +141,7 @@ const DEFAULT_GRANT_SPACING_MS = 5_000
  * who is watching, so two numbers here could only ever drift apart.
  */
 export const RECONCILE_GRANT_DEADLINE_MS =
-  UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs
+  UPDATE_BUDGETS.machineDeliverySilenceMs + UPDATE_BUDGETS.machineSilenceMarginMs
 
 /**
  * THE DECISION, as a pure function (the whole point of the split).
@@ -149,14 +161,19 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   const machine = facts.machine
   if (!machine) return { converge: false, because: 'unknown-machine' }
   if (!facts.target) return { converge: false, because: 'no-target' }
+  if (!isPackagedRolloutTarget(machine)) {
+    return { converge: false, because: 'not-packaged-rollout-target' }
+  }
   if (machine.version === facts.target.version) return { converge: false, because: 'at-target' }
   if (!machine.online) return { converge: false, because: 'offline' }
-  // A supervised daemon is part of a signed application bundle; the shell
-  // updates it, and no fleet path ever may (§4, P5). Named separately from the
-  // caps refusal below because it is not a question about delivery methods.
-  if (machine.supervised === true) return { converge: false, because: 'supervised' }
   if (!machineCanTakeDelivery(machine, offeredDeliveries(facts.target))) {
     return { converge: false, because: 'cannot-take-delivery' }
+  }
+  if (!machineCanUseTargetTrust(machine, facts.target.trust)) {
+    return { converge: false, because: 'legacy-instance-trust' }
+  }
+  if (!machineCanTakeTargetPlatform(machine, targetPlatforms(facts.target))) {
+    return { converge: false, because: 'platform-not-in-release' }
   }
   if (IN_FLIGHT_STATES.has(machine.state)) return { converge: false, because: 'in-flight' }
   // THE LOOP GUARD. `authorizeMachine` clears this state as the human retry
@@ -442,7 +459,10 @@ export class UpdateReconciler {
       // owes anything: dropping its counter is what lets a LATER target start
       // from zero even if the version label is one this fleet has seen before.
       if (decision.because === 'at-target' && key !== undefined) this.attempts.delete(key)
-      log.debug('reconciler left a machine alone', { machineId, because: decision.because })
+      log.debug('reconciler left a machine alone', {
+        machineId,
+        because: decision.because,
+      })
       return 'refused'
     }
 

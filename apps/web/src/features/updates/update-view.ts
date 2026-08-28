@@ -8,16 +8,20 @@
  */
 import type { ServerVersion, SkewVerdict, UpdateNotes } from '@podium/protocol'
 /**
- * THE SUBPATH IS LOAD-BEARING (POD-2241, POD-2190).
+ * THE SUBPATHS ARE LOAD-BEARING (POD-2241, POD-2190, POD-2502).
  *
- * Everything else this file needs from the protocol is a TYPE, which costs a
- * bundle nothing. The refusal table is a value, and reaching it through the
- * barrel pulls the entire wire schema into the update chunk — the chunk that
- * was deliberately split out to keep 99 KB off the first paint. Measured: the
- * chunk's cold import went from ~250 ms to ~3 s, and `updates-context.test.tsx`
- * timed out waiting for the panel to appear. The table imports nothing, so
- * through its own entrypoint it costs one module.
+ * Everything this file takes from the protocol BARREL is a TYPE, which costs a
+ * bundle nothing. The refusal table and `isDevChannelVersion` are values, and
+ * reaching either through the barrel pulls the entire wire schema into the
+ * update chunk — the chunk that was deliberately split out to keep 99 KB off
+ * the first paint. Measured: the chunk's cold import went from ~250 ms to ~3 s,
+ * and `updates-context.test.tsx` timed out waiting for the panel to appear.
+ * That is not a hypothetical — it reproduced on this branch when the shared
+ * dev-version helper was first imported through the barrel. The table imports
+ * nothing and the dev-version leaf imports only `version-order`, so through
+ * their own entrypoints they cost the chunk one module each.
  */
+import { isDevChannelVersion } from '@podium/protocol/update-dev-version'
 import type { MachineFailureCode } from '@podium/protocol/update-refusal'
 import {
   CODE_FOR_UPDATE_FAILURE_TOKEN,
@@ -54,6 +58,7 @@ export type UpdateView =
   | { state: 'checking' }
   | { state: 'current'; version: string }
   | { state: 'local-stale'; version: string }
+  | { state: 'blocked'; version: string; blockedNote: string }
   | {
       state: 'available' | 'required'
       version: string
@@ -61,6 +66,7 @@ export type UpdateView =
       notes?: { summary?: string; url?: string }
       restartNote: string
       reason?: string
+      blockedNote?: string
     }
 
 export interface DesktopUpdateInfo {
@@ -79,6 +85,12 @@ export interface UpdateInput {
     behind: number
     converging: number
     failed: number
+    blocked?: number
+    blockers?: readonly {
+      id: string
+      name?: string
+      reason: 'legacy-instance-trust'
+    }[]
     preparation?: {
       webReady: boolean
       bundleReady: boolean
@@ -90,10 +102,42 @@ export interface UpdateInput {
   touched: { app: boolean; server: boolean; machines: boolean; phone: boolean }
   skew: SkewVerdict
   desktopUpdate?: DesktopUpdateInfo
+  /**
+   * Has the server swapped the website out from under THIS page? (POD-2721)
+   *
+   * A local staleness, not an update to start: there is nothing to install and
+   * nobody else to wait for. Only this tab is on the wrong build, and the only
+   * action is its own reload — which is exactly what `local-stale` says.
+   */
+  assetsReplaced?: boolean
 }
 
 function machineLabel(count: number): string {
-  return `${count} machine${count === 1 ? '' : 's'}`
+  return count + ' machine' + (count === 1 ? '' : 's')
+}
+
+function legacyTrustBlockedNote(input: UpdateInput): string | undefined {
+  const blockers =
+    input.fleet.blockers?.filter((blocker) => blocker.reason === 'legacy-instance-trust') ?? []
+  const count = input.fleet.blocked ?? blockers.length
+  if (count === 0) return undefined
+  const labels = blockers.slice(0, 3).map((blocker) => blocker.name ?? blocker.id)
+  const remaining = Math.max(0, count - labels.length)
+  const subject =
+    labels.length === 0
+      ? machineLabel(count)
+      : remaining > 0
+        ? labels.join(', ') + ', and ' + remaining + ' more'
+        : labels.join(', ')
+  return (
+    subject +
+    ' ' +
+    (count === 1 ? 'needs' : 'need') +
+    ' host-local repair before ' +
+    (count === 1 ? 'it' : 'they') +
+    ' can verify instance-signed development updates. The older updater uses the baked ' +
+    'release key for feed delivery instead of the pinned instance key.'
+  )
 }
 
 function affectedMachineLabel(input: UpdateInput): string {
@@ -105,7 +149,7 @@ function affectedMachineLabel(input: UpdateInput): string {
 
   const shown = names.slice(0, 3)
   const remaining = Math.max(0, input.fleet.behind - shown.length)
-  return remaining > 0 ? shown.join(', ') + ', and ' + remaining + ' more' : shown.join(', ')
+  return remaining > 0 ? `${shown.join(', ')}, and ${remaining} more` : shown.join(', ')
 }
 
 function targetNotes(
@@ -170,11 +214,12 @@ function placesFor(input: UpdateInput): Place[] {
   const places: Place[] = []
   const affected = affectedPlaces(input)
 
+  // Dev channel (forensic or publisher mint) — page follows this server.
   const sourceAppAndServer =
     affected.app &&
     affected.server &&
     (input.surface === 'web' || input.surface === 'mobile') &&
-    (input.server.target?.version ?? '').startsWith('dev+')
+    isDevChannelVersion(input.server.target?.version ?? '')
 
   if (sourceAppAndServer) {
     const server = input.serverName ? `your server (${input.serverName})` : 'your server'
@@ -319,8 +364,38 @@ const MACHINE_FAILURE_COPY: Record<
   'machine-unsupported': (subject) => ({
     message: `${subject ?? 'A machine'} cannot use this update's package.`,
     nextAction:
-      "Ask the server operator to check the release includes that machine's platform and " +
-      'delivery method, then try again.',
+      "Ask the server operator to check the release includes that machine's delivery method, " +
+      'then try again.',
+  }),
+  /**
+   * THE ARM THAT TELLS AN OPERATOR THERE IS NOTHING TO DO (POD-2783).
+   *
+   * This used to be `machine-unsupported`, whose next action sends someone to
+   * check that the release includes the machine's platform. It does not, and
+   * nobody can make it: a release's platform list is fixed when it is minted,
+   * from the machines registered at that instant, and the release is immutable.
+   * A human connected a Mac to a Linux-only sandbox, accepted the update they
+   * were offered, and were sent to an operator with a task that does not exist.
+   *
+   * So this sentence says the true thing and then stops. No "try again" —
+   * trying again returns here every time, which §7 says copy must not offer —
+   * and no instruction, because the thing that fixes it is the next release
+   * being built, and that happens without anybody doing anything about THIS
+   * one. The machine's own platform is in the diagnostic below, where §7 keeps
+   * vocabulary.
+   */
+  'machine-platform-absent': (subject) => ({
+    message: `${subject ?? 'This machine'} joined after this update was built, so the update contains no package it can run.`,
+    nextAction: `Nothing to fix here, and nothing to retry — this update cannot gain a package for ${subject ?? 'that machine'}. The next one built will include it, and it will take that one.`,
+  }),
+  /**
+   * The other half of the split, and the reason it IS split: the sentence above
+   * promises a later release, and for a platform Podium builds nothing for that
+   * promise would be the same confident lie in a new place.
+   */
+  'machine-platform-unpublished': (subject) => ({
+    message: `${subject ?? 'This machine'} runs on a platform Podium publishes no package for.`,
+    nextAction: `No update can install there, now or later. Run Podium from source on ${subject ?? 'that machine'}, or move it to a platform Podium builds for.`,
   }),
   /**
    * THE ONLY ARM THAT MAY SAY "STOPPED RESPONDING". It reads as the truth for
@@ -333,6 +408,12 @@ const MACHINE_FAILURE_COPY: Record<
     nextAction:
       'Podium stopped waiting for it. Check that machine is running, then apply the update ' +
       'again from Settings → Machines.',
+  }),
+  'machine-update-failed': (subject) => ({
+    message: `${subject ?? 'A machine'} reported an unexpected update failure.`,
+    nextAction:
+      "The technical detail below is the error it reported. Check that machine's log and disk " +
+      'before trying again.',
   }),
   /**
    * THE FIRST FAILURE WHOSE NEXT ACTION WAS NOT "TRY AGAIN" (POD-2210).
@@ -447,6 +528,12 @@ const MACHINE_FAILURE_COPY: Record<
       'Ask the server operator to re-publish the release before applying it again — what ' +
       'arrived was not what was signed.',
   }),
+  'artifact-unreachable': (subject) => ({
+    message: `${subject ?? 'This machine'} cannot reach the artifact address published for this update.`,
+    nextAction:
+      'Retrying cannot repair an address embedded in the release. Ask the release publisher for ' +
+      'a new release at an address this machine can reach.',
+  }),
   'machine-update-not-confirmed': (subject) => ({
     // Reported BY THAT MACHINE'S OWN BOOT, so it is up and connected. Nothing
     // here claims why the new version did not start; the detail says how far it
@@ -542,9 +629,32 @@ export function describeUpdate(input: UpdateInput): UpdateView {
   const required =
     input.skew !== 'ok' || target?.critical === true || input.desktopUpdate?.critical === true
   const places = placesFor(input)
+  const blockedNote = legacyTrustBlockedNote(input)
+  /**
+   * THE PAGE'S OWN STALENESS, WHEN NOTHING ELSE IS OWED (POD-2721).
+   *
+   * After a successful update the fleet is converged and there is genuinely
+   * nothing to offer — which is why this used to end at `none` while the tab in
+   * front of the user was running a build the server had already deleted. The
+   * remedy is not an update; it is this tab's reload.
+   *
+   * NAMED FROM WHAT THE SERVER SERVES, not from the target. The rollback case is
+   * the one that proves it matters: the target was still the dev release the
+   * coordinator had abandoned, so "Podium 0.1.1-dev.1+a55ec3d is ready here"
+   * would have named a build that reloading provably does not produce.
+   */
+  if (places.length === 0 && input.assetsReplaced === true) {
+    return {
+      state: 'local-stale',
+      version: input.server.web?.appVersion ?? input.server.appVersion ?? version,
+    }
+  }
+  if (places.length === 0 && blockedNote !== undefined) {
+    return { state: 'blocked', version, blockedNote }
+  }
   if (!required && places.length === 0) return { state: 'none' }
   if (input.fleet.startability?.startable === false && input.desktopUpdate === undefined) {
-    return { state: 'local-stale', version }
+    return required && input.touched.app ? { state: 'local-stale', version } : { state: 'none' }
   }
 
   const result: Extract<UpdateView, { state: 'available' | 'required' }> = {
@@ -563,6 +673,7 @@ export function describeUpdate(input: UpdateInput): UpdateView {
 
   const reason = skewReason(input.skew)
   if (reason !== undefined) result.reason = reason
+  if (blockedNote !== undefined) result.blockedNote = blockedNote
 
   return result
 }

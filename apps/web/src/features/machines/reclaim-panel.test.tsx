@@ -19,6 +19,7 @@ import { HostInfoView } from './HostMemoryView'
 
 const stop = vi.fn()
 const memoryBreakdown = vi.fn()
+const reclaimInventory = vi.fn()
 const settingsGet = vi.fn(async () => ({
   hibernation: {
     enabled: true,
@@ -60,6 +61,25 @@ const issues = [
   },
 ]
 
+const inventory = () => ({
+  candidates: issues.slice(0, 2).map((issue) => ({
+    issueId: issue.id,
+    title: issue.title,
+    worktreePath: issue.worktreePath,
+    closedAt: issue.closedAt,
+    machineId: asMachineId(issue.machineId),
+    present: true,
+    protectedReason: null,
+  })),
+  orphans: [],
+  diagnostics: [],
+  estimate: {
+    status: 'ready',
+    recoverableBytes: 7 * 1024 ** 3,
+    measuredAt: '2026-08-23T12:00:00.000Z',
+  },
+})
+
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     hostMetrics: [
@@ -80,7 +100,10 @@ vi.mock('@/app/store', () => {
     setSettingsTab: vi.fn(),
     trpc: {
       issues: { stop: { mutate: stop } },
-      hosts: { memoryBreakdown: { mutate: memoryBreakdown } },
+      hosts: {
+        memoryBreakdown: { mutate: memoryBreakdown },
+        reclaimInventory: { mutate: reclaimInventory },
+      },
       settings: { get: { query: settingsGet } },
     },
   })
@@ -144,6 +167,7 @@ const confirmDialog = async (): Promise<HTMLElement> => await screen.findByRole(
 beforeEach(() => {
   vi.clearAllMocks()
   stop.mockResolvedValue(freed)
+  reclaimInventory.mockResolvedValue(inventory())
   memoryBreakdown.mockResolvedValue({
     hostname: 'podium-host',
     sampledAt: '2026-08-08T00:00:00.000Z',
@@ -163,6 +187,40 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('Reclaim tab proposes rather than applies (POD-563)', () => {
+  it('shows unknown, not zero, while the byte measurement is in flight', async () => {
+    reclaimInventory.mockResolvedValue({
+      ...inventory(),
+      estimate: { status: 'measuring', recoverableBytes: null, measuredAt: null },
+    })
+
+    await openReclaim()
+
+    expect(screen.getByText(/2 records · space unknown · measuring/)).toBeTruthy()
+    expect(screen.queryByText(/0 MB recoverable/)).toBeNull()
+  })
+
+  it('surfaces unowned git worktrees separately and never selects them for reclaim', async () => {
+    reclaimInventory.mockResolvedValue({
+      ...inventory(),
+      orphans: [
+        {
+          path: '/r/.worktrees/unowned',
+          branch: 'scratch/unowned',
+          headSha: 'abc123',
+          machineId: asMachineId('m1'),
+          repoPath: '/r',
+        },
+      ],
+    })
+
+    await openReclaim()
+
+    expect(screen.getByText('Unowned worktrees · 1')).toBeTruthy()
+    expect(screen.getByText('unowned')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Review' })).toBeTruthy()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+  })
+
   it('lists aged candidates only, with nothing ticked and no action armed', async () => {
     await openReclaim()
     // 20d and 40d are past the 14-day policy; yesterday's close is not a candidate.

@@ -80,14 +80,15 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
   await expect(page.getByRole('button', { name: /^Start in / })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Model, Auto' })).toBeVisible()
   await page.screenshot({ path: resolve(ARTIFACTS, 'new-work-session-flow.png'), fullPage: true })
-  await page
-    .getByRole('button', { name: 'New work', exact: true })
-    .click()
-    .catch(() => {})
-  await page.keyboard.press('Escape').catch(() => {})
+  const launcher = page.getByRole('dialog')
+  // The sheet title is text, so a button query for "New work" finds the
+  // launcher behind the modal and opens it again. Dismiss through the real
+  // backdrop control and wait for the close animation before changing tabs.
+  await launcher.getByLabel('Close', { exact: true }).click({ position: { x: 12, y: 12 } })
+  await expect(launcher).toBeHidden()
 
   // File a task without an initial agent, then add one from the task itself.
-  await page.getByRole('button', { name: 'Tasks' }).click()
+  await page.getByRole('tab', { name: 'Tasks' }).click()
   await page.getByRole('button', { name: 'New task' }).click()
   await expect(page.getByLabel(/^Repository /).first()).toBeVisible({ timeout: 30_000 })
   const title = `Expo agent parity ${Date.now()}`
@@ -96,13 +97,18 @@ test('Expo New Work, task agent creation, and full terminal keyboard work end to
   await expect(page.getByRole('button', { name: 'File without starting' })).toBeVisible()
   await page.getByRole('button', { name: 'Create task' }).click()
 
-  await expect(page.getByRole('button', { name: 'Add agent' })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: 'Add agent' }).click()
+  await page.getByRole('button', { name: 'More actions' }).click()
+  const startAgent = page.getByRole('button', { name: 'Start an agent' })
+  await expect(startAgent).toBeVisible({ timeout: 30_000 })
   await page.screenshot({ path: resolve(ARTIFACTS, 'add-agent-to-task.png'), fullPage: true })
-  await expect(page.getByRole('button', { name: /Open / })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: /Open / }).first().click()
+  await startAgent.click()
+  await expect(page.getByText(/1 session/)).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: 'Details' }).click()
+  const sessionRow = page.getByRole('button', { name: /^Open issue-/ })
+  await expect(sessionRow).toBeVisible({ timeout: 30_000 })
+  await sessionRow.click()
   await expect(page).toHaveURL(/\/mobile\/session\//, { timeout: 30_000 })
-  await expect(page.getByRole('button', { name: /Task \d+ — open the mission/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open terminal' })).toBeVisible()
 
   // Switch through the real UI to the terminal and wait for the real harness
   // PTY/keyecho process. The controls below are clicked, not invoked via APIs.

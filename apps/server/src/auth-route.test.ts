@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { controlPlaneAvailable, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
 import { Hono } from 'hono'
@@ -14,6 +14,7 @@ import {
   registerAuthRoute,
   requestUserId,
 } from './auth-route'
+import { authReadinessBoundary } from './readiness-boundary'
 import { SessionStore } from './store'
 
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
@@ -96,6 +97,82 @@ describe('auth-route', () => {
       resolveUserId: () => undefined,
     }).request('/auth/status')
     expect(await res.json()).toEqual({ needsAuth: false, authed: false, readiness })
+  })
+
+  test('an operator can log in and be recognized while activation is pending [POD-2766]', async () => {
+    // THE LOCKOUT, END TO END OVER THE HTTP SURFACE. Two things had to change
+    // together and this proves both: the boundary has to SERVE `/auth/login`
+    // while the data plane is blocked, and the status route has to REPORT the
+    // resulting session — a login that succeeds but reports `authed: false`
+    // leaves the browser's login screen looping against a server that already
+    // accepted the password.
+    await setPassword('operator')
+    const readiness = {
+      state: 'activation_pending',
+      reason: 'restart_required',
+      dataPlane: 'blocked',
+      controlPlane: 'available',
+      stale: ['persistence'],
+    } as const
+    const app = new Hono()
+    app.use(
+      '/auth/*',
+      authReadinessBoundary(() => readiness),
+    )
+    registerAuthRoute(app, {
+      store: store.auth,
+      users: store.users,
+      readiness: () => readiness,
+      // The composition root's rule, verbatim: recognize a session whenever the
+      // instance may be TALKED TO, not only when it may do work.
+      resolveUserId: (headers) =>
+        controlPlaneAvailable(readiness)
+          ? requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader)
+          : undefined,
+    })
+
+    const login = await app.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password: 'operator' }),
+    })
+    expect(login.status).toBe(200)
+    const session = cookieValue(login)
+    expect(session).toBeTruthy()
+
+    const status = await app.request('/auth/status', {
+      headers: { cookie: `podium_session=${session}` },
+    })
+    expect(await status.json()).toMatchObject({
+      needsAuth: true,
+      authed: true,
+      userId: FIRST_ADMIN_USER_ID,
+      // And the screen behind this login is told WHY it is stale, by name.
+      readiness: { state: 'activation_pending', stale: ['persistence'] },
+    })
+  })
+
+  test('an unconfigured instance still refuses login outright', async () => {
+    // The half of the old rule that was right and stays: there is no account to
+    // authenticate before setup, and the host-local bootstrap is that state's
+    // door. Opening login here would be the second bootstrap door the original
+    // comment warned about.
+    await setPassword('operator')
+    const app = new Hono()
+    app.use(
+      '/auth/*',
+      authReadinessBoundary(() => ({
+        state: 'unconfigured',
+        reason: 'setup_required',
+        dataPlane: 'blocked',
+        controlPlane: 'blocked',
+      })),
+    )
+    registerAuthRoute(app, { store: store.auth, users: store.users })
+    const login = await app.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password: 'operator' }),
+    })
+    expect(login.status).toBe(503)
   })
 
   test('status reports needsAuth=true once a password is set', async () => {

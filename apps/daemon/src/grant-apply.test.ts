@@ -20,29 +20,35 @@ const target = {
 } as never
 
 const developmentBundleAsset = {
-  url: 'https://server.test/dev-bundle',
+  url: 'https://server.test/updates/feed/dev/artifact/x',
   digest: 'd',
   signature: 's',
 }
 
+/**
+ * A dev-channel target as the resolver now stamps it: an ordinary feed artifact
+ * whose SIGNATURE must be under the pinned instance key rather than the baked
+ * release one. Nothing about how it travels is special any more; `trust` is the
+ * only thing that distinguishes it from an edge release.
+ */
 const developmentTarget: UpdateGrantMessage['target'] = {
-  version: 'dev+abc1234',
+  version: '0.1.2-dev.4+abc1234',
   critical: false,
+  trust: 'instance',
   artifacts: {
     headless: {
-      delivery: 'bundle',
+      delivery: 'feed',
       platforms: {
         'linux-x86_64': developmentBundleAsset,
       },
     },
-    headlessAlternatives: [{ delivery: 'git', repo: '/repo/podium', sha: 'abc1234' }],
   },
 }
 
 function deps(over: Partial<Parameters<typeof applyGrant>[1]> = {}) {
   return {
     currentVersion: () => '0.4.1',
-    caps: ['update.delivery.feed', 'update.delivery.bundle'],
+    caps: ['update.delivery.feed'],
     platform: 'linux-x86_64',
     fetchArtifact: vi.fn(async () => ({ bytes: new Uint8Array([1]) })),
     swap: vi.fn(),
@@ -65,6 +71,15 @@ describe('applyGrant', () => {
     )
   })
 
+  it('replaces equal-version bytes for an explicit repair grant', async () => {
+    const d = deps({ currentVersion: () => '0.4.2' })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-repair', repair: true, target }, d)
+    expect(d.fetchArtifact).toHaveBeenCalled()
+    expect(d.swap).toHaveBeenCalled()
+    expect(d.writePending).toHaveBeenCalled()
+    expect(d.restart).toHaveBeenCalledWith('0.4.2', {})
+  })
+
   it('writes the pending marker BEFORE restarting', async () => {
     const order: string[] = []
     const d = deps({
@@ -75,22 +90,79 @@ describe('applyGrant', () => {
     expect(order).toEqual(['write', 'restart'])
   })
 
-  it('keeps bundle delivery for an installed daemon when git is also offered', async () => {
-    const d = deps({
-      currentVersion: () => 'dev+old',
-      caps: ['update.delivery.feed', 'update.delivery.bundle'],
+  it('delegates a supervised install to the parent without fetching or swapping twice', async () => {
+    const installTarget = vi.fn(async () => ({ releaseHadMigrations: true }))
+    const d = deps({ installTarget })
+
+    await applyGrant(
+      { type: 'updateGrant', grantId: 'g-parent', target, updatePubkey: 'publisher-key' },
+      d,
+    )
+
+    expect(installTarget).toHaveBeenCalledWith(target, 'publisher-key')
+    expect(d.fetchArtifact).not.toHaveBeenCalled()
+    expect(d.swap).not.toHaveBeenCalled()
+    expect(d.restart).toHaveBeenCalledWith('0.4.2', { releaseHadMigrations: true })
+  })
+
+  /**
+   * THE ROLLBACK FACT TRAVELS WITH THE PACKAGED HANDOVER.
+   *
+   * False and unknown are distinct all the way through: collapsing absence to
+   * false here would turn an unreadable/undeclared schema into permission to
+   * restore old code over a database migrations may already have changed.
+   */
+  it('carries only a proven migration fact into the packaged handover', async () => {
+    const migrationFree = deps({ releaseHadMigrations: () => false })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-safe', target }, migrationFree)
+    expect(migrationFree.restart).toHaveBeenCalledWith('0.4.2', {
+      releaseHadMigrations: false,
     })
+
+    const migrating = deps({ releaseHadMigrations: () => true })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-migrating', target }, migrating)
+    expect(migrating.restart).toHaveBeenCalledWith('0.4.2', {
+      releaseHadMigrations: true,
+    })
+
+    const unknown = deps({ releaseHadMigrations: () => undefined })
+    await applyGrant({ type: 'updateGrant', grantId: 'g-unknown', target }, unknown)
+    expect(unknown.restart).toHaveBeenCalledWith('0.4.2', {})
+  })
+
+  /**
+   * THE TRUST ROOT TRAVELS FROM THE GRANT TO DELIVERY, UNTOUCHED (spec §1).
+   *
+   * The daemon must not infer which key to verify against — not from the
+   * version string, not from the URL, and no longer from a delivery kind. The
+   * server's resolver stamped it from the channel, and this is the hand-off.
+   */
+  it('hands delivery the trust root the grant carried', async () => {
+    const d = deps({ currentVersion: () => '0.1.2-dev.3+aaaaaaa' })
     await applyGrant({ type: 'updateGrant', grantId: 'g-installed', target: developmentTarget }, d)
     // The third argument is the supersede signal, absent for a direct apply;
-    // the fourth is where delivery reports its progress (POD-2101).
+    // the fourth is where delivery reports its progress (POD-2101); the fifth is the publisher key diagnostic.
     expect(d.fetchArtifact).toHaveBeenCalledWith(
       developmentBundleAsset,
-      'bundle',
+      'instance',
       undefined,
       expect.any(Function),
+      undefined,
     )
     expect(d.swap).toHaveBeenCalledOnce()
     expect(d.restart).toHaveBeenCalledOnce()
+  })
+
+  it('passes NO trust root when the target names none, rather than choosing one', async () => {
+    const d = deps()
+    await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+    expect(d.fetchArtifact).toHaveBeenCalledWith(
+      expect.anything(),
+      undefined,
+      undefined,
+      expect.any(Function),
+      undefined,
+    )
   })
 
   it('does not swap when the signature check throws', async () => {
@@ -114,7 +186,9 @@ describe('applyGrant', () => {
   })
 
   it('reports rejected and does not restart when it cannot accept the delivery method', async () => {
-    const d = deps({ caps: ['update.delivery.git'] })
+    // A source daemon: it reports no delivery capability at all now that git
+    // delivery is retired, so a feed target is one it must refuse for itself.
+    const d = deps({ caps: ['podium.shipping-train'] })
     await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
     expect(d.restart).not.toHaveBeenCalled()
     expect(d.report).toHaveBeenCalledWith(
@@ -239,19 +313,21 @@ describe('applyGrant', () => {
         fetchArtifact: vi.fn(
           async (
             _asset: unknown,
-            _delivery: unknown,
+            _trust: unknown,
             _signal?: AbortSignal,
             onProgress?: (p: { phase: string; percent?: number }) => void,
           ) => {
-            onProgress?.({ phase: 'git-fetch' })
-            return { git: true as const }
+            // A body with no declared length: bytes arrive, and there is
+            // nothing to divide them by, so no percent may be manufactured.
+            onProgress?.({ phase: 'downloading' })
+            return { bytes: new Uint8Array([1]) }
           },
         ),
       })
-      await applyGrant({ type: 'updateGrant', grantId: 'g-git', target }, d)
+      await applyGrant({ type: 'updateGrant', grantId: 'g-unmeasured', target }, d)
 
       const beat = frames(d)[1]
-      expect(beat).toMatchObject({ state: 'downloading', phaseDetail: 'git-fetch' })
+      expect(beat).toMatchObject({ state: 'downloading', phaseDetail: 'downloading' })
       expect(beat).not.toHaveProperty('percent')
     })
 

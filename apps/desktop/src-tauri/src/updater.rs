@@ -1,4 +1,6 @@
-use crate::bootstrap::{build_update_channel, write_update_channel, UpdateChannel};
+use crate::bootstrap::{build_update_channel, read_config, write_update_channel, UpdateChannel};
+use semver::Version;
+use std::cmp::Ordering as VersionOrdering;
 #[cfg(any(target_os = "macos", test))]
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::{RemoteRelease, Update, UpdaterExt};
 
 pub type UpdateOwnership = Arc<AtomicBool>;
 
@@ -43,6 +45,7 @@ pub enum UpdateErrorCode {
     NetworkUnreachable,
     UpdateCheckFailed,
     DownloadFailed,
+    ArtifactUnreachable,
     SignatureInvalid,
     RunningFromDiskImage,
     CrossDeviceInstall,
@@ -128,6 +131,15 @@ impl UpdateError {
         Self::new(
             UpdateErrorCode::DownloadFailed,
             "Podium could not download the desktop update.",
+        )
+    }
+
+    fn artifact_unreachable(address: &str) -> Self {
+        Self::new(
+            UpdateErrorCode::ArtifactUnreachable,
+            format!(
+                "This machine cannot reach the artifact address published for this update: {address}"
+            ),
         )
     }
 
@@ -249,10 +261,18 @@ pub fn should_install_native_update(update_available: bool, confirmed: bool) -> 
 
 /// Resolve the production static manifest for the persisted release channel.
 /// [spec:SP-7f2c]
-pub fn endpoint_for_channel(channel: UpdateChannel) -> &'static str {
+pub fn endpoint_for_channel(
+    channel: UpdateChannel,
+    dev_endpoint: Option<&str>,
+) -> Result<String, UpdateError> {
     match channel {
-        UpdateChannel::Stable => STABLE_ENDPOINT,
-        UpdateChannel::Edge => EDGE_ENDPOINT,
+        UpdateChannel::Dev => dev_endpoint
+            .map(str::trim)
+            .filter(|endpoint| !endpoint.is_empty())
+            .map(str::to_string)
+            .ok_or_else(UpdateError::updater_unavailable),
+        UpdateChannel::Stable => Ok(STABLE_ENDPOINT.to_string()),
+        UpdateChannel::Edge => Ok(EDGE_ENDPOINT.to_string()),
     }
 }
 
@@ -260,6 +280,7 @@ pub fn endpoint_for_channel(channel: UpdateChannel) -> &'static str {
 /// Unknown values fail closed instead of selecting an arbitrary release channel.
 pub fn channel_from_name(channel: &str) -> Result<UpdateChannel, UpdateError> {
     match channel {
+        "dev" => Ok(UpdateChannel::Dev),
         "stable" => Ok(UpdateChannel::Stable),
         "edge" => Ok(UpdateChannel::Edge),
         _ => {
@@ -296,12 +317,106 @@ fn parse_updater_endpoint(endpoint: &str) -> Result<tauri::Url, UpdateError> {
     })
 }
 
+/// Compare native update versions with Podium's channel ordering.
+///
+/// Tauri's updater defaults to ordinary SemVer, where `0.1.1-dev.6` sorts
+/// below `0.1.1-edge.2` alphabetically. Podium deliberately gives `dev` a
+/// higher tier than `edge`, and the web updater already uses that rule. The
+/// native shell must use the same ordering or a freshly published dev build
+/// never reaches Restart Podium on an edge install.
+fn compare_podium_versions(candidate: &Version, current: &Version) -> VersionOrdering {
+    for (candidate_core, current_core) in [
+        (candidate.major, current.major),
+        (candidate.minor, current.minor),
+        (candidate.patch, current.patch),
+    ] {
+        let order = candidate_core.cmp(&current_core);
+        if order != VersionOrdering::Equal {
+            return order;
+        }
+    }
+
+    let candidate_pre = candidate.pre.as_str();
+    let current_pre = current.pre.as_str();
+    if candidate_pre.is_empty() || current_pre.is_empty() {
+        return match (candidate_pre.is_empty(), current_pre.is_empty()) {
+            (true, true) => VersionOrdering::Equal,
+            (true, false) => VersionOrdering::Greater,
+            (false, true) => VersionOrdering::Less,
+            (false, false) => unreachable!(),
+        };
+    }
+
+    let candidate_ids: Vec<&str> = candidate_pre.split('.').collect();
+    let current_ids: Vec<&str> = current_pre.split('.').collect();
+    for (candidate_id, current_id) in candidate_ids.iter().zip(current_ids.iter()) {
+        if candidate_id == current_id {
+            continue;
+        }
+        let candidate_numeric = candidate_id.bytes().all(|byte| byte.is_ascii_digit());
+        let current_numeric = current_id.bytes().all(|byte| byte.is_ascii_digit());
+        if candidate_numeric != current_numeric {
+            return if candidate_numeric {
+                VersionOrdering::Less
+            } else {
+                VersionOrdering::Greater
+            };
+        }
+        if candidate_numeric {
+            let candidate_digits = candidate_id.trim_start_matches('0');
+            let current_digits = current_id.trim_start_matches('0');
+            let candidate_digits = if candidate_digits.is_empty() {
+                "0"
+            } else {
+                candidate_digits
+            };
+            let current_digits = if current_digits.is_empty() {
+                "0"
+            } else {
+                current_digits
+            };
+            let order = candidate_digits
+                .len()
+                .cmp(&current_digits.len())
+                .then_with(|| candidate_digits.cmp(current_digits));
+            if order != VersionOrdering::Equal {
+                return order;
+            }
+            continue;
+        }
+
+        let candidate_rank = match *candidate_id {
+            "dev" => 2,
+            "edge" => 1,
+            _ => 0,
+        };
+        let current_rank = match *current_id {
+            "dev" => 2,
+            "edge" => 1,
+            _ => 0,
+        };
+        let order = candidate_rank
+            .cmp(&current_rank)
+            .then_with(|| candidate_id.cmp(current_id));
+        if order != VersionOrdering::Equal {
+            return order;
+        }
+    }
+    candidate_ids.len().cmp(&current_ids.len())
+}
+
+fn native_version_is_newer(current: Version, remote: RemoteRelease) -> bool {
+    compare_podium_versions(&remote.version, &current) == VersionOrdering::Greater
+}
 fn updater_for_channel(
     app: &AppHandle,
     channel: UpdateChannel,
 ) -> Result<tauri_plugin_updater::Updater, UpdateError> {
-    let endpoint = parse_updater_endpoint(endpoint_for_channel(channel))?;
+    let config = read_config();
+    let endpoint = endpoint_for_channel(channel, config.update_feed_endpoint.as_deref())?;
+    let endpoint = parse_updater_endpoint(&endpoint)?;
     app.updater_builder()
+        .version_comparator(native_version_is_newer)
         .endpoints(vec![endpoint])
         .and_then(|builder| builder.build())
         .map_err(|error| {
@@ -329,11 +444,42 @@ fn check_error(error: &tauri_plugin_updater::Error, channel: UpdateChannel) -> U
     public
 }
 
-fn classify_update_error(error: &tauri_plugin_updater::Error) -> UpdateError {
+fn public_download_address(url: &tauri::Url) -> String {
+    let mut public = url.clone();
+    let _ = public.set_username("");
+    let _ = public.set_password(None);
+    public.set_query(None);
+    public.set_fragment(None);
+    public.to_string()
+}
+
+fn artifact_address_is_unreachable(error: &tauri_plugin_updater::Error) -> bool {
+    match error {
+        tauri_plugin_updater::Error::Reqwest(error) => error.is_connect(),
+        tauri_plugin_updater::Error::Network(message) => {
+            let normalized = message.to_ascii_lowercase();
+            normalized.contains("unable to connect")
+                || normalized.contains("access the url")
+                || normalized.contains("econnrefused")
+                || normalized.contains("enotfound")
+        }
+        _ => false,
+    }
+}
+
+fn classify_update_error(
+    error: &tauri_plugin_updater::Error,
+    download_url: Option<&tauri::Url>,
+) -> UpdateError {
     match error {
         tauri_plugin_updater::Error::Minisign(_)
         | tauri_plugin_updater::Error::Base64(_)
         | tauri_plugin_updater::Error::SignatureUtf8(_) => UpdateError::signature_invalid(),
+        _ if artifact_address_is_unreachable(error) && download_url.is_some() => {
+            UpdateError::artifact_unreachable(&public_download_address(
+                download_url.expect("guarded above"),
+            ))
+        }
         tauri_plugin_updater::Error::Reqwest(_) | tauri_plugin_updater::Error::Network(_) => {
             UpdateError::download_failed()
         }
@@ -355,8 +501,11 @@ fn update_error_diagnostic(error: &tauri_plugin_updater::Error) -> String {
     format!("desktop update failed: {error}")
 }
 
-fn update_error(error: &tauri_plugin_updater::Error) -> UpdateError {
-    let public = classify_update_error(error);
+fn update_error(
+    error: &tauri_plugin_updater::Error,
+    download_url: Option<&tauri::Url>,
+) -> UpdateError {
+    let public = classify_update_error(error, download_url);
     log::error!("{}", update_error_diagnostic(error));
     public
 }
@@ -491,7 +640,9 @@ where
             },
         )
     })?;
-    install.await.map_err(|error| update_error(&error))
+    install
+        .await
+        .map_err(|error| update_error(&error, Some(&update.download_url)))
 }
 
 fn emit_update_progress(app: &AppHandle, progress: UpdateProgress) {
@@ -594,10 +745,10 @@ pub fn claim_update_ownership(ownership: State<'_, UpdateOwnership>) -> Result<(
 
 /// Keep the shell's native fallback on the same production feed the user chose in the app.
 #[tauri::command]
-pub fn set_update_channel(channel: String) -> Result<(), String> {
+pub fn set_update_channel(channel: String, endpoint: Option<String>) -> Result<(), String> {
     let channel = channel_from_name(&channel)
         .map_err(|_| "unsupported desktop update channel".to_string())?;
-    write_update_channel(channel)
+    write_update_channel(channel, endpoint.as_deref())
 }
 
 /// Check a production feed and retain the signed update for a later install command.
@@ -842,6 +993,7 @@ mod tests {
 
     #[test]
     fn bridge_channel_names_select_only_production_channels() {
+        assert_eq!(channel_from_name("dev"), Ok(UpdateChannel::Dev));
         assert_eq!(channel_from_name("stable"), Ok(UpdateChannel::Stable));
         assert_eq!(channel_from_name("edge"), Ok(UpdateChannel::Edge));
     }
@@ -855,11 +1007,74 @@ mod tests {
     }
 
     #[test]
-    fn release_channels_use_distinct_static_manifests() {
-        assert_eq!(endpoint_for_channel(UpdateChannel::Stable), STABLE_ENDPOINT);
-        assert_eq!(endpoint_for_channel(UpdateChannel::Edge), EDGE_ENDPOINT);
+    fn every_configured_channel_has_a_usable_secure_manifest() {
+        assert_eq!(
+            endpoint_for_channel(UpdateChannel::Stable, None),
+            Ok(STABLE_ENDPOINT.to_string())
+        );
+        assert_eq!(
+            endpoint_for_channel(UpdateChannel::Edge, None),
+            Ok(EDGE_ENDPOINT.to_string())
+        );
+        assert_eq!(
+            endpoint_for_channel(
+                UpdateChannel::Dev,
+                Some("https://podium.test/updates/feed/dev/latest.json")
+            ),
+            Ok("https://podium.test/updates/feed/dev/latest.json".to_string())
+        );
+        for endpoint in [
+            STABLE_ENDPOINT,
+            EDGE_ENDPOINT,
+            "https://podium.test/updates/feed/dev/latest.json",
+        ] {
+            let parsed = tauri::Url::parse(endpoint).expect("configured endpoint must be a URL");
+            assert_eq!(parsed.scheme(), "https");
+        }
+        assert_eq!(
+            endpoint_for_channel(UpdateChannel::Dev, None),
+            Err(UpdateError::updater_unavailable())
+        );
     }
 
+    fn native_order(candidate: &str, current: &str) -> VersionOrdering {
+        compare_podium_versions(
+            &Version::parse(candidate).expect("candidate must parse"),
+            &Version::parse(current).expect("current must parse"),
+        )
+    }
+
+    #[test]
+    fn native_order_matches_podium_dev_edge_tier() {
+        assert_eq!(
+            native_order("0.1.1-dev.6+34141d8", "0.1.1-edge.2"),
+            VersionOrdering::Greater
+        );
+        assert_eq!(
+            native_order("0.1.1-edge.2", "0.1.1-dev.6+34141d8"),
+            VersionOrdering::Less
+        );
+    }
+
+    #[test]
+    fn native_order_keeps_stable_above_its_prereleases() {
+        assert_eq!(
+            native_order("0.1.1-dev.6+34141d8", "0.1.1"),
+            VersionOrdering::Less
+        );
+        assert_eq!(
+            native_order("0.1.2-dev.1+34141d8", "0.1.1"),
+            VersionOrdering::Greater
+        );
+    }
+
+    #[test]
+    fn native_order_compares_numeric_prerelease_identifiers_numerically() {
+        assert_eq!(
+            native_order("0.1.1-dev.10+34141d8", "0.1.1-dev.9+1111111"),
+            VersionOrdering::Greater
+        );
+    }
     #[test]
     fn debug_builds_never_enable_production_auto_update() {
         assert!(!production_auto_update_enabled(true));
@@ -909,6 +1124,7 @@ mod tests {
             UpdateError::network_unreachable(UpdateChannel::Stable),
             UpdateError::update_check_failed(UpdateChannel::Stable),
             UpdateError::download_failed(),
+            UpdateError::artifact_unreachable("https://missing.example/podium.tar.gz"),
             UpdateError::signature_invalid(),
             UpdateError::running_from_disk_image(),
             UpdateError::cross_device_install(),
@@ -926,6 +1142,7 @@ mod tests {
             "network-unreachable",
             "update-check-failed",
             "download-failed",
+            "artifact-unreachable",
             "signature-invalid",
             "running-from-disk-image",
             "cross-device-install",
@@ -937,9 +1154,11 @@ mod tests {
         for (error, code) in errors.into_iter().zip(codes) {
             let json = serde_json::to_value(error).expect("error serializes");
             assert_eq!(json["code"], code);
-            assert!(json["message"].as_str().is_some_and(|message| {
-                !message.contains('/') && !message.to_ascii_lowercase().contains("token")
-            }));
+            let message = json["message"].as_str().expect("message serializes");
+            assert!(!message.to_ascii_lowercase().contains("token"));
+            if code != "artifact-unreachable" {
+                assert!(!message.contains('/'));
+            }
         }
     }
 
@@ -1003,18 +1222,39 @@ mod tests {
     #[test]
     fn transfer_failures_remain_download_failures() {
         let download = tauri_plugin_updater::Error::Network("offline".to_string());
-        assert_eq!(update_error(&download), UpdateError::download_failed());
+        assert_eq!(
+            update_error(&download, None),
+            UpdateError::download_failed()
+        );
+    }
+
+    #[test]
+    fn connection_refusal_names_the_published_address_once() {
+        let refusal = tauri_plugin_updater::Error::Network(
+            "Unable to connect. Is the computer able to access the url?".to_string(),
+        );
+        let url = tauri::Url::parse("https://missing.example/podium.tar.gz?X-Amz-Signature=secret")
+            .expect("valid URL");
+        let public = update_error(&refusal, Some(&url));
+        assert_eq!(public.code, UpdateErrorCode::ArtifactUnreachable);
+        assert!(public
+            .message
+            .contains("https://missing.example/podium.tar.gz"));
+        assert!(!public.message.contains("secret"));
     }
 
     #[test]
     fn install_failures_map_to_explainable_categories() {
         let signature = tauri_plugin_updater::Error::SignatureUtf8("invalid".to_string());
         assert_eq!(
-            update_error(&signature).code,
+            update_error(&signature, None).code,
             UpdateErrorCode::SignatureInvalid
         );
         let install = tauri_plugin_updater::Error::PackageInstallFailed;
-        assert_eq!(update_error(&install).code, UpdateErrorCode::InstallFailed);
+        assert_eq!(
+            update_error(&install, None).code,
+            UpdateErrorCode::InstallFailed
+        );
     }
 
     #[test]
@@ -1048,7 +1288,7 @@ mod tests {
     #[test]
     fn cross_device_install_has_an_actionable_code_and_keeps_the_raw_log() {
         let error = tauri_plugin_updater::Error::Io(std::io::Error::from_raw_os_error(18));
-        let public = classify_update_error(&error);
+        let public = classify_update_error(&error, None);
         let diagnostic = update_error_diagnostic(&error);
 
         assert_eq!(public, UpdateError::cross_device_install());
@@ -1066,7 +1306,7 @@ mod tests {
     fn read_only_install_has_an_actionable_code() {
         let error = tauri_plugin_updater::Error::Io(std::io::Error::from_raw_os_error(30));
         assert_eq!(
-            classify_update_error(&error),
+            classify_update_error(&error, None),
             UpdateError::read_only_install_location()
         );
     }

@@ -76,6 +76,8 @@ export const HOST_EDGE_FRAMES = [
   // (POD-2059, spec §5) — a machine-wide command on the same host channel as
   // the metrics sample that triggers it, carrying no session identity at all.
   'reclaimAttachments',
+  'reclaimDiskEstimateRequest',
+  'reclaimDiskEstimateResult',
   // PTY / agent-frame streams.
   'agentFrame',
   'agentFrameBatch',

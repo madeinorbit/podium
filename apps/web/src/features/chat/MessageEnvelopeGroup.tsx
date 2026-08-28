@@ -18,7 +18,8 @@ import { envelopePrincipal, type ParsedEnvelope } from '@podium/client-core/view
 import { ChevronDown, Mail as MailIcon, X } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useMemo, useState } from 'react'
-import { isKnownRefPrefix, renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
+import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
+import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
 /** An envelope-header principal: the nice-id issue ref renders as the same

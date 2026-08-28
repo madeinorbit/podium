@@ -19,7 +19,7 @@
  * shipped function; there is no logic in this file, deliberately.
  */
 
-import type { UserId } from '@podium/model'
+import type { ServerReadiness, UserId } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import {
   type FleetUpdateChannel,
@@ -76,6 +76,22 @@ export interface InstanceDeps {
    * the old channel's target chip and no second broadcast ever corrects it.
    */
   readonly onFleetChannelChanged?: ((channel: FleetUpdateChannel) => Promise<void>) | undefined
+  /**
+   * Live readiness, for `setup.activate` (POD-2766). READ AT APPLY, not captured
+   * at construction: the whole point of the command is that it refuses an
+   * instance that is no longer activation-pending, and a snapshot taken when the
+   * service was built would let a second click on a stale screen restart a
+   * deployment that had already recovered.
+   */
+  readonly readiness?: (() => ServerReadiness) | undefined
+  /**
+   * Replace this process so it adopts the config on disk — `requestCoordinatorRestart`
+   * from the composition root, which resolves to the source redeploy unit or the
+   * installed process-manager restart. Optional because a server can be assembled
+   * without one (tests, the in-process MCP caller), and `activate` refuses rather
+   * than pretending it restarted.
+   */
+  readonly requestCoordinatorRestart?: (() => void) | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
@@ -83,6 +99,27 @@ export interface InstanceAccountStore {
   get(userId: UserId): { role: string } | undefined
   credentialFor(userId: UserId): { passwordHash: string | null } | undefined
   setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void
+}
+
+/** The native updater must use the deployment's advertised HTTPS edge, not the page origin.
+ *
+ * An all-in-one desktop deliberately loads its page over loopback HTTP. Deriving the manifest
+ * from that origin writes an endpoint Tauri release builds refuse, even when the deployment has
+ * a usable public URL. This server-owned answer is the endpoint producer for the native writer.
+ */
+export function desktopUpdaterEndpoint(
+  channel: FleetUpdateChannel,
+  publicUrl: string | undefined,
+): string | undefined {
+  if (channel !== 'dev' || !publicUrl) return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(publicUrl)
+  } catch {
+    return undefined
+  }
+  if (parsed.protocol !== 'https:') return undefined
+  return `${publicUrl.replace(/\/+$/, '')}/updates/feed/dev/latest.json`
 }
 
 export class InstanceService {
@@ -96,6 +133,7 @@ export class InstanceService {
     return {
       mode: c.mode ?? null,
       publicUrl: c.publicUrl ?? null,
+      networkOption: c.networkOption ?? null,
       serverUrl: c.serverUrl ?? null,
       // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun
       // --define); the Machines panel compares each daemon's reported version
@@ -124,8 +162,15 @@ export class InstanceService {
    * instead of offering a mutation that cannot take effect.
    */
   channel() {
+    const config = loadConfig()
+    const channel = resolveUpdateChannel()
     const envForced = Boolean(process.env.PODIUM_UPDATE_CHANNEL)
-    return { channel: resolveUpdateChannel(), envForced, configured: getUpdateChannel() }
+    return {
+      channel,
+      envForced,
+      configured: getUpdateChannel(),
+      desktopUpdateEndpoint: desktopUpdaterEndpoint(channel, config.publicUrl),
+    }
   }
 
   /**
@@ -137,6 +182,12 @@ export class InstanceService {
    */
   async complete(input: {
     publicUrl: string
+    networkOption?:
+      | 'tailscale-funnel'
+      | 'tailscale-serve'
+      | 'cloudflare-tunnel'
+      | 'manual'
+      | undefined
     mode?: 'all-in-one' | 'server' | undefined
     password?: string | undefined
     acknowledgeNoPassword?: true | undefined
@@ -165,6 +216,7 @@ export class InstanceService {
     }
     const cfg = applySetup({
       publicUrl: v.normalized,
+      ...(input.networkOption ? { networkOption: input.networkOption } : {}),
       ...(input.mode ? { mode: input.mode } : {}),
     })
     // Honours the kill switches: an env that says "do not track" wins over an
@@ -215,6 +267,64 @@ export class InstanceService {
     // projection then describe the same moment (POD-1882).
     await this.deps.onFleetChannelChanged?.(channel)
     return this.channel()
+  }
+
+  /**
+   * ADOPT THE SAVED CONFIG BY REPLACING THIS PROCESS (POD-2766).
+   *
+   * The command that keeps the remedy in front of the failure. `activation_pending`
+   * blocks the data plane because this process is running config nobody asked it to
+   * run; the restart that ends it used to be reachable only by getting a shell on
+   * the box, so an operator looking at the readiness screen from a browser had no
+   * way to comply with what the screen told them to do.
+   *
+   * THREE REFUSALS, EACH LOAD-BEARING:
+   *
+   * 1. NOT ACTIVATION-PENDING. This is not a general restart button, and refusing
+   *    here is what stops it from becoming one — on a healthy instance there is
+   *    nothing to activate, and a remote bounce lever is exactly what the control
+   *    plane must not hand out. It also makes a double-click safe: by the time a
+   *    second call arrives the state has usually already moved.
+   * 2. NOT AN ADMIN. The contract's floor, enforced here because this family
+   *    authorizes in its service (see `setLoginRequired`, which verifies the
+   *    caller's own credential rather than leaning on the router). A member with a
+   *    session must not be able to drop everyone else's transport.
+   * 3. NO RESTART CAPABILITY. An installation that cannot replace its own process
+   *    says so, rather than answering "restarting" and leaving the operator
+   *    watching a screen that will never change.
+   */
+  activate() {
+    const readiness = this.deps.readiness?.()
+    if (!readiness) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'This server cannot report its own readiness, so it cannot activate a change.',
+      })
+    }
+    if (readiness.state !== 'activation_pending') {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'This instance is already running its saved setup; there is nothing to activate.',
+      })
+    }
+    this.requireAdmin()
+    const restart = this.deps.requestCoordinatorRestart
+    if (!restart) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          'This Podium installation cannot restart itself. Restart it on the server to activate ' +
+          'the saved setup.',
+      })
+    }
+    restart()
+    // What the caller should now expect, and the identity being left behind — both
+    // already public on /readiness, so this returns no new fact.
+    return {
+      state: 'restarting' as const,
+      stale: readiness.stale ?? [],
+      from: serverBuildVersion(),
+    }
   }
 
   // ---- auth ----
@@ -283,6 +393,19 @@ export class InstanceService {
     const config = loadConfig()
     saveConfig({ ...config, auth: { ...config.auth, openMode: !input.required } })
     return { loginRequired: this.deps.loginRequired?.() ?? input.required }
+  }
+
+  /** The `admin` floor, enforced where this family enforces everything else — in
+   *  the service. `status().canManageInstance` is the same question asked for the
+   *  UI; this is the one that refuses. */
+  private requireAdmin() {
+    const { users, callerUserId } = this.requireAccountStore()
+    if (users.get(callerUserId)?.role !== 'admin') {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Only an admin can restart this instance.',
+      })
+    }
   }
 
   /** A server assembled without a user store serves no credential writes. Refusing

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { isLoopbackHost, resolveBindHost, shouldAdvertiseLocalSetupDefault } from './server'
+import {
+  isLoopbackHost,
+  resolveBindHost,
+  resolveTrustedProxyHops,
+  shouldAdvertiseLocalSetupDefault,
+} from './server'
 
 describe('resolveBindHost', () => {
   test('defaults to loopback (127.0.0.1) when nothing is configured', () => {
@@ -27,6 +32,21 @@ describe('isLoopbackHost', () => {
     expect(isLoopbackHost('::')).toBe(false)
     expect(isLoopbackHost('10.0.0.5')).toBe(false)
     expect(isLoopbackHost('podium.example.com')).toBe(false)
+  })
+})
+
+describe('resolveTrustedProxyHops', () => {
+  test('trusts one local hop when the server itself is loopback-only', () => {
+    expect(resolveTrustedProxyHops(undefined, {}, '127.0.0.1')).toBe(1)
+    expect(resolveTrustedProxyHops(undefined, {}, 'localhost')).toBe(1)
+  })
+
+  test('does not infer proxy trust on a network bind or over explicit configuration', () => {
+    expect(resolveTrustedProxyHops(undefined, {}, '0.0.0.0')).toBe(0)
+    expect(
+      resolveTrustedProxyHops(undefined, { PODIUM_TRUSTED_PROXY_HOPS: '2' }, '127.0.0.1'),
+    ).toBe(2)
+    expect(resolveTrustedProxyHops(0, {}, '127.0.0.1')).toBe(0)
   })
 })
 

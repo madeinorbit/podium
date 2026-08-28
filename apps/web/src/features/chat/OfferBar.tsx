@@ -3,6 +3,7 @@ import { ChevronDown, Lightbulb, Pencil, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
+import { OfferText } from './OfferText'
 import { useOfferDismissal } from './offer-dismissal'
 import { chargeSeat, useOfferLift } from './offer-lift'
 
@@ -280,9 +281,10 @@ export function OfferBar({
   const detailBody = (
     <div ref={setBodyEl} className="offer-fold-detail-body">
       {detail && (
-        <p className="max-w-[132ch] text-[13px] leading-[1.6] whitespace-pre-wrap text-muted-foreground">
-          {detail}
-        </p>
+        <OfferText
+          text={detail}
+          className="max-w-[132ch] text-[13px] leading-[1.6] whitespace-pre-wrap text-muted-foreground"
+        />
       )}
       {session && (
         <OfferArtifactStrip

@@ -27,7 +27,7 @@ import {
   issueAgentKind,
   issueAgentLabel,
 } from '@/lib/issue-agents'
-import { setKnownRefPrefixes } from '@/lib/markdown'
+import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import {
   closeMiniview,
   getMiniviewState,
@@ -377,7 +377,7 @@ export function RefCard({
               </div>
             </div>
           )}
-          {onAgentChange && (
+          {onAgentChange && isIssueStartable(target.issue) && (
             <IssueHarnessPicker issue={target.issue} onAgentChange={onAgentChange} />
           )}
           <IssueDetailsStrip issue={target.issue} />

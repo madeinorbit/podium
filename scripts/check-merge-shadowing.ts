@@ -81,17 +81,53 @@ export function blankNoise(src: string): string {
   return out
 }
 
+/** What a same-named class member is, for the purpose of deciding whether a
+ *  second one shadows the first. TypeScript lets a name repeat inside a class
+ *  for two legal reasons, and both were being reported as defects [POD-2817]:
+ *
+ *    OVERLOAD SET  n signatures + 1 implementation — only the implementation
+ *                  has a body, so bodies, not declarations, are what to count.
+ *    ACCESSOR PAIR `get x()` and `set x()` — both have bodies, and sharing the
+ *                  name is the entire point. One getter and one setter is one
+ *                  accessor pair, not two declarations.
+ *
+ *  So a member is keyed by ACCESSOR KIND, and a kind is shadowed only when more
+ *  than one of its declarations carries an implementation body. Two getters is
+ *  still a defect; a getter beside a setter is not. */
+type MemberKind = 'get' | 'set' | 'method'
+
+interface MemberDecl {
+  line: number
+  kind: MemberKind
+  hasBody: boolean
+}
+
+/** `get`/`set` out of a member's modifier run. Matched with a trailing `\s` so a
+ *  member NAMED `get` (`  get(key: string): V {`) stays a plain method — there
+ *  the keyword is the name and no modifier follows it. */
+function accessorKind(mods: string): MemberKind {
+  if (/(?:^|\s)get\s/.test(mods)) return 'get'
+  if (/(?:^|\s)set\s/.test(mods)) return 'set'
+  return 'method'
+}
+
 /** Duplicate members inside a single class body, tracked by brace depth. */
 function classMemberDupes(file: string, clean: string): ShadowFinding[] {
   const lines = clean.split('\n')
   const findings: ShadowFinding[] = []
   let depth = 0
   let classDepth: number | null = null
-  let seen = new Map<string, number[]>()
+  let seen = new Map<string, MemberDecl[]>()
 
   const flush = () => {
-    for (const [name, at] of seen) {
-      if (at.length > 1) findings.push({ file, kind: 'class-member', name, lines: at })
+    for (const [name, decls] of seen) {
+      // Only implementations can shadow: a signature without a body contributes
+      // no runtime behaviour for a later definition to silently win over.
+      const bodies = decls.filter((d) => d.hasBody)
+      const shadowed = bodies.filter((d) => bodies.filter((o) => o.kind === d.kind).length > 1)
+      if (shadowed.length > 0) {
+        findings.push({ file, kind: 'class-member', name, lines: shadowed.map((d) => d.line) })
+      }
     }
     seen = new Map()
   }
@@ -102,17 +138,18 @@ function classMemberDupes(file: string, clean: string): ShadowFinding[] {
       classDepth = depth
     }
     if (classDepth !== null && depth === classDepth + 1) {
-      // A member declaration: `name(` or `name:` / `name =` at one indent inside
-      // the class. `readonly`/`private`/`static`/`async`/`get`/`set` may prefix it.
-      const m = /^ {2}(?:(?:public|private|protected|readonly|static|abstract|async|override|get|set)\s+)*([A-Za-z_$][\w$]*)\s*[(<]/.exec(
+      // A member declaration: `name(` or `name<` at one indent inside the class.
+      // `readonly`/`private`/`static`/`async`/`get`/`set` may prefix it.
+      const m = /^ {2}((?:(?:public|private|protected|readonly|static|abstract|async|override|get|set)\s+)*)([A-Za-z_$][\w$]*)\s*[(<]/.exec(
         line,
       )
-      // Overload signatures end in `;` with no body — legal duplicates, skip them.
-      if (m && !/\)\s*:?[^{]*;\s*$/.test(line)) {
-        const name = m[1] as string
+      if (m) {
+        const mods = m[1] as string
+        const name = m[2] as string
         if (!['constructor', 'if', 'for', 'while', 'switch', 'return', 'catch'].includes(name)) {
+          const kind = accessorKind(mods)
           const at = seen.get(name) ?? []
-          at.push(n + 1)
+          at.push({ line: n + 1, kind, hasBody: !declarationLacksBody(lines, n) })
           seen.set(name, at)
         }
       }
@@ -132,15 +169,20 @@ function classMemberDupes(file: string, clean: string): ShadowFinding[] {
   return findings
 }
 
-/** True when the function declaration starting at `n` is an overload SIGNATURE
- *  (no body) rather than the implementation. A TypeScript overload set is two or
- *  more signatures plus one implementation, all sharing a name — legal, and the
- *  false positive that taught people to wave this gate through [POD-1355]. Only
- *  the implementation is a real declaration, so only it is counted.
+/** True when the declaration starting at `n` has NO implementation body — an
+ *  overload signature, or an `abstract`/`declare` member. A TypeScript overload
+ *  set is two or more signatures plus one implementation, all sharing a name —
+ *  legal, and the false positive that taught people to wave this gate through
+ *  [POD-1355]. Only the implementation can shadow, so only bodies are counted.
  *
  *  A signature may wrap across lines; walk forward until the parameter list
- *  closes, then decide on whether a body brace opens on that line. */
-function isOverloadSignature(lines: readonly string[], n: number): boolean {
+ *  closes, then decide on whether a body brace opens on that line.
+ *
+ *  BOTH callers use this. The class-member path used to test for a trailing `;`
+ *  instead, which silently never fired: a class overload signature carries no
+ *  semicolon (`  on(e: 'close', l: () => void): this`), so every overload set in
+ *  the tree was reported as a merge defect [POD-2817]. */
+function declarationLacksBody(lines: readonly string[], n: number): boolean {
   let depth = 0
   let opened = false
   for (let i = n; i < lines.length; i++) {
@@ -169,7 +211,7 @@ function moduleExportDupes(file: string, clean: string): ShadowFinding[] {
       lines[n] ?? '',
     )
     if (!m) continue
-    if (/^export\s+(?:declare\s+)?function\b/.test(lines[n] ?? '') && isOverloadSignature(lines, n)) continue
+    if (/^export\s+(?:declare\s+)?function\b/.test(lines[n] ?? '') && declarationLacksBody(lines, n)) continue
     const name = m[1] as string
     const at = seen.get(name) ?? []
     at.push(n + 1)

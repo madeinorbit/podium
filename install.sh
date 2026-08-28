@@ -269,11 +269,9 @@ DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 if [ "$INSTANCE" = "default" ]; then
   DEST="$DATA_HOME/podium"
   COMMAND="podium"
-  DAEMON_UNIT="podium-daemon.service"
 else
   DEST="$DATA_HOME/podium-instances/$INSTANCE"
   COMMAND="podium-$INSTANCE"
-  DAEMON_UNIT="podium-$INSTANCE-daemon.service"
 fi
 BIN="$HOME/.local/bin"
 mkdir -p "$BIN" "$(dirname "$DEST")"
@@ -432,14 +430,12 @@ fi
 # Pair as soon as Podium itself is installed. Bare-machine prerequisite and agent
 # downloads can be slow enough to exhaust a short-lived code; the daemon can copy
 # credentials and publish inventory while the three agent CLIs install below.
-JOIN_FALLBACK=""
 if [ -n "$JOIN" ]; then
   if [ -n "$HAVE_USER_SYSTEMD" ]; then PERSIST="systemd"; else PERSIST="detached"; fi
   step "Joining your Podium"
   if ! "$BIN/$COMMAND" setup --join "$JOIN" --persist "$PERSIST"; then
-    echo "podium: automated join failed; falling back to manual unit install" >&2
-    JOIN_FALLBACK=1
-    "$BIN/$COMMAND" join-config "$JOIN"
+    echo "podium: this machine was not joined; fix the error above and re-run the installer" >&2
+    exit 1
   fi
 fi
 
@@ -502,63 +498,9 @@ if [ -z "$JOIN" ]; then
   exit 0
 fi
 
-# `podium setup --join` above owns config + lifecycle setup through the same engine
-# as interactive setup. What remains here is copying the generated daemon unit artifact when the
-# compatibility fallback was needed. The release tarball contains bytes rendered from cli-systemd.ts; this
-# installer deliberately carries no unit body of its own.
-UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UNIT_DIR"
-copy_generated_unit() { # copy_generated_unit <default-artifact-name> <installed-name>
-  source="$DEST/systemd/$1"
-  target="$UNIT_DIR/$2"
-  [ -f "$source" ] || {
-    echo "podium: release is missing generated systemd artifact '$1'" >&2
-    exit 1
-  }
-  if [ "$INSTANCE" = "default" ]; then
-    cp "$source" "$target"
-  else
-    # The body was rendered once at build time with the compatibility instance. These are the
-    # only instance-dependent fields; INSTANCE is validated above before it reaches this sed.
-    sed -e "s/Environment=PODIUM_INSTANCE=default/Environment=PODIUM_INSTANCE=$INSTANCE/g" \
-      -e "s#%h/.local/bin/podium#%h/.local/bin/$COMMAND#g" \
-      -e "s/podium-daemon.service/$DAEMON_UNIT/g" \
-      "$source" > "$target"
-  fi
-}
-if [ -n "$JOIN_FALLBACK" ]; then
-  copy_generated_unit podium-daemon.service "$DAEMON_UNIT"
-fi
 SUPERVISION="The daemon is running detached."
 if [ -n "$HAVE_USER_SYSTEMD" ]; then
   SUPERVISION="The daemon runs as a systemd user service, so it survives reboots."
-  systemctl --user daemon-reload >/dev/null 2>&1 || true
-  loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
-  # The delegated `podium setup --join` already enabled+started the daemon unit; only the
-  # fallback path needs to do it here.
-  if [ -n "$JOIN_FALLBACK" ]; then
-    systemctl --user enable --now "$DAEMON_UNIT" || \
-      echo "Could not start the user service automatically; run: systemctl --user enable --now $DAEMON_UNIT"
-  fi
-else
-  # `podium setup --join` owns lifecycle setup. When user systemd is unavailable
-  # its shared backend engine already falls back to a detached daemon and writes
-  # the JSON run registry used by `podium status`/`stop`; starting another process
-  # here races that daemon and corrupts ownership. Only the legacy manual-unit
-  # fallback (setup itself failed) still needs a direct launch.
-  if [ -n "$JOIN_FALLBACK" ]; then
-    if [ -n "${PODIUM_STATE_DIR:-}" ]; then
-      DAEMON_STATE="$PODIUM_STATE_DIR"
-    elif [ "$INSTANCE" = "default" ]; then
-      DAEMON_STATE="$HOME/.podium"
-    else
-      DAEMON_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/podium/$INSTANCE"
-    fi
-    mkdir -p "$DAEMON_STATE/logs"
-    DAEMON_LOG="$DAEMON_STATE/logs/daemon.log"
-    PODIUM_RUN_MODE=detached "$BIN/$COMMAND" daemon --takeover \
-      </dev/null >>"$DAEMON_LOG" 2>&1 &
-    done_ "Started the Podium daemon (detached; log $DAEMON_LOG)"
-  fi
 fi
 
 ready "This machine has joined your Podium."

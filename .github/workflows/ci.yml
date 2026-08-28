@@ -8,11 +8,8 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Fast jobs install with --ignore-scripts (same rationale as release.yml): node-pty's
-# node-gyp postinstall crash-loops on CI runner toolchains, and nothing they run needs
-# it — the unit scope (vitest.unit.config.ts) excludes every suite that actually
-# spawns a PTY/abduco/real server. The oracle job below is the exception: it runs the
-# process-spawning lanes, so it installs with scripts and real system deps.
+# CI installs with --ignore-scripts: Podium's real PTYs use Bun.Terminal and its
+# vendored abduco is built on first use, so validation has no package lifecycle prerequisite.
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -74,6 +71,23 @@ jobs:
       # whole boundary lint blocks, which is the end state POD-296 was aiming at.
       - name: dependency boundaries + architecture manifest (error level, no allowlist)
         run: bun run lint:boundaries
+      # BLOCKING, its own step, same reason as every ratchet above — and this one
+      # is the POD-1369 class twice over. It catches the merge defect nothing else
+      # reports: both branches ADD the same declaration, git auto-merges them as
+      # adjacent additions, tsc is silent, and the later definition wins at
+      # runtime. It sat in package.json running nowhere, and it could not be
+      # switched on because it cried wolf on three legal overload/accessor sets
+      # (POD-2817) — the false positives were why nobody ran it, and nobody
+      # running it was why the false positives survived. Both halves are fixed:
+      # it is quiet on a clean tree and its tests prove it still fires on a real
+      # duplicated body. It is in `bun run lint` too, but that step is
+      # continue-on-error while biome's backlog burns down (#30), so this step is
+      # what actually blocks — exactly the split `lint:boundaries` already uses.
+      # It is FIRST in that aggregate, not appended: `biome check .` still exits
+      # 1 on the backlog, so anything after it in the `&&` chain is unreachable
+      # and would have stayed dark in a second way.
+      - name: merge shadowing sweep (duplicate declarations git and tsc both miss)
+        run: bun run lint:shadowing
       # The layer diagram in ARCHITECTURE.md is RENDERED from the same manifest
       # the lint reads. Without this step a hand edit is silently lost at the
       # next render, which is how the two sources drifted apart in the first
@@ -274,9 +288,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       # Podium builds its vendored abduco on first use; Ubuntu 24.04 no longer
       # provides the package in the runner's configured apt repositories.
-      # The exception to --ignore-scripts above: node-pty's native addon must
-      # exist for lanes that spawn real PTYs.
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --ignore-scripts
       # No playwright install here on purpose: the e2e LANE is browser-free — it
       # is 7 vitest files under tests/e2e (verified: none of them, nor their
       # helpers, import playwright). The Playwright browser suite is
@@ -321,9 +333,8 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-      # The harness relay builds Podium's vendored abduco on first use; node-pty
-      # still needs install scripts below for its native addon.
-      - run: bun install --frozen-lockfile
+      # The harness relay builds Podium's vendored abduco on first use.
+      - run: bun install --frozen-lockfile --ignore-scripts
       # The config declares chromium and webkit projects; both browsers plus
       # their OS deps have to be present or every suite errors on setup.
       - name: playwright browsers

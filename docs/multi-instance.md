@@ -47,39 +47,25 @@ Duplicate selectors and invalid IDs are rejected.
 | Server port | `18787` | stable ID-derived port | `PODIUM_PORT` or config `port` |
 | Hook port | `45777` | next port in the ID-derived triplet | `PODIUM_HOOK_PORT` or config `hookPort` |
 | Agent relay port | `45778` | final port in the ID-derived triplet | `PODIUM_AGENT_RELAY_PORT` or config `agentRelayPort` |
-| Durable terminal label | `podium-<session>` | `podium-blue-<session>` | none |
-| Durable socket root | `$HOME/.abduco` | `$XDG_RUNTIME_DIR/podium-blue` | `ABDUCO_SOCKET_DIR` |
-| tmux socket root | `$TMPDIR` | `<state>/runtime/tmux` | `TMUX_TMPDIR` |
-| Server unit | `podium-server.service` | `podium-blue-server.service` | none |
-| Janitor unit | `podium-janitor.service` | `podium-blue-janitor.service` | none |
-| Daemon unit | `podium-daemon.service` | `podium-blue-daemon.service` | none |
+| Durable terminal label | `podium-<session>` | `podium-blue-<session>`; IDs over 17 bytes use a stable hashed component | none |
+| Durable socket root | legacy backend default | state runtime root when it fits, otherwise `/tmp/pd-<stable-key>` | `ABDUCO_SOCKET_DIR` / `TMUX_TMPDIR` |
+| Codex hook socket | state runtime root | state runtime root when it fits, otherwise `/tmp/pd-<stable-key>` | explicit daemon socket path |
+| Parent unit | `podium.service` | `podium-blue.service` | none |
+| Server child | parent-supervised process | parent-supervised process | none |
+| Janitor | server-owned worker thread | server-owned worker thread | none |
+| Daemon child | parent-supervised process | parent-supervised process | none |
 
 Named endpoint triplets are deterministic and non-overlapping for ordinary IDs. Set all three port
 overrides when an operator needs a fixed allocation.
 
-## Why the durable socket root is not under the state directory
-
-A durable terminal is a unix socket, and a unix socket path has a hard kernel ceiling:
-`sun_path` is 108 bytes on Linux. abduco composes
-`<root>/abduco/<user>/podium-<instance>-<uuid>@<hostname>` and refuses the whole create past
-that ceiling, with a one-line `create-session: File name too long` that names neither the
-path nor the limit.
-
-The label alone spends 44 bytes plus the instance id, and `@<hostname>` and `abduco/<user>/`
-take most of what is left, so the root gets roughly 33 bytes on a typical host — while the
-documented named-instance state root (`~/.local/state/podium/blue`) is already 35. Measured
-on a real instance, a socket root under the state directory composed to **121 bytes**, and
-every terminal session on that instance failed to start.
-
-So a named instance pins `ABDUCO_SOCKET_DIR` to the first of these that both fits and can be
-created: `$XDG_RUNTIME_DIR/podium-<instance>`, then `$XDG_RUNTIME_DIR/podium` (shared between
-instances — nothing collides, since labels carry the instance id), then
-`<TMPDIR|/tmp>/podium-<uid>` for a host with no user manager at all. Sockets are runtime
-state; the state root that outlives a login has no business holding them.
-
-An operator who sets `ABDUCO_SOCKET_DIR` themselves keeps that value untouched — **and owns
-the budget**: on a very long instance id, user name or hostname, no root fits, and the spawn
-then reports the composed path with its byte count next to the limit.
+Linux exposes 108 bytes in `sockaddr_un.sun_path`, of which 107 are usable by the
+pathname because the final byte is the terminating NUL. Podium's bounded abduco
+layout fixes 90 bytes around the instance component (the short runtime key,
+`abduco/<user>/`, durable-label/session UUID syntax, and `@<hostname>`), leaving
+17 bytes for that component; an 18-byte component would consume 108 pathname bytes
+and is invalid. Longer instance IDs therefore use a deterministic 17-byte component,
+and any explicit socket path that still cannot fit is refused with the instance ID,
+the measured byte length, and the Linux limit before abduco or tmux is launched.
 
 A collision — a rare hash collision, an explicit one, or another instance already on the default
 triplet — is handled differently per port, because the two kinds of port are dialed by different
@@ -112,10 +98,10 @@ podium-blue channel edge
 podium-blue update
 ```
 
-Status and logs consult only blue's state and units. Stop addresses only
-`podium-blue-daemon.service`, `podium-blue-janitor.service`, and
-`podium-blue-server.service`. The blue update service runs only `podium-blue update`, swaps
-only blue's bundle, and restarts only blue's managed siblings.
+Status and logs consult only blue's state and parent-owned components. Stop addresses only
+`podium-blue.service`; that parent stops its server and daemon children, and the server closes
+its janitor worker. An update swaps only blue's bundle and hands supervision to blue's successor
+parent.
 
 The same commands for `podium-green` operate green. For deterministic automation, set explicit
 server, hook, and relay ports rather than relying on derived ports.
@@ -163,15 +149,18 @@ From a dependency-complete source checkout, run:
 bun run test:multi-instance
 ```
 
-The command combines three layers:
+The command combines four layers:
 
 1. `multi-instance-runtime.integration.bun.test.ts` starts blue and green as concurrent real
    all-in-one processes. It proves distinct state markers and endpoints; disjoint issue
    reads and writes; rejected inherited cross-instance routing; disjoint session ownership;
    and that stopping blue leaves green's server, hook, and relay alive.
-2. `managed-account-spawn.integration.test.ts` drives the real Node PTY spawn path and proves
+2. `named-dev-release.integration.bun.test.ts` publishes an approved development release through
+   a detached Git snapshot under a named identity. It proves client packaging does not write
+   instance-derived host units into that snapshot before the release integrity fence runs.
+3. `managed-account-spawn.integration.test.ts` drives the real Node PTY spawn path and proves
    the child receives blue's instance/session identity and exact durable label.
-3. `install-sh.test.sh` installs default and named bundles into a temporary home and proves a
+4. `install-sh.test.sh` installs default and named bundles into a temporary home and proves a
    named install/update target cannot overwrite the default bundle, command, or units.
 
 The process test uses explicit temporary roots and six reserved ports, so it can run alongside

@@ -1,0 +1,84 @@
+=== Mac execution proof ===
+date: 2026-08-21T18:33:02Z
+host: Darwin Mac-1785470875801.local 24.6.0 Darwin Kernel Version 24.6.0: Mon Jan 19 22:02:01 PST 2026; root:xnu-11417.140.69.708.3~1/RELEASE_ARM64_VMAPPLE arm64
+arch: arm64
+bundle: /Users/runner/_work/podium/podium/mac-execution-bundle-darwin-arm64
+work: /tmp/podium-mac-proof-8khTI4
+
+--- file / codesign ---
+/tmp/podium-mac-proof-8khTI4/headless/podium-cli: Mach-O 64-bit executable arm64
+Executable=/private/tmp/podium-mac-proof-8khTI4/headless/podium-cli
+Identifier=podium
+Format=Mach-O thin (arm64)
+CodeDirectory v=20400 size=560895 flags=0x2(adhoc) hashes=17518+7 location=embedded
+VersionPlatform=1
+VersionMin=851968
+VersionSDK=983552
+Hash type=sha256 size=32
+CandidateCDHash sha256=264063c668cbc550374a957c3c71c4b98e28ebdc
+CandidateCDHashFull sha256=264063c668cbc550374a957c3c71c4b98e28ebdc7c5ba7ddf0842bfd329ad23b
+Hash choices=sha256
+CMSDigest=264063c668cbc550374a957c3c71c4b98e28ebdc7c5ba7ddf0842bfd329ad23b
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=61276160
+Executable Segment flags=0x1
+Page size=4096
+CDHash=264063c668cbc550374a957c3c71c4b98e28ebdc
+Signature=adhoc
+Info.plist=not bound
+TeamIdentifier=not set
+Sealed Resources=none
+Internal requirements count=0 size=12
+
+--- codesign --verify --strict ---
+/tmp/podium-mac-proof-8khTI4/headless/podium-cli: valid on disk
+/tmp/podium-mac-proof-8khTI4/headless/podium-cli: satisfies its Designated Requirement
+PASS  codesign: --verify --strict accepts the rcodesign ad-hoc signature
+
+--- entitlements ---
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>com.apple.security.cs.allow-dyld-environment-variables</key><true/><key>com.apple.security.cs.allow-jit</key><true/><key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/><key>com.apple.security.cs.disable-executable-page-protection</key><true/><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>
+PASS  entitlements: allow-jit present on the shipped binary
+
+[podium] materialized embedded abduco -> /Users/runner/.podium/bin/abduco
+podium spike-darwin+0.1.1-edge.2
+PASS  version: podium-cli --version runs
+PASS  gatekeeper: runs without quarantine xattr
+with quarantine: exit=0
+podium spike-darwin+0.1.1-edge.2
+PASS  gatekeeper: runs after quarantine stripped
+WARN  gatekeeper: quarantine did not block on this CI VM; this does not clear Gatekeeper on real hardware
+--- unsigned probe ---
+/tmp/podium-mac-proof-8khTI4/podium-cli.nosig: code object is not signed at all
+unsigned exit=0
+podium spike-darwin+0.1.1-edge.2
+WARN  unsigned: a signature-stripped binary RAN on arm64 — this CI VM does not enforce the arm64 signature requirement, so the probe still needs real hardware
+
+--- daemon.log (tail) ---
+[podium] materialized embedded abduco -> /tmp/podium-mac-proof-8khTI4/state/bin/abduco
+18:33:04.855 WARN  server:http Served web bundle has no valid build stamp; its compatibility with the running server cannot be verified. webDir=/tmp/podium-mac-proof-8khTI4/headless/web platform=darwin instance=default
+podium server up on http://localhost:19894
+podium janitor up -> http://localhost:19894
+18:33:04.917 WARN  daemon:host this daemon shares its process with the podium server and nothing would restart it — updates will be refused here; stop podium and start it again to pick one up, or run `podium setup` to install it as a service that can update itself platform=darwin instance=default
+podium daemon up → ws://localhost:19894
+PASS  daemon: all-in-one boot on throwaway PODIUM_STATE_DIR
+abduco-0.6-podium © 2013-2018 Marc André Tanner
+PASS  abduco: embedded helper materialized under state dir
+PASS  abduco: session spawned (-n p761)
+PASS  abduco: session survives daemon kill (reattach/survival)
+
+=== MATRIX ===
+PASS  codesign: --verify --strict accepts the rcodesign ad-hoc signature
+PASS  entitlements: allow-jit present on the shipped binary
+PASS  version: podium-cli --version runs
+PASS  gatekeeper: runs without quarantine xattr
+PASS  gatekeeper: runs after quarantine stripped
+WARN  gatekeeper: quarantine did not block on this CI VM; this does not clear Gatekeeper on real hardware
+WARN  unsigned: a signature-stripped binary RAN on arm64 — this CI VM does not enforce the arm64 signature requirement, so the probe still needs real hardware
+PASS  daemon: all-in-one boot on throwaway PODIUM_STATE_DIR
+PASS  abduco: embedded helper materialized under state dir
+PASS  abduco: session spawned (-n p761)
+PASS  abduco: session survives daemon kill (reattach/survival)
+
+log: /tmp/podium-mac-proof-8khTI4/verify.log
+RESULT: PASS

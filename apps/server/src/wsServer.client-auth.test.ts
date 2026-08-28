@@ -184,11 +184,11 @@ describe('/client WS auth gate', () => {
     expect(await attempt(url)).toBe('rejected')
   })
 
-  test('rejects a blocked-readiness client with an explicit 503 handshake', async () => {
+  test('returns an explicit 503 from a blocked-readiness client endpoint', async () => {
     const url = await startNotReady()
     const response = await rejectedHandshake(url)
     expect(response.status).toBe(503)
-    expect(JSON.parse(response.body)).toEqual({
+    expect(await response.json()).toEqual({
       error: 'server_not_ready',
       readiness: {
         state: 'activation_pending',

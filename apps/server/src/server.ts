@@ -5,12 +5,16 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
-import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, controlPlaneAvailable, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  type DaemonPtyInputBatch,
   type LocalDaemonLink,
   MIN_SUPPORTED_VERSION,
   type MobileWebIdentity,
   PeerHelloReply,
+  type ServedWebIdentity,
   type UpdateTarget,
   WIRE_VERSION,
   wireSchemaDigest,
@@ -24,6 +28,7 @@ import {
   stateDir,
 } from '@podium/runtime/local-machine'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { clearParentOutcome, readParentOutcome } from '@podium/runtime/parent-control'
 import {
   formatTopQueries,
   queryAttributionTotals,
@@ -48,10 +53,10 @@ import {
   requestUserId,
   resolveClientCredential,
 } from './auth-route'
-import { captureServerBuildVersion } from './build-version'
+import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
-import { openEnrollmentLedger } from './enrollment-ledger'
+import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
@@ -77,15 +82,25 @@ import {
 } from './modules/server-transfer/journal'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
-import { DEVELOPMENT_SOURCE_ROOT } from './modules/updates/dev-bundle'
-import { wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
+import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
+import { isRemoteUpdateConsumer, wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
+import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import {
   createInstalledCoordinatorRestart,
   createInstalledCoordinatorUpdate,
 } from './modules/updates/installed-restart'
-import { readOrCreateUpdateSigningKey } from './modules/updates/signing-key'
+import { startLocalUpdateParticipant } from './modules/updates/local-participant'
+import type { ChannelFeed } from './modules/updates/release-target'
+import {
+  readOrCreateDevArtifactToken,
+  readOrCreateUpdateSigningKey,
+} from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
-import { startTargetRefresh, timerSchedule } from './modules/updates/target-refresh'
+import {
+  refreshTargetsOnBoot,
+  startTargetRefresh,
+  timerSchedule,
+} from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import type { PodiumPlugin } from './plugins'
 import {
@@ -256,6 +271,10 @@ export function registerVersionRoute(
      */
     updateTarget?: () => UpdateTarget | undefined | Promise<UpdateTarget | undefined>
     appVersion?: () => string
+    /** Source identity of this server process, independent of its display version. */
+    sourceDigest?: () => string | undefined
+    /** Whether this process owns an installed package or a source checkout. */
+    installKind?: () => 'installed' | 'source'
     /**
      * The phone website on disk, so Update can tell whether the phone is on this
      * commit (POD-1980). Read per request, like the target: the export is built
@@ -266,6 +285,31 @@ export function registerVersionRoute(
      * from one whose phone export is missing — both mean "nothing to say here".
      */
     mobileWeb?: () => MobileWebIdentity
+    /**
+     * The desktop website on disk — the one a browser pointed at this origin is
+     * running (POD-2721).
+     *
+     * Read per request, and for the same reason the phone's is: this server can
+     * be handed a new dist without restarting, and an identity captured at boot
+     * would keep naming the build it replaced. That freshness is the whole
+     * point — an open page asks this to find out its own assets have moved.
+     *
+     * Reported even when `present` is false, unlike `mobileWeb`: "there is no
+     * website here" is an answer a page can use (it is not being served by this
+     * server), whereas silence is not.
+     */
+    web?: () => ServedWebIdentity
+    /** Parent health gate + settings: is the local daemon connected? */
+    daemonConnected?: () => boolean
+    /** Janitor co-host status for DEGRADED projection [POD-2505]. */
+    janitor?: () =>
+      | {
+          state: 'running' | 'degraded' | 'stopped'
+          reason?: string
+          /** Advance token the parent's watchdog reads (§8, gap 9). */
+          progressVersion?: number
+        }
+      | undefined
   },
 ): void {
   app.get('/version', async (c) => {
@@ -281,6 +325,19 @@ export function registerVersionRoute(
     } catch {
       mobileWeb = undefined
     }
+    let web: ServedWebIdentity | undefined
+    try {
+      web = deps.web?.()
+    } catch {
+      web = undefined
+    }
+    const sourceDigest = deps.sourceDigest?.()
+    const daemonConnected = deps.daemonConnected?.() === true
+    const janitor = deps.janitor?.()
+    const components = {
+      ...(janitor ? { janitor } : {}),
+      daemon: { state: daemonConnected ? ('connected' as const) : ('disconnected' as const) },
+    }
     return c.json({
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
@@ -291,10 +348,15 @@ export function registerVersionRoute(
        */
       wireSchemaDigest: wireSchemaDigest(),
       appVersion: deps.appVersion?.() ?? process.env.PODIUM_APP_VERSION ?? 'dev',
+      ...(sourceDigest ? { sourceDigest } : {}),
+      ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
+      daemonConnected,
+      components,
       ...(target ? { target } : {}),
       ...(mobileWeb?.present ? { mobileWeb } : {}),
+      ...(web ? { web } : {}),
     })
   })
 }
@@ -303,6 +365,22 @@ function proxyHopsFromEnv(env: Record<string, string | undefined>): number {
   const raw = env.PODIUM_TRUSTED_PROXY_HOPS
   if (raw === undefined || raw === '') return 0
   return /^\d+$/.test(raw) ? Number(raw) : Number.NaN
+}
+
+/** A loopback-bound Podium can only receive network traffic through a local
+ *  proxy, so trust that one hop by default. This makes a newly saved Tailscale
+ *  Serve or Funnel setup work without a restart or a second environment setting.
+ *  Explicit options and env configuration always win, including zero. */
+export function resolveTrustedProxyHops(
+  explicit: number | undefined,
+  env: Record<string, string | undefined>,
+  bindHost: string,
+): number {
+  if (explicit !== undefined) return explicit
+  if (env.PODIUM_TRUSTED_PROXY_HOPS !== undefined && env.PODIUM_TRUSTED_PROXY_HOPS !== '') {
+    return proxyHopsFromEnv(env)
+  }
+  return isLoopbackHost(bindHost) ? 1 : 0
 }
 
 function tlsFromEnv(
@@ -339,9 +417,17 @@ export async function startServer(
     tls?: { key: string; cert: string }
     /** Advertise the safe local all-in-one first-run default to loopback web clients. */
     localSetupDefault?: boolean
+    /**
+     * The janitor worker client injected by the composition root so this app
+     * never imports another app. Presence means this server owns the janitor
+     * thread; server constructions without the injection remain janitor-free.
+     */
+    startJanitorWorker?: import('./janitor-host').StartJanitorWorkerFn
   } = {},
 ): Promise<ServerHandle> {
-  const configuredProxyHops = opts.trustedProxyHops ?? proxyHopsFromEnv(process.env)
+  const config = loadConfig()
+  const host = resolveBindHost(opts)
+  const configuredProxyHops = resolveTrustedProxyHops(opts.trustedProxyHops, process.env, host)
   if (
     !Number.isSafeInteger(configuredProxyHops) ||
     configuredProxyHops < 0 ||
@@ -352,13 +438,12 @@ export async function startServer(
   const trustedProxyHops = configuredProxyHops
   const tls = opts.tls ?? tlsFromEnv(process.env)
   const appVersion = captureServerBuildVersion()
+  const appSourceDigest = serverBuildSourceDigest()
   const instanceId = resolveInstanceId()
   ensureInstanceStateIdentity({ instanceId })
   // Role composition (roles.ts): which optional module groups this process
   // activates. Explicit opts win; else the H1 shape, core + hub.
-  const config = loadConfig()
   const desktopSupervised = process.env.PODIUM_DESKTOP_SUPERVISED === '1'
-  const host = resolveBindHost(opts)
   const role = resolveServerRole(opts.role)
   // WHO THIS HOST IS, read (or minted) once, before anything can write a row. Every
   // other consumer in the process takes it from here — the store carries it to the
@@ -366,7 +451,9 @@ export async function startServer(
   // and in-process daemon link below name this same value. The split-mode daemon
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
-  const updateSigningKey = readOrCreateUpdateSigningKey()
+  const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
+    allowCreate: !hasEnrollmentHistory(stateDir()),
+  })
   reconcileSafeServerTransferBoot(stateDir())
   assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
@@ -407,8 +494,20 @@ export async function startServer(
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
+  /**
+   * LATE-BOUND, because the two halves are constructed in this order and cannot
+   * be reordered: the updates service (inside the registry) owns the resolver,
+   * and the dev feed's address, fence, trust root and credential all come from
+   * the publisher wiring below, which needs the registry to exist first.
+   *
+   * A function rather than a value, so a Settings write to Public URL — or a
+   * remote machine joining the fleet — is followed without a restart, the same
+   * discipline every other read on this path uses.
+   */
+  let devChannelFeed: (() => ChannelFeed | undefined) | undefined
   const registry = new SessionRegistry(store, undefined, {
     instanceId,
+    devChannelFeed: () => devChannelFeed?.(),
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
@@ -424,6 +523,7 @@ export async function startServer(
     // local daemon's `hello` path is untouched.
     ...(role.hub ? { pairing: new PairingManager() } : {}),
     updatePubkey: () => updateSigningKey.publicKey,
+    updateKeyRotations: () => updateSigningKey.rotations,
     // Live model enumeration is only wired in the real process; tests get the empty
     // default and nothing is ever asked of a daemon.
     // TODO(#251-followup): fold the remaining settings-coupled env reads
@@ -451,21 +551,6 @@ export async function startServer(
     // which is also the auth the agents on that machine actually run under.
     modelProbe: (machineId) => registry.modules.rpc.modelProbe(machineId),
   })
-  // Resolve release authorities before serving the fleet read model. Failures are
-  // captured as per-channel unavailable reasons; startup remains operational.
-  await Promise.all([
-    registry.modules.updates.refreshTarget('edge'),
-    registry.modules.updates.refreshTarget('stable'),
-  ])
-  // …and keep asking. Boot is the only time this used to happen, so a server up
-  // for a month advertised the day-one target and a feed that was unreachable in
-  // that one boot second stayed "unavailable" for the month (POD-2100, spec §9.2).
-  const targetRefresh = startTargetRefresh({
-    refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-    operationActive: (channel) => registry.modules.updates.operationActive(channel),
-    schedule: timerSchedule,
-  })
-
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
   // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
@@ -559,38 +644,129 @@ export async function startServer(
   })
   messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
-  const devArtifactToken = randomUUID()
+  const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
-  // build-bun replaces this exact expression with the packaged product version.
-  // A detached installed process does not export PODIUM_HOME, so using that
-  // variable as the discriminator misclassified the published binary as source
-  // and silently withheld its coordinator restart capability.
-  const developmentSourceRoot = process.env.PODIUM_APP_VERSION ? undefined : DEVELOPMENT_SOURCE_ROOT
-  const requestCoordinatorRestart = developmentSourceRoot
+  // BUILD IDENTITY and PUBLISHER CAPABILITY are different facts. A development
+  // server normally runs from the installed bundle (therefore uses installed
+  // swap/rollback/handover) while PODIUM_DEV_SOURCE_ROOT gives it the checkout
+  // from which it may mint the next bundle. Production services omit the opt-in.
+  const developmentRuntime = resolveDevelopmentRuntime({
+    // Must remain this literal read: build-bun replaces it with the packaged version.
+    packagedVersion: process.env.PODIUM_APP_VERSION,
+    sourceRunRoot: DEVELOPMENT_SOURCE_ROOT,
+  })
+  const developmentSourceRoot = developmentRuntime.publisherSourceRoot
+  /**
+   * The version the parent installed for THIS operation, which is the version
+   * the handover's health gate must see the successor serving. Written by the
+   * update ask, read by the restart ask — the producer finding 15 said the
+   * parameter did not have.
+   */
+  let pendingCoordinatorVersion: string | undefined
+  const requestCoordinatorRestart = developmentRuntime.runningFromSource
     ? createSourceRedeployRequest({ instanceId })
     : createInstalledCoordinatorRestart({
         instanceId,
         port: () => boundPort,
-        includeDaemon: config.mode === 'all-in-one',
+        pendingVersion: () => pendingCoordinatorVersion,
       })
-  const prepareCoordinatorUpdate = developmentSourceRoot
+  const prepareCoordinatorUpdate = developmentRuntime.runningFromSource
     ? undefined
-    : createInstalledCoordinatorUpdate({ pinnedPubkey: updateSigningKey.publicKey })
+    : createInstalledCoordinatorUpdate({
+        pinnedPubkey: updateSigningKey.publicKey,
+        onInstalled: (version) => {
+          pendingCoordinatorVersion = version
+        },
+      })
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
     artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
-    hasRemoteManagedMachines: () =>
+    hasRemoteUpdateConsumers: () =>
       store.machines
         .listMachines()
-        .some((machine) => machine.id !== hostMachineId && machine.podiumManaged),
+        .some((machine) => isRemoteUpdateConsumer(machine, hostMachineId)),
+    // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
+    // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
+    // inventories the daemons themselves reported.
+    fleetPlatforms: () => fleetHeadlessPlatforms(store.machines.listMachines()),
+    // A proposal answers what THIS running server would change by building HEAD.
+    // Fleet skew belongs to rollout; it must never move the build's changelog baseline.
+    proposalRunningVersion: appVersion,
+    ...(appSourceDigest ? { proposalRunningSha: appSourceDigest } : {}),
     artifactToken: devArtifactToken,
     setTarget: (target) => registry.modules.updates.setTarget(target),
     setTargetUnavailable: (reason) => registry.modules.updates.setTargetUnavailable('dev', reason),
+    // The publish handoff (spec §6 step 4). Publisher and updater share this
+    // process on a source host, so "go and pull what I just wrote" is a call.
+    refreshDevTarget: () => registry.modules.updates.refreshTarget('dev'),
     signingKey: updateSigningKey.privateKey,
     locks: registry.modules.locks,
   })
+  // COMPOSITION-OWNED, because only this root knows both halves: the resolver
+  // lives in the updates service and the dev feed's address, fence, trust root
+  // and credential all come from the publisher wiring. Installed servers with
+  // no publisher return nothing here and simply have no dev feed to pull.
+  devChannelFeed = devPublisher.channelFeed
+
+  /** One real host participant when an installed parent can apply its grants. */
+  const localUpdateParticipant =
+    process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
+    !developmentRuntime.runningFromSource &&
+    prepareCoordinatorUpdate &&
+    requestCoordinatorRestart
+      ? startLocalUpdateParticipant({
+          machineId: hostMachineId,
+          appVersion,
+          runtimeDir: join(stateDir(), 'runtime'),
+          pinnedPubkey: updateSigningKey.publicKey,
+          machines: registry.modules.machines,
+          /**
+           * THE SAME SEAM THE DAEMON PATH USES (POD-2741).
+           *
+           * `onUpdateStatus` in relay.ts calls the service and then the fleet
+           * bridge, because the same frame is the running operation's progress
+           * event. Handing this participant the bare service left the second
+           * half undone for the one machine that reports without a socket: the
+           * coordinator refused a target in 264 ms, the service recorded
+           * `rejected`, and the operation's place sat at `granted` for the full
+           * 150 s a caller was willing to wait — because nothing told it to
+           * look. It settled only when some unrelated daemon reconnect happened
+           * to fire the bridge, which is why the gate row flipped run to run.
+           */
+          updates: {
+            onStatus: (machineId, status) => {
+              registry.modules.updates.onStatus(machineId, status)
+              registry.modules.updateFleetBridge?.onFleetChanged()
+            },
+          },
+          connected: (machineId) => registry.modules.bus.emit('machine.connected', { machineId }),
+        })
+      : undefined
+  /**
+   * SAY WHEN THIS MACHINE IS ABOUT TO VANISH FROM ITS OWN FLEET (POD-2721).
+   *
+   * Declining the participant is not only "no updates here". The participant is
+   * also what reports this machine's build and what makes it count as `online`,
+   * so a coordinator that skips it keeps whatever version it last managed to
+   * report and shows `online: false` for the rest of its uptime — which is
+   * exactly how the incident looked from the fleet table, and which took a
+   * process listing and a pidfile to explain.
+   *
+   * A packaged coordinator declining is the surprising case and the one worth a
+   * warning; a source checkout is the documented shape and stays at debug.
+   */
+  if (localUpdateParticipant === undefined) {
+    const why = developmentRuntime.runningFromSource
+      ? 'this coordinator runs from source'
+      : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
+        ? 'the local participant is disabled for this run'
+        : 'no supervising parent is discoverable in the run registry'
+    const note = `this machine will not report its build or appear online in its own fleet: ${why}`
+    if (developmentRuntime.runningFromSource) log.debug(note)
+    else log.warn(note)
+  }
 
   /**
    * ADOPT WHATEVER THE PREVIOUS PROCESS WAS DOING (POD-2097/POD-2098, spec §3.4).
@@ -626,6 +802,8 @@ export async function startServer(
       // back against.
       channel: registry.modules.updates.operationChannel(hostMachineId),
       appVersion: () => appVersion,
+      sourceDigest: serverBuildSourceDigest,
+      serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
       hostMachineId,
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
       createDatabaseSnapshot: (from, target) =>
@@ -635,12 +813,6 @@ export async function startServer(
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
       ...(devPublisher.requestWebRebuild
         ? { requestWebRebuild: devPublisher.requestWebRebuild }
-        : {}),
-      ...(devPublisher.enabled
-        ? {
-            requestDestBundle: () => devPublisher.requestBuild(),
-            preparation: devPublisher.preparation,
-          }
         : {}),
       servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
       servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
@@ -654,6 +826,14 @@ export async function startServer(
   // bare await here is safe by the engine's own contract rather than by a catch
   // at this call site. The server that cannot boot is the one that has to apply
   // the update that fixes it.
+  //
+  // THE PARENT'S NOTE, READ ONCE (POD-2505). A rollback leaves this server on
+  // the version the update was meant to replace, so adoption is about to fail
+  // the `server` step for coming back on the wrong version — which is true, and
+  // on its own reads as an unexplained failure. The parent's own sentence is
+  // what turns it into a report the user can act on, and decision 4 requires it
+  // when rollback was refused. Cleared afterwards: the note is about THIS boot.
+  const parentReport = readParentOutcome()?.why
   await registry.modules.operations.engine.adoptOnBoot(
     () => ({
       appVersion,
@@ -662,36 +842,61 @@ export async function startServer(
         () => servedWebIdentity(phoneWebDir()),
       )?.(),
       machineDirectory: registry.modules.updates.fleet(),
+      ...(parentReport ? { parentReport } : {}),
       now: Date.now(),
     }),
     updateOperationBoot,
   )
+  if (parentReport) clearParentOutcome()
 
   const requestPeerAddresses = new WeakMap<Request, string>()
   const readiness = createServerReadiness({
     bootConfig: config,
     hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
   })
+  let targetsResolvedOnBoot = false
   const app = new Hono()
-  app.get('/health', (c) => c.text('ok'))
+  // The dev resolver pulls this server's own feed. The listener must therefore
+  // exist before the boot resolve, but it must not report healthy in that narrow
+  // window or a supervisor (and the packaged restart gate) could observe the
+  // exact empty fleet state boot is about to repair.
+  app.get('/health', (c) =>
+    targetsResolvedOnBoot ? c.text('ok') : c.text('resolving update targets', 503),
+  )
   devPublisher.registerRoute(app)
+  let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
+  let janitorHostClosing = false
   registerVersionRoute(app, {
     instanceId,
     appVersion: () => appVersion,
+    sourceDigest: serverBuildSourceDigest,
+    installKind: () => (developmentRuntime.runningFromSource ? 'source' : 'installed'),
     // Straight through to the Authority, which delegates to the policy object it
     // was constructed with. No copy on the path (POD-376).
     visibilityGrade: () => registry.modules.funnel.visibilityGrade(),
-    // THE HOST'S OWN AUTHORITY, not the dev one (POD-2222). `publishTarget` is
-    // still awaited on every read whatever the channel: it refreshes the cheap
-    // dev identity target for machines that follow dev. It never admits a
-    // build; only a confirmed update operation may do that.
-    // `advertisedTarget` then decides which authority this host is entitled to
-    // advertise — see `UpdatesService.advertisedTarget`.
-    updateTarget: async () => {
-      const published = await devPublisher.publishTarget()
-      return registry.modules.updates.advertisedTarget(hostMachineId, published)
-    },
+    // A source checkout's HEAD is a RELEASE PROPOSAL, not an update target.
+    // Only a manifest already published into the feed may become the normal
+    // update offer returned here.
+    updateTarget: async () => registry.modules.updates.advertisedTarget(hostMachineId),
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
+    web: () => servedWebIdentity(desktopWebDir()),
+    /**
+     * THIS HOST's daemon, not "any daemon anywhere". The parent's handover
+     * health gate (disposition 24) asks whether the LOCAL daemon reached the new
+     * server; `onlineMachineIds().length > 0` answered yes on a multi-machine
+     * host with the local daemon dead, which would let a handover complete onto
+     * a stack that is missing a child (review finding 7).
+     */
+    daemonConnected: () =>
+      registry.modules.machines.onlineMachineIds().includes(asMachineId(hostMachineId)),
+    janitor: () =>
+      janitorHost
+        ? {
+            state: janitorHost.state(),
+            progressVersion: janitorHost.progressVersion(),
+            ...(janitorHost.reason() ? { reason: janitorHost.reason() } : {}),
+          }
+        : undefined,
   })
   registerMaintenanceRoute(app, {
     // The maintenance realm is THIS HOST's credential, named by its real id rather
@@ -766,8 +971,15 @@ export async function startServer(
     users: store.users,
     // One principal resolver for every human-client transport. The status route
     // reports this result; it does not recreate the open/dev bootstrap fallback.
+    //
+    // GATED ON THE CONTROL PLANE, not the data plane (POD-2766). While
+    // `activation_pending` the operator CAN log in — that is the whole point of
+    // the split — so a session that exists has to be reported as authed, or the
+    // login screen loops forever against a server that just accepted the
+    // password. It buys nothing else: every data-plane call is still 503 at the
+    // readiness boundary, whoever is holding the cookie.
     resolveUserId: (headers) =>
-      readiness().dataPlane === 'available' ? requestPrincipal(headers)?.user : undefined,
+      controlPlaneAvailable(readiness()) ? requestPrincipal(headers)?.user : undefined,
     loginRequired: credentialsRequired,
     trustedProxyHops,
     readiness,
@@ -783,7 +995,11 @@ export async function startServer(
     resolveUserId: (headers) =>
       requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader),
     trustedProxyHops,
-    requestPeerAddress: (request) => requestPeerAddresses.get(request),
+    localControlRequest: isHostLocalRequest,
+    // `app.fetch` receives the observed Request carrying the native peer header,
+    // not the original Request used as the WeakMap key above.
+    requestPeerAddress: (request) =>
+      request.headers.get('x-podium-peer-address') ?? requestPeerAddresses.get(request),
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
   app.use('/files/*', boundary)
@@ -885,6 +1101,11 @@ export async function startServer(
           ...(desktopSupervised ? { desktopSupervised: true } : {}),
           ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+          serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
+          // POD-2766: `setup.activate` — the restart an operator can reach while
+          // the data plane is blocked — reads this live and refuses any instance
+          // that is not activation-pending, so it never becomes a bounce lever.
+          readiness,
           // The web build is the server's own step now, not a systemd unit to
           // restart (POD-1985) — but the context shape is unchanged, so the
           // Update panel's "the website is behind" path still just calls this.
@@ -893,8 +1114,8 @@ export async function startServer(
             : {}),
           ...(devPublisher.enabled
             ? {
-                requestDestBundle: () => devPublisher.requestBuild(),
-                updatePreparation: devPublisher.preparation,
+                releaseProposal: devPublisher.proposal,
+                approveReleaseProposal: devPublisher.approveRelease,
               }
             : {}),
           servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
@@ -1037,6 +1258,22 @@ export async function startServer(
 
     settled = true
     boundPort = server.port
+    // The server owns the janitor's worker thread. Construction stays off the
+    // listen path, and the client turns faults/stalls into observable degraded
+    // state plus automatic replacement rather than request-loop failure.
+    void (async () => {
+      if (!opts.startJanitorWorker) return
+      const { startJanitorHost } = await import('./janitor-host')
+      const startedJanitorHost = await startJanitorHost({
+        port: boundPort,
+        token: bootstrapToken,
+        startJanitorWorker: opts.startJanitorWorker,
+      })
+      if (janitorHostClosing) startedJanitorHost.close()
+      else janitorHost = startedJanitorHost
+    })().catch((error) => {
+      log.warn('janitor worker host failed to start', { err: error })
+    })
     // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
     // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
     // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
@@ -1152,7 +1389,7 @@ export async function startServer(
     // other's call stack (the ordering the WS transport implied).
     const localDaemonLink: LocalDaemonLink = {
       attachPortableState: (control) => registry.attachLocalDaemonPortableState(control),
-      attach: ({ hello, deliver }) => {
+      attach: ({ hello, deliver, deliverInput }) => {
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
@@ -1166,13 +1403,59 @@ export async function startServer(
           return { established: false as const, reply }
         }
         const { principal } = outcome
+        perf.record(
+          'phase',
+          outcome.acceptedCaps.includes(CAP_TERMINAL_OUTPUT_BINARY_V1)
+            ? 'terminal.output.daemon.capability.binary'
+            : 'terminal.output.daemon.capability.base64',
+          0,
+          DEPLOYMENT,
+        )
+        perf.record(
+          'phase',
+          outcome.acceptedCaps.includes(CAP_TERMINAL_INPUT_BINARY_V1)
+            ? 'terminal.input.daemon.capability.binary'
+            : 'terminal.input.daemon.capability.base64',
+          0,
+          DEPLOYMENT,
+        )
         recordHelloBuild(registry.modules.machines, outcome.machineId, {
           build: outcome.build,
           caps: outcome.offeredCaps,
           at: new Date().toISOString(),
         })
         const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
-        registry.gateway.attachDaemon(principal, send)
+        const transport = {
+          send,
+          sendInput: (input: DaemonPtyInputBatch): void => {
+            if (deliverInput && outcome.acceptedCaps.includes(CAP_TERMINAL_INPUT_BINARY_V1)) {
+              perf.record(
+                'phase',
+                'terminal.input.daemon.direct',
+                0,
+                DEPLOYMENT,
+                input.bytes.byteLength,
+              )
+              queueMicrotask(() => deliverInput(input))
+              return
+            }
+            perf.record(
+              'phase',
+              'terminal.input.daemon.base64',
+              0,
+              DEPLOYMENT,
+              input.bytes.byteLength,
+            )
+            send({
+              type: 'input',
+              sessionId: input.sessionId,
+              inputOrigin: input.inputOrigin,
+              data: Buffer.from(input.bytes).toString('base64'),
+              ...(input.attribution ? { attribution: input.attribution } : {}),
+            })
+          },
+        }
+        registry.gateway.attachDaemon(principal, transport)
         return {
           established: true as const,
           reply: PeerHelloReply.parse(outcome.reply),
@@ -1181,52 +1464,83 @@ export async function startServer(
           // sites; it is a row in the gateway's routing table now, so this
           // link routes the WHOLE daemon union through one seam.
           deliver: (msg) => queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
-          close: () => registry.gateway.detachDaemon(principal, send),
+          deliverOutput: (batch) => {
+            perf.record(
+              'phase',
+              'terminal.output.daemon.direct',
+              0,
+              DEPLOYMENT,
+              batch.bytes.byteLength,
+            )
+            queueMicrotask(() => registry.gateway.routeDaemonOutput(principal, batch))
+          },
+          close: () => registry.gateway.detachDaemon(principal, transport),
         }
       },
     }
-    resolve({
-      port: server.port,
-      instanceId,
-      registry,
-      bootstrapToken,
-      localDaemonLink,
-      // Deterministic fast shutdown (POD-611): terminate WS intake, persist
-      // state unconditionally, THEN force-close lingering http sockets —
-      // see closeServerFast for the full ordering rationale. Step order
-      // below matters: sync/outbox loops stop before the store closes (a
-      // late write against a closed DB would throw), dirty activity
-      // timestamps flush while the DB is open, registry.dispose() stops the
-      // periodic flush timer, and only then does the store close.
-      close: () =>
-        closeServerFast({
-          closeWebSockets: () => ws.close(),
-          server,
-          persist: [
-            ['messaging.stop', () => messaging.stop()],
-            // An armed refresh timer that outlives the server would resolve a
-            // target against a service whose store is already closed.
-            ['updates.stopTargetRefresh', () => targetRefresh.stop()],
-            // Same hazard, same window (POD-2097): an armed operation deadline
-            // that outlives the server would wake into a closed store and try
-            // to persist a stall against it. Operations are durable, so losing
-            // the timer costs nothing — the successor adopts the operation and
-            // re-derives it from reality, which is the stronger answer anyway.
-            ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
-            // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
-            // final network flush: shutdown is a user-visible latency path
-            // (POD-611 made it deterministic and fast), and a report is worth
-            // less than a fast stop. The queue is durable — it goes next boot.
-            ['telemetry.stop', () => telemetry.stop()],
-            // Release the per-origin client log descriptors. The sink writes
-            // synchronously, so nothing is buffered and this loses no records —
-            // it closes fds a long-lived process would otherwise hold.
-            ['logs.close', () => registry.modules.logs.close()],
-            ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
-            ['registry.dispose', () => registry.dispose()],
-            ['store.close', () => store.close()],
-          ],
-        }),
+    void refreshTargetsOnBoot({
+      refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+    }).then(() => {
+      // Only after the immediate resolve succeeds or records its per-channel
+      // refusal do we expose health and arm the delayed retry. The delay remains
+      // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
+      const targetRefresh = startTargetRefresh({
+        refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+        operationActive: (channel) => registry.modules.updates.operationActive(channel),
+        schedule: timerSchedule,
+      })
+      targetsResolvedOnBoot = true
+      resolve({
+        port: server.port,
+        instanceId,
+        registry,
+        bootstrapToken,
+        localDaemonLink,
+        // Deterministic fast shutdown (POD-611): terminate WS intake, persist
+        // state unconditionally, THEN force-close lingering http sockets —
+        // see closeServerFast for the full ordering rationale. Step order
+        // below matters: sync/outbox loops stop before the store closes (a
+        // late write against a closed DB would throw), dirty activity
+        // timestamps flush while the DB is open, registry.dispose() stops the
+        // periodic flush timer, and only then does the store close.
+        close: () =>
+          closeServerFast({
+            closeWebSockets: () => ws.close(),
+            server,
+            persist: [
+              ['messaging.stop', () => messaging.stop()],
+              // An armed refresh timer that outlives the server would resolve a
+              // target against a service whose store is already closed.
+              ['updates.stopTargetRefresh', () => targetRefresh.stop()],
+              ['updates.localParticipant.close', () => localUpdateParticipant?.close()],
+              // Same hazard, same window (POD-2097): an armed operation deadline
+              // that outlives the server would wake into a closed store and try
+              // to persist a stall against it. Operations are durable, so losing
+              // the timer costs nothing — the successor adopts the operation and
+              // re-derives it from reality, which is the stronger answer anyway.
+              ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
+              // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
+              // final network flush: shutdown is a user-visible latency path
+              // (POD-611 made it deterministic and fast), and a report is worth
+              // less than a fast stop. The queue is durable — it goes next boot.
+              ['telemetry.stop', () => telemetry.stop()],
+              // Release the per-origin client log descriptors. The sink writes
+              // synchronously, so nothing is buffered and this loses no records —
+              // it closes fds a long-lived process would otherwise hold.
+              ['logs.close', () => registry.modules.logs.close()],
+              [
+                'janitorHost.close',
+                () => {
+                  janitorHostClosing = true
+                  janitorHost?.close()
+                },
+              ],
+              ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
+              ['registry.dispose', () => registry.dispose()],
+              ['store.close', () => store.close()],
+            ],
+          }),
+      })
     })
   })
 }

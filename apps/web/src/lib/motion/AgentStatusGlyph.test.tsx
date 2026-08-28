@@ -45,14 +45,14 @@ const done = session({
 describe('AgentStatusGlyph — tab variant', () => {
   it('working wears the mark — the same one the chat it opens ends on', () => {
     const { container } = render(<AgentStatusGlyph session={working} variant="tab" />)
-    const mark = container.querySelector('svg.pod-mark') as SVGElement
+    const mark = container.querySelector('.pod-mark') as HTMLElement
     expect(mark).toBeTruthy()
-    expect(mark.getAttribute('height')).toBe('15')
+    expect(mark.style.height).toBe('15px')
   })
 
   it('waiting renders a still amber dot, no mark', () => {
     const { container } = render(<AgentStatusGlyph session={waiting} variant="tab" />)
-    expect(container.querySelector('svg.pod-mark')).toBeNull()
+    expect(container.querySelector('.pod-mark')).toBeNull()
     const dot = container.querySelector('[aria-label="waiting on you"]') as HTMLElement
     expect(dot).toBeTruthy()
     expect(dot.style.background).toContain('--motion-waiting')
@@ -84,7 +84,7 @@ describe('AgentStatusGlyph — row variant (mobile menu rows)', () => {
 
   it('working renders the mark in the denser row cell', () => {
     const { container } = render(<AgentStatusGlyph session={working} variant="row" />)
-    const el = container.querySelector('svg.pod-mark') as SVGElement
-    expect(el.getAttribute('height')).toBe('13')
+    const el = container.querySelector('.pod-mark') as HTMLElement
+    expect(el.style.height).toBe('13px')
   })
 })

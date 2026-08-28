@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { nodePtyBackend, resolveNodeExecutable } from './backends/index.js'
+import { bunTerminalBackend } from './backends/index.js'
 import { spawnAgent } from './session.js'
 import {
   attachTmuxAgent,
@@ -13,11 +13,8 @@ import {
   tmuxHasSession,
 } from './tmux'
 
-// tmux attach needs a full node-pty master: Bun.Terminal reports "terminal does not
-// support clear" and fails open. These tests exercise node-pty (with the Bun tty
-// polyfill under bun --bun). Use a real Node for fixtures — bare "node" is a Bun shim.
-const nodePty = nodePtyBackend()
-const nodeBin = resolveNodeExecutable()
+const bunPty = bunTerminalBackend()
+const bunBin = process.execPath
 
 describe('tmux command builders', () => {
   it('shell-quotes args safely', () => {
@@ -79,16 +76,16 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     await killTmuxServer(label)
     const session = await spawnTmuxAgent({
       label,
-      cmd: nodeBin,
+      cmd: bunBin,
       args: [FIXTURE],
       cols: 80,
       rows: 24,
-      backend: nodePty,
+      backend: bunPty,
     })
     let out = ''
     let title = ''
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     session.onTitle((t) => {
       title = t
@@ -107,10 +104,10 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     expect(await tmuxHasSession(label)).toBe(true)
 
     // reattach gets a repaint.
-    const re = attachTmuxAgent({ label, cols: 80, rows: 24, backend: nodePty })
+    const re = attachTmuxAgent({ label, cols: 80, rows: 24, backend: bunPty })
     let out2 = ''
     re.onFrame((f) => {
-      out2 += Buffer.from(f.data, 'base64').toString('utf8')
+      out2 += Buffer.from(f.data).toString('utf8')
     })
     await wait(500)
     expect(out2.length).toBeGreaterThan(0)
@@ -152,17 +149,17 @@ describe.skipIf(!hasTmux)('tmux input-fidelity parity', () => {
       await killTmuxServer(label)
       session = await spawnTmuxAgent({
         label,
-        cmd: nodeBin,
+        cmd: bunBin,
         args: [HEX_FIXTURE],
         cols: 80,
         rows: 24,
-        backend: nodePty,
+        backend: bunPty,
       })
     } else {
-      session = spawnAgent({ cmd: nodeBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, nodePty)
+      session = spawnAgent({ cmd: bunBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, bunPty)
     }
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     // Probe first with a non-control byte so we know the fixture is in raw mode before
     // we send Ctrl-C (0x03) — a premature 0x03 can SIGINT the agent before setRawMode.
@@ -178,7 +175,7 @@ describe.skipIf(!hasTmux)('tmux input-fidelity parity', () => {
   }
 
   for (const [name, hex] of Object.entries(SAMPLES)) {
-    it(`delivers ${name} (${hex}) through tmux identically to direct node-pty`, async () => {
+    it(`delivers ${name} (${hex}) through tmux identically to direct Bun.Terminal`, async () => {
       const direct = await received('direct', hex)
       const tmux = await received('tmux', hex)
       expect(direct).toContain(hex) // sanity: direct path delivers the bytes

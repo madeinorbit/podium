@@ -11,6 +11,8 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
+import { renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { asSessionId, isAgentKind, type MachineId } from '@podium/model'
 import {
   ApprovalChannelTarget,
@@ -33,12 +35,14 @@ import {
   resolveLoggingMode,
   resolvePort,
   resolveRunRecordMode,
+  stateDir,
   resolveUpdateChannel,
   resolveUpdateFeed,
   selectInstance,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { finalizePendingGrant } from '@podium/runtime/update-pending'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
@@ -55,9 +59,29 @@ const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
  *  silently fall through and boot the stack (issue #18). */
-const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'instance']
+const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'instance', 'parent', 'janitor']
 const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
 const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
+
+// These sub-CLIs render richer command-local help after normal dispatch. Top-level
+// help is different: it is a diagnostic of the installed executable and must remain
+// available even when the selected state root cannot safely be claimed.
+const HELP_DELEGATED = new Set([
+  'issue',
+  'session',
+  'spec',
+  'worktree',
+  'workspace',
+  'mail',
+  'offer',
+  'agent',
+  'workflow',
+  'telemetry',
+  'quota',
+  'machine',
+  'instance',
+  'logs',
+])
 
 /** First token the launch path does not understand (skipping value-flag arguments). */
 export function unknownLaunchToken(argv: string[]): string | undefined {
@@ -136,7 +160,13 @@ export type LaunchPlan =
   | { kind: 'approval-request'; op: ApprovalOp }
   | { kind: 'approval-status'; id: string }
   | { kind: 'version' }
-  | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
+  | {
+      kind: 'update'
+      channel: 'stable' | 'edge'
+      feedOverride: string | undefined
+    }
+  | { kind: 'repair-payload'; serverUrl: string; pairedDaemon: boolean }
+  | { kind: 'update-key'; args: string[] }
   | { kind: 'channel'; target: string | undefined }
   /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
   | { kind: 'telemetry'; args: string[] }
@@ -150,8 +180,22 @@ export type LaunchPlan =
   | { kind: 'server-transfer-promote'; transferId: string }
   | { kind: 'server-transfer-retire-daemon' }
   | { kind: 'janitor'; serverUrl: string; takeover: boolean }
+  /** Thin parent: supervises server (+ janitor worker) and optional daemon [POD-2505]. */
+  | {
+      kind: 'parent'
+      port: number
+      /** Include the local daemon child (all-in-one). Server-only omits it. */
+      includeDaemon: boolean
+      includeServer: boolean
+      takeover: boolean
+    }
   | { kind: 'repair-config' }
-  | { kind: 'join-setup'; token: string; persistence: 'systemd' | 'detached'; port: number }
+  | {
+      kind: 'join-setup'
+      token: string
+      persistence: 'systemd' | 'detached'
+      port: number
+    }
   | { kind: 'issue'; args: string[] }
   | { kind: 'session'; args: string[] }
   | { kind: 'mail'; args: string[] }
@@ -170,7 +214,11 @@ export type LaunchPlan =
   | { kind: 'logs'; args: string[] }
   /** Malformed invocation: print `message` to stderr and exit 2. */
   | { kind: 'usage-error'; message: string }
-  | { kind: 'interactive-setup'; port: number; reason: 'explicit' | 'first-run' }
+  | {
+      kind: 'interactive-setup'
+      port: number
+      reason: 'explicit' | 'first-run'
+    }
   | { kind: 'interactive-vps-setup'; port: number }
   | { kind: 'client'; serverUrl: string | undefined }
   /** Headless-managed install: this box runs the backend as INDEPENDENT processes.
@@ -202,6 +250,28 @@ export type LaunchPlan =
        *  refuses to start when the run registry shows a live holder (#18). */
       takeover: boolean
     }
+
+type StateFreeInformationalPlan = Extract<LaunchPlan, { kind: 'help' | 'version' }>
+
+/**
+ * Diagnostics that depend only on argv and this executable. This classifier is shared by
+ * `main` (where it runs before the state claim and compiled initialization) and the pure
+ * launch planner so those two entry paths cannot disagree about what is state-free.
+ */
+export function resolveStateFreeInformationalPlan(
+  argv: readonly string[],
+): StateFreeInformationalPlan | undefined {
+  if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
+    return { kind: 'version' }
+  }
+  if (
+    argv[0] === 'help' ||
+    ((argv.includes('--help') || argv.includes('-h')) && !HELP_DELEGATED.has(argv[0] ?? ''))
+  ) {
+    return { kind: 'help' }
+  }
+  return undefined
+}
 
 const AUTOMATION_SCHEDULE_USAGE =
   'usage: podium automation schedule --at <ISO timestamp> --message <text> [--name <name>] [--session <id> | --fresh --repo <path> [--agent <kind>] [--model <id>] [--effort <level>]]'
@@ -304,19 +374,32 @@ function automationSchedulePlan(argv: string[]): LaunchPlan {
   for (let i = 2; i < argv.length; i++) {
     const token = argv[i] ?? ''
     if (token === '--fresh') {
-      if (fresh) return { kind: 'usage-error', message: 'podium automation: duplicate --fresh' }
+      if (fresh)
+        return {
+          kind: 'usage-error',
+          message: 'podium automation: duplicate --fresh',
+        }
       fresh = true
       continue
     }
     if (!valueFlags.has(token)) {
-      return { kind: 'usage-error', message: `podium automation: unknown option ${token}` }
+      return {
+        kind: 'usage-error',
+        message: `podium automation: unknown option ${token}`,
+      }
     }
     const value = argv[++i]
     if (!value || value.startsWith('--')) {
-      return { kind: 'usage-error', message: `podium automation: ${token} needs a value` }
+      return {
+        kind: 'usage-error',
+        message: `podium automation: ${token} needs a value`,
+      }
     }
     if (values.has(token)) {
-      return { kind: 'usage-error', message: `podium automation: duplicate ${token}` }
+      return {
+        kind: 'usage-error',
+        message: `podium automation: duplicate ${token}`,
+      }
     }
     values.set(token, value)
   }
@@ -326,7 +409,10 @@ function automationSchedulePlan(argv: string[]): LaunchPlan {
   if (!at || !prompt) return { kind: 'usage-error', message: AUTOMATION_SCHEDULE_USAGE }
   const timestamp = Date.parse(at)
   if (!Number.isFinite(timestamp)) {
-    return { kind: 'usage-error', message: `podium automation: invalid --at timestamp '${at}'` }
+    return {
+      kind: 'usage-error',
+      message: `podium automation: invalid --at timestamp '${at}'`,
+    }
   }
 
   const selectedSession = values.get('--session')
@@ -401,6 +487,9 @@ export function resolvePlan(
   env: EnvSnapshot,
   tty: boolean,
 ): LaunchPlan {
+  const informational = resolveStateFreeInformationalPlan(argv)
+  if (informational) return informational
+
   const port = resolvePort(config, env)
   const instanceId = resolveInstanceId(env)
   const relay = resolveAgentRelay(env)
@@ -415,41 +504,6 @@ export function resolvePlan(
         instanceId +
         "'; set PODIUM_NO_RELAY=1 to target another instance explicitly",
     }
-  }
-
-  // ---- help / version (before everything else, so a `--help` tacked onto a launch
-  // command can never boot the stack — issue #18) ----
-  // `podium version` / `--version` / `-v`: print the baked-in build version.
-  if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
-    return { kind: 'version' }
-  }
-  // `podium help` / `--help` / `-h` anywhere → top-level help, EXCEPT for the
-  // sub-CLIs that render their own richer help (issue/session/spec/worktree).
-  const helpDelegated = new Set([
-    'issue',
-    'session',
-    'spec',
-    'worktree',
-    'workspace',
-    'mail',
-    'offer',
-    'agent',
-    'workflow',
-    // Renders its own usage, and `podium telemetry --help` should answer the
-    // privacy question in front of the user, not bury it in the top-level help.
-    'telemetry',
-    'quota',
-    'machine',
-    'instance',
-    // `logs` grew verbs of its own (POD-1947 — `clients`, `level`), so its help
-    // now has something to say that the top-level list cannot fit.
-    'logs',
-  ])
-  if (
-    argv[0] === 'help' ||
-    ((argv.includes('--help') || argv.includes('-h')) && !helpDelegated.has(argv[0] ?? ''))
-  ) {
-    return { kind: 'help' }
   }
 
   // ---- approval broker [spec:SP-edbb] ----
@@ -479,6 +533,13 @@ export function resolvePlan(
     return automationSchedulePlan(argv)
   }
   if (agentSession) {
+    if (argv[0] === 'update' && argv[1] === '--repair') {
+      return {
+        kind: 'usage-error',
+        message:
+          'podium update --repair is an explicit operator repair; run it outside a managed agent session',
+      }
+    }
     if (argv[0] === 'update') return { kind: 'approval-request', op: { kind: 'update' } }
     if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
     if (argv[0] === 'channel' && argv[1]) {
@@ -488,26 +549,58 @@ export function resolvePlan(
       // request `dev` after the operator path learned it (POD-2199).
       const target = ApprovalChannelTarget.safeParse(argv[1])
       return target.success
-        ? { kind: 'approval-request', op: { kind: 'channel', target: target.data } }
+        ? {
+            kind: 'approval-request',
+            op: { kind: 'channel', target: target.data },
+          }
         : {
             kind: 'usage-error',
-            message: `podium channel must be ${ApprovalChannelTarget.options.join(', ')} (got '${argv[1]}')`,
+            message: `podium channel must be ${ApprovalChannelTarget.options.join(
+              ', ',
+            )} (got '${argv[1]}')`,
           }
     }
     if (argv[0] === 'set-server' && argv[1]) {
-      return { kind: 'approval-request', op: { kind: 'set-server', target: argv[1] } }
+      return {
+        kind: 'approval-request',
+        op: { kind: 'set-server', target: argv[1] },
+      }
     }
   }
 
   // ---- utility subcommands (historical dispatch order preserved) ----
   // `podium update`: self-update the headless bundle from the configured feed.
   if (argv[0] === 'update') {
+    if (argv[1] === '--repair') {
+      if (argv.length !== 2) {
+        return {
+          kind: 'usage-error',
+          message: 'usage: podium update --repair',
+        }
+      }
+      if (config.mode === 'client') {
+        return {
+          kind: 'usage-error',
+          message: 'podium update --repair needs a local payload',
+        }
+      }
+      const pairedDaemon = config.mode === 'daemon'
+      const serverUrl = pairedDaemon ? config.serverUrl : localServerUrl(port)
+      return serverUrl
+        ? { kind: 'repair-payload', serverUrl, pairedDaemon }
+        : {
+            kind: 'usage-error',
+            message: 'podium update --repair needs the paired server URL',
+          }
+    }
     return {
       kind: 'update',
       channel: resolveUpdateChannel(config, env) === 'stable' ? 'stable' : 'edge',
       feedOverride: resolveUpdateFeed(config, env),
     }
   }
+  // Explicit local recovery for a changed publisher key; never approval-brokered remotely.
+  if (argv[0] === 'update-key') return { kind: 'update-key', args: argv.slice(1) }
   // `podium channel [stable|edge]`: show or switch the self-update channel.
   if (argv[0] === 'channel') return { kind: 'channel', target: argv[1] }
   // `podium telemetry [...]`: read/change opt-in telemetry consent [spec:SP-f933].
@@ -550,7 +643,8 @@ export function resolvePlan(
   }
   // Internal sibling component [spec:SP-c29e]. It is deliberately not a
   // PodiumMode: operators configure a host/server, and persistence composes the
-  // janitor automatically beside that server.
+  // janitor automatically beside that server. Under the parent model the janitor
+  // runs as a server worker; this subcommand remains for legacy/debug.
   if (argv[0] === 'janitor') {
     const componentArgs = argv.slice(1).filter((arg) => arg !== '--takeover')
     const takeover = argv.includes('--takeover')
@@ -564,6 +658,13 @@ export function resolvePlan(
       kind: 'usage-error',
       message: 'usage: podium janitor [--server <http(s)://url>] [--takeover]',
     }
+  }
+  // Thin parent process [POD-2505]: supervises server + daemon OS children.
+  if (argv[0] === 'parent') {
+    const takeover = argv.includes('--takeover')
+    const includeDaemon = config.mode !== 'server'
+    const includeServer = config.mode !== 'daemon'
+    return { kind: 'parent', port, includeDaemon, includeServer, takeover }
   }
   // `podium setup --repair` (#21): back up an existing-but-invalid config.json.
   if (argv[0] === 'setup' && argv.includes('--repair')) return { kind: 'repair-config' }
@@ -660,7 +761,11 @@ export function resolvePlan(
   // headless-managed. Every branch below is a real launch mode.
 
   if ((forceSetup || modePlan.showSetupHint) && tty) {
-    return { kind: 'interactive-setup', port, reason: forceSetup ? 'explicit' : 'first-run' }
+    return {
+      kind: 'interactive-setup',
+      port,
+      reason: forceSetup ? 'explicit' : 'first-run',
+    }
   }
 
   if (!forceSetup && modePlan.mode === 'client') {
@@ -674,19 +779,10 @@ export function resolvePlan(
   // `daemon` IS a component and runs in-process too.
   if (!forceSetup && bareInvocation && config.persistence) {
     if (config.persistence === 'systemd') {
-      const units =
-        modePlan.mode === 'daemon'
-          ? [instanceServiceName('daemon', instanceId)]
-          : modePlan.mode === 'server'
-            ? [
-                instanceServiceName('server', instanceId),
-                instanceServiceName('janitor', instanceId),
-              ]
-            : [
-                instanceServiceName('server', instanceId),
-                instanceServiceName('janitor', instanceId),
-                instanceServiceName('daemon', instanceId),
-              ]
+      // Parent-supervised topology [POD-2505]: one unit runs the parent; children
+      // are not separate systemd units. Daemon-only joins stay a single daemon unit.
+      // Legacy multi-unit installs are reconciled by the migration issue.
+      const units = [instanceServiceName('parent', instanceId)]
       return { kind: 'systemd-managed', units, mode: modePlan.mode, port }
     }
     return { kind: 'detached-managed', mode: modePlan.mode, port }
@@ -696,15 +792,17 @@ export function resolvePlan(
   // the web setup UI (server only), claim no run-registry role.
   const runServer = forceSetup || modePlan.mode === 'all-in-one' || modePlan.mode === 'server'
   const runDaemon = !forceSetup && (modePlan.mode === 'all-in-one' || modePlan.mode === 'daemon')
-  // The native shell supervises one child, so its server-only and all-in-one
-  // shapes must carry the janitor in that child too. A foreground all-in-one
-  // process has the same three-role contract. Explicit headless `server`
-  // components do not: systemd/detached persistence starts their janitor as an
-  // independent sibling.
+  // The modern parent/all-in-one/desktop shapes own a janitor worker in their
+  // server. A bare explicit server stays janitor-free for compatibility with
+  // legacy split-unit installs, where a sibling janitor still exists during
+  // topology migration.
   const runJanitor =
     !forceSetup &&
     runServer &&
-    (modePlan.mode === 'all-in-one' || env.PODIUM_DESKTOP_SUPERVISED === '1')
+    (modePlan.mode === 'all-in-one' ||
+      env.PODIUM_UNDER_PARENT === '1' ||
+      env.PODIUM_DESKTOP_SUPERVISED === '1' ||
+      env.PODIUM_HOST_JANITOR === '1')
   const claimRole = forceSetup
     ? undefined
     : modePlan.mode === 'server'
@@ -755,6 +853,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  server                Run only the server',
     '  daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
     '                        Run only the daemon (connects to a server)',
+    '  parent                Supervise server (+ janitor worker) and daemon children',
     '  client                Nothing to run locally; points at a remote server',
     '',
     '  --instance <id>        Select an isolated Podium instance (default: default)',
@@ -788,6 +887,9 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '',
     'Self-update:',
     '  update                Self-update from the configured channel feed',
+    '  update --repair       Re-download this machine payload through its coordinator',
+    '  update-key rotate     Rotate the publisher key with signed continuity',
+    '  update-key trust <key> Replace this machine’s pin after out-of-band verification',
     '  channel [stable|edge|dev]',
     '                        Show or switch the update channel',
     '',
@@ -982,7 +1084,11 @@ export function alreadyRunningMessage(
  * host modules; every other subcommand path never loads them.
  */
 export interface HostModules {
-  startServer(opts: { port: number }): Promise<{
+  startServer(opts: {
+    port: number
+    /** Injected worker-thread client; keeps the server free of an app→app import. */
+    startJanitorWorker?: HostModules['startJanitorWorker']
+  }): Promise<{
     port: number
     bootstrapToken?: string
     /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
@@ -995,10 +1101,29 @@ export interface HostModules {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
   ): Promise<unknown>
-  startJanitor(opts: { serverUrl: string; token: string }): Promise<{
+  startJanitorWorker(opts: { serverUrl: string; token: string }): Promise<{
+    progressVersion(): number
+    state(): 'running' | 'degraded' | 'stopped'
+    reason(): string | undefined
+    close(): void
+  }>
+  /** Legacy/debug standalone janitor command. Normal server paths use the worker above. */
+  startJanitor(opts: {
+    serverUrl: string
+    token: string
+    onCompatibilityRefusal?: (error: Error) => void
+  }): Promise<{
     service: { progressVersion(): number }
     close(): void
   }>
+}
+
+/** Composition-root work that may touch the selected instance's state directory.
+ *  The launcher invokes it only after the root has been claimed, so compiled-only
+ *  initializers cannot accidentally become pre-claim writers. */
+export interface CliRuntimeOptions {
+  localSetupDefault?: boolean
+  afterInstanceStateClaim?: () => void | Promise<void>
 }
 
 type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
@@ -1034,7 +1159,14 @@ async function runInProcess(
   // for status/stop. The in-process all-in-one is a single role; the split modes each
   // claim their own.
   if (plan.claimRole) {
-    if (plan.claimRole === 'daemon' && plan.daemonAuth === 'remote' && plan.takeover) {
+    // A parent-owned child is already the reconciled daemon; takeover must reclaim only
+    // a prior daemon role, never retire the supervisor that launched this child.
+    if (
+      plan.claimRole === 'daemon' &&
+      plan.daemonAuth === 'remote' &&
+      plan.takeover &&
+      process.env.PODIUM_UNDER_PARENT !== '1'
+    ) {
       try {
         const { prepareForegroundDaemon } = await import('./role-reconcile')
         const preparation = await prepareForegroundDaemon()
@@ -1077,7 +1209,10 @@ async function runInProcess(
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
     try {
-      server = await startServer({ port })
+      server = await startServer({
+        port,
+        ...(roles.janitor ? { startJanitorWorker: host.startJanitorWorker } : {}),
+      })
     } catch (err) {
       // The port is taken (the common case on podium-host: the systemd podium-server
       // already owns :18787). Print actionable guidance and exit cleanly rather than
@@ -1096,15 +1231,6 @@ async function runInProcess(
       console.log(`\n  → Open setup:  ${localServerUrl(serverPort)}/\n`)
       console.log('  → …or run: podium setup   (configure here in the terminal)')
     }
-  }
-  let janitorHandle: Awaited<ReturnType<HostModules['startJanitor']>> | undefined
-  if (roles.janitor && host) {
-    const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
-    janitorHandle = await host.startJanitor({
-      serverUrl: localServerUrl(serverPort),
-      token: readOrCreateDaemonSecret(),
-    })
-    console.log(`podium janitor up -> ${localServerUrl(serverPort)}`)
   }
   if (roles.daemon && host) {
     let daemonOptions: DaemonStartOptions
@@ -1146,6 +1272,7 @@ async function runInProcess(
         ? {
             onBlocked: async ({ type, reason }: { type: string; reason: string }) => {
               const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
+              console.error(`podium daemon: blocked-exit hook invoked pid=${process.pid} type=${type} reason=${reason}`)
               console.error(
                 `podium daemon: blocked by the server (${type}: ${reason}) — exiting ${DAEMON_BLOCKED_EXIT_CODE}. Run \`podium status\` for recovery steps.`,
               )
@@ -1164,7 +1291,6 @@ async function runInProcess(
   const shutdown = (): void => {
     stopWatchdog?.()
     stopSupervisorWatch?.()
-    janitorHandle?.close()
     // Drain the log sink before exiting; best-effort, never a reason to hang.
     void (componentLogging?.close() ?? Promise.resolve())
       .catch(() => {})
@@ -1172,6 +1298,21 @@ async function runInProcess(
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+  // Topology migration kickoff: a legacy CLI unit that just became the new version
+  // writes+starts podium.service and keeps serving until the parent takes over.
+  // That CLI unit has a run-registry role for the --takeover child to reclaim.
+  // Direct source entrypoints do not; their one-time stop/write/start cutover is
+  // docs/updating-a-dev-instance.md.
+  // Handlers are already installed, so a SIGTERM during this cannot orphan
+  // children (POD-2505). The parent, not this process, retires leftover units.
+  if (plan.claimRole === 'server' || (plan.claimRole === 'daemon' && modePlan.mode === 'daemon')) {
+    const { reconcileSupervision, shouldKickoffMigration } = await import('./topology-reconcile')
+    if (shouldKickoffMigration()) {
+      void reconcileSupervision().catch((error) => {
+        console.error(`podium: topology reconcile failed: ${(error as Error).message}`)
+      })
+    }
+  }
   // Parent-death watch (POD-1228). This is the process Podium Desktop spawns as
   // its sidecar, and the shell's own exit handlers only run on a deliberate quit:
   // a GUI crash or SIGKILL leaves us reparented and still holding the fixed
@@ -1183,7 +1324,7 @@ async function runInProcess(
 
 export async function main(
   loadHost: () => Promise<HostModules>,
-  runtime: { localSetupDefault?: boolean } = {},
+  runtime: CliRuntimeOptions = {},
 ): Promise<void> {
   let selection: ReturnType<typeof selectInstance>
   try {
@@ -1195,6 +1336,34 @@ export async function main(
   }
   process.env.PODIUM_INSTANCE = selection.instanceId
   const argv = selection.argv
+
+  // Diagnostics must survive the exact failure this claim protects against: a foreign,
+  // damaged, or non-empty unmarked root. They also exit before compiled initialization,
+  // which materializes embedded abduco inside that root. Top-level help deliberately uses
+  // the state-free core command list; feature-decorated discovery is not worth making a
+  // broken installation's help unavailable.
+  const informational = resolveStateFreeInformationalPlan(argv)
+  if (informational?.kind === 'version') {
+    console.log(versionText())
+    return
+  }
+  if (informational?.kind === 'help') {
+    console.log(helpText())
+    return
+  }
+
+  // Claim the selected state root before ANY shared CLI bootstrap can populate it.
+  // In particular, a packaged `podium-<instance> channel ...` invocation configures
+  // detached file logging before dispatch; if logging creates logs/ first, the channel
+  // write sees a non-empty unmarked named root and correctly refuses to adopt it.
+  try {
+    ensureInstanceStateIdentity({ instanceId: selection.instanceId })
+  } catch (error) {
+    console.error(`podium: ${(error as Error).message}`)
+    process.exitCode = 2
+    return
+  }
+  await runtime.afterInstanceStateClaim?.()
 
   // ONE-SHOT CONFIG MIGRATIONS, before anything reads the config (POD-333).
   //
@@ -1279,6 +1448,25 @@ export async function main(
       )
       return
     }
+    case 'repair-payload': {
+      const { runPayloadRepair } = await import('./payload-repair')
+      try {
+        await runPayloadRepair({
+          serverUrl: plan.serverUrl,
+          pairedDaemon: plan.pairedDaemon,
+        })
+      } catch (error) {
+        console.error(`podium: payload repair failed — ${(error as Error).message}`)
+        process.exit(1)
+      }
+      return
+    }
+    case 'update-key': {
+      const { updateKeyCliMain } = await import('./update-key-cli')
+      const code = updateKeyCliMain(plan.args)
+      if (code !== 0) process.exit(code)
+      return
+    }
     case 'channel': {
       const { applyChannel } = await import('./cli-channel')
       try {
@@ -1354,6 +1542,143 @@ export async function main(
       await retireTargetDaemon({ acknowledged: true })
       return
     }
+    case 'parent': {
+      ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
+      const parentLogging = configureProcessLogging({ role: 'parent' })
+      const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
+      const { ParentProcess, PARENT_SUCCESSOR_ENV } = await import('@podium/runtime/parent-process')
+      const { createParentUpdateSwap } = await import('@podium/runtime/parent-update-swap')
+      const { resolveInstallDir } = await import('@podium/runtime/config')
+      const { fileURLToPath } = await import('node:url')
+      const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
+      const compiled = import.meta.url.includes('/$bunfs/')
+      const children: Array<'server' | 'daemon'> = [
+        ...(plan.includeServer ? (['server'] as const) : []),
+        ...(plan.includeDaemon ? (['daemon'] as const) : []),
+      ]
+      /**
+       * A SUCCESSOR is a parent spawned by a live predecessor during
+       * self-handover. It must not touch the `parent` pidfile on the way up:
+       * `registerProcess` reclaims, reclaim SIGTERMs the holder, and the holder
+       * is the parent still supervising the serving stack and still owed the
+       * decision about when to exit (POD-2505 review finding 1). It claims the
+       * role only once its own health gate passes — see `claimRole` below.
+       */
+      const isSuccessor = process.env[PARENT_SUCCESSOR_ENV] === '1'
+      const installDir = resolveInstallDir(process.env)
+      const parent = new ParentProcess({
+        port: plan.port,
+        children,
+        finalizePendingGrant: children.includes('server')
+          ? (expectedVersion) => finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion)
+          : undefined,
+        env: {
+          ...process.env,
+          ...(compiled
+            ? {}
+            : {
+                PODIUM_PARENT_BIN: process.execPath,
+                PODIUM_PARENT_CLI: cliPath,
+              }),
+        },
+        // Disposition 11: schema-gate → verified fetch → swap → VERSION re-read
+        // run HERE, in the parent, not in the server that is about to be replaced.
+        performUpdateSwap: (target, opts) =>
+          createParentUpdateSwap({
+            installDir,
+            ...(opts.pinnedPubkey ? { pinnedPubkey: opts.pinnedPubkey } : {}),
+            ...(opts.publisherPubkey ? { publisherPubkey: opts.publisherPubkey } : {}),
+          })(target as Parameters<ReturnType<typeof createParentUpdateSwap>>[0]),
+        claimRole: isSuccessor
+          ? async () => {
+              await registerProcess('parent', {
+                mode: resolveRunRecordMode(process.env),
+                port: plan.port,
+                reclaimExisting: false,
+              })
+            }
+          : undefined,
+        /**
+         * A failed handover leaves this parent supervising under a pidfile the
+         * dead successor took with it (POD-2721). Write it back.
+         *
+         * `reclaimExisting: false` for the same reason the successor's claim
+         * uses it, arrived at from the other side: there is no live holder to
+         * reclaim — the successor has already been SIGTERMed and waited for by
+         * `abortHandover` — and a reclaim would only offer to SIGTERM whatever
+         * process happens to hold that pid now.
+         */
+        reclaimRole: async () => {
+          await registerProcess('parent', {
+            mode: resolveRunRecordMode(process.env),
+            port: plan.port,
+            reclaimExisting: false,
+          })
+        },
+        onExit: async () => {
+          await parentLogging.close().catch(() => {})
+        },
+        reportSuccessorPid: (pid) => {
+          const destination = process.env.PODIUM_DESKTOP_SUCCESSOR_FILE
+          if (destination) {
+            const temporary = `${destination}.${process.pid}.tmp`
+            try {
+              writeFileSync(temporary, `${pid}\n`, { mode: 0o600 })
+              renameSync(temporary, destination)
+            } catch (error) {
+              console.error(
+                `[podium parent] could not report successor pid: ${(error as Error).message}`,
+              )
+            }
+          }
+          console.error(`[podium parent] successor pid ${pid}`)
+        },
+      })
+      /**
+       * BEFORE anything else that can block, and long before the first child
+       * exists. Graceful termination must drain every child; the default signal
+       * action cannot do that, and SIGKILL cannot reap children (review finding 18).
+       */
+      parent.installSignalHandlers()
+      if (!isSuccessor) {
+        if (!plan.takeover) {
+          const holder = liveRecord('parent')
+          if (holder) {
+            console.error(alreadyRunningMessage('parent', holder))
+            process.exit(1)
+          }
+        }
+        try {
+          await registerProcess('parent', {
+            mode: resolveRunRecordMode(process.env),
+            port: plan.port,
+          })
+        } catch (error) {
+          console.error((error as Error).message)
+          process.exit(1)
+        }
+      }
+      console.log(`podium parent up — supervising ${children.join(' + ')} on :${plan.port}`)
+      await parent.start()
+      // Health-gated unit retirement: only the NEW parent proving healthy may
+      // shed leftover units. A failed gate aborts onto the still-armed legacy set.
+      // Skip when this parent is not a managed install (foreground tests, desktop).
+      if (config.persistence === 'systemd' || config.persistence === 'detached') {
+        try {
+          const { reconcileSupervision } = await import('./topology-reconcile')
+          const { hasUserSystemd } = await import('./cli-systemd')
+          if (config.persistence !== 'systemd' || hasUserSystemd()) {
+            await reconcileSupervision({
+              parentHealthy: () => parent.isBootHealthy(),
+              ...(parent.isBootHealthy() ? {} : { healthTimeoutMs: 0 }),
+            })
+          }
+        } catch (error) {
+          console.error(`podium: topology reconcile failed: ${(error as Error).message}`)
+        }
+      }
+      return
+    }
     case 'janitor': {
       ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
       // This is a long-lived component, not a CLI command: re-configure logging
@@ -1396,7 +1721,9 @@ export async function main(
       const { startWatchdog } = await import('@podium/runtime/sd-notify')
       // A live timer is not proof that maintenance advances: only completed
       // janitor state-machine phases may keep the watchdog green [spec:SP-c29e].
-      const stopWatchdog = startWatchdog({ readProgress: () => handle.service.progressVersion() })
+      const stopWatchdog = startWatchdog({
+        readProgress: () => handle.service.progressVersion(),
+      })
       const shutdown = (): void => {
         stopWatchdog?.()
         handle.close()
@@ -1559,7 +1886,10 @@ export async function main(
     case 'interactive-setup': {
       const { runCliSetup } = await import('./cli-setup')
       const { createInterface } = await import('node:readline/promises')
-      const rl = createInterface({ input: process.stdin, output: process.stdout })
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      })
       await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
       rl.close()
       return
@@ -1567,40 +1897,34 @@ export async function main(
     case 'interactive-vps-setup': {
       const { runVpsSetup } = await import('./cli-setup')
       const { createInterface } = await import('node:readline/promises')
-      const rl = createInterface({ input: process.stdin, output: process.stdout })
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      })
       await runVpsSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
       rl.close()
       return
     }
     case 'client': {
       console.log(
-        `podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`,
+        `podium client mode — open the web UI pointed at ${
+          plan.serverUrl ?? '(no serverUrl configured)'
+        }`,
       )
       console.log('(run `podium setup` to reconfigure this install)')
       return
     }
     case 'systemd-managed': {
-      // ENSURE, not just start. This absorbs what the retired
-      // `reconcile-pending-persistence` plan did (POD-333): a box whose web
-      // setup chose systemd could not install the units from inside the serving
-      // process, so `systemctl start` here has nothing to start. Installing on
-      // that failure is the same act the old plan performed, minus the config
-      // state that used to schedule it — and it is idempotent on a box whose
-      // units already exist, because that box takes the first branch.
-      const { execFileSync } = await import('node:child_process')
-      let started = false
+      // Boot reconciliation: write/enable/start podium.service, leave leftover
+      // units armed until the parent health gate (run by the parent process)
+      // retires them. Idempotent on a converged host.
+      const { reconcileSupervision } = await import('./topology-reconcile')
       try {
-        execFileSync('systemctl', ['--user', 'start', ...plan.units], { stdio: 'ignore' })
-        started = true
-      } catch {
-        // Fall through to install — the units are missing, masked, or broken.
-      }
-      if (!started) {
+        await reconcileSupervision()
+      } catch (error) {
         const { installSystemd } = await import('./cli-systemd')
         const res = installSystemd(plan.mode, plan.port, resolveInstanceId())
-        if (res.ok) {
-          console.log('Installed + started the systemd units for this instance.')
-        } else {
+        if (!res.ok) {
           console.error(`podium: could not start or install the systemd units — ${res.reason}`)
           if (res.remedy) console.error(res.remedy)
         }

@@ -103,11 +103,7 @@ describe('compiled installed daemon build report', () => {
       expect(installed).toMatchObject({
         appVersion: installedVersion,
         installKind: 'installed',
-        deliveryCaps: [
-          'update.delivery.feed',
-          'update.delivery.bundle',
-          'shipping.train.v2',
-        ],
+        deliveryCaps: ['update.delivery.feed', 'shipping.train.v2'],
       })
     } finally {
       if (child) await stop(child)

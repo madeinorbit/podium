@@ -11,7 +11,12 @@ import { attachTestClient } from '../test-support/client-transport'
  */
 
 import { asSessionId, asUserId } from '@podium/model'
-import { CLIENT_PLANE_CLASS, type ClientMessage, type ServerMessage } from '@podium/protocol'
+import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CLIENT_PLANE_CLASS,
+  type ClientMessage,
+  type ServerMessage,
+} from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import { CLIENT_FRAME_PORTS, clientPortsFor } from './client-frame-routing'
@@ -50,6 +55,7 @@ function harness() {
       onClientDetached: vi.fn(),
       onRoomJoined: vi.fn(),
       onSessionClientFrame: vi.fn(),
+      onSessionClientInput: vi.fn(),
       // The no-publication branch of the real sink, which is what these
       // fixtures' connections are.
     },
@@ -218,6 +224,37 @@ describe('the connection lifecycle', () => {
     expect(h.registry.get(h.id)).toBe(conn)
   })
 
+  it('acknowledges binary input only after hello and routes bytes under transport identity', () => {
+    const h = harness()
+    vi.mocked(h.ports.sessions.onSessionClientFrame).mockImplementation((_principal, conn, msg) => {
+      if (msg.type === 'hello' && msg.caps) conn.caps = new Set(msg.caps)
+    })
+    const hello = {
+      type: 'hello' as const,
+      clientId: 'forged-client-id',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+    }
+
+    expect(h.mux.acceptsClientInputBinary(h.id)).toBe(false)
+    h.mux.routeClientFrame(h.id, hello)
+    expect(h.sent.at(-1)).toEqual({
+      type: 'welcome',
+      clientId: h.id,
+      caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+    })
+    expect(h.mux.acceptsClientInputBinary(h.id)).toBe(true)
+
+    const bytes = Uint8Array.of(0, 0xff, 0x1b, 0x0d)
+    h.mux.routeClientInputBytes(h.id, asSessionId('s1'), bytes)
+    expect(h.ports.sessions.onSessionClientInput).toHaveBeenCalledWith(
+      h.mux.principalOf(h.id),
+      h.registry.get(h.id),
+      asSessionId('s1'),
+      bytes,
+    )
+  })
+
   it('removes the connection BEFORE the sweep, and hands the sweep its record', () => {
     const h = harness()
     vi.mocked(h.ports.sessions.onClientDetached).mockImplementation(() => {
@@ -295,6 +332,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
           onClientDetached: vi.fn(),
           onRoomJoined: vi.fn(),
           onSessionClientFrame: vi.fn(),
+          onSessionClientInput: vi.fn(),
         },
       },
       feed: feedTestPlumbing().serving,

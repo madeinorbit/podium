@@ -21,6 +21,7 @@ import { DevBundleUnavailableError } from './dev-bundle'
 import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import {
   admissibleDeferredPlaces,
+  supersededDeferredPlaces,
   classifyMachineFailure,
   createUpdateFleetBridge,
   DESKTOP_INSTALL_ASK,
@@ -28,6 +29,7 @@ import {
   describeUpdateWaitingExpiry,
   exclusiveUpdateVersion,
   LIFECYCLE_EXCLUSION_GROUP,
+  mergedWaveRounds,
   planUpdateOperation,
   RELOAD_SURFACES_ASK,
   reconcileUpdateOperation,
@@ -46,10 +48,12 @@ import {
   type UpdateFailure,
   type UpdateOperationContext,
   type UpdatePlanInput,
+  updateOperationDetails,
   updateOperationKind,
 } from './operation'
 import { UpdatesService } from './service'
-import { offeredDeliveries, type WaveMachine } from './wave'
+import { updateStartability } from './trpc'
+import { offeredDeliveries, type WaveMachine, type WaveRound } from './wave'
 
 /**
  * THE `update` KIND (POD-2098), proven the way the framework next door is: a
@@ -65,6 +69,7 @@ afterEach(() => {
 // ───────────────────────────── fixtures ──────────────────────────────
 
 const WEB_DIGEST = 'abc1234'
+const NEXT_WEB_DIGEST = 'def5678'
 
 function devTarget(over: Partial<UpdateTarget> = {}): UpdateTarget {
   return {
@@ -76,29 +81,53 @@ function devTarget(over: Partial<UpdateTarget> = {}): UpdateTarget {
 }
 
 /**
- * WHAT THE DEV PUBLISHER ACTUALLY PUBLISHES for a bare `dev+<sha>` identity
- * (`devIdentityTarget`): no tarball, and git as the delivery a machine that owns
- * the checkout can take today. `devTarget()` above is the degenerate shape that
- * offers NOTHING — kept, because it is what a plan must refuse to wave.
+ * WHAT THE DEV PUBLISHER PUBLISHES BEFORE A RELEASE HAS BEEN BUILT
+ * (`devIdentityTarget`): a web digest and NOTHING to deliver.
+ *
+ * It used to also carry a `git` alternative — a repo and a sha, which was
+ * everything a machine that owned the checkout needed. Git delivery is retired
+ * (spec disposition 5), so an identity target is now nothing to EVERY machine,
+ * and the only answer to it is to build and publish a real release.
  */
-function gitIdentityTarget(): UpdateTarget {
+function identityTarget(): UpdateTarget {
   return devTarget({
-    artifacts: {
-      web: { digest: WEB_DIGEST },
-      headlessAlternatives: [{ delivery: 'git', repo: '/src/podium', sha: 'abc1234' }],
-    },
+    artifacts: { web: { digest: WEB_DIGEST } },
   } as Partial<UpdateTarget>)
 }
 
-const GIT_CAPS = ['update.delivery.git']
-const BUNDLE_CAPS = ['update.delivery.feed', 'update.delivery.bundle']
+/**
+ * A daemon running from SOURCE. It reports no delivery capability at all now:
+ * it has no install directory, so a feed artifact is bytes it could verify and
+ * then have nowhere to put. Keeping the shipping-train cap makes the point that
+ * this is about DELIVERY and not about the machine being mute.
+ */
+const SOURCE_CAPS = ['podium.shipping-train']
+const FEED_CAPS = ['update.delivery.feed', 'podium.shipping-train']
 
-/** The same dev target once the tarball has been packed for it. */
+/** The same dev target once a release has been built and published for it. */
 function packedTarget(): UpdateTarget {
   return devTarget({
     artifacts: {
       web: { digest: WEB_DIGEST },
-      headless: { delivery: 'bundle', platforms: {} },
+      headless: { delivery: 'feed', platforms: {} },
+    },
+  } as Partial<UpdateTarget>)
+}
+
+/** A published release carrying bytes for exactly these platforms and no others. */
+function releaseFor(platforms: readonly string[]): UpdateTarget {
+  return devTarget({
+    artifacts: {
+      web: { digest: WEB_DIGEST },
+      headless: {
+        delivery: 'feed',
+        platforms: Object.fromEntries(
+          platforms.map((platform) => [
+            platform,
+            { url: `https://x.test/${platform}.tgz`, digest: 'd', signature: 's' },
+          ]),
+        ),
+      },
     },
   } as Partial<UpdateTarget>)
 }
@@ -150,9 +179,38 @@ describe('planUpdateOperation', () => {
       steps: [UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER, UPDATE_STEP_WEB],
     },
     {
+      name: 'a parent-backed host participates once in the fleet instead of a server step',
+      input: {
+        target: packedTarget(),
+        hostMachineId: 'host',
+        fleet: [machine({ id: 'host', installKind: 'installed', online: true })],
+      },
+      steps: [UPDATE_STEP_MACHINES, UPDATE_STEP_WEB],
+    },
+    {
       name: 'a server already on the target keeps its machines and its website',
       input: { appVersion: 'dev+abc1234', fleet: [machine({ id: 'vmi' })] },
       steps: [UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES, UPDATE_STEP_WEB],
+    },
+    {
+      name: 'a source coordinator behind the target plans no packaged self-update',
+      input: {
+        target: {
+          ...packedTarget(),
+          version: `0.1.1-dev.1+${NEXT_WEB_DIGEST}`,
+          artifacts: {
+            ...packedTarget().artifacts,
+            web: { digest: NEXT_WEB_DIGEST },
+          },
+        },
+        appVersion: 'dev+abc1234',
+        sourceDigest: WEB_DIGEST,
+        serverInstallKind: 'source',
+        // Keep the website current so only packaged coordinator eligibility can
+        // decide whether the plan contains a server step.
+        servedWebDigest: NEXT_WEB_DIGEST,
+      },
+      steps: [],
     },
     {
       name: 'a website already at the target digest is not rebuilt',
@@ -219,17 +277,18 @@ describe('planUpdateOperation', () => {
    * 325 MB of it. The pack is planned for the machines that CANNOT take what the
    * target already offers, and for nobody else.
    */
-  it('plans no pack when every machine in scope can take git delivery', () => {
+  it('never waves a source machine, which can take no delivery at all', () => {
+    // A source checkout is not a packaged rollout target. It belongs to its
+    // operator, so the plan excludes it rather than granting bytes it cannot
+    // install or representing that deliberate exclusion as a failure.
     const plan = planUpdateOperation(
       planInput({
-        target: gitIdentityTarget(),
-        fleet: [machine({ id: 'src', deliveryCaps: GIT_CAPS })],
+        target: packedTarget(),
+        fleet: [machine({ id: 'src', installKind: 'source', deliveryCaps: SOURCE_CAPS })],
       }),
     )
-    expect(stepIds(plan)).toEqual([UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER, UPDATE_STEP_WEB])
-    expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places).toEqual([
-      expect.objectContaining({ id: 'src' }),
-    ])
+    expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places ?? []).toEqual([])
+    expect(plan.deferred).toEqual([])
   })
 
   /**
@@ -237,23 +296,24 @@ describe('planUpdateOperation', () => {
    * reason: nobody is waiting on a tarball, so nobody is served by building one.
    */
   it('plans no pack for a fleet with no machine behind', () => {
-    const plan = planUpdateOperation(planInput({ target: gitIdentityTarget(), fleet: [] }))
+    const plan = planUpdateOperation(planInput({ target: identityTarget(), fleet: [] }))
     expect(stepIds(plan)).toEqual([UPDATE_STEP_SERVER, UPDATE_STEP_WEB])
   })
 
   /**
-   * THE MIXED FLEET, which is where the pack is genuinely needed. One machine
-   * owns a checkout, one can only take a bundle; the honest plan packs once and
-   * waves BOTH — the installed machine is not deferred for the state of an
-   * artifact this very plan is about to produce.
+   * THE MIXED FLEET. One machine runs from source and is not a rollout target; one
+   * is installed and can take a feed once there is one. The plan publishes once
+   * and waves the installed machine — which is NOT deferred for the state of an
+   * artifact this very plan is about to produce — while omitting the source
+   * machine entirely.
    */
-  it('plans the pack for the one machine that can only take a bundle, and waves both', () => {
+  it('plans the publish for the installed machine and excludes the source one', () => {
     const plan = planUpdateOperation(
       planInput({
-        target: gitIdentityTarget(),
+        target: identityTarget(),
         fleet: [
-          machine({ id: 'src', deliveryCaps: GIT_CAPS }),
-          machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS }),
+          machine({ id: 'src', installKind: 'source', deliveryCaps: SOURCE_CAPS }),
+          machine({ id: 'vmi' }),
         ],
       }),
     )
@@ -265,7 +325,7 @@ describe('planUpdateOperation', () => {
     ])
     expect(
       plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.map((p) => p.id),
-    ).toEqual(['src', 'vmi'])
+    ).toEqual(['vmi'])
     expect(plan.deferred).toEqual([])
   })
 
@@ -275,11 +335,11 @@ describe('planUpdateOperation', () => {
    * when it wakes — and a bare identity is nothing it could ever take. Not
    * packing here would strand it until a human ran another update.
    */
-  it('packs for a bundle-only machine that is asleep, and defers it', () => {
+  it('packs for a feed machine that is asleep, and defers it', () => {
     const plan = planUpdateOperation(
       planInput({
-        target: gitIdentityTarget(),
-        fleet: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS, online: false })],
+        target: identityTarget(),
+        fleet: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS, online: false })],
       }),
     )
     expect(stepIds(plan)).toContain(UPDATE_STEP_PREPARE)
@@ -287,34 +347,38 @@ describe('planUpdateOperation', () => {
   })
 
   /**
-   * A machine that has never reported a build is not evidence that git will do.
-   * `machineCanTakeDelivery` says yes to unknown caps so nothing is stranded;
-   * the PACK question is the stricter one — do we positively know this machine
-   * can take what we already have — because getting it wrong costs a wave of
-   * rejections rather than a build.
+   * A machine that has never reported a build is not evidence that it could
+   * take what is already published. `machineCanTakeDelivery` says yes to
+   * unknown caps so nothing is stranded; the PACK question is the stricter one
+   * — do we positively know this machine can take what we already have —
+   * because getting it wrong costs a wave of rejections rather than a build.
    */
   it('packs for a machine whose delivery capabilities are unknown', () => {
     const plan = planUpdateOperation(
-      planInput({ target: gitIdentityTarget(), fleet: [machine({ id: 'legacy' })] }),
+      planInput({ target: identityTarget(), fleet: [machine({ id: 'legacy' })] }),
     )
     expect(stepIds(plan)).toContain(UPDATE_STEP_PREPARE)
   })
 
   /**
-   * §9.3 — development is the continuous test of the production mechanism, so
-   * the source path must not need the publisher either. A server that cannot
-   * pack anything can still hand a checkout-owning machine a sha.
+   * A SERVER THAT CANNOT PUBLISH HAS NOTHING TO OFFER AN IDENTITY TARGET.
+   *
+   * This used to be the §9.3 exception: an unpackable server could still hand a
+   * checkout-owning machine a sha. Git delivery is gone, so the exception is
+   * gone with it, and the plan says so instead of waving a machine towards
+   * bytes that do not exist.
    */
-  it('waves a git-capable machine even where nothing can pack', () => {
+  it('waves nobody for an identity target where nothing can publish', () => {
     const plan = planUpdateOperation(
       planInput({
-        target: gitIdentityTarget(),
+        target: identityTarget(),
         canPrepare: false,
-        fleet: [machine({ id: 'src', deliveryCaps: GIT_CAPS })],
+        fleet: [machine({ id: 'vmi' })],
       }),
     )
-    expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
     expect(stepIds(plan)).not.toContain(UPDATE_STEP_PREPARE)
+    expect(plan.deferred).toEqual([{ id: 'vmi', name: 'vmi', reason: 'cannot-take-delivery' }])
   })
 
   it('defers an offline machine instead of letting it hold the outcome open', () => {
@@ -326,6 +390,21 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
+  it('refuses to start when every changed place is deferred offline', () => {
+    const target = packedTarget()
+    const input = planInput({
+      target,
+      appVersion: target.version,
+      servedWebDigest: target.artifacts.web?.digest,
+      fleet: [machine({ id: 'offline', online: false })],
+    })
+
+    expect(updateStartability(input)).toEqual({
+      startable: false,
+      reason: 'No online machine can apply this update right now.',
+    })
+  })
+
   it('plans no machines step at all when every behind machine is asleep', () => {
     const plan = planUpdateOperation(
       planInput({ fleet: [machine({ id: 'laptop', online: false })] }),
@@ -334,49 +413,166 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toHaveLength(1)
   })
 
-  /**
-   * A supervised daemon lives inside a signed application bundle. It is
-   * EXCLUDED, not deferred: deferred means "we will do this later", and this one
-   * is never ours to do (§4, P5 — no surface updates someone else's native app).
-   */
-  it('excludes a desktop-supervised daemon from the wave and from the deferred list', () => {
+  /** Desktop supervision owns crashes; the external payload remains fleet-managed. */
+  it('includes a desktop-supervised daemon in the ordinary fleet wave', () => {
     const plan = planUpdateOperation(
       planInput({ fleet: [machine({ id: 'macbook', supervised: true })] }),
     )
-    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
+    expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.[0]?.id).toBe(
+      'macbook',
+    )
     expect(plan.deferred).toEqual([])
+  })
+
+  /**
+   * A MACHINE THAT JOINED AFTER THE RELEASE WAS BUILT (POD-2783).
+   *
+   * `fleetHeadlessPlatforms` fixes a release's platform list from the fleet as
+   * it stood at mint time. A Mac enrolling into a Linux-only fleet is therefore
+   * offered a release that contains nothing it could run, and the release is
+   * immutable, so no retry and no reconnect will ever change that. Planning it
+   * into the machines step spends the operation's whole silence budget to
+   * arrive at a refusal that was knowable before the first grant.
+   */
+  it('defers a machine the release predates when nothing here can build one', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        canPrepare: false,
+        target: releaseFor(['linux-x86_64']),
+        fleet: [machine({ id: 'mac', platform: 'darwin-aarch64', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred?.[0]).toMatchObject({ id: 'mac', reason: 'platform-not-in-release' })
+  })
+
+  /**
+   * …and a server that CAN build does not rescue it either, which is the fact
+   * the copy has to carry. A published release is immutable: adding a platform
+   * to it would be a different release. The Mac's bytes arrive at the next
+   * MINT, not from this operation, so it is deferred here rather than waved
+   * towards a build nothing is going to run.
+   */
+  it('defers it on a publishing server too, because a release is immutable', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        canPrepare: true,
+        target: releaseFor(['linux-x86_64']),
+        fleet: [machine({ id: 'mac', platform: 'darwin-aarch64', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred?.[0]).toMatchObject({ id: 'mac', reason: 'platform-not-in-release' })
+  })
+
+  /**
+   * An IDENTITY target is a different case and must not borrow this vocabulary:
+   * nothing is published for anybody yet, and the pack this plan commits to
+   * reads the fleet as it stands NOW — so a Mac that joined yesterday is in the
+   * platform list by construction and belongs in the wave.
+   */
+  it('waves a late-joining machine towards a pack that will cover it', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        target: identityTarget(),
+        fleet: [machine({ id: 'mac', platform: 'darwin-aarch64', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).toContain(UPDATE_STEP_PREPARE)
+    expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred).toEqual([])
+  })
+
+  /**
+   * The other half of the platform split: no build will ever produce these
+   * bytes, so promising one by planning a prepare step would be the same lie in
+   * a new place.
+   */
+  it('defers a platform no release will ever carry, however much it could build', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        target: identityTarget(),
+        fleet: [machine({ id: 'win', platform: 'windows-x86_64', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred?.[0]).toMatchObject({ id: 'win', reason: 'platform-not-published' })
+  })
+
+  /** A machine that has never said what it is stays visible, as with unknown caps. */
+  it('keeps a machine that has reported no platform in the wave', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        canPrepare: false,
+        target: releaseFor(['linux-x86_64']),
+        fleet: [machine({ id: 'mute', deliveryCaps: FEED_CAPS })],
+      }),
+    )
+    expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
   })
 
   it('defers a machine that cannot take the packed artifact', () => {
     const plan = planUpdateOperation(
       planInput({
         target: packedTarget(),
-        fleet: [machine({ id: 'src', deliveryCaps: ['update.delivery.git'] })],
+        fleet: [machine({ id: 'src', deliveryCaps: ['podium.shipping-train'] })],
       }),
     )
     expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
     expect(plan.deferred?.[0]).toMatchObject({ id: 'src', reason: 'cannot-take-delivery' })
   })
 
-  /**
-   * §5: in all-in-one the shell carries server + daemon + web atomically, so
-   * there is nothing a runner may do. The plan is empty and the ask is REQUIRED,
-   * which is precisely what makes the engine settle it into `waiting`.
-   */
-  it('plans an all-in-one install as a required ask and no steps at all', () => {
+  it('defers a legacy verifier without pretending another pack can repair it', () => {
+    const target = { ...packedTarget(), trust: 'instance' as const }
+    const legacy = machine({
+      id: 'flatblock',
+      deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+    })
+    const plan = planUpdateOperation(planInput({ target, fleet: [legacy] }))
+
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_PREPARE)
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_MACHINES)
+    expect(plan.deferred).toEqual([
+      { id: 'flatblock', name: 'flatblock', reason: 'legacy-instance-trust' },
+    ])
+  })
+
+  it('names the permanent verifier mismatch when it is the only pending work', () => {
+    const target = { ...packedTarget(), trust: 'instance' as const }
+    const verdict = updateStartability(
+      planInput({
+        target,
+        appVersion: target.version,
+        servedWebDigest: target.artifacts.web?.digest,
+        fleet: [
+          machine({
+            id: 'flatblock',
+            deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+          }),
+        ],
+      }),
+    )
+    expect(verdict).toMatchObject({ startable: false })
+    expect(verdict).toHaveProperty(
+      'reason',
+      expect.stringMatching(/baked release key.*pinned instance key/i),
+    )
+  })
+
+  /** The all-in-one host is the first ordinary member of its own fleet. */
+  it('plans an all-in-one payload through the machine step without a desktop ask', () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'macbook',
         fleet: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
       }),
     )
-    expect(plan.steps).toEqual([])
-    expect(plan.awaiting).toEqual([
-      expect.objectContaining({ id: DESKTOP_INSTALL_ASK, required: true, place: 'macbook' }),
-    ])
+    expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
+    expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
-  it('updates other connected machines before asking the all-in-one shell to install', () => {
+  it('updates the all-in-one host alongside its other connected machines', () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'macbook',
@@ -388,10 +584,12 @@ describe('planUpdateOperation', () => {
       }),
     )
     expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
-    expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['linux-a', 'linux-b'])
-    expect(plan.awaiting).toEqual([
-      expect.objectContaining({ id: DESKTOP_INSTALL_ASK, required: true, place: 'macbook' }),
+    expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual([
+      'macbook',
+      'linux-a',
+      'linux-b',
     ])
+    expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
     expect(plan.deferred).toEqual([])
   })
 
@@ -405,58 +603,22 @@ describe('planUpdateOperation', () => {
     )
     expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
     expect(plan.steps[1]?.places?.map((place) => place.id)).toEqual(['linux-a'])
-    expect(plan.awaiting).toEqual([
-      expect.objectContaining({
-        id: DESKTOP_INSTALL_ASK,
-        required: true,
-        place: 'desktop-server',
-      }),
-    ])
+    expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
-  /**
-   * POD-2182. The test above cannot see this defect: its machine's name and id
-   * are the same word, so `place: host.id` and `place: host.name` are the same
-   * string and the assertion passes either way. Here they differ, which is the
-   * ordinary case — an id is `m_01j…` and a name is what its owner typed.
-   *
-   * `place` is read by exactly one thing, the panel's `askLine`, which appends
-   * "on <place>" unless the chosen sentence already contains it. So the two
-   * fields have to agree as STRINGS, not merely refer to the same machine:
-   * disagreeing left a person reading "Finish this in Podium Desktop on
-   * ludovico. on m_01jhost". Nothing resolves an ask by its place — the engine
-   * matches on `id` — so there is no identity to preserve here.
-   */
-  it('names the host in the ask the way the detail does, never by machine id', () => {
-    const plan = planUpdateOperation(
-      planInput({
-        hostMachineId: 'm_01jhost',
-        fleet: [machine({ id: 'm_01jhost', supervised: true, name: 'ludovico' })],
-      }),
-    )
-    const ask = plan.awaiting?.[0]
-    expect(ask?.place).toBe('ludovico')
-    expect(ask?.detail).toBe('Finish this in Podium Desktop on ludovico.')
-    expect(ask?.detail).toContain(ask?.place)
-  })
-
-  /**
-   * The fallback stays coherent for the same reason: an unnamed machine has
-   * only its id to be called, and both fields must then use it — otherwise the
-   * guard misses again in the other direction.
-   */
-  it('falls back to the id in both fields when the host has no name', () => {
-    const plan = planUpdateOperation(
-      planInput({
-        hostMachineId: 'm_01jhost',
-        // `name: undefined` deliberately: the helper defaults `name` to the id,
-        // which would make this assertion pass without the fallback existing.
-        fleet: [machine({ id: 'm_01jhost', supervised: true, name: undefined })],
-      }),
-    )
-    const ask = plan.awaiting?.[0]
-    expect(ask?.place).toBe('m_01jhost')
-    expect(ask?.detail).toBe('Finish this in Podium Desktop on m_01jhost.')
+  it('never mints the legacy desktop ask for named or unnamed all-in-one hosts', () => {
+    for (const host of [
+      machine({ id: 'm_01jhost', supervised: true, name: 'ludovico' }),
+      machine({ id: 'm_01jhost', supervised: true, name: undefined }),
+    ]) {
+      const plan = planUpdateOperation(
+        planInput({
+          hostMachineId: host.id,
+          fleet: [host],
+        }),
+      )
+      expect(plan.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
+    }
   })
 
   /**
@@ -535,6 +697,91 @@ describe('reconcileUpdateOperation', () => {
     expect(next.error?.code).toBe('server-did-not-reach-target')
     expect(next.error?.message).toContain('0.4.2')
     expect(next.finishedAt).toBe(1_000)
+  })
+
+  /**
+   * POD-2505 decision 4. When the supervising parent rolled the machine back —
+   * or refused to and had to say why — "came back on the wrong version" is true
+   * but reads as an unexplained failure. The parent's own sentence is the report
+   * the spec requires, and this is the only place it can reach a person: the
+   * process that asked for the update died with it.
+   */
+  it('carries the supervising parent’s account of the rollback into the failure', () => {
+    const next = reconcileUpdateOperation(
+      operation([{ id: UPDATE_STEP_SERVER, state: 'running' }]),
+      reality({
+        appVersion: '0.4.2',
+        parentReport:
+          'rollback unavailable: release carried schema migrations — forward-fix required',
+      }),
+    )
+    expect(next.state).toBe('failed')
+    expect(next.error?.code).toBe('server-did-not-reach-target')
+    expect(next.error?.message).toContain('schema migrations')
+    expect(next.error?.detail, 'the version comparison is still there').toContain('0.4.2')
+  })
+
+  /**
+   * POD-2732, the settle-as-done half. The sandbox sequence: the successor's
+   * server booted mid-handover, adopted this operation, observed itself on the
+   * target, and blessed the server step `done` — then failed its health gate
+   * and the parent rolled the machine back. The next boot adopts again holding
+   * the parent's own rollback sentence, and a finished step must not shield the
+   * operation from that evidence: an update that was attempted and reverted
+   * must never settle as clean success.
+   */
+  it('a rollback report reopens a server step a doomed successor blessed done', () => {
+    const next = reconcileUpdateOperation(
+      operation([{ id: UPDATE_STEP_SERVER, state: 'done', finishedAt: 500 }]),
+      reality({
+        appVersion: '0.4.1',
+        parentReport:
+          'the update was rolled back because the successor parent never became healthy on dev+abc1234; the machine is running 0.4.1 again',
+      }),
+    )
+    expect(next.state).toBe('failed')
+    expect(next.error?.code).toBe('server-did-not-reach-target')
+    expect(next.error?.message).toContain('rolled back')
+    expect(next.steps?.[0]?.state).toBe('failed')
+  })
+
+  /**
+   * The sandbox topology has NO server step at all — the coordinator converges
+   * as a place in the machines step, which settled done while the successor was
+   * briefly live at the target. The rollback evidence must fail the operation
+   * whichever step carried the host.
+   */
+  it('a rollback report fails an operation whose host converged through the machines step', () => {
+    const next = reconcileUpdateOperation(
+      operation([
+        {
+          id: UPDATE_STEP_MACHINES,
+          state: 'done',
+          finishedAt: 500,
+          places: [{ id: 'source', state: 'current' }],
+        },
+      ]),
+      reality({
+        appVersion: '0.4.1',
+        parentReport:
+          'the update was rolled back because the successor parent never became healthy on dev+abc1234; the machine is running 0.4.1 again',
+      }),
+    )
+    expect(next.state).toBe('failed')
+    expect(next.error?.code).toBe('server-did-not-reach-target')
+    expect(next.error?.message).toContain('rolled back')
+  })
+
+  /** The reopen needs BOTH facts: a machine actually on the target keeps its blessing. */
+  it('a stale parent report does not reopen a server genuinely on the target', () => {
+    const next = reconcileUpdateOperation(
+      operation([{ id: UPDATE_STEP_SERVER, state: 'done', finishedAt: 500 }]),
+      reality({
+        parentReport: 'the update was rolled back because of an earlier failed handover',
+      }),
+    )
+    expect(next.steps?.[0]?.state).toBe('done')
+    expect(next.state).toBe('running')
   })
 
   it('leaves a server step that had not started yet alone', () => {
@@ -624,10 +871,21 @@ describe('the error taxonomy', () => {
   const rows: Array<[string | undefined, string]> = [
     ['git delivery refused: dirty-working-tree', 'machine-dirty-checkout'],
     ['cannot converge: unsupported-delivery', 'machine-unsupported'],
-    ['unsupported-platform', 'machine-unsupported'],
+    // POD-2783 split these two apart from `machine-unsupported`: one says the
+    // release predates the machine and the next one carries it, the other says
+    // Podium publishes nothing for that platform and none ever will.
+    ['unsupported-platform', 'machine-platform-absent'],
+    [
+      'cannot converge: platform-not-published — Podium publishes no package for windows-x86_64',
+      'machine-platform-unpublished',
+    ],
     ['no-artifact for linux-x64', 'machine-unsupported'],
     ['fetch failed', 'download-failed'],
     ['ECONNREFUSED 127.0.0.1:18787', 'download-failed'],
+    [
+      'artifact address unreachable: https://missing.example/a.tgz — ECONNREFUSED',
+      'artifact-unreachable',
+    ],
     ['The machine stopped reporting progress while updating.', 'machine-unreachable'],
     [undefined, 'machine-unreachable'],
     // POD-2210: the daemon that declined ON PURPOSE, because finishing would
@@ -656,6 +914,26 @@ describe('the error taxonomy', () => {
     expect(error.message).toContain('vmi')
     expect(error.places).toEqual(['m_a'])
     expect(error.detail).toBe('dirty-working-tree')
+  })
+
+  it('surfaces an unexpected local error without inventing a connectivity failure', () => {
+    const detail = 'ENOENT: no such file or directory, open /state/runtime/pending-update.json.tmp'
+    const code = classifyMachineFailure(detail)
+    const error = describeUpdateOperationFailure({
+      code: 'machine-update-failed',
+      places: ['m_a'],
+      names: ['fleet-a'],
+      detail,
+    })
+
+    expect(code).toBe('machine-update-failed')
+    expect(error).toMatchObject({
+      code: 'machine-update-failed',
+      places: ['m_a'],
+      detail,
+    })
+    expect(error.message).toMatch(/fleet-a.*unexpected update failure/i)
+    expect(error.message).not.toMatch(/stopped responding|check (?:that )?it'?s running/i)
   })
 
   it('tells a foreground Podium what was NOT done, and the two ways out', () => {
@@ -950,6 +1228,7 @@ function harness(options: HarnessOptions = {}) {
    * the same shape — `operations?.engine` is optional there for the same reason.
    */
   let engine: OperationEngine | undefined
+  let targetChanged: ((channel: UpdateChannel) => void) | undefined
   const requireEngine = (): OperationEngine => {
     if (!engine) throw new Error('harness engine is not constructed yet')
     return engine
@@ -965,8 +1244,10 @@ function harness(options: HarnessOptions = {}) {
    */
   const newUpdatesService = (
     driver: () => OperationEngine | undefined,
-    seed: UpdateTarget | undefined = options.target ?? devTarget(),
+    seed?: UpdateTarget,
+    seedProvided = false,
   ) => {
+    const initialTarget = seedProvided ? seed : (options.target ?? devTarget())
     const service = new UpdatesService({
       machines: () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
@@ -977,8 +1258,9 @@ function harness(options: HarnessOptions = {}) {
       exclusiveOperationActive: () => driver()?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
       exclusiveOperationVersion: (channel) =>
         exclusiveUpdateVersion(driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      onTargetChanged: (channel) => targetChanged?.(channel),
     })
-    if (seed) service.setTarget('dev', seed)
+    if (initialTarget) service.setTarget('dev', initialTarget)
     return service
   }
   const updates = newUpdatesService(() => engine)
@@ -1046,6 +1328,9 @@ function harness(options: HarnessOptions = {}) {
     clock,
     sent,
     context,
+    setTargetChanged(listener: (channel: UpdateChannel) => void): void {
+      targetChanged = listener
+    },
     get engine() {
       return requireEngine()
     },
@@ -1078,6 +1363,7 @@ function harness(options: HarnessOptions = {}) {
       engine: OperationEngine
       updates: UpdatesService
       context: () => UpdateOperationContext
+      setTargetChanged: (listener: (channel: UpdateChannel) => void) => void
     } {
       const nextEngine = new OperationEngine({ store, registry, clock: clock.clock })
       // `seedTarget: undefined` is the honest shape of a successor that has not
@@ -1085,12 +1371,15 @@ function harness(options: HarnessOptions = {}) {
       // is what hid POD-2228 from every adoption drill in this file.
       const nextUpdates =
         'seedTarget' in opts
-          ? newUpdatesService(() => nextEngine, opts.seedTarget)
+          ? newUpdatesService(() => nextEngine, opts.seedTarget, true)
           : newUpdatesService(() => nextEngine)
       return {
         engine: nextEngine,
         updates: nextUpdates,
         context: () => contextOver(nextUpdates, () => nextEngine),
+        setTargetChanged(listener: (channel: UpdateChannel) => void): void {
+          targetChanged = listener
+        },
       }
     },
   }
@@ -1143,7 +1432,7 @@ describe('the update operation, driven', () => {
     expect(h.store.history(UPDATE_OPERATION_KIND).length).toBe(1)
   })
 
-  it('settles an all-in-one operation into waiting on its required ask', async () => {
+  it('keeps an all-in-one operation running on its ordinary machine step', async () => {
     const h = harness({
       machines: [machine({ id: 'macbook', supervised: true })],
       hostMachineId: 'macbook',
@@ -1153,21 +1442,12 @@ describe('the update operation, driven', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const operation = h.read()
-    expect(operation.state).toBe('waiting')
-    expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+    expect(operation.state).toBe('running')
+    expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('running')
+    expect(operation.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
-  /**
-   * NOBODY CLICKED (POD-2186).
-   *
-   * The panel appeared, the person closed the window, and ten minutes later the
-   * grace fired. The framework's default is to complete — right when the steps
-   * did the work and only a surface-local courtesy went unanswered, and wrong
-   * here, where the plan has zero steps and the ask WAS the update. Completing
-   * put "0.4.4 · succeeded" in Settings history against a machine still running
-   * 0.4.3 and made §3.7's answer to *did last night's update finish?* a lie.
-   */
-  it('fails an ignored all-in-one operation rather than recording an update that never happened', async () => {
+  it('does not turn a pending all-in-one machine grant into a desktop ask', async () => {
     const h = harness({
       machines: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
       hostMachineId: 'macbook',
@@ -1176,21 +1456,8 @@ describe('the update operation, driven', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('waiting')
-
-    h.clock.advance(DEFAULT_WAITING_GRACE_MS)
-    await h.engine.whenSettled('op_1')
-
-    const operation = h.read()
-    expect(operation.state).toBe('failed')
-    expect(operation.error?.code).toBe(UPDATE_NOT_INSTALLED_ERROR_CODE)
-    // §7: a sentence a person reads, naming where it was offered — and one the
-    // panel renders through its unknown-code fallback, so a bundle that predates
-    // the code still owes the operator the truth.
-    expect(operation.error?.message).toContain('macbook')
-    expect(operation.error?.message).toContain('nobody installed it')
-    // The ask stays listed. Failing is not pretending it was answered either.
-    expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+    expect(h.read().state).toBe('running')
+    expect(h.read().awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
   /**
@@ -1250,7 +1517,7 @@ describe('the step runners', () => {
     // all (POD-2195); with nobody needing one the plan would not contain the
     // step this test is about.
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      machines: [machine({ id: 'vmi' })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       requestDestBundle,
@@ -1290,7 +1557,7 @@ describe('the step runners', () => {
       publicReason: 'The website has not been built for HEAD (abc1234) yet.',
     })
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      machines: [machine({ id: 'vmi' })],
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       requestDestBundle: () => Promise.reject(refusal),
@@ -1373,6 +1640,33 @@ describe('the step runners', () => {
     expect(h.read().state).toBe('failed')
     expect(h.read().error?.code).toBe('download-failed')
     expect(h.read().error?.detail).toContain('signature verification FAILED')
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it('server: records an unreachable published artifact as permanent', async () => {
+    const snapshot = vi.fn(() => '/state/podium.db.backup')
+    const restart = vi.fn()
+    const h = harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new Error(
+          'artifact address unreachable: https://missing.example/a.tgz — ECONNREFUSED',
+        )
+      },
+      createDatabaseSnapshot: snapshot,
+      requestCoordinatorRestart: restart,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().state).toBe('failed')
+    expect(h.read().error?.code).toBe('artifact-unreachable')
+    expect(h.read().error?.detail).toContain('https://missing.example/a.tgz')
+    expect(h.read().error?.message).not.toMatch(/try again|connection/iu)
     expect(snapshot).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
@@ -1493,6 +1787,129 @@ describe('the step runners', () => {
     expect(operation.state).toBe('failed')
     expect(operation.error?.code).toBe('machine-dirty-checkout')
     expect(operation.error?.message).toContain('vmi3407763')
+  })
+
+  /**
+   * A packaged daemon can be down long enough for the coordinator to replace
+   * its grant before the rolled-back process reads the durable marker. The
+   * marker still names grant_1; the live operation is now waiting on grant_2.
+   * That exact mismatch made the terminal crash report disappear.
+   *
+   * The assertion is the persisted operation row a person sees, not only the
+   * fleet cache: the crash must settle it as failed and leave it in history.
+   */
+  it('machines: a packaged crash after grant replacement remains a failed operation', async () => {
+    const target = packedTarget()
+    const h = harness({
+      machines: [machine({ id: 'vmi', name: 'vmi3407763' })],
+      target,
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const originalGrantId = h.sent[0]?.message.grantId
+    expect(originalGrantId).toBe('grant_1')
+    expect(h.updates.reissueGrants('dev')).toEqual(['vmi'])
+    expect(h.sent[1]?.message.grantId).toBe('grant_2')
+
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: originalGrantId,
+      targetVersion: target.version,
+      state: 'rejected',
+      version: '0.4.1',
+      detail:
+        'attempt 2 of 2 did not reach dev+abc1234 (running 0.4.1); applying again will retry it',
+    })
+    createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    }).onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('failed')
+    expect(operation.error?.code).toBe('machine-update-not-confirmed')
+    expect(operation.error?.message).toContain('vmi3407763')
+    expect(
+      h.store.history(UPDATE_OPERATION_KIND).some((entry) => entry.operation?.id === operation.id),
+    ).toBe(true)
+  })
+
+  /**
+   * A packaged all-in-one rollback reports through its one parent-backed
+   * participant before the reconnecting machine is back in the directory and
+   * before the successor resolves its feed target. The terminal report must
+   * survive both gaps without a duplicate server step.
+   */
+  it('server: settles a packaged all-in-one rollback before target resolution', async () => {
+    const target = packedTarget()
+    const fleet = [machine({ id: 'podium', name: 'podium' })]
+    const h = harness({
+      machines: fleet,
+      target,
+      appVersion: '0.4.1',
+      servedWebDigest: () => WEB_DIGEST,
+      requestCoordinatorRestart: vi.fn(),
+      hostMachineId: 'podium',
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBeUndefined()
+    h.engine.stop()
+
+    fleet.length = 0
+    const boot = h.reboot({ seedTarget: undefined })
+    await boot.engine.adoptOnBoot(
+      () => ({
+        appVersion: '0.4.1',
+        servedWebDigest: WEB_DIGEST,
+        machineDirectory: fleet,
+        now: h.clock.clock.now(),
+      }),
+      () => boot.context(),
+    )
+    await boot.engine.whenSettled('op_1')
+    expect(boot.updates.target('dev')).toBeUndefined()
+    expect(h.read().state).toBe('running')
+    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBeUndefined()
+
+    const bridge = createUpdateFleetBridge({
+      engine: boot.engine,
+      updates: boot.updates,
+      now: () => h.clock.clock.now(),
+    })
+    boot.setTargetChanged(() => bridge.onFleetChanged())
+    expect(fleet).toHaveLength(0)
+    boot.updates.onStatus(asMachineId('podium'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      targetVersion: target.version,
+      state: 'stuck',
+      version: '0.4.1',
+      detail: `did not reach ${target.version} after 2 attempt(s); running 0.4.1, pinned to last-known-good`,
+    })
+    bridge.onFleetChanged()
+    expect(h.read().state).toBe('running')
+    fleet.push(machine({ id: 'podium', name: 'podium' }))
+
+    boot.updates.setTarget('dev', target)
+    await boot.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('failed')
+    expect(stepState(operation, UPDATE_STEP_SERVER)).toBeUndefined()
+    expect(operation.error?.code).toBe('machine-update-not-confirmed')
+    expect(
+      h.store.history(UPDATE_OPERATION_KIND).some((entry) => entry.operation?.id === operation.id),
+    ).toBe(true)
   })
 
   it('machines: carries the recorded snapshot into schema-advanced failure copy', async () => {
@@ -1724,39 +2141,19 @@ describe('the step runners', () => {
   })
 
   /**
-   * POD-2195, THE OTHER HALF. Even with the pack out of the plan, the runner
-   * refused to tick until a packed descriptor was published — so the machine
-   * that needed no package sat behind "Waiting for the update package." for the
-   * whole of the step's deadline. The gate is real (never grant what cannot be
-   * delivered) but it is a question about the MACHINES this step is waiting on,
-   * and this one can take what is published today.
+   * POD-2195's GATE, which survives the retirement of the delivery kind that
+   * motivated it. It says: never tick this step towards a grant while the
+   * machines it is waiting on cannot take what is published. It used to have a
+   * counterpart arm — a git-capable machine granted a bare identity without
+   * waiting for any package — and that arm is gone, because no machine can take
+   * a bare identity any more.
+   *
+   * A machine that can take a feed is not handed one to refuse.
    */
-  it('machines: grants a git-capable machine without waiting for any package', async () => {
+  it('machines: waits for the package when no awaited machine can take the identity', async () => {
     const h = harness({
-      machines: [machine({ id: 'src', deliveryCaps: GIT_CAPS })],
-      target: gitIdentityTarget(),
-      appVersion: 'dev+abc1234',
-      servedWebDigest: () => WEB_DIGEST,
-    })
-    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
-    await h.engine.whenSettled('op_1')
-
-    const operation = h.read()
-    expect(stepIds({ steps: operation.steps ?? [] })).toEqual([UPDATE_STEP_MACHINES])
-    expect(
-      operation.steps?.find((step) => step.id === UPDATE_STEP_MACHINES)?.detail ?? '',
-    ).not.toContain('Waiting for the update package')
-    expect(h.sent.map((grant) => grant.machineId)).toEqual(['src'])
-  })
-
-  /**
-   * …and the gate still closes for the fleet it was written for: a machine that
-   * can only take a bundle is not handed a bare identity to refuse.
-   */
-  it('machines: still waits for the package when no awaited machine can take git', async () => {
-    const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
-      target: gitIdentityTarget(),
+      machines: [machine({ id: 'vmi' })],
+      target: identityTarget(),
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
       // The pack "succeeds" without publishing a packed descriptor — which is
@@ -1873,16 +2270,8 @@ describe('surviving the coordinator restart', () => {
     expect(h.read().state).toBe('done')
   })
 
-  /**
-   * THE ALL-IN-ONE ACCEPTANCE (§5, POD-2104): one click, one restart, the SAME
-   * operation id reading `done` on the other side.
-   *
-   * This is the one shape with no steps at all, so every assertion the drills
-   * above make is unavailable — there is no `server` step whose state proves the
-   * restart happened. The ask is the whole operation, and the successor's own
-   * version is the only evidence that it was answered.
-   */
-  async function killWaitingOnTheDesktopAsk(appVersion: string) {
+  /** Simulate parent self-handover while retaining the same fleet operation. */
+  async function restartAllInOneAt(appVersion: string) {
     const h = harness({
       machines: [machine({ id: 'macbook', supervised: true })],
       hostMachineId: 'macbook',
@@ -1891,9 +2280,8 @@ describe('surviving the coordinator restart', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('waiting')
-    // The user pressed Restart Podium. The shell installs and execs; this
-    // process — the embedded server — dies with it.
+    expect(h.read().state).toBe('running')
+    // The grant swapped the payload and asked the parent to self-handover.
     h.engine.stop()
 
     const successor = h.successor()
@@ -1910,8 +2298,8 @@ describe('surviving the coordinator restart', () => {
     return h.read()
   }
 
-  it('completes the all-in-one operation when the shell came back at the target', async () => {
-    const operation = await killWaitingOnTheDesktopAsk('dev+abc1234')
+  it('completes the all-in-one machine step when the parent came back at the target', async () => {
+    const operation = await restartAllInOneAt('dev+abc1234')
     expect(operation.state).toBe('done')
     expect(operation.awaiting ?? []).toEqual([])
   })
@@ -1922,10 +2310,10 @@ describe('surviving the coordinator restart', () => {
    * never got had been applied, and the panel would stop offering the one
    * button that could still finish it.
    */
-  it('keeps the desktop ask when the shell came back on the old version', async () => {
-    const operation = await killWaitingOnTheDesktopAsk('0.4.1')
-    expect(operation.state).toBe('waiting')
-    expect(operation.awaiting?.[0]?.id).toBe(DESKTOP_INSTALL_ASK)
+  it('keeps the machine step running when the parent came back on the old version', async () => {
+    const operation = await restartAllInOneAt('0.4.1')
+    expect(operation.state).toBe('running')
+    expect(operation.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
   /**
@@ -2008,14 +2396,14 @@ describe('surviving the coordinator restart', () => {
    */
   it('fails the update with the configuration remedy instead of waiting for a package', async () => {
     const h = harness({
-      machines: [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })],
+      machines: [machine({ id: 'vmi' })],
       servedWebDigest: () => WEB_DIGEST,
       appVersion: 'dev+abc1234',
       requestDestBundle: () =>
         Promise.reject(
           new DevBundleUnavailableError(
             'development artifact publishing requires PODIUM_DEV_ARTIFACT_BASE_URL or ' +
-              'config.publicUrl while remote managed machines are registered',
+              'config.publicUrl while remote update consumers are registered',
             ARTIFACT_ORIGIN_UNCONFIGURED_REASON,
           ),
         ),
@@ -2051,7 +2439,7 @@ describe('surviving the coordinator restart', () => {
    * the operation published it instantly with nothing else changed.
    */
   it('completes an operation adopted across a restart, package and all', async () => {
-    const fleet = [machine({ id: 'vmi', deliveryCaps: BUNDLE_CAPS })]
+    const fleet = [machine({ id: 'vmi' })]
     // The publisher republishes into whichever process is alive — which is the
     // whole point: after the restart that is the successor, with no memory.
     let publisher: UpdatesService | undefined
@@ -2238,7 +2626,10 @@ describe('the fleet bridge', () => {
         active: () => undefined,
         recordProgress,
         admitDeferred,
+        recordDeferred: () => Promise.resolve(),
+        history: () => [],
         reensure: () => Promise.resolve(),
+        recordDetails: () => undefined,
       },
       updates: h.updates,
     }).onFleetChanged()
@@ -2416,9 +2807,8 @@ describe('the fleet bridge', () => {
     expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
-  /** A daemon that became desktop-supervised while it slept is the SHELL's now,
-   *  whatever the plan said when it was still an ordinary fleet machine (§4, P5). */
-  it('does not admit a reconnected machine a desktop app has since claimed', async () => {
+  /** Crash supervision does not change ownership of a deferred fleet payload. */
+  it('admits a reconnected machine after it becomes desktop-supervised', async () => {
     const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
     const h = harness({
       machines: fleet,
@@ -2437,21 +2827,340 @@ describe('the fleet bridge', () => {
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    expect(h.read().deferred).toEqual([])
+    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    expect(step?.places?.map((place) => place.id)).toEqual(['vmi', 'laptop'])
+  })
+  /**
+   * MIXED FLEET, ONE MACHINE ASLEEP (POD-3040).
+   *
+   * Publication no longer waits on the sleeping machine, so this is the shape
+   * every dev release now lands in: the online machines are waved, the offline
+   * one is deferred with its own reason, and the operation's outcome is a
+   * statement about the machines it actually addressed.
+   */
+  it('waves the online machines and defers the sleeping one without holding the operation open', async () => {
+    const fleet = [
+      machine({ id: 'vmi' }),
+      machine({ id: 'laptop', online: false }),
+    ]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      requestCoordinatorRestart: vi.fn(),
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
     const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.places?.map((place) => place.id)).toEqual(['vmi'])
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
   /**
-   * …and the same exclusion when the caps question CANNOT answer it.
-   *
-   * The case above is guarded twice over: a packed target offers a delivery, and
-   * `machineCanTakeDelivery` refuses a supervised daemon whatever its caps say.
-   * While the target is still a bare `dev+<sha>` identity it offers NOTHING, so
-   * that question is skipped for everyone — and the supervised exclusion is the
-   * only thing standing between a wave and the inside of a signed .app.
+   * …AND AN ONLINE MACHINE WHOSE ROUTE FAILS FAILS ONLY ITSELF, with the
+   * diagnostic it always had. The sleeping machine is not blamed for it and
+   * stays deferred: it was never asked.
    */
-  it('excludes a supervised daemon even from a target that offers no delivery yet', () => {
+  it('fails the machine whose artifact route failed, naming it, and leaves the deferred one alone', async () => {
+    const fleet = [
+      machine({ id: 'vmi', name: 'vmi3407763' }),
+      machine({ id: 'laptop', online: false }),
+    ]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      requestCoordinatorRestart: vi.fn(),
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.updates.onStatus(asMachineId('vmi'), {
+      type: 'updateStatus',
+      grantId: 'grant_1',
+      state: 'stuck',
+      version: '0.4.1',
+      detail: 'artifact address unreachable: https://source.test/a.tgz — ECONNREFUSED',
+    })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('failed')
+    expect(operation.error?.code).toBe('artifact-unreachable')
+    expect(operation.error?.detail).toContain('https://source.test/a.tgz')
+    // The offline machine is neither blamed nor silently swept into the failure.
+    expect(operation.error?.places ?? []).not.toContain('laptop')
+    expect(operation.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+  })
+
+  /**
+   * RETENTION IS FINITE, SO A DEFERRED TARGET CAN SIMPLY BE GONE (POD-3040).
+   *
+   * The machine slept through a newer publish and the sweep reclaimed the
+   * tarballs of the release this operation planned. Admitting it now would
+   * grant it whatever is published TODAY while every arrival check here is
+   * fenced to this operation's version — bytes for another version, counted as
+   * nothing. It is told instead, and converges on the current target as
+   * ordinary work.
+   */
+  it('tells a deferred machine its target was superseded rather than granting it another version', () => {
+    const fleet = [machine({ id: 'laptop' })]
+    const h = harness({ machines: fleet, target: packedTarget() })
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'laptop', name: 'laptop', reason: 'offline' }],
+    } as Operation
+    const details = { target: packedTarget(), channel: 'dev' as const }
+
+    // Reconnected, eligible, and it WOULD have been admitted a moment ago.
+    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([
+      { id: 'laptop', name: 'laptop', state: 'pending' },
+    ])
+
+    // A newer release is published while it was away, and retention will sweep
+    // the one this operation planned.
+    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+
+    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
+    expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+  })
+
+  it('restates a superseded deferred reason once, not on every fleet event', () => {
+    const h = harness({ machines: [machine({ id: 'laptop' })], target: packedTarget() })
+    const details = { target: packedTarget(), channel: 'dev' as const }
+    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    const restated = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }],
+    } as Operation
+
+    expect(supersededDeferredPlaces(restated, details, h.updates)).toBeUndefined()
+  })
+
+  /**
+   * THE ALL-OFFLINE FLEET, END TO END (POD-3040) — and it is the common shape,
+   * not an edge one.
+   *
+   * Every behind machine asleep plans NO wave at all: `planUpdateOperation`
+   * puts them all in `deferred` and creates no machines step, so the operation
+   * is terminal within a tick. Its promise — "laptop will update when it
+   * reconnects" — then outlives it by days. When a newer release supersedes the
+   * one it was made against, that sentence is simply false, and the operation
+   * nothing is driving any more is exactly the thing that cannot correct it on
+   * its own. The target change is what corrects it.
+   */
+  it('restates an all-offline update promise once a newer target supersedes it', async () => {
+    const fleet = [machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // No wave, no steps, already finished — with the promise standing.
+    expect(h.read().steps ?? []).toEqual([])
+    expect(h.read().state).toBe('done')
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    const finishedAt = h.read().finishedAt
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+
+    // Retention will sweep this operation's tarballs under the ordinary window.
+    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+    // Restating a note is not reanimating an operation.
+    expect(h.read().state).toBe('done')
+    expect(h.read().finishedAt).toBe(finishedAt)
+    expect(h.read().steps ?? []).toEqual([])
+
+    // …and when it finally wakes, nothing grants it the old target under this
+    // operation's name. The ordinary reconciler owns it from here.
+    fleet[0] = machine({ id: 'laptop' })
+    bridge.onFleetChanged()
+    await h.engine.whenSettled('op_1')
+    expect(h.sent).toEqual([])
+    expect(h.read().deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+  })
+
+  /**
+   * THE STALE PROMISE IS ON THE OLDER ROW (POD-3040).
+   *
+   * A deferred promise belongs to the operation that made it, and operations
+   * keep happening. An all-offline update finishes owing the laptop a sentence;
+   * a second update then runs on the machines that were awake and finishes
+   * owing nobody anything. Looking only at the newest — or only at the active —
+   * row finds that second operation, has nothing to correct, and leaves the
+   * first still promising a release that no longer exists.
+   */
+  it('restates a stale promise on an older retained operation, not just the newest', async () => {
+    const fleet = [machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+
+    // op_1: every behind machine asleep. No wave, terminal, promise standing.
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.read('op_1').deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'offline' },
+    ])
+
+    // op_2: a later update with nothing to defer, which is what a naive
+    // "newest operation" reader would find and pass over.
+    fleet.length = 0
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_2')
+    const untouched = h.read('op_2')
+    expect(untouched.deferred).toEqual([])
+    expect(h.engine.history(UPDATE_OPERATION_KIND, 1)[0]?.id).toBe('op_2')
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+
+    h.clock.advance(5_000)
+    h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.engine.whenSettled('op_1')
+    await h.engine.whenSettled('op_2')
+
+    // The older row is corrected…
+    expect(h.read('op_1').deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+    expect(h.read('op_1').state).toBe('done')
+
+    // …and the row with nothing to promise is not written at all.
+    expect(h.read('op_2')).toEqual(untouched)
+  })
+
+  it('restates the same promise as unavailable when the channel is withdrawn instead', async () => {
+    const fleet = [machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+
+    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-unavailable' },
+    ])
+    expect(h.read().state).toBe('done')
+  })
+
+  it('leaves the promise alone while the operation\'s own target is still the published one', async () => {
+    const fleet = [machine({ id: 'laptop', online: false })]
+    const h = harness({
+      machines: fleet,
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+
+    // A re-resolve of the SAME version also fires the target hook. The machine
+    // really will update when it reconnects, so the note must not be touched.
+    h.updates.setTarget('dev', packedTarget())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+  })
+
+  it('refuses to admit a deferred place while the channel is offering nothing', () => {
+    const fleet = [machine({ id: 'laptop' })]
+    const h = harness({ machines: fleet, target: packedTarget() })
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'laptop', name: 'laptop', reason: 'offline' }],
+    } as Operation
+    const details = { target: packedTarget(), channel: 'dev' as const }
+
+    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+
+    expect(admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
+    expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-unavailable' },
+    ])
+  })
+
+  it('does not re-admit a source checkout from a persisted deferred place', () => {
+    const fleet = [machine({ id: 'source', installKind: 'source' })]
+    const h = harness({ machines: fleet })
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      deferred: [{ id: 'source', name: 'source', reason: 'offline' }],
+    } as Operation
+
+    expect(
+      admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
+    ).toEqual([])
+  })
+
+  /**
+   * A target identity with no delivery descriptor does not filter any machine.
+   * Supervision is equally irrelevant here: it describes the process owner, not
+   * the external payload's delivery eligibility.
+   */
+  it('admits a supervised daemon when a target offers no delivery filter yet', () => {
     const fleet = [machine({ id: 'laptop', supervised: true })]
     const h = harness({ machines: fleet })
     const operation = {
@@ -2464,7 +3173,7 @@ describe('the fleet bridge', () => {
     expect(offeredDeliveries(devTarget())).toEqual([])
     expect(
       admissibleDeferredPlaces(operation, { target: devTarget(), channel: 'dev' }, h.updates),
-    ).toEqual([])
+    ).toEqual([{ id: 'laptop', name: 'laptop', state: 'pending' }])
   })
 })
 
@@ -2520,7 +3229,7 @@ describe('the budgets nest', () => {
     // Otherwise the machine's real reason — a dead remote, a refused checkout —
     // is replaced by the coordinator's guess that it went quiet.
     expect(UPDATE_BUDGETS.downloadTimeoutMs).toBeLessThan(machines?.silenceMs ?? 0)
-    expect(UPDATE_BUDGETS.gitConvergenceMs).toBeLessThan(machines?.silenceMs ?? 0)
+    expect(UPDATE_BUDGETS.machineDeliverySilenceMs).toBeLessThan(machines?.silenceMs ?? 0)
   })
 
   it('measures the wave against the LONGEST legitimate silence, not the cadence', () => {
@@ -2528,7 +3237,7 @@ describe('the budgets nest', () => {
     // silence for its whole budget. Judging the step on the heartbeat cadence
     // would stall and re-grant that machine mid-transfer, every time.
     expect(machines?.silenceMs).toBe(
-      UPDATE_BUDGETS.gitConvergenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
+      UPDATE_BUDGETS.machineDeliverySilenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
     )
     expect(UPDATE_BUDGETS.downloadHeartbeatMs).toBeLessThan(machines?.silenceMs ?? 0)
   })
@@ -2733,6 +3442,54 @@ describe('a silent grant, with nobody watching', () => {
   })
 })
 
+it('stays closed before the canary handover reconnects and widens after it does', async () => {
+  const fleet = [machine({ id: 'a-canary' }), machine({ id: 'b' })]
+  const h = harness({
+    machines: fleet,
+    target: packedTarget(),
+    appVersion: 'dev+abc1234',
+    servedWebDigest: () => WEB_DIGEST,
+  })
+  const bridge = createUpdateFleetBridge({
+    engine: h.engine,
+    updates: h.updates,
+    now: () => h.clock.clock.now(),
+  })
+
+  await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+  await h.engine.whenSettled('op_1')
+  expect(h.sent.map(({ machineId }) => machineId)).toEqual(['a-canary'])
+
+  // Boot reconciliation can emit this before the successor's raw handshake
+  // updates the machine directory. It is evidence to keep waiting, not health.
+  h.updates.onStatus(asMachineId('a-canary'), {
+    type: 'updateStatus',
+    grantId: 'grant_1',
+    state: 'current',
+    version: 'dev+abc1234',
+  })
+  bridge.onFleetChanged()
+  await h.engine.whenSettled('op_1')
+
+  const machinesStep = h.read().steps?.find((step) => step.id === UPDATE_STEP_MACHINES)
+  expect.soft(h.sent.map(({ machineId }) => machineId)).toEqual(['a-canary'])
+  expect.soft(machinesStep).toMatchObject({
+    state: 'running',
+    progress: { done: 0, total: 2 },
+  })
+  expect.soft(machinesStep?.places?.find((place) => place.id === 'a-canary')).toMatchObject({
+    state: 'restarting',
+  })
+  expect.soft(h.read().state).toBe('running')
+
+  const canary = fleet[0]
+  if (canary) canary.version = 'dev+abc1234'
+  bridge.onFleetChanged()
+  await h.engine.whenSettled('op_1')
+
+  expect(h.sent.map(({ machineId }) => machineId)).toEqual(['a-canary', 'b'])
+})
+
 /**
  * THE FLEET SIZE THE OLD DESIGN COULD NOT SEE (POD-2167).
  *
@@ -2844,10 +3601,19 @@ describe('two machines, one of them dead', () => {
     expect(grantedMachines(h)).toEqual(['a-canary', 'busy', 'silent'])
     const bridge = h.bridge
 
-    // Ten one-minute steps of a perfectly healthy download on the other
-    // machine. Under the step's single clock every one of these re-armed the
-    // budget, and `silent` could not be noticed until `busy` had finished.
-    for (let minute = 1; minute <= 10; minute++) {
+    // One-minute steps of a perfectly healthy download on the other machine,
+    // just past ONE silence budget. Under the step's single clock every one of
+    // these re-armed the budget, and `silent` could not be noticed until `busy`
+    // had finished.
+    //
+    // DERIVED from the budget rather than a round number of minutes: the
+    // budget moved when git convergence retired and took its eight-minute
+    // bound with it, and a hardcoded ten minutes silently became "long enough
+    // to stall TWICE and fail the step", which is a different test.
+    const minutes = Math.ceil(
+      (UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs ?? 0) / 60_000,
+    )
+    for (let minute = 1; minute <= minutes; minute++) {
       h.clock.advance(60_000)
       busyReports(h, bridge, minute * 9)
       await h.engine.whenSettled('op_1')
@@ -2926,6 +3692,11 @@ describe('two machines, one of them dead', () => {
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
     })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     const canary = fleet[0]
@@ -2936,15 +3707,12 @@ describe('two machines, one of them dead', () => {
       state: 'current',
       version: 'dev+abc1234',
     })
-    await h.engine.whenSettled('op_1')
-    expect(grantedMachines(h)).toEqual(['a-canary', 'b', 'c', 'd'])
-    const bridge = createUpdateFleetBridge({
-      engine: h.engine,
-      updates: h.updates,
-      now: () => h.clock.clock.now(),
-    })
+    // A raw directory mutation is only observable once the reconnect event
+    // reaches the operation bridge. That proof opens the wave; the optimistic
+    // status above never does so by itself.
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
+    expect(grantedMachines(h)).toEqual(['a-canary', 'b', 'c', 'd'])
 
     const claimed = machinesStep(h)
       ?.places?.filter((place) => place.lastProgressAt !== undefined)
@@ -3148,5 +3916,248 @@ describe('the web rebuild watcher stops when its step does', () => {
     const before = reads()
     await h.drain()
     expect(reads()).toBeGreaterThan(before)
+  })
+})
+
+/**
+ * THE WAVE MUST RE-PLAN WHEN A MACHINE ARRIVES, NOT ONLY WHEN ONE ATTACHES
+ * (POD-2741).
+ *
+ * Three things can advance a wave: the runner's own `ensure`, the operator's
+ * first click, and `fleet()`'s read continuation — and that continuation only
+ * fires for a machine it can judge `continuing`, which needs the pending grant
+ * that says a grant is outstanding. `pendingGrants` is IN-MEMORY, so it does
+ * not survive the coordinator replacing itself. After a self-handover the
+ * successor therefore has no pending grant for the coordinator that just
+ * converged, the continuation cannot fire, and the offline→online re-entry
+ * cannot fire either because the machines still waiting were `pending` rather
+ * than `offline`. Both drive paths are out at once and only the step's
+ * seven-minute silence deadline is left — longer than any caller waits.
+ *
+ * Measured twice on the gate: `[source:current, fleet-a:pending,
+ * fleet-b:pending]`, progress 1 of 3, and not one wave tick in the 300 s after
+ * the handover while the harness polled `updates.fleet` every 100 ms.
+ *
+ * The fix is level-triggered on purpose. An edge can be missed; "the wave has
+ * work left and nothing is in flight" is a state, and re-entering on it costs
+ * nothing during a healthy wave because something is always in flight then.
+ */
+describe('a wave whose canary arrived without an attach', () => {
+  const stalledOperation = (): Operation =>
+    ({
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      details: {
+        target: devTarget(),
+        channel: 'dev',
+        fromVersion: '0.4.1',
+      },
+      steps: [
+        {
+          id: UPDATE_STEP_MACHINES,
+          title: 'Updating your machines',
+          state: 'running',
+          progress: { done: 1, total: 3 },
+          places: [
+            { id: 'source', name: 'source', state: 'current' },
+            { id: 'fleet-a', name: 'fleet-a', state: 'pending' },
+            { id: 'fleet-b', name: 'fleet-b', state: 'pending' },
+          ],
+        },
+      ],
+    }) as unknown as Operation
+
+  it('re-enters the step so the remaining machines are granted', async () => {
+    const operation = stalledOperation()
+    const reensure = vi.fn(async () => {})
+    const recordProgress = vi.fn(async () => {})
+    const bridge = createUpdateFleetBridge({
+      engine: {
+        active: () => ({ id: 'op_1', kind: UPDATE_OPERATION_KIND, operation }),
+        recordProgress,
+        admitDeferred: async () => {},
+        recordDeferred: async () => {},
+        history: () => [],
+        reensure,
+        recordDetails: () => undefined,
+      },
+      updates: {
+        // `source` is on the target; the two fleet machines are behind and were
+        // never granted. Nothing is in flight — this is the stalled shape.
+        fleet: () => [
+          machine({ id: 'source', version: devTarget().version }),
+          machine({ id: 'fleet-a' }),
+          machine({ id: 'fleet-b' }),
+        ],
+        // The restart lost the in-memory grant, so neither of the two proofs
+        // that would otherwise move `source` is available.
+        machineBootedAtTarget: () => false,
+        machineCrossedRestartBoundary: () => false,
+        waveRounds: () => [],
+      } as unknown as UpdatesService,
+      now: () => 1_000,
+    })
+
+    bridge.onFleetChanged()
+    await Promise.resolve()
+
+    expect(reensure).toHaveBeenCalledWith('op_1', UPDATE_STEP_MACHINES, expect.anything())
+  })
+})
+
+/**
+ * THE WAVE, AS A RECORD RATHER THAN A MOMENT (POD-2754).
+ *
+ * The rollout gate used to prove the canary stage by SAMPLING the fleet and
+ * hoping a sample landed inside the window where exactly one machine was in
+ * flight. On a fast update that window closes before the first sample, so a
+ * correct wave read as one that never gated — the row flipped about one run in
+ * three with no product change between them. These cases are about the thing
+ * that replaces the sampling: the rounds this wave actually issued, written into
+ * the operation as they happen and readable long after the moment has passed.
+ */
+describe('the wave rounds an update writes down', () => {
+  const twoMachines = () => [
+    machine({ id: 'fleet-a', name: 'fleet-a' }),
+    machine({ id: 'fleet-b', name: 'fleet-b' }),
+  ]
+  const waveHarness = (fleet: WaveMachine[]) =>
+    harness({
+      machines: fleet,
+      target: packedTarget(),
+      // The coordinator is already at the target, so this plan is the wave and
+      // nothing else — no server step to restart underneath the assertions.
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+  const rounds = (operation: Operation) => updateOperationDetails(operation)?.waveRounds
+
+  it('records the canary round: one machine granted, the other held for it', async () => {
+    const h = waveHarness(twoMachines())
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.sent).toHaveLength(1)
+    expect(rounds(h.read())).toEqual([
+      expect.objectContaining({
+        gate: 'canary',
+        targetVersion: 'dev+abc1234',
+        granted: [{ id: 'fleet-a', name: 'fleet-a' }],
+        held: [{ id: 'fleet-b', name: 'fleet-b', reason: 'canary-gated' }],
+      }),
+    ])
+  })
+
+  /**
+   * THE WHOLE CLAIM THE GATE MAKES, in one value: a first round that granted one
+   * machine while holding the other, and a second that widened to it. Neither
+   * half is a state anybody has to be looking at when it happens.
+   */
+  it('records the widening round after the canary proves the bundle', async () => {
+    const fleet = twoMachines()
+    const h = waveHarness(fleet)
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // The canary reconnects on the target — the directory proof, which is what
+    // makes the bundle proved and lets the planner widen.
+    fleet[0] = machine({ id: 'fleet-a', name: 'fleet-a', version: 'dev+abc1234' })
+    await h.engine.reensure('op_1', UPDATE_STEP_MACHINES)
+    await h.engine.whenSettled('op_1')
+
+    expect(rounds(h.read())).toEqual([
+      expect.objectContaining({ gate: 'canary', granted: [{ id: 'fleet-a', name: 'fleet-a' }] }),
+      expect.objectContaining({
+        gate: 'widen',
+        granted: [{ id: 'fleet-b', name: 'fleet-b' }],
+        // The canary is on the target now, so the widening round holds it for
+        // the one reason that is not a wait at all.
+        held: [{ id: 'fleet-a', name: 'fleet-a', reason: 'already-current' }],
+      }),
+    ])
+  })
+
+  /**
+   * A COORDINATOR REPLACES ITSELF IN THE MIDDLE OF ITS OWN UPDATE, so a record
+   * kept only in the service is a record that dies before anybody reads it. The
+   * successor's service buffer is empty; the canary round is still there because
+   * the operation carried it across, and it is APPENDED to rather than replaced.
+   */
+  it('keeps the rounds the dead process recorded when a successor adopts the wave', async () => {
+    const fleet = twoMachines()
+    const h = waveHarness(fleet)
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const before = rounds(h.read())
+    expect(before).toHaveLength(1)
+    h.engine.stop()
+
+    // A whole new process: same store, same fleet, a service that remembers
+    // nothing — and the canary has come back on the target meanwhile.
+    fleet[0] = machine({ id: 'fleet-a', name: 'fleet-a', version: 'dev+abc1234' })
+    const boot = h.reboot()
+    expect(boot.updates.waveRounds('dev')).toEqual([])
+    await boot.engine.adoptOnBoot(
+      () => ({
+        appVersion: 'dev+abc1234',
+        servedWebDigest: WEB_DIGEST,
+        machineDirectory: fleet,
+        now: h.clock.clock.now(),
+      }),
+      () => boot.context(),
+    )
+    await boot.engine.whenSettled('op_1')
+
+    const after = rounds(h.read()) ?? []
+    expect(after.slice(0, 1)).toEqual(before)
+    // The successor grants the machine still behind. Its gate reads `canary`
+    // and not `widen`, because a process that has forgotten everything has
+    // forgotten the proof too and earns it again — the honest answer, and the
+    // reason this record says which gate each round came from.
+    expect(after.at(-1)).toEqual(
+      expect.objectContaining({ granted: [{ id: 'fleet-b', name: 'fleet-b' }] }),
+    )
+    expect(after.length).toBeGreaterThan(before?.length ?? 0)
+  })
+
+  /**
+   * A ROUND BELONGS TO THE WAVE THAT ISSUED IT.
+   *
+   * The service buffer spans every wave this process has served, so an earlier
+   * update's canary would otherwise read as this one's — and it would look
+   * identical, because a re-run grants the same machines in the same order. Two
+   * scopes keep them apart, and both are asked here.
+   */
+  it('takes only the rounds that belong to this operation', () => {
+    const round = (over: Partial<WaveRound>): WaveRound => ({
+      at: 100,
+      gate: 'canary',
+      targetVersion: 'dev+abc1234',
+      granted: [{ id: 'fleet-a' }],
+      held: [{ id: 'fleet-b', reason: 'canary-gated' }],
+      ...over,
+    })
+    const mine = round({ at: 100 })
+    const buffer = [
+      round({ at: 50 }), // an earlier update's, over before this one began
+      round({ at: 120, targetVersion: 'dev+9999999' }), // a different rollout
+      mine,
+    ]
+    const operation = {
+      id: 'op_1',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      createdAt: 90,
+      startedAt: 90,
+      details: { target: packedTarget(), channel: 'dev' },
+    } as unknown as Operation
+    const updates = { waveRounds: () => buffer } as unknown as UpdatesService
+
+    expect(mergedWaveRounds(operation, updates)).toEqual([mine])
+    // Written once and then nothing new to write, which is what stops a caller
+    // rewriting the same value on every pass of the step.
+    const written = { ...operation, details: { ...operation.details, waveRounds: [mine] } }
+    expect(mergedWaveRounds(written as Operation, updates)).toBeUndefined()
   })
 })

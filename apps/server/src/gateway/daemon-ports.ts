@@ -21,7 +21,7 @@
  */
 
 import type { ConversationDiagnosticWire, ConversationSummaryWire, MachineId } from '@podium/model'
-import type { MachinePrincipal } from '@podium/protocol'
+import type { DaemonPtyInputBatch, DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
 
@@ -30,6 +30,13 @@ export type DaemonFrame<T extends DaemonMessage['type']> = Extract<DaemonMessage
 
 /** Outbound control-message sink for one daemon socket (`Send<ControlMessage>`). */
 export type ControlSend = (msg: ControlMessage) => void
+
+/** One daemon connection's reliable control and canonical PTY-input sinks. */
+export interface DaemonControlTransport {
+  send: ControlSend
+  sendInput(input: DaemonPtyInputBatch): void
+}
+export type DaemonControlPeer = ControlSend | DaemonControlTransport
 
 /**
  * Outbound session-inbox leg of the daemon gateway.
@@ -41,7 +48,7 @@ export type ControlSend = (msg: ControlMessage) => void
  * D8/D16; POD-394).
  */
 export interface SessionInputGatewayPort {
-  sendInput(machineId: MachineId, message: Extract<ControlMessage, { type: 'input' }>): void
+  sendInput(machineId: MachineId, input: DaemonPtyInputBatch): void
 }
 
 /**
@@ -56,15 +63,20 @@ export interface SessionsDaemonPort {
   onMachineDetached(principal: MachinePrincipal): void
   /** One session-owned frame, attributed to the machine that sent it. */
   onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void
+  /** One raw PTY-output batch, attributed to the machine that sent it. */
+  onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void
 }
 
 /** MACHINES. Socket bookkeeping plus the machine's own reported inventory. */
 export interface MachinesDaemonPort {
-  attach(machineId: MachineId, send: ControlSend): void
-  detach(machineId: MachineId, send?: ControlSend): boolean
+  attach(machineId: MachineId, transport: DaemonControlPeer): void
+  detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
   flushQueued(machineId: MachineId): void
   broadcastMachines(): void
-  recordInventory(machineId: MachineId, inventory: DaemonFrame<'inventoryReport'>['inventory']): void
+  recordInventory(
+    machineId: MachineId,
+    inventory: DaemonFrame<'inventoryReport'>['inventory'],
+  ): void
   recordDiagnostic(machineId: MachineId, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 
@@ -78,6 +90,10 @@ export interface UpdatesDaemonPort {
 export interface HostsDaemonPort {
   onHostMetrics(machineId: MachineId, sample: Omit<DaemonFrame<'hostMetrics'>, 'type'>): void
   onMemoryBreakdownResult(machineId: MachineId, msg: DaemonFrame<'memoryBreakdownResult'>): void
+  onReclaimDiskEstimateResult(
+    machineId: MachineId,
+    msg: DaemonFrame<'reclaimDiskEstimateResult'>,
+  ): void
 }
 
 /** CONVERSATIONS. Discovery is per-machine; the mirror read is request-correlated

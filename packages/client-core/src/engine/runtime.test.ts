@@ -1447,6 +1447,173 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     engine.dispose()
   })
 
+  it('paints a named task, first session, and prompt before create resolves', async () => {
+    const api = spawnApi()
+    let releaseCreate!: () => void
+    let createInput: Record<string, unknown> | undefined
+    api.issues.create = {
+      mutate: vi.fn(
+        (input: Record<string, unknown>) =>
+          new Promise((resolve) => {
+            createInput = input
+            releaseCreate = () => resolve({ id: input.id })
+          }),
+      ),
+    }
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+
+    const made = engine.getSnapshot().spawnIssueAgent({
+      target: { path: '/w', repoPath: '/w' },
+      title: 'Smooth task launch',
+      description: 'Show this prompt immediately',
+      agentKind: 'codex',
+    })
+
+    expect(engine.getSnapshot().issues.find((row) => row.id === made.issueId)).toMatchObject({
+      title: 'Smooth task launch',
+      description: 'Show this prompt immediately',
+      stage: 'in_progress',
+      draft: false,
+    })
+    expect(
+      engine.getSnapshot().sessions.find((row) => row.sessionId === made.sessionId),
+    ).toMatchObject({ issueId: made.issueId, status: 'starting' })
+    expect(engine.getSnapshot().pendingSpawnPrompts.get(made.sessionId)).toBe(
+      'Show this prompt immediately',
+    )
+    expect(createInput).toMatchObject({
+      id: made.issueId,
+      startSessionId: made.sessionId,
+      startNow: true,
+      description: 'Show this prompt immediately',
+    })
+
+    const optimisticIssue = engine.getSnapshot().issues.find((row) => row.id === made.issueId)
+    if (!optimisticIssue) throw new Error('missing optimistic issue')
+    engine.replica.applyChanges(
+      'issues',
+      [{ ...optimisticIssue, seq: 1, worktreePath: '/w/.worktrees/smooth-task-launch' }],
+      [],
+    )
+    engine.replica.applyChanges(
+      'sessions',
+      [session(made.sessionId, '/w/.worktrees/smooth-task-launch')],
+      [],
+    )
+    releaseCreate()
+    expect(await made.settled).toBe(true)
+    await settle(40)
+    expect(engine.getSnapshot().pendingSpawnPrompts.has(made.sessionId)).toBe(false)
+    expect(engine.getSnapshot().sessions.some((row) => row.sessionId === made.sessionId)).toBe(true)
+    engine.dispose()
+  })
+
+  it('rolls a rejected task launch back and reports the server error', async () => {
+    const api = spawnApi()
+    api.issues.create = {
+      mutate: vi.fn(async () => {
+        throw new Error('worktree add failed')
+      }),
+    }
+    const { engine, errors } = makeEngine({ api, spawnConfirmGraceMs: 20 })
+    engine.start()
+    await settle(40)
+
+    const made = engine.getSnapshot().spawnIssueAgent({
+      target: { path: '/w', repoPath: '/w' },
+      title: 'Broken launch',
+      description: 'Keep my prompt',
+      agentKind: 'codex',
+    })
+    expect(engine.getSnapshot().pendingSpawnPrompts.get(made.sessionId)).toBe('Keep my prompt')
+    expect(await made.settled).toBe(false)
+    expect(engine.getSnapshot().pendingSpawnPrompts.has(made.sessionId)).toBe(false)
+    expect(engine.getSnapshot().sessions.some((row) => row.sessionId === made.sessionId)).toBe(
+      false,
+    )
+    expect(errors).toContain("Couldn't start the task — worktree add failed")
+    engine.dispose()
+  })
+
+  it('keeps an authoritative issue when create committed but its first session failed', async () => {
+    const api = spawnApi()
+    api.issues.create = {
+      mutate: vi.fn(async () => {
+        throw new Error('worktree add failed')
+      }),
+    }
+    const { engine, errors } = makeEngine({ api, spawnConfirmGraceMs: 20 })
+    engine.start()
+    await settle(40)
+
+    const made = engine.getSnapshot().spawnIssueAgent({
+      target: { path: '/w', repoPath: '/w' },
+      title: 'Partially started',
+      description: 'Keep the saved task',
+      agentKind: 'codex',
+    })
+    const optimisticIssue = engine.getSnapshot().issues.find((row) => row.id === made.issueId)
+    if (!optimisticIssue) throw new Error('missing optimistic issue')
+    engine.replica.applyChanges('issues', [{ ...optimisticIssue, seq: 1 }], [])
+
+    expect(await made.outcome).toBe('issue-only')
+    expect(engine.getSnapshot().issues.some((row) => row.id === made.issueId)).toBe(true)
+    expect(engine.getSnapshot().sessions.some((row) => row.sessionId === made.sessionId)).toBe(
+      false,
+    )
+    expect(errors).toContain(
+      "The task was saved, but its agent couldn't start — worktree add failed",
+    )
+    engine.dispose()
+  })
+
+  it('reuses the reserved ids after late issue truth instead of painting a duplicate', async () => {
+    const api = spawnApi()
+    api.issues.create = {
+      mutate: vi.fn(async () => {
+        throw new Error('connection lost')
+      }),
+    }
+    const { engine } = makeEngine({ api, spawnConfirmGraceMs: 20 })
+    engine.start()
+    await settle(40)
+
+    const first = engine.getSnapshot().spawnIssueAgent({
+      target: { path: '/w', repoPath: '/w' },
+      title: 'Ambiguous launch',
+      description: 'Create this once',
+      agentKind: 'codex',
+    })
+    const lateIssue = engine.getSnapshot().issues.find((row) => row.id === first.issueId)
+    if (!lateIssue) throw new Error('missing optimistic issue')
+    expect(await first.outcome).toBe('failed')
+
+    engine.replica.applyChanges('issues', [{ ...lateIssue, seq: 1 }], [])
+    const retry = engine.getSnapshot().spawnIssueAgent({
+      issueId: first.issueId,
+      sessionId: first.sessionId,
+      mutationId: first.mutationId,
+      target: { path: '/w', repoPath: '/w' },
+      title: 'Ambiguous launch',
+      description: 'Create this once',
+      agentKind: 'codex',
+    })
+
+    expect(await retry.outcome).toBe('issue-only')
+    expect(engine.getSnapshot().issues.filter((row) => row.id === first.issueId)).toHaveLength(1)
+    expect(api.issues.create.mutate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        id: first.issueId,
+        startSessionId: first.sessionId,
+        mutationId: first.mutationId,
+      }),
+    )
+    engine.dispose()
+  })
+
   it('dispose() before the grace elapses clears the confirm timer: no rollback, no toast (round 2)', async () => {
     const api = spawnApi()
     api.sessions.create = {

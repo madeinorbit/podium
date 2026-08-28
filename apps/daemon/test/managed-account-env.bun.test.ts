@@ -4,8 +4,8 @@
 //
 // The managed-credential spawn path (#216) has a vitest integration twin in
 // scripts/managed-account-spawn.integration.test.ts, but vitest runs under NODE — so it
-// exercises the node-pty backend. The SHIPPED daemon is bun-compiled and therefore uses
-// the Bun.Terminal PTY backend (a compiled daemon has no node-pty fallback at all — see
+// exercises the direct PTY backend. The shipped daemon is Bun-compiled and uses
+// Bun.Terminal (see
 // packages/pty/src/backends/index.ts). Env is handed to the OS by the BACKEND, so the
 // backend the users actually run must be proven too, not just the one the test runner picks.
 //

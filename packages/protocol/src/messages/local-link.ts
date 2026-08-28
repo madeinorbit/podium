@@ -1,7 +1,8 @@
-import type { MachineId } from '@podium/model'
+import type { Attribution, MachineId, SessionId } from '@podium/model'
 import type { PeerHello, PeerHelloReply } from '../handshake/envelope'
 import type { ControlMessage } from './control'
 import type { DaemonMessage } from './daemon'
+import type { ObservationInputOrigin } from './runtime-state'
 
 export type LocalDaemonAttachment =
   | { readonly established: false; readonly reply: PeerHelloReply }
@@ -10,6 +11,7 @@ export type LocalDaemonAttachment =
       readonly reply: PeerHelloReply
       readonly machineId: MachineId
       deliver(msg: DaemonMessage): void
+      deliverOutput(batch: DaemonPtyOutputBatch): void
       close(): void
     }
 
@@ -33,13 +35,34 @@ export type LocalDaemonAttachment =
  *   in-process is a transport optimization, never a local-credential trust
  *   shortcut (ADR 9 D6 M4). Only an established reply exposes delivery.
  */
+export interface DaemonPtyOutputBatch {
+  readonly sessionId: SessionId
+  readonly sourceFrames: number
+  /** Immutable after delivery: local routing and terminal replay may retain this exact view. */
+  readonly bytes: Uint8Array
+}
+
+/** Canonical server-to-daemon PTY input after authority and origin are resolved. */
+export interface DaemonPtyInputBatch {
+  readonly sessionId: SessionId
+  readonly inputOrigin: ObservationInputOrigin
+  readonly attribution?: Attribution
+  /** Immutable after delivery; a capable transport forwards these bytes unchanged. */
+  readonly bytes: Uint8Array
+}
+
 export interface LocalPortableStateControl {
   pauseAndDrain(): Promise<void>
   resume(): void
 }
 
 export interface LocalDaemonLink {
-  attach(opts: { hello: PeerHello; deliver: (msg: ControlMessage) => void }): LocalDaemonAttachment
+  attach(opts: {
+    hello: PeerHello
+    deliver: (msg: ControlMessage) => void
+    /** Optional during rolling compatibility; absent uses the legacy control frame. */
+    deliverInput?: (input: DaemonPtyInputBatch) => void
+  }): LocalDaemonAttachment
   /** All-in-one-only lifecycle control; remote daemon links never expose process memory. */
   attachPortableState?(control: LocalPortableStateControl): void
 }

@@ -1422,6 +1422,73 @@ describe('a background drive that throws is contained (POD-2151)', () => {
   })
 })
 
+/**
+ * THE ONE WRITE THIS ENGINE MAKES TO A FINISHED OPERATION (POD-3040).
+ *
+ * `deferred` is not a record of what happened; it is a promise about what is
+ * still going to. An operation reaching `done` is exactly what does NOT settle
+ * it — §3.6's whole point is that the operation finishes without those places —
+ * so the promise can go stale long after the row is terminal, and something has
+ * to be able to correct it. What must not happen is the correction reanimating
+ * the operation.
+ */
+describe('restating a deferred promise (POD-3040)', () => {
+  const kindWithDeferred = () =>
+    testKind({
+      plan: () => ({
+        steps: [{ id: 'first' }],
+        deferred: [{ id: 'laptop', name: 'laptop', reason: 'offline' }],
+      }),
+      runners: { first: runner(done) },
+    })
+
+  it('rewrites the note on a finished operation without touching its outcome', async () => {
+    const h = harness()
+    h.registry.register(kindWithDeferred())
+    const started = await run(h.engine, 'test')
+    if (!started.started) throw new Error('expected the operation to start')
+    const id = started.operation.id
+
+    const finished = h.store.get(id)?.operation
+    expect(finished?.state).toBe('done')
+    expect(finished?.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+
+    h.clock.advance(5_000)
+    await h.engine.recordDeferred(id, [{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }])
+
+    const after = h.store.get(id)?.operation
+    expect(after?.deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
+    ])
+    // The outcome is history and stays exactly as it was.
+    expect(after?.state).toBe('done')
+    expect(after?.finishedAt).toBe(finished?.finishedAt)
+    expect(after?.steps).toEqual(finished?.steps)
+    expect(after?.error).toEqual(finished?.error)
+  })
+
+  it('does not reopen the exclusion group it already released', async () => {
+    const h = harness()
+    h.registry.register(kindWithDeferred())
+    const started = await run(h.engine, 'test')
+    if (!started.started) throw new Error('expected the operation to start')
+
+    await h.engine.recordDeferred(started.operation.id, [
+      { id: 'laptop', reason: 'target-unavailable' },
+    ])
+
+    expect(h.engine.active('lifecycle')).toBeUndefined()
+    // …and the group is genuinely free: a second operation may still start.
+    const next = await run(h.engine, 'test')
+    expect(next.started).toBe(true)
+  })
+
+  it('is silent about an operation that is not there', async () => {
+    const h = harness()
+    await expect(h.engine.recordDeferred('op_missing', [])).resolves.toBeUndefined()
+  })
+})
+
 describe('observers', () => {
   it('announces every persisted transition, and only after it is persisted', async () => {
     const db = openDatabase(':memory:')

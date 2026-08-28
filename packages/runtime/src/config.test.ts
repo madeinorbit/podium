@@ -111,13 +111,19 @@ describe('podium config', () => {
   it('saveConfig rejects an invalid mode', () => {
     expect(() => saveConfig({ mode: 'bogus' } as never)).toThrow()
   })
-  it('round-trips updateChannel and publicUrl', () => {
-    saveConfig({ mode: 'all-in-one', updateChannel: 'edge', publicUrl: 'https://b.ts.net' })
+  it('round-trips updateChannel, publicUrl, and networkOption', () => {
+    saveConfig({
+      mode: 'all-in-one',
+      updateChannel: 'edge',
+      publicUrl: 'https://b.ts.net',
+      networkOption: 'tailscale-serve',
+    })
     expect(loadConfig()).toEqual({
       ...V2,
       mode: 'all-in-one',
       updateChannel: 'edge',
       publicUrl: 'https://b.ts.net',
+      networkOption: 'tailscale-serve',
     })
   })
   it('loads an old config without the new fields', () => {

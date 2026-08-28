@@ -165,9 +165,16 @@ export function transcriptTailState(
     }
   }
   if (activity?.tone === 'error') {
-    const raw = activity.label.replace(/^error:\s*/i, '')
-    const detail = /^[a-z0-9_-]+$/i.test(raw) ? raw.replaceAll('_', ' ') : raw
-    return { mode: 'error', label: 'Agent stopped with an error', detail, since: fallbackSince }
+    // The badge label IS the phrase now (POD-1601) — it used to be `error:
+    // rate_limit`, so this stripped the prefix and un-snaked the token to get
+    // something readable. `agentBadge` reads the same phrase table every other
+    // surface does, so there is nothing left to undo.
+    return {
+      mode: 'error',
+      label: 'Agent stopped with an error',
+      detail: activity.label,
+      since: fallbackSince,
+    }
   }
   if (activity?.label === 'interrupted') {
     return { mode: 'interrupted', label: 'Interrupted by you', since: fallbackSince }
@@ -237,7 +244,16 @@ export function TranscriptTail({
       // Keyed on the state so a PHASE CHANGE remounts the row and replays its
       // one-shot arrival — the motion grammar's "morph, then be still". A
       // ticking figure inside one state must not re-trigger it, and does not.
-      key={kind}
+      //
+      // SENDING AND WORKING ARE ONE MOTION (POD-1595). They are two states but a
+      // single continuous event: the operator pressed Enter and the agent picked
+      // the turn up. Both draw the same `WorkingMark`, so keying them apart
+      // remounted the row mid-stride — the mark restarted from frame zero and the
+      // arrival morph replayed — for a transition that changes only a word and
+      // the appearance of a timer. Sharing the key lets the mark keep turning
+      // through the hand-off and leaves the one-shot arrival for the transitions
+      // that really are a change of state.
+      key={kind === 'sending' ? 'working' : kind}
       className="feed-tail"
       data-tail={kind}
       data-testid="feed-tail"

@@ -9,7 +9,7 @@
  * in exactly the cases it always did.
  */
 
-import type { UserId } from '@podium/model'
+import type { ServerReadiness, UserId } from '@podium/model'
 import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
 import { AUTH_QUERIES, SETUP_QUERIES, TELEMETRY_QUERIES } from './queries'
 import { AUTH_COMMANDS_TRPC, SETUP_COMMANDS_TRPC, TELEMETRY_COMMANDS_TRPC } from './registry'
@@ -24,6 +24,8 @@ const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
   loginRequired?: (() => boolean) | undefined
+  readiness?: (() => ServerReadiness) | undefined
+  requestCoordinatorRestart?: (() => void) | undefined
   caller: { userId: UserId }
   modules?:
     | {
@@ -37,6 +39,10 @@ const instanceService = (state: {
     users: state.users,
     callerUserId: state.caller.userId,
     loginRequired: state.loginRequired,
+    // POD-2766: `setup.activate` reads readiness live and refuses anything that is
+    // not activation-pending, so the restart cannot become a general bounce lever.
+    readiness: state.readiness,
+    requestCoordinatorRestart: state.requestCoordinatorRestart,
     // POD-1882: the fleet default is the channel every unpinned machine follows,
     // so writing it has to re-resolve their targets and push the new projection.
     onFleetChannelChanged: state.modules

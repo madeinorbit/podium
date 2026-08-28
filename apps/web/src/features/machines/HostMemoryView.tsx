@@ -1,27 +1,24 @@
-import { asIssueId } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   formatMemBytes,
   hostMemoryView,
-  listReclaimableWorktreesClient,
-  occupiedRootsFromKey,
   panelLabel,
-  placeReclaimable,
-  residentWorktreeKey,
+  reclaimSpaceLabel,
 } from '@podium/client-core/viewmodels'
+import { asIssueId } from '@podium/model'
 import type {
   AgentMemoryWire,
   HostMemoryWire,
+  IssueId,
+  MachineId,
   ProjectMemoryWire,
   SessionId,
-  MachineId,
-  IssueId,
 } from '@podium/model/browser'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useMemo, useState } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useEffect, useState } from 'react'
+import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -32,6 +29,8 @@ import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import { ReclaimConfirmDialog } from './reclaim-lifecycle'
+
+import { useReclaimInventory } from './use-reclaim-inventory'
 
 /** Shape of trpc hosts.memoryBreakdown — the daemon's answer minus wire plumbing. */
 interface Breakdown {
@@ -191,9 +190,13 @@ function MemoryPanel({
 
   // Instant headline from the live host-metrics sample (already streamed to the
   // store), so "12.3/32 GB used" is on screen the moment the modal opens. Pick
-  // the clicked machine's sample (fall back to the first host if its metric
-  // hasn't arrived yet) so the headline matches the breakdown below.
-  const headlineHost = hostMetrics.find((h) => h.machineId === machineId) ?? hostMetrics[0]
+  // the clicked machine's sample so the headline matches the breakdown below.
+  //
+  // POD-2700 §3.3: no first-host fallback when a machine WAS named. A machine
+  // that runs no daemon reports no metrics, and borrowing another host's sample
+  // put a confident, wrong "12.3/32 GB used" under its name.
+  const headlineHost =
+    machineId === undefined ? hostMetrics[0] : hostMetrics.find((h) => h.machineId === machineId)
   const headline = !data && headlineHost ? hostMemoryView(headlineHost) : null
 
   // Current memory pressure for the hibernation explainer — prefer the
@@ -447,9 +450,9 @@ function LegendSwatch({ className, label }: { className: string; label: string }
 /**
  * Reclaim tab — the janitor's candidate list for this machine (POD-563).
  *
- * A PROPOSAL, not a queue. Candidates are derived client-side from issues +
- * session occupancy + `worktreeGc.afterDays` (the same predicate as the server
- * list), rendered with a checkbox and NOTHING ticked. The single action frees
+ * A PROPOSAL, not a queue. Candidates come from the server's issue rows plus
+ * machine-routed git worktree inventory and are rendered with a checkbox and
+ * NOTHING ticked. The single action frees
  * the ticked rows only, and every path to it — batch or per-row — goes through
  * {@link ReclaimConfirmDialog}, which names the consequences before anything is
  * stopped. There is no apply-everything button on purpose: the operator asked
@@ -459,30 +462,12 @@ function LegendSwatch({ className, label }: { className: string; label: string }
  * "held" with the server's reason.
  */
 function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
-  const { trpc, sessions, hostMetrics } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, sessions: s.sessions, hostMetrics: s.hostMetrics }),
-    shallowEqual,
-  )
-  const issues = useReplicaIssues()
+  const { trpc } = useStoreSelector((s) => ({ trpc: s.trpc }), shallowEqual)
   const lifecycle = useHostLifecycleSettings()
-  const afterDays = lifecycle?.worktreeGc.afterDays ?? 14
-  // Keyed on live-agent occupancy rather than the sessions array — see the same
-  // memo in HeaderHostIndicators.
-  const occupancyKey = residentWorktreeKey(sessions)
-  const soleMachine = hostMetrics.length === 1
-  const placed = useMemo(
-    () =>
-      placeReclaimable(
-        listReclaimableWorktreesClient({
-          issues,
-          occupiedRoots: occupiedRootsFromKey(occupancyKey),
-          afterDays,
-        }),
-        { machineId, soleMachine },
-      ),
-    [issues, occupancyKey, afterDays, machineId, soleMachine],
-  )
-  const candidates = placed.here
+  const { inventory, error: inventoryError } = useReclaimInventory(trpc, machineId)
+  const candidates = inventory?.candidates ?? []
+  const orphans = inventory?.orphans ?? []
+  const spaceLabel = reclaimSpaceLabel(inventory?.estimate ?? null)
   // Nothing is ticked until the operator ticks it. This set IS the proposal's
   // answer, so it is never seeded from the candidate list.
   const [selected, setSelected] = useState<ReadonlySet<IssueId>>(() => new Set())
@@ -493,11 +478,14 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
   const [freed, setFreed] = useState<IssueId[]>([])
 
   const remaining = candidates.filter((c) => !freed.includes(c.issueId))
+  const [reviewingOrphan, setReviewingOrphan] = useState<string | null>(null)
   const titleOf = (issueId: IssueId): string =>
     candidates.find((c) => c.issueId === issueId)?.title ?? issueId
   // Ticks for rows that have since been freed (or dropped out of the list) must
   // not keep counting toward the button.
-  const selectedIds = remaining.filter((c) => selected.has(c.issueId)).map((c) => c.issueId)
+  const selectedIds = remaining
+    .filter((c) => !c.protectedReason && selected.has(c.issueId))
+    .map((c) => c.issueId)
 
   const toggle = (issueId: IssueId): void =>
     setSelected((prev) => {
@@ -553,7 +541,20 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
         Closed issues whose checkouts are still on disk and free of live sessions. Tick the ones you
         want back — nothing here is freed until you do.
       </p>
-      {remaining.length === 0 && held.length === 0 ? (
+      <div className="text-xs font-medium text-foreground">
+        {inventory ? `${candidates.length} records · ${spaceLabel}` : 'Counting checkouts…'}
+      </div>
+      {inventoryError && (
+        <div className="text-xs text-warning">
+          Could not refresh reclaim inventory: {inventoryError}
+        </div>
+      )}
+      {!inventory ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+          <span>Reading git worktrees…</span>
+        </div>
+      ) : remaining.length === 0 && held.length === 0 && orphans.length === 0 ? (
         <div className="text-xs text-muted-foreground/70">Nothing reclaimable on this machine.</div>
       ) : (
         <>
@@ -585,7 +586,7 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
                   id={`reclaim-${c.issueId}`}
                   className="flex-none"
                   checked={selected.has(c.issueId)}
-                  disabled={busy}
+                  disabled={busy || Boolean(c.protectedReason)}
                   onCheckedChange={() => toggle(c.issueId)}
                 />
                 {/* Associated by id rather than by wrapping: the row's own Free
@@ -597,6 +598,9 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
                 >
                   {c.title}
                 </label>
+                <span className="flex-none text-[11px] text-muted-foreground/70">
+                  {c.protectedReason ?? (c.present ? 'on disk' : 'record only')}
+                </span>
                 <span className="flex-none text-[11px] text-muted-foreground/70 tabular-nums">
                   {ageDays(c.closedAt)}d
                 </span>
@@ -604,7 +608,7 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
                   data-pressable
                   type="button"
                   className="flex-none cursor-pointer border-0 bg-transparent p-0 text-[11px] text-primary underline underline-offset-2 disabled:opacity-50 hover:no-underline"
-                  disabled={busy}
+                  disabled={busy || Boolean(c.protectedReason)}
                   aria-label={`Free ${c.title}`}
                   onClick={() => setConfirming([c.issueId])}
                 >
@@ -634,14 +638,41 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
           ))}
         </div>
       )}
-      {/* Named rather than dropped: a checkout whose issue records no machine
-          cannot be placed once there is more than one, and silence there would
-          read as "nothing to reclaim". */}
-      {placed.unplaceable > 0 && (
-        <p className="m-0 text-[11px] text-muted-foreground/70">
-          {placed.unplaceable} more reclaimable checkout{placed.unplaceable === 1 ? '' : 's'} record
-          no machine, so they cannot be shown under one host.
-        </p>
+      {orphans.length > 0 && (
+        <div className="flex flex-col gap-1 border-t border-border pt-2">
+          <div className="text-[11px] font-semibold tracking-[0.08em] text-warning uppercase">
+            Unowned worktrees · {orphans.length}
+          </div>
+          <p className="m-0 text-[11px] text-muted-foreground/70">
+            Git reports these directories, but no issue claims them. They are never freed
+            automatically.
+          </p>
+          {orphans.map((orphan) => (
+            <div key={orphan.path} className="text-xs text-foreground">
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                  {orphan.path.split('/').pop() ?? orphan.path}
+                </span>
+                <span className="text-[11px] text-muted-foreground/70">
+                  {orphan.branch ?? 'detached'}
+                </span>
+                <button
+                  data-pressable
+                  type="button"
+                  className="text-[11px] text-primary underline underline-offset-2 hover:no-underline"
+                  onClick={() =>
+                    setReviewingOrphan((current) => (current === orphan.path ? null : orphan.path))
+                  }
+                >
+                  {reviewingOrphan === orphan.path ? 'Hide' : 'Review'}
+                </button>
+              </div>
+              {reviewingOrphan === orphan.path && (
+                <div className="break-all text-[11px] text-muted-foreground">{orphan.path}</div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
       {lifecycle && (
         <p className="m-0 text-[11px] text-muted-foreground/70">

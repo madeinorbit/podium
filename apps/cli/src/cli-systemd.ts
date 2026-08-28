@@ -43,9 +43,6 @@ export interface RenderedSystemdFiles {
 const GENERATED_UNIT_NOTICE =
   '# GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.\n' +
   '# Do not hand-edit; rerun the renderer after changing the source.\n'
-const GENERATED_SCRIPT_NOTICE =
-  '# GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.\n' +
-  '# Do not hand-edit; rerun the renderer after changing the source.\n'
 
 // Child processes inherit their service's PATH, so every supported per-user runtime and harness
 // directory has to be here — a systemd unit gets none of the login shell's PATH. The server needs
@@ -69,6 +66,7 @@ interface RenderContext {
   port: number
   home: string
   repoRoot: string
+  parentUnit: string
   serverUnit: string
   janitorUnit: string
   daemonUnit: string
@@ -94,6 +92,7 @@ function context(opts: SystemdRenderOptions = {}): RenderContext {
     port,
     home: opts.home ?? DEV_HOME,
     repoRoot: opts.repoRoot ?? DEV_REPO,
+    parentUnit: instanceServiceName('parent', instanceId),
     serverUnit: instanceServiceName('server', instanceId),
     janitorUnit: instanceServiceName('janitor', instanceId),
     daemonUnit: instanceServiceName('daemon', instanceId),
@@ -124,6 +123,7 @@ Type=notify
 NotifyAccess=all
 WatchdogSec=30
 Environment=PODIUM_INSTANCE=${c.instanceId}
+Environment=PODIUM_PORT=${c.port}
 Environment=PATH=${USER_RUNTIME_PATH}
 ExecStart=%h/.local/bin/${c.command} server
 Restart=always
@@ -180,32 +180,6 @@ WantedBy=default.target
 `
 }
 
-function renderDevJanitor(c: RenderContext): string {
-  return `[Unit]
-Description=Podium durable maintenance janitor (source checkout)
-After=network-online.target ${c.serverUnit}
-Wants=network-online.target
-
-[Service]
-Type=notify
-NotifyAccess=all
-WatchdogSec=30
-WorkingDirectory=${c.repoRoot}
-Environment=HOME=${c.home}
-Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
-Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStart=${c.home}/.local/bin/bun --conditions=@podium/source scripts/cli.ts janitor --server http://localhost:${c.port}
-Restart=always
-RestartSec=2
-RestartPreventExitStatus=${DAEMON_BLOCKED_EXIT_CODE}
-CPUWeight=100
-IOWeight=100
-
-[Install]
-WantedBy=default.target
-`
-}
-
 export function renderServerUnit(
   instanceIdOrOptions: string | SystemdRenderOptions = resolveInstanceId(),
 ): string {
@@ -215,6 +189,67 @@ export function renderServerUnit(
       : instanceIdOrOptions
   const c = context(opts)
   return generatedUnit(c.profile === 'dev' ? renderDevServer(c) : renderPackagedServer(c))
+}
+
+function renderPackagedParent(c: RenderContext): string {
+  return `[Unit]
+Description=Podium parent supervisor (server + daemon children; janitor as server worker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Type=notify + MAINPID re-declaration: self-handover keeps the unit active across updates.
+Type=notify
+NotifyAccess=all
+WatchdogSec=90
+Environment=PODIUM_INSTANCE=${c.instanceId}
+Environment=PODIUM_PORT=${c.port}
+Environment=PATH=${USER_RUNTIME_PATH}
+ExecStart=%h/.local/bin/${c.command} parent --takeover
+Restart=always
+RestartSec=2
+# Degraded children never bubble here — only a wedged parent trips the watchdog.
+CPUWeight=900
+IOWeight=500
+MemoryLow=2G
+
+[Install]
+WantedBy=default.target
+`
+}
+
+function renderDevParent(c: RenderContext): string {
+  return `[Unit]
+Description=Podium parent supervisor (installed development build)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+WatchdogSec=90
+WorkingDirectory=${c.repoRoot}
+Environment=HOME=${c.home}
+Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PODIUM_PORT=${c.port}
+Environment=PODIUM_INSTANCE=${c.instanceId}
+Environment=PODIUM_DEV_SOURCE_ROOT=${c.repoRoot}
+ExecStart=%h/.local/bin/${c.command} parent --takeover
+Restart=always
+RestartSec=2
+CPUWeight=900
+IOWeight=500
+MemoryLow=2G
+
+[Install]
+WantedBy=default.target
+`
+}
+
+/** Single parent unit that owns server + daemon children [POD-2506]. */
+export function renderParentUnit(opts: SystemdRenderOptions = {}): string {
+  const c = context(opts)
+  return generatedUnit(c.profile === 'dev' ? renderDevParent(c) : renderPackagedParent(c))
 }
 
 function renderPackagedJanitor(c: RenderContext): string {
@@ -228,7 +263,8 @@ Type=notify
 NotifyAccess=all
 WatchdogSec=30
 Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStart=%h/.local/bin/${c.command} janitor --server http://localhost:${c.port}
+Environment=PODIUM_PORT=${c.port}
+ExecStart=%h/.local/bin/${c.command} janitor
 Restart=always
 RestartSec=2
 # A protocol/schema mismatch is terminal until the installed bundle catches up.
@@ -261,6 +297,7 @@ Type=notify
 NotifyAccess=all
 WatchdogSec=30
 Environment=PODIUM_INSTANCE=${c.instanceId}
+Environment=PODIUM_PORT=${c.port}
 Environment=PATH=${USER_RUNTIME_PATH}
 ExecStart=${exec}
 Restart=always
@@ -321,7 +358,7 @@ WantedBy=default.target
 
 /**
  * The daemon unit. `serverUrl` present → `--server <url>`; absent → config-driven bare daemon.
- * The dev profile runs the source split directly and keeps the same instance identity, unit
+ * The legacy role renderers keep the same instance identity, unit
  * naming, port, and CPU/IO tier as the packaged profile.
  */
 export function renderDaemonUnit(opts: DaemonRenderOptions = {}): string {
@@ -334,192 +371,23 @@ export function renderJanitorUnit(opts: { port: number; instanceId?: string }): 
   return generatedUnit(renderPackagedJanitor(c))
 }
 
-// There is no web-build unit any more (POD-1985). `podium-web.service` ran the two vite
-// builds at boot, on every redeploy, and on request — at the systemd default CPUWeight=100,
-// which outranked every agent scope 2:1 on a host that is oversubscribed by them. The server
-// now runs those builds itself, in batch-tier transient scopes it creates on demand
-// (apps/server/src/modules/updates/dev-web-build.ts), which also removes the race that made
-// 28 of 112 headless builds refuse on a web dist another unit owned producing.
-
-function renderDevBackend(c: RenderContext): string {
-  return `[Unit]
-Description=Podium relay + live agent daemon (backend, :${c.port})
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=${c.repoRoot}
-Environment=HOME=${c.home}
-Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
-Environment=PODIUM_PORT=${c.port}
-Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStart=${c.repoRoot}/node_modules/.bin/tsx --conditions=@podium/source scripts/host.ts
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=default.target
-`
-}
-
-function renderDevSystemDaemon(c: RenderContext): string {
-  return `# /etc/systemd/system/podium-daemon.service (system-wide alternative to the --user unit)
-# Install: sudo cp scripts/systemd/podium-daemon-system.service /etc/systemd/system/podium-daemon.service
-# Requires a \`podium\` binary on PATH and a writable PODIUM_STATE_DIR.
-[Unit]
-Description=Podium agent daemon
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=notify
-NotifyAccess=all
-WatchdogSec=30
-User=podium
-Environment=PODIUM_STATE_DIR=/var/lib/podium${c.instanceId === 'default' ? '' : `/${c.instanceId}`}
-Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStart=/usr/local/bin/${c.command} daemon
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-`
-}
-
-function renderDevRedeployService(c: RenderContext): string {
-  return `[Unit]
-Description=Podium redeploy — restart server + daemon + janitor to run the latest main (triggered by git HEAD change)
-After=${c.serverUnit} ${c.daemonUnit}
-
-[Service]
-Type=oneshot
-Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=PODIUM_INSTANCE=${c.instanceId}
-ExecStartPre=/usr/bin/env bash ${c.repoRoot}/scripts/redeploy-wait.sh ${c.repoRoot}
-# The janitor is a long-lived process holding the module graph it booted with, so a
-# redeploy that moves the maintenance protocol/schema leaves it skewed against the new
-# server. It then exits ${DAEMON_BLOCKED_EXIT_CODE} and RestartPreventExitStatus keeps it
-# stopped — durable maintenance (steward-poll, and with it ALL durable message delivery)
-# silently stops until a human notices (POD-1663). "podium update" revives it via
-# reviveCompatibilityBlockedJanitor, but this git-HEAD redeploy path is not that path.
-# reset-failed clears both a ${DAEMON_BLOCKED_EXIT_CODE} block and a hit start-limit;
-# restarting the janitor in the SAME step as the server also stops the skew arising at
-# all, since both re-exec from the checkout this deploy just verified.
-ExecStart=-/usr/bin/systemctl --user reset-failed ${c.janitorUnit}
-# No web unit here any more (POD-1985): the confirmed operation prepares apps/web/dist
-# in a batch-tier transient scope before it starts this service.
-ExecStart=/usr/bin/systemctl --user restart ${c.serverUnit} ${c.daemonUnit} ${c.janitorUnit}
-`
-}
-
-function renderDevHealthService(c: RenderContext): string {
-  return `[Unit]
-Description=Podium health probe — last-resort restart of a wedged-but-alive /health
-After=${c.serverUnit}
-
-[Service]
-Type=oneshot
-Environment=PODIUM_INSTANCE=${c.instanceId}
-Environment=PODIUM_PORT=${c.port}
-Environment=PODIUM_HEALTH_UNIT=${c.serverUnit}
-ExecStart=/usr/bin/env bash ${c.repoRoot}/scripts/podium-health-probe.sh
-`
-}
-
-function renderDevHealthTimer(c: RenderContext): string {
-  return `[Unit]
-Description=Probe Podium backend health every 45s (last-resort wedge recovery)
-
-[Timer]
-OnBootSec=45s
-OnUnitActiveSec=45s
-AccuracySec=5s
-Unit=${c.healthUnit}
-
-[Install]
-WantedBy=timers.target
-`
-}
-
-const HEALTH_PROBE_SCRIPT = String.raw`#!/usr/bin/env bash
-# Health probe for the instance-scoped server health unit. It is a last-resort backstop for
-# a wedged-but-alive HTTP surface; the systemd watchdog and Restart=always cover the rest.
-#
-# Guards make a false kill structurally impossible:
-#   1. An inactive server is left to systemd.
-#   2. A server active for less than GRACE seconds is left alone during cold boot/deploy.
-#   3. Two failed curls are required, with the guards checked again between them.
-set -u
-
-port="\${PODIUM_PORT:-18787}"
-unit="\${PODIUM_HEALTH_UNIT:-podium-server.service}"
-grace="\${PODIUM_HEALTH_GRACE:-120}"
-retry_sleep="\${PODIUM_HEALTH_RETRY_SLEEP:-15}"
-curl_timeout="\${PODIUM_HEALTH_CURL_TIMEOUT:-10}"
-url="http://localhost:\${port}/health"
-
-# Returns 0 only when the unit is active and has been active for >= grace.
-# Any doubt returns 1, which the caller treats as "do nothing".
-guards_pass() {
-  local state ts entered now
-  state="$(systemctl --user show "$unit" -p ActiveState --value 2>/dev/null || true)"
-  [ "$state" = "active" ] || return 1
-  ts="$(systemctl --user show "$unit" -p ActiveEnterTimestamp --value 2>/dev/null || true)"
-  [ -n "$ts" ] || return 1
-  entered="$(date -d "$ts" +%s 2>/dev/null || true)"
-  [ -n "$entered" ] || return 1
-  now="$(date +%s)"
-  [ $(( now - entered )) -ge "$grace" ] || return 1
-  return 0
-}
-
-probe() {
-  curl -fsS -m "$curl_timeout" "$url" >/dev/null 2>&1
-}
-
-guards_pass || exit 0
-probe && exit 0
-
-# First probe missed - give the server a second chance before doing anything.
-sleep "$retry_sleep"
-# Re-check the guards: a restart while sleeping is fresh and protected by the grace.
-guards_pass || exit 0
-probe && exit 0
-
-echo "podium-health: /health on :\${port} failed both probes (\${retry_sleep}s apart) - restarting \${unit}"
-systemctl --user restart "$unit"
-`.replaceAll('\\${', '${')
-
-export function renderHealthProbeScript(): string {
-  return GENERATED_SCRIPT_NOTICE + HEALTH_PROBE_SCRIPT
-}
+// There is no web-build unit any more (POD-1985). The server runs those builds
+// itself, in batch-tier transient scopes. Health probing and git-HEAD redeploy
+// units are gone too (POD-2506): the parent watchdog + self-handover subsume
+// them. The dev profile now runs the installed parent with an explicit publisher checkout.
 
 /** Render the complete file set for either the release bundle or the dev host. */
 export function renderSystemdFiles(opts: SystemdRenderOptions = {}): RenderedSystemdFiles {
   const c = context(opts)
-  if (c.profile === 'packaged') {
-    return {
-      units: {
-        [c.serverUnit]: renderServerUnit({ profile: 'packaged', instanceId: c.instanceId }),
-        [c.janitorUnit]: renderJanitorUnit({ port: c.port, instanceId: c.instanceId }),
-        [c.daemonUnit]: renderDaemonUnit({ profile: 'packaged', instanceId: c.instanceId }),
-      },
-    }
-  }
   return {
     units: {
-      [c.serverUnit]: renderServerUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
-      [c.janitorUnit]: generatedUnit(renderDevJanitor(c)),
-      [c.daemonUnit]: renderDaemonUnit({ ...opts, profile: 'dev', instanceId: c.instanceId }),
-      [c.redeployUnit]: generatedUnit(renderDevRedeployService(c)),
-      [c.healthUnit]: generatedUnit(renderDevHealthService(c)),
-      [c.healthTimer]: generatedUnit(renderDevHealthTimer(c)),
-      [c.backendUnit]: generatedUnit(renderDevBackend(c)),
-      [c.systemDaemonUnit]: generatedUnit(renderDevSystemDaemon(c)),
+      [c.parentUnit]: renderParentUnit({
+        profile: c.profile,
+        instanceId: c.instanceId,
+        port: c.port,
+        ...(c.profile === 'dev' ? { home: c.home, repoRoot: c.repoRoot } : {}),
+      }),
     },
-    healthProbe: renderHealthProbeScript(),
   }
 }
 
@@ -632,10 +500,10 @@ function removeLegacyUpdateTimer(
 }
 
 /**
- * Render + install the `--user` units for `mode` and enable+start them. Host modes install the
- * server + janitor (and local daemon for all-in-one); `daemon` (a joined worker) installs
- * only the daemon unit (bare `podium daemon`, config-driven remote server). Best-effort: returns
- * {ok:false, reason} when systemd is absent or a step fails, so setup can fall back.
+ * Render + install the `--user` units for `mode` and enable+start them. Every
+ * managed mode installs the single parent unit (POD-2506), including daemon-only
+ * join — the parent reads config.mode and supervises only the daemon child.
+ * Best-effort: returns {ok:false, reason} when systemd is absent or a step fails.
  */
 export function installSystemd(
   mode: PodiumConfig['mode'],
@@ -659,30 +527,14 @@ export function installSystemd(
     }
   const dir = (deps.unitDir ?? userUnitDir)()
   const runCommand = deps.run ?? run
-  const serverUnit = instanceServiceName('server', instanceId)
-  const janitorUnit = instanceServiceName('janitor', instanceId)
-  const daemonUnit = instanceServiceName('daemon', instanceId)
-  const units: string[] = []
+  const parentUnit = instanceServiceName('parent', instanceId)
+  if (mode === 'client') {
+    return { ok: false, reason: 'client mode has no supervised unit' }
+  }
   try {
     mkdirSync(dir, { recursive: true })
     removeLegacyUpdateTimer(dir, instanceId, runCommand)
-    if (mode === 'daemon') {
-      // Joined worker: only the daemon unit, dialing the remote server from config.
-      writeFileSync(join(dir, daemonUnit), renderDaemonUnit({ instanceId }))
-      units.push(daemonUnit)
-    } else {
-      writeFileSync(join(dir, serverUnit), renderServerUnit(instanceId))
-      units.push(serverUnit)
-      writeFileSync(join(dir, janitorUnit), renderJanitorUnit({ port, instanceId }))
-      units.push(janitorUnit)
-      if (mode === 'all-in-one') {
-        writeFileSync(
-          join(dir, daemonUnit),
-          renderDaemonUnit({ serverUrl: `ws://localhost:${port}`, local: true, instanceId }),
-        )
-        units.push(daemonUnit)
-      }
-    }
+    writeFileSync(join(dir, parentUnit), renderParentUnit({ instanceId, port }))
     runCommand('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).
     try {
@@ -690,7 +542,7 @@ export function installSystemd(
     } catch {
       // non-fatal: on some hosts linger is already on or loginctl is restricted
     }
-    runCommand('systemctl', ['--user', 'enable', '--now', ...units])
+    runCommand('systemctl', ['--user', 'enable', '--now', parentUnit])
     return { ok: true }
   } catch (e) {
     return { ok: false, reason: (e as Error).message }
@@ -699,7 +551,7 @@ export function installSystemd(
 
 /**
  * Write a user unit file (idempotent) and return its path — used by reconcile to put the
- * per-role unit in place before `enable --now`. Callers render a single role body.
+ * per-role unit in place before the separate enable and start steps. Callers render a single role body.
  */
 export function writeUserUnit(unit: string, body: string): string {
   const path = join(userUnitDir(), unit)
@@ -709,12 +561,18 @@ export function writeUserUnit(unit: string, body: string): string {
 }
 
 /**
- * Enable + start the named user units (no-ops on units already active). Does not write
- * files — `writeUserUnit` did that — but `daemon-reload`s so systemd forgets the old body.
+ * Arm the named user units for reboot without starting them. The topology migration
+ * runtime-masks the legacy units before its separate start step; `enable --now` here
+ * would start the parent too early and make the production ordering differ from the
+ * migration state machine.
  */
-export function enableSystemdUnits(units: string[]): void {
-  run('systemctl', ['--user', 'daemon-reload'])
-  run('systemctl', ['--user', 'enable', '--now', ...units])
+export function enableSystemdUnits(
+  units: string[],
+  deps: { run?: (cmd: string, args: string[]) => void } = {},
+): void {
+  const runCommand = deps.run ?? run
+  runCommand('systemctl', ['--user', 'daemon-reload'])
+  runCommand('systemctl', ['--user', 'enable', ...units])
 }
 
 /**
@@ -734,4 +592,66 @@ export function disableSystemdUnits(units: string[]): void {
  */
 export function disarmSystemdUnits(units: string[]): void {
   run('systemctl', ['--user', 'disable', ...units])
+}
+
+/**
+ * Runtime-only mask: a running unit stays up, but Restart=always cannot
+ * resurrect it. The mask lives in /run and vanishes on reboot, so a kill
+ * mid-handover still boots into the fully-armed legacy set.
+ */
+export function maskSystemdUnitsRuntime(
+  units: string[],
+  deps: { run?: (cmd: string, args: string[]) => void } = {},
+): void {
+  if (units.length === 0) return
+  ;(deps.run ?? run)('systemctl', ['--user', 'mask', '--runtime', ...units])
+}
+
+export function unmaskSystemdUnits(units: string[]): void {
+  if (units.length === 0) return
+  run('systemctl', ['--user', 'unmask', ...units])
+}
+
+export function startSystemdUnits(units: string[]): void {
+  if (units.length === 0) return
+  run('systemctl', ['--user', 'start', ...units])
+}
+
+/**
+ * Stop, disable, unlink, and daemon-reload so the definitions disappear.
+ * Used only AFTER the parent reports healthy. Empty input is a no-op.
+ */
+export async function removeUserUnits(
+  units: string[],
+  deps: {
+    unitDir?: () => string
+    run?: (cmd: string, args: string[]) => void
+    afterStop?: (unit: string, remaining: number) => void | Promise<void>
+    beforeRemove?: () => void | Promise<void>
+  } = {},
+): Promise<void> {
+  if (units.length === 0) return
+  const dir = (deps.unitDir ?? userUnitDir)()
+  const runCommand = deps.run ?? run
+  try {
+    runCommand('systemctl', ['--user', 'unmask', ...units])
+  } catch {
+    // not masked — fine
+  }
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i] as string
+    try {
+      // One unit per transaction deliberately exposes the real crash boundary
+      // between legacy stops; the healthy parent already owns the workload.
+      runCommand('systemctl', ['--user', 'disable', '--now', unit])
+    } catch {
+      // absent / already disabled — still unlink
+    }
+    await deps.afterStop?.(unit, units.length - i - 1)
+  }
+  await deps.beforeRemove?.()
+  for (const unit of units) {
+    rmSync(join(dir, unit), { force: true })
+  }
+  runCommand('systemctl', ['--user', 'daemon-reload'])
 }

@@ -1,9 +1,11 @@
+import { Buffer } from 'node:buffer'
 import type { SessionId } from '@podium/model'
+import type { DaemonPtyOutputBatch } from '@podium/protocol'
 export type Tier = 0 | 1 | 2 | 3
 
 export interface OutputSchedulerDeps {
-  /** Send one coalesced batch for a session (caller wraps it as agentFrameBatch). */
-  flush: (sessionId: SessionId, frames: string[]) => void
+  /** Send one typed, coalesced output batch for a session. */
+  flush: (batch: DaemonPtyOutputBatch) => void
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (h: unknown) => void
   scheduleImmediate?: (fn: () => void) => void
@@ -11,7 +13,7 @@ export interface OutputSchedulerDeps {
   coalesceMaxBytes?: number
 }
 
-interface Pending { frames: string[]; bytes: number; tier: Tier; timer: unknown; immediate: boolean }
+interface Pending { frames: Uint8Array[]; bytes: number; tier: Tier; timer: unknown; immediate: boolean }
 
 /**
  * Per-session PTY-frame relay scheduler. Collapses many per-frame sends into one
@@ -45,10 +47,10 @@ export class OutputScheduler {
     return p
   }
 
-  enqueue(sessionId: SessionId, data: string): void {
+  enqueue(sessionId: SessionId, data: Uint8Array): void {
     const p = this.state(sessionId)
     p.frames.push(data)
-    p.bytes += data.length
+    p.bytes += data.byteLength
     if (p.tier <= 1) {
       if (!p.immediate) {
         p.immediate = true
@@ -80,10 +82,14 @@ export class OutputScheduler {
     if (p.timer !== undefined) { this.clearTimer(p.timer); p.timer = undefined }
     p.immediate = false
     if (p.frames.length === 0) return
-    const frames = p.frames
+    const sourceFrames = p.frames.length
+    const bytes =
+      sourceFrames === 1
+        ? p.frames[0]!
+        : Buffer.concat(p.frames, p.bytes)
     p.frames = []
     p.bytes = 0
-    this.deps.flush(sessionId, frames)
+    this.deps.flush({ sessionId, sourceFrames, bytes })
   }
 
   remove(sessionId: SessionId): void {

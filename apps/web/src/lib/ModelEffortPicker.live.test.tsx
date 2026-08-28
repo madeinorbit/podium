@@ -1,58 +1,40 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { AllConnectorsModelPicker, EffortPicker, ModelPicker } from './ModelEffortPicker'
 
-const catalogQuery = vi.fn(async () => ({
-  byAgent: {
-    grok: [
-      { value: 'grok-4.5', label: 'grok-4.5' },
-      { value: 'grok-composer-2.5-fast', label: 'grok-composer-2.5-fast' },
-    ],
-    'claude-code': [
-      { value: 'claude-opus-4-8', label: 'Opus 4.8', efforts: ['low', 'high', 'xhigh'] },
-      { value: 'claude-haiku-4-5', label: 'Haiku 4.5', efforts: [] },
-    ],
-  },
-  fetchedAt: 1,
-}))
-const refreshMutate = vi.fn(async () => ({ byAgent: {}, fetchedAt: 1 }))
+const LIVE_CATALOG: typeof modelCatalogFixture.current = {
+  grok: [
+    { value: 'grok-4.5', label: 'grok-4.5' },
+    { value: 'grok-composer-2.5-fast', label: 'grok-composer-2.5-fast' },
+  ],
+  'claude-code': [
+    { value: 'claude-opus-4-8', label: 'Opus 4.8', efforts: ['low', 'high', 'xhigh'] },
+    { value: 'claude-haiku-4-5', label: 'Haiku 4.5', efforts: [] },
+  ],
+}
 
-vi.mock('@/app/store', () => {
-  const useStore = () => ({
-    trpc: {
-      models: { catalog: { query: catalogQuery }, refresh: { mutate: refreshMutate } },
-    },
-  })
-  // The selector-store hook reads slices off the same store shape.
-  return {
-    useStore,
-    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-  }
+beforeEach(() => {
+  modelCatalogFixture.current = LIVE_CATALOG
 })
 
 afterEach(() => {
   cleanup()
-  catalogQuery.mockClear()
-  refreshMutate.mockClear()
+  modelCatalogFixture.current = {}
 })
 
 describe('ModelPicker live catalog', () => {
-  it('fetches the live catalog and shows the agent CLI models for a probeable agent', async () => {
+  it('shows the agent CLI models supplied by the live catalog', async () => {
     render(<ModelPicker agentKind="grok" value="auto" onChange={vi.fn()} />)
-    await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     // Live models from the server, not a static grok fallback entry.
     expect(await screen.findByRole('menuitem', { name: 'grok-4.5' })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: 'grok-composer-2.5-fast' })).toBeTruthy()
-    // A non-probeable server response for cursor was empty → no refresh needed here.
-    expect(refreshMutate).not.toHaveBeenCalled()
   })
 
   it('selecting a live model reports its value', async () => {
     const onChange = vi.fn()
     render(<ModelPicker agentKind="grok" value="auto" onChange={onChange} />)
-    await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'grok-composer-2.5-fast' }))
     expect(onChange).toHaveBeenCalledWith('grok-composer-2.5-fast')
@@ -62,7 +44,6 @@ describe('ModelPicker live catalog', () => {
 describe('EffortPicker follows the selected model', () => {
   it('shows the agent effort ladder when the model is auto', async () => {
     render(<EffortPicker agentKind="claude-code" model="auto" value="auto" onChange={vi.fn()} />)
-    await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
     expect(screen.getByRole('menuitem', { name: 'Max' })).toBeTruthy()
   })
@@ -76,7 +57,6 @@ describe('EffortPicker follows the selected model', () => {
         onChange={vi.fn()}
       />,
     )
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Effort' })).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
     expect(await screen.findByRole('menuitem', { name: 'Extra high' })).toBeTruthy()
     // opus-4-8's live efforts are [low,high,xhigh] → no "Max" option.
@@ -92,7 +72,6 @@ describe('EffortPicker follows the selected model', () => {
         onChange={vi.fn()}
       />,
     )
-    await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: 'Effort' })).toBeNull()
   })
 })
@@ -101,7 +80,6 @@ describe('AllConnectorsModelPicker', () => {
   it('lists models from every connector and reports both harness and model', async () => {
     const onChange = vi.fn()
     render(<AllConnectorsModelPicker agentKind={undefined} value="auto" onChange={onChange} />)
-    await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     expect(await screen.findByText('Claude Code')).toBeTruthy()
     expect(screen.getByText('Codex')).toBeTruthy()

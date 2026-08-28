@@ -51,7 +51,7 @@ describe('telemetry.state', () => {
     expect(await caller().telemetry.state()).toMatchObject({
       usage: 'absent',
       crash: 'absent',
-      endpoint: 'https://telemetry.podium.dev',
+      endpoint: 'https://pulse.meetpodium.com/v1/u',
     })
   })
 

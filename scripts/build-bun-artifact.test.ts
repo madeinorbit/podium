@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertDevClientDistMatchesVersion,
   assertDevWebDistMatchesVersion,
+  compiledSourceMapArgs,
   updateArtifactPath,
 } from './build-bun'
 
@@ -32,6 +33,31 @@ describe('assertDevWebDistMatchesVersion', () => {
         sourceSha: 'aaaaaaa',
       }),
     ).toThrow(/apps\/mobile\/dist was not built from dev\+47a01e3/)
+  })
+
+  it('still guards publisher-minted versions (not only the legacy det+ form)', () => {
+    expect(() =>
+      assertDevWebDistMatchesVersion('0.1.0-dev.5+47a01e3', {
+        sourceSha: 'aaaaaaa',
+      }),
+    ).toThrow(/not built from 0\.1\.0-dev\.5\+47a01e3/)
+    expect(() =>
+      assertDevWebDistMatchesVersion('0.1.0-dev.5+47a01e3', {
+        sourceSha: '47a01e3',
+      }),
+    ).not.toThrow()
+  })
+})
+
+describe('compiledSourceMapArgs', () => {
+  it('embeds source maps in development-channel executables', () => {
+    expect(compiledSourceMapArgs('0.2.0-dev.4+47a01e3')).toEqual(['--sourcemap=inline'])
+    expect(compiledSourceMapArgs('dev+47a01e3')).toEqual(['--sourcemap=inline'])
+  })
+
+  it('does not change production release binaries', () => {
+    expect(compiledSourceMapArgs('0.2.0')).toEqual([])
+    expect(compiledSourceMapArgs('0.2.0-edge.4')).toEqual([])
   })
 })
 

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
+import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import { captureDaemonBootBuild } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import { disarmExitSeam } from './convergence'
@@ -71,6 +73,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     process.execPath,
     opts.sourceRoot,
   )
+  log.info('daemon process start', {
+    pid: process.pid,
+    appVersion: build.appVersion,
+    wireSchemaDigest: build.wireSchemaDigest,
+    installKind: build.installKind,
+    serverUrl: opts.serverUrl,
+    topology: opts.localLink ? 'local-link' : 'remote-websocket',
+    supervised: process.env.PODIUM_DESKTOP_SUPERVISED === '1',
+    underParent: process.env.PODIUM_UNDER_PARENT === '1',
+    stateDir: process.env.PODIUM_STATE_DIR,
+    installDir,
+  })
   /**
    * THE EXIT SEAM, DISARMED WHERE EXITING IS FATAL (POD-2210).
    *
@@ -104,6 +118,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     receiptDir: opts.hooks?.receiptDir,
     acquireGuards: true,
   })
+  const parentHostsUpdateParticipant =
+    process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
   let connection: DaemonConnection | undefined
   const queueDrainOutbox = createQueueDrainOutbox(instance.runtimeDir)
   const runtimeEventOutbox = createRuntimeEventOutbox(instance.runtimeDir)
@@ -128,6 +144,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
       connection?.send(message)
     },
+    sendOutput: (batch: DaemonPtyOutputBatch) => connection?.sendOutput(batch),
     acknowledgeQueueDrainReport: (reportId) => {
       if (connection) connection.acknowledgeQueueDrainReport(reportId)
       else queueDrainOutbox.acknowledge(reportId)
@@ -143,9 +160,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   connection = createDaemonConnection({
     options,
     build,
+    reportUpdateIdentity: !parentHostsUpdateParticipant,
     machineId: asMachineId(host.machineId),
     identity: host.identity,
     receiveApplicationFrame: host.receive,
+    receiveBinaryInput: host.receiveBinaryInput,
     sendApplicationFrame: (socket, message) =>
       host.frameGuard.send(socket as never, message as DaemonMessage),
     queueDrainOutbox,
@@ -154,9 +173,26 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     onTerminal: host.close,
     restartAfterUpdate: options.restartAfterUpdate,
   })
+  const startedAt = Date.now()
+  log.info('daemon connection start', {
+    pid: process.pid,
+    serverUrl: options.serverUrl,
+    topology: options.localLink ? 'local-link' : 'remote-websocket',
+  })
   try {
     await connection.start()
+    log.info('daemon connection start settled', {
+      pid: process.pid,
+      state: connection.state,
+      elapsedMs: Date.now() - startedAt,
+    })
   } catch (error) {
+    log.error('daemon connection start rejected', {
+      pid: process.pid,
+      state: connection.state,
+      elapsedMs: Date.now() - startedAt,
+      err: error,
+    })
     await host.close({ reapSessions: true }).catch(() => {})
     instance.releaseGuards()
     throw error

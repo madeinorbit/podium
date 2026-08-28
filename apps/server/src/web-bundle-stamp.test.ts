@@ -171,3 +171,38 @@ describe('what a served website says about its checkout', () => {
     })
   })
 })
+
+/**
+ * THE FACT A LOADED PAGE ACTUALLY DEPENDS ON (POD-2721).
+ *
+ * The checkout answers "is this dist on the commit we want". The BUNDLE answers
+ * "are the URLs an open page is holding still the URLs on this disk", and the
+ * incident that needed it had one checkout and two bundles.
+ */
+describe('what a served website says about its bundle', () => {
+  it('reports the entry bundle beside the checkout', () => {
+    buildDist()
+    stamp({
+      wireSchemaDigest: wireSchemaDigest(),
+      sourceSha: 'a55ec3d',
+      bundleVersion: 'bundle+Bw5YMffE',
+    })
+    expect(servedWebIdentity(dir).bundle).toBe('bundle+Bw5YMffE')
+  })
+
+  it('distinguishes two builds of ONE checkout, which the digest cannot', () => {
+    buildDist()
+    stamp({ wireSchemaDigest: wireSchemaDigest(), sourceSha: 'a55ec3d', bundleVersion: 'bundle+Bw5YMffE' })
+    const packaged = servedWebIdentity(dir)
+    stamp({ wireSchemaDigest: wireSchemaDigest(), sourceSha: 'a55ec3d', bundleVersion: 'bundle+CFyX4Q_p' })
+    const devRelease = servedWebIdentity(dir)
+    expect(devRelease.digest).toBe(packaged.digest)
+    expect(devRelease.bundle).not.toBe(packaged.bundle)
+  })
+
+  it('names no bundle when the stamp does not, rather than inventing one', () => {
+    buildDist()
+    stamp({ wireSchemaDigest: wireSchemaDigest(), sourceSha: '47a01e3' })
+    expect(servedWebIdentity(dir).bundle).toBeUndefined()
+  })
+})

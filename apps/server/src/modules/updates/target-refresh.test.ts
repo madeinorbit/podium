@@ -69,12 +69,15 @@ describe('startTargetRefresh', () => {
     expect(armed[0]?.ms).toBe(120_000)
   })
 
-  it('refreshes both release channels on a tick and re-arms for a day later', async () => {
+  it('refreshes EVERY channel on a tick and re-arms for a day later', async () => {
     const { fire, armed, refreshed } = build()
 
     await fire()
 
-    expect(refreshed).toEqual(['edge', 'stable'])
+    // `dev` is in this list now (spec §1): it is a pulled feed like the other
+    // two, so excluding it would leave the one channel exercised many times a
+    // day as the one channel whose refresh path nothing ran.
+    expect(refreshed).toEqual(['dev', 'edge', 'stable'])
     expect(armed).toHaveLength(2)
     expect(armed[1]?.ms).toBe(REFRESH_INTERVAL_MS)
   })
@@ -86,16 +89,29 @@ describe('startTargetRefresh', () => {
     await fire()
     await fire()
 
-    expect(refreshed).toEqual(['edge', 'stable', 'edge', 'stable', 'edge', 'stable'])
+    expect(refreshed).toEqual([
+      'dev',
+      'edge',
+      'stable',
+      'dev',
+      'edge',
+      'stable',
+      'dev',
+      'edge',
+      'stable',
+    ])
   })
 
   /** Never yank a target out from under a machine that is mid-grant on it. */
   it('skips a channel with a wave in flight and still refreshes the other', async () => {
-    const { fire, refreshed } = build({ operationActive: (channel) => channel === 'edge' })
+    const { fire, refreshed } = build({ operationActive: (channel) => channel === 'dev' })
 
     await fire()
 
-    expect(refreshed).toEqual(['stable'])
+    // The dev channel obeys the same skip rule as the other two, which is what
+    // keeps a mid-operation publish from being spliced into a running wave:
+    // it is queued as `nextTarget` and picked up on the retry cadence instead.
+    expect(refreshed).toEqual(['edge', 'stable'])
   })
 
   it('re-arms after a skipped tick, so a wave does not end the schedule', async () => {
@@ -134,7 +150,7 @@ describe('startTargetRefresh', () => {
 
     await fire()
 
-    expect(refreshed).toEqual(['edge', 'stable'])
+    expect(refreshed).toEqual(['dev', 'edge', 'stable'])
     expect(armed).toHaveLength(2)
     expect(armed[1]?.ms).toBe(REFRESH_RETRY_INTERVAL_MS)
   })
@@ -145,7 +161,7 @@ describe('startTargetRefresh', () => {
     handle.stop()
 
     expect(armed.at(-1)?.canceled).toBe(true)
-    expect(refreshed).toEqual(['edge', 'stable'])
+    expect(refreshed).toEqual(['dev', 'edge', 'stable'])
   })
 
   it('stop() is idempotent', () => {

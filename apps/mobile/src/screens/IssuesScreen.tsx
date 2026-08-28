@@ -11,6 +11,7 @@ import { IdSquare } from '../components/IdSquare'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
+import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
 import { StageGlyph } from '../components/StageGlyph'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
@@ -79,6 +80,7 @@ export function IssuesScreen() {
       {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
           a log line. Outside the crossfade so the skeleton cannot hide it. */}
       <StorageNoticeAlert />
+      <RefreshOffer />
       <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <StageSections
@@ -284,7 +286,10 @@ function StageHeader({
   return (
     <PressableScale
       accessibilityRole="button"
+      // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+      // only the former, so the web build announced no state at all. [POD-1664]
       accessibilityState={{ expanded: !collapsed }}
+      aria-expanded={!collapsed}
       accessibilityLabel={`${title}, ${count} task${count === 1 ? '' : 's'}`}
       accessibilityHint={collapsed ? 'Show this stage' : 'Fold this stage away'}
       onPress={onToggle}

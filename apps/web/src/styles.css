@@ -230,7 +230,7 @@ html[data-podium-desktop="true"] body {
      full 100dvh here would push the same amount off the bottom and give an app
      shell the page-level scrollbar the overflow rule above exists to prevent.
      0px while there is no banner. */
-  height: calc(100dvh - var(--wire-skew-banner-h, 0px));
+  height: calc(100dvh - var(--wire-skew-banner-h, 0px) - var(--daemon-pairing-banner-h, 0px));
 }
 /* THE COMMAND BAR (POD-365, remeasured POD-725) — 48px, four zones over
    independently folding columns: mode tabs │ mode-contextual slot │ instrument │
@@ -599,13 +599,6 @@ html[data-podium-platform="macos"] .desktop-shell-row {
   background: color-mix(in srgb, var(--accent) 70%, transparent);
   color: var(--text-strong);
 }
-/* Pinned is its own rung, not a repeat of hover: a chip whose panel is held
-   open by a click stays anchored once the pointer leaves it. */
-.header-machine-chip[data-pinned],
-.header-quota-chip[data-pinned] {
-  border-color: var(--border-strong);
-  background: var(--secondary);
-}
 /* The strip clips its overflow, which would eat the global outline-offset ring,
    so the keyboard ring lives inside the chip's own border box. */
 .header-machine-chip:focus-visible,
@@ -777,6 +770,13 @@ html[data-density="balanced"] .header-quota-pools {
 .header-value[data-tone="crit"] {
   color: var(--destructive);
 }
+.header-quota-unavailable {
+  color: var(--warning);
+  font-family: var(--font-mono);
+  font-size: var(--shell-type-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
 .header-machine-chip:hover :is(.header-mark, .header-value[data-tone="ok"]),
 .header-quota-chip:hover :is(.header-mark, .header-quota-label, .header-value[data-tone="ok"]),
 .header-machine-chip[data-popup-open] :is(.header-mark, .header-value[data-tone="ok"]),
@@ -926,8 +926,9 @@ html[data-density="balanced"] .header-quota-pools {
 }
 
 /* Health popovers (POD-173): the quota / machine-load chips' anchored panel.
-   Hover shows the preview. Machine load can still pin + widen; quota stays on
-   the hover tier. The only lifted surface tier — popover shadow per the
+   Hover opens it, Esc or a click outside dismisses it — one tier, no pin
+   (POD-1603), so a panel's width is a property of which panel it is rather than
+   of what the pointer did. The only lifted surface tier — popover shadow per the
    carved-elevation rule. */
 .health-popover {
   display: flex;
@@ -946,9 +947,12 @@ html[data-density="balanced"] .header-quota-pools {
   color: var(--popover-foreground);
   box-shadow: var(--shadow-popover);
   font-size: 11px;
-  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.health-popover-pinned {
+/* The machine panel carries the full breakdown the moment it opens — one row
+   per session and per project — so it is always the wide one. It was 296px on
+   hover and 336px once pinned; with the pin gone there is one width, and the
+   transition on `.health-popover` no longer has anything to animate here. */
+.health-popover-machine {
   width: 336px;
 }
 .health-popover-quota {
@@ -983,11 +987,6 @@ html[data-density="balanced"] .header-quota-pools {
   width: 5px;
   height: 5px;
 }
-@media (prefers-reduced-motion: reduce) {
-  .health-popover {
-    transition: none;
-  }
-}
 .hp-header {
   display: flex;
   flex: none;
@@ -1017,6 +1016,64 @@ html[data-density="balanced"] .header-quota-pools {
   align-items: stretch;
   gap: 5px;
   padding-bottom: 8px;
+}
+/* Hostname on the left, the one control in the panel on the right. A row of its
+   own inside the stacked header so the meters below start at the gutter rather
+   than indenting around a button. */
+.hp-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 15px;
+}
+/* Re-measure now. Ghost at rest — it must not compete with the numbers it sits
+   above — and it takes the chip's own hover ground when reached for, so it reads
+   as the same family of control as the header chip that opened this panel. */
+.hp-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin: -3px -3px -3px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4.8px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.hp-refresh:hover {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--text-strong);
+}
+.hp-refresh:focus-visible {
+  outline: none;
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ring) 55%, transparent);
+}
+/* In flight. The spin is the one exception to the shell's no-perpetual-motion
+   rule and it keeps the rule's terms — gated on a request that is actually open,
+   stopped the frame it answers. It is not the only signal, because under
+   `prefers-reduced-motion` there is no spin: the button also steps back to the
+   faint rung while it cannot be pressed, and the footer says "re-measuring…" in
+   words. Motion carries this state; it never carries it alone. */
+.hp-refresh[data-busy] {
+  color: var(--text-faint);
+  cursor: default;
+}
+.hp-refresh[data-busy] svg {
+  animation: hp-refresh-spin 900ms linear infinite;
+}
+@keyframes hp-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 /* The key to the chip. A chip meter at balanced density is a bare 36px bar
    whose only variable is hue, and hue there means severity, not which series it
@@ -1289,6 +1346,50 @@ html[data-density="balanced"] .header-quota-pools {
 .hp-seg-other {
   background: var(--input);
 }
+/* THE COLD PANEL (POD-1603) — the breakdown before its first walk answers.
+   Drawn as the shape of what is coming at the real thing's geometry: the
+   composition bar's own empty track, runs at the legend's rhythm, rows at
+   `.hp-prow`'s. Deliberately still, per POD-394 and the cold transcript — a
+   shimmer here would spend the "needs you" signal on a local fetch — and held
+   back 180ms so a warm cache or a fast daemon never blinks it on screen. */
+.hp-cold {
+  animation: hp-cold-in 140ms ease-out 180ms both;
+}
+@keyframes hp-cold-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Each run takes the ink of the thing it stands for, mixed from an inherited
+   `color` rather than named, so both themes are covered by one value. */
+.hp-cold-run {
+  display: block;
+  height: 7px;
+  border-radius: 2.5px;
+  background: color-mix(in oklab, currentColor 22%, transparent);
+}
+/* The bytes column is right-aligned in a real row, so its slot is too. */
+.hp-cold-run-bytes {
+  margin-left: auto;
+}
+/* A row of slots has no text baseline to sit on, and `.hp-prow` aligns on one —
+   left uncorrected the two runs settle on their own bottom edges and the row
+   reads as two half-rows. */
+.hp-cold .hp-prow {
+  align-items: center;
+  padding: 2.5px 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-cold {
+    animation: none;
+  }
+  .hp-refresh {
+    transition: none;
+  }
+  .hp-refresh[data-busy] svg {
+    animation: none;
+  }
+}
 .hp-sect-label {
   margin: 10px 0 4px;
   font-family: var(--font-mono);
@@ -1460,6 +1561,78 @@ html[data-density="balanced"] .header-quota-pools {
   gap: 6px;
   color: var(--live);
 }
+.status-strip-roster-trigger {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.status-strip-roster-trigger:hover,
+.status-strip-roster-trigger[aria-expanded="true"] {
+  color: color-mix(in oklab, var(--live) 82%, var(--foreground));
+}
+.status-strip-roster-trigger:focus-visible {
+  border-radius: 3px;
+  outline: 1px solid var(--live);
+  outline-offset: 2px;
+}
+.status-strip-roster {
+  width: max-content;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--popover);
+  box-shadow: var(--shadow-popover);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  white-space: normal;
+}
+.status-strip-roster-title {
+  color: var(--text-strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+.status-strip-roster-list {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.status-strip-roster-list li {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+.status-strip-roster-list span {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: var(--shell-type-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-strip-roster-list b {
+  flex: none;
+  color: var(--live);
+  font-family: var(--font-mono);
+  font-size: var(--shell-type-micro);
+  font-weight: 500;
+}
+.status-strip-roster p {
+  margin: 8px 0 0;
+  padding-top: 7px;
+  border-top: 1px solid var(--hairline-soft);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--shell-type-micro);
+}
 .status-strip-idle {
   flex: none;
   color: var(--text-faint);
@@ -1536,7 +1709,7 @@ html[data-density="balanced"] .header-quota-pools {
 .mobile-handoff-sheet-title {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -1846,46 +2019,32 @@ html[data-density="balanced"] .header-quota-pools {
   outline: none;
 }
 /* The braille spinner — the shell's one piece of perpetual motion, reusing the
-   agent-state grammar's frames and cadence. */
+   agent-state grammar's frames and cadence. The glyphs sit in one fixed strip;
+   translating that strip preserves the exact sequence without animating
+   `content`, which made Chromium restyle and lay out the shell every frame. */
+.status-strip-spinner {
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+  line-height: 1em;
+  contain: layout paint style;
+}
 .status-strip-spinner::after {
-  content: "⠋";
-  animation: status-strip-braille 800ms steps(1) infinite;
+  display: block;
+  content: "⠋\A⠙\A⠹\A⠸\A⠼\A⠴\A⠦\A⠧\A⠇\A⠏";
+  white-space: pre;
+  will-change: transform;
+  animation: status-strip-braille 800ms steps(10, end) infinite;
 }
 @keyframes status-strip-braille {
-  0% {
-    content: "⠋";
-  }
-  10% {
-    content: "⠙";
-  }
-  20% {
-    content: "⠹";
-  }
-  30% {
-    content: "⠸";
-  }
-  40% {
-    content: "⠼";
-  }
-  50% {
-    content: "⠴";
-  }
-  60% {
-    content: "⠦";
-  }
-  70% {
-    content: "⠧";
-  }
-  80% {
-    content: "⠇";
-  }
-  90% {
-    content: "⠏";
+  to {
+    transform: translate3d(0, -100%, 0);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .status-strip-spinner::after {
     animation: none;
+    transform: none;
   }
   .status-strip-history-tooltip {
     transition: none;
@@ -2275,6 +2434,43 @@ html[data-density="balanced"] .header-quota-pools {
   flex: none;
 }
 
+/* THE LEFT COLUMN'S FOLD (POD-1584). The wrapper is the only part of this
+   column that survives the swap between the work list and the identity rail,
+   so it is what carries the width — AppShell drives it with WAAPI, exactly as
+   it drives the flight deck's.
+   At rest it is transparent to layout: `0 1 auto` + `min-width: 0` is what the
+   open column itself used to declare here, so a narrow window still squeezes
+   the sidebar the way it always did. */
+.sidebar-shell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 1 auto;
+}
+/* Folded, the rail is rigid — it was a `0 0 58px` child of the row before this
+   wrapper existed, and a rail that can be squeezed to 40px is not a rail. */
+.sidebar-shell[data-sidebar-shell="folded"] {
+  flex: none;
+}
+/* CLIP, DON'T SQUEEZE. While the width is being driven, the column inside must
+   hold the width it has and let the wrapper's edge sweep across it. Left to
+   flex, a 300px sidebar would REFLOW through every width down to 58 — thirty
+   rows re-truncating their titles for 280ms, which reads as a resize, not a
+   fold. `styles.css` is unlayered, so this beats the `flex-[0_1_auto]` utility
+   on the column (same mechanism as `.shell-spawn-chip:hover` above). */
+.sidebar-shell[data-sidebar-folding="true"] {
+  overflow: hidden;
+  flex: none;
+  /* A width animation relayouts the shell row on every frame, and the row holds
+     the whole window. Containment bounds what that invalidates to this box: the
+     clipped column inside is already `flex: none` and cannot reflow, so nothing
+     in here has an answer that depends on anything out there (POD-1672). */
+  contain: layout paint;
+}
+.sidebar-shell[data-sidebar-folding="true"] > * {
+  flex: none;
+}
 .sidebar-collapse-control {
   position: absolute;
   z-index: 20;
@@ -2290,6 +2486,69 @@ html[data-density="balanced"] .header-quota-pools {
   border-radius: 6px;
   background: var(--card);
   color: var(--text-dim);
+  /* It straddles the column's edge by half its width, so the clip above would
+     otherwise saw it in half for the length of the fold and pop the missing
+     half back at the end. It leaves with the column and returns with it. */
+  transition: opacity 120ms ease;
+}
+.sidebar-shell[data-sidebar-folding="true"] .sidebar-collapse-control {
+  opacity: 0;
+  /* And not merely invisible (POD-1658). It stayed hit-testable through the
+     whole fold, so the only thing a pointer could reach mid-gesture was a
+     button nobody could see, firing the direction already in progress. */
+  pointer-events: none;
+}
+/* THE FOLDED COLUMN'S GHOST (POD-1658) — see `use-column-fold.ts` rule 3. It
+   covers the clip rather than just the rail's 58px: the sliver of work list
+   still to the right of the rail late in a collapse has to be covered by
+   something, and the column's own ground is what is about to be there. The hook
+   owns its opacity; the value here is only the state it mounts in, which is
+   whichever end the dissolve is about to leave. */
+.sidebar-fold-ghost {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  background: var(--sidebar);
+  /* WHAT THE LID IS RISING OVER, out of focus (POD-1672). While this layer is
+     half-opaque the work list behind it is still legible, and legible is what
+     invites the eye to read a column that is in the middle of being taken
+     away. There is no separate animation: the blur is only ever seen THROUGH
+     this element's own opacity, so it arrives and leaves with the lid, and
+     once the lid is opaque there is nothing behind it to blur. The 7px is well
+     under the 20px where a transition-time blur starts costing frames, and
+     `contain: paint` on the shell above makes that shell the backdrop root, so
+     the sample is the column and not the window. */
+  backdrop-filter: blur(7px);
+  /* The mount state, immediately overwritten by the hook. Invisible is the safe
+     default of the two: a stray frame with the rail missing is a glimpse of the
+     column behind it, one with the rail opaque is a rail laid over a 306px
+     sidebar. */
+  opacity: 0;
+  /* Cosmetic, and briefly duplicated in the DOM — never a hit target and never
+     a tab stop. `aria-hidden` keeps it out of the a11y tree; this keeps it out
+     of the pointer's way. */
+  pointer-events: none;
+}
+/* The rail that lands ON the lid, which is a layer of its own so it can arrive
+   AFTER the lid is opaque instead of dissolving through the work list with it
+   (POD-1672). The lid holds still over the clip; this covers the last six
+   pixels in from the left as the fold closes over it, so the rail arrives
+   rather than appears. The hook owns both channels; this is the box they apply
+   to. */
+.sidebar-fold-ghost-inner {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  /* The mount state, immediately overwritten by the hook, and invisible for the
+     same reason the lid's is: a stray frame with the rail missing is a lid with
+     nothing on it, one with the rail opaque is the rail landing early — which
+     is the whole seam this layer exists to remove. */
+  opacity: 0;
+  /* Its own layer for the length of the fold. The transform is composited
+     either way, but the promotion keeps the rail's text off the repaint the
+     shrinking width forces on everything under it. */
+  will-change: transform;
 }
 .sidebar-collapse-control:hover,
 .collapsed-sidebar-expand:hover,
@@ -2379,6 +2638,12 @@ html[data-density="balanced"] .header-quota-pools {
   box-shadow:
     inset 0 3px 0 var(--issue),
     0 1px 2px color-mix(in srgb, var(--carve-drop) 50%, transparent);
+}
+/* The mission chrome remains visually fixed while the column itself owns the
+   scrollport. Inheriting the column's issue wash keeps rows moving beneath an
+   opaque continuation of the same surface rather than behind clear glass. */
+.deck-chrome {
+  background: inherit;
 }
 /* The no-colour flow runs the same mechanics quieter (handoff 1b). */
 [data-issue-colored="false"] .engraved-column {
@@ -2893,7 +3158,11 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
    (AsciiLoader) over the themed background. */
 .app-loading {
   /* Same subtraction as .desktop-shell: #root has already padded this down. */
-  height: calc(var(--viewport-h, 100dvh) - var(--wire-skew-banner-h, 0px));
+  height: calc(
+    var(--viewport-h, 100dvh) -
+    var(--wire-skew-banner-h, 0px) -
+    var(--daemon-pairing-banner-h, 0px)
+  );
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2936,7 +3205,11 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
    which is the same relationship the yellow pair had before. */
 .sync-loading {
   /* Same subtraction as .app-loading: #root has already padded this down. */
-  height: calc(var(--viewport-h, 100dvh) - var(--wire-skew-banner-h, 0px));
+  height: calc(
+    var(--viewport-h, 100dvh) -
+    var(--wire-skew-banner-h, 0px) -
+    var(--daemon-pairing-banner-h, 0px)
+  );
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3069,7 +3342,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   gap: 8px;
   margin-top: 20px;
   font-family: var(--font-mono, ui-monospace, Menlo, monospace);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   line-height: 1.5;
   letter-spacing: 0.04em;
   color: var(--muted-foreground);
@@ -5655,6 +5928,15 @@ html[data-density="compact"] .brief-shelf {
   gap: 11px;
   width: 100%;
   padding: 13px 0 5px;
+  /* The sending → working hand-off no longer remounts the row (see
+     TranscriptTail), so the two tones are a fade rather than a cut. Colour only:
+     the box is fixed by .feed-tail-slot and nothing here may move. */
+  transition: color 240ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .feed-tail {
+    transition: none;
+  }
 }
 .feed-tail-body {
   display: flex;
@@ -6187,6 +6469,19 @@ html[data-density="compact"] .brief-shelf {
      holds, so the right value is 12px smaller than the 40px it replaces. */
   padding: 2px 28px 15px 31px;
 }
+/* A URL an agent wrote into the offer body. Same info tint and underline as a
+   transcript link (`.chat-md a`) so the two read as one kind of thing; the
+   anchor itself is what routes the click to the OS browser in the desktop
+   shell (apps/desktop/src-tauri/src/bootstrap.rs, opener_shim_script). */
+.offer-fold-link {
+  color: var(--info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* The fold's detail sits in a compact bar; a long URL has to be allowed to
+     break rather than push the body into a horizontal scroll. */
+  overflow-wrap: anywhere;
+}
+
 .offer-fold-undo {
   min-height: 42px;
   display: flex;
@@ -6747,6 +7042,12 @@ a.ref-link--issue[data-issue-stage="review"] {
 a.ref-link--issue[data-issue-stage="review"]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20fill='none'%20stroke='black'%20stroke-width='1.6'/%3E%3Cpath%20d='M7%207L7%203.8A3.2%203.2%200%201%201%204.23%208.6Z'/%3E%3C/svg%3E");
 }
+a.ref-link--issue[data-issue-stage="shipping"] {
+  --ref-stage-color: rgb(139 92 246);
+}
+a.ref-link--issue[data-issue-stage="shipping"]::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20fill='none'%20stroke='black'%20stroke-width='1.6'/%3E%3Cpath%20d='M7%207L7%203.8A3.2%203.2%200%201%201%204.23%205.4Z'/%3E%3C/svg%3E");
+}
 a.ref-link--issue[data-issue-stage="done"] {
   --ref-stage-color: var(--success);
 }
@@ -6771,6 +7072,18 @@ a.ref-link--issue[data-issue-stage=""] {
 a.ref-link--issue:not([data-issue-stage])::before,
 a.ref-link--issue[data-issue-stage=""]::before {
   --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2014%2014'%20fill='none'%20stroke='black'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='7'%20cy='7'%20r='6'%20stroke-width='1.6'/%3E%3Cpath%20d='M5.3%205.0a1.75%201.75%200%200%201%203.4%200.58c0%201.17-1.75%201.75-1.75%201.75'%20stroke-width='1.5'/%3E%3Ccircle%20cx='7'%20cy='9.7'%20r='0.85'%20fill='black'%20stroke='none'/%3E%3C/svg%3E");
+}
+/* Availability is independent of workflow stage. Archived refs retain their
+   stage glyph but quiet the chip; deleted and unavailable refs use the unknown
+   glyph above, with deletion carrying a restrained destructive tint. */
+a.ref-link--issue[data-issue-availability="archived"] {
+  --ref-accent: var(--muted-foreground);
+}
+a.ref-link--issue[data-issue-availability="deleted"] {
+  --ref-accent: color-mix(in srgb, var(--destructive) 65%, var(--muted-foreground));
+}
+a.ref-link--issue[data-issue-availability="unavailable"] {
+  --ref-accent: var(--muted-foreground);
 }
 /* Session refs (POD-13-A / POD-DRAFT-3): lucide terminal. */
 a.ref-link--session::before {
@@ -8988,6 +9301,92 @@ a.ref-link--session::before {
   background: color-mix(in oklab, var(--issue) 8%, var(--bar));
 }
 
+/* ── WHERE YOU ARE vs WHERE YOU ARE POINTING (POD-1480) ─────────────────────
+   A tab and a deck row are the same session drawn twice, and the column now
+   answers two questions at once: which row is the tab you are IN, and which
+   row is the tab you are POINTING at. One device — the gutter tick — carries
+   both, and HUE is what separates them.
+
+   The split was previously one hue at two strengths (100% / 45%), which failed
+   twice over: 45% of a 3px tick is not a difference you catch peripherally,
+   and only the POINTED row took a ground, so the state that vanishes when the
+   mouse moves was the loudest mark in the column.
+
+   Active takes `--issue` — the identity channel, which is what "this is the
+   one you are working in" deserves. Pointed takes `--flow`, the no-colour
+   neutral, which is what that token already means everywhere else in the
+   shell: traceable, transient, not a selection.
+
+   THE UNCOLOURED CASE IS NOT AN EDGE CASE. `--issue` is scoped once on the
+   shell root from the SELECTED issue (AppShell) and falls back to `--flow`
+   whenever nothing coloured is selected — so on the default the two ticks
+   would be the identical grey. The active mark therefore falls back to the ink
+   the sidebar already uses for its selected-row spine, which keeps the two
+   marks a full ramp apart in both appearances. */
+.deck-mark-active {
+  background: var(--issue);
+}
+[data-issue-colored="false"] .deck-mark-active {
+  background: var(--text-strong);
+}
+.deck-mark-pointed {
+  background: var(--flow);
+}
+
+/* THE ACTIVE ROW GETS A GROUND. Not decoration — it is what stops a hover from
+   outranking the session you are actually in.
+
+   THE FILL NOW HAS TWO TIERS, which is a change to the rule above: the lead
+   fill is no longer the only ground an agent row can take. 8% is the mission's
+   lead, 14% is the session you are in, and the two have to be far enough apart
+   to read as two statements rather than one. Measured over `--bar` in the deck
+   harness, as OKLab L:
+
+                   --bar   --muted   lead 8%    14%      18%
+       paper       0.976    0.951     0.946    0.924    0.909
+       dark        0.230    0.243     0.260    0.283    0.298
+
+   14, not the sidebar's resting 7 or its hover 11. Two constraints set it. It
+   has to out-weigh `--muted`, the wash every other row takes under the pointer
+   — at 7 the active row lands on the WRONG side of that line (paper L 0.950 vs
+   the wash's 0.951) and the pointer keeps winning, which is the whole defect.
+   And it has to separate from the lead fill: 11 clears it by ΔL 0.011, half a
+   hover step and not a difference anyone reads, while 14 clears it by 0.022 —
+   the size of the bar→muted step this column already uses to mean "state
+   changed". Note the tint moves the same way the hover wash does in each
+   appearance (down on paper, up on dark), so one dose ordering holds for both.
+
+   RESOLVED BY SPECIFICITY, NOT ORDER. `.deck-agent-row.deck-agent-active` is
+   0-2-0 against `.deck-lead-fill`'s 0-1-0, so an active coordinator takes the
+   active ground wherever these rules sit in the file. Worth knowing before
+   qualifying `.deck-lead-fill` to match its neighbour's shape: at 0-2-0 it
+   would win on order instead, and the ground this whole rule exists to add
+   would vanish on exactly the rows that already had one. */
+.deck-agent-row.deck-agent-active {
+  background: color-mix(
+    in oklab,
+    var(--issue) calc(14 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--bar)
+  );
+}
+
+/* THE ACTIVE ROW ANSWERS THE POINTER IN ITS OWN CHANNEL. It may not take the
+   neutral `--muted` wash the other rows take: that wash is LESS extreme than
+   the active ground in both appearances, so borrowing it would make the row
+   step back under the pointer while every other row steps forward — the
+   defect this rule exists to fix, moved to the self-hover case. The next tint
+   step up (18) moves it the same way, by about one hover step. Both the real
+   pointer and the tab strip's `data-pointed` land here, so the row cannot tell
+   which one reached it — and should not. */
+.deck-agent-row.deck-agent-active:hover,
+.deck-agent-row.deck-agent-active[data-pointed="true"] {
+  background: color-mix(
+    in oklab,
+    var(--issue) calc(18 * var(--issue-row-tint-scale, var(--issue-tint-scale, 1%))),
+    var(--bar)
+  );
+}
+
 /* ── THE DROP ORDER — how a strip gives way (POD-758) ────────────────────────
    The title outranks everything else in the row: it has a 150px floor and it is
    the only shrinker, because a half-rendered clock (`28:`) is a WRONG number
@@ -10116,6 +10515,33 @@ a.ref-link--session::before {
   );
 }
 
+/* ── THE WORK COLUMN IS ITS OWN MEASURE [POD-1469] ───────────────────────────
+   The sidebar is resized by hand between 200px and 520px on a display of any
+   width, so a viewport breakpoint answers the wrong question about it — a 200px
+   column on a 3440px screen is exactly the case `sm:` gets backwards. The aside
+   declares the container; anything in the column that has to give ground reads
+   it.
+
+   `Add repository` is the first thing that does. It rides the filter's line and
+   it is the item that must NOT shrink, so at the column's minimum the two of
+   them cannot both be whole: at 200px the insets leave 180, and the button in
+   words is ~115 of it. The words are what goes. That direction is not a
+   coin-toss — a filter field with a search glyph and no visible placeholder
+   still reads as a filter field, while `Add Reposi…` reads as a bug — and the
+   button keeps its name in `title`/`aria-label` either way. */
+.worklist-column {
+  container-type: inline-size;
+  container-name: worklist;
+}
+.worklist-add-repo-label {
+  display: none;
+}
+@container worklist (min-width: 280px) {
+  .worklist-add-repo-label {
+    display: inline;
+  }
+}
+
 /* ── THE COLD DECK'S FIT [POD-1169] ──────────────────────────────────────────
    The cold start is a PANE, not a page. Every responsive decision it made used
    to be keyed off the VIEWPORT — `sm:px-10 lg:px-24`, `3vw` type, a
@@ -10237,24 +10663,61 @@ a.ref-link--session::before {
 .cold-start-field {
   margin-top: clamp(14px, 3.4dvh, 30px);
 }
-.cold-start-input {
-  min-height: clamp(72px, 19dvh, 132px);
-  padding-block: clamp(12px, 2dvh, 20px) 10px;
-}
 
-/* THE CHORD IS A ONE-LINE AFFORDANCE. The row's rigid furniture is ~560px: the
-   instrument strip (~256), the machine chip (~133), the launch button (~94),
-   three 8px gaps and 28px of row padding. Above that the row is one line and
-   ⌘↵ has somewhere to sit; below it the row has already wrapped and the hint is
-   a third line of furniture on a screen that just ran out of them. Keyed off
-   the pane rather than `sm:` for the same reason as everything else here — a
-   500px pane on a wide display was showing it while the row was two lines. */
-.cold-start-chord {
-  display: none;
+/* ── THE WELL'S TWO HEIGHTS [POD-1469] ───────────────────────────────────────
+   The box has a CLI mode and a prompt mode (see ColdStartComposer), and the
+   whole difference in geometry is this element's height. Both are set as an
+   explicit `height` rather than `min-height`, so the transition has one number
+   to walk: with a min-height the box would sit at the textarea's intrinsic size
+   until the animated value overtook it, which is a beat of stillness at the head
+   of a gesture whose job is to feel like the box opening.
+
+   `rows={1}` is what makes the closed height honest — a textarea's intrinsic
+   height comes from its rows, and a two-row default would fight the number
+   below.
+
+   The prompt height is the one the deck has always used: about a fifth of a
+   short window, capped at the old desktop 132px, so the whole instrument stays
+   on screen down to a 240px pane before the deck scrolls.
+
+   THE OPEN BOX GIVES ITS RIGHT SHOULDER TO THE CLOSE CONTROL. 46px of right
+   padding rather than 22 — the X sits at top:9/right:10 and the first line of a
+   prompt would otherwise run under it. It is spent only while the control is
+   there; the closed line keeps the symmetric inset. */
+.cold-start-input {
+  height: 46px;
+  padding-block: 12px;
+  overflow-y: hidden;
+  /* easeOutCubic, NOT the shell's `0.22, 1, 0.36, 1`. That curve is the house
+     one — the sidebar drawer and the row folds take it — and it is right for
+     them, but measured on this box it puts the fold 96% of the way home inside
+     50ms: three frames of travel and then 190ms creeping the last 3px, which is
+     a jump cut with a tail rather than a box opening. Over 86px of height,
+     easeOutCubic is at ~51% at the same instant, so the motion is visible for
+     most of its duration and still lands decelerating. 240ms is inside the
+     design's 200–260ms window for structural motion. */
+  transition:
+    height 240ms cubic-bezier(0.33, 1, 0.68, 1),
+    padding 240ms cubic-bezier(0.33, 1, 0.68, 1);
 }
-@container cold-start (min-width: 560px) {
-  .cold-start-chord {
-    display: inline;
+.cold-start-field[data-expanded="true"] .cold-start-input {
+  height: clamp(72px, 19dvh, 132px);
+  padding-block: clamp(12px, 2dvh, 20px) 10px;
+  padding-right: 46px;
+  overflow-y: auto;
+}
+/* THE CLOSED LINE GIVES ITS RIGHT SHOULDER TO THE FOCUS CHORD. Same reason
+   the open box pads for the X: a 46px row with the placeholder running under
+   "⌘L to focus" reads as the hint colliding with the prompt, not as a chord.
+   The chord's own `top: 9px` is relative to this whole field (prompt plus
+   instruments), which is the prompt line — do not recenter it, or it lands
+   on the seam. */
+.cold-start-field:not([data-expanded="true"]) .cold-start-input {
+  padding-right: 96px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cold-start-input {
+    transition: none;
   }
 }
 
@@ -10420,4 +10883,255 @@ a.ref-link--session::before {
 [data-sonner-toast].cn-toast[data-styled="true"] [data-button]:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 40%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   THE RESET LEDGER (POD-1571) — capacity spent per weekly window.
+
+   Built from the sheet's own two rules and nothing else: `--usage-rule` for
+   divisions, `--usage-scale` for what data is measured against. Every colour is
+   a `color-mix` over `--live` or `--foreground`, so both themes come out of one
+   set of declarations exactly as the token trace does.
+
+   THE GROOVE IS THE POINT. Unlike the trace above, a quota window has a real
+   ceiling, so a column is drawn full height in `--usage-scale` and filled to the
+   peak the window reached. What is left empty is the capacity that was paid for
+   and never spent — the negative space carries the message, which is why no tone
+   ramp is needed and none is used.
+   --------------------------------------------------------------------------- */
+.quota-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.usage-figure-aside {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.quota-readings {
+  display: flex;
+}
+.quota-reading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 16px;
+  border-left: 1px solid var(--usage-rule);
+}
+.quota-reading:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.quota-empty {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.quota-pool {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quota-pool + .quota-pool {
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--usage-rule);
+}
+.quota-pool-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The two-letter mark the shell already uses for a harness. Carrying identity
+   here rather than in colour is deliberate — see QuotaLedger.tsx. */
+.quota-mark {
+  padding: 1px 4px;
+  border: 1px solid var(--usage-rule);
+  border-radius: 3px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 13px;
+}
+.quota-pool-name {
+  color: var(--text-strong);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.quota-pool-window {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.quota-pool-stat {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Same 4.5ch axis + 12px gutter as the trace, so the two figures share a spine. */
+.quota-strip {
+  display: grid;
+  grid-template-columns: 4.5ch 1fr;
+  column-gap: 12px;
+}
+.quota-axis {
+  position: relative;
+  height: 76px;
+}
+.quota-axis span {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.quota-plot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 3px;
+  height: 76px;
+}
+.quota-gridline {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--usage-scale);
+}
+/* "Well used" — one step up from the scale so the eye has a target without the
+   figure gaining a second colour. */
+.quota-gridline[data-target] {
+  background: color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+.quota-groove {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  min-width: 5px;
+  /* Capped rather than stretched: two weeks of history should read as two weeks
+     with room to grow, not as a full chart. */
+  max-width: 96px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--usage-scale);
+}
+.quota-groove i {
+  display: block;
+  width: 100%;
+  height: var(--u);
+  border-radius: 1.5px;
+  background: color-mix(in srgb, var(--live) 82%, transparent);
+  transition: height 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* A window whose start was never observed: its peak may understate what was
+   really spent, so it is hatched rather than drawn as a solid claim. */
+.quota-groove[data-partial] i {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--live) 62%, transparent) 0 3px,
+    transparent 3px 6px
+  );
+}
+.quota-groove[data-now] i {
+  background: var(--live);
+}
+.quota-groove[data-now]::after {
+  content: '';
+  position: absolute;
+  inset: -2px -1px;
+  border: 1px solid color-mix(in srgb, var(--live) 70%, transparent);
+  border-radius: 3px;
+}
+/* The plan changed here, so the pool underneath is a different size and the
+   percentages either side are not comparable. */
+.quota-groove[data-plan-break]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 1px;
+  background: color-mix(in srgb, var(--foreground) 28%, transparent);
+}
+.quota-strip-days {
+  display: flex;
+  grid-column: 2;
+  justify-content: flex-start;
+  gap: 3px;
+  padding-top: 8px;
+}
+.quota-strip-days span {
+  flex: 1;
+  max-width: 96px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quota-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-top: 2px;
+}
+.quota-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.quota-swatch {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+/* The track is 7% ink by design — enough to read as a groove behind a fill, but
+   as a lone 11px chip in a legend it all but disappears. The rim is what makes
+   it legible as a swatch without changing the material it stands for. */
+.quota-swatch[data-k='track'] {
+  border: 1px solid var(--usage-rule);
+  background: var(--usage-scale);
+}
+.quota-swatch[data-k='used'] {
+  background: color-mix(in srgb, var(--live) 82%, transparent);
+}
+.quota-swatch[data-k='now'] {
+  background: var(--live);
+}
+.quota-swatch[data-k='partial'] {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--live) 62%, transparent) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quota-groove i {
+    transition: none;
+  }
 }

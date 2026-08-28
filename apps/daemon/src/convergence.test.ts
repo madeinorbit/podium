@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createSchemaGate,
   disarmExitSeam,
@@ -6,7 +6,9 @@ import {
   MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
   refuseSchemaRegression,
+  restartAfterGrant,
   resolveOnBoot,
+  shouldClearPendingGrantOnBoot,
 } from './convergence'
 
 const pending = {
@@ -26,6 +28,29 @@ describe('resolveOnBoot', () => {
     expect(resolveOnBoot({ pending, runningVersion: '0.4.2' })).toEqual({
       action: 'confirm',
       state: 'current',
+    })
+  })
+
+  it('keeps a packaged all-in-one marker armed when the daemon confirms before its sibling server', () => {
+    const confirmed = resolveOnBoot({ pending, runningVersion: pending.targetVersion })
+    expect(confirmed).toMatchObject({ action: 'confirm', state: 'current' })
+    expect(
+      shouldClearPendingGrantOnBoot({ verdict: confirmed!, parentHasServer: true }),
+      'the parent health gate still has to prove the sibling server before this target can be consumed',
+    ).toBe(false)
+
+    // Once the parent rolls back the bundle, the restored daemon can name the
+    // exact target in the terminal verdict because the marker survived the
+    // earlier daemon-only confirmation.
+    expect(
+      resolveOnBoot({
+        pending: { ...pending, attempts: MAX_CONVERGENCE_ATTEMPTS },
+        runningVersion: pending.previousVersion,
+      }),
+    ).toMatchObject({
+      action: 'rollback',
+      state: 'stuck',
+      detail: expect.stringContaining(pending.targetVersion),
     })
   })
 
@@ -130,6 +155,53 @@ describe('refuseConvergence', () => {
     expect(FOREGROUND_ALL_IN_ONE_REFUSAL).toContain('foreground-all-in-one')
     expect(FOREGROUND_ALL_IN_ONE_REFUSAL).toMatch(/shares its process with the Podium server/)
     expect(FOREGROUND_ALL_IN_ONE_REFUSAL).toMatch(/would not come back/)
+  })
+})
+
+describe('restartAfterGrant', () => {
+  it('asks a supervising parent to hand over to the granted version', () => {
+    const requestHandover = vi.fn(() => ({ ok: true as const, pid: 42 }))
+    restartAfterGrant(
+      '2.0.0',
+      { releaseHadMigrations: false },
+      {
+        parentManaged: true,
+        requestHandover,
+        exit: vi.fn(),
+      },
+    )
+    expect(requestHandover).toHaveBeenCalledWith({
+      expectedVersion: '2.0.0',
+      releaseHadMigrations: false,
+    })
+  })
+
+  it('exits a direct daemon for its shell or service manager to respawn', () => {
+    const exit = vi.fn()
+    restartAfterGrant(
+      '2.0.0',
+      {},
+      {
+        parentManaged: false,
+        requestHandover: vi.fn(),
+        exit,
+      },
+    )
+    expect(exit).toHaveBeenCalledWith(0)
+  })
+
+  it('reports a vanished parent instead of pretending to restart', () => {
+    expect(() =>
+      restartAfterGrant(
+        '2.0.0',
+        {},
+        {
+          parentManaged: true,
+          requestHandover: () => ({ ok: false, reason: 'no-parent' }),
+          exit: vi.fn(),
+        },
+      ),
+    ).toThrow(/machine-cannot-restart/)
   })
 })
 

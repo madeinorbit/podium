@@ -125,6 +125,7 @@ function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]> = ne
       onSessionClientFrame: (_principal, conn: ClientConn, msg) => {
         if (msg.type === 'hello' && msg.caps) conn.caps = new Set(msg.caps)
       },
+      onSessionClientInput: vi.fn(),
     },
   }
   const mux = new ClientMux({

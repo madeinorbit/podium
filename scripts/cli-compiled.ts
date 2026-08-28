@@ -1,8 +1,8 @@
 /**
- * `bun build --compile` entry for the unified `podium` CLI. Materializes the embedded
- * abduco (so durable sessions work on a clean box), then runs the mode-driven launcher.
- * Only this entry pulls the Bun-only embedded-file import; plain scripts/cli.ts stays
- * Node/test-importable.
+ * `bun build --compile` entry for the unified `podium` CLI. Registers embedded-abduco
+ * materialization with the shared launcher, which runs compiled-only state initialization
+ * after selecting and claiming the instance root. Only this entry pulls the Bun-only
+ * embedded-file import; plain scripts/cli.ts stays Node/test-importable.
  */
 import { CLAUDE_SDK_HOST_ENV } from '../apps/daemon/src/claude-sdk-protocol.js'
 import { main } from './cli.js'
@@ -18,6 +18,7 @@ import { materializeEmbeddedAbduco } from './embedded-abduco.js'
 if (process.env[CLAUDE_SDK_HOST_ENV] === '1') {
   await import('../apps/daemon/src/claude-sdk-host.js')
 } else {
-  await materializeEmbeddedAbduco()
-  await main()
+  // Materialization runs AFTER the instance state claim, so a named instance
+  // unpacks abduco under its own state root rather than the default's.
+  await main({ afterInstanceStateClaim: materializeEmbeddedAbduco })
 }

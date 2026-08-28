@@ -4,6 +4,13 @@ Hosted remote caching is intentionally not enabled by this issue. The repository
 
 What is enabled is a host-shared local Turbo cache for the wrapper-owned Turbo lanes. `scripts/typecheck.ts`, `scripts/test.ts`, and `scripts/test-affected.ts` now default `TURBO_CACHE_DIR` to a cache under `${XDG_CACHE_HOME:-/tmp/podium-cache}/podium/turbo/<repo-key>`; a relative `XDG_CACHE_HOME` is invalid and safely falls back to `/tmp/podium-cache`. The repo key is derived from the common Git directory, so sibling worktrees on the same checkout share hits. Callers that already set `TURBO_CACHE_DIR` keep their explicit cache location. CI explicitly sets and caches `/tmp/podium-cache/podium/turbo` for the `typecheck` and `unit-tests` jobs, so the Turbo-backed typecheck and web test lanes can reuse hits across CI runs without a hosted Turbo service.
 
+> **Amended by POD-2774.** The default is now `${XDG_CACHE_HOME:-$HOME/.cache}/podium/turbo/<repo-key>`;
+> the temporary directory is only reached when there is no usable home. `TMPDIR` is reminted per agent
+> session and per test file in this repository, so the old default silently gave many sessions their own
+> cache and their own cold start, and did not survive a reboot. CI is unaffected — it sets
+> `TURBO_CACHE_DIR` explicitly, which still wins. A pre-existing `/tmp/podium-cache/podium/turbo` on a
+> developer host is orphaned by the move and can be deleted.
+
 ## Cache-key audit
 
 The environment fingerprint reaches the two audited Turbo test tasks in this tree through the same path as typecheck:

@@ -7,6 +7,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import {
   asUserId,
   Inventory,
+  MachineComponent,
   type MachineId,
   UpdateChannel,
   type UpdateChannel as UpdateChannelValue,
@@ -39,6 +40,28 @@ function parseCaps(raw: string | null): string[] {
   }
 }
 
+/**
+ * Defensive parse of a stored components blob (POD-2700).
+ *
+ * Distinguishes the three answers the column can hold, and never invents the
+ * permissive one: NULL / absent → `null` (not recorded, refuses nothing); a
+ * valid array → itself, unknown members dropped so a downgrade from a future
+ * server that added a component reads the ones it knows; UNPARSEABLE → `null`
+ * rather than `[]`, because a corrupt blob is a thing we do not know, and
+ * answering "runs nothing" would blank the machine out of every picker on the
+ * strength of a JSON error.
+ */
+function parseComponents(raw: unknown): MachineComponent[] | null {
+  if (typeof raw !== 'string' || raw.length === 0) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    return parsed.filter((c): c is MachineComponent => MachineComponent.safeParse(c).success)
+  } catch {
+    return null
+  }
+}
+
 function toRecord(r: Record<string, unknown>): MachineRecord {
   const inventory = parseInventory(r.inventory_json)
   return {
@@ -68,6 +91,7 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
     // truthful answer: a supervised daemon re-asserts the flag on every hello.
     supervised: r.supervised === 1 || r.supervised === true,
     buildReportedAt: (r.build_reported_at as string | null | undefined) ?? null,
+    components: parseComponents(r.components_json),
   }
 }
 
@@ -118,7 +142,7 @@ export class MachinesRepository {
     return (
       this.db
         .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override FROM machines ORDER BY created_at ASC',
+          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override, components_json FROM machines ORDER BY created_at ASC',
         )
         .all() as Record<string, unknown>[]
     ).map(toRecord)
@@ -127,11 +151,41 @@ export class MachinesRepository {
   getMachine(id: string): MachineRecord | undefined {
     const r = this.db
       .prepare(
-        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override FROM machines WHERE id = ?',
+        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override, components_json FROM machines WHERE id = ?',
       )
       .get(id) as Record<string, unknown> | undefined
     if (!r) return undefined
     return toRecord(r)
+  }
+
+  /**
+   * ADD one durable component to a machine, idempotently (POD-2700).
+   *
+   * ADDITIVE, and read-modify-write on purpose. The two writers answer different
+   * questions and neither knows the other's answer: the server stamps `server`
+   * on its own host row at boot, and a daemon handshake stamps `daemon` — on the
+   * SAME row when the coordinator also runs a daemon, which is the ordinary
+   * single-box install. A last-writer-wins `SET` would make the host machine
+   * flip between "server" and "daemon" depending on boot order, and a
+   * repo-hosting box would lose its repo capability every time the server
+   * restarted. Removal is not an operation here: components die with the machine
+   * row (§1.3 — revoke is the retirement path, not a per-component TTL).
+   *
+   * Returns whether the row actually changed, so the caller can skip a broadcast
+   * on the overwhelmingly common no-op (every hello re-stamps `daemon`).
+   */
+  addMachineComponent(id: string, component: MachineComponent): boolean {
+    const row = this.db.prepare('SELECT components_json FROM machines WHERE id = ?').get(id) as
+      | { components_json: string | null }
+      | undefined
+    if (!row) return false
+    const current = parseComponents(row.components_json) ?? []
+    if (current.includes(component)) return false
+    const next = [...current, component]
+    this.db
+      .prepare('UPDATE machines SET components_json = ? WHERE id = ?')
+      .run(JSON.stringify(next), id)
+    return true
   }
 
   /** Persist a daemon-reported inventory (#222) as the raw JSON blob. */

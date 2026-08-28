@@ -22,12 +22,14 @@
     },
     {
       "schema": "UpdateGrantMessage",
-      "variant": "full/arm0",
+      "variant": "full",
       "wire": {
         "type": "updateGrant",
         "grantId": "grantId",
+        "repair": true,
         "target": {
           "version": "target.version",
+          "trust": "release",
           "schema": {
             "migrations": ["target.schema.migrations[0]"]
           },
@@ -38,6 +40,7 @@
           "critical": true,
           "minRequired": {
             "desktop": "target.minRequired.desktop",
+            "desktopBridge": 1,
             "web": "target.minRequired.web",
             "mobile": {
               "ios": "target.minRequired.mobile.ios",
@@ -86,128 +89,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"schema\":{\"migrations\":[\"target.schema.migrations[0]\"]},\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headless.platforms.key\":{\"url\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url\",\"digest\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest\",\"signature\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature\"}}},\"headlessAlternatives\":[{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headlessAlternatives[0].platforms.key\":{\"url\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.url\",\"digest\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.digest\",\"signature\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.signature\"}}}],\"desktop\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.desktop.platforms.key\":{\"url\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url\",\"digest\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest\",\"signature\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature\"}}},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
-    },
-    {
-      "schema": "UpdateGrantMessage",
-      "variant": "full/arm1",
-      "wire": {
-        "type": "updateGrant",
-        "grantId": "grantId",
-        "target": {
-          "version": "target.version",
-          "schema": {
-            "migrations": ["target.schema.migrations[0]"]
-          },
-          "notes": {
-            "summary": "target.notes.summary",
-            "url": "target.notes.url"
-          },
-          "critical": false,
-          "minRequired": {
-            "desktop": "target.minRequired.desktop",
-            "web": "target.minRequired.web",
-            "mobile": {
-              "ios": "target.minRequired.mobile.ios",
-              "android": "target.minRequired.mobile.android"
-            }
-          },
-          "artifacts": {
-            "headless": {
-              "delivery": "bundle",
-              "platforms": {
-                "target.artifacts.headless.platforms.key": {
-                  "url": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url",
-                  "digest": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest",
-                  "signature": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature"
-                }
-              }
-            },
-            "headlessAlternatives": [
-              {
-                "delivery": "bundle",
-                "platforms": {
-                  "target.artifacts.headlessAlternatives[0].platforms.key": {
-                    "url": "target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.url",
-                    "digest": "target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.digest",
-                    "signature": "target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.signature"
-                  }
-                }
-              }
-            ],
-            "desktop": {
-              "delivery": "bundle",
-              "platforms": {
-                "target.artifacts.desktop.platforms.key": {
-                  "url": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url",
-                  "digest": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest",
-                  "signature": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature"
-                }
-              }
-            },
-            "web": {
-              "digest": "target.artifacts.web.digest"
-            }
-          }
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"schema\":{\"migrations\":[\"target.schema.migrations[0]\"]},\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":false,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"bundle\",\"platforms\":{\"target.artifacts.headless.platforms.key\":{\"url\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url\",\"digest\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest\",\"signature\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature\"}}},\"headlessAlternatives\":[{\"delivery\":\"bundle\",\"platforms\":{\"target.artifacts.headlessAlternatives[0].platforms.key\":{\"url\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.url\",\"digest\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.digest\",\"signature\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.signature\"}}}],\"desktop\":{\"delivery\":\"bundle\",\"platforms\":{\"target.artifacts.desktop.platforms.key\":{\"url\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url\",\"digest\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest\",\"signature\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature\"}}},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
-    },
-    {
-      "schema": "UpdateGrantMessage",
-      "variant": "full/arm2",
-      "wire": {
-        "type": "updateGrant",
-        "grantId": "grantId",
-        "target": {
-          "version": "target.version",
-          "schema": {
-            "migrations": ["target.schema.migrations[0]"]
-          },
-          "notes": {
-            "summary": "target.notes.summary",
-            "url": "target.notes.url"
-          },
-          "critical": true,
-          "minRequired": {
-            "desktop": "target.minRequired.desktop",
-            "web": "target.minRequired.web",
-            "mobile": {
-              "ios": "target.minRequired.mobile.ios",
-              "android": "target.minRequired.mobile.android"
-            }
-          },
-          "artifacts": {
-            "headless": {
-              "delivery": "git",
-              "repo": "target.artifacts.headless.repo",
-              "sha": "target.artifacts.headless.sha"
-            },
-            "headlessAlternatives": [
-              {
-                "delivery": "git",
-                "repo": "target.artifacts.headlessAlternatives[0].repo",
-                "sha": "target.artifacts.headlessAlternatives[0].sha"
-              }
-            ],
-            "desktop": {
-              "delivery": "git",
-              "repo": "target.artifacts.desktop.repo",
-              "sha": "target.artifacts.desktop.sha"
-            },
-            "web": {
-              "digest": "target.artifacts.web.digest"
-            }
-          }
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"target\":{\"version\":\"target.version\",\"schema\":{\"migrations\":[\"target.schema.migrations[0]\"]},\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"git\",\"repo\":\"target.artifacts.headless.repo\",\"sha\":\"target.artifacts.headless.sha\"},\"headlessAlternatives\":[{\"delivery\":\"git\",\"repo\":\"target.artifacts.headlessAlternatives[0].repo\",\"sha\":\"target.artifacts.headlessAlternatives[0].sha\"}],\"desktop\":{\"delivery\":\"git\",\"repo\":\"target.artifacts.desktop.repo\",\"sha\":\"target.artifacts.desktop.sha\"},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"repair\":true,\"target\":{\"version\":\"target.version\",\"trust\":\"release\",\"schema\":{\"migrations\":[\"target.schema.migrations[0]\"]},\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"desktopBridge\":1,\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headless.platforms.key\":{\"url\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url\",\"digest\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest\",\"signature\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature\"}}},\"headlessAlternatives\":[{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headlessAlternatives[0].platforms.key\":{\"url\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.url\",\"digest\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.digest\",\"signature\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.signature\"}}}],\"desktop\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.desktop.platforms.key\":{\"url\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url\",\"digest\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest\",\"signature\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature\"}}},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
     },
     {
       "schema": "UpdateStatusMessage",
@@ -228,6 +110,7 @@
       "wire": {
         "type": "updateStatus",
         "grantId": "grantId",
+        "targetVersion": "targetVersion",
         "state": "current",
         "version": "version",
         "detail": "detail",
@@ -237,7 +120,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\",\"percent\":1,\"phaseDetail\":\"phaseDetail\"}"
+      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"targetVersion\":\"targetVersion\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\",\"percent\":1,\"phaseDetail\":\"phaseDetail\"}"
     }
   ]
 }

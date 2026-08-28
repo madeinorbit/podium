@@ -1,4 +1,8 @@
-import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/viewmodels'
+import {
+  discoveredPlacement,
+  type IssueNavigationModel,
+  spawnIssueAgent,
+} from '@podium/client-core/viewmodels'
 import {
   DEFER_NEXT_MESSAGE,
   type IssueCloseReason,
@@ -386,11 +390,7 @@ export function WorkIssueMenu({
       label: `${ISSUE_AGENT_LABELS[kind]}${index === 0 ? ' (default)' : ''}`,
       onPress: () => {
         const input = index === 0 ? { id: issue.id } : { id: issue.id, agentKind: kind }
-        finish(
-          startable
-            ? store.trpc.issues.start.mutate(input)
-            : store.trpc.issues.addSession.mutate(input),
-        )
+        finish(spawnIssueAgent(store.trpc.issues, input))
       },
     }))
   }

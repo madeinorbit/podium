@@ -6,30 +6,70 @@
  *   2. Compile the server (relay + bun:sqlite; no PTY, no abduco).
  *   3. Compile the daemon via scripts/daemon-compiled.ts (embeds + materializes abduco).
  *
- * Run with: bun scripts/build-bun.ts
+ * Run with: bun run package:headless                            (this machine's platform)
+ *           bun scripts/package-headless.ts --target=bun-darwin-arm64 (cross, from Linux)
+ *
+ * CROSS-COMPILATION [spec:SP-6144 §8b]. With `--target` this builds the bundle for
+ * ANOTHER platform from a Linux box: `bun build --compile --target=…` produces the
+ * foreign executable, `scripts/abduco-cross.ts` produces the foreign abduco helper
+ * with `zig cc`, and a Darwin target is re-signed with `rcodesign`. bun build --compile
+ * already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out, no entitlements);
+ * rcodesign replaces that signature with identifier podium plus the five Bun JIT
+ * entitlement keys. Drop rcodesign and the binary still "signs" — what breaks is JIT,
+ * at runtime, not code signing at build time. That is what collapses the release
+ * matrix from one runner per architecture to one Linux job for all four.
+ *
+ * ONE TARGET PER INVOCATION, and deliberately so: the compiled binary embeds abduco
+ * through a static `with { type: 'file' }` import of the FIXED path dist-bun/abduco.bin,
+ * so two targets building at once would race to leave the wrong helper there. Callers
+ * that want several platforms (scripts/release.ts, the dev publisher) run this script
+ * once per platform, in sequence.
  */
 import { execFileSync } from 'node:child_process'
-import { sign as cryptoSign } from 'node:crypto'
+import { randomBytes, sign as cryptoSign } from 'node:crypto'
 import {
   chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
+import { JANITOR_WORKER_ENTRY } from '../apps/janitor/src/janitor-worker-embed.js'
+/**
+ * The dev-label rules, from the one place that defines them (POD-2502). The
+ * leaf, not the barrel: this script builds the product, and the protocol's
+ * dev-version module imports only `version-order`, which imports nothing.
+ */
+import {
+  commitShaFromDevVersion,
+  isDevChannelVersion,
+} from '../packages/protocol/src/update/dev-version.js'
 import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
 import {
   bunVersion,
   hasBunTerminal,
   minTerminalBunVersion,
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
+import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
+import {
+  assertNoCallerSuppliedClientRootDigest,
+  clientBuildRootDigestFromSites,
+} from './client-build-root-digest'
+import {
+  releaseBuildTimingEnabled,
+  timeReleaseBuildSync,
+} from '@podium/runtime/release-build-timing'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -66,6 +106,179 @@ export function bundleNames(platform: NodeJS.Platform = process.platform): {
 }
 
 /**
+ * The four `bun build --compile` targets a release ships, and what each one is called
+ * everywhere else.
+ *
+ * `platform` is the updater's vocabulary — the Tauri updater triple prefix the CLI
+ * derives from its own os/arch (`hostUpdateTarget()`) and the key a manifest uses.
+ * `asset` is the release-asset infix. Holding all three in ONE table is what stops a
+ * bundle built for one platform from being published under another's name.
+ */
+export const BUN_TARGETS = {
+  'bun-linux-x64': {
+    platform: 'linux-x86_64',
+    nodePlatform: 'linux',
+    asset: 'linux-x64',
+  },
+  'bun-linux-arm64': {
+    platform: 'linux-aarch64',
+    nodePlatform: 'linux',
+    asset: 'linux-arm64',
+  },
+  'bun-darwin-arm64': {
+    platform: 'darwin-aarch64',
+    nodePlatform: 'darwin',
+    asset: 'darwin-arm64',
+  },
+  'bun-darwin-x64': {
+    platform: 'darwin-x86_64',
+    nodePlatform: 'darwin',
+    asset: 'darwin-x64',
+  },
+} as const satisfies Record<
+  string,
+  { platform: HeadlessPlatform; nodePlatform: NodeJS.Platform; asset: string }
+>
+
+export type BunTarget = keyof typeof BUN_TARGETS
+
+export function isBunTarget(value: string): value is BunTarget {
+  return Object.hasOwn(BUN_TARGETS, value)
+}
+
+/** The `bun build --compile` target that produces a bundle for `platform`. */
+export function bunTargetForPlatform(platform: HeadlessPlatform): BunTarget {
+  const found = (Object.keys(BUN_TARGETS) as BunTarget[]).find(
+    (target) => BUN_TARGETS[target].platform === platform,
+  )
+  if (!found) throw new Error(`build-bun: no bun --compile target ships ${platform}`)
+  return found
+}
+
+/**
+ * Where a cross-built bundle lands: one directory per platform, so all four survive a
+ * single release job and can be inspected (and asserted over) side by side. A plain
+ * host build keeps writing to dist-bun/ exactly as before — nothing about running this
+ * script with no arguments changes.
+ */
+export function targetOutputRoot(distBun: string, target: BunTarget | undefined): string {
+  return target ? `${distBun}/targets/${BUN_TARGETS[target].platform}` : distBun
+}
+
+export function parseBuildTarget(argv: readonly string[]): BunTarget | undefined {
+  const flag = argv.find((a) => a.startsWith('--target='))
+  if (!flag) return undefined
+  const value = flag.slice('--target='.length)
+  if (!isBunTarget(value)) {
+    throw new Error(
+      `build-bun: unknown --target '${value}' (want ${Object.keys(BUN_TARGETS).join(' | ')})`,
+    )
+  }
+  return value
+}
+
+export type FreshClientPackagingSession = Readonly<{
+  clientRootDigest: string
+  version: string
+}>
+
+export type PackagedHeadlessBundle = Readonly<{
+  bundleRoot: string
+  clientRootDigest: string
+  tarball: string
+}>
+
+const freshClientPackagingSessions = new WeakSet<object>()
+
+function packageVersion(root: string): string {
+  const pkgVersion = (() => {
+    try {
+      return (
+        JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as {
+          version?: string
+        }
+      ).version
+    } catch {
+      return undefined
+    }
+  })()
+  const version = process.env.PODIUM_APP_VERSION ?? pkgVersion
+  if (!version) {
+    throw new Error(
+      'build-bun: could not determine the version — root package.json has no `version` field ' +
+        'and PODIUM_APP_VERSION is unset. Root package.json is the single source of truth.',
+    )
+  }
+  return version
+}
+
+export function assertClientBuildInvocation(site: string, expectedInvocation: string): void {
+  const manifestPath = join(site, 'podium-build-manifest.json')
+  let actualInvocation: unknown
+  try {
+    actualInvocation = (
+      JSON.parse(readFileSync(manifestPath, 'utf8')) as { buildInvocation?: unknown }
+    ).buildInvocation
+  } catch {
+    throw new Error(
+      `build-bun: ${site} has no readable build manifest from this packaging invocation`,
+    )
+  }
+  if (actualInvocation !== expectedInvocation) {
+    throw new Error(
+      `build-bun: ${site} manifest was not freshly produced by this packaging invocation`,
+    )
+  }
+}
+
+/**
+ * Run the client build with this process's own Bun and retain its identity as a
+ * module-branded object. Both manifests must echo a random nonce generated here;
+ * exit zero alone cannot mint the brand. Packaging accepts only an object minted
+ * here, so stale output or a caller-computed digest is not provenance evidence.
+ */
+export function beginFreshClientPackagingSession(
+  argv: readonly string[] = [],
+): FreshClientPackagingSession {
+  if (arguments.length > 1) {
+    throw new Error('build-bun: caller-supplied environment is forbidden for client freshness')
+  }
+  assertNoCallerSuppliedClientRootDigest(argv)
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const pathBun = Bun.which('bun', { PATH: process.env.PATH })
+  if (!pathBun || realpathSync(pathBun) !== realpathSync(process.execPath)) {
+    throw new Error(
+      `build-bun: PATH resolves bun to ${pathBun ?? 'nothing'}, not the running interpreter ${process.execPath}`,
+    )
+  }
+  const version = packageVersion(root)
+  const buildInvocation = randomBytes(32).toString('hex')
+  const packageClients = releaseBuildTimingEnabled() ? 'package:clients:timed' : 'package:clients'
+  execFileSync(process.execPath, ['run', packageClients], {
+    cwd: root,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      PODIUM_APP_VERSION: version,
+      PODIUM_CLIENT_BUILD_INVOCATION: buildInvocation,
+    },
+  })
+  const web = `${root}apps/web/dist`
+  const mobile = `${root}apps/mobile/dist`
+  assertClientBuildInvocation(web, buildInvocation)
+  assertClientBuildInvocation(mobile, buildInvocation)
+  const session = Object.freeze({
+    clientRootDigest: clientBuildRootDigestFromSites({
+      web,
+      mobile,
+    }),
+    version,
+  })
+  freshClientPackagingSessions.add(session)
+  return session
+}
+
+/**
  * Where the self-update tarball goes.
  *
  * By default the plain versioned name in dist-bun/, which is what `scripts/release.ts` reads
@@ -94,8 +307,16 @@ export function assertDevClientDistMatchesVersion(
   label: string,
   stamp: { sourceSha?: string } | null,
 ): void {
-  if (!version.startsWith('dev+')) return
-  const expected = version.slice('dev+'.length)
+  // Publisher mints are `X.Y.Z-dev.<N>+<sha>` (POD-2502); forensic identity is
+  // still `dev+<sha>`. Key on either — packing yesterday's dist under today's
+  // commit claim is the lie this guard exists to catch.
+  //
+  // ONE definition of both rules, imported rather than re-stated: which labels
+  // are dev-channel, and which commit one names. A release that merely carries
+  // build metadata is not a dev label and is not checked here, which is why the
+  // `isDevChannelVersion` question is asked first.
+  const expected = isDevChannelVersion(version) ? commitShaFromDevVersion(version) : null
+  if (expected === null) return
   if (!stamp?.sourceSha || stamp.sourceSha !== expected) {
     throw new Error(
       `build-bun: ${label} was not built from ${version} ` +
@@ -142,6 +363,15 @@ export function assertWebDirMatches(webDist: string, webDest: string): void {
     `build-bun: ${webDest} does not match ${webDist} — ` +
       `stale entries: ${sample(extra)}; missing entries: ${sample(missing)}`,
   )
+}
+
+export function compiledSourceMapArgs(version: string): string[] {
+  // Bun 1.3.14 embeds mapped sources in a compiled executable for every
+  // sourcemap mode. Inline is explicit about the property development needs:
+  // the installed binary remains debuggable without a checkout-relative sidecar.
+  // On the pinned Bun 1.3.14, a 19,329-byte two-module map added 8,192 bytes to
+  // the executable (a tiny one added zero); production labels still get no map.
+  return isDevChannelVersion(version) ? ['--sourcemap=inline'] : []
 }
 
 export function updateArtifactPath(
@@ -194,10 +424,23 @@ exec "$DIR/podium-cli" "$@"
 `
 }
 
-function main(): void {
+export function packageHeadlessForFreshClients(
+  session: FreshClientPackagingSession,
+  argv: readonly string[] = [],
+): PackagedHeadlessBundle {
+  if (arguments.length > 2) {
+    throw new Error('build-bun: caller-supplied environment is forbidden for packaging')
+  }
+  assertNoCallerSuppliedClientRootDigest(argv)
+  if (!freshClientPackagingSessions.has(session)) {
+    throw new Error(
+      'build-bun: headless packaging requires a fresh-client session minted by this invocation',
+    )
+  }
+  const env = process.env
   // Refuse to compile with a Bun whose terminal PTY API is missing (feature-detected, not
-  // version-guessed). The compiled daemon's ONLY PTY is Bun's terminal — `bun build --compile`
-  // can't embed node-pty's native addon — so an old build Bun would silently ship a binary
+  // version-guessed). The compiled daemon's PTY is Bun.Terminal, so an old build Bun
+  // would silently ship a binary
   // whose remote terminals render black (proc.terminal undefined on attach). This is the guard
   // that answers "why was the build allowed to use an old Bun": now it isn't.
   if (!hasBunTerminal())
@@ -208,27 +451,33 @@ function main(): void {
     )
   const root = fileURLToPath(new URL('..', import.meta.url))
   const out = `${root}dist-bun`
-  const names = bundleNames()
-  const win = process.platform === 'win32'
+  const target = parseBuildTarget(argv)
+  const spec = target ? BUN_TARGETS[target] : undefined
+  if (spec && process.platform !== 'linux') {
+    // Not a portability limit of `bun build --compile` — a limit of what we have
+    // proven. The zig/rcodesign toolchain and the whole §8b evidence trail are for
+    // Linux hosts; letting a Mac quietly cross-build would publish bytes nothing in
+    // CI ever checks.
+    throw new Error(
+      `build-bun: --target cross-compilation is supported from linux only; this host is ${process.platform}`,
+    )
+  }
+  const bundleRoot = targetOutputRoot(out, target)
+  const names = bundleNames(spec?.nodePlatform ?? process.platform)
+  const win = (spec?.nodePlatform ?? process.platform) === 'win32'
+  mkdirSync(bundleRoot, { recursive: true })
   mkdirSync(out, { recursive: true })
 
   // Single source of truth for the version: root package.json `version` (env PODIUM_APP_VERSION
   // wins for one-off builds). Drives the headless VERSION stamp AND the value baked into the
   // compiled server's /version (process.env.PODIUM_APP_VERSION via --define below).
-  const pkgVersion = (() => {
-    try {
-      return (JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as { version?: string })
-        .version
-    } catch {
-      return undefined
-    }
-  })()
-  const version = process.env.PODIUM_APP_VERSION ?? pkgVersion
-  if (!version)
+  const version = packageVersion(root)
+  if (version !== session.version) {
     throw new Error(
-      'build-bun: could not determine the version — root package.json has no `version` field ' +
-        'and PODIUM_APP_VERSION is unset. Root package.json is the single source of truth.',
+      `build-bun: package version changed after the fresh client build ` +
+        `(built=${session.version}, packaging=${version})`,
     )
+  }
 
   // THE WEB PRECONDITION, CHECKED BEFORE ANYTHING EXPENSIVE.
   //
@@ -245,12 +494,16 @@ function main(): void {
       'build-bun: apps/web/dist not built — run `bun run --filter @podium/web build` first',
     )
   }
-  let webStamp: { sourceSha?: string } | null = null
+  let webStamp: { sourceSha?: string; appVersion?: string } | null = null
   try {
     const raw = JSON.parse(readFileSync(`${webDist}/podium-build.json`, 'utf8')) as {
       sourceSha?: unknown
+      appVersion?: unknown
     }
-    webStamp = typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
+    webStamp = {
+      ...(typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}),
+      ...(typeof raw.appVersion === 'string' ? { appVersion: raw.appVersion } : {}),
+    }
   } catch {
     webStamp = null
   }
@@ -261,12 +514,16 @@ function main(): void {
       'build-bun: apps/mobile/dist not built - run `bun run --filter @podium/mobile build:web` first',
     )
   }
-  let mobileStamp: { sourceSha?: string } | null = null
+  let mobileStamp: { sourceSha?: string; appVersion?: string } | null = null
   try {
     const raw = JSON.parse(readFileSync(`${mobileDist}/podium-build.json`, 'utf8')) as {
       sourceSha?: unknown
+      appVersion?: unknown
     }
-    mobileStamp = typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}
+    mobileStamp = {
+      ...(typeof raw.sourceSha === 'string' ? { sourceSha: raw.sourceSha } : {}),
+      ...(typeof raw.appVersion === 'string' ? { appVersion: raw.appVersion } : {}),
+    }
   } catch {
     mobileStamp = null
   }
@@ -277,101 +534,216 @@ function main(): void {
         `(web=${webStamp?.sourceSha ?? 'missing'}, mobile=${mobileStamp?.sourceSha ?? 'missing'}).`,
     )
   }
-
-  if (!abducoSupported()) {
-    // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
-    // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
-    // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty
-    // placeholder for the bundler; materializeEmbeddedAbduco skips it at runtime.
-    console.log('[build-bun] windows: skipping abduco prebuild (ConPTY backend, no durable host)')
-    writeFileSync(`${out}/abduco.bin`, '')
-  } else {
-    console.log('[build-bun] prebuilding abduco…')
-    const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
-    if (!abduco)
-      throw new Error(
-        'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
-      )
-    console.log(`[build-bun] abduco -> ${abduco}`)
+  const currentClientRootDigest = clientBuildRootDigestFromSites({
+    web: webDist,
+    mobile: mobileDist,
+  })
+  if (currentClientRootDigest !== session.clientRootDigest) {
+    throw new Error(
+      `build-bun: client output changed after the fresh build ` +
+        `(captured=${session.clientRootDigest}, current=${currentClientRootDigest})`,
+    )
   }
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'dependency-preparation', target: spec?.platform ?? 'local' },
+    () =>
+      timeReleaseBuildSync(
+        {
+          granularity: 'task',
+          phase: 'dependency-preparation',
+          task: 'abduco-helper',
+          target: spec?.platform ?? 'local',
+        },
+        () => {
+          if (spec) {
+            // Cross build: the helper cannot be compiled by the host cc (wrong architecture,
+            // wrong object format), so it comes from the zig-cc cache — built from the SAME
+            // vendored abduco.c, keyed on that source's hash. Copied to the fixed path the
+            // compiled binary's `with { type: 'file' }` import reads.
+            const helper = crossBuildAbduco(spec.platform, { root })
+            cpSync(helper, `${out}/abduco.bin`)
+            console.log(`[build-bun] embedded abduco (${spec.platform}) <- ${helper}`)
+          } else if (!abducoSupported()) {
+            // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
+            // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
+            // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty
+            // placeholder for the bundler; materializeEmbeddedAbduco skips it at runtime.
+            console.log(
+              '[build-bun] windows: skipping abduco prebuild (ConPTY backend, no durable host)',
+            )
+            writeFileSync(`${out}/abduco.bin`, '')
+          } else {
+            console.log('[build-bun] prebuilding abduco…')
+            const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
+            if (!abduco)
+              throw new Error(
+                'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
+              )
+            console.log(`[build-bun] abduco -> ${abduco}`)
+          }
+        },
+      ),
+  )
 
   const compile = (
     entry: string,
     name: string,
     opts: { extraEntrypoints?: string[]; defines?: Record<string, string> } = {},
   ): void => {
-    console.log(`[build-bun] compiling ${name} (v${version})…`)
+    console.log(
+      `[build-bun] compiling ${name} (v${version}${target ? `, --target=${target}` : ''})…`,
+    )
     const defines: Record<string, string> = {
       // Bake the real version so the compiled server's /version reports it (not 'dev').
       // Inlined at build time wherever process.env.PODIUM_APP_VERSION is read.
       'process.env.PODIUM_APP_VERSION': `"${version}"`,
+      // The display version is not build identity. Keep the source digest as its
+      // own compiled fact so /version remains comparable under any naming scheme.
+      'process.env.PODIUM_SOURCE_SHA': webStamp?.sourceSha
+        ? JSON.stringify(webStamp.sourceSha)
+        : 'undefined',
       ...opts.defines,
     }
     const defineArgs = Object.entries(defines).flatMap(([k, v]) => ['--define', `${k}=${v}`])
-    execFileSync(
-      'bun',
-      [
-        'build',
-        '--compile',
-        '--conditions=@podium/source',
-        ...defineArgs,
-        entry,
-        // Extra entrypoints are bundled + embedded alongside the main one (their whole dep
-        // graph included). `bun build --compile` embeds each additional entrypoint at its path
-        // relative to the common ancestor of ALL entrypoints, under /$bunfs/root. The main
-        // entry, by contrast, always lands at /$bunfs/root/<outfile-basename>.
-        ...(opts.extraEntrypoints ?? []),
-        '--outfile',
-        `dist-bun/${name}`,
-      ],
-      { cwd: root, stdio: 'inherit' },
+    timeReleaseBuildSync(
+      { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
+      () =>
+        timeReleaseBuildSync(
+          {
+            granularity: 'task',
+            phase: 'headless-platform-build',
+            task: 'compile-cli',
+            target: spec?.platform ?? 'local',
+          },
+          () =>
+            execFileSync(
+              'bun',
+              [
+                'build',
+                '--compile',
+                ...compiledSourceMapArgs(version),
+                // Absent, Bun compiles for the host. Present, it downloads (and caches) the
+                // target's own Bun runtime and links the bundle against that instead.
+                ...(target ? [`--target=${target}`] : []),
+                '--conditions=@podium/source',
+                ...defineArgs,
+                entry,
+                // Extra entrypoints are bundled + embedded alongside the main one (their whole dep
+                // graph included). `bun build --compile` embeds each additional entrypoint at its path
+                // relative to the common ancestor of ALL entrypoints, under /$bunfs/root. The main
+                // entry, by contrast, always lands at /$bunfs/root/<outfile-basename>.
+                ...(opts.extraEntrypoints ?? []),
+                '--outfile',
+                `${bundleRoot}/${name}`,
+              ],
+              { cwd: root, stdio: 'inherit' },
+            ),
+        ),
     )
+  }
+
+  /**
+   * Re-sign a Darwin binary ad-hoc, with Bun's JIT entitlements.
+   *
+   * `bun build --compile` already emits an ad-hoc signature for Darwin targets, but it
+   * is a LINKER_SIGNED one with identifier `a.out` and NO entitlements — and Bun's
+   * JavaScriptCore needs `allow-jit` to map its writable-executable pages. So this is
+   * not "add a signature", it is "replace a signature that lacks the entitlements".
+   *
+   * If this pass is ever dropped, what breaks is JIT — not code signing. The binary
+   * still carries Bun's linker signature, the build still goes green, and the failure
+   * is at runtime when JSC cannot map W^X pages. The published-bundle assertions
+   * check identifier `podium` (not LINKER_SIGNED) and the five entitlement keys
+   * precisely so that regression is a release-gate red rather than a Mac-side crash.
+   */
+  const signDarwin = (binary: string): void => {
+    const entitlements = `${root}scripts/bun-jit.entitlements.plist`
+    if (!existsSync(entitlements))
+      throw new Error(`build-bun: missing Darwin entitlements at ${entitlements}`)
+    console.log('[build-bun] rcodesign ad-hoc sign (Bun JIT entitlements)…')
+    timeReleaseBuildSync(
+      { granularity: 'phase', phase: 'signing', target: spec?.platform ?? 'local' },
+      () =>
+        timeReleaseBuildSync(
+          {
+            granularity: 'task',
+            phase: 'signing',
+            task: 'darwin-cli',
+            target: spec?.platform ?? 'local',
+          },
+          () =>
+            execFileSync(
+              resolveRcodesign(),
+              [
+                'sign',
+                '--binary-identifier',
+                'podium',
+                '--entitlements-xml-file',
+                entitlements,
+                binary,
+              ],
+              { stdio: 'inherit' },
+            ),
+        ),
+    )
+    chmodSync(binary, 0o755)
   }
 
   // ONE binary ships. The `podium` CLI runs every role — the split components as
   // `podium server` / `podium daemon` (separate processes), the desktop sidecar as in-process
   // all-in-one — so the previously-separate standalone `podium-server`/`podium-daemon` compiles
   // are redundant and dropped (see #98). The CLI runs a daemon in-process (all-in-one / `podium
-  // daemon`), so it must embed the discovery Worker: `new Worker(new URL('./discovery-worker.ts',
-  // import.meta.url))` is NOT auto-embedded by `bun build --compile` (Bun 1.3.x), so we add the
-  // worker as an explicit extra entrypoint; worker-client.ts spawns it from
-  // DISCOVERY_WORKER_EMBEDDED_PATH (shared via discovery-worker-embed.ts).
+  // daemon`), so it embeds both autonomous worker entrypoints explicitly:
+  // Bun does not discover `new Worker(...)` targets during `--compile`. Their
+  // shared embed modules keep build-time paths and runtime targets identical.
   compile('scripts/cli-compiled.ts', names.compiled, {
-    extraEntrypoints: [DISCOVERY_WORKER_ENTRY],
+    extraEntrypoints: [DISCOVERY_WORKER_ENTRY, JANITOR_WORKER_ENTRY],
   })
-  console.log(`[build-bun] done -> dist-bun/${names.compiled}`)
+  if (spec?.nodePlatform === 'darwin') signDarwin(`${bundleRoot}/${names.compiled}`)
+  console.log(`[build-bun] done -> ${bundleRoot}/${names.compiled}`)
 
   // --- headless bundle: binaries + web + launcher ---------------------------------
-  const headless = `${out}/headless`
-  // (`webDist` and its stamp were checked before the prebuild — see above.)
-  // Re-stamp with this bundle's product version so About / web logs / Update
-  // agree with the VERSION file and the compiled /version. A dest publish
-  // already wrote dev+<sha>; a channel package overwrites dev+<sha> with
-  // PODIUM_APP_VERSION / package.json (e.g. 0.4.2).
-  for (const clientDist of [webDist, mobileDist]) {
-    execFileSync(
-      'bun',
-      ['--conditions=@podium/source', 'scripts/write-web-build-stamp.ts', clientDist],
-      { cwd: root, stdio: 'inherit', env: { ...process.env, PODIUM_APP_VERSION: version } },
+  const headless = `${bundleRoot}/headless`
+  // The fresh build was stamped with the session's final product version. Packaging
+  // never repairs or restamps it: a mismatch means the build/package chain broke.
+  if (webStamp?.appVersion !== version || mobileStamp?.appVersion !== version) {
+    throw new Error(
+      `build-bun: fresh client build version does not match package version ` +
+        `(web=${webStamp?.appVersion ?? 'missing'}, mobile=${mobileStamp?.appVersion ?? 'missing'}, package=${version})`,
     )
   }
+  // The module-branded session retained the fresh-build root before compilation.
+  // Compare every later representation against that same in-process value.
   mkdirSync(headless, { recursive: true })
   // Release units are generated from the same renderer used by runtime setup and the dev host.
-  writeSystemdFiles(`${headless}/systemd`, { profile: 'packaged', instanceId: 'default' })
+  writeSystemdFiles(`${headless}/systemd`, {
+    profile: 'packaged',
+    instanceId: 'default',
+  })
   syncBundleWeb(webDist, `${headless}/web`)
   syncBundleWeb(mobileDist, `${headless}/mobile`)
+  const copiedClientRootDigest = clientBuildRootDigestFromSites({
+    web: `${headless}/web`,
+    mobile: `${headless}/mobile`,
+  })
+  if (copiedClientRootDigest !== session.clientRootDigest) {
+    throw new Error(
+      `build-bun: client output changed while it was copied into the bundle ` +
+        `(captured=${session.clientRootDigest}, copied=${copiedClientRootDigest})`,
+    )
+  }
 
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
   const bundledCli = `${headless}/${names.cli}`
   if (win) {
-    cpSync(`${out}/${names.compiled}`, bundledCli)
+    cpSync(`${bundleRoot}/${names.compiled}`, bundledCli)
   } else {
     // A running Linux executable cannot be opened for an in-place copy (ETXTBSY),
     // but replacing its directory entry is safe: the old process keeps its inode
     // while new launches see the complete new binary.
     const stagedCli = `${bundledCli}.new-${process.pid}`
     try {
-      cpSync(`${out}/${names.compiled}`, stagedCli)
+      cpSync(`${bundleRoot}/${names.compiled}`, stagedCli)
       chmodSync(stagedCli, 0o755)
       renameSync(stagedCli, bundledCli)
     } finally {
@@ -399,37 +771,94 @@ function main(): void {
 
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
-  const tarball = updateArtifactPath(out, version, process.env)
-  execFileSync('tar', ['-czf', tarball, '-C', out, 'headless'], { cwd: root, stdio: 'inherit' })
+  const tarball = updateArtifactPath(bundleRoot, version, env)
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
+    () =>
+      timeReleaseBuildSync(
+        {
+          granularity: 'task',
+          phase: 'headless-platform-build',
+          task: 'archive',
+          target: spec?.platform ?? 'local',
+        },
+        () =>
+          execFileSync('tar', ['-czf', tarball, '-C', bundleRoot, 'headless'], {
+            cwd: root,
+            stdio: 'inherit',
+          }),
+      ),
+  )
 
   // Sign the tarball bytes (Ed25519) so the feed can serve `signature` and `podium update`
   // can verify before swapping. Key source: env PODIUM_UPDATE_SIGNING_KEY (base64 pkcs8/DER,
   // the operator's production key at release) else the gitignored dev key. The matching public
   // key is committed in packages/runtime/src/update-delivery.ts — keep the two in lockstep on release.
-  const signingKeyB64 = (() => {
-    if (process.env.PODIUM_UPDATE_SIGNING_KEY) return process.env.PODIUM_UPDATE_SIGNING_KEY.trim()
-    const devKey = `${root}scripts/.podium-update-dev.key`
-    if (existsSync(devKey)) return readFileSync(devKey, 'utf8').trim()
-    return undefined
-  })()
-  if (!signingKeyB64) {
-    console.warn(
-      '[build-bun] no signing key (PODIUM_UPDATE_SIGNING_KEY unset + dev key missing) — ' +
-        'skipping .sig; `podium update` will REJECT this tarball. Generate scripts/.podium-update-dev.key.',
-    )
-  } else {
-    const key = {
-      key: Buffer.from(signingKeyB64, 'base64'),
-      format: 'der' as const,
-      type: 'pkcs8' as const,
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'signing', target: spec?.platform ?? 'local' },
+    () =>
+      timeReleaseBuildSync(
+        {
+          granularity: 'task',
+          phase: 'signing',
+          task: 'headless-artifact',
+          target: spec?.platform ?? 'local',
+        },
+        () => {
+          const signingKeyB64 = (() => {
+            if (env.PODIUM_UPDATE_SIGNING_KEY) return env.PODIUM_UPDATE_SIGNING_KEY.trim()
+            const devKey = `${root}scripts/.podium-update-dev.key`
+            if (existsSync(devKey)) return readFileSync(devKey, 'utf8').trim()
+            return undefined
+          })()
+          if (!signingKeyB64) {
+            console.warn(
+              '[build-bun] no signing key (PODIUM_UPDATE_SIGNING_KEY unset + dev key missing) — ' +
+                'skipping .sig; `podium update` will REJECT this tarball. Generate scripts/.podium-update-dev.key.',
+            )
+          } else {
+            const key = {
+              key: Buffer.from(signingKeyB64, 'base64'),
+              format: 'der' as const,
+              type: 'pkcs8' as const,
+            }
+            const sig = cryptoSign(null, readFileSync(tarball), key).toString('base64')
+            writeFileSync(`${tarball}.sig`, `${sig}\n`)
+            console.log(`[build-bun] headless update signature -> ${tarball}.sig`)
+          }
+        },
+      ),
+  )
+
+  // Re-open the archive and compare it with the module-branded fresh build. This is
+  // continuity, not correctness: it catches stale/wrong paths, partial copies,
+  // corruption, and substitution between the build and packaging. A bad build can
+  // still agree with its own manifest.
+  const extracted = mkdtempSync(join(tmpdir(), 'podium-packaged-client-proof-'))
+  try {
+    execFileSync('tar', ['-xzf', tarball, '-C', extracted])
+    const packagedClientRootDigest = clientBuildRootDigestFromSites({
+      web: join(extracted, 'headless/web'),
+      mobile: join(extracted, 'headless/mobile'),
+    })
+    if (packagedClientRootDigest !== session.clientRootDigest) {
+      throw new Error(
+        `build-bun: packaged clients differ from the fresh build ` +
+          `(captured=${session.clientRootDigest}, packaged=${packagedClientRootDigest})`,
+      )
     }
-    const sig = cryptoSign(null, readFileSync(tarball), key).toString('base64')
-    writeFileSync(`${tarball}.sig`, `${sig}\n`)
-    console.log(`[build-bun] headless update signature -> ${tarball}.sig`)
+  } finally {
+    rmSync(extracted, { recursive: true, force: true })
   }
 
   console.log(`[build-bun] headless bundle -> ${headless} (VERSION ${version})`)
   console.log(`[build-bun] headless update artifact -> ${tarball}`)
+  return { bundleRoot, clientRootDigest: session.clientRootDigest, tarball }
 }
 
-if (import.meta.main) main()
+if (import.meta.main) {
+  assertNoCallerSuppliedClientRootDigest(process.argv.slice(2), process.env)
+  throw new Error(
+    'build-bun: direct headless packaging is forbidden; run `bun run package:headless` so this invocation fresh-builds the clients first',
+  )
+}

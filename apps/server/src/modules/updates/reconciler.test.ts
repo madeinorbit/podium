@@ -34,7 +34,7 @@ function target(over: Partial<UpdateTarget> = {}): UpdateTarget {
 /** The same target once it carries a packed tarball, which is what makes the
  *  delivery question answerable at all (an empty artifact set offers nothing). */
 function packedTarget(): UpdateTarget {
-  return target({ artifacts: { headless: { delivery: 'bundle', platforms: {} } } } as never)
+  return target({ artifacts: { headless: { delivery: 'feed', platforms: {} } } } as never)
 }
 
 function machine(over: Partial<WaveMachine> & { id: string }): WaveMachine {
@@ -92,7 +92,11 @@ function fakeClock() {
           const timer = pending[index]
           const best = next === -1 ? undefined : pending[next]
           if (!timer || timer.dueAt > until) continue
-          if (!best || timer.dueAt < best.dueAt || (timer.dueAt === best.dueAt && timer.seq < best.seq))
+          if (
+            !best ||
+            timer.dueAt < best.dueAt ||
+            (timer.dueAt === best.dueAt && timer.seq < best.seq)
+          )
             next = index
         }
         if (next === -1) break
@@ -182,6 +186,11 @@ describe('decideReconciliation', () => {
       because: 'no-target',
     },
     {
+      name: 'a source checkout is not standing convergence work',
+      over: { machine: machine({ id: 'source', installKind: 'source' }) },
+      because: 'not-packaged-rollout-target',
+    },
+    {
       name: 'a machine already on the target is left alone',
       over: { machine: machine({ id: 'laptop', version: TARGET_VERSION }) },
       because: 'at-target',
@@ -192,18 +201,23 @@ describe('decideReconciliation', () => {
       because: 'offline',
     },
     {
-      /** The shell owns a supervised daemon's bytes; no fleet path may (§4, P5). */
-      name: 'a desktop-supervised daemon is never the reconciler‘s to update',
-      over: { machine: machine({ id: 'macbook', supervised: true }) },
-      because: 'supervised',
-    },
-    {
       name: 'a machine that cannot take this delivery is not handed it anyway',
       over: {
         target: packedTarget(),
-        machine: machine({ id: 'src', deliveryCaps: ['update.delivery.git'] }),
+        machine: machine({ id: 'src', deliveryCaps: ['podium.shipping-train'] }),
       },
       because: 'cannot-take-delivery',
+    },
+    {
+      name: 'a pre-channel-trust machine is not handed an instance-trusted feed',
+      over: {
+        target: { ...packedTarget(), trust: 'instance' },
+        machine: machine({
+          id: 'flatblock',
+          deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
+        }),
+      },
+      because: 'legacy-instance-trust',
     },
     {
       name: 'a machine already converging is not granted a second time',
@@ -497,6 +511,10 @@ describe('UpdateReconciler: a grant that goes silent', () => {
       grantId: 'g2',
     })
     h.live[1] = machine({ id: 'vps', version: TARGET_VERSION })
+    // The directory changes when the daemon handshake lands; the reconnect is
+    // the event that makes the service project that raw proof and retire the
+    // pending grant. A current status alone is deliberately insufficient.
+    h.reconciler.onMachineConnected('vps')
     expect(h.updates.operationActive('dev')).toBe(false)
   })
 
@@ -587,8 +605,58 @@ describe('UpdateReconciler: a grant that goes silent', () => {
    * that moving one of them has to move the other deliberately.
    */
   it('waits exactly as long as the operation would for the same machine', () => {
-    expect(RECONCILE_GRANT_DEADLINE_MS).toBe(
-      UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs,
-    )
+    expect(RECONCILE_GRANT_DEADLINE_MS).toBe(UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs)
+  })
+})
+
+/**
+ * THE PATH WITH NOBODY WATCHING (POD-2783).
+ *
+ * The standing reconciliation converges a machine on RECONNECT, with no
+ * operation and no human. A Mac that joined after the release was minted
+ * reconnects like any other machine, so without this it would be granted a
+ * package for another architecture every time it woke — twice per target,
+ * silently, forever.
+ */
+describe('decideReconciliation and a release that predates the machine', () => {
+  const linuxOnly = target({
+    artifacts: {
+      headless: {
+        delivery: 'feed',
+        platforms: {
+          'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
+        },
+      },
+    },
+  } as never)
+
+  it('refuses the machine the release carries nothing for', () => {
+    expect(
+      decideReconciliation(
+        facts({
+          machine: machine({
+            id: 'mac',
+            platform: 'darwin-aarch64',
+            deliveryCaps: ['update.delivery.feed'],
+          }),
+          target: linuxOnly,
+        }),
+      ),
+    ).toEqual({ converge: false, because: 'platform-not-in-release' })
+  })
+
+  it('converges the machine the release was built for', () => {
+    expect(
+      decideReconciliation(
+        facts({
+          machine: machine({
+            id: 'vps',
+            platform: 'linux-x86_64',
+            deliveryCaps: ['update.delivery.feed'],
+          }),
+          target: linuxOnly,
+        }),
+      ),
+    ).toEqual({ converge: true })
   })
 })

@@ -16,10 +16,20 @@ function context(options: {
   dirOp: ReturnType<typeof vi.fn>
   repos?: string[]
   add?: ReturnType<typeof vi.fn>
+  /** POD-2700: what the capability guard answers. `undefined` = eligible. */
+  requireCapability?: ReturnType<typeof vi.fn>
 }): Context {
   const registered = options.repos ?? []
   return {
-    modules: { rpc: { dirOp: options.dirOp } },
+    modules: {
+      rpc: { dirOp: options.dirOp },
+      // These handlers reach a machine's disk through its daemon, so they now
+      // ask whether that machine HAS one before making the round trip
+      // (POD-2700 §2.5). The default stub answers "eligible" so the assertions
+      // below stay about what they were about; `capability-guard` covers the
+      // refusing arm against the real service.
+      machines: { requireCapability: options.requireCapability ?? vi.fn(() => undefined) },
+    },
     repos: {
       list: () => registered,
       add: options.add ?? vi.fn(async () => undefined),
@@ -28,6 +38,28 @@ function context(options: {
 }
 
 const ports = {} as never
+
+describe('the capability guard in front of every dir op', () => {
+  it('refuses before touching the daemon when the machine runs none', async () => {
+    const dirOp = vi.fn(async () => ({ path: '/home/ada/planner' }))
+    await expect(
+      repoCreateRepoHandler({
+        ctx: context({
+          dirOp,
+          requireCapability: vi.fn(() => {
+            throw new Error("machine 'source' runs no Podium daemon and cannot host repositories")
+          }),
+        }),
+        input: { machineId: MACHINE, parentPath: '/home/ada', name: 'planner' },
+        ports,
+      }),
+    ).rejects.toThrow(/runs no Podium daemon/)
+    // THE POINT OF GUARDING HERE rather than letting the round trip fail: with
+    // no daemon there is nobody to answer, so the call would sit in a queue
+    // until the 35s timeout and come back as a generic failure.
+    expect(dirOp).not.toHaveBeenCalled()
+  })
+})
 
 describe('repos.createRepo', () => {
   it('registers what the daemon created', async () => {

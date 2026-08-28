@@ -25,8 +25,13 @@ import {
   CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
   CAP_SYNC_FEED_IDENTITY,
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  type ClientPtyInputMetadata,
   createDispatcher,
+  decodeBinaryEnvelope,
   encode,
+  encodeBinaryEnvelope,
   type HeadlessActivityEvent,
   type TurnPreviewMessage,
   isKnownMetadataChange,
@@ -36,6 +41,7 @@ import {
   type PresencePayload,
   type PresenceRoomClientMessage,
   type PresenceRoomServerMessage as PresenceRoomServerFrame,
+  PtyOutputBinaryMetadata,
   parseServerMessageLenient,
   presencePayloadWithinBudget,
   type RoomRef,
@@ -88,6 +94,10 @@ const interactionNow = (): number =>
     : Date.now()
 
 export interface WebSocketLike {
+  /** Browser sockets expose this; native bridges may omit it and stay on base64. */
+  binaryType?: 'blob' | 'arraybuffer'
+  /** Native bridges may expose an explicit binary sink instead of browser send(). */
+  sendBinary?(data: Uint8Array): void
   send(data: string): void
   close(): void
   readonly bufferedAmount?: number
@@ -139,7 +149,7 @@ export interface ConnectionState {
 }
 
 export interface SessionCallbacks {
-  onFrame?: (text: string) => void
+  onFrame?: (bytes: Uint8Array) => void
   onState?: (state: ConnectionState) => void
   /**
    * The server is about to send a full replay (not a `resumed` catch-up): clear
@@ -320,16 +330,23 @@ export interface FeedSinkPort {
   frame(frame: FeedServerFrame): void
 }
 
-function utf8ToBase64(text: string): string {
-  const bytes = new TextEncoder().encode(text)
+type InputIntent = {
+  type: 'input'
+  sessionId: SessionId
+  data: string
+}
+type InputWire = InputIntent | Uint8Array
+
+const utf8Encoder = new TextEncoder()
+function bytesToBase64(bytes: Uint8Array): string {
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
   return btoa(bin)
 }
 
-function fromBase64Utf8(b64: string): string {
+function fromBase64Bytes(b64: string): Uint8Array {
   const bin = atob(b64)
-  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0))
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -559,6 +576,10 @@ export class SocketHub {
     backlogResyncs: 0,
   }
   private socket: WebSocketLike | undefined
+  /** Sockets that violated the binary wire contract stay inert while their
+   * asynchronous close handshake finishes. A WeakSet scopes the latch to the
+   * offending connection, so a replacement socket starts clean. */
+  private readonly invalidSockets = new WeakSet<WebSocketLike>()
   private connectedFlag = false
   private clientIdValue = ''
   private sessionList: SessionMeta[] = []
@@ -631,12 +652,16 @@ export class SocketHub {
   /** Send time of each unanswered ping, oldest first. Pongs arrive in ping order. */
   private pingQueue: number[] = []
   /** Input messages typed while offline, flushed in order on reconnect. */
-  private readonly inputQueue: Parameters<typeof encode>[0][] = []
+  private readonly inputQueue: InputWire[] = []
   /** Control messages issued while the socket is still CONNECTING (e.g. an eager
    *  requestControl on mount): sending then throws InvalidStateError — a race that
    *  only surfaces over a high-latency link (a tunnel) where onopen hasn't fired
    *  yet. Queued here and flushed, in order, once the socket opens. */
   private readonly preOpenQueue: Parameters<typeof encode>[0][] = []
+  /** The current socket can carry bytes, independently of output reception. */
+  private inputBinaryTransport = false
+  /** The current server explicitly acknowledged binary input in `welcome`. */
+  private inputBinaryAcknowledged = false
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
@@ -739,6 +764,11 @@ export class SocketHub {
       this.reconnectTimer = undefined
     }
 
+    // Capability acknowledgements are scoped to one socket. Clear this before
+    // creating the replacement so input cannot leak a prior connection's grant.
+    this.inputBinaryTransport = false
+    this.inputBinaryAcknowledged = false
+
     let socket: WebSocketLike
     try {
       socket = this.makeSocket(this.opts.url)
@@ -751,6 +781,13 @@ export class SocketHub {
       return
     }
 
+    // Browser WebSockets expose binaryType. Native bridges that omit it retain
+    // the JSON/base64 fallback and do not advertise binary output.
+    const acceptsBinaryOutput = 'binaryType' in socket
+    const acceptsBinaryInput = acceptsBinaryOutput || typeof socket.sendBinary === 'function'
+    if (acceptsBinaryOutput) socket.binaryType = 'arraybuffer'
+    this.inputBinaryTransport = acceptsBinaryInput
+
     let opened = false
     let reportedError = false
     this.intentionalClose = false
@@ -758,6 +795,7 @@ export class SocketHub {
     this.disposed = false
     this.socket = socket
     socket.onopen = () => {
+      if (this.invalidSockets.has(socket)) return
       opened = true
       // BEFORE `everConnected` moves, so the record says whether this was the
       // first connection or a recovery — which is the difference between "the
@@ -784,12 +822,18 @@ export class SocketHub {
         // promises the server this client no longer needs IssueWire, which is
         // what licenses the server to skip the O(issues x sessions) rebuild on
         // session churn [POD-796].
-        ...(this.legacyFeed
+        ...(this.legacyFeed || acceptsBinaryOutput || acceptsBinaryInput
           ? {
               caps: [
-                CAP_METADATA_DELTA,
-                CAP_SYNC_FEED_IDENTITY,
-                ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+                ...(this.legacyFeed
+                  ? [
+                      CAP_METADATA_DELTA,
+                      CAP_SYNC_FEED_IDENTITY,
+                      ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+                    ]
+                  : []),
+                ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
+                ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
               ],
             }
           : {}),
@@ -860,8 +904,27 @@ export class SocketHub {
       this.evaluateHealth()
     }
     socket.onmessage = (ev) => {
+      if (this.invalidSockets.has(socket)) return
       this.markAlive()
-      const raw = String(ev.data)
+      if (typeof ev.data !== 'string') {
+        try {
+          if (!acceptsBinaryOutput || !(ev.data instanceof ArrayBuffer)) {
+            throw new Error('unnegotiated or non-ArrayBuffer binary server frame')
+          }
+          const { metadata, payload } = decodeBinaryEnvelope(ev.data, PtyOutputBinaryMetadata)
+          this.forwardBinaryOutput(metadata, payload)
+        } catch (err) {
+          log.warn('closing a socket after a binary protocol violation', { err })
+          this.recordSkew({ refusedFrames: 1, error: err })
+          this.invalidSockets.add(socket)
+          this.connectedFlag = false
+          this.inputBinaryAcknowledged = false
+          this.stopHeartbeat()
+          socket.close()
+        }
+        return
+      }
+      const raw = ev.data
       const kind = feedFrameTypeHint(raw)
       if (kind !== null) {
         this.enqueueFeedFrame(raw, socket, kind)
@@ -891,6 +954,8 @@ export class SocketHub {
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
+    this.inputBinaryTransport = false
+    this.inputBinaryAcknowledged = false
     // Frames from a closed socket cannot be installed after a replacement
     // socket starts a new feed identity/stream.
     this.clearFeedIngress()
@@ -1627,12 +1692,27 @@ export class SocketHub {
 
   /** @internal Input path: send now if connected, else queue for flush on
    *  reconnect so a blip doesn't silently drop keystrokes. */
-  _sendInput(msg: Parameters<typeof encode>[0]): void {
+  _sendInput(msg: InputIntent): void {
+    if (msg.data.length === 0) return
+    const wire = this.encodeInput(msg)
     if (this.connectedFlag && this.socket !== undefined) {
-      this.sendRaw(msg)
+      this.sendRaw(wire)
       return
     }
-    if (this.inputQueue.length < INPUT_QUEUE_CAP) this.inputQueue.push(msg)
+    if (this.inputQueue.length < INPUT_QUEUE_CAP) this.inputQueue.push(wire)
+  }
+
+  private encodeInput(msg: InputIntent): InputWire {
+    const payload = utf8Encoder.encode(msg.data)
+    if (this.inputBinaryTransport && this.inputBinaryAcknowledged) {
+      const metadata: ClientPtyInputMetadata = {
+        v: 1,
+        type: 'ptyInput',
+        sessionId: msg.sessionId,
+      }
+      return encodeBinaryEnvelope(metadata, payload)
+    }
+    return { ...msg, data: bytesToBase64(payload) }
   }
 
   /**
@@ -1671,6 +1751,8 @@ export class SocketHub {
     this.ownFeedScheduler?.dispose()
     this.ownFeedScheduler = undefined
     this.connectedFlag = false
+    this.inputBinaryTransport = false
+    this.inputBinaryAcknowledged = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
     this.legacyFeed?.dispose()
@@ -1736,7 +1818,7 @@ export class SocketHub {
     if (entry === undefined) return
     if (entry.kind === 'feedDelta') this.feedDeltaQueueDepth -= 1
 
-    if (this.socket === entry.socket) {
+    if (this.socket === entry.socket && !this.invalidSockets.has(entry.socket)) {
       const startedAt = interactionNow()
       try {
         this.route(entry.raw)
@@ -1856,6 +1938,8 @@ export class SocketHub {
     },
     welcome: (msg) => {
       this.clientIdValue = msg.clientId
+      this.inputBinaryAcknowledged =
+        this.inputBinaryTransport && msg.caps?.includes(CAP_TERMINAL_INPUT_BINARY_V1) === true
       this.notifyConnections()
     },
     // POD-1081: attach/requestControl refusal. Unauthorized is sticky so we do
@@ -2043,6 +2127,11 @@ export class SocketHub {
     this.connections.get(msg.sessionId)?._ingest(msg)
   }
 
+  private forwardBinaryOutput(metadata: PtyOutputBinaryMetadata, payload: Uint8Array): void {
+    // A missing/detached session is session-level state, not a framing error.
+    this.connections.get(metadata.sessionId)?._ingestBinaryOutput(metadata, payload)
+  }
+
   private metadataProjection(): LegacyMetadataProjection {
     return {
       sessions: this.sessionList,
@@ -2213,7 +2302,7 @@ export class SocketHub {
 
   private sendPresenceFrame(frame: PresenceRoomClientMessage): boolean {
     const socket = this.socket
-    if (!this.connectedFlag || socket === undefined) return false
+    if (!this.connectedFlag || socket === undefined || this.invalidSockets.has(socket)) return false
     if ((socket.bufferedAmount ?? 0) >= PRESENCE_OUTBOUND_BUDGET_BYTES) return false
     socket.send(JSON.stringify(frame))
     return true
@@ -2223,7 +2312,23 @@ export class SocketHub {
     for (const c of this.connections.values()) c._notifyHubChange()
   }
 
-  private sendRaw(msg: Parameters<typeof encode>[0]): void {
+  private sendRaw(msg: Parameters<typeof encode>[0] | Uint8Array): void {
+    const currentSocket = this.socket
+    if (currentSocket !== undefined && this.invalidSockets.has(currentSocket)) {
+      if (!(msg instanceof Uint8Array) && this.preOpenQueue.length < INPUT_QUEUE_CAP)
+        this.preOpenQueue.push(msg)
+      return
+    }
+    if (msg instanceof Uint8Array) {
+      const socket = currentSocket
+      if (!this.connectedFlag || socket === undefined) return
+      if (typeof socket.sendBinary === 'function') {
+        socket.sendBinary(msg)
+      } else {
+        ;(socket.send as unknown as (data: Uint8Array) => void).call(socket, msg)
+      }
+      return
+    }
     // Only send on an OPEN socket. connectedFlag is true exactly between onopen and
     // close, so a send issued while the socket is still CONNECTING (or already
     // closing) is queued instead of throwing InvalidStateError — the crash that
@@ -2290,7 +2395,7 @@ export class SessionConnection {
 
   sendInput(bytes: string, inputEventAt?: number): void {
     if (this.echo.enabled()) this.echo.onInput(inputEventAt ?? interactionNow())
-    this.hub._sendInput({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
+    this.hub._sendInput({ type: 'input', sessionId: this.sessionId, data: bytes })
   }
 
   /** Enable/disable and reset the opt-in input→paint collector. */
@@ -2374,6 +2479,11 @@ export class SessionConnection {
     this.dispatchSessionMessage(msg, undefined)
   }
 
+  /** @internal Hub-internal: apply validated binary PTY output metadata + bytes. */
+  _ingestBinaryOutput(metadata: PtyOutputBinaryMetadata, payload: Uint8Array): void {
+    this.ingestOutput(metadata.seq, metadata.epoch, payload)
+  }
+
   /** Total dispatch over the session-scoped subunion [spec:SP-3fe2] — the same
    *  compile-checked exhaustiveness as the hub's table, replacing the switch. */
   private readonly dispatchSessionMessage = createDispatcher<SessionScopedServerMessage>({
@@ -2398,16 +2508,7 @@ export class SessionConnection {
       this.cb.onAttached?.()
     },
     outputFrame: (msg) => {
-      this.lastSeq = msg.seq
-      this.epoch = msg.epoch
-      if (this.echo.enabled()) this.echo.onOutput(interactionNow())
-      const text = fromBase64Utf8(msg.data)
-      // Latch before emit so the state this frame publishes already says the
-      // PTY has spoken — a subscriber that clears a waiting affordance on the
-      // state must not see one more "silent" snapshot after real output.
-      if (text.length > 0) this.frameSeen = true
-      this.emit()
-      this.cb.onFrame?.(text)
+      this.ingestOutput(msg.seq, msg.epoch, fromBase64Bytes(msg.data))
     },
     controllerChanged: (msg) => {
       if (!this.acceptGeometryRevision(msg.geometryRevision)) return
@@ -2430,6 +2531,16 @@ export class SessionConnection {
       this.emit()
     },
   })
+
+  private ingestOutput(seq: number, epoch: number, bytes: Uint8Array): void {
+    this.lastSeq = seq
+    this.epoch = epoch
+    if (this.echo.enabled()) this.echo.onOutput(interactionNow())
+    // Latch before emit so the state accompanying the first real bytes is current.
+    if (bytes.length > 0) this.frameSeen = true
+    this.emit()
+    this.cb.onFrame?.(bytes)
+  }
 
   /** @internal Transport outcome for this session. */
   _outcome(outcome: TerminalOutcome): void {

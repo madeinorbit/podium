@@ -1,5 +1,9 @@
 import { asUserId, type SessionId, type UserId } from '@podium/model'
-import type { DraftEditMessage } from '@podium/protocol'
+import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  type DraftEditMessage,
+} from '@podium/protocol'
 import { userCommandPrincipal } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
@@ -104,12 +108,37 @@ export class SessionClientControl {
     this.ports.broadcastSessions()
   }
 
+  onInputBytes(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    sessionId: SessionId,
+    bytes: Uint8Array,
+  ): void {
+    this.ports.inbox.handleControllerInputBytes(principal, client, sessionId, bytes)
+  }
+
   onFrame(principal: ClientPrincipal, client: ClientConn, message: SessionsClientFrame): void {
     const id = client.id
     switch (message.type) {
       case 'hello':
         if (message.caps) client.caps = new Set(message.caps)
+        perf.record(
+          'phase',
+          client.caps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)
+            ? 'terminal.output.capability.binary'
+            : 'terminal.output.capability.base64',
+          0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         // The client's self-description, kept so an operator can address this
+        perf.record(
+          'phase',
+          client.caps.has(CAP_TERMINAL_INPUT_BINARY_V1)
+            ? 'terminal.input.client.capability.binary'
+            : 'terminal.input.client.capability.base64',
+          0,
+          perfPrincipal(feedPrincipalOf(client.principal)),
+        )
         // connection by the same role/machine it files its log records under
         // (POD-1920). Stored, never consulted for authorization.
         if (message.origin) client.origin = message.origin
@@ -173,7 +202,7 @@ export class SessionClientControl {
         break
       }
       case 'input':
-        this.ports.inbox.handleControllerInput(principal, client, message.sessionId, message.data)
+        this.onInputBytes(principal, client, message.sessionId, Buffer.from(message.data, 'base64'))
         break
       case 'resize':
         {

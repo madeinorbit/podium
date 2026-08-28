@@ -51,6 +51,71 @@ describe('describeUpdate', () => {
     expect(v).toEqual({ state: 'local-stale', version: '0.4.2' })
   })
 
+  it('projects a pre-channel-trust machine as a visible host-local repair blocker', () => {
+    const v = describeUpdate({
+      ...base,
+      localVersion: '0.4.2',
+      server: { appVersion: '0.4.2', target: base.server.target },
+      fleet: {
+        total: 0,
+        behind: 0,
+        converging: 0,
+        failed: 0,
+        blocked: 1,
+        blockers: [{ id: 'machine-flatblock', name: 'flatblock', reason: 'legacy-instance-trust' }],
+        startability: {
+          startable: false,
+          reason: 'This development update requires host-local repair.',
+        },
+      },
+      touched: { app: false, server: false, machines: false },
+    } as never)
+
+    expect(v).toEqual({
+      state: 'blocked',
+      version: '0.4.2',
+      blockedNote:
+        'flatblock needs host-local repair before it can verify instance-signed development updates. ' +
+        'The older updater uses the baked release key for feed delivery instead of the pinned instance key.',
+    })
+  })
+
+  it('keeps a legacy blocker visible beside a grantable fleet offer', () => {
+    const v = describeUpdate({
+      ...base,
+      fleet: {
+        ...base.fleet,
+        blocked: 1,
+        blockers: [{ id: 'machine-flatblock', name: 'flatblock', reason: 'legacy-instance-trust' }],
+      },
+    } as never)
+
+    expect(v.state).toBe('available')
+    expect((v as { blockedNote?: string }).blockedNote).toMatch(
+      /flatblock needs host-local repair/i,
+    )
+  })
+
+  it('offers no control when every affected machine is offline', () => {
+    const v = describeUpdate({
+      ...base,
+      localVersion: '0.4.2',
+      server: { appVersion: '0.4.2', target: base.server.target },
+      fleet: {
+        ...base.fleet,
+        total: 1,
+        behind: 1,
+        startability: {
+          startable: false,
+          reason: 'No online machine can apply this update right now.',
+        },
+      },
+      touched: { app: false, server: false, machines: true },
+    } as never)
+
+    expect(v).toEqual({ state: 'none' })
+  })
+
   it('names places, never components', () => {
     const v = describeUpdate(base as never)
     const text = JSON.stringify(v)
@@ -303,9 +368,12 @@ describe('describeUpdateFailure', () => {
     expect(v).toEqual({
       state: 'failed',
       message: "ludovico cannot use this update's package.",
+      // POD-2783 took "platform" out of this sentence: the platform half moved
+      // to its own two codes, and leaving it here would send an operator to
+      // check a fact that has nothing to do with a delivery refusal.
       guidance:
-        "Ask the server operator to check the release includes that machine's platform and " +
-        'delivery method, then try again.',
+        "Ask the server operator to check the release includes that machine's delivery " +
+        'method, then try again.',
       diagnostic: 'cannot converge: unsupported-delivery',
     })
     expect(`${v.message} ${v.guidance}`).not.toContain('unsupported-delivery')
@@ -536,6 +604,45 @@ describe('every token the daemon can produce reaches copy, on both entry points'
       expect(said, token).not.toMatch(/stopped responding/i)
       expect(said, token).not.toMatch(/resume when it reconnects/i)
     }
+  })
+
+  /**
+   * THE SENTENCE THIS ISSUE IS ABOUT (POD-2783).
+   *
+   * The checks above this one are all shape: not the fallback, long enough, no
+   * raw token, nothing claiming a machine went quiet. Every one of them passes
+   * for "Ask the server operator to check the release includes that machine's
+   * platform, then try again" — which is what a human was actually shown, and
+   * which is false twice over. The release is immutable, so there is nothing
+   * for an operator to check; and the machine's platform can never be added to
+   * it, so trying again returns here forever.
+   *
+   * Naming the exact prose is the only thing that can say no to it coming back.
+   */
+  it('sends nobody to an operator over a platform nobody can add to a release', () => {
+    for (const token of ['unsupported-platform', 'platform-not-published'] as const) {
+      const v = describeUpdateFailure(UPDATE_FAILURE_EXAMPLES[token], 'ludovico')
+      const said = `${v.message} ${v.guidance}`
+      expect(said, token).not.toMatch(/operator/i)
+      expect(said, token).not.toMatch(/try again/i)
+    }
+  })
+
+  /**
+   * …and the two arms say opposite things about the future, which is the whole
+   * reason they are two arms. Promising a later release for a platform Podium
+   * builds nothing for would be the same confident lie in a new place.
+   */
+  it('promises a later release only where one is actually coming', () => {
+    const absent = describeUpdateFailure(UPDATE_FAILURE_EXAMPLES['unsupported-platform'], 'mini')
+    expect(`${absent.message} ${absent.guidance}`).toMatch(/next one built will include it/i)
+
+    const never = describeUpdateFailure(
+      UPDATE_FAILURE_EXAMPLES['platform-not-published'],
+      'surface',
+    )
+    expect(`${never.message} ${never.guidance}`).not.toMatch(/next one built|will include it/i)
+    expect(`${never.message} ${never.guidance}`).toMatch(/now or later/i)
   })
 
   /** §7's layers stay separated: vocabulary in the diagnostic, never in the copy. */

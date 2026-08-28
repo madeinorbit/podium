@@ -178,22 +178,27 @@ export const PeerBuild = z
     wireSchemaDigest: z.string().optional(),
     installKind: z.enum(['installed', 'source']).optional(),
     /**
-     * This daemon lives inside a desktop app that supervises it, so its bytes
-     * belong to a signed application bundle no fleet wave may rewrite. ABSENT
-     * MEANS FALSE (frozen-contract law): every daemon that predates this field
-     * is a standalone one, which is the reading that keeps working.
+     * This daemon's process is supervised by a desktop shell. Payload ownership
+     * is deliberately not implied: current desktop payloads are external fleet
+     * installs. ABSENT MEANS FALSE (frozen-contract law), preserving older
+     * standalone daemon reports.
      */
     supervised: z.boolean().optional(),
   })
   .passthrough()
 export type PeerBuild = z.infer<typeof PeerBuild>
 
-export const DELIVERY_CAPS = [
-  /** Delivery methods offered through the additive capability surface. */
-  'update.delivery.feed',
-  'update.delivery.bundle',
-  'update.delivery.git',
-] as const
+/**
+ * Delivery methods offered through the additive capability surface.
+ *
+ * `update.delivery.bundle` and `update.delivery.git` were retired with the
+ * delivery kinds they named (`update/target.ts`). They are not listed here any
+ * more, and they do not need to be: caps are OPEN and additive (D3.3), so an
+ * old daemon that still reports one is not rejected — the token simply matches
+ * nothing any target offers, and that daemon stays honestly `behind` instead of
+ * being handed bytes it cannot install.
+ */
+export const DELIVERY_CAPS = ['update.delivery.feed'] as const
 export type DeliveryCap = (typeof DELIVERY_CAPS)[number]
 
 /**
@@ -239,6 +244,13 @@ export const HANDSHAKE_REJECT_REASONS = [
 ] as const
 export type HandshakeRejectReason = (typeof HANDSHAKE_REJECT_REASONS)[number]
 
+export const UpdateKeyRotation = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  signature: z.string().min(1),
+})
+export type UpdateKeyRotation = z.infer<typeof UpdateKeyRotation>
+
 export const PeerHelloOk = z.object({
   type: z.literal('peerHelloOk'),
   /** The version the ACCEPTOR speaks, so the dialer can log a compatible pair. */
@@ -264,6 +276,8 @@ export const PeerHelloOk = z.object({
   issuedToken: z.string().optional(),
   /** The server update-signing key, sent on pairing and every successful reconnect. */
   updatePubkey: z.string().min(1).optional(),
+  /** Old-key-signed path to updatePubkey, ordered from oldest to newest. */
+  updateKeyRotations: z.array(UpdateKeyRotation).optional(),
 })
 export type PeerHelloOk = z.infer<typeof PeerHelloOk>
 

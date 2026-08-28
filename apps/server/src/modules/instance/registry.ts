@@ -66,6 +66,13 @@ export const SETUP_COMMANDS_TRPC = {
       unknown
     >,
   },
+  activate: {
+    contract: SETUP_CONTRACTS.activate,
+    handler: ((svc) => svc.activate()) satisfies InstanceHandler<
+      In<typeof SETUP_CONTRACTS.activate>,
+      unknown
+    >,
+  },
 } as const satisfies Record<SetupContractName, InstanceCommand>
 
 export const AUTH_COMMANDS_TRPC = {

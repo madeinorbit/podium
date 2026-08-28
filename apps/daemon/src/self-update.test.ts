@@ -27,6 +27,16 @@ describe('decideOnProtocolMismatch', () => {
       }),
     ).toEqual({ action: 'backoff' })
   })
+
+  it('parent-managed daemons never self-update (parent owns the bundle)', () => {
+    expect(
+      decideOnProtocolMismatch({
+        installed: true,
+        parentManaged: true,
+        source: 'http-426',
+      }),
+    ).toEqual({ action: 'backoff' })
+  })
 })
 
 describe('decidePostUpdate', () => {

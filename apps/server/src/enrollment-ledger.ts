@@ -168,6 +168,22 @@ function ledgerPath(stateDir: string): string {
   return join(stateDir, 'enrollment.ledger')
 }
 
+/** True when durable fleet state proves this is not a signing key's first boot. */
+export function hasEnrollmentHistory(stateDir: string): boolean {
+  const path = ledgerPath(stateDir)
+  try {
+    return readFileSync(path, 'utf8')
+      .split('\n')
+      .some((raw) => {
+        const line = parseLine(raw)
+        return line?.kind === 'enroll'
+      })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+}
+
 function parseLine(raw: string): LedgerLine | null {
   let parsed: unknown
   try {
