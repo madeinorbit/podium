@@ -16,7 +16,12 @@
  * - `bundleVersion` — `bundle+<entry chunk hash>`, forensic only
  *
  * It also writes `podium-build-manifest.json`: the exact SHA-256 inventory of
- * every other shipped file, bound to this source commit and full build stamp.
+ * every other shipped file and its count, bound to this source commit and full
+ * build stamp.
+ *
+ * Deterministic: the same dist bytes, source commit and version produce identical
+ * stamp and manifest bytes, which is what lets a build system reuse them (spec
+ * 2026-08-28-cached-release-build-design §4.3).
  *
  * The Update panel, About, `/version`, and log field `v` all read `appVersion`.
  * `wireSchemaDigest` is not that identity — UI-only commits keep the same
@@ -75,11 +80,11 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 export const CLIENT_BUILD_MANIFEST_FILE = 'podium-build-manifest.json'
 
 export interface ClientBuildManifest {
-  manifestVersion: 1
+  manifestVersion: 2
   sourceCommit: string
-  /** Opaque nonce supplied by a packaging invocation that requires freshness evidence. */
-  buildInvocation?: string
   buildStamp: WrittenBuildStamp
+  /** `Object.keys(files).length`, so an inventory floor can be checked without walking it. */
+  fileCount: number
   /** SHA-256 of every shipped regular file except this self-referential manifest. */
   files: Record<string, string>
 }
@@ -87,7 +92,6 @@ export interface ClientBuildManifest {
 export type WrittenBuildStamp = BuildStamp & {
   wireSchemaDigest: string
   wireVersion: number
-  builtAt: string
   appVersion: string
 }
 
@@ -147,7 +151,6 @@ export function injectSourceDigestMeta(html: string, digest: string): string {
  */
 export function webBuildStamp(
   indexHtml: string,
-  now: Date = new Date(),
   sourceSha?: string,
   packagedVersion?: string,
 ): WrittenBuildStamp {
@@ -156,7 +159,6 @@ export function webBuildStamp(
   return {
     wireSchemaDigest: wireSchemaDigest(),
     wireVersion: WIRE_VERSION,
-    builtAt: now.toISOString(),
     appVersion,
     ...(sourceSha ? { sourceSha } : {}),
     ...(bundleVersion ? { bundleVersion } : {}),
@@ -209,7 +211,6 @@ function clientBuildManifest(
   distDir: string,
   stamp: WrittenBuildStamp,
   stampBytes: string,
-  buildInvocation?: string,
 ): ClientBuildManifest {
   if (!stamp.sourceSha) {
     throw new Error('cannot write a client build manifest without a source commit')
@@ -233,20 +234,18 @@ function clientBuildManifest(
   visit(distDir)
   files[BUILD_STAMP_FILE] = sha256(stampBytes)
   return {
-    manifestVersion: 1,
+    manifestVersion: 2,
     sourceCommit: stamp.sourceSha,
-    ...(buildInvocation ? { buildInvocation } : {}),
     buildStamp: stamp,
+    fileCount: Object.keys(files).length,
     files: Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))),
   }
 }
 
 export function writeWebBuildStamp(
   distDir: string,
-  now: Date = new Date(),
   sourceSha?: string,
   packagedVersion?: string,
-  buildInvocation?: string,
 ): WrittenBuildStamp {
   const indexPath = join(distDir, 'index.html')
   if (!existsSync(indexPath)) {
@@ -260,7 +259,7 @@ export function writeWebBuildStamp(
         'the bundler still emits a content-hashed entry chunk.',
     )
   }
-  const stamp = webBuildStamp(indexHtml, now, sourceSha, packagedVersion)
+  const stamp = webBuildStamp(indexHtml, sourceSha, packagedVersion)
   const versionStamped = injectProductVersionMeta(indexHtml, stamp.appVersion)
   const stamped = stamp.sourceSha
     ? injectSourceDigestMeta(versionStamped, stamp.sourceSha)
@@ -268,7 +267,7 @@ export function writeWebBuildStamp(
   writeFileSync(indexPath, stamped)
   refreshCompressedSiblings(indexPath, stamped)
   const stampBytes = `${JSON.stringify(stamp, null, 2)}\n`
-  const manifest = clientBuildManifest(distDir, stamp, stampBytes, buildInvocation)
+  const manifest = clientBuildManifest(distDir, stamp, stampBytes)
   writeFileSync(join(distDir, CLIENT_BUILD_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`)
   // The stamp file stays LAST. Its digest is already in the manifest, so a reader
   // that sees podium-build.json sees a finished and exactly inventoried dist.
@@ -299,10 +298,8 @@ function main(): void {
   try {
     stamp = writeWebBuildStamp(
       distDir,
-      new Date(),
       resolveWebSourceSha(repoRoot),
       process.env.PODIUM_APP_VERSION,
-      process.env.PODIUM_CLIENT_BUILD_INVOCATION,
     )
   } catch (err) {
     console.error(`[podium] build stamp: ${(err as Error).message}`)
