@@ -30,15 +30,17 @@
  * records whether the tool ran once or twice.
  *
  * ---------------------------------------------------------------------------
- * CODEX SESSION CWD IS A NEVER-APPROVED DUMMY GIT REPO.
+ * CODEX AND GROK SESSION CWD IS A NEVER-APPROVED DUMMY GIT REPO.
  * ---------------------------------------------------------------------------
  * A write outside the session cwd is necessary but not sufficient on Codex.
  * This harness also auto-reviews tools when the session cwd is already in
  * `~/.codex/config.toml` as a trusted project — `/tmp/pod-2777/repo` is one —
  * so the product is never handed an ask. This probe therefore creates a unique
  * dummy Git repository under $HOME, outside every previously approved root
- * and outside /tmp, and uses THAT as `sessions.create` cwd. Other harnesses
- * keep the shared scratch repo: they do not have this trust list.
+ * and outside /tmp, and uses THAT as `sessions.create` cwd. Grok has an
+ * equivalent trusted-folder store, so it uses the same dummy-repo control.
+ * Other harnesses keep the shared scratch repo: they do not have this trust
+ * list.
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -87,17 +89,22 @@ function inside(path: string, root: string): boolean {
 function readTrustedProjectRoots(): string[] {
   const files = [
     `${process.env.HOME}/.codex/config.toml`,
+    `${process.env.HOME}/.grok/trusted_folders.toml`,
     process.env.P2777_STATE_ROOT
       ? `${process.env.P2777_STATE_ROOT}/agent-home/.codex/config.toml`
+      : '',
+    process.env.P2777_STATE_ROOT
+      ? `${process.env.P2777_STATE_ROOT}/agent-home/.grok/trusted_folders.toml`
       : '',
   ].filter(Boolean)
   const roots = new Set<string>()
   for (const file of files) {
     if (!existsSync(file)) continue
     const text = readFileSync(file, 'utf8')
-    const re = /\[projects\."([^"]+)"\]/g
-    let match: RegExpExecArray | null
-    while ((match = re.exec(text))) roots.add(match[1])
+    for (const re of [/\[projects\."([^"]+)"\]/g, /\[folders\."([^"]+)"\]/g]) {
+      let match: RegExpExecArray | null
+      while ((match = re.exec(text))) roots.add(match[1])
+    }
   }
   return [...roots]
 }
@@ -113,7 +120,7 @@ function isolatedCodexReviewer(): string {
 }
 
 /**
- * Fresh unique Git cwd that Codex has never trusted. Refuses rather than
+ * Fresh unique Git cwd that Codex or Grok has never trusted. Refuses rather than
  * measuring if the path lands under a previously approved root, /tmp, or the
  * product checkout — those are the conditions that previously produced a
  * BLOCKED "this harness approved its own tool call" for the wrong reason.
@@ -151,7 +158,8 @@ function makeNeverApprovedDummyRepo(): string {
   )
   log(`SESSION CWD        never-approved dummy git repo ${cwd}`)
   log(`                   avoided trusted projects: ${trusted.join(', ') || '(none listed)'}`)
-  log(`                   isolated approvals_reviewer=${isolatedCodexReviewer()}`)
+  if (harness === 'codex') log(`                   isolated approvals_reviewer=${isolatedCodexReviewer()}`)
+  if (harness === 'grok') log(`                   isolated permission_mode=${isolatedGrokPermissionMode()}`)
   return cwd
 }
 
@@ -199,6 +207,78 @@ function restorePosture(): void {
 }
 
 /**
+ * Grok's ACP equivalent of Codex's `approvals_reviewer=auto_review` is the
+ * native `[ui] permission_mode = "always-approve"` setting. The daemon already
+ * sends ACP `session/set_mode=default`, but Grok's persistent always-approve
+ * posture can still prevent the permission request from being raised. Change
+ * only the named instance's isolated GROK_HOME config for this probe, then
+ * restore the exact previous bytes (or absence) on process exit.
+ */
+const GROK_CFG = process.env.P2777_STATE_ROOT
+  ? `${process.env.P2777_STATE_ROOT}/agent-home/.grok/config.toml`
+  : undefined
+let grokCfgBefore: string | undefined
+let grokCfgChanged = false
+
+function isolatedGrokPermissionMode(text?: string): string {
+  const source = text ?? (GROK_CFG && existsSync(GROK_CFG) ? readFileSync(GROK_CFG, 'utf8') : '')
+  const match = /^\s*permission_mode\s*=\s*["']([^"']+)["']/m.exec(source)
+  return match?.[1] ?? (source ? '(unset)' : '(missing config)')
+}
+
+function configWithGrokAskMode(source: string): string {
+  const mode = /^([ \t]*permission_mode[ \t]*=[ \t]*)(["'][^"']*["'])(.*)$/m.exec(source)
+  if (mode) return source.replace(mode[0], `${mode[1]}"ask"${mode[3]}`)
+  const uiHeader = /^[ \t]*\[ui\][ \t]*(?:#.*)?\r?\n/m.exec(source)
+  if (uiHeader) return source.replace(uiHeader[0], `${uiHeader[0]}permission_mode = "ask"\n`)
+  const eol = source.includes('\r\n') ? '\r\n' : '\n'
+  const suffix = source.length > 0 && !source.endsWith(eol) ? eol : ''
+  return `${source}${suffix}[ui]${eol}permission_mode = "ask"${eol}`
+}
+
+function setGrokAskingPosture(): void {
+  if (harness !== 'grok') return
+  if (!GROK_CFG || !process.env.P2777_STATE_ROOT) {
+    log('GROK POSTURE      REFUSED — no isolated P2777_STATE_ROOT')
+    process.exit(3)
+  }
+  const operatorCfg = `${process.env.HOME}/.grok/config.toml`
+  if (resolve(GROK_CFG) === resolve(operatorCfg)) {
+    log(`GROK POSTURE      REFUSED — isolated config resolves to operator config ${operatorCfg}`)
+    process.exit(3)
+  }
+  grokCfgBefore = existsSync(GROK_CFG) ? readFileSync(GROK_CFG, 'utf8') : undefined
+  const beforeMode = isolatedGrokPermissionMode(grokCfgBefore)
+  const after = configWithGrokAskMode(grokCfgBefore ?? '')
+  if (after === (grokCfgBefore ?? '')) {
+    log(`GROK POSTURE      isolated permission_mode=${beforeMode} already set`)
+    return
+  }
+  mkdirSync(`${process.env.P2777_STATE_ROOT}/agent-home/.grok`, { recursive: true, mode: 0o700 })
+  writeFileSync(GROK_CFG, after, { mode: 0o600 })
+  grokCfgChanged = true
+  log(`GROK POSTURE      isolated permission_mode=${beforeMode} → ask for this probe only`)
+  log('                   operator ~/.grok/config.toml was not touched; restore is armed on exit')
+}
+
+function restoreGrokAskingPosture(): void {
+  if (!grokCfgChanged || !GROK_CFG) return
+  try {
+    if (grokCfgBefore === undefined) rmSync(GROK_CFG, { force: true })
+    else writeFileSync(GROK_CFG, grokCfgBefore, { mode: 0o600 })
+    const restored = existsSync(GROK_CFG) ? readFileSync(GROK_CFG, 'utf8') : undefined
+    if (restored !== grokCfgBefore) {
+      log('GROK POSTURE      RESTORE FAILED — isolated config bytes changed on exit')
+      process.exitCode = 6
+      return
+    }
+    log(`GROK POSTURE      restored isolated config (${grokCfgBefore === undefined ? 'absent' : 'exact bytes'})`)
+  } catch (error) {
+    log(`GROK POSTURE      RESTORE FAILED — ${String(error)}`)
+    process.exitCode = 6
+  }
+}
+/**
  * auto_review is the operator's guardian. Copied into the isolated home it
  * answers Codex permissions itself, so Podium never sees a structured ask —
  * even in a never-approved dummy cwd. Measured 2026-08-28 11:57 CEST: dummy
@@ -236,22 +316,24 @@ await login()
 log('='.repeat(78))
 log(`A4a / A4b  permission ask, and answering it twice   harness=${harness}`)
 log('='.repeat(78))
+process.on('exit', () => {
+  restorePosture()
+  restoreCodexReviewer()
+  restoreGrokAskingPosture()
+})
 setAskingPosture()
 if (harness === 'opencode') {
   log('posture            permission.bash=ask set for this probe only; restored on exit')
   log('                   (a rig-wide asking posture blocks every other tool cell)')
 }
 setCodexUserReviewer()
-process.on('exit', () => {
-  restorePosture()
-  restoreCodexReviewer()
-})
+setGrokAskingPosture()
 
 rmSync(EXTERNAL, { recursive: true, force: true })
 mkdirSync(EXTERNAL, { recursive: true })
 
-const sessionCwd = harness === 'codex' ? makeNeverApprovedDummyRepo() : REPO
-if (harness !== 'codex') log(`SESSION CWD        shared scratch repo ${sessionCwd}`)
+const sessionCwd = harness === 'codex' || harness === 'grok' ? makeNeverApprovedDummyRepo() : REPO
+if (harness !== 'codex' && harness !== 'grok') log(`SESSION CWD        shared scratch repo ${sessionCwd}`)
 
 const created = await mutate('sessions.create', { cwd: sessionCwd, agentKind })
 const sid = created.result?.data?.sessionId as string | undefined
