@@ -24,6 +24,39 @@ export function redactClaudeSdkFailureDetail(detail: string): string {
  * Monthly spend is a usage cap, not a transient 429. Expired/invalid auth is a
  * login problem. Both are durable facts; neither should look like the other.
  */
+function collectText(value: unknown, into: string[]): void {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed) into.push(trimmed)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectText(item, into)
+  }
+}
+
+/**
+ * Turn a non-success SDK `result` message into the host error-frame text.
+ * Subtype-only used to drop monthly-spend / auth wording before classification.
+ */
+export function formatClaudeSdkResultFailure(msg: {
+  subtype?: unknown
+  result?: unknown
+  errors?: unknown
+  error?: unknown
+  message?: unknown
+}): string {
+  const texts: string[] = []
+  collectText(msg.result, texts)
+  collectText(msg.errors, texts)
+  collectText(msg.error, texts)
+  collectText(msg.message, texts)
+  const subtype =
+    typeof msg.subtype === 'string' && msg.subtype.trim() ? msg.subtype.trim() : 'error'
+  const detail = redactClaudeSdkFailureDetail(texts.join(' · '))
+  return detail ? `claude turn failed: ${subtype}: ${detail}` : `claude turn failed: ${subtype}`
+}
+
 export function classifyClaudeSdkFailure(detail: string): ClaudeSdkFailure {
   const text = detail.toLowerCase()
   if (

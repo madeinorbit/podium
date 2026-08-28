@@ -6,16 +6,30 @@
 // on the other end of its stdin goes away.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ClaudeSdkHostFrame } from './claude-sdk-protocol.js'
 
-/** A turn that never ends on its own — only `interrupt()` ends it. */
-let interruptCalled = false
-let endStream: (() => void) | undefined
+const sdk = vi.hoisted(() => ({
+  interruptCalled: false,
+  endStream: undefined as (() => void) | undefined,
+  scripted: null as unknown[] | null,
+}))
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: () => {
+    const scripted = sdk.scripted
+    if (scripted) {
+      return {
+        async *[Symbol.asyncIterator]() {
+          for (const message of scripted) yield message
+        },
+        interrupt: async () => {
+          sdk.interruptCalled = true
+        },
+      }
+    }
     let done = false
     const waiters: (() => void)[] = []
-    endStream = () => {
+    sdk.endStream = () => {
       done = true
       for (const w of waiters.splice(0)) w()
     }
@@ -25,8 +39,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
         while (!done) await new Promise<void>((r) => waiters.push(r))
       },
       interrupt: async () => {
-        interruptCalled = true
-        endStream?.()
+        sdk.interruptCalled = true
+        sdk.endStream?.()
       },
     }
   },
@@ -34,11 +48,10 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 
 const { runClaudeSdkHost } = await import('./claude-sdk-host.js')
 
-import type { ClaudeSdkHostFrame } from './claude-sdk-protocol.js'
-
 afterEach(() => {
-  interruptCalled = false
-  endStream = undefined
+  sdk.interruptCalled = false
+  sdk.endStream = undefined
+  sdk.scripted = null
 })
 
 const TURN = JSON.stringify({
@@ -76,7 +89,7 @@ describe('the SDK host when its daemon disappears', () => {
       commands: commandsThenEof([TURN]),
       send: (f) => frames.push(f),
     })
-    expect(interruptCalled, 'the host must interrupt its turn when stdin closes').toBe(true)
+    expect(sdk.interruptCalled, 'the host must interrupt its turn when stdin closes').toBe(true)
     expect(frames.some((f) => f.t === 'session')).toBe(true)
   }, 20_000)
 
@@ -84,7 +97,7 @@ describe('the SDK host when its daemon disappears', () => {
     const frames: ClaudeSdkHostFrame[] = []
     await runClaudeSdkHost({ commands: commandsThenEof([]), send: (f) => frames.push(f) })
     expect(frames).toEqual([])
-    expect(interruptCalled).toBe(false)
+    expect(sdk.interruptCalled).toBe(false)
   }, 10_000)
 
   it('honours an interrupt command that arrives while the turn is running', async () => {
@@ -93,6 +106,30 @@ describe('the SDK host when its daemon disappears', () => {
       commands: commandsThenEof([TURN, JSON.stringify({ t: 'interrupt' })]),
       send: (f) => frames.push(f),
     })
-    expect(interruptCalled).toBe(true)
+    expect(sdk.interruptCalled).toBe(true)
+  }, 10_000)
+})
+
+describe('SDK result error frames', () => {
+  it('puts a bounded redacted diagnostic on the error frame, not only the subtype', async () => {
+    sdk.scripted = [
+      { type: 'system', subtype: 'init', session_id: 'sess-limit' },
+      {
+        type: 'result',
+        subtype: 'error_during_execution',
+        result: "You've hit your monthly spend limit CLAUDE_CODE_OAUTH_TOKEN=oat_secret",
+        errors: ['rate_limit'],
+      },
+    ]
+    const frames: ClaudeSdkHostFrame[] = []
+    await runClaudeSdkHost({
+      commands: commandsThenEof([TURN]),
+      send: (f) => frames.push(f),
+    })
+    const error = frames.find((f) => f.t === 'error')
+    expect(error).toMatchObject({ t: 'error', harnessSessionId: 'sess-limit' })
+    expect(error && 'message' in error ? error.message : '').toMatch(/monthly spend limit/i)
+    expect(error && 'message' in error ? error.message : '').toMatch(/error_during_execution/)
+    expect(error && 'message' in error ? error.message : '').not.toMatch(/oat_secret/)
   }, 10_000)
 })

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
+import {
+  classifyClaudeSdkFailure,
+  formatClaudeSdkResultFailure,
+  redactClaudeSdkFailureDetail,
+} from './classify.js'
 
 describe('Claude SDK provider failure classification', () => {
   it('classifies monthly spend exhaustion as a non-retryable usage limit', () => {
@@ -32,6 +36,26 @@ describe('Claude SDK provider failure classification', () => {
       errorClass: 'authentication',
       retryable: false,
     })
+  })
+
+  it('keeps monthly-spend and auth text from an SDK result frame, redacted', () => {
+    const spend = formatClaudeSdkResultFailure({
+      subtype: 'error_during_execution',
+      result: "You've hit your monthly spend limit CLAUDE_CODE_OAUTH_TOKEN=oat_secret",
+    })
+    expect(spend).toMatch(/monthly spend limit/i)
+    expect(spend).toMatch(/error_during_execution/)
+    expect(spend).not.toMatch(/oat_secret/)
+    expect(classifyClaudeSdkFailure(spend).errorClass).toBe('usage_limit')
+
+    const expired = formatClaudeSdkResultFailure({
+      subtype: 'error_during_execution',
+      error: '401 Unauthorized — access token is expired',
+    })
+    expect(classifyClaudeSdkFailure(expired).errorClass).toBe('authentication')
+    expect(formatClaudeSdkResultFailure({ subtype: 'error_during_execution' })).toBe(
+      'claude turn failed: error_during_execution',
+    )
   })
 
   it('never copies credential material into stored detail', () => {

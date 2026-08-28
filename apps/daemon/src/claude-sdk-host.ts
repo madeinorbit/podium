@@ -20,6 +20,7 @@ import {
   type PermissionMode,
   query,
 } from '@anthropic-ai/claude-agent-sdk'
+import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from '@podium/agent-runtime'
 import {
   CLAUDE_SDK_HOST_ENV,
   type ClaudeSdkHostCommand,
@@ -313,7 +314,7 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
               else {
                 io.send({
                   t: 'error',
-                  message: `claude turn failed: ${msg.subtype}`,
+                  message: formatClaudeSdkResultFailure(msg),
                   ...(sessionId ? { harnessSessionId: sessionId } : {}),
                 })
                 return
@@ -326,9 +327,12 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
       } catch (err) {
         // An SDK-thrown error (transport, tool crash) gets the same treatment:
         // report it WITH whatever session id we learned, so the thread survives.
+        const thrown = redactClaudeSdkFailureDetail(
+          err instanceof Error ? err.message : String(err),
+        )
         io.send({
           t: 'error',
-          message: err instanceof Error ? err.message : String(err),
+          message: thrown || 'claude turn failed',
           ...(sessionId ? { harnessSessionId: sessionId } : {}),
         })
         return
