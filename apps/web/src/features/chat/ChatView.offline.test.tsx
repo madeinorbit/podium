@@ -259,6 +259,9 @@ describe('ChatView cache-first transcript', () => {
     // The read is in flight and has answered nothing yet.
     expect(reads).toHaveLength(1)
     expect(container.textContent).toContain('cached hello')
+    const refreshNotice = container.querySelector('[data-notice="transcript-refreshing"]')
+    expect(refreshNotice?.textContent).toContain('Updating transcript')
+    expect(refreshNotice?.textContent).toContain('showing saved messages')
     // Not the offline path: the server was never unreachable, so no notice.
     expect(container.querySelector('[data-notice="offline"]')).toBeNull()
     // And not the cold state either — there is real content on screen.
@@ -285,6 +288,7 @@ describe('ChatView cache-first transcript', () => {
     // The seed is not duplicated by the read that supersedes it.
     expect(container.textContent).toContain('newer turn')
     expect(container.textContent?.match(/cached hello/g)).toHaveLength(1)
+    expect(container.querySelector('[data-notice="transcript-refreshing"]')).toBeNull()
   })
 
   it('shows the cold transcript when the session has never been read here', async () => {

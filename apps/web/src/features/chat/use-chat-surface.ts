@@ -117,6 +117,7 @@ export interface ChatSurface {
   /** Unsafe worker HTML keyed by source Markdown; TranscriptFeed sanitizes it. */
   markdownHtml: ReadonlyMap<string, string>
   phase: TranscriptPhase
+  refreshingFromCache: boolean
   moreAbove: boolean
   loadingOlder: boolean
   loadOlder: () => void
@@ -300,6 +301,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     loadingOlder,
     deepeningSearch,
     initialLoaded,
+    refreshingFromCache,
     offlineAsOf,
     loadOlder,
     ensureSearchDepth,
@@ -717,6 +719,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     renderStart,
     markdownHtml,
     phase,
+    refreshingFromCache,
     moreAbove,
     loadingOlder,
     loadOlder: scroll.loadOlder,
