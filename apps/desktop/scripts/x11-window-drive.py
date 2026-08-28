@@ -32,6 +32,29 @@ X11.XFetchName.restype = ctypes.c_int
 X11.XFree.argtypes = [ctypes.c_void_p]
 X11.XSetInputFocus.argtypes = [DISPLAY, WINDOW, ctypes.c_int, ctypes.c_ulong]
 X11.XRaiseWindow.argtypes = [DISPLAY, WINDOW]
+X11.XGetGeometry.argtypes = [
+    DISPLAY,
+    WINDOW,
+    ctypes.POINTER(WINDOW),
+    ctypes.POINTER(ctypes.c_int),
+    ctypes.POINTER(ctypes.c_int),
+    ctypes.POINTER(ctypes.c_uint),
+    ctypes.POINTER(ctypes.c_uint),
+    ctypes.POINTER(ctypes.c_uint),
+    ctypes.POINTER(ctypes.c_uint),
+]
+X11.XGetGeometry.restype = ctypes.c_int
+X11.XTranslateCoordinates.argtypes = [
+    DISPLAY,
+    WINDOW,
+    WINDOW,
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.POINTER(ctypes.c_int),
+    ctypes.POINTER(ctypes.c_int),
+    ctypes.POINTER(WINDOW),
+]
+X11.XTranslateCoordinates.restype = ctypes.c_int
 X11.XStringToKeysym.argtypes = [ctypes.c_char_p]
 X11.XStringToKeysym.restype = ctypes.c_ulong
 X11.XKeysymToKeycode.argtypes = [DISPLAY, ctypes.c_ulong]
@@ -40,6 +63,10 @@ X11.XFlush.argtypes = [DISPLAY]
 X11.XCloseDisplay.argtypes = [DISPLAY]
 XTST.XTestFakeKeyEvent.argtypes = [DISPLAY, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
 XTST.XTestFakeKeyEvent.restype = ctypes.c_int
+XTST.XTestFakeMotionEvent.argtypes = [DISPLAY, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_ulong]
+XTST.XTestFakeMotionEvent.restype = ctypes.c_int
+XTST.XTestFakeButtonEvent.argtypes = [DISPLAY, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+XTST.XTestFakeButtonEvent.restype = ctypes.c_int
 
 
 def window_name(display: DISPLAY, window: int) -> str:
@@ -122,10 +149,49 @@ def type_text(display: DISPLAY, text: str) -> None:
         tap(display, name, shifted)
 
 
+def geometry(display: DISPLAY, window: int) -> tuple[int, int, int, int]:
+    root = WINDOW()
+    x = ctypes.c_int()
+    y = ctypes.c_int()
+    width = ctypes.c_uint()
+    height = ctypes.c_uint()
+    border = ctypes.c_uint()
+    depth = ctypes.c_uint()
+    if not X11.XGetGeometry(
+        display, WINDOW(window), ctypes.byref(root), ctypes.byref(x), ctypes.byref(y),
+        ctypes.byref(width), ctypes.byref(height), ctypes.byref(border), ctypes.byref(depth),
+    ):
+        raise RuntimeError(f"could not read X11 geometry for window {window}")
+    root_x = ctypes.c_int()
+    root_y = ctypes.c_int()
+    child = WINDOW()
+    if not X11.XTranslateCoordinates(
+        display, WINDOW(window), root, 0, 0, ctypes.byref(root_x), ctypes.byref(root_y),
+        ctypes.byref(child),
+    ):
+        raise RuntimeError(f"could not translate X11 coordinates for window {window}")
+    return root_x.value, root_y.value, width.value, height.value
+
+
+def click(display: DISPLAY, window: int, x: int, y: int) -> None:
+    root_x, root_y, width, height = geometry(display, window)
+    if x < 0 or y < 0 or x >= width or y >= height:
+        raise RuntimeError(f"click ({x}, {y}) is outside {width}x{height} window {window}")
+    X11.XRaiseWindow(display, WINDOW(window))
+    X11.XSetInputFocus(display, WINDOW(window), 2, 0)
+    XTST.XTestFakeMotionEvent(display, -1, root_x + x, root_y + y, 0)
+    X11.XFlush(display)
+    time.sleep(0.15)
+    XTST.XTestFakeButtonEvent(display, 1, 1, 0)
+    XTST.XTestFakeButtonEvent(display, 1, 0, 0)
+    X11.XFlush(display)
+
+
 def main() -> int:
-    if len(sys.argv) < 3 or sys.argv[1] not in {"title", "type"}:
+    if len(sys.argv) < 3 or sys.argv[1] not in {"title", "id", "geometry", "type", "click"}:
         print(
-            "usage: x11-window-drive.py title|type <title-substring> [timeout-seconds]",
+            "usage: x11-window-drive.py title|id|geometry|type <title-substring> [timeout-seconds]\n"
+            "       x11-window-drive.py click <title-substring> <x> <y> [timeout-seconds]",
             file=sys.stderr,
         )
         return 2
@@ -134,10 +200,23 @@ def main() -> int:
     if not display:
         raise RuntimeError(f"cannot open X display {display_name!r}")
     try:
-        timeout = float(sys.argv[3]) if len(sys.argv) > 3 else 15.0
+        timeout_index = 5 if sys.argv[1] == "click" else 3
+        timeout = float(sys.argv[timeout_index]) if len(sys.argv) > timeout_index else 15.0
         window, title = wait_window(display, sys.argv[2], timeout)
         if sys.argv[1] == "title":
             print(title)
+            return 0
+        if sys.argv[1] == "id":
+            print(window)
+            return 0
+        if sys.argv[1] == "geometry":
+            x, y, width, height = geometry(display, window)
+            print(f"{window} {x} {y} {width} {height}")
+            return 0
+        if sys.argv[1] == "click":
+            if len(sys.argv) < 5:
+                raise RuntimeError("click needs window-relative x and y coordinates")
+            click(display, window, int(sys.argv[3]), int(sys.argv[4]))
             return 0
         secret = sys.stdin.read().rstrip("\n")
         if not secret:

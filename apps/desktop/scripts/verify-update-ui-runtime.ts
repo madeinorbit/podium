@@ -580,6 +580,20 @@ function x11(display: string, command: 'id' | 'geometry', timeout = 15): string 
   return result.status === 0 ? result.stdout.trim() : undefined
 }
 
+function assertX11DriverContract(): void {
+  const source = readFileSync(x11Driver, 'utf8')
+  const requiredWitnesses = [
+    'def geometry(',
+    'def click(',
+    'XTestFakeButtonEvent',
+    '\"title\", \"id\", \"geometry\", \"type\", \"click\"',
+  ]
+  const missing = requiredWitnesses.filter((witness) => !source.includes(witness))
+  if (missing.length > 0) {
+    throw new Error(`native X11 driver is missing harness commands: ${missing.join(', ')}`)
+  }
+}
+
 function settleNativeUpdatePrompt(
   display: string,
 ):
@@ -2223,6 +2237,7 @@ for (const command of requiredCommands) {
   const found = spawnSync('sh', ['-c', `command -v ${command}`], { encoding: 'utf8' })
   if (found.status !== 0) throw new Error(`missing required native harness command ${command}`)
 }
+assertX11DriverContract()
 
 const candidate = await prepareCandidate(buildRoot)
 const allInOne = topology === 'daemon' ? null : await runAllInOne(candidate)
