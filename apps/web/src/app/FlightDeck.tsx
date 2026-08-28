@@ -2353,6 +2353,7 @@ interface BriefCutoffLayout {
   readonly minRatio: number
   readonly maxRatio: number
   readonly limit: number
+  readonly maxLimit: number
 }
 
 const clampBriefRatio = (value: number, min: number, max: number): number =>
@@ -2391,12 +2392,14 @@ export function briefCutoffLayout(
     minRatio,
     maxRatio,
     limit: Math.max(0, ratio * deckHeight - briefTop - endGap),
+    maxLimit: Math.max(0, maximumDivider - briefTop - endGap),
   }
 }
 
 function MissionBrief({ html, standing }: { html: string; standing?: boolean }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const activePointerRef = useRef<number | null>(null)
   const [savedRatio, setSavedRatio] = usePersistedUiState<number | null>(
     FLIGHT_DECK_BRIEF_CUTOFF_KEY,
     readBriefCutoff,
@@ -2409,10 +2412,7 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
   const layout = metrics ? briefCutoffLayout(metrics, previewRatio ?? savedRatio) : null
   const clipped = Boolean(layout && metrics && metrics.contentHeight - layout.limit > 1)
   const resizable = Boolean(metrics && metrics.contentHeight > BRIEF_MIN_HEIGHT + 1)
-  const expandedLimit =
-    layout && metrics
-      ? Math.min(metrics.contentHeight, Math.max(layout.limit, metrics.deckHeight * 0.6))
-      : null
+  const expandedLimit = layout && metrics ? Math.min(metrics.contentHeight, layout.maxLimit) : null
   const maxHeight = open ? expandedLimit : layout?.limit
 
   // A different mission is a different brief: whatever the operator opened, it
@@ -2428,7 +2428,8 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
     const el = ref.current
     const end = endRef.current
     const deck = el?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
-    if (!el || !end || !deck) return
+    const header = el?.closest<HTMLElement>('.deck-header')
+    if (!el || !end || !deck || !header) return
     const measure = (): void => {
       const deckRect = deck.getBoundingClientRect()
       if (deckRect.height <= 0) return
@@ -2454,12 +2455,21 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
     observer.observe(el)
+    observer.observe(header)
     observer.observe(deck)
     return () => observer.disconnect()
   }, [html])
 
   const onRulePointerDown = (event: ReactPointerEvent<HTMLSpanElement>): void => {
-    if (!layout || !metrics || !resizable) return
+    if (
+      !layout ||
+      !metrics ||
+      !resizable ||
+      event.button !== 0 ||
+      !event.isPrimary ||
+      activePointerRef.current !== null
+    )
+      return
     event.preventDefault()
     const handle = event.currentTarget
     const deck = ref.current?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
@@ -2467,12 +2477,16 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
     const deckRect = deck.getBoundingClientRect()
     const handleRect = handle.getBoundingClientRect()
     const grabOffset = event.clientY - handleRect.top
+    const pointerId = event.pointerId
     let latestRatio = layout.ratio
     let moved = false
-    handle.setPointerCapture(event.pointerId)
+    let settled = false
+    handle.setPointerCapture(pointerId)
+    activePointerRef.current = pointerId
     setDragging(true)
 
     const move = (pointer: PointerEvent): void => {
+      if (pointer.pointerId !== pointerId) return
       moved = true
       const dividerTop = pointer.clientY - grabOffset - deckRect.top
       latestRatio = clampBriefRatio(
@@ -2483,17 +2497,31 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
       setOpen(false)
       setPreviewRatio(latestRatio)
     }
-    const finish = (): void => {
+    const cleanup = (commit: boolean): void => {
+      if (settled) return
+      settled = true
       handle.removeEventListener('pointermove', move)
       handle.removeEventListener('pointerup', finish)
-      handle.removeEventListener('pointercancel', finish)
-      if (moved) setSavedRatio(latestRatio)
+      handle.removeEventListener('pointercancel', cancel)
+      handle.removeEventListener('lostpointercapture', lostCapture)
+      activePointerRef.current = null
+      if (commit && moved) setSavedRatio(latestRatio)
       setPreviewRatio(null)
       setDragging(false)
     }
+    const finish = (pointer: PointerEvent): void => {
+      if (pointer.pointerId === pointerId) cleanup(true)
+    }
+    const cancel = (pointer: PointerEvent): void => {
+      if (pointer.pointerId === pointerId) cleanup(false)
+    }
+    const lostCapture = (pointer: PointerEvent): void => {
+      if (pointer.pointerId === pointerId) cleanup(false)
+    }
     handle.addEventListener('pointermove', move)
     handle.addEventListener('pointerup', finish)
-    handle.addEventListener('pointercancel', finish)
+    handle.addEventListener('pointercancel', cancel)
+    handle.addEventListener('lostpointercapture', lostCapture)
   }
 
   const onRuleKeyDown = (event: ReactKeyboardEvent<HTMLSpanElement>): void => {
@@ -2538,8 +2566,8 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
         data-standing={standing ? 'true' : undefined}
         // OPEN TRAVELS TO A MEASURED NUMBER, not to a keyword: `max-height: none`
         // does not animate at all, and a cap far above the content eases across
-        // space the text does not occupy. The open state still stops at 60% of
-        // the real deck; past that, a pasted spec scrolls inside itself.
+        // space the text does not occupy. The open state stops at the same
+        // absolute divider bound as dragging, preserving the roster reserve.
         style={maxHeight === null || maxHeight === undefined ? undefined : { maxHeight }}
         // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
         dangerouslySetInnerHTML={{ __html: html }}
