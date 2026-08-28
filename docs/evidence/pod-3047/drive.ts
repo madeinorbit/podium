@@ -316,6 +316,55 @@ function classifyText(text: string): { errorClass: string; retryable: boolean | 
   return { errorClass: 'none', retryable: null }
 }
 
+/**
+ * A LOGGED-OUT TURN IS NOT A BROKEN FEATURE, AND AFTER POD-3057 THIS RIG EXPECTS ONE.
+ *
+ * POD-3057 moves the SDK child into the instance agent home. This rig keeps that
+ * home credential-free on purpose, so from that fix onward an SDK turn here is
+ * genuinely logged out — and a cell that waits for a reply, never gets one, and
+ * scores FAIL would be reporting a product defect for a CONDITION THAT WAS NEVER
+ * VALIDLY CREATED. That is the same vacuous-red shape as scoring A8 against a
+ * session that was never logged out, arriving from the opposite direction.
+ *
+ * So every cell whose pass depends on a model reply asks this first. It reads the
+ * classification off the PRODUCT's own surface — transcript, screen and the
+ * structured error — never off the filesystem, because only the product can say
+ * whether it is logged out.
+ *
+ * It returns a reason ONLY when the surface says authentication. A turn that fails
+ * for any other reason still fails.
+ */
+async function authCondition(sid: string, chat?: Chat): Promise<{ blocked: boolean; detail: string }> {
+  const items = await transcript(sid).catch(() => [] as Item[])
+  const row = await status(sid).catch(() => undefined)
+  const surface = joined(items) + '\n' + (chat?.screenTail(6000) ?? '') + '\n' + JSON.stringify(row?.error ?? {})
+  const cls = classifyText(surface)
+  return {
+    blocked: cls.errorClass === 'authentication',
+    detail: 'class=' + cls.errorClass + ' retryable=' + String(cls.retryable) + ' error=' + short(row?.error ?? null, 200),
+  }
+}
+
+/** Fold the guard into a verdict: an auth-blocked miss becomes BLOCKED, not FAIL. */
+async function verdictOrAuthBlock(
+  pass: boolean,
+  sid: string,
+  chat: Chat | undefined,
+  passSummary: string,
+  failSummary: string,
+): Promise<{ verdict: Verdict; summary: string; auth: { blocked: boolean; detail: string } }> {
+  if (pass) return { verdict: 'PASS', summary: passSummary, auth: { blocked: false, detail: 'not consulted; the cell passed' } }
+  const auth = await authCondition(sid, chat)
+  if (auth.blocked) {
+    return {
+      verdict: 'BLOCKED',
+      summary: 'the harness reported itself not logged in, so this cell could not be exercised for a reason that is not the behaviour under test: ' + auth.detail,
+      auth,
+    }
+  }
+  return { verdict: 'FAIL', summary: failSummary, auth }
+}
+
 async function create(): Promise<{ sid: string; chat: Chat; created: unknown; row?: Status }> {
   mkdirSync(cwd, { recursive: true })
   if (!existsSync(join(cwd, '.git'))) {
@@ -543,11 +592,16 @@ async function runA1b() {
       payloadObject?.position ?? payloadObject?.queuePosition ?? framePosition?.position ?? framePosition?.queuePosition ?? null
     const hasPositionField = typeof position === 'number' || positionFrames.length > 0
     const pass = queuedFlag && hasPositionField && secondAssistant.ok
+    const v = await verdictOrAuthBlock(
+      pass,
+      sid,
+      reloaded,
+      'busy send queued with a durable position, survived reload, and answered idle',
+      'busy send did not show a durable queue position or did not answer after reload',
+    )
     const out = result(
-      pass ? 'PASS' : 'FAIL',
-      pass
-        ? 'busy send queued with a durable position, survived reload, and answered idle'
-        : 'busy send did not show a durable queue position or did not answer after reload',
+      v.verdict,
+      v.summary,
       control,
       [
         'FIRST SEND        ' + short(firstSent),
@@ -671,13 +725,16 @@ async function runA2a() {
       detail: 'user=' + user.ok + '; assistant=' + assistant.ok + '; workingAt=' + short(workingAt ?? null),
     }
     const pass = Boolean(workingAt && workingAt.at <= 2_000 && idleDuring === 0 && after?.phase !== 'working')
+    const v = await verdictOrAuthBlock(
+      pass,
+      sid,
+      chat,
+      'working appeared within 2s, stayed working through the sample, and returned idle',
+      'working badge timing or continuity did not meet the release criterion',
+    )
     return result(
-      !control.fired ? 'BLOCKED' : pass ? 'PASS' : 'FAIL',
-      !control.fired
-        ? 'working-turn control did not land'
-        : pass
-          ? 'working appeared within 2s, stayed working through the sample, and returned idle'
-          : 'working badge timing or continuity did not meet the release criterion',
+      !control.fired ? 'BLOCKED' : v.verdict,
+      !control.fired ? 'working-turn control did not land' : v.summary,
       control,
       ['SEND              ' + short(sent.result?.data ?? sent.error ?? null), 'WORKING AT        ' + short(workingAt ?? null), 'IDLE SAMPLES      ' + idleDuring, 'AFTER             ' + short(after)],
       { sid, user: user.ok, assistant: assistant.ok, workingAt, idleDuring, samples, after },
@@ -1179,12 +1236,15 @@ async function runA5() {
     // proof that a tool read that file. Tool ran and no tool item was published
     // is an unmet clause, not an unexercised one.
     const toolRan = assistant.ok
+    const a5auth = toolRan ? { blocked: false, detail: 'not consulted; the tool ran' } : await authCondition(sid, reload)
     const out = result(
       !control.fired ? 'BLOCKED' : !toolRan ? 'BLOCKED' : !toolItems.length ? 'FAIL' : paired && sameHistory ? 'PASS' : 'FAIL',
       !control.fired
         ? 'transcript control did not fire'
         : !toolRan
-          ? 'the agent never returned the fixture marker, so no tool call is proven and pairing was not exercised'
+          ? (a5auth.blocked
+              ? 'the harness reported itself not logged in, so no turn ran and pairing was not exercised: ' + a5auth.detail
+              : 'the agent never returned the fixture marker, so no tool call is proven and pairing was not exercised')
           : !toolItems.length
             ? 'the agent DID read the fixture file — its reply carries a marker that exists only inside it — and the transcript published no tool call and no tool result at all'
             : paired && sameHistory
@@ -1328,9 +1388,16 @@ async function runA7a() {
     })
     const got = await waitForNeedle(sid, resumed, secret, 'assistant', REPLY_MS)
     const pass = got.ok === true
+    const v = await verdictOrAuthBlock(
+      pass,
+      sid,
+      resumed,
+      'daemon restart retained the same live conversation and codeword',
+      'daemon restart lost the session or codeword',
+    )
     const out = result(
-      pass ? 'PASS' : 'FAIL',
-      pass ? 'daemon restart retained the same live conversation and codeword' : 'daemon restart lost the session or codeword',
+      v.verdict,
+      v.summary,
       control,
       ['BASELINE          user=' + user.ok + ' reply=' + reply.ok, 'RESTART           ' + short(restart), 'POST PIN          ' + postPin.daemonPid + ' ' + postPin.daemonSha, 'RECALL            ' + short(recallSent.result?.data ?? recallSent.error ?? null) + ' assistant=' + got.ok, 'STATUS            ' + short(await status(sid))],
       { sid, secret, restart, got },
@@ -1367,9 +1434,16 @@ async function runA7b() {
     })
     const recalled = await waitForNeedle(sid, fresh, secret, 'assistant', REPLY_MS)
     const pass = parked.ok && live.ok && recalled.ok
+    const v = await verdictOrAuthBlock(
+      pass,
+      sid,
+      fresh,
+      'hibernate/wake preserved the conversation and answered after wake',
+      'hibernate/wake lost context or failed to become live',
+    )
     const out = result(
-      pass ? 'PASS' : 'FAIL',
-      pass ? 'hibernate/wake preserved the conversation and answered after wake' : 'hibernate/wake lost context or failed to become live',
+      v.verdict,
+      v.summary,
       control,
       ['HIBERNATE         ' + short(hibernated), 'PARKED            ' + parked.ok, 'RESURRECT         ' + short(resurrected), 'LIVE              ' + live.ok, 'RECALLED          ' + recalled.ok, 'STATUS            ' + short(await status(sid))],
       { sid, secret, hibernated, parked, resurrected, live, recalled: recalled.ok, recall },
