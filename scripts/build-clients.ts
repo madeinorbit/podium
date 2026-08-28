@@ -3,7 +3,7 @@
  *
  * Turbo owns reuse: `build` is a task with `dist/**` outputs and test-guarded inputs
  * (scripts/client-build-inputs.ts), so an unchanged client is restored from the shared
- * cache in seconds instead of rebuilt. This wrapper owns the three things Turbo cannot:
+ * cache in seconds instead of rebuilt. This wrapper owns the four things Turbo cannot:
  *
  *   1. ADMISSION. The same rule as typecheck and test (POD-1343, POD-2774): a broken
  *      install may neither produce a cached client nor replay one. Turbo's key is blind
@@ -17,6 +17,14 @@
  *      run's dist in place for packaging to pick up.
  *   3. THE REFUSAL OF AN UNEXPLAINED --force. `decideForce` again — a forced client
  *      build is minutes of CPU on a host that is also serving a live Podium.
+ *   4. THE COMMIT THE DIST NAMES (POD-3072). Turbo's key is the inputs plus
+ *      PODIUM_APP_VERSION; the commit SHA is in no part of it, and that is on purpose —
+ *      putting it in would make every commit a MISS and there would be nothing left to
+ *      cache. But the stamp the build writes DOES name the commit, so a restore hands
+ *      back a dist stamped with whichever commit first built those inputs, and
+ *      `verifyClientBuild` correctly refuses to release it. The lane therefore re-stamps
+ *      after Turbo returns, on HIT AND MISS ALIKE, with this checkout's HEAD. See
+ *      `stampClients` for why that is sound rather than a way around the provenance check.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -134,6 +142,7 @@ export async function buildClients(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ClientBuildRun> {
   const summaryPath = await runTurboBuild(root, CLIENT_FILTERS, args, env)
+  await stampClients(root, env)
   return { summaryPath, tasks: readRunSummary(root, summaryPath) }
 }
 
@@ -152,7 +161,77 @@ export async function buildWorkspace(
   args: readonly string[] = [],
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
-  return runTurboBuild(root, WORKSPACE_FILTERS, args, env)
+  const summaryPath = await runTurboBuild(root, WORKSPACE_FILTERS, args, env)
+  // `!@podium/desktop` includes both clients, so this run produced or restored both
+  // dists and owes them the same HEAD stamp the client lane writes.
+  await stampClients(root, env)
+  return summaryPath
+}
+
+/** The client dists this lane stamps, relative to the repository root. */
+export const CLIENT_DIST_DIRS = ['apps/web/dist', 'apps/mobile/dist'] as const
+
+/**
+ * The stamp command, as the package scripts spawn it.
+ *
+ * `--conditions=@podium/source` is not decoration: the stamp fingerprints the wire
+ * schema by importing `@podium/model`, and `write-web-build-stamp.ts` REFUSES when that
+ * resolves outside this repository (POD-746). Same interpreter, same flag, same script
+ * as the in-task step, so the bytes it writes here are the bytes that step would write.
+ */
+export function stampCommandFor(root: string, distDir: string): string[] {
+  return [
+    process.execPath,
+    '--conditions=@podium/source',
+    join(root, 'scripts', 'write-web-build-stamp.ts'),
+    join(root, distDir),
+  ]
+}
+
+/**
+ * NAME THE COMMIT BEING RELEASED, ON A RESTORE AS WELL AS A BUILD (POD-3072).
+ *
+ * Both clients still stamp themselves as the last writing step of their own `build`
+ * script — that is what makes `bun run --filter @podium/web build` a COMPLETE dist for
+ * the callers that run it directly and never see Turbo: the development publisher
+ * (apps/server/src/modules/updates/dev-web-build.ts, which reads podium-build.json to
+ * decide the website is at HEAD), the browser lane, and
+ * scripts/prove-client-build-deterministic.sh. Removing it there would leave the live
+ * publisher looking at a dist that names no commit, which it reads as behind and
+ * rebuilds for, on every /version poll.
+ *
+ * What that in-task stamp cannot do is name a commit the task did not run for. On a HIT
+ * the restored bytes carry whichever commit first built these inputs, so this runs the
+ * same script again, afterwards, unconditionally.
+ *
+ * WHY THIS DOES NOT WEAKEN THE PROVENANCE M1 CHECKS. The manifest's per-file inventory
+ * (write-web-build-stamp.ts) SKIPS both `podium-build-manifest.json` and
+ * `podium-build.json`, so rewriting the two stamp files invalidates no hashed file: the
+ * inventory that `verifyClientBuild` checks byte for byte still describes exactly the
+ * bytes on disk, and it is recomputed here from that disk rather than carried over. The
+ * commit is re-stated; nothing about the content claim is taken on trust.
+ *
+ * It is also a no-op on a MISS. The stamp is a pure function of the dist bytes, the
+ * source commit and PODIUM_APP_VERSION (spec §4.3), and all three are the same as they
+ * were moments earlier inside the task — so the second run writes identical bytes, which
+ * is why scripts/prove-client-build-deterministic.sh still holds.
+ *
+ * POD-1986 survives: the stamp script writes `podium-build.json` last, so it is still
+ * the completion marker, and it is now also the last file the LANE writes.
+ */
+export async function stampClients(root: string, env: NodeJS.ProcessEnv): Promise<void> {
+  for (const distDir of CLIENT_DIST_DIRS) {
+    const [file, ...args] = stampCommandFor(root, distDir)
+    const proc = Bun.spawn([file as string, ...args], {
+      cwd: root,
+      env,
+      stdio: ['inherit', 'inherit', 'inherit'],
+    })
+    const code = await proc.exited
+    if (code !== 0) {
+      throw new Error(`build-clients: stamping ${distDir} exited ${code}`)
+    }
+  }
 }
 
 /** Admission, environment fingerprint, force refusal, run — then name the summary. */

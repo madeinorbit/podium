@@ -29,8 +29,8 @@ import {
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
 import { readOrCreateDevArtifactToken } from '../apps/server/src/modules/updates/signing-key'
 import { refreshTargetsOnBoot } from '../apps/server/src/modules/updates/target-refresh'
-import { CLIENT_BUILD_TASKS, buildClients, readRunSummary } from './build-clients'
 import { beginFreshClientPackagingSession } from './build-bun'
+import { CLIENT_BUILD_TASKS, buildClients, readRunSummary } from './build-clients'
 import { prepareHeadlessCross } from './release'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -383,23 +383,17 @@ describe('named-instance development releases', () => {
    * cache populated for this commit, an approval of unchanged clients builds NOTHING,
    * which shows up as HIT on both tasks inside that single run.
    */
-  // SKIPPED ON A REAL BLOCKER, NOT ON A FLAKE — POD-3072.
-  //
-  // It fails on its FIRST line, in `beginFreshClientPackagingSession`, and the failure
-  // is inherited rather than anything this milestone did:
+  // The blocker this was skipped on is fixed (POD-3072). It failed on its first line,
+  // in `beginFreshClientPackagingSession`, with
   //
   //   verify-client-build: web was built from 34a75ea, not 2a9b643
   //
-  // M1 refuses a dist whose stamped sourceCommit is not HEAD. M2 keys the client build
-  // on its file inputs plus PODIUM_APP_VERSION — the commit SHA is baked into the
-  // OUTPUT but is in no part of the KEY. So a commit that touches no client input
-  // restores the previous commit's dist, and M1 correctly refuses it. Reproduced at
-  // 34a75ea41 with none of this milestone's code in the tree; the repro is in POD-3072.
-  //
-  // Enable this the moment POD-3072 lands: it is the only test that measures the M3
-  // claim end to end, and until then that claim rests on the manual run recorded on
-  // POD-3054 (two platforms, one turbo run summary, both client tasks HIT).
-  it.skip('builds the clients once for a two-platform release, and restores them', async () => {
+  // M1 refuses a dist whose stamped sourceCommit is not HEAD; M2 keys the client build
+  // on its file inputs plus PODIUM_APP_VERSION, so the commit is baked into the OUTPUT
+  // but is in no part of the KEY, and a commit touching no client input restored the
+  // previous commit's dist. The lane now re-stamps after Turbo returns, on a restore as
+  // well as a build, so the restored dist names the commit being released.
+  it('builds the clients once for a two-platform release, and restores them', async () => {
     const summaries = (): string[] =>
       existsSync(join(ROOT, '.turbo', 'runs')) ? readdirSync(join(ROOT, '.turbo', 'runs')) : []
 
@@ -410,10 +404,7 @@ describe('named-instance development releases', () => {
     await beginFreshClientPackagingSession([])
     const before = new Set(summaries())
 
-    await prepareHeadlessCross(
-      ['linux-x86_64', 'darwin-aarch64'],
-      join(scratch(), 'release'),
-    )
+    await prepareHeadlessCross(['linux-x86_64', 'darwin-aarch64'], join(scratch(), 'release'))
 
     const written = summaries().filter((name) => !before.has(name))
     // ONE lane for two platforms. Two would be the regression this milestone removed.
@@ -425,5 +416,4 @@ describe('named-instance development releases', () => {
       expect(tasks[task].cache, task).toBe('HIT')
     }
   }, 2_400_000)
-
 })

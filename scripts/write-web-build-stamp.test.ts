@@ -176,6 +176,59 @@ describe('webBuildStamp', () => {
     expect(build()).toEqual(build())
   })
 
+  /**
+   * RE-STAMPING A RESTORED DIST IS THE SAME AS BUILDING IT HERE (POD-3072).
+   *
+   * The client build is cached on its inputs, and the commit is in no part of that key,
+   * so a HIT hands back a dist stamped with whichever commit first built those inputs.
+   * scripts/build-clients.ts fixes that by running this script again afterwards. What
+   * makes that sound rather than a way around M1's provenance check is that the manifest
+   * SKIPS the two stamp files when it inventories the dist: rewriting them invalidates
+   * no hashed file, and the inventory is recomputed from the bytes on disk either way.
+   *
+   * Asserted as byte equality against a dist stamped at the new commit from the start —
+   * an assertion that only read `sourceCommit` back would pass while index.html carried
+   * two version metas, or the inventory still described the pre-stamp page.
+   */
+  it('re-stamped after a restore, is byte-identical to a first build at that commit', () => {
+    const files = ['index.html', 'asset.txt', 'podium-build.json', CLIENT_BUILD_MANIFEST_FILE]
+    const dist = (): string => {
+      const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-restore-'))
+      writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
+      writeFileSync(join(dir, 'asset.txt'), 'x\n')
+      return dir
+    }
+
+    // What the cache holds: this dist, stamped for the commit that filled it.
+    const restored = dist()
+    writeWebBuildStamp(restored, '47a01e3', '0.4.2')
+    // What the lane does after the restore, with the commit actually being released.
+    writeWebBuildStamp(restored, 'b00b135', '0.4.2')
+
+    const fresh = dist()
+    writeWebBuildStamp(fresh, 'b00b135', '0.4.2')
+
+    for (const name of files) {
+      expect(readFileSync(join(restored, name), 'utf8'), name).toBe(
+        readFileSync(join(fresh, name), 'utf8'),
+      )
+    }
+    const manifest = JSON.parse(
+      readFileSync(join(restored, CLIENT_BUILD_MANIFEST_FILE), 'utf8'),
+    ) as ClientBuildManifest
+    expect(manifest.sourceCommit).toBe('b00b135')
+    // The inventory still describes the bytes on disk exactly — including the page the
+    // re-stamp just rewrote, which is the file a carried-over inventory would misname.
+    for (const [name, digest] of Object.entries(manifest.files)) {
+      expect(
+        createHash('sha256')
+          .update(readFileSync(join(restored, name)))
+          .digest('hex'),
+        name,
+      ).toBe(digest)
+    }
+  })
+
   it('refuses to certify a dist whose source commit is unknown', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-manifest-'))
     writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
