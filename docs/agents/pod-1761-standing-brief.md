@@ -1309,7 +1309,7 @@ were caught: I recognised one cell whose true state I happened to remember.
 **And when you edit the header, re-verify the file parses.** Inserting text on an anchor that was a
 PREFIX of a longer comment line left a fragment uncommented — a stray line a parser would have read
 as a malformed data row. The check is one line:
-`awk -F'\t' '!/^#/ && NF>0 && NF<8 {print NR": "$0}' docs/plans/pod-1761-results.tsv`
+`awk -F'\t' '!/^#/ && NF>0 && NF!=8 {print NR": "$0}' docs/plans/pod-1761-results.tsv`
 
 ### Six hours on the control and twenty minutes on the measurement is the RIGHT ratio (2026-08-27 04:05 CEST)
 
@@ -1432,7 +1432,7 @@ landed in column one, so the coverage query saw five driven cells as zero.**
 
 **Run this after appending, every time:**
 
-    awk -F'\t' '!/^#/ && NF>0 && NF<8 {print NR": "$0}' docs/plans/pod-1761-results.tsv
+    awk -F'\t' '!/^#/ && NF>0 && NF!=8 {print NR": "$0}' docs/plans/pod-1761-results.tsv
 
 **Empty output means every data row has its eight fields.** One line, and it would have caught the
 problem at the first cell instead of the fifth. Use `printf '%s\t%s\n'` or a literal tab; `echo`

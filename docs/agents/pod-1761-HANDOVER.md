@@ -316,7 +316,7 @@ Or read its worktree directly — `git -C <wt> status --porcelain`, its evidence
 - **`[parent]` / `[fix]` / `[single]` arm prefix.** A parent-arm FAIL is EVIDENCE, not a verdict —
   any query taking "the latest row per cell" reads a passing cell as failing. That happened twice.
 - **Verify the row parsed**:
-  `awk -F'\t' '!/^#/ && NF>0 && NF<8 {print NR}' docs/plans/pod-1761-results.tsv` — empty is good.
+  `awk -F'\t' '!/^#/ && NF>0 && NF!=8 {print NR}' docs/plans/pod-1761-results.tsv` — empty is good.
   Nine rows were written with literal `\t` instead of tabs and were invisible until repaired.
 - **A query is an instrument.** Check any aggregate against a case whose answer you already know.
 
