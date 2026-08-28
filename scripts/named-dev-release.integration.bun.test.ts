@@ -30,7 +30,7 @@ import { UpdatesService } from '../apps/server/src/modules/updates/service'
 import { readOrCreateDevArtifactToken } from '../apps/server/src/modules/updates/signing-key'
 import { refreshTargetsOnBoot } from '../apps/server/src/modules/updates/target-refresh'
 import { beginFreshClientPackagingSession } from './build-bun'
-import { CLIENT_BUILD_TASKS, buildClients, readRunSummary } from './build-clients'
+import { buildClients, CLIENT_BUILD_TASKS, readRunSummary } from './build-clients'
 import { prepareHeadlessCross } from './release'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -417,7 +417,17 @@ describe('named-instance development releases', () => {
       await beginFreshClientPackagingSession([])
       const before = new Set(summaries())
 
-      await prepareHeadlessCross(['linux-x86_64', 'darwin-aarch64'], join(scratch(), 'release'))
+      // The ledger's client half, written by this very run (POD-3055). Passing it here
+      // is what makes the record end-to-end evidence rather than a shape a unit test
+      // asserted: the HIT below and the HIT in the file are the same fact, and the file
+      // is the only place it survives this process.
+      const recordDir = join(scratch(), 'record')
+      await prepareHeadlessCross(
+        ['linux-x86_64', 'darwin-aarch64'],
+        join(scratch(), 'release'),
+        new Map(),
+        recordDir,
+      )
 
       const written = summaries().filter((name) => !before.has(name))
       // ONE lane for two platforms. Two would be the regression this milestone removed.
@@ -427,6 +437,20 @@ describe('named-instance development releases', () => {
       for (const task of CLIENT_BUILD_TASKS) {
         // Nothing was built: an approval whose clients did not change costs no client build.
         expect(tasks[task].cache, task).toBe('HIT')
+      }
+
+      const client = JSON.parse(readFileSync(join(recordDir, 'client.json'), 'utf8')) as {
+        rootDigest: string
+        sourceCommit: string
+        version: string
+        tasks: Record<string, { hash: string; cache: string }>
+      }
+      expect(client.rootDigest).toMatch(/^[0-9a-f]{64}$/)
+      expect(client.sourceCommit).toBe(git(ROOT, 'rev-parse', '--short=7', 'HEAD'))
+      for (const task of CLIENT_BUILD_TASKS) {
+        // The record says what the run said: same hash, same restore. This is the fact
+        // the next optimisation round reads, months after the run's summary is gone.
+        expect(client.tasks[task], task).toEqual({ hash: tasks[task].hash, cache: 'HIT' })
       }
     } finally {
       if (previousSigningKey === undefined) delete process.env.PODIUM_UPDATE_SIGNING_KEY

@@ -13,6 +13,7 @@ import {
   mintBuildId,
   prepareBuildRecordDir,
   readBuildRecord,
+  releaseTimingStagingDir,
   selectBuildRecordSweep,
   sweepBuildRecords,
   writeBuildRecord,
@@ -234,6 +235,22 @@ describe('a sweep never deletes an artifact a kept release still names', () => {
 
     expect(sweepBuildRecords(dir, { retain: 2 })).toEqual(['crashed'])
     expect(existsSync(buildRecordDir(dir, 'crashed'))).toBe(false)
+  })
+
+  it("never touches the ledger's own staging directory", () => {
+    const dir = state()
+    mkdirSync(releaseTimingStagingDir(dir), { recursive: true })
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    utimesSync(releaseTimingStagingDir(dir), old, old)
+    writeFileSync(join(releaseTimingStagingDir(dir), '0.1.0-dev.1+abc.jsonl'), '{}\n')
+
+    // Old, record-less, and squarely inside `builds/` — every signal a sweep uses to
+    // decide a directory is abandoned. It is the sink a release in flight is appending
+    // to, and deleting it would lose that release's timing under it.
+    expect(sweepBuildRecords(dir, { retain: 2 })).toEqual([])
+    expect(listBuildRecords(dir)).toEqual([])
+    expect(listUnrecordedBuildDirs(dir)).toEqual([])
+    expect(existsSync(releaseTimingStagingDir(dir))).toBe(true)
   })
 
   it('is a no-op on a state directory that has never built', () => {

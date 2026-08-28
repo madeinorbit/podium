@@ -219,7 +219,7 @@ export function listBuildRecords(stateDir: string): BuildRecord[] {
     return []
   }
   const records: BuildRecord[] = []
-  for (const id of names.sort().reverse()) {
+  for (const id of names.filter(isBuildId).sort().reverse()) {
     const record = readBuildRecord(stateDir, id)
     if (record) records.push(record)
   }
@@ -230,11 +230,23 @@ export function listBuildRecords(stateDir: string): BuildRecord[] {
 export function listUnrecordedBuildDirs(stateDir: string): string[] {
   try {
     return readdirSync(buildRecordsRoot(stateDir))
-      .filter((id) => readBuildRecord(stateDir, id) === null)
+      .filter((id) => isBuildId(id) && readBuildRecord(stateDir, id) === null)
       .sort()
   } catch {
     return []
   }
+}
+
+/**
+ * A dot-prefixed entry is the ledger's own infrastructure, not an attempt.
+ *
+ * There is exactly one today — `.timing`, where a release's lines stage while it is
+ * still building — and it must be invisible to both the record listing and the sweep.
+ * A sweep that treated it as an abandoned build would delete the sink a release is
+ * appending to.
+ */
+function isBuildId(name: string): boolean {
+  return !name.startsWith('.')
 }
 
 export function advanceOutcome(
