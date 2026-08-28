@@ -30,7 +30,6 @@ import {
   clientBuildRootDigest,
 } from './client-build-root-digest'
 import {
-  assertClientBuildInvocation,
   beginFreshClientPackagingSession,
   packageHeadlessForFreshClients,
   type FreshClientPackagingSession,
@@ -82,7 +81,6 @@ function productionStamp(hash: string): Record<string, string | number> {
   return {
     wireSchemaDigest: '0123456789abcdef',
     wireVersion: 1,
-    builtAt: '2026-08-21T00:00:00.000Z',
     appVersion: TEST_VERSION,
     sourceSha: TEST_SOURCE_SHA,
     bundleVersion: `bundle+${hash}`,
@@ -107,9 +105,10 @@ function writeBuildManifest(siteDir: string, stamp: Record<string, string | numb
     join(siteDir, 'podium-build-manifest.json'),
     `${JSON.stringify(
       {
-        manifestVersion: 1,
+        manifestVersion: 2,
         sourceCommit: TEST_SOURCE_SHA,
         buildStamp: stamp,
+        fileCount: Object.keys(files).length,
         files,
       },
       null,
@@ -212,7 +211,7 @@ describe('assert-headless-bundle production layout', () => {
         '{"manifestVersion":1,"files":{}}\n',
       )
     }
-    expect(() => clientBuildRootDigest(clients)).toThrow(/has no v1 file inventory/)
+    expect(() => clientBuildRootDigest(clients)).toThrow(/has no v2 file inventory/)
   })
 
   it('refuses a bundle with systemd/ removed', () => {
@@ -268,7 +267,7 @@ describe('assert-headless-bundle production layout', () => {
       version: TEST_VERSION,
     }) as FreshClientPackagingSession
     expect(() => packageHeadlessForFreshClients(attackerSession, [])).toThrow(
-      /requires a fresh-client session minted by this invocation/,
+      /requires client build evidence minted by this invocation/,
     )
   })
 
@@ -300,16 +299,16 @@ describe('assert-headless-bundle production layout', () => {
     ).toThrow(/caller-supplied environment is forbidden for client freshness/)
   })
 
-  it('requires a manifest nonce written by this packaging invocation', () => {
-    const site = scratch()
-    const manifest = join(site, 'podium-build-manifest.json')
-    expect(() => assertClientBuildInvocation(site, 'current')).toThrow(/no readable build manifest/)
-    writeFileSync(manifest, '{"buildInvocation":"stale"}\n')
-    expect(() => assertClientBuildInvocation(site, 'current')).toThrow(
-      /was not freshly produced by this packaging invocation/,
+  it('packaging accepts only evidence minted by verifyClientBuild', () => {
+    const forged = {
+      clientRootDigest: 'a'.repeat(64),
+      version: TEST_VERSION,
+      sourceCommit: TEST_SOURCE_SHA,
+      sites: { web: '/x', mobile: '/y' },
+    }
+    expect(() => packageHeadlessForFreshClients(forged as never, [])).toThrow(
+      /requires client build evidence minted by this invocation/,
     )
-    writeFileSync(manifest, '{"buildInvocation":"current"}\n')
-    expect(() => assertClientBuildInvocation(site, 'current')).not.toThrow()
   })
 
   it('refuses an attacker-computed digest supplied through the old shell interface', () => {
@@ -528,12 +527,11 @@ describe('the gate and the signing step name the same JIT keys', () => {
     const windowsSmoke = readFileSync(join(repoRoot, '.github/workflows/windows-smoke.yml'), 'utf8')
     expect(release).toContain('const session = beginFreshClientPackagingSession([])')
     expect(release).toContain('packageHeadlessForFreshClients(')
-    expect(buildBun).toContain('freshClientPackagingSessions.has(session)')
+    expect(buildBun).toContain('isClientBuildEvidence(session)')
     expect(buildBun).toContain("execFileSync(process.execPath, ['run', packageClients]")
     expect(buildBun).toContain('const packageClients = releaseBuildTimingEnabled()')
-    expect(buildBun).toContain('PODIUM_CLIENT_BUILD_INVOCATION: buildInvocation')
-    expect(buildBun).toContain('assertClientBuildInvocation(web, buildInvocation)')
-    expect(buildBun).toContain('assertClientBuildInvocation(mobile, buildInvocation)')
+    expect(buildBun).toContain('verifyClientBuild({')
+    expect(buildBun).not.toContain('PODIUM_CLIENT_BUILD_INVOCATION')
     expect(buildBun).toContain('direct headless packaging is forbidden')
     expect(buildBun).toContain('continuity, not correctness')
     expect(packageHeadless).toContain('beginFreshClientPackagingSession(argv)')
