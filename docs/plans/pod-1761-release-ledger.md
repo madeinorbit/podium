@@ -5764,3 +5764,14 @@ retained rather than treated as new measurements. The acceptance snapshot remain
 69 cells (54 PASS, 3 confirmed FAIL, 12 qualified/blocked). No runtime drive was performed; the
 operator sandbox remains stopped and host admission is still closed below the 5 GiB disk/swap
 floor.
+
+
+## FOREST — runtime admission hold 2026-08-28 10:05:44 CEST
+
+The coordinator rechecked runtime admission before any new acceptance drive: root free space was
+2,280,012 KiB (99% used), and three one-second vmstat samples reported swap-in/out
+1087/1226, 12/0, and 16/0. This is below the 5,242,880 KiB disk floor and is still swapping,
+so no named instance, server, daemon, web bundle, provider session, or acceptance row was
+started. The operator sandbox remains stopped. The heavy lock is held by POD-2462 for an active
+desktop verification; integration:1761 is free. The Grok and OpenCode A1c re-drives remain
+deferred until a fresh admission check is above the floor and swap is quiet.
