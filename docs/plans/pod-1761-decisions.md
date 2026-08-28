@@ -1271,3 +1271,35 @@ re-read. **POD-3064 is an unrelated mobile bootstrap issue**; the right one is
 POD-3065. Corrected in place. Three times now I have written a ref that pointed
 at a real, unrelated, active issue — the failure mode where nothing looks broken
 from either end.
+
+## Decision 35 — my Decision 32 hypothesis is REFUTED, and that is the useful answer (2026-08-28 17:44 CEST)
+
+POD-3065 re-drove all three suspect cells at `f76f698ce` on named instance
+`p3065x` with fired positive controls. **Every prior verdict stands:** A3/codex
+PARTIAL, A3/opencode PARTIAL, A5/grok FAIL. *"Same substantive result as the old
+PARTIAL; no improvement."*
+
+**The refutation is clean because of HOW it read.** I feared the cells were
+scored against a reader structurally incapable of answering. They were not:
+**items were enumerated and none carried `event:'interrupt'`**, and grok's
+transcript was explicitly *non-empty* with a tool item present. A reader that
+returns content is not the empty reader of Decision 32. **The home-split bug did
+not manufacture these cells.**
+
+**What is actually true is narrower and more useful.** On both server-family
+drivers the interrupt genuinely works — accepted with
+`{ok:true,requested:"protocol"}`, turn leaves `working` in 524ms and 14ms, zero
+terminal bytes at the call and none after 6s and 12s. **Four of five clauses
+pass. The product stops the turn and never writes a transcript record of having
+done so.** That is a real, narrow gap, not a broken interrupt.
+
+**And it is not a regression.** POD-3042's main baseline shows main's legacy PTY
+route with the *same* missing marker. Longstanding on both sides.
+
+**Two lessons I am keeping.** First, a hypothesis that would have excused four
+red cells was worth testing precisely *because* it was convenient — and it was
+wrong. Second, the reason it was refutable at all is that POD-3065 recorded
+**which plane it read and what it found there**, not just a verdict. Decision 34
+showed the opposite case: POD-3047's cell passed on the stream while the read
+returned zero, and only reporting both numbers exposed it. **Say which plane you
+read.**
