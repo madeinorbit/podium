@@ -59,6 +59,6 @@
     "turnEpochClosed": 1,
     "sdkHostObserved": false,
     "durableHeadlessTurnsDir": false,
-    "classification": "SDK selected under TOS+per-spawn; turn closed idle with empty transcript; logged-out; not quota; not marker success"
+    "classification": "unclassified/logged-out; SDK positive control did not fire (no host, empty transcript); not quota; POD-3033 silent-turn gap"
   }
 }

@@ -163,9 +163,13 @@ mtime unchanged `2026-08-28T06:20:34Z`.
 | Confirming `runtimeContract=claude-pty` | Status `driverId=claude-pty`, Claude 2.1.236 under instance abduco, 2410 terminal bytes, no SDK host | `condition=logged-out`; first-run theme/login chooser; send delivered; empty transcript; no resume |
 | Persistent `runtimeContract=claude-sdk` | Status `driverId=claude-sdk`, embedded, TOS=1, resume `0bf2f0fb-…`, turn epoch 1 closed | `condition=logged-out`; `phase=idle`; `error=null`; empty transcript; no interactions |
 
-Provider quota after reset was **not exhausted**. The product still did not
-reach it: named-instance agent-home had no credential. Honest class is
-logged-out / not-success / not-quota. A quota failure was not manufactured.
+Provider weekly-all after reset was **0%**. That is **not** the product
+result. Both arms were `condition=logged-out` in an empty instance
+agent-home. The SDK **positive control did not fire** (no host process, empty
+transcript), so that arm is **unclassified / logged-out**, not quota. The
+send-delivered / empty-transcript / `error=null` shape is **POD-3033**, not
+a hidden quota class. See
+[`final-classification.md`](final-classification.md).
 
 ## Pin retarget c55613bd7 (2026-08-28T11:06:43Z)
 
