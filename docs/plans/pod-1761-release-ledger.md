@@ -5547,3 +5547,37 @@ only Claude FAIL relevant to the release comparison (A1c) was reproduced on
 main, while current-tip Claude A3 passed at its then-current pin. Accordingly
 the table establishes no confirmed worse-than-main result for the measured
 rows, but it does not claim that every fine acceptance clause is satisfied.
+
+## FOREST — current-tip Grok A5 re-drive (2026-08-28 03:49 CEST)
+
+The epic branch is clean at `af2b1c320`, which is the reviewed A5 evidence
+commit fast-forwarded from exact base `dded76d9c`. The operator sandbox remains
+stopped. The fresh Grok A5 single-arm drive is now authoritative: the named
+`grok2927a5d` rig bound the product `grok-acp/server`, its positive control
+fired, and the live transcript persisted a tool call without a paired result;
+reload preserved that same incomplete tool item and did not restore the
+provider result or the assistant marker. The complete reading is
+`docs/evidence/pod-2927/readings/a5-current-dded.json`; the row is the final
+line of `docs/plans/pod-1761-results.tsv`, with eight fields and timestamp
+`2026-08-28 03:28:16 CEST`.
+
+### Current acceptance columns (69 recorded cells)
+
+| column | cells | PASS | FAIL | other / qualification |
+|---|---:|---:|---:|---|
+| codex | 16 | 13 | 0 | A3 REFUSED; A4a/A4b BLOCKED by approval instrument; A6b scrollback clause UNMEASURED |
+| opencode | 16 | 12 | 0 | A3/A8 PARTIAL; permission rows need current interaction-path re-drive; A6b scrollback clause UNMEASURED |
+| grok | 16 | 12 | 2 | current A1c FAIL (dead send accepted and lost); current A5 FAIL (tool result absent); A4a/A4b BLOCKED |
+| claude | 15 | 11 | 1 | A1c FAIL reproduced on main; A4a/A4b/A8 BLOCKED by Claude CLI instrument; A6b scrollback clause UNMEASURED |
+| shell | 6 | 6 | 0 | all six current shell checks PASS |
+
+The counts are unchanged from the previous 69-cell table, but the Grok A5
+verdict is no longer stale or pre-fix: it was driven on `dded76d9c` after the
+landed `0ef9722a0` reducer repair. The acceptance blockers are now concrete
+production work: POD-2980 still owns the Grok dead-send A1c failure, and the
+new child POD-3025 owns the Grok tool-result/reload failure. POD-2980's
+`d7a229e3e` commit only corrected the fake scoped-wrapper stdin used by its
+focused test; it is not a user-visible recovery fix and is not landed. The
+heavy lease is free, no sandbox is running, and no final release gate is
+authorized until both defects have production fixes and fresh current-tip
+re-drives.
