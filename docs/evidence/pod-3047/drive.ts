@@ -972,7 +972,13 @@ async function runA4a() {
     }
     if (!control.fired) return result('BLOCKED', 'permission probe had no live-session control', control, ['SEND              ' + short(sent)], { sid })
     if (!probe.asks.length) {
-      return result('BLOCKED', 'no permission ask was raised', control, ['SEND              ' + short(sent), 'ASK LIST          [] after ' + probe.ms + 'ms', 'TERMINAL          ' + probe.terminal, 'ITEMS             ' + short(items, 1200)], { sid, probe, items })
+      // WHY THE ASK WAS ABSENT IS PART OF THE BLOCK. "No ask appeared" is one
+      // sentence about two different worlds: the agent never attempted the tool
+      // (nothing to approve), or it attempted it and the write landed with no
+      // approval asked for. The marker file separates them, and only the second
+      // is worth anyone's time.
+      const wrote = existsSync(join(outside, marker + '.txt'))
+      return result('BLOCKED', 'no permission ask was raised; the guarded write ' + (wrote ? 'HAPPENED ANYWAY (marker file present outside the session cwd)' : 'did not happen, so the agent never attempted the tool'), control, ['SEND              ' + short(sent), 'ASK LIST          [] after ' + probe.ms + 'ms', 'TERMINAL          ' + probe.terminal, 'MARKER WRITTEN    ' + wrote + ' at ' + join(outside, marker + '.txt'), 'ITEMS             ' + short(items, 1200), 'CHAT ITEMS        ' + short((chat.items as unknown as Item[]).map((x) => ({ id: x.id, role: x.role, text: textOf(x.text).slice(0, 160) })), 2000)], { sid, probe, items, markerWritten: wrote, chatItems: chat.items })
     }
     const answers = []
     for (const ask of probe.asks) answers.push(await answerAsk(ask))
@@ -1010,7 +1016,8 @@ async function runA4b() {
     }
     if (!control.fired) return result('BLOCKED', 'answer-twice probe had no live-session control', control, ['SEND              ' + short(sent)], { sid })
     if (!probe.asks.length) {
-      return result('BLOCKED', 'no permission ask was raised', control, ['SEND              ' + short(sent), 'ASK LIST          [] after ' + probe.ms + 'ms'], { sid, probe, items })
+      const wrote = existsSync(join(outside, marker + '.txt'))
+      return result('BLOCKED', 'no permission ask was raised; the guarded write ' + (wrote ? 'HAPPENED ANYWAY (marker file present outside the session cwd)' : 'did not happen, so the agent never attempted the tool'), control, ['SEND              ' + short(sent), 'ASK LIST          [] after ' + probe.ms + 'ms', 'MARKER WRITTEN    ' + wrote, 'CHAT ITEMS        ' + short((chat.items as unknown as Item[]).map((x) => ({ id: x.id, role: x.role, text: textOf(x.text).slice(0, 160) })), 2000)], { sid, probe, items, markerWritten: wrote, chatItems: chat.items })
     }
     const first = await answerAsk(probe.asks[0])
     const second = await answerAsk(probe.asks[0])
