@@ -193,3 +193,34 @@ path only — not on any request path — against the ~27 s per file that `quick
 once, during a restart the operator asked for. Left as it is deliberately: making the copy
 asynchronous means holding the database fence across an await, which is a different and larger
 change than this issue.
+
+## Review round 2 — rows for deleted snapshots
+
+POD-2462 found that `discoverAndQueue` retained catalogue rows whose files no longer exist,
+so pruned rows with recent verification timestamps could displace a freshly discovered 0.1.0
+backup in finite retention. The mechanism is real and the fix is in.
+
+**What the pre-fix build actually did, measured rather than reasoned about.** Three rows for
+deleted files (`recordedAtMs = now`) plus one real legacy backup dated 2026-02-01, `keep: 3`:
+
+    runs       [ podium.db.backup-vdrizzle-4-... ]
+    catalogue  [ drizzle-4:verified, pruned-3:verified, pruned-2:verified ]
+    fallback   podium.db.backup-vdrizzle-4-...
+
+So the legacy file WAS still seeded, verified and offered — the reported end state of "never
+seeded or verified" does not occur, because `queueBackgroundVerification` re-derives candidates
+from the directory on every pass and `verifiedFallback` stat-matches, which excludes a dead row
+from ever being the active fallback. What genuinely breaks is the PERSISTED catalogue: two rows
+describing files that do not exist survive retention and displace real history, and correctness
+then depends on two other paths re-deriving from disk every time. That is worth fixing on its
+own terms — a durable record that is wrong is a trap for the next reader of it — and it is a
+one-line-per-site fix.
+
+Fix: `livingRecords()` drops rows whose file is gone, and both the discovery merge and
+`publish()` build on it. `discoverAndQueue` now decides whether to write by comparing PATH SETS
+rather than counts, because this pass both drops and adds rows and an equal length is no
+evidence that nothing changed.
+
+Guard armed: with both `livingRecords()` filters reverted, the new test fails
+(`expected [ …(3) ] to deeply equal [ Array(1) ]`). Reverting only one of them is not enough —
+the other still cleans up — which is why the check is asserted on the catalogue's contents.

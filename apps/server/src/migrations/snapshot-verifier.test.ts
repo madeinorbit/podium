@@ -520,6 +520,51 @@ describe('SnapshotVerifier', () => {
     ).toEqual([newer, older].sort())
   })
 
+  it('does not let rows for deleted snapshots crowd out a real legacy backup', async () => {
+    // The catalogue outlives the files it describes: retention removes a
+    // snapshot from disk, and its row stays behind with a RECENT verification
+    // timestamp. Three such rows fill a keep-3 catalogue, and the one thing
+    // actually restorable on this box — a 0.1.0 backup nothing has recorded —
+    // would be dropped before it was ever seeded, then skipped as a candidate
+    // because a missing file is not one. It would never be verified at all.
+    const dir = tmpDir()
+    const legacy = sqliteFile(dir, 'podium.db.backup-vdrizzle-4-2026-02-01T00-00-00-000Z')
+    const at = new Date('2026-02-01T00:00:00.000Z')
+    utimesSync(legacy, at, at)
+    const runs: string[] = []
+    const { dbPath, verifier } = verifierOver(
+      dir,
+      async (request) => {
+        runs.push(request.path)
+        return {
+          result: { ok: true, correlationId: request.correlationId, bytes: 1, durationMs: 1 },
+        }
+      },
+      { keep: 3 },
+    )
+    writeSnapshotCatalogue(
+      dbPath,
+      [1, 2, 3].map((n) => ({
+        path: join(dir, `podium.db.backup-vpruned-${n}`),
+        size: 100,
+        mtimeMs: 1,
+        sidecars: '-wal:missing',
+        outcome: 'verified' as const,
+        correlationId: `gone-${n}`,
+        // Newer than the legacy file, which is what makes them win on recency.
+        recordedAtMs: Date.now(),
+      })),
+    )
+
+    expect(verifier.discoverAndQueue()).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    // The dead rows are gone and the real file is the one that got verified.
+    expect(readSnapshotCatalogue(dbPath).map((row) => row.path)).toEqual([legacy])
+    expect(runs).toEqual([legacy])
+    expect(verifier.verifiedFallbackPath()).toBe(legacy)
+  })
+
   it('dates a discovered legacy record by the file, not by the discovery', async () => {
     const dir = tmpDir()
     const legacy = sqliteFile(dir, 'podium.db.backup-vdrizzle-9-2026-01-01T00-00-00-000Z')

@@ -261,8 +261,23 @@ export class SnapshotVerifier {
    * even queued. So discovery starts from the DIRECTORY and the catalogue is
    * what it converges on.
    */
+  /**
+   * Catalogue rows whose file is still on disk.
+   *
+   * A row pointing at a deleted snapshot is not history, it is noise: it can
+   * never be a verified fallback (the fallback is identity-matched against the
+   * file) and never a verification candidate (a missing file is skipped). What
+   * it CAN do is occupy a slot in finite retention — three pruned rows with
+   * recent verification timestamps were enough to push a real, still-present
+   * 0.1.0 backup out of the catalogue before it was ever seeded. So a row is
+   * dropped when the thing it describes is gone.
+   */
+  private livingRecords(): SnapshotRecord[] {
+    return this.records().filter((row) => snapshotIdentity(row.path) !== undefined)
+  }
+
   private recordsIncludingLegacy(): SnapshotRecord[] {
-    const records = this.records()
+    const records = this.livingRecords()
     const known = new Set(records.map((row) => row.path))
     const discovered = retainedSnapshotPaths(this.dbPath)
       .filter((path) => !known.has(path))
@@ -303,7 +318,13 @@ export class SnapshotVerifier {
   discoverAndQueue(): boolean {
     if (this.closed) return false
     const merged = this.recordsIncludingLegacy()
-    if (merged.length !== this.records().length) {
+    // Compared by PATH SET, not by count: this pass both drops rows for deleted
+    // files and adds rows for discovered ones, so an equal length is no evidence
+    // that nothing changed.
+    const before = new Set(this.records().map((row) => row.path))
+    const after = new Set(merged.map((row) => row.path))
+    const changed = before.size !== after.size || [...after].some((path) => !before.has(path))
+    if (changed) {
       const active = verifiedFallback(merged)?.path
       writeSnapshotCatalogue(
         this.dbPath,
@@ -336,7 +357,7 @@ export class SnapshotVerifier {
   }
 
   private publish(record: SnapshotRecord): void {
-    const existing = this.records()
+    const existing = this.livingRecords()
     const next = upsertSnapshotRecord(existing, record)
     const active = verifiedFallback(next)?.path
     writeSnapshotCatalogue(
