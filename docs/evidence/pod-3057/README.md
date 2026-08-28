@@ -34,6 +34,22 @@ Each carries its own pin — the commit read back out of the server and daemon
 processes that actually served it, refusing the cell unless both are the
 checked-out HEAD and the product tree is clean against it.
 
+## A second, independent pre-fix arm
+
+POD-3047's acceptance drive measured the same tip on its own rig (`p3047n`,
+credential-free isolated home) and its readings are a stronger statement of the
+defect than an empty session would be, because in both of them the record is
+demonstrably THERE while the read cannot see it:
+
+| reading | on the session stream | `sessions.read` at the same instant |
+|---|---|---|
+| `claude-sdk.a3.json` | 1 persisted interrupt record | **0 items** |
+| `claude-sdk.a5.json` | tool call and its result, both present | **0 items** |
+
+Both at pin `90ebca7d9`. That rules out "the turn never produced anything" as an
+explanation without needing my needle at all — two rigs, two probes, one
+boundary: the plane that watches has the record, the plane that reads does not.
+
 ## The mechanism
 
 | | path it used |
@@ -70,6 +86,17 @@ credential the pre-fix child was already using, so the two arms differ in the
 home and not in the account, and the rig adds no exposure the behaviour under
 test did not already have. A rig that refuses credentials in its agent home (as
 `docs/evidence/pod-3050` does) cannot drive an SDK turn on this path at all.
+
+**A symlink rather than a copy, and the reason is not tidiness** (POD-3047's
+point, worth recording as a rule): a copied Claude credential can go stale, and
+presenting a superseded refresh token can be treated as replay and revoke the
+whole family — which would log the OPERATOR out of their own tool. A symlink
+cannot diverge, so that failure mode does not exist for it.
+
+The write-through caveat belongs with it: a refresh by the SDK child writes to
+the operator's real file. That is not a regression of this rig — before the fix
+the child ran IN the operator home and already wrote there — but it is the
+reason the choice is a symlink to the real file rather than a second copy of it.
 
 ## What the tests assert
 
