@@ -1638,3 +1638,31 @@ and do not rewrite `results.tsv` or evidence reports to match.
 - This documentation change does not run provider or heavy tests. Future SDK drives still
   follow every other rule in this brief (three-part pin, `test:heavy` for RAM, never merge
   main into the epic branch).
+
+### The stop hook counts mail the reader cannot show you
+
+The hook will tell you "you have 102 messages from issue:#2941, #2987, #3025,
+#2942" and then `podium issue mail inbox` will list 19, `mail inbox 1761` will
+list 348, `mail pending` will list 0, and **none of them will be from the issues
+the hook just named.** The listing is truncated — on 2026-08-28 it could not
+show anything newer than 2026-08-20, including mail I had sent myself minutes
+earlier. Do not conclude the messages are phantom and do not conclude they are
+urgent.
+
+**Go around it.** The hook names the SENDING ISSUES, and that is the useful part:
+
+    podium issue show <id> --json     # stage + last comment
+    git log --oneline issue/1761-agent-runtime..issue/<branch>   # unlanded work
+
+That answers the only question the mail would have answered — *is anything
+stuck?* On 2026-08-28 all four named senders were fully landed with zero
+unlanded commits, so 102 unread messages represented no outstanding action at
+all. **A large unread count is not evidence of a backlog; it is evidence that
+sessions report thoroughly and the reader never marks anything read.**
+
+Related and more dangerous: a session sitting in `review` with its worktree
+freed may still hold unlanded evidence on its branch. POD-3027 held 528 lines
+and a reusable probe change, and was explicitly forbidden from editing
+`results.tsv`, so its two verdicts would never have reached the matrix without
+someone transcribing them. **Check every `review`-stage child for unlanded
+commits before you believe the matrix is current.**
