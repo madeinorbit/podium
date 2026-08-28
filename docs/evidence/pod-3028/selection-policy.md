@@ -1,8 +1,9 @@
 # Persistent Claude SDK selection / auth policy (current tip)
 
-Pin: `45323df36` (same as local `issue/1761-agent-runtime`). No product change
-in this note. Implementation of a TOS-gated subscription auth declaration is
-POD-3031, which already has a live session.
+Written against `45323df36`. After rebase, this issue branch is on
+`98ef8d6e0`, which already includes `bcbbd6409`: embedded.auth now lists
+`subscription`, and `select` routes subscription to `claude-sdk` when TOS
+admits the driver. The live post-reset drive is recorded separately.
 
 ## What the manifest declares
 

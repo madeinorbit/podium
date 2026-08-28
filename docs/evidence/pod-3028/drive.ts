@@ -167,7 +167,11 @@ function isSdkHost(entry: SafeProcess): boolean {
 
 async function drivePty() {
   const startedAt = iso()
-  const made = await mutate('sessions.create', { cwd: PTY_CWD, agentKind: 'claude-code' })
+  const made = await mutate('sessions.create', {
+    cwd: PTY_CWD,
+    agentKind: 'claude-code',
+    runtimeContract: 'claude-pty',
+  })
   const sessionId = made.result?.data?.sessionId as string | undefined
   if (!sessionId) throw new Error(`claude-pty create failed: ${JSON.stringify(made)}`)
   const chat = new Chat(sessionId)
@@ -206,7 +210,7 @@ async function drivePty() {
     const loggedOutReported = LOGGED_OUT.test(combined)
     const markerReply = assistant.includes(MARKER_PTY)
     return {
-      path: 'interactive claude-pty (confirming control; default spawn, no runtimeContract)',
+      path: 'confirming claude-pty fallback (runtimeContract=claude-pty while TOS admits SDK)',
       startedAt,
       sentAt,
       endedAt: iso(),

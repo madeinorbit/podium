@@ -133,5 +133,36 @@ in progress. This issue does not change product code.
 
 ## Validation
 
-Evidence, drive scripts, and one named-instance boundary run. No product code
-changed, so `bun run test` was not run. `test:heavy` was not queued.
+Evidence, drive scripts, and named-instance boundary runs. No product code
+changed on this branch (rebase onto 98ef8d6e0 only), so `bun run test` was
+not run. `test:heavy` was not queued.
+
+## Post-reset drive at 98ef8d6e0 (2026-08-28T11:00Z)
+
+Rebased this issue branch onto local `issue/1761-agent-runtime` **`98ef8d6e0`**.
+`git diff --name-only 98ef8d6e0 HEAD` is only `docs/evidence/pod-3028`. The
+stale `45323df36` pin was not reused for this run. That tip already contains
+`bcbbd6409` (subscription auth under the ToS gate): embedded.auth includes
+`subscription`, and `select` routes subscription to `claude-sdk` when TOS
+admits it. Explicit `runtimeContract=claude-pty` remains the fallback.
+
+Absolute quota queries:
+
+| UTC | weekly_all | action |
+| --- | --- | --- |
+| 2026-08-28T10:34:05Z | 100% until 11:00:00Z | park/poll |
+| 2026-08-28T10:59:30Z | 100% | still parked |
+| 2026-08-28T11:00:10.735Z | **0%** | reset confirmed; drive |
+
+Named instance `p3028r-8281100`. Server PID 295487, daemon PID 295782,
+`PODIUM_SPAWN_SHA=5f203cd43`. TOS=1 on daemon only. No credential copy. Live
+mtime unchanged `2026-08-28T06:20:34Z`.
+
+| Path | Control | Product |
+| --- | --- | --- |
+| Confirming `runtimeContract=claude-pty` | Status `driverId=claude-pty`, Claude 2.1.236 under instance abduco, 2410 terminal bytes, no SDK host | `condition=logged-out`; first-run theme/login chooser; send delivered; empty transcript; no resume |
+| Persistent `runtimeContract=claude-sdk` | Status `driverId=claude-sdk`, embedded, TOS=1, resume `0bf2f0fb-…`, turn epoch 1 closed | `condition=logged-out`; `phase=idle`; `error=null`; empty transcript; no interactions |
+
+Provider quota after reset was **not exhausted**. The product still did not
+reach it: named-instance agent-home had no credential. Honest class is
+logged-out / not-success / not-quota. A quota failure was not manufactured.
