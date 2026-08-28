@@ -9,6 +9,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import {
   type IssueCloseReason,
+  type IssuePanelArtifact,
   type IssueWire,
   issueStatusLabel,
   issueStatusMenuEntries,
@@ -71,6 +72,11 @@ const SESSION_CHIP = 20
  * over. That is the standard iOS rule and the thing that makes a two-detent
  * sheet feel like one surface rather than a window with a list glued inside it.
  */
+/** The BottomSheet's exit is a spring; this is the settle it is tuned to, and
+ *  what the viewer waits out before presenting (iOS drops a modal presented
+ *  during another's dismissal). */
+const SHEET_EXIT_MS = 280
+
 export function TaskSheet({
   issue,
   issues,
@@ -96,41 +102,70 @@ export function TaskSheet({
     void trpc.issues.addComment.mutate({ id: issue.id, author: 'mobile', body }).catch(() => {})
   }
 
+  /**
+   * THE ARTIFACT OPENS *ABOVE* THIS SHEET, NOT INSIDE IT.
+   *
+   * The viewer is a `Modal`, and it used to render inside {@link SheetBody} —
+   * which is itself inside the BottomSheet's `Modal`. iOS silently drops a
+   * modal presented from within another, so the tap did nothing at all: no
+   * viewer, no fetch, no error (proven 2026-08-28 from the device's own URL
+   * cache — every artifact type had HTTP rows except the ones opened here).
+   *
+   * So the row hands the artifact UP, the sheet dismisses, and the viewer
+   * presents from the root once that dismissal has finished — the same
+   * ordering the action sheets keep (see ActionSheet's deferral note). The
+   * href is captured at press time because `issue` is null by the time the
+   * viewer opens.
+   */
+  const [viewer, setViewer] = useState<{ artifact: IssuePanelArtifact; url: string } | null>(null)
+  const openArtifact = (artifact: IssuePanelArtifact, url: string) => {
+    onClose()
+    setTimeout(() => setViewer({ artifact, url }), SHEET_EXIT_MS)
+  }
+
   return (
-    <BottomSheet
-      visible={issue !== null}
-      onClose={onClose}
-      mode="detented"
-      accent={hex}
-      testID="task-sheet"
-      head={
-        issue ? (
-          <SheetHead
+    <>
+      <BottomSheet
+        visible={issue !== null}
+        onClose={onClose}
+        mode="detented"
+        accent={hex}
+        testID="task-sheet"
+        head={
+          issue ? (
+            <SheetHead
+              issue={issue}
+              issues={issues}
+              sessions={sessions}
+              hex={hex}
+              onOpenSession={onOpenSession}
+            />
+          ) : null
+        }
+        footer={issue ? <Composer placeholder="Comment on this task…" onSend={post} /> : null}
+        footerRule={false}
+      >
+        {issue ? (
+          <SheetBody
             issue={issue}
             issues={issues}
             sessions={sessions}
-            hex={hex}
+            onOpenArtifact={openArtifact}
             onOpenSession={onOpenSession}
+            onOpenIssue={(target) => {
+              if (onOpenIssue) return onOpenIssue(target)
+              onClose()
+              router.push(`/issue/${encodeURIComponent(target.id)}`)
+            }}
           />
-        ) : null
-      }
-      footer={issue ? <Composer placeholder="Comment on this task…" onSend={post} /> : null}
-      footerRule={false}
-    >
-      {issue ? (
-        <SheetBody
-          issue={issue}
-          issues={issues}
-          sessions={sessions}
-          onOpenSession={onOpenSession}
-          onOpenIssue={(target) => {
-            if (onOpenIssue) return onOpenIssue(target)
-            onClose()
-            router.push(`/issue/${encodeURIComponent(target.id)}`)
-          }}
-        />
-      ) : null}
-    </BottomSheet>
+        ) : null}
+      </BottomSheet>
+      <ArtifactViewer
+        artifact={viewer?.artifact ?? null}
+        url={viewer?.url ?? null}
+        onClose={() => setViewer(null)}
+      />
+    </>
   )
 }
 
@@ -290,12 +325,15 @@ function SheetBody({
   issue,
   issues,
   sessions,
+  onOpenArtifact,
   onOpenSession,
   onOpenIssue,
 }: {
   issue: IssueWire
   issues: readonly IssueWire[]
   sessions: readonly SessionMeta[]
+  /** Hands the artifact up: the viewer must present ABOVE this sheet's modal. */
+  onOpenArtifact: (artifact: IssuePanelArtifact, url: string) => void
   onOpenSession: (s: SessionMeta) => void
   onOpenIssue: (issue: IssueWire) => void
 }) {
@@ -316,7 +354,6 @@ function SheetBody({
   )
   const httpOrigin = useHttpOrigin()
   const artifacts = issue.panel?.artifacts ?? []
-  const [openArtifact, setOpenArtifact] = useState<(typeof artifacts)[number] | null>(null)
   const git = issue.gitState
 
   return (
@@ -345,7 +382,7 @@ function SheetBody({
                 accessibilityRole={url ? 'button' : undefined}
                 accessibilityLabel={url ? `Open ${label}` : label}
                 disabled={!url}
-                onPress={url ? () => setOpenArtifact(artifact) : undefined}
+                onPress={url ? () => onOpenArtifact(artifact, url) : undefined}
                 scaleTo={0.99}
                 style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
               >
@@ -358,12 +395,6 @@ function SheetBody({
           })}
         </Part>
       ) : null}
-      <ArtifactViewer
-        artifact={openArtifact}
-        url={openArtifact ? issueArtifactHref(issue, openArtifact, httpOrigin) : null}
-        onClose={() => setOpenArtifact(null)}
-      />
-
       {children.length > 0 ? (
         <Part
           title="Subtasks"

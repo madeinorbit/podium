@@ -1,10 +1,11 @@
 import { segmentOfferText } from '@podium/client-core/viewmodels'
-import type { SessionOffer } from '@podium/model'
+import type { IssueWire, SessionOffer } from '@podium/model'
 import { Lightbulb, X } from 'lucide-react-native'
 import { useState } from 'react'
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { OfferArtifactStrip } from './OfferArtifactStrip'
 import { PressableScale } from './PressableScale'
 
 /** Compose an input action's prompt with the feedback collected in context. */
@@ -30,20 +31,32 @@ export const composeOfferPrompt = (prompt: string, feedback: string): string =>
  * conversation to move past it, so a question already decided against sat at the
  * end of the transcript — and on a session that can no longer take a turn, it sat
  * there with no reachable exit at all.
+ *
+ * THE EVIDENCE IS IN THE BLOCK, not behind a link [POD-120]. The offered
+ * artifacts used to be a "2 artifacts →" control that opened the task peek —
+ * the whole issue, to look at two files the agent had already named. The
+ * desktop answers this with {@link OfferArtifactStrip} inside the offer itself,
+ * and so does this now; `onOpenEvidence` survives as the strip's overflow
+ * target, which is the one case where the full list still beats the strip.
  */
 export function SessionActionCard({
   offer,
-  evidenceCount = 0,
+  issue,
+  lastInputAt,
   onAction,
   onDismiss,
   onOpenEvidence,
 }: {
   offer: SessionOffer
-  evidenceCount?: number
+  /** The session's issue — what the offer's artifact paths resolve against. */
+  issue?: IssueWire
+  /** SessionMeta.lastInputAt, the freshness anchor for an offer naming no paths. */
+  lastInputAt?: string
   onAction: (prompt: string) => Promise<void>
   /** Take the offer off every surface without answering it. Absent on a host
    *  that cannot write (the card then keeps its two original exits). */
   onDismiss?: (offerCreatedAt: string) => Promise<void>
+  /** Open the task's full artifact list — reached from the strip's "+N" only. */
   onOpenEvidence?: () => void
 }) {
   const [inputAction, setInputAction] = useState<number | null>(null)
@@ -141,6 +154,14 @@ export function SessionActionCard({
           )}
         </Text>
       ) : null}
+      {issue ? (
+        <OfferArtifactStrip
+          offer={offer}
+          issue={issue}
+          {...(lastInputAt ? { lastInputAt } : {})}
+          {...(onOpenEvidence ? { onShowAll: onOpenEvidence } : {})}
+        />
+      ) : null}
       {/* Failures get their own line rather than a slot in the eyebrow: at 390pt
           "not dismissed — try again" beside the label wrapped the eyebrow onto
           two lines, and an error is not a thing to truncate. */}
@@ -212,18 +233,6 @@ export function SessionActionCard({
               {action.input ? <Text style={styles.inputMark}>✎</Text> : null}
             </PressableScale>
           ))}
-          {evidenceCount > 0 && onOpenEvidence ? (
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${evidenceCount} offer artifact${evidenceCount === 1 ? '' : 's'}`}
-              onPress={onOpenEvidence}
-              style={styles.linkButton}
-            >
-              <Text
-                style={styles.linkText}
-              >{`${evidenceCount} artifact${evidenceCount === 1 ? '' : 's'} →`}</Text>
-            </PressableScale>
-          ) : null}
         </View>
       )}
     </View>

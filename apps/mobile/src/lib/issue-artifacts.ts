@@ -61,6 +61,23 @@ export function htmlWithBase(html: string, baseUrl: string): string {
   )
 }
 
+/**
+ * Drop a trailing half-written tag from a document that was cut at a byte cap.
+ *
+ * A cap slices wherever the byte count runs out — including in the middle of
+ * `<div class="`. HTML has no error for that: the parser keeps consuming the
+ * rest of the document as attribute text, and since there is no rest, the
+ * markup after the cut simply never becomes elements. On a page whose visible
+ * content happens to live past the cut that renders as a WHITE, EMPTY frame —
+ * indistinguishable from "the artifact did not open". Ending on the last
+ * complete tag keeps the prefix a real document that shows what it has.
+ */
+export function endAtTagBoundary(html: string): string {
+  const lastOpen = html.lastIndexOf('<')
+  const lastClose = html.lastIndexOf('>')
+  return lastOpen > lastClose ? html.slice(0, lastOpen) : html
+}
+
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
 /** UTF-8 → base64 `data:text/html` URI. Hermes has neither Buffer nor btoa,

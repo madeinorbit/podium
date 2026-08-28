@@ -15,6 +15,7 @@ import {
 import { authenticatedImageSource, fetchAuthenticatedAsset } from '../client/authenticated-assets'
 import { useServerProfile } from '../client/ServerProfileGate'
 import {
+  endAtTagBoundary,
   htmlDataUri,
   htmlWithBase,
   type IssueArtifactPreview,
@@ -40,6 +41,8 @@ type DomWebViewComponent = ComponentType<{
   source: { uri: string }
   style?: StyleProp<ViewStyle>
   containerStyle?: StyleProp<ViewStyle>
+  /** WebKit killed the render process — on a phone, almost always memory. */
+  onContentProcessDidTerminate?: () => void
 }>
 let domWebViewCache: DomWebViewComponent | null | undefined
 function resolveDomWebView(): DomWebViewComponent | null {
@@ -166,19 +169,24 @@ function ArtifactBody({
  */
 function HtmlWebView({ url, bearer }: { url: string; bearer: string | null }) {
   const [doc, setDoc] = useState<string | null>(null)
+  const [clipped, setClipped] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
     setDoc(null)
+    setClipped(false)
     setError(null)
     void fetchAuthenticatedAsset(url, bearer)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Could not load (${res.status})`)
         const buf = await res.arrayBuffer()
-        const slice = buf.byteLength > HTML_CAP ? buf.slice(0, HTML_CAP) : buf
-        const html = new TextDecoder().decode(slice)
-        if (alive) setDoc(htmlDataUri(htmlWithBase(html, url)))
+        const overCap = buf.byteLength > HTML_CAP
+        const decoded = new TextDecoder().decode(overCap ? buf.slice(0, HTML_CAP) : buf)
+        const html = overCap ? endAtTagBoundary(decoded) : decoded
+        if (!alive) return
+        setClipped(overCap)
+        setDoc(htmlDataUri(htmlWithBase(html, url)))
       })
       .catch((e: unknown) => {
         if (alive) setError(e instanceof Error ? e.message : String(e))
@@ -189,12 +197,39 @@ function HtmlWebView({ url, bearer }: { url: string; bearer: string | null }) {
   }, [bearer, url])
 
   const WebView = resolveDomWebView()
-  if (!WebView) return <FetchedText url={url} asMarkdown={false} bearer={bearer} />
+  // No webview in this binary: the source is still worth reading, but say why
+  // it is markup rather than a page — an unexplained wall of HTML is the same
+  // report as a blank one ("the artifact does not open").
+  if (!WebView) {
+    return (
+      <FetchedText
+        url={url}
+        asMarkdown={false}
+        bearer={bearer}
+        note="This build has no web view, so the page is shown as source."
+      />
+    )
+  }
   if (error) return <Text style={styles.note}>{error}</Text>
   if (doc === null) return <Text style={styles.note}>Loading…</Text>
   return (
     <View style={styles.webFrame} testID="artifact-html-webview">
-      <WebView source={{ uri: doc }} style={styles.webView} />
+      {clipped ? (
+        <Text style={styles.clip}>
+          Preview clipped at {Math.round(HTML_CAP / (1024 * 1024))} MB — open it on a desktop to
+          read the rest.
+        </Text>
+      ) : null}
+      <WebView
+        source={{ uri: doc }}
+        style={styles.webView}
+        // A blank frame is the one failure a reader cannot interpret. iOS kills
+        // the WebContent process on a heavy page (far sooner on a phone than in
+        // the simulator), and the view is left showing nothing at all; say so.
+        onContentProcessDidTerminate={() =>
+          setError('The phone stopped this preview — the page is too heavy to render here.')
+        }
+      />
     </View>
   )
 }
@@ -203,10 +238,13 @@ function FetchedText({
   url,
   asMarkdown,
   bearer,
+  note,
 }: {
   url: string
   asMarkdown: boolean
   bearer: string | null
+  /** Why this is source text rather than the rendered thing, when it is. */
+  note?: string
 }) {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -233,18 +271,16 @@ function FetchedText({
 
   if (error) return <Text style={styles.note}>{error}</Text>
   if (text === null) return <Text style={styles.note}>Loading…</Text>
-  if (asMarkdown) {
-    return (
-      <ScrollView contentContainerStyle={styles.prose}>
-        <RichMarkdown text={text} />
-      </ScrollView>
-    )
-  }
   return (
     <ScrollView contentContainerStyle={styles.prose}>
-      <Text style={styles.mono} selectable>
-        {text}
-      </Text>
+      {note ? <Text style={styles.clip}>{note}</Text> : null}
+      {asMarkdown ? (
+        <RichMarkdown text={text} />
+      ) : (
+        <Text style={styles.mono} selectable>
+          {text}
+        </Text>
+      )}
     </ScrollView>
   )
 }
@@ -298,6 +334,17 @@ const styles = StyleSheet.create({
   },
   prose: {
     paddingBottom: space.xxl,
+  },
+  /** A caveat about the preview itself — app chrome, never markup injected
+   *  into someone else's document. Reads on the white page and on the dark. */
+  clip: {
+    ...sans(500),
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    backgroundColor: color.surfaceHigh,
   },
   note: {
     ...sans(400),

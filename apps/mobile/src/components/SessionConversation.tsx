@@ -25,7 +25,6 @@ import {
 } from '../client/hooks'
 import { useKeyboardVerticalOffset } from '../hooks/useKeyboardVerticalOffset'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
-import { resolveOfferArtifacts } from '../lib/offer-artifacts'
 import { dropEchoedPendingTurns } from '../lib/pending-turns'
 import { humanizeSendFailure } from '../lib/send-failure'
 import { sendOfferAction } from '../lib/send-offer-action'
@@ -474,13 +473,6 @@ export function SessionConversation({
   // and reaching for `.createdAt` through it throws.
   const answered = session.offer != null && session.offer.createdAt === answeredOfferAt
   const offer = answered ? undefined : session.offer
-  const offerArtifacts = offer
-    ? resolveOfferArtifacts({
-        offer,
-        issue,
-        ...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {}),
-      })
-    : []
   // THE SHARED READING OF "JUST SENT", not a local one: `chatActivity` already
   // knows that a fresh send means "Sending" on a live session and "Waking the
   // agent…" on a parked one, and the desktop chat passes the same flag into the
@@ -661,7 +653,10 @@ export function SessionConversation({
                 offer ? (
                   <SessionActionCard
                     offer={offer}
-                    evidenceCount={offerArtifacts.length}
+                    // The offer draws its own evidence [POD-120]; the issue and
+                    // the input stamp are what its artifact paths resolve against.
+                    {...(issue ? { issue } : {})}
+                    {...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {})}
                     onAction={(prompt) => acceptOffer(prompt, offer.createdAt)}
                     // The same write the web x makes: the offer leaves every
                     // surface and every viewer, not just this phone.

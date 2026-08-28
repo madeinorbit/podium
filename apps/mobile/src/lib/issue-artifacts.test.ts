@@ -1,6 +1,7 @@
 import { asArtifactId, asIssueId, type IssuePanelArtifact, type IssueWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  endAtTagBoundary,
   htmlDataUri,
   htmlWithBase,
   issueArtifactHref,
@@ -79,6 +80,24 @@ describe('htmlWithBase', () => {
   it('escapes quotes so a hostile URL cannot break out of the attribute', () => {
     const out = htmlWithBase('<p/>', 'https://x/a"onload="alert(1)')
     expect(out).toContain('href="https://x/a&quot;onload=&quot;alert(1)"')
+  })
+})
+
+describe('endAtTagBoundary', () => {
+  it('drops a tag the cap cut in half', () => {
+    expect(endAtTagBoundary('<p>a</p><div class="w')).toBe('<p>a</p>')
+    expect(endAtTagBoundary('<p>a</p><')).toBe('<p>a</p>')
+  })
+
+  it('leaves a document that ends on a complete tag alone', () => {
+    expect(endAtTagBoundary('<p>a</p>')).toBe('<p>a</p>')
+    expect(endAtTagBoundary('<p>trailing text')).toBe('<p>trailing text')
+    expect(endAtTagBoundary('')).toBe('')
+  })
+
+  it('is not fooled by a < inside earlier text', () => {
+    expect(endAtTagBoundary('<p>a &lt; b</p><span')).toBe('<p>a &lt; b</p>')
+    expect(endAtTagBoundary('<p>1 < 2</p>')).toBe('<p>1 < 2</p>')
   })
 })
 

@@ -51,6 +51,9 @@ vi.mock('./PullToRefreshBoundary', () => ({
 }))
 vi.mock('./SessionLifecycle', () => ({ MobileSessionLifecycle: () => null }))
 vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
+// Same reason as TaskSheet: the offer's artifact strip mounts the artifact
+// viewer, which imports the boot gate this leaf lane cannot load.
+vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 vi.mock('./Composer', () => ({ Composer: () => null }))
 
 /**
