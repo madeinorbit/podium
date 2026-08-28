@@ -3,26 +3,28 @@
 Internal acceptance under POD-1761. This is not a product change and does not
 duplicate POD-2987.
 
-## Provenance before any edit or launch
+## Provenance (current)
 
 | Ref | SHA |
 | --- | --- |
-| This worktree HEAD | `45323df366cb9ac7156f7d1b4c02c39c706aaf33` |
-| Local `issue/1761-agent-runtime` | `45323df366cb9ac7156f7d1b4c02c39c706aaf33` (identical) |
+| Requested docs pin | `c55613bd7a7cc32405672fa0794b720a38bbe28d` (`docs(claude): align post-landing policy notes`) |
+| Behavior / runtime ancestor | `98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8` (last non-docs runtime; `git diff --name-only 98ef8d6e0 c55613bd7` is all `docs/`) |
+| `git merge-base --is-ancestor c55613bd7 HEAD` | holds |
 | Merge-base with local `main` | `0bd90092c3a926b9305da34547fcc51b1e19b0a7` |
 
-`git merge-base --is-ancestor 45323df36 HEAD` holds. POD-3001
-(`b6d403636`, persistent `packages/agent-runtime` Claude SDK RuntimeDriver) is
-an ancestor. POD-3018 (`95b9c650e`, resume/adoption repair) is **not** an
-ancestor of this tip; the drive is of the current 1761 persistent driver, not
-that unlanded repair.
+POD-3001 (`b6d403636`) and `bcbbd6409` (subscription auth under the ToS gate)
+are ancestors. POD-3018 (`95b9c650e`) is not. POD-2987 remains the
+`8144307b4` pty / durable-headless proof at `docs/evidence/pod-2987`.
 
-POD-2987 already proved interactive `claude-pty` and the old
-durable-headless/process-per-turn `claude-sdk` at `8144307b4`. That evidence
-stays at `docs/evidence/pod-2987`. This drive's new work is the current
-persistent RuntimeDriver selected by `sessions.create` with
-`runtimeContract: 'claude-sdk'` under `PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1`, plus a
-confirming interactive `claude-pty` control that omits `runtimeContract`.
+**Historical (first launch, before rebase):** this worktree HEAD and local
+`issue/1761-agent-runtime` were identical at `45323df36`. That pin is **not**
+the current product pin. The 12:00 CEST drive below is labeled historical for
+that reason.
+
+This drive's current work is the persistent RuntimeDriver at the
+`98ef8d6e0`/`c55613bd7` stack: `sessions.create` with
+`runtimeContract: 'claude-sdk'` under `PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1`, plus
+an explicit `runtimeContract: 'claude-pty'` fallback control.
 
 ## Window classification (read-only, no Claude launch)
 
@@ -74,9 +76,10 @@ credential outside the ten-minute floor, and on a fresh named instance.
 - Preserve the current terminal fallback; no product changes here.
 - File a separate sub-issue of POD-1761 for any durable classification repair.
 
-## Drive (2026-08-28 12:00–12:04 CEST)
+## Historical drive (2026-08-28 12:00–12:04 CEST, pin 45323df36)
 
-Named instance `p3028q-8280953`, ports 33028/47028/47029, pin `45323df36`.
+Named instance `p3028q-8280953`, ports 33028/47028/47029, pin `45323df36`
+(pre-`bcbbd6409`, pre-`c55613bd7`).
 Server PID 140419 and daemon PID 140522 both recorded `PODIUM_SPAWN_SHA` and
 cwd of this worktree. Daemon had `PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1` and no
 `PODIUM_RUNTIME_DRIVER`. No `HOME` / `PODIUM_STATE_DIR` / `PODIUM_AGENT_HOME` /
@@ -104,23 +107,25 @@ OAuth authorize URLs from the PTY first-run UI were redacted in the raw
 reading. Leftover PTY Claude/abduco after daemon stop were killed; live
 credential untouched.
 
-## Selector / auth applicability (coordinator policy seam)
+## Selector / auth (current, after `bcbbd6409`)
 
-The Claude manifest still **declares** embedded `claude-sdk` auth as
-`api-key` / `bedrock` / `vertex` only. Default `select({ auth: 'subscription' })`
-stays on `claude-pty` even when the SDK is available.
+`bcbbd6409` **landed**. Embedded `claude-sdk` auth is
+`subscription` / `api-key` / `bedrock` / `vertex`. When TOS admits
+`claude-sdk`, `select({ auth: 'subscription' })` routes to `claude-sdk`.
+Default Claude without TOS still stays on `claude-pty`. Explicit
+`runtimeContract: 'claude-pty'` is the fallback while TOS is on.
+Machine `PODIUM_RUNTIME_DRIVER=claude-sdk` is still ignored.
 
-The production resolver does **not** enforce that list on the opt-in path:
-`runtimeContract: 'claude-sdk'` plus `PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1` returns
-`claude-sdk` without reading `embedded.auth`. This drive observed that
-(`driverId=claude-sdk` published). It did **not** reach the subscription
-spend-limit window because the named instance agent-home had no credential and
-the product classified both paths `logged-out`. No API-key test account was
-supplied. Exact pins and doc list:
+The named-instance drives still did **not** reach the provider: empty
+agent-home, `condition=logged-out`. That is not a quota cell.
+
+**Historical (audit at 45323df36, before `bcbbd6409`):** the manifest then
+declared embedded auth as `api-key` / `bedrock` / `vertex` only, and default
+`select({ auth: 'subscription' })` stayed on `claude-pty`. Even then,
+`runtimeContract: 'claude-sdk'` plus `PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1`
+returned `claude-sdk` without reading `embedded.auth`. POD-3031 was in
+progress at that audit; it has since landed as `bcbbd6409`. Details:
 [`selection-policy.md`](selection-policy.md).
-
-Implementation of a TOS-gated subscription declaration is **POD-3031**, already
-in progress. This issue does not change product code.
 
 ## Classification gaps (not fixed here)
 
@@ -134,8 +139,9 @@ in progress. This issue does not change product code.
 ## Validation
 
 Evidence, drive scripts, and named-instance boundary runs. No product code
-changed on this branch (rebase onto 98ef8d6e0 only), so `bun run test` was
-not run. `test:heavy` was not queued.
+changed on this branch (rebase onto 1761, including docs-only `c55613bd7`
+after runtime `98ef8d6e0`), so `bun run test` was not run. `test:heavy` was
+not queued.
 
 ## Post-reset drive at 98ef8d6e0 (2026-08-28T11:00Z)
 
