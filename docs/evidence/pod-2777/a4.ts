@@ -148,7 +148,7 @@ function makeNeverApprovedDummyRepo(): string {
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd })
   writeFileSync(
     join(cwd, 'README.md'),
-    'Harmless dummy Git repository for the Codex A4 first-approval measurement. No product code.\n',
+    'Harmless dummy Git repository for the Codex/Grok A4 first-approval measurement. No product code.\n',
   )
   execFileSync('git', ['add', 'README.md'], { cwd })
   execFileSync(
@@ -254,9 +254,9 @@ function setGrokAskingPosture(): void {
     log(`GROK POSTURE      isolated permission_mode=${beforeMode} already set`)
     return
   }
+  grokCfgChanged = true
   mkdirSync(`${process.env.P2777_STATE_ROOT}/agent-home/.grok`, { recursive: true, mode: 0o700 })
   writeFileSync(GROK_CFG, after, { mode: 0o600 })
-  grokCfgChanged = true
   log(`GROK POSTURE      isolated permission_mode=${beforeMode} → ask for this probe only`)
   log('                   operator ~/.grok/config.toml was not touched; restore is armed on exit')
 }

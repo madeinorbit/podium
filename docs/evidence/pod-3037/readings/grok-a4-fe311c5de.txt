@@ -1,0 +1,47 @@
+==============================================================================
+A4a / A4b  permission ask, and answering it twice   harness=grok
+==============================================================================
+GROK POSTURE      isolated permission_mode=(missing config) → ask for this probe only
+                   operator ~/.grok/config.toml was not touched; restore is armed on exit
+SESSION CWD        never-approved dummy git repo /home/mgw/pod-3027-a4-never-approved-1787917904724-cwd-q3zpji/repo
+                   avoided trusted projects: /home/mgw/src/podium, /tmp/cxprobe/work, /tmp/podium-test-run-fXLHSe/podium-codex-live-Hfw0BE, /tmp/pod-op/repo, /home/mgw/src/podium-cloud, /tmp/cx2819/work, /tmp/cx2819-mention/arm0/cwd, /tmp/cx2819-mention/arm1/cwd, /tmp/cx2819-mention/arm2/cwd, /tmp/pod-2777/repo, /home/mgw/src/podium/.worktrees/issue-2245-operator-test-instance
+                   isolated permission_mode=ask
+session d6c40611-0227-4c47-bb25-e74ad20c9c59 created
+BOUND DRIVER       grok-acp (family server)
+
+CONTROL            the turn produced 3 transcript item(s), 3 delta frame(s) — FIRED
+
+A4a  the ask, as chat sees it
+     kind             permission  id=0
+     source           protocol / answerable=structured
+     enumerable       yes — interactions.list carried it while open, not only the stream
+     typed payload    toolName=Bash canAlwaysAllow=false
+     open asks        1
+                      protocol/structured id=0 toolName=Bash
+
+A4a  the TERMINAL half — attached after the structured ask was enumerable
+     terminal bytes   6624 (outputSeen=false)
+     same ask visible before answering: true
+       permission wording present: true
+       unique command marker 'TOOLRAN-1YRHDS' present: true
+       tool name 'Bash' present (supporting only): true
+
+     FIRST ANSWER     {"kind":"permission","decision":"allow-once"}
+     returned         {"ok":true}
+     resolved         the ask left the open set
+     side effect      1 execution(s); TOOLRAN-1YRHDS.txt
+     terminal after answering: +44 byte(s), same ask still prompting: true
+
+A4b  answering the SAME ask a second time
+     returned         {"ok":false,"reason":"already-answered"}
+     classifier check the FIRST answer classifies as: not a refusal (success)
+     typed refusal    true — via typed result, reason="already-answered"
+     silent success   false
+     double action    false — 1 execution(s) before, 1 after
+
+==============================================================================
+A4a  PARTIAL — chat half PASS, terminal half shows the ask but did not resolve
+A4b  PASS — second answer was a typed error, double action: false
+     controls: turn + structured ask FIRED; first answer succeeded, resolved, and acted once FIRED
+==============================================================================
+GROK POSTURE      restored isolated config (absent)
