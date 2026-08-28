@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { loadavg } from 'node:os'
 import { join } from 'node:path'
+import { claudeProjectSlug } from '@podium/harness'
 import { Chat, login, mutate, primeTerminalTui, query, wait } from '../pod-2777/rig'
 
 type Verdict = 'PASS' | 'FAIL' | 'BLOCKED' | 'UNDRIVEN' | 'REFUSED'
@@ -780,6 +781,64 @@ async function interruptRecords(sid: string, chat: Chat): Promise<{
   return { items, serverItems, stop: [...confirmed, ...unconfirmed], confirmed, unconfirmed, refused, idle }
 }
 
+/**
+ * WHERE THE HARNESS ACTUALLY IS, captured instead of inferred.
+ *
+ * This drive spent a pin arguing about a number — `sessions.read` returning
+ * zero — that turned out to be a fact about WHICH HOME the model host was
+ * running in. The argument was only possible because the reading recorded the
+ * empty result and not the two things that explain it. So both now go into
+ * every reading:
+ *
+ *   the PROCESS half  the live child's own HOME, read from /proc/<pid>/environ
+ *   the DISK half     which home the session's JSONL actually landed under
+ *
+ * POD-3057's probe does the disk half; this adds the process half, so neither
+ * of us has to infer where the file went. The slug comes from the PRODUCT's
+ * `claudeProjectSlug` rather than a regex of my own — a rig that misspells the
+ * directory reports a populated home as empty, which is the same class of
+ * mistake as the one this whole section exists to stop.
+ */
+function childHomes(): { pid: number; home: string; cmd: string }[] {
+  const out: { pid: number; home: string; cmd: string }[] = []
+  const inst = process.env.PODIUM_INSTANCE ?? ''
+  for (const name of readdirSync('/proc')) {
+    if (!/^\d+$/.test(name)) continue
+    try {
+      const cmd = readFileSync(join('/proc', name, 'cmdline'), 'utf8').replace(/\0/g, ' ').trim()
+      if (!/claude-sdk-host|claude/.test(cmd)) continue
+      const env = readFileSync(join('/proc', name, 'environ'), 'utf8').split('\0')
+      if (inst && !env.includes('PODIUM_INSTANCE=' + inst)) continue
+      out.push({ pid: Number(name), home: env.find((v) => v.startsWith('HOME='))?.slice(5) ?? '(unset)', cmd })
+    } catch {
+      /* gone or not ours */
+    }
+  }
+  return out
+}
+
+function transcriptsOnDisk(probeCwd: string): Record<string, { dir: string; exists: boolean; files: number }> {
+  const slug = claudeProjectSlug(probeCwd)
+  const homes: Record<string, string> = {
+    instanceAgentHome: AGENT_HOME,
+    operatorHome: process.env.HOME ?? '',
+  }
+  const out: Record<string, { dir: string; exists: boolean; files: number }> = {}
+  for (const [label, home] of Object.entries(homes)) {
+    const dir = join(home, '.claude', 'projects', slug)
+    let files = 0
+    let exists = false
+    try {
+      files = readdirSync(dir).filter((f) => f.endsWith('.jsonl')).length
+      exists = true
+    } catch {
+      /* absent */
+    }
+    out[label] = { dir, exists, files }
+  }
+  return out
+}
+
 function hostChildren(probeCwd: string): ProcessRow[] {
   return sessionProcesses(probeCwd).filter((row) => /claude-sdk-host/.test(row.cmd))
 }
@@ -805,6 +864,7 @@ async function interruptTurn(freezeHost: boolean) {
     const working = await waitPhase(sid, (phase) => phase === 'working', 15_000, 250)
     const before = await interruptRecords(sid, chat)
     const hosts = hostChildren(cwd)
+    const homesInFlight = childHomes()
     const control: Control = {
       fired: (user.ok || working.ok || Boolean((sent.result?.data as { ok?: boolean } | undefined)?.ok)) && before.stop.length === 0,
       what: freezeHost
@@ -908,7 +968,9 @@ async function interruptTurn(freezeHost: boolean) {
         // records is only worth reading next to everything the transcript did
         // hold, so the full item list goes in the reading rather than a filter
         // over it.
-        'SERVER READ ITEMS ' + afterIdle.serverItems.length + ' (sessions.read; empty on this path — see the note on interruptRecords)',
+        'SERVER READ ITEMS ' + afterIdle.serverItems.length + ' (sessions.read)',
+        'CHILD HOMES       ' + short(homesInFlight, 900) + '  <- the process half, read from /proc/<pid>/environ',
+        'JSONL ON DISK     ' + short(transcriptsOnDisk(cwd), 900) + '  <- the disk half, slug from the product',
         'ALL ITEMS         ' + short(afterIdle.items.map((x) => ({ id: x.id, role: x.role, event: x.event, text: textOf(x.text).slice(0, 120) })), 4000),
       ],
       {
@@ -936,6 +998,8 @@ async function interruptTurn(freezeHost: boolean) {
         persistedIdle: afterIdle.idle,
         allItems: afterIdle.items,
         serverReadItems: afterIdle.serverItems,
+        childHomes: homesInFlight,
+        transcriptsOnDisk: transcriptsOnDisk(cwd),
         statusAfter: await status(sid),
       },
     )
@@ -1134,9 +1198,11 @@ async function runA5() {
         'TOOL ITEMS        ' + short(toolItems, 1200),
         'RELOAD SAME       ' + sameHistory,
         'STREAM ITEMS      ' + short(before.map((x) => ({ id: x.id, role: x.role, event: x.event, toolName: x.toolName, text: textOf(x.text).slice(0, 120) })), 3000),
-        'SERVER READ ITEMS before=' + serverBefore.length + ' after=' + serverAfter.length + ' (sessions.read, empty on this path)',
+        'SERVER READ ITEMS before=' + serverBefore.length + ' after=' + serverAfter.length + ' (sessions.read)',
+        'CHILD HOMES       ' + short(childHomes(), 900) + '  <- the process half',
+        'JSONL ON DISK     ' + short(transcriptsOnDisk(cwd), 900) + '  <- the disk half',
       ],
-      { sid, marker, before, after, serverBefore, serverAfter, toolItems, resultItems, paired, sameHistory, toolRan },
+      { sid, marker, before, after, serverBefore, serverAfter, toolItems, resultItems, paired, sameHistory, toolRan, transcriptsOnDisk: transcriptsOnDisk(cwd) },
     )
     await reload.close()
     return out
@@ -1595,7 +1661,9 @@ async function main(): Promise<void> {
       ['ERROR             ' + String(error)],
     )
   }
-  const reading = { cell, driver, cwd, at, pin, ...out }
+  // EVERY reading, not just the read-dependent ones. The cell that turned out to
+  // need this was A3, which nobody expected to be a transcript-location question.
+  const reading = { cell, driver, cwd, at, pin, transcriptsOnDisk: transcriptsOnDisk(cwd), ...out }
   writeFileSync(join(READING_DIR, driver + '.' + cell.toLowerCase() + '.json'), JSON.stringify(reading, null, 2) + '\n')
   console.log(driver + '/' + cell + ' ' + reading.verdict + ' — ' + reading.summary)
   console.log('control=' + (reading.control.fired ? 'FIRED' : 'MISSING') + ' ' + reading.control.detail)
