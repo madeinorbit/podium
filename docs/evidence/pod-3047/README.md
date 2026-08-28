@@ -1,5 +1,21 @@
 # POD-3047 — Claude SDK acceptance at the current epic tip
 
+> **NOT FINAL — DO NOT TRANSCRIBE THESE ROWS.**
+> Coordinator instruction, 2026-08-28 17:47 CEST: the `90ebca7d9` rows are held
+> pending **POD-3057**. The reason is in this report — POD-3059 did not reach the
+> claude-sdk path, so `sessions.read` is still empty here and every
+> transcript/read-dependent cell must be re-driven at the repaired tip once
+> POD-3057 lands. A5 and A3 at minimum, plus any cell whose proof touches the
+> read path.
+>
+> **What still stands regardless of POD-3057:** the *finding* that POD-3059 does
+> not reach this path (measured three ways, below) — that is what POD-3057 is
+> for. And the cells scored purely on the session stream or on process state are
+> unaffected by the resolver either way; they will be re-confirmed, not rescued.
+>
+> An earlier mail from this issue asked the coordinator to transcribe these rows.
+> **That request is withdrawn.**
+
 Written 2026-08-28 17:38 CEST. **Pin `90ebca7d94d0e68f4744c6a8425eed30cf5b0b10`** — every
 row below was driven at that exact tip, both arms, one named rig, no credential
 copied.
