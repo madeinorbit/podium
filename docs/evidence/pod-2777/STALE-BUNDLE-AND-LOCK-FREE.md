@@ -83,3 +83,50 @@ crashed by exactly that collision.
 
 **Operationally:** never acquire `test:heavy` on one "free" reading. Read it
 twice, and treat any disagreement as held.
+
+---
+
+## 3. "test:heavy is now free" was not true — and `acquire` queues without `--wait`
+
+POD-1761 mailed that `test:heavy` was free, confirmed by the coordinator, and to
+acquire a lease immediately. It was **not** free. Three reads, minutes apart, all
+returned the same holder with the **same acquire timestamp**
+(`2026-08-28T18:55:02.844Z`), `[alive]`, `(full package tests)`, held by
+`648a0def-…` on issue:#3055 under `/home/mgw/src/other/podium/.worktrees/issue-3055-build-ledger-in-state-dir`.
+The countdown moved as ordinary expiry (27m52s → 24m28s → 23m39s), not as a
+release and re-take.
+
+Because §2 above means a *single* status read cannot be trusted in either
+direction, I did not settle it on status alone. The acquire attempt is the
+independent check, and it agrees with status:
+
+```
+$ podium lock acquire test:heavy --ttl 2m        # no --wait
+exit=3
+queued for 'test:heavy' at position 1; held by 648a0def-… [alive] (full package tests)
+```
+
+**You cannot queue behind a free lock.** So the lock is genuinely held, and the
+"free" confirmation is wrong. This is the *opposite* direction of §2's failure
+and worth noting as such: §2 was status reading free while held; here an
+authority reported free while held. Both land an agent on the same rock.
+
+**And the second finding, which is a trap in its own right:** `acquire` **queued
+me at position 1 even though I passed no `--wait`.** The documented interface is
+`acquire <name> [--ttl 10m] [--wait]`, which reads as "`--wait` is what makes it
+queue". It is not. A caller told "acquire without `--wait`, do not queue" —
+exactly my instruction — cannot satisfy that with this command, and will not know
+it queued unless it reads the output.
+
+That matters because a queue slot is not inert: a slot left behind by a session
+that then goes idle or dies gets the lock **granted to it** when the holder
+releases, and the grant sits there blocking everyone. I cancelled immediately:
+
+```
+$ podium lock cancel test:heavy
+left the queue for 'test:heavy'
+$ podium lock status                       # queue=0, holder unchanged
+test:heavy: held by 648a0def-… expires in 23m39s queue=0
+```
+
+**No lease was taken and no runtime was started.** Filed as POD-3077.
