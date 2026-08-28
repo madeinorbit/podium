@@ -36,7 +36,11 @@ export interface ConfigureValueChecks {
 /** Every field of a `ConfigureRequest`, so a fold over them cannot miss one — the
  *  same totality the capability axes get. A field added to the request type
  *  without a member here is a compile error. */
-export const CONFIGURE_FIELDS = ['model', 'effort', 'permissionMode'] as const satisfies readonly (keyof ConfigureRequest)[]
+export const CONFIGURE_FIELDS = [
+  'model',
+  'effort',
+  'permissionMode',
+] as const satisfies readonly (keyof ConfigureRequest)[]
 
 /** Fields in `ConfigureRequest` that {@link CONFIGURE_FIELDS} forgot. `never`
  *  when the list is complete, which is what the check below requires. */
@@ -137,5 +141,7 @@ export function decideConfigure(input: {
  */
 export function noWhitespaceCheck(noun: string): (value: string) => string | undefined {
   return (value) =>
-    /\s/.test(value) ? `${JSON.stringify(value)} is not a ${noun}: it contains whitespace` : undefined
+    /\s/.test(value)
+      ? `${JSON.stringify(value)} is not a ${noun}: it contains whitespace`
+      : undefined
 }

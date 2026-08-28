@@ -103,7 +103,10 @@ describe('setRequestedModel', () => {
     session.setRequestedModel({ model: 'gpt-5.1-codex-max' })
     session.setObservedModel('gpt-5-codex')
 
-    const meta = session.toMeta(NO_SESSION_USER_STATE) as { requestedModel?: string; observedModel?: string }
+    const meta = session.toMeta(NO_SESSION_USER_STATE) as {
+      requestedModel?: string
+      observedModel?: string
+    }
 
     // BOTH, DELIBERATELY. The UI's "requested, not yet observed" state is only
     // renderable when the two disagree AND both are readable — publishing the
