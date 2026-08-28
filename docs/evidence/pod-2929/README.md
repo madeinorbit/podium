@@ -78,3 +78,15 @@ The terminal-arm admission gate measured root free space at `5228788 KiB`,
 below the `5242880 KiB` 5 GiB floor. It refused before any server, daemon,
 named session, positive control, or PID attribution; see
 `readings/a1c-terminal-floor-blocked-2e1648.json`.
+
+### A9 — OpenCode terminal arm
+
+The terminal-arm admission gate measured root free space at `5228788 KiB`,
+below the `5242880 KiB` 5 GiB floor. It refused before any server, daemon,
+named session, positive control, or stamped PID attribution; see
+`readings/a9-terminal-floor-blocked-2e1648.json`.
+
+Codex was not re-driven below the same current-tip disk floor, Claude was not
+started without credentials in the standard isolated rig, and Grok remains
+excluded while POD-2980-D owns its active work. These are remaining admission
+gaps, not product-runtime edits.
