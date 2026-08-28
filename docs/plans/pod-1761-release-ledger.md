@@ -5775,3 +5775,36 @@ so no named instance, server, daemon, web bundle, provider session, or acceptanc
 started. The operator sandbox remains stopped. The heavy lock is held by POD-2462 for an active
 desktop verification; integration:1761 is free. The Grok and OpenCode A1c re-drives remain
 deferred until a fresh admission check is above the floor and swap is quiet.
+
+## FOREST — 2026-08-28 13:11 CEST
+
+**69/69 driven. 53 PASS, 3 PARTIAL, 9 BLOCKED/UNMEASURED, 4 FAIL/REFUSED.**
+
+Two corrections landed this tick, both of which make the position *better
+understood* rather than better:
+
+- The matrix had **19 column-shifted rows** that made position-indexed readers
+  report a phantom `A3 claude FAIL`. Realigned, no character lost. The
+  validator that missed them was `NF<8` and could only ever catch too-few
+  fields; it is `NF!=8` now. See Decision 27.
+- **A3/claude is a PASS**, as Decision 25 said. The handover file that called
+  it "the sole release blocker" was mine and is corrected.
+
+**Against the release bar — "every driver at least as good as main":** there is
+**no cell currently known to be worse than main.** That is not the same as
+ready. The honest breakdown of the 16 not-PASS cells:
+
+| group | cells | what it means |
+| --- | --- | --- |
+| A4a/A4b instrument blocks | 5 | vendor CLIs auto-approve, so **undriveable on BOTH arms** — cannot be worse than main, must never be counted as a pass |
+| A1c lost-message | 4 | **the real open work.** POD-2929 owns it and has stalled 88m |
+| stale pins from 2026-08-26 | 4 | A6b x2, A3 codex, A8 opencode — older than dozens of landed fixes, and A3/claude just proved stale pins lie |
+| PARTIAL | 3 | one plane green, the other unmet |
+
+**A4b codex flipped BLOCKED to PASS** because POD-3027 stopped accepting the
+auto-approve default and configured the agent to actually ask. That technique
+is now in `docs/evidence/pod-2777/a4.ts` and is pointed at grok as POD-3037.
+
+**The next honest move is not more drives, it is re-driving the four stale
+pins.** A3/claude cost us a declared release blocker for a day because nobody
+re-read it at the current tip.
