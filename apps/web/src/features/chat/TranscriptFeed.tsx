@@ -19,7 +19,11 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 import { cn } from '@/lib/utils'
-import { ChatBlockView, type TurnPosition } from './ChatBlockView'
+import {
+  ChatBlockView,
+  type ProcessPosition,
+  type TurnPosition,
+} from './ChatBlockView'
 import type { ProjectedPendingItem, QueuedChatMessage } from './chat'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
@@ -149,6 +153,25 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
   if (item.role === 'tool') return isInteractiveTool(item) ? undefined : 'bind'
   if (item.role === 'system' && item.systemKind === 'duration') return 'bind'
   return undefined
+}
+
+/** Public process narration is visible transcript content, not hidden chain of
+ * thought. It includes the assistant's intermediate commentary and the tool
+ * activity that commentary introduces, then ends before the final answer. */
+export function isProcessRow(row: ChatRow): boolean {
+  if (row.kind === 'tools') return true
+  const { item } = row.block
+  if (item.role === 'assistant') return !item.answer
+  if (item.role === 'tool') return !isInteractiveTool(item)
+  return false
+}
+
+export function processPosition(
+  row: ChatRow,
+  previous: ChatRow | undefined,
+): ProcessPosition | undefined {
+  if (!isProcessRow(row)) return undefined
+  return previous && isProcessRow(previous) ? 'continue' : 'start'
 }
 
 /**
@@ -304,10 +327,10 @@ export function TranscriptFeed({
         // find the start of the next one.
         //
         // So there is ONE cap, and it is on the column rather than on anything
-        // inside it: an 888px measure, centred, with a 32px gutter that wins
+        // inside it: a 74-character measure, centred, with a 32px gutter that wins
         // whenever the pane is narrower than the measure. Every voice obeys it
         // because it is the scroller's own padding — nothing inside sets a width,
-        // so the failure POD-747 documented cannot come back. Below ~950px the
+        // so the failure POD-747 documented cannot come back. On narrower panes the
         // expression collapses to exactly the flat 32px inset, which is the
         // behaviour of the version this replaces.
         //
@@ -318,7 +341,7 @@ export function TranscriptFeed({
         // measure; see `.brief-shelf-layer` in styles.css.
         compact
           ? 'px-3.5 pt-3 pb-4'
-          : 'px-[max(32px,calc((100%-888px-var(--chat-rail-w,0px))/2))] pt-[26px] pb-[14px]',
+          : 'px-[max(32px,calc((100%-var(--chat-reading-measure)-var(--chat-rail-w,0px))/2))] pt-[26px] pb-[14px]',
       )}
       ref={setScrollerRef}
       onScroll={onScroll}
@@ -375,6 +398,7 @@ export function TranscriptFeed({
           // opening is scrolled away above).
           const turn: TurnPosition | undefined =
             pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)
+          const process = processPosition(row, rows[pos - 1]?.row)
           const arrived = arriving.has(rowIdentity(row))
           const identity = rowIdentity(row)
           // THE DAY MARK (POD-701). A per-row clock is ambiguous the moment a
@@ -404,6 +428,7 @@ export function TranscriptFeed({
                 ownsTail={false}
                 arrived={arrived}
                 turn={turn}
+                process={process}
                 sessionId={sessionId}
                 cwd={cwd}
                 openFile={openFile}
@@ -432,6 +457,7 @@ export function TranscriptFeed({
                 stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
                 attribution={attributionForRole(attribution, row.block.item.role)}
                 turn={turn}
+                process={process}
                 arrived={arrived}
                 onQuote={onQuote}
               />
@@ -619,9 +645,18 @@ export function TranscriptFeed({
           the overlay exists only mid-turn, so its presence IS the signal, and
           it goes away when the finished item takes over. */}
         {overlay?.text !== undefined && (
-          <div className="transcript-row" data-headless-overlay>
+          <div
+            className={cn(
+              'transcript-row transcript-process-row',
+              !lastRow || !isProcessRow(lastRow) ? 'transcript-process-start' : undefined,
+            )}
+            data-headless-overlay
+          >
             <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
             <div className="transcript-body">
+              {(!lastRow || !isProcessRow(lastRow)) && (
+                <div className="transcript-process-label">Process</div>
+              )}
               <StreamingMarkdown text={overlay.text} />
             </div>
           </div>

@@ -111,6 +111,28 @@ describe('codexRecordToItems', () => {
     expect(items).toEqual([expect.objectContaining({ role: 'assistant', text: 'Done.' })])
   })
 
+  it('marks only Codex final-answer messages as answers', () => {
+    const commentary = codexRecordToItems(
+      env('response_item', {
+        type: 'message',
+        role: 'assistant',
+        phase: 'commentary',
+        content: [{ type: 'output_text', text: 'I am checking the parser.' }],
+      }),
+    )
+    const answer = codexRecordToItems(
+      env('response_item', {
+        type: 'message',
+        role: 'assistant',
+        phase: 'final_answer',
+        content: [{ type: 'output_text', text: 'The parser is fixed.' }],
+      }),
+    )
+
+    expect(commentary[0]).not.toHaveProperty('answer')
+    expect(answer[0]).toMatchObject({ answer: true, text: 'The parser is fixed.' })
+  })
+
   it('maps function_call to a tool item keyed by call_id', () => {
     const items = codexRecordToItems(
       env('response_item', {

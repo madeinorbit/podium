@@ -6,7 +6,12 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
-import { type TurnPosition, turnClass } from './ChatBlockView'
+import {
+  processClass,
+  type ProcessPosition,
+  type TurnPosition,
+  turnClass,
+} from './ChatBlockView'
 import {
   type ChatBlock,
   type ToolBatchRow,
@@ -134,6 +139,7 @@ export function ToolBatchView({
   waiting,
   arrived = false,
   turn,
+  process,
   sessionId,
   cwd,
   openFile,
@@ -162,6 +168,8 @@ export function ToolBatchView({
   /** This row's place in its exchange (POD-376) — a run binds to the prose that
    *  produced it, so it is normally 'bind'. See TranscriptFeed. */
   turn?: TurnPosition
+  /** This row's place in the visible process narrative. */
+  process?: ProcessPosition
   sessionId: SessionId
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
@@ -257,6 +265,7 @@ export function ToolBatchView({
   const rowClass = cn(
     'transcript-row',
     turnClass(turn),
+    processClass(process),
     arrived && 'transcript-arrive',
     highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
@@ -316,6 +325,7 @@ export function ToolBatchView({
           wider than the feed's beat — a run of calls is a solid in the document,
           and it needs air on both sides that plain prose does not. */}
       <div className="transcript-body">
+        {process === 'start' && <div className="transcript-process-label">Process</div>}
         <div
           className="work-line"
           data-state={activeWaiting ? 'wait' : active ? 'live' : live ? 'handoff' : 'done'}

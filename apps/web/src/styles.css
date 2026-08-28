@@ -3479,6 +3479,10 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
    register nobody resolves by size anyway, and it keeps the smallest text in the
    busiest surface in the product legible, which is what the floor is for. */
 :root {
+  /* 41rem is the 74ch measure at the answer's 16px Geist setting. The cap lives
+     on the scroller, whose inherited shell size is smaller, so spelling it as
+     `74ch` here would resolve against the wrong font and produce a 12px column. */
+  --chat-reading-measure: 41rem;
   --chat-face: var(--tabstrip);
   --chat-rule: var(--border);
   --chat-rim: var(--border-strong);
@@ -3524,6 +3528,37 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   gap: 0;
   padding-top: 6px;
   padding-bottom: 6px;
+}
+
+/* THE VISIBLE PROCESS REGION. This is the agent's public narration and tool
+   activity, not hidden reasoning. A single quiet rule keeps a long working run
+   together while every word remains in the reading flow; the register appears
+   once at the start and nothing is folded by default. */
+.transcript-process-row {
+  position: relative;
+  padding-inline-start: 16px;
+}
+.transcript-process-row::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 1px;
+  background: color-mix(in oklab, var(--chat-rule) 82%, transparent);
+  pointer-events: none;
+}
+.transcript-process-start {
+  padding-top: 10px;
+}
+.transcript-process-label {
+  margin-bottom: 5px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  line-height: var(--shell-leading-micro);
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim, var(--muted-foreground));
 }
 
 /* Flat Field (POD-159): the rails are gone — agent output lies flat on the
@@ -3665,7 +3700,9 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   display: flex;
   justify-content: center;
   box-sizing: border-box;
-  padding: 11px max(32px, calc((100% - 888px - var(--chat-rail-w, 0px)) / 2)) 0;
+  padding: 11px
+    max(32px, calc((100% - var(--chat-reading-measure) - var(--chat-rail-w, 0px)) / 2))
+    0;
   pointer-events: none;
   animation: brief-shelf-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -3867,33 +3904,29 @@ html[data-density="compact"] .brief-shelf {
 /* The final answer is a typographic step, not an attention state. Yellow is
    withheld until the operator is actually asked to act. */
 .transcript-answer {
-  padding-top: 2px;
+  padding-top: 10px;
 }
-/* The conclusion is the one thing in the feed a reader came for, and it used to
-   be set at exactly the size of the narration it followed. A point and a half of
-   type does what a second keyline could not (POD-376). 15/25 rather than 15/1.62
-   because the whole document is now set on a 25px leading grid. Body ink is
-   --foreground; --text-strong is reserved for the headings inside the answer, so
-   that within one block there is still somewhere louder to go. */
-/* THE DOCUMENT IS SET AT ONE SIZE (POD-993 round 2). Narration and answer share
-   14.5/23 — one measure, one leading, one ink — because the step that used to
-   separate them was doing a job the ANSWER LABEL now does better and for free.
-   What survives of the step is the answer's opening line, which takes a point
-   and a half more and the strongest ink: a reader scanning back for a conclusion
-   is looking for its first sentence, and that is the sentence that answers them. */
+/* Narration remains compact enough to read as progress. The conclusion is the
+   document a reader came for, so it steps to 16px with relaxed leading while
+   staying on the same column and palette. The opening sentence takes strong ink
+   to make the landing scannable without inventing another surface. */
 .transcript-body > .chat-md {
   font-size: 14.5px;
   line-height: 23px;
   color: var(--foreground);
 }
+.transcript-answer > .chat-md {
+  font-size: 16px;
+  line-height: 1.58;
+  text-wrap: wrap;
+}
 .transcript-answer > .chat-md > p:first-child {
-  font-size: 15px;
-  line-height: 24px;
+  font-size: inherit;
+  line-height: inherit;
   color: var(--text-strong);
 }
 /* A list in an answer is the answer's substance, not an aside, so its items get
-   the document's own air — 7px between them, 15px of indent — and a smaller,
-   quieter dot than the browser's default.
+   the document's own air and a smaller, quieter dot than the browser's default.
 
    Sized through `::marker` rather than by hiding the marker and drawing a
    ::before, which is the obvious way to hit an exact 4px disc and is wrong:
@@ -3902,14 +3935,13 @@ html[data-density="compact"] .brief-shelf {
    within a pixel of the design's, and the list stays a list. Flex is out for the
    same reason — a flex container blocks `display: list-item` on its children and
    the markers vanish with it — so the rhythm is per-item margin. */
-.transcript-answer > .chat-md > ul {
-  margin: 9px 0;
-  padding-left: 15px;
+.transcript-answer > .chat-md > :is(ul, ol) {
+  margin-block: 1em;
 }
-.transcript-answer > .chat-md > ul > li {
-  margin: 0 0 7px;
+.transcript-answer > .chat-md > :is(ul, ol) > li {
+  margin-block: 0.45em;
 }
-.transcript-answer > .chat-md > ul > li:last-child {
+.transcript-answer > .chat-md > :is(ul, ol) > li:last-child {
   margin-bottom: 0;
 }
 .transcript-answer > .chat-md > ul > li::marker {
@@ -5649,6 +5681,12 @@ html[data-density="compact"] .brief-shelf {
   padding-top: 1px;
   padding-bottom: 1px;
 }
+.chat-compact .transcript-process-row {
+  padding-inline-start: 10px;
+}
+.chat-compact .transcript-process-start {
+  padding-top: 7px;
+}
 /* The narrow column is half the width, so the answer takes a smaller step up
    than it does at full width — 14 against a 13px body. The lead-sentence step
    the wide answer takes is dropped here rather than scaled: at this measure two
@@ -6634,7 +6672,7 @@ html[data-density="compact"] .brief-shelf {
 
 /* The feed's four registers used to live inside three pixels — prose 14, prompt
    13.5, work line 13, tool row 11 — so every distinction had to be carried by a
-   box. The band is 15 / 13.5 / 11.5 / 10.5 (POD-376): the ANSWER is the only
+   box. The band is 16 / 14.5 / 11.5 / 10.5: the ANSWER is the only
    thing that is bigger, intermediate narration steps back a half point, and
    machine voice steps down to DESIGN.md's mono size. Net reading load falls.
 
@@ -6645,8 +6683,8 @@ html[data-density="compact"] .brief-shelf {
    above the working-out that led to it) silently closed. Narration is stated
    here instead of borrowed, because the feed's band is a four-rung ladder of its
    own and only one of its rungs is a shell role. It shares the brief's 13.5 and
-   its 1.7 leading, so the two quiet registers sit on one rhythm and the answer
-   is the only thing that steps. */
+   its 1.7 leading, so the quiet registers sit on one rhythm and the answer is
+   the only thing that steps. */
 .chat-md {
   font-size: 13.5px;
   line-height: 23px;
@@ -6711,6 +6749,30 @@ html[data-density="compact"] .chat-md {
   font-weight: 600;
   color: var(--muted-foreground);
   letter-spacing: 0.01em;
+}
+/* The final answer is the reading document inside the conversation. It gets a
+   real section ladder and more deliberate paragraph rhythm; process narration
+   keeps the tighter scale above so status updates do not compete with the
+   conclusion. */
+.transcript-answer > .chat-md p {
+  margin-block: 1em;
+}
+.transcript-answer > .chat-md :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.8em 0 0.55em;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+.transcript-answer > .chat-md h1 {
+  font-size: 1.35em;
+}
+.transcript-answer > .chat-md h2 {
+  font-size: 1.2em;
+}
+.transcript-answer > .chat-md h3 {
+  font-size: 1.08em;
+}
+.transcript-answer > .chat-md h4 {
+  font-size: 1em;
 }
 /* The design's numbered points lead with a bold fragment that carries the strong
    ink and then continue in body ink on the same line, so a list of proposals
@@ -8907,6 +8969,19 @@ a.ref-link--session::before {
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+.chat-compact .transcript-answer > .chat-md :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.5em 0 0.45em;
+  line-height: 1.35;
+}
+.chat-compact .transcript-answer > .chat-md h1 {
+  font-size: 1.13em;
+}
+.chat-compact .transcript-answer > .chat-md h2 {
+  font-size: 1.07em;
+}
+.chat-compact .transcript-answer > .chat-md :is(h3, h4) {
+  font-size: 1em;
 }
 .chat-compact .transcript-answer-label {
   color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
