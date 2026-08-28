@@ -784,9 +784,12 @@ function computeView(input: OperationViewInput): UpdatePanelView {
   const operation = input.operation
 
   // A cold page has not established that no operation exists yet. Silence is
-  // the only honest view until that first fact arrives: an offer here could be
-  // an invitation to start work the server is already doing.
-  if (operation === undefined) return noneView()
+  // the only honest view for startable offers until that first fact arrives;
+  // local asset staleness is a read-only fact that is safe to show immediately.
+  if (operation === undefined) {
+    if (input.offer?.state === 'local-stale') return offerView(input)
+    return noneView()
+  }
 
   if (input.actionError?.code === 'PRECONDITION_FAILED') {
     const version = input.offer && 'version' in input.offer ? input.offer.version : undefined

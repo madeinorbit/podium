@@ -111,8 +111,8 @@ describe('the space the skew banner reserves', () => {
     expect(clearedValue()).toBe('')
   })
 
-  it('hard-reloads stale assets even when a dormant update panel opener exists', async () => {
-    const opener = vi.fn()
+  it('resets caches when a dormant update panel opener exists', async () => {
+    const opener = vi.fn(() => false)
     const unregister = vi.fn().mockResolvedValue(true)
     const cacheDelete = vi.fn().mockResolvedValue(true)
     const reload = vi.fn()
@@ -124,7 +124,7 @@ describe('the space the skew banner reserves', () => {
       delete: cacheDelete,
     })
     vi.stubGlobal('location', { reload })
-    const unregisterPanel = registerUpdatePanelOpener(opener)
+    const unregisterPanel = registerUpdatePanelOpener(opener, () => false)
 
     reportSkew({
       source: 'assets-replaced',
@@ -137,9 +137,30 @@ describe('the space the skew banner reserves', () => {
     button.click()
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
 
-    expect(opener).not.toHaveBeenCalled()
+    expect(opener).toHaveBeenCalledTimes(1)
     expect(unregister).toHaveBeenCalledTimes(1)
     expect(cacheDelete).toHaveBeenCalledTimes(2)
+    unregisterPanel()
+  })
+
+  it('opens the visible stale-assets panel before falling back to cache reset', () => {
+    const opener = vi.fn(() => true)
+    const reload = vi.fn()
+    vi.stubGlobal('location', { reload })
+    const unregisterPanel = registerUpdatePanelOpener(opener, () => true)
+
+    reportSkew({
+      source: 'assets-replaced',
+      severe: false,
+      message: 'The server is serving a newer web build.',
+    })
+    render(<WireSkewBanner />)
+
+    const button = screen.getByRole('button', { name: 'Show update' })
+    button.click()
+
+    expect(opener).toHaveBeenCalledTimes(1)
+    expect(reload).not.toHaveBeenCalled()
     unregisterPanel()
   })
 })

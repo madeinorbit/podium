@@ -100,10 +100,9 @@ export function WireSkewBanner(): JSX.Element | null {
   if (!notice) return null
 
   // `assets-replaced` means this page is controlled by a service worker/cache
-  // for bytes the server has already replaced. A panel opener may still be
-  // registered while its state is empty, so opening it is not a reliable
-  // recovery path. This branch owns the one action that can guarantee the next
-  // navigation fetches the server's current bundle.
+  // for bytes the server has already replaced. Prefer the update panel, where
+  // the browser can prove takeover before navigating; cache eviction is only
+  // the explicit fallback when no visible panel is available.
   const staleAssets = notice.source === 'assets-replaced'
 
   return (
@@ -136,7 +135,8 @@ export function WireSkewBanner(): JSX.Element | null {
         data-pressable
         onClick={() => {
           if (staleAssets) {
-            void forceReload()
+            const opened = openUpdatePanel()
+            if (!opened) void forceReload()
             return
           }
           /**
@@ -164,7 +164,7 @@ export function WireSkewBanner(): JSX.Element | null {
           cursor: 'pointer',
         }}
       >
-        {staleAssets ? 'Reload' : panelAvailable ? 'Show update' : 'Reload'}
+        {panelAvailable ? 'Show update' : 'Reload'}
       </button>
     </div>
   )
