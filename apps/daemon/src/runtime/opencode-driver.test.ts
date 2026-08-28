@@ -12,10 +12,22 @@ const mocks = vi.hoisted(() => ({
   createOpencodeRuntime: vi.fn(),
 }))
 
-vi.mock('@podium/agent-runtime', () => ({
-  createOpencodeRuntime: mocks.createOpencodeRuntime,
-  OPENCODE_SERVER_DRIVER_ID: 'opencode-server',
-}))
+/**
+ * A TOTAL replacement of the module, so every export this file's subject reaches
+ * for has to appear here. `configureFieldsForDriver` (POD-3087) is REAL rather
+ * than stubbed: it is a pure lookup over the drivers' own capability
+ * declarations with no IO, so faking it would only let this suite disagree with
+ * what the bind actually carries — which is the one thing worth knowing about
+ * the line that calls it.
+ */
+vi.mock('@podium/agent-runtime', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/agent-runtime')>()
+  return {
+    createOpencodeRuntime: mocks.createOpencodeRuntime,
+    OPENCODE_SERVER_DRIVER_ID: 'opencode-server',
+    configureFieldsForDriver: actual.configureFieldsForDriver,
+  }
+})
 
 import { createDaemonOpencodeRuntime } from './opencode-driver'
 
