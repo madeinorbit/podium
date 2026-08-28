@@ -1523,3 +1523,48 @@ The acceptance worker is using that source path and the operator sandbox remains
 stopped.
 
 *Podium-Issue: POD-1761*
+
+## Decision 42 — no cell is promoted; unconfirmed is not passed (2026-08-28 20:31 CEST)
+
+POD-2777's post-integration audit asked me a question in writing rather than
+answering it for itself, and it was right to. **The answer is no.**
+
+**Its finding:** the stale set is **every cell**. No row's exercised code is
+unchanged across the `dev/mw` integration — it audited per row, excluding docs
+and tests, and looked for a surviving subset *specifically so it could report
+one.* There isn't a defensible one. It also recorded the whole-repo number
+(1,247–1,422 files) as **useless** and kept it only so nobody re-derives it
+hoping for comfort — that count cannot tell a driver rewrite from a lockfile
+bump, which is why the audit is per row.
+
+**Its distinction:** some cells are stale *in substance* — the four largest
+driver diffs are **one change wearing four hats** (`fdfbe9343`, each driver
+dropping its own replay reader for the shared trim-safe one), so anything reading
+replay or streaming continuity is directly affected: **A3, the streaming-delta
+cells and the long-turn cells on codex and opencode.** The rest are stale only in
+the weaker sense of having run on different bytes of nominally the same
+behaviour.
+
+**MY DECISION, and it is mine: the weaker sense is NOT promoted to "still
+valid."** A cell driven against code that has since changed is a cell whose
+verdict is **unconfirmed**, not a cell that passed. Every one of today's
+corrections ran the same way — a stale FAIL cost a day as a phantom blocker
+(Decision 25), and a stale PASS is worse because nobody goes looking for it
+(Decision 39). Promoting on the strength of "probably fine" is exactly the crack
+POD-2777 names, and I am not going to open it to make a number look better.
+
+**So the matrix currently reads: 70/70 driven, 0 confirmed at the current tip.**
+The readings stand as taken, at their pins, and the report is APPENDED not
+overwritten — that was POD-2777's call and it is the right one.
+
+**Re-drive order, from its own analysis:**
+1. **Substance-stale first** — A3, streaming-delta and long-turn on codex and
+   opencode. These read the code that actually changed.
+2. Everything else, which is bulk work and can be batched.
+3. **The integration itself needs gating before any verdict is read off this
+   tree** — 141k insertions with hand-fixed type seams deserves a whole-graph
+   typecheck and the daemon/server suites first.
+
+*Host at the time of the audit: 18.6 GiB available, 79 GiB free on `/`, swap-in
+0, load 1.46 — all above the floor. The "root filesystem 100% full" report still
+in circulation is two nights old and no longer true.*
