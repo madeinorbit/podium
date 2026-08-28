@@ -5651,3 +5651,26 @@ This re-drive confirms the POD-2980 production change is still insufficient
 for the user-visible dead-send contract. A1c remains the confirmed Grok
 release blocker and is handed back to POD-2980/POD-3024; no additional product
 edit was made by the acceptance coordinator.
+
+## FOREST — acceptance matrix after current-tip A1c (2026-08-28 05:53 CEST)
+
+The table still has 69 unique acceptance cells. The new A1c reading is a
+replacement row for the existing Grok A1c cell, and the current tip `740acf620`
+differs from its measured code pin `6e50dbc1c` only in `docs/`, so the reading
+remains current under the standing stale-row rule.
+
+| column | cells | PASS | FAIL | other / qualification |
+|---|---:|---:|---:|---|
+| codex | 16 | 13 | 0 | A3 REFUSED; A4a/A4b BLOCKED by the approval instrument; A6b scrollback clause unmeasured |
+| opencode | 16 | 12 | 0 | A3/A8 PARTIAL; A4a/A4b need current interaction-path re-drive; A6b scrollback clause unmeasured |
+| grok | 16 | 13 | 1 | A1c FAIL at current tip; A4a/A4b BLOCKED; corrected A5 is PASS |
+| claude | 15 | 11 | 1 | A1c FAIL also observed on main; A4a/A4b/A8 BLOCKED by the Claude CLI instrument; A6b scrollback clause unmeasured |
+| shell | 6 | 6 | 0 | all six current shell checks PASS |
+
+These counts are latest authoritative arm verdicts, not a claim that every
+fine clause is measured: blocked, refused, partial, and deliberately
+unmeasured clauses remain listed. Grok now has one confirmed product FAIL
+(A1c) rather than the prior two because the earlier A5 FAIL was superseded by
+the corrected explicit-permission PASS. The operator sandbox is stopped and no
+heavy or integration lease is held. The release decision remains open pending
+the Grok A1c production repair/re-drive and the outstanding non-Grok gaps.
