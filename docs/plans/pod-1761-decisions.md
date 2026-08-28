@@ -1150,3 +1150,41 @@ Also worth noting against myself: POD-3042's main baseline saw the same missing
 marker on the DEFAULT instance, which is *not* obviously affected. If the
 re-drive clears the epic cells but main still shows no marker, that inverts the
 A3 story rather than closing it.
+
+## Decision 33 — the release blocker is cleared (2026-08-28 17:12 CEST)
+
+POD-3060 drove A6b/opencode-server live on a named instance at pin
+`22ac634ec`, as a **post-landing verification** of `b5a3aa870`, with the
+positive control fired before any switch.
+
+**The defining clause passes.** *CLI still echoes after switching* — nonce
+echoed, **+87,847 terminal bytes** — against a pre-fix reading at `5fe951f2f`
+that FAILED after both switches. Every other measurable clause also passes:
+both directions twice, no restart (epoch `0`, agent-process census unchanged),
+correct size (`120x40` throughout), chat still answers.
+
+**`b5a3aa870` stays. No revert.**
+
+**The cell is PARTIAL, not PASS**, for exactly one reason: no-scrollback-
+corruption is not measurable by the probe. **The session refused the probe's
+aggregate `A6b PASS` rather than promote it** — Decision 28 applied by the
+session itself, unprompted, on the cell where promoting it would have been most
+convenient for everyone including me.
+
+**Why PARTIAL still clears the blocker.** Main's own baseline for this cell is
+**also PARTIAL, with the SAME clause unmeasured** and everything else passing
+(POD-3042, default instance, fired control). The bar is *"at least as good as
+main"*, not *"green"*. **Epic and main are now at parity on A6b/opencode, so it
+is no longer worse than main.**
+
+**There is now no Tier-A cell known to be worse than main on the shipping
+drivers.** That is the condition this epic exists to reach. It is not the same
+as "done" — six cells still FAIL, six are PARTIAL, three are BLOCKED, and
+Decision 32's re-read of the no-marker cells is still in flight — but none of
+them is a regression against the thing they would replace.
+
+**The interpretation question from Decision 30 is now moot in practice.** I
+scored this cell a blocker on the provider-level reading; under the stricter
+same-driver reading it was never a blocker because main has no
+`opencode-server`. Both readings now agree it is not one. **The provider-level
+reading is what caused it to be fixed**, and I would make the same call again.
