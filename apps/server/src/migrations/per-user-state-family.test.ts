@@ -296,6 +296,13 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
         'oom_killed_at',
         // Native login shells are purpose-marked by a later additive migration.
         'login_harness',
+        // The runtime model/effort request (POD-3081) — another later additive
+        // migration, and a pair rather than one column because "asked for a
+        // different model" and "asked for a different effort" are separately
+        // settable. Listed here for the same reason every entry above it is: an
+        // ADDITION the chain makes, not something this migration lost.
+        'requested_model',
+        'requested_effort',
       ]),
     )
     expect(sorted(columns(db, 'issues'))).toEqual(

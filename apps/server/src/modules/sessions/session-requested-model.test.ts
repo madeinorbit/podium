@@ -81,7 +81,7 @@ describe('setRequestedModel', () => {
     expect(session.requestedModel).toBe('gpt-5.1-codex-max')
   })
 
-  it('survives the durable-state round trip a reload goes through', () => {
+  it('is carried by the volatile capture/restore pair, which is NOT the reload path', () => {
     const session = makeSession()
     session.setRequestedModel({ model: 'gpt-5.1-codex-max', effort: 'medium' })
 
@@ -89,10 +89,19 @@ describe('setRequestedModel', () => {
     restored.restoreDurableState(session.captureDurableState())
 
     /**
-     * A CONFIGURE THAT EVAPORATES ON THE NEXT SERVER RESTART is the same
-     * silent-reversion bug arriving through a new door: the driver's journal
-     * still has the change, so the session goes on answering as the new model
-     * while this side reports the launch one.
+     * WHAT THIS DOES AND DOES NOT PROVE — the title says the second half out
+     * loud because an earlier version of it did not, and the reviewer was right
+     * to call that out (POD-3081 review).
+     *
+     * `captureDurableState`/`restoreDurableState` is the VOLATILE-CAPTURE pair:
+     * both halves run in one process over one object graph. It is a real path
+     * and worth pinning — a field missing from it is dropped whenever the
+     * repository slices volatile state — but it would keep passing with no
+     * column, no migration, no SQL and no hydration behind it, which is exactly
+     * the state it was passing over.
+     *
+     * The RELOAD claim lives in `session-requested-model-reload.test.ts`, which
+     * goes through a migrated database and `sessionFromStoredRow`.
      */
     expect(restored.requestedModel).toBe('gpt-5.1-codex-max')
     expect(restored.requestedEffort).toBe('medium')

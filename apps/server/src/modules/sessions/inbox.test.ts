@@ -69,6 +69,9 @@ function harness(
     contractConfigure?:
       | { ok: true; effective: 'immediate' | 'next-turn' }
       | { reason: string; detail?: string }
+    /** What `Session.setRequestedModel` reports back — false = the session was
+     *  already on the requested value. */
+    requestedModelChanged?: boolean
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
@@ -77,6 +80,8 @@ function harness(
   const contractResolvers: Array<(receipt: TurnReceipt) => void> = []
   const contractInterrupts: SessionId[] = []
   const contractConfigures: { sessionId: SessionId; model?: string; effort?: string }[] = []
+  const persist = vi.fn()
+  const broadcast = vi.fn()
   const resurrections: Array<{ sessionId: SessionId; principal: InboxPrincipalReference }> = []
   const rejected: unknown[] = []
   const answered: unknown[] = []
@@ -115,7 +120,12 @@ function harness(
     // WHETHER and WITH WHAT the inbox writes; the patch semantics of the write
     // itself are `Session`'s and are pinned in `session-requested-model.test.ts`.
     model: 'gpt-5-codex',
-    setRequestedModel: vi.fn(() => true),
+    // Returns what the test SAYS it returns. `Session.setRequestedModel` decides
+    // whether a request actually moved anything, and that decision is pinned on
+    // the real class in `session-requested-model.test.ts`; what THIS suite
+    // decides is how the inbox branches on the answer, so the answer is an input
+    // here rather than a reimplementation of the class that computes it.
+    setRequestedModel: vi.fn(() => options.requestedModelChanged ?? true),
     terminal: {
       lastOutputAtMs: 0,
       transcriptItems: () => transcript,
@@ -170,8 +180,8 @@ function harness(
     },
     nativeViewActive: () => nativeView,
     now: () => Date.now(),
-    persist: vi.fn(),
-    broadcast: vi.fn(),
+    persist,
+    broadcast,
     // THE REAL MANIFEST LOOKUPS, NOT STUBS — for these three as well now
     // (POD-2823). The comment below has always said a stubbed table lets the
     // manifests drift from the fact under test, and these two were the proof:
@@ -245,6 +255,8 @@ function harness(
     contractResolvers,
     contractInterrupts,
     contractConfigures,
+    persist,
+    broadcast,
     resurrections,
     rejected,
     answered,
@@ -2337,6 +2349,63 @@ describe('configureSession', () => {
      * reports a setting nothing is running.
      */
     expect(requestedWrites(h)).toEqual([])
+  })
+
+  it('STORES and ANNOUNCES a granted change, not just the in-memory field', async () => {
+    const h = harness({
+      agentKind: 'codex',
+      serverDriven: true,
+      contractConfigure: { ok: true, effective: 'next-turn' },
+    })
+
+    await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5.1-codex-max' })
+
+    /**
+     * BOTH HALVES, AND NEITHER IS DECORATION (POD-3081 review found them
+     * missing). Without `persist` the change lives exactly as long as the server
+     * process and the session comes back on its LAUNCH model while its driver —
+     * whose own journal survived — answers as the configured one. Without
+     * `broadcast` every client renders the old value until something unrelated
+     * pushes a session list, so the control the operator just used looks like it
+     * did nothing.
+     */
+    expect(h.persist).toHaveBeenCalledWith(h.session)
+    expect(h.broadcast).toHaveBeenCalled()
+  })
+
+  it('does NOT store or announce when the session was already on that value', async () => {
+    const h = harness({
+      agentKind: 'codex',
+      serverDriven: true,
+      contractConfigure: { ok: true, effective: 'next-turn' },
+      requestedModelChanged: false,
+    })
+
+    const result = await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5-codex' })
+
+    // The DRIVER is still asked and still grants it — configuring a session to
+    // the model it is already on is a legitimate no-op, not a refusal.
+    expect(result).toEqual({ ok: true, effective: 'next-turn' })
+    expect(h.contractConfigures).toHaveLength(1)
+    // But the write and the fan-out are guarded on the setter's return, like
+    // every other caller of this pair: neither carries any news.
+    expect(h.persist).not.toHaveBeenCalled()
+    expect(h.broadcast).not.toHaveBeenCalled()
+  })
+
+  it('stores NOTHING when the driver refused', async () => {
+    const h = harness({
+      agentKind: 'codex',
+      serverDriven: true,
+      contractConfigure: { reason: 'unsupported', detail: 'a TUI reads its model from argv' },
+    })
+
+    await h.inbox.configureSession({ sessionId: SID, model: 'gpt-5.1-codex-max' })
+
+    // A durable record of a change that did not happen is worse than no record:
+    // it outlives the process that invented it.
+    expect(h.persist).not.toHaveBeenCalled()
+    expect(h.broadcast).not.toHaveBeenCalled()
   })
 
   it('REFUSES when this server has no runtime connection, rather than confirming', async () => {

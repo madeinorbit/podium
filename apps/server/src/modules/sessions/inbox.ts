@@ -922,10 +922,30 @@ export class SessionInbox {
     }
     const result = await request(input)
     if ('ok' in result) {
-      session.setRequestedModel({
+      /**
+       * WRITE IT, STORE IT, THEN SAY SO — all three, and the pair after the
+       * setter is not optional (POD-3081 review).
+       *
+       * `setRequestedModel` moves an in-memory field and nothing more. Without
+       * `persist` the change is gone at the next server restart, and the session
+       * comes back displaying the model it was LAUNCHED with while its driver —
+       * whose own journal DID survive — answers as the one it was configured to.
+       * Without `broadcast` every client goes on rendering the old value until
+       * something unrelated happens to push a session list, so the control the
+       * operator just used appears to have done nothing.
+       *
+       * Guarded on the setter's return for the same reason every other caller of
+       * this pair is: a configure to the model the session is already on changes
+       * nothing, and a write plus a fan-out per no-op is cost with no news in it.
+       */
+      const changed = session.setRequestedModel({
         ...(input.model !== undefined ? { model: input.model } : {}),
         ...(input.effort !== undefined ? { effort: input.effort } : {}),
       })
+      if (changed) {
+        this.deps.persist(session)
+        this.deps.broadcast()
+      }
     }
     return result
   }

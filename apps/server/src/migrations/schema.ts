@@ -93,6 +93,34 @@ export const sessions = sqliteTable(
     // Resolved launch placement, captured once at spawn [spec:SP-dae6].
     model: text(),
     effort: text(),
+    /**
+     * THE MODEL / EFFORT LAST ASKED FOR AT RUNTIME (POD-3081), as distinct from
+     * the launch pair above and from the OBSERVED pair, which has no column at
+     * all.
+     *
+     * WHY THIS ONE IS DURABLE AND `observed_model` IS NOT. The observed pair is
+     * re-learned from the transcript tail on every reattach, so a column would
+     * be a second copy of something the tail already answers. Nothing re-learns
+     * a REQUEST: no harness stamps "the operator asked for gpt-5.1-codex-max"
+     * anywhere a reader could find it. Left transient, a successful
+     * `sessions.configure` survived exactly as long as the server process, and
+     * the session came back displaying the model it was LAUNCHED with while the
+     * driver went on answering as the one it was configured to — which is the
+     * requested-vs-observed split telling the lie it exists to prevent.
+     *
+     * NOT the operative value. The driver's own journal is what actually rides
+     * the next request and what survives a DAEMON restart; this is the server's
+     * durable record of the last change it successfully made. Reconciling the
+     * two on bind is POD-3087's, and until it lands the two can only disagree if
+     * a driver journal is lost — in which case this column is still the true
+     * answer to "what was asked for".
+     *
+     * NULL = nobody has changed it, and the launch pair is the requested one.
+     * Never backfilled from `model`: "launched as X" and "asked for X" are
+     * different claims and only one of them was ever made.
+     */
+    requestedModel: text('requested_model'),
+    requestedEffort: text('requested_effort'),
     accountId: text('account_id').$type<AccountId>(),
     /** Harness authenticated by an interactive shell. Its presence protects the
      *  shell from generic idle reaping for the full durable session lifetime. */

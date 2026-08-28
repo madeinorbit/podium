@@ -63,6 +63,11 @@ export interface SessionInit {
   /** Resolved launch configuration, immutable for this session [spec:SP-dae6]. */
   model?: string
   effort?: string
+  /** The runtime request this session was rehydrated with (POD-3081). Set only
+   *  by the repository restoring a stored row — a fresh spawn has none, because
+   *  nobody has changed anything yet. */
+  requestedModel?: string
+  requestedEffort?: string
   accountId?: AccountId
   /** Native harness whose interactive login owns this shell, when applicable. */
   loginHarness?: HarnessAgent
@@ -392,6 +397,8 @@ export class Session {
     this.createdBy = init.createdBy
     this.model = init.model
     this.effort = init.effort
+    this.requestedModel = init.requestedModel
+    this.requestedEffort = init.requestedEffort
     this.accountId = init.accountId
     this.loginHarness = init.loginHarness
     this.workflowRunId = init.workflowRunId
@@ -835,6 +842,13 @@ export class Session {
       agentKind: this.agentKind,
       model: this.model ?? null,
       effort: this.effort ?? null,
+      // POD-3081. The launch pair above is immutable; this pair is the last
+      // runtime change this server made and is the ONLY record of it — no
+      // harness stamps a REQUEST anywhere a reattach could re-learn it, which is
+      // what separates this from the observed pair (no column, re-learned from
+      // the transcript tail).
+      requestedModel: this.requestedModel ?? null,
+      requestedEffort: this.requestedEffort ?? null,
       accountId: this.accountId ?? null,
       loginHarness: this.loginHarness ?? null,
       cwd: this.cwd,

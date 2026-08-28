@@ -144,6 +144,12 @@ export interface SessionRow {
   /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
   model?: string | null
   effort?: string | null
+  /** The model/effort last asked for at RUNTIME through `sessions.configure`
+   *  (POD-3081). Null = nobody changed it, and the launch pair above is the
+   *  requested one. See the schema column for why this is durable and the
+   *  OBSERVED pair is not. */
+  requestedModel?: string | null
+  requestedEffort?: string | null
   /** Account selection, not credential material. */
   accountId?: AccountId | null
   /** Harness authenticated by this shell; null for every ordinary session. */

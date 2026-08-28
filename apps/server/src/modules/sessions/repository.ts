@@ -435,6 +435,19 @@ export class SessionRepository {
       ...(r.name && r.nameSource ? { nameSource: r.nameSource } : {}),
       ...(r.model ? { model: r.model } : {}),
       ...(r.effort ? { effort: r.effort } : {}),
+      /**
+       * THE RUNTIME REQUEST SURVIVES THE RESTART (POD-3081). Without this line
+       * the columns are written and never read back, which is worse than not
+       * having them: a reconfigured session comes back displaying the model it
+       * was LAUNCHED with while its driver — whose own journal did survive —
+       * goes on answering as the one it was configured to. That is the
+       * requested-vs-observed split saying the thing it exists to prevent.
+       *
+       * Absent on the row = never configured, which is different from
+       * "configured back to the launch value" and must stay different.
+       */
+      ...(r.requestedModel ? { requestedModel: r.requestedModel } : {}),
+      ...(r.requestedEffort ? { requestedEffort: r.requestedEffort } : {}),
       ...(r.accountId ? { accountId: r.accountId } : {}),
       ...(r.loginHarness ? { loginHarness: r.loginHarness } : {}),
       ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
