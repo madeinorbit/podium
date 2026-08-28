@@ -291,6 +291,38 @@ export const SessionLaunchConfig = z.object({
 export type SessionLaunchConfig = z.infer<typeof SessionLaunchConfig>
 
 /**
+ * WHAT THE SESSION WAS LAST *ASKED* FOR AT RUNTIME (POD-3081) — durable, and a
+ * group of its own because it is neither of the two things it sits between.
+ *
+ * NOT {@link SessionLaunchConfig}. That group is the record of how this session
+ * STARTED and is immutable for the row's life; a sticky `sessions.configure`
+ * must not overwrite it, or the answer to "what was this launched as" is lost
+ * the first time anyone changes their mind.
+ *
+ * NOT {@link SessionLiveOverlay}, which is where these two fields first landed
+ * and where they did not belong. That group's membership rule is precise —
+ * published on the wire with **no storage column in any migration** — and these
+ * have one. The distinction is not bookkeeping: the overlay's other members are
+ * all RE-LEARNABLE (`observedModel` from the transcript tail, `agentColor` from
+ * `/color`, `busy` from the PTY), which is what makes a column redundant for
+ * them. Nothing re-learns a REQUEST. No harness stamps "the operator asked for
+ * this" anywhere a reader could find it, so left transient it survived exactly
+ * as long as the server process — and the session came back reporting the model
+ * it was LAUNCHED with while its driver, whose own journal did survive, went on
+ * answering as the one it was configured to.
+ *
+ * The three pairs read as a sequence: launched as X, asked for Y, answering as
+ * Z. Absent here means nobody has changed anything and the launch pair is the
+ * requested one — which is different from "configured back to the launch value"
+ * and must stay different, so it is never backfilled from `model`.
+ */
+export const SessionRuntimeConfig = z.object({
+  requestedModel: z.string().optional(),
+  requestedEffort: z.string().optional(),
+})
+export type SessionRuntimeConfig = z.infer<typeof SessionRuntimeConfig>
+
+/**
  * WHAT THE SESSION IS CALLED, and WHO named it (D-1 retires `label` and
  * `durableLabel`-as-a-name).
  *
@@ -463,27 +495,6 @@ export const SessionLiveOverlay = z.object({
   handoffTarget: z.string().optional(),
   titleLocked: z.boolean().optional(),
   agentColor: z.string().optional(),
-  /**
-   * THE MODEL THIS SESSION WAS LAST *ASKED* FOR (POD-3081), as distinct from the
-   * one it was LAUNCHED with and the one OBSERVED answering.
-   *
-   * `Session.model` is the launch configuration and is immutable for the row's
-   * life — it is the record of how this session started, and a sticky configure
-   * must not overwrite it or the answer to "what was this launched as" is lost
-   * the first time anyone changes their mind.
-   *
-   * So a runtime change lands here instead, and the three fields read as a
-   * sequence a person can follow: launched as X, asked for Y, currently
-   * answering as Z. Absent means nobody has changed it, and the launch value is
-   * the requested one.
-   *
-   * Live-overlay for the same reason `observedModel` is: the durable record of
-   * the change is the driver's own journal on the session's machine, which is
-   * what actually survives a restart. A column here would be a second copy that
-   * can disagree with it.
-   */
-  requestedModel: z.string().optional(),
-  requestedEffort: z.string().optional(),
   observedModel: z.string().optional(),
   observedEffort: z.string().optional(),
   transcriptAvailable: z.boolean().optional(),
