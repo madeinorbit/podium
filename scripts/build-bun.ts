@@ -353,10 +353,21 @@ export function compiledSourceMapArgs(version: string): string[] {
 export function updateArtifactPath(
   out: string,
   version: string,
+  argv: readonly string[] = [],
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const requested = env.PODIUM_BUNDLE_ARTIFACT?.trim()
-  return requested ? requested : `${out}/podium-headless-${version}.tar.gz`
+  // `--artifact=<path>` is the in-process form of the same "the caller owns the
+  // artifact's lifecycle" rule the env variable states. The coordinator packages
+  // several platforms inside ONE process, so it cannot name them by mutating a
+  // process-wide variable between calls — it names each one on the call itself,
+  // and the flag therefore wins over an env value inherited from a parent.
+  //
+  // A path only: it says WHERE the tarball goes, never anything about what is in
+  // it. Provenance stays with the packaging session (`clientRootDigest`), which is
+  // why `assertNoCallerSuppliedClientRootDigest` refuses the other direction.
+  const flagged = argv.find((arg) => arg.startsWith('--artifact='))?.slice('--artifact='.length)
+  const named = flagged?.trim() || env.PODIUM_BUNDLE_ARTIFACT?.trim()
+  return named ? named : `${out}/podium-headless-${version}.tar.gz`
 }
 
 /**
@@ -747,7 +758,7 @@ export function packageHeadlessForFreshClients(
 
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
-  const tarball = updateArtifactPath(bundleRoot, version, env)
+  const tarball = updateArtifactPath(bundleRoot, version, argv, env)
   timeReleaseBuildSync(
     { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
     () =>

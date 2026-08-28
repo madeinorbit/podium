@@ -64,7 +64,7 @@ describe('compiledSourceMapArgs', () => {
 describe('updateArtifactPath', () => {
   it('defaults to the versioned name a release reads', () => {
     // scripts/release.ts looks for exactly this path.
-    expect(updateArtifactPath('/repo/dist-bun', '0.2.0', {})).toBe(
+    expect(updateArtifactPath('/repo/dist-bun', '0.2.0', [], {})).toBe(
       '/repo/dist-bun/podium-headless-0.2.0.tar.gz',
     )
   })
@@ -76,17 +76,37 @@ describe('updateArtifactPath', () => {
     // `parseDevBundleName` in apps/server/src/modules/updates/dev-bundle.ts.
     const requested = '/repo/dist-bun/podium-headless-dev+abc1234-20260812T182015Z.tar.gz'
     expect(
-      updateArtifactPath('/repo/dist-bun', 'dev+abc1234', {
+      updateArtifactPath('/repo/dist-bun', 'dev+abc1234', [], {
         PODIUM_BUNDLE_ARTIFACT: requested,
       }),
     ).toBe(requested)
   })
 
+  it('lets --artifact= in argv name the tarball ahead of the env and the default', () => {
+    // The coordinator packages several platforms inside ONE process, so it names
+    // each output on the call rather than through a process-wide variable it
+    // cannot vary. An inherited env value must not win over that.
+    expect(
+      updateArtifactPath('/repo/dist-bun', '1.0.0', ['--target=bun-linux-x64', '--artifact=/x/y.tar.gz'], {
+        PODIUM_BUNDLE_ARTIFACT: '/env.tar.gz',
+      }),
+    ).toBe('/x/y.tar.gz')
+  })
+
   it('treats a blank request as no request, never as a path', () => {
     for (const value of ['', '   ', undefined]) {
-      expect(updateArtifactPath('/repo/dist-bun', '0.2.0', { PODIUM_BUNDLE_ARTIFACT: value })).toBe(
-        '/repo/dist-bun/podium-headless-0.2.0.tar.gz',
-      )
+      expect(
+        updateArtifactPath('/repo/dist-bun', '0.2.0', [], { PODIUM_BUNDLE_ARTIFACT: value }),
+      ).toBe('/repo/dist-bun/podium-headless-0.2.0.tar.gz')
     }
+    // A blank flag falls through to the env, and a blank env to the default.
+    expect(
+      updateArtifactPath('/repo/dist-bun', '0.2.0', ['--artifact=   '], {
+        PODIUM_BUNDLE_ARTIFACT: '/env.tar.gz',
+      }),
+    ).toBe('/env.tar.gz')
+    expect(updateArtifactPath('/repo/dist-bun', '0.2.0', ['--artifact='], {})).toBe(
+      '/repo/dist-bun/podium-headless-0.2.0.tar.gz',
+    )
   })
 })

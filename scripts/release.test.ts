@@ -7,6 +7,8 @@ import {
   buildHeadlessManifestForPlatforms,
   legacyPairingNotice,
   packagedWebDigest,
+  parseArtifactOverrides,
+  parseReleaseArgs,
   readDefinedMigrations,
 } from './release'
 
@@ -217,5 +219,49 @@ describe('the accepted candidate seal is before every GitHub mutation', () => {
     expect(seal).toBeGreaterThan(source.indexOf('set GH_TOKEN to publish.'))
     expect(seal).toBeLessThan(source.indexOf("spawnSync('gh'"))
     expect(seal).toBeLessThan(source.indexOf("execFileSync('gh'"))
+  })
+})
+
+describe('parseArtifactOverrides', () => {
+  it('maps a platform to the absolute path its tarball must be written to', () => {
+    expect(parseArtifactOverrides(['linux-x86_64=/tmp/a.tar.gz'])).toEqual(
+      new Map([['linux-x86_64', '/tmp/a.tar.gz']]),
+    )
+    expect(parseArtifactOverrides([])).toEqual(new Map())
+  })
+
+  it('keeps a path containing an = sign, splitting on the FIRST separator only', () => {
+    expect(parseArtifactOverrides(['darwin-aarch64=/tmp/a=b.tar.gz'])).toEqual(
+      new Map([['darwin-aarch64', '/tmp/a=b.tar.gz']]),
+    )
+  })
+
+  it('refuses an unknown platform, a missing separator, a relative path and a duplicate', () => {
+    expect(() => parseArtifactOverrides(['plan9-mips=/tmp/a'])).toThrow(
+      /unknown headless platform 'plan9-mips'/,
+    )
+    expect(() => parseArtifactOverrides(['linux-x86_64'])).toThrow(/<platform>=<absolute path>/)
+    expect(() => parseArtifactOverrides(['linux-x86_64=rel/a'])).toThrow(/must be absolute/)
+    expect(() => parseArtifactOverrides(['linux-x86_64='])).toThrow(/must be absolute/)
+    expect(() => parseArtifactOverrides(['linux-x86_64=/a', 'linux-x86_64=/b'])).toThrow(
+      /given twice/,
+    )
+  })
+
+  it('is reachable from the command line: --artifact is a repeated option', () => {
+    const args = parseReleaseArgs([
+      '--prepare-cross',
+      '--platform',
+      'linux-x86_64',
+      '--artifact',
+      'linux-x86_64=/tmp/a.tar.gz',
+      '--artifact=darwin-aarch64=/tmp/b.tar.gz',
+    ])
+    expect(parseArtifactOverrides(args.repeated('--artifact'))).toEqual(
+      new Map([
+        ['linux-x86_64', '/tmp/a.tar.gz'],
+        ['darwin-aarch64', '/tmp/b.tar.gz'],
+      ]),
+    )
   })
 })
