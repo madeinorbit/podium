@@ -96,3 +96,9 @@ gaps, not product-runtime edits.
 The current-tip Codex arm was refused before bring-up at the same disk gate:
 root free space was `5228788 KiB`, below the `5242880 KiB` 5 GiB floor. See
 `readings/a1c-codex-floor-blocked-2e1648.json`.
+
+### A9 — Codex headless arm
+
+The current-tip Codex A9 arm was refused before bring-up at the same disk
+gate: root free space was `5228788 KiB`, below the `5242880 KiB` 5 GiB floor.
+See `readings/a9-codex-floor-blocked-2e1648.json`.
