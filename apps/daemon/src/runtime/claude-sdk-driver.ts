@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import {
   type AgentSessionHandle,
-  createClaudeSdkRuntime,
   type ClaudeSdkRuntime,
   type ClaudeSdkRuntimeHost,
+  createClaudeSdkRuntime,
   type PendingInteraction,
   type RuntimeEvent,
 } from '@podium/agent-runtime'
@@ -112,7 +112,11 @@ export function createDaemonClaudeSdkRuntime(deps: {
             input.onPartialText(event.text, event.itemHint)
           }
         },
-        { onPermission: input.onPermission },
+        {
+          onPermission: input.onPermission,
+          onToolCall: input.onToolCall,
+          onToolResult: input.onToolResult,
+        },
       )
       return {
         done: child.done.then((outcome) => ({

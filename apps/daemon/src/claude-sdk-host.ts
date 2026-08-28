@@ -63,6 +63,47 @@ function sdkMcpServers(mcpConfig: string | undefined): Record<string, McpServerC
   return Object.keys(out).length > 0 ? out : undefined
 }
 
+/** The content blocks of an SDK `user` message, whatever shape it arrived in.
+ *  String content is a typed prompt and carries no tool results, so it yields
+ *  none. */
+function userContentBlocks(
+  content: unknown,
+): readonly { type?: string; tool_use_id?: unknown; content?: unknown; is_error?: unknown }[] {
+  if (!Array.isArray(content)) return []
+  return content.filter(
+    (
+      block,
+    ): block is { type?: string; tool_use_id?: unknown; content?: unknown; is_error?: unknown } =>
+      typeof block === 'object' && block !== null,
+  )
+}
+
+/**
+ * Flatten a tool_result's content to text.
+ *
+ * ABSENT AND EMPTY BOTH BECOME `''` ON PURPOSE. The provider spells "this tool
+ * printed nothing" several ways — no `content` field, `''`, an empty block
+ * array, an array of blocks with no text — and none of them mean the call did
+ * not return. Collapsing them to one empty string keeps the emitted frame
+ * unconditional, so the transcript shows a call that completed with no output
+ * rather than a call that appears to still be running.
+ */
+function toolResultText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  const parts: string[] = []
+  for (const part of content) {
+    if (typeof part === 'string') {
+      parts.push(part)
+      continue
+    }
+    if (typeof part !== 'object' || part === null) continue
+    const text = (part as { text?: unknown }).text
+    if (typeof text === 'string' && text) parts.push(text)
+  }
+  return parts.join('\n')
+}
+
 /**
  * One turn through the Claude Agent SDK. Process-per-turn: `resume` reloads the
  * whole conversation from the harness's own JSONL, so context persists with no
@@ -385,7 +426,36 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
                     t: 'event',
                     event: { kind: 'status', status: 'tool', label: block.name },
                   })
+                  // The badge above animates the turn; this frame is the record.
+                  // Emitted from the SAME loop, in block order, so a message
+                  // carrying parallel calls reports them in the order the model
+                  // wrote them — the order their results will refer back to.
+                  if (typeof block.id === 'string' && block.id) {
+                    io.send({
+                      t: 'tool-call',
+                      toolUseId: block.id,
+                      toolName: block.name,
+                      ...(block.input !== undefined ? { input: block.input } : {}),
+                    })
+                  }
                 }
+              }
+              break
+            case 'user':
+              // The SDK reports every tool's return as a user message holding
+              // tool_result blocks — the same shape Claude Code writes to its own
+              // JSONL. This case used to fall through to `default`, which is why
+              // a completed tool left nothing behind at all.
+              for (const block of userContentBlocks(msg.message.content)) {
+                if (block.type !== 'tool_result') continue
+                const toolUseId = block.tool_use_id
+                if (typeof toolUseId !== 'string' || !toolUseId) continue
+                io.send({
+                  t: 'tool-result',
+                  toolUseId,
+                  output: toolResultText(block.content),
+                  ...(block.is_error === true ? { isError: true } : {}),
+                })
               }
               break
             case 'result':

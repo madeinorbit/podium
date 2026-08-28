@@ -74,6 +74,10 @@ export interface ClaudeSdkChildOptions {
     input?: unknown
     suggestions?: readonly unknown[]
   }) => void
+  /** One tool call, as the model issued it. Delivered before its result. */
+  onToolCall?: (call: { toolUseId: string; toolName: string; input?: unknown }) => void
+  /** That call's return. `output` is always present and may be empty. */
+  onToolResult?: (result: { toolUseId: string; output: string; isError?: boolean }) => void
 }
 
 /**
@@ -189,6 +193,23 @@ export function runClaudeSdkChildTurn(
             ? { outcome: 'accepted' }
             : { outcome: 'rejected', detail: frame.detail || 'the provider refused the interrupt' },
         )
+        break
+      case 'tool-call':
+        // Forwarded in frame order and never buffered: the host emits the call
+        // before the result, and this is the only place that ordering is
+        // preserved on the way to the transcript.
+        opts.onToolCall?.({
+          toolUseId: frame.toolUseId,
+          toolName: frame.toolName,
+          ...(frame.input !== undefined ? { input: frame.input } : {}),
+        })
+        break
+      case 'tool-result':
+        opts.onToolResult?.({
+          toolUseId: frame.toolUseId,
+          output: frame.output,
+          ...(frame.isError ? { isError: true } : {}),
+        })
         break
       case 'permission':
         opts.onPermission?.({

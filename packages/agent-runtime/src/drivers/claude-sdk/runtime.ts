@@ -1,7 +1,7 @@
 import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
 import {
-  formatAgentError,
   type AgentRuntimeState,
+  formatAgentError,
   type ResumeRef,
   type SessionId,
   type TranscriptItem,
@@ -9,6 +9,7 @@ import {
 import type { ProviderCursor } from '@podium/protocol'
 import { PermissionAnswer } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import { claudeToolCallItem, claudeToolResultItem } from '@podium/transcript'
 import { DriverRefusalError } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
 import type {
@@ -47,6 +48,20 @@ export interface ClaudeSdkPermissionRequest {
   toolName: string
   input?: unknown
   suggestions?: readonly unknown[]
+}
+
+/** One tool the model invoked, keyed by the provider's own `tool_use.id`. */
+export interface ClaudeSdkToolCall {
+  toolUseId: string
+  toolName: string
+  input?: unknown
+}
+
+/** What that tool returned. `output` is always present and may be empty. */
+export interface ClaudeSdkToolResult {
+  toolUseId: string
+  output: string
+  isError?: boolean
 }
 
 export interface ClaudeSdkTurnResult {
@@ -100,6 +115,11 @@ export interface ClaudeSdkRuntimeHost {
     newConversation: boolean
     onPartialText(text: string, itemHint?: string): void
     onPermission(request: ClaudeSdkPermissionRequest): void
+    /** One tool call, as the provider issued it. Always delivered before the
+     *  matching `onToolResult`. */
+    onToolCall(call: ClaudeSdkToolCall): void
+    /** That call's return. `output` may be empty; the call still finished. */
+    onToolResult(result: ClaudeSdkToolResult): void
   }): ClaudeSdkTurnHandle
   readTranscript(input: {
     sessionId: SessionId
@@ -155,6 +175,9 @@ interface SessionCore {
   idleInterruptNotedEpoch: number
   partialText: string
   partialItemId: string
+  /** Transcript-item ids already published for this session's tool calls and
+   *  results. See `notePublishedToolItem`. */
+  publishedToolItems: Set<string>
   handleGeneration: number
   textDeliveries: number
   lastRequestedModel?: ModelPolicy
@@ -232,6 +255,80 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
 
   function publishItem(core: SessionCore, item: TranscriptItem): void {
     push(core, { t: 'item', item: { kind: 'complete', item } })
+  }
+
+  /**
+   * HOW MANY TOOL-ITEM IDS ONE SESSION REMEMBERS.
+   *
+   * Only large enough that a duplicate can never arrive after its id has been
+   * forgotten in practice — duplicates come from the provider re-reporting a
+   * message it already sent within the same conversation, not from a call
+   * thousands of tools ago. The bound exists so a session that runs for days
+   * cannot grow this set without limit.
+   */
+  const TOOL_ITEM_MEMORY = 4096
+
+  /**
+   * PUBLISH ONE TOOL ITEM AT MOST ONCE (POD-3050).
+   *
+   * The provider re-reports messages: a resumed conversation replays them, and a
+   * superseded assistant message arrives again in corrected form. Every such
+   * copy carries the SAME `tool_use.id`, so identity — not arrival order, not a
+   * count — is what distinguishes a repeat from a second call. Returns true when
+   * the item is new and should be published.
+   */
+  function notePublishedToolItem(core: SessionCore, id: string): boolean {
+    if (core.publishedToolItems.has(id)) return false
+    core.publishedToolItems.add(id)
+    if (core.publishedToolItems.size > TOOL_ITEM_MEMORY) {
+      // Sets iterate in insertion order, so this drops the oldest id.
+      const oldest = core.publishedToolItems.values().next()
+      if (!oldest.done) core.publishedToolItems.delete(oldest.value)
+    }
+    return true
+  }
+
+  /**
+   * THE DURABLE RECORD OF ONE TOOL CALL, and the defect POD-3050 is about.
+   *
+   * A headless Claude turn used to reach the transcript as a prompt and an
+   * answer with a hole between them: the driver mapped `tool_use` to a status
+   * badge that nothing stores, and ignored `tool_result` entirely. A human
+   * reading the conversation back saw the model assert a file's contents with no
+   * record of it ever having read the file.
+   *
+   * The item is built by `@podium/transcript`'s shared builder — the same
+   * function the JSONL parser uses — so the item published live and the item a
+   * reload produces are the same item, by construction rather than by agreement.
+   */
+  function publishToolCall(core: SessionCore, call: ClaudeSdkToolCall): void {
+    if (!notePublishedToolItem(core, call.toolUseId)) return
+    publishItem(
+      core,
+      claudeToolCallItem({
+        id: call.toolUseId,
+        toolName: call.toolName,
+        input: call.input,
+        ts: host.now(),
+        toolUseId: call.toolUseId,
+      }),
+    )
+  }
+
+  /** The result half of the pair. Its id is derived from the call's so the two
+   *  are distinct items that a renderer can still join on `toolUseId`. */
+  function publishToolResult(core: SessionCore, result: ClaudeSdkToolResult): void {
+    const id = `${result.toolUseId}-result`
+    if (!notePublishedToolItem(core, id)) return
+    publishItem(
+      core,
+      claudeToolResultItem({
+        id,
+        output: result.output,
+        ts: host.now(),
+        toolUseId: result.toolUseId,
+      }),
+    )
   }
 
   /** A system transcript item is the operator's copy of the record. The runtime
@@ -492,6 +589,14 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         },
         onPermission(request) {
           openPermission(core, request)
+        },
+        onToolCall(call) {
+          if (!core.turnOpen || core.turnEpoch !== epoch) return
+          publishToolCall(core, call)
+        },
+        onToolResult(result) {
+          if (!core.turnOpen || core.turnEpoch !== epoch) return
+          publishToolResult(core, result)
         },
       })
     } catch (error) {
@@ -928,6 +1033,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       idleInterruptNotedEpoch: -1,
       partialText: '',
       partialItemId: '',
+      publishedToolItems: new Set<string>(),
       handleGeneration: 0,
       textDeliveries: 0,
       conversationStarted: !fresh,

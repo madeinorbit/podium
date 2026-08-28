@@ -212,3 +212,116 @@ describe('SDK result error frames', () => {
     expect(error && 'message' in error ? error.message : '').not.toMatch(/oat_secret/)
   }, 10_000)
 })
+
+describe('the SDK host records the tools a turn ran (POD-3050)', () => {
+  /** One scripted turn: an assistant message with `blocks`, then the tool
+   *  results in `results`, then a successful result. */
+  async function runTurn(blocks: unknown[], results: unknown[]): Promise<ClaudeSdkHostFrame[]> {
+    sdk.scripted = [
+      { type: 'system', subtype: 'init', session_id: 'sess-tools' },
+      { type: 'assistant', uuid: 'u1', message: { content: blocks } },
+      ...results.map((content) => ({ type: 'user', message: { content } })),
+      { type: 'result', subtype: 'success', result: 'done' },
+    ]
+    const frames: ClaudeSdkHostFrame[] = []
+    await runClaudeSdkHost({ commands: commandsThenEof([TURN]), send: (f) => frames.push(f) })
+    return frames
+  }
+
+  it('emits the call and its result as a pair, call first', async () => {
+    // THE DEFECT: `tool_use` mapped only to a status badge and `tool_result`
+    // was not read at all, so a turn that read a file reached the transcript as
+    // a prompt and an answer with nothing in between.
+    const frames = await runTurn(
+      [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'cat marker.txt' } }],
+      [[{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'MARKER-OK' }]],
+    )
+    const tools = frames.filter((f) => f.t === 'tool-call' || f.t === 'tool-result')
+    expect(tools).toEqual([
+      {
+        t: 'tool-call',
+        toolUseId: 'toolu_1',
+        toolName: 'Bash',
+        input: { command: 'cat marker.txt' },
+      },
+      { t: 'tool-result', toolUseId: 'toolu_1', output: 'MARKER-OK' },
+    ])
+    // The badge is not the record, but it must not have been dropped either.
+    expect(
+      frames.some((f) => f.t === 'event' && f.event.kind === 'status' && f.event.status === 'tool'),
+    ).toBe(true)
+  }, 10_000)
+
+  it('keeps parallel calls in the order the model issued them', async () => {
+    const frames = await runTurn(
+      [
+        { type: 'tool_use', id: 'toolu_a', name: 'Read', input: { file_path: '/a' } },
+        { type: 'tool_use', id: 'toolu_b', name: 'Read', input: { file_path: '/b' } },
+      ],
+      [
+        [
+          { type: 'tool_result', tool_use_id: 'toolu_a', content: 'A' },
+          { type: 'tool_result', tool_use_id: 'toolu_b', content: 'B' },
+        ],
+      ],
+    )
+    expect(
+      frames
+        .filter((f) => f.t === 'tool-call' || f.t === 'tool-result')
+        .map((f) => `${f.t}:${'toolUseId' in f ? f.toolUseId : ''}`),
+    ).toEqual([
+      'tool-call:toolu_a',
+      'tool-call:toolu_b',
+      'tool-result:toolu_a',
+      'tool-result:toolu_b',
+    ])
+  }, 10_000)
+
+  it('reports a tool that printed nothing as a result with empty output, not as no result', async () => {
+    // Absent content and empty content are the same fact — the call returned.
+    // Dropping the frame would leave the call looking like it never came back.
+    const frames = await runTurn(
+      [{ type: 'tool_use', id: 'toolu_q', name: 'Bash', input: { command: 'true' } }],
+      [
+        [
+          { type: 'tool_result', tool_use_id: 'toolu_q' },
+          { type: 'tool_result', tool_use_id: 'toolu_e', content: [] },
+        ],
+      ],
+    )
+    expect(frames.filter((f) => f.t === 'tool-result')).toEqual([
+      { t: 'tool-result', toolUseId: 'toolu_q', output: '' },
+      { t: 'tool-result', toolUseId: 'toolu_e', output: '' },
+    ])
+  }, 10_000)
+
+  it('flattens block-shaped result content and carries the error flag', async () => {
+    const frames = await runTurn(
+      [{ type: 'tool_use', id: 'toolu_x', name: 'Bash', input: { command: 'false' } }],
+      [
+        [
+          {
+            type: 'tool_result',
+            tool_use_id: 'toolu_x',
+            is_error: true,
+            content: [
+              { type: 'text', text: 'line one' },
+              { type: 'text', text: 'line two' },
+            ],
+          },
+        ],
+      ],
+    )
+    expect(frames.filter((f) => f.t === 'tool-result')).toEqual([
+      { t: 'tool-result', toolUseId: 'toolu_x', output: 'line one\nline two', isError: true },
+    ])
+  }, 10_000)
+
+  it('ignores a typed user prompt and a nameless call rather than inventing a record', async () => {
+    const frames = await runTurn(
+      [{ type: 'tool_use', name: 'Bash', input: {} }],
+      ['just text', [{ type: 'text', text: 'hello' }]],
+    )
+    expect(frames.filter((f) => f.t === 'tool-call' || f.t === 'tool-result')).toEqual([])
+  }, 10_000)
+})

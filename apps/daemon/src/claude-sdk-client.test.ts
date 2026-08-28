@@ -464,3 +464,40 @@ describe('the daemon reads back what the host did with an interrupt', () => {
     expect([first, second]).toEqual([{ outcome: 'accepted' }, { outcome: 'accepted' }])
   }, 20_000)
 })
+
+describe('the daemon carries the tool record across the pipe (POD-3050)', () => {
+  it('delivers calls and results to their callbacks in frame order', async () => {
+    // Order is not reconstructed on this side — it is the order the frames
+    // arrived in, which is the order the provider reported them. A buffer here
+    // would be the one place a result could overtake its own call.
+    const seen: string[] = []
+    const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      spawnHost: fakeHost(
+        [
+          say({ t: 'session', harnessSessionId: 'sess-tools' }),
+          say({
+            t: 'tool-call',
+            toolUseId: 'toolu_1',
+            toolName: 'Bash',
+            input: { command: 'cat x' },
+          }),
+          say({ t: 'tool-result', toolUseId: 'toolu_1', output: 'MARKER' }),
+          say({ t: 'tool-call', toolUseId: 'toolu_2', toolName: 'Read' }),
+          say({ t: 'tool-result', toolUseId: 'toolu_2', output: '', isError: true }),
+          say({ t: 'done', harnessSessionId: 'sess-tools', output: 'ok' }),
+        ].join('\n'),
+      ),
+      onToolCall: (c) =>
+        seen.push(`call:${c.toolUseId}:${c.toolName}:${JSON.stringify(c.input ?? null)}`),
+      onToolResult: (r) =>
+        seen.push(`result:${r.toolUseId}:${JSON.stringify(r.output)}:${r.isError ?? false}`),
+    })
+    await expect(handle.done).resolves.toMatchObject({ harnessSessionId: 'sess-tools' })
+    expect(seen).toEqual([
+      'call:toolu_1:Bash:{"command":"cat x"}',
+      'result:toolu_1:"MARKER":false',
+      'call:toolu_2:Read:null',
+      'result:toolu_2:"":true',
+    ])
+  })
+})

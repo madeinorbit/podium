@@ -80,6 +80,30 @@ export type ClaudeSdkHostFrame =
    * records that as unconfirmed rather than manufacturing either verdict.
    */
   | { t: 'interrupt-ack'; requestId?: string; accepted: boolean; detail?: string }
+  /**
+   * ONE TOOL CALL, AND LATER ITS RESULT — the pair that makes a headless turn
+   * readable after the fact (POD-3050).
+   *
+   * `status: 'tool'` already told the daemon a tool was running, but a status is
+   * a badge: it names no call, carries no input, has no identity, and is gone the
+   * moment the next one arrives. A transcript needs the call itself, so these two
+   * frames carry what the durable record is made of — the provider's own
+   * `tool_use.id`, which is what pairs them, and nothing invented here.
+   *
+   * They are separate frames rather than `HeadlessTurnEvent` variants on purpose:
+   * this is the daemon's private line to its own child, and the durable path they
+   * feed is `transcriptDelta`, which already carries transcript items. Widening
+   * the public activity union would have changed the wire for every consumer to
+   * say something none of them read.
+   */
+  | { t: 'tool-call'; toolUseId: string; toolName: string; input?: unknown }
+  /**
+   * `output` is the result text, flattened from whatever block shape the provider
+   * used. It is ALWAYS present and may be empty: a tool that printed nothing did
+   * run, and an empty result is a fact about it — dropping the frame would leave
+   * the call in the transcript looking like it never returned.
+   */
+  | { t: 'tool-result'; toolUseId: string; output: string; isError?: boolean }
   | { t: 'done'; harnessSessionId: string; output: string }
   | { t: 'error'; message: string; harnessSessionId?: string }
 
