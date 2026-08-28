@@ -5808,3 +5808,40 @@ is now in `docs/evidence/pod-2777/a4.ts` and is pointed at grok as POD-3037.
 **The next honest move is not more drives, it is re-driving the four stale
 pins.** A3/claude cost us a declared release blocker for a day because nobody
 re-read it at the current tip.
+
+## FOREST — 2026-08-28 18:51 CEST
+
+**58 PASS, 7 PARTIAL, 4 BLOCKED, 1 FAIL, of 70 shipping-driver cells.**
+
+**The A1c cluster is closed.** It was four of the five reds this morning. POD-3044
+fixed dead-session sends in the shared server messages path and proved it with a
+real pre/post A/B on codex — pre-fix FAIL with the full 120s observation,
+post-fix a typed `dead-lettered: delivery-failed` refusal *before* acceptance.
+POD-3069 then drove the other three: claude-pty, grok-acp and opencode-server all
+PASS, each with its own **live-send regression control** rather than leaning on
+codex's, because a shared-path fix has a shared-path blast radius.
+
+**The release blocker is cleared.** A6b/opencode was verified live post-landing:
+the defining clause — CLI still echoes after switching — passes with +87,847
+terminal bytes against a pre-fix FAIL. It scores PARTIAL only because scrollback
+is unmeasurable, and main is PARTIAL for the same reason, so the two are level.
+
+**One FAIL remains: A5/grok** — the tool *call* persists and the tool *result*
+does not. POD-3025's fix for it is landed and did not close the cell; it has been
+restarted with the fresh reading. POD-3065 already ruled out the easy
+explanation: the transcript was non-empty and the call half arrived, so this is
+not the empty-read bug POD-3057 fixed.
+
+### What still limits the claim
+
+- **Three A1c cells have no main comparison.** codex, grok and opencode are
+  server-family drivers main does not have. A1c/claude *is* settled — main fails
+  identically, so our PASS is an improvement over main, not a repaired
+  regression.
+- **The 4 BLOCKED and several PARTIALs are instrument limits, not defects** —
+  claude-code 2.1.231 rewriting `permissions.defaultMode`, a logged-out isolated
+  home, an unmeasurable scrollback clause. Undriveable is not a pass and must
+  never be counted as one.
+- **A3/codex and A3/opencode are real but narrow:** the interrupt works —
+  accepted, turn stops in 524ms and 14ms, no continuing output — and only the
+  transcript *record* of it is missing. Main's legacy PTY has the same gap.
