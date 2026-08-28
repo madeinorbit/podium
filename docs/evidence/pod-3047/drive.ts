@@ -1498,6 +1498,9 @@ async function runA7a() {
     const reply = await waitForNeedle(sid, chat, secret, 'assistant', REPLY_MS)
     const control: Control = { fired: user.ok || reply.ok, what: 'pre-restart Claude codeword send/reply', detail: 'user=' + user.ok + '; reply=' + reply.ok }
     if (!reply.ok) return result('BLOCKED', 'pre-restart codeword control did not land', control, ['SEND              ' + short(sent)], { sid, secret })
+    // Same principle as A7b: restart the daemon once the turn has closed, so the
+    // cell measures survival across a restart rather than a turn cut in half.
+    await waitPhase(sid, (phase) => phase !== 'working', 60_000, 500)
     await chat.close()
     const restart = await restartDaemon()
     const postPin = await pinFor('A7A-post-restart')
@@ -1543,7 +1546,17 @@ async function runA7b() {
     const reply = await waitForNeedle(sid, chat, secret, 'assistant', REPLY_MS)
     const control: Control = { fired: user.ok || reply.ok, what: 'pre-hibernate conversation replying with a unique codeword', detail: 'user=' + user.ok + '; reply=' + reply.ok }
     if (!control.fired) return result('BLOCKED', 'pre-hibernate control did not fire', control, ['SEEDED            ' + short(seeded)], { sid })
+    // DO NOT DISRUPT A TURN THAT IS STILL RUNNING AND THEN BLAME THE PRODUCT.
+    //
+    // waitForNeedle can return the moment the reply is persisted, which since the
+    // reader was repaired is often BEFORE the turn closes. Hibernating there got a
+    // correct refusal — "agent is working, let it reach idle first" — and the cell
+    // scored FAIL for "lost context or failed to become live" when the context was
+    // intact and the session was live. The product was right and the probe was
+    // early.
+    const idleBeforePark = await waitPhase(sid, (phase) => phase !== 'working', 60_000, 500)
     const hibernated = await mutate('sessions.hibernate', { sessionId: sid })
+    const parkRefused = (hibernated.result?.data as { ok?: boolean } | undefined)?.ok === false
     const parked = await waitPhase(sid, (phase, row) => phase === 'idle' && row?.status === 'hibernated', 30_000, 500)
     const resurrected = await mutate('sessions.resurrect', { sessionId: sid })
     const live = await waitPhase(sid, (phase, row) => phase !== 'working' && row?.status === 'live', 45_000, 500)
@@ -1556,6 +1569,21 @@ async function runA7b() {
     })
     const recalled = await waitForNeedle(sid, fresh, secret, 'assistant', REPLY_MS)
     const pass = parked.ok && live.ok && recalled.ok
+    // A refusal the product EXPLAINS is not a failure of hibernate; it means the
+    // condition was never created, so there is nothing to score.
+    if (!pass && parkRefused) {
+      const out = result(
+        'BLOCKED',
+        'hibernate was refused with a stated reason, so the park/wake condition was never created: ' +
+          short(hibernated.result?.data ?? null, 200) +
+          ' (idle wait before park: ok=' + idleBeforePark.ok + ' after ' + idleBeforePark.ms + 'ms)',
+        control,
+        ['IDLE BEFORE PARK  ' + idleBeforePark.ok + ' in ' + idleBeforePark.ms + 'ms', 'HIBERNATE         ' + short(hibernated.result?.data ?? null), 'RECALLED          ' + recalled.ok],
+        { sid, idleBeforePark: idleBeforePark.ok, hibernated, parkRefused, recalled: recalled.ok },
+      )
+      await fresh.close()
+      return out
+    }
     const v = await verdictOrAuthBlock(
       pass,
       sid,

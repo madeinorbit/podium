@@ -1,11 +1,11 @@
 {
   "cell": "A7A-post-restart",
-  "at": "2026-08-28T15:17:49.913Z",
+  "at": "2026-08-28T16:44:53.925Z",
   "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-  "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-  "pinSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-  "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
-  "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+  "checkoutSha": "dd599f66ab65fb9ee5e47f4963b27741707714f0",
+  "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+  "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+  "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
   "web": {
     "wireSchemaDigest": "c847f4452ebd568b",
     "wireVersion": 2,
@@ -16,11 +16,11 @@
   },
   "webReuseProof": {
     "servedSourceSha": "4d405af",
-    "headShort": "90ebca7",
+    "headShort": "dd599f6",
     "appsWebIdentical": true
   },
-  "serverPid": "1644155",
-  "daemonPid": "1684304",
+  "serverPid": "1989048",
+  "daemonPid": "2028082",
   "serverAlive": true,
   "daemonAlive": true,
   "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -28,11 +28,11 @@
   "tosOnDaemon": true,
   "freeMemory": {
     "MemTotal": "24603312 kB",
-    "MemAvailable": "18816580 kB",
-    "SwapFree": "41204220 kB"
+    "MemAvailable": "19229024 kB",
+    "SwapFree": "41213352 kB"
   },
-  "rootFreeKiB": 82641552,
-  "load1m": 4.62,
+  "rootFreeKiB": 81960840,
+  "load1m": 2.61,
   "credential": {
     "live": {
       "present": true,
@@ -41,9 +41,12 @@
       "size": 962
     },
     "isolated": {
-      "present": false,
-      "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-    }
+      "present": true,
+      "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+      "mtime": "2026-08-28T14:15:35.225Z",
+      "size": 962
+    },
+    "posture": "symlink"
   },
   "forbiddenOverrides": {
     "PODIUM_STATE_DIR": null,

@@ -2,15 +2,15 @@
   "cell": "BQUOTA",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-bquota",
-  "at": "2026-08-28T16:23:35.080Z",
+  "at": "2026-08-28T16:43:40.994Z",
   "pin": {
     "cell": "BQUOTA",
-    "at": "2026-08-28T16:23:35.098Z",
+    "at": "2026-08-28T16:43:41.029Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
-    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "checkoutSha": "dd599f66ab65fb9ee5e47f4963b27741707714f0",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "5cef0dd",
+      "headShort": "dd599f6",
       "appsWebIdentical": true
     },
-    "serverPid": "1875467",
-    "daemonPid": "1875670",
+    "serverPid": "1989048",
+    "daemonPid": "2021175",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "18143444 kB",
-      "SwapFree": "41212368 kB"
+      "MemAvailable": "19146084 kB",
+      "SwapFree": "41213312 kB"
     },
-    "rootFreeKiB": 82197816,
-    "load1m": 8.01,
+    "rootFreeKiB": 81961936,
+    "load1m": 3.38,
     "credential": {
       "live": {
         "present": true,
@@ -46,9 +46,12 @@
         "size": 962
       },
       "isolated": {
-        "present": false,
-        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-      }
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
     },
     "forbiddenOverrides": {
       "PODIUM_STATE_DIR": null,
@@ -69,54 +72,50 @@
       "files": 4
     }
   },
-  "verdict": "BLOCKED",
-  "summary": "provider classed as authentication",
+  "verdict": "PASS",
+  "summary": "turn succeeded after reset; no quota/auth class",
   "control": {
     "fired": true,
     "what": "a delivered send, reply needle, quota text, auth text, or structured error from a live session",
-    "detail": "user=true; assistant=false; class=authentication"
+    "detail": "user=true; assistant=true; class=none"
   },
   "evidence": [
     "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
-    "CLASS             {\"errorClass\":\"authentication\",\"retryable\":false}",
-    "ERROR             {\"class\":\"authentication\",\"retryable\":false,\"detail\":\"Claude Code returned an error result: Not logged in · Please run /login\"}",
-    "ASSISTANT         false",
+    "CLASS             {\"errorClass\":\"none\",\"retryable\":null}",
+    "ERROR             null",
+    "ASSISTANT         true",
     "SCREEN            \"\""
   ],
   "data": {
-    "sid": "f0f51198-71db-4115-bfbc-41f307e9a267",
-    "needle": "P3047-BQUOTA-MTD5VBBN",
+    "sid": "b0d892bd-2dc6-4a90-9057-c260a4f812e6",
+    "needle": "P3047-BQUOTA-MTD6L5VD",
     "class": {
-      "errorClass": "authentication",
-      "retryable": false
+      "errorClass": "none",
+      "retryable": null
     },
     "user": true,
-    "assistant": false,
+    "assistant": true,
     "row": {
-      "sessionId": "f0f51198-71db-4115-bfbc-41f307e9a267",
+      "sessionId": "b0d892bd-2dc6-4a90-9057-c260a4f812e6",
       "agentKind": "claude-code",
       "harness": "claude-code",
       "driverId": "claude-sdk",
       "requestedDriverId": null,
       "status": "live",
-      "phase": "errored",
+      "phase": "working",
       "machine": "flatblock",
       "model": null,
       "effort": null,
       "contextUsagePercent": null,
       "account": "native:claude-code",
-      "error": {
-        "class": "authentication",
-        "retryable": false,
-        "detail": "Claude Code returned an error result: Not logged in · Please run /login"
-      },
+      "error": null,
       "draft": false,
       "nativeSubagentCount": 0,
       "nativeSubagents": [],
       "subagents": [],
       "issue": null,
       "commits": [
-        "885de81 probe seed"
+        "2df5c56 probe seed"
       ],
       "files": [
         "## main"

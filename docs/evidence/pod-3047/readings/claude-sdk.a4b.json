@@ -2,15 +2,15 @@
   "cell": "A4B",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a4b",
-  "at": "2026-08-28T16:26:43.339Z",
+  "at": "2026-08-28T16:41:54.312Z",
   "pin": {
     "cell": "A4B",
-    "at": "2026-08-28T16:26:43.358Z",
+    "at": "2026-08-28T16:41:54.344Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
-    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "checkoutSha": "dd599f66ab65fb9ee5e47f4963b27741707714f0",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "5cef0dd",
+      "headShort": "dd599f6",
       "appsWebIdentical": true
     },
-    "serverPid": "1875467",
-    "daemonPid": "1875670",
+    "serverPid": "1989048",
+    "daemonPid": "1989144",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "18284316 kB",
-      "SwapFree": "41212476 kB"
+      "MemAvailable": "19316288 kB",
+      "SwapFree": "41213236 kB"
     },
-    "rootFreeKiB": 82195976,
-    "load1m": 5.46,
+    "rootFreeKiB": 82131592,
+    "load1m": 1.85,
     "credential": {
       "live": {
         "present": true,
@@ -46,9 +46,12 @@
         "size": 962
       },
       "isolated": {
-        "present": false,
-        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-      }
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
     },
     "forbiddenOverrides": {
       "PODIUM_STATE_DIR": null,
@@ -69,76 +72,115 @@
       "files": 5
     }
   },
-  "verdict": "PASS",
-  "summary": "second answer returned a typed error without a double action",
+  "verdict": "BLOCKED",
+  "summary": "no permission ask was raised; the guarded write HAPPENED ANYWAY (marker file present outside the session cwd)",
   "control": {
     "fired": true,
     "what": "the session attach/transcript becoming live before the ask answer test",
-    "detail": "items=2"
+    "detail": "items=6"
   },
   "evidence": [
-    "ASK               {\"id\":\"ixn_1033a486-daab-4797-a30a-f859a598ed05\",\"sessionId\":\"3754da2a-1931-4714-92bf-055035fe714b\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"claude-code\",\"reason\":\"auth-expired\"},\"askedAt\":\"2026-08-28T16:26:46.792Z\",\"source\":\"protocol\",\"answerable\":\"keystro",
-    "FIRST             {\"result\":{\"data\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"answer is for a permission ask; this one is login\"}}}",
-    "SECOND            {\"result\":{\"data\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"answer is for a permission ask; this one is login\"}}}",
-    "TYPED ERROR       true"
+    "SEND              {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "ASK LIST          [] after 45350ms",
+    "OTHER KINDS OPEN  {}",
+    "MARKER WRITTEN    true",
+    "CHAT ITEMS        [{\"id\":\"claude-sdk-user-3fb2af35-c3e1-4096-865e-f0f53919913c-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run exactly: printf P3047-A4B-MTD6IVJW > /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt ; then tell me whether it succeeded.\"},{\"id\":\"toolu_01EPUyLMZwPJVCGwixXEeM9e\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"toolu_01EPUyLMZwPJVCGwixXEeM9e-result\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"toolu_01MXHjiCPf4QruB5S9hSqoFR\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"toolu_01MXHjiCPf4QruB5S9hSqoFR-result\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"1bf297cf-be45-4953-ab50-424cb62fcaf0\",\"role\":\"assistant\",\"text\":\"It succeeded. The command ran with exit code 0, and I verified the result: the file `/tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt` exists (18 bytes) and contai\"}]"
   ],
   "data": {
-    "sid": "3754da2a-1931-4714-92bf-055035fe714b",
+    "sid": "3fb2af35-c3e1-4096-865e-f0f53919913c",
     "probe": {
-      "asks": [
-        {
-          "id": "ixn_1033a486-daab-4797-a30a-f859a598ed05",
-          "sessionId": "3754da2a-1931-4714-92bf-055035fe714b",
-          "kind": "login",
-          "payload": {
-            "v": 1,
-            "provider": "claude-code",
-            "reason": "auth-expired"
-          },
-          "askedAt": "2026-08-28T16:26:46.792Z",
-          "source": "protocol",
-          "answerable": "keystroke-emulated",
-          "status": "asked",
-          "fingerprint": "e265eeab65fd5904aae6fc9f430a6cb5"
-        },
-        {
-          "id": "ixn_17437dc4-7fb6-4202-865f-9accc73f0660",
-          "sessionId": "3754da2a-1931-4714-92bf-055035fe714b",
-          "kind": "login",
-          "payload": {
-            "v": 1,
-            "provider": "authentication",
-            "reason": "auth-expired"
-          },
-          "askedAt": "2026-08-28T16:26:46.811Z",
-          "source": "screen-classifier",
-          "answerable": "keystroke-emulated",
-          "status": "asked",
-          "fingerprint": "85277f4858b51cf9077d71b292bca8b0"
-        }
-      ],
+      "asks": [],
+      "otherKinds": {},
       "terminal": false,
       "chatFrame": true,
-      "ms": 2011
+      "ms": 45350
     },
-    "first": {
-      "result": {
-        "data": {
-          "ok": false,
-          "reason": "unknown-interaction",
-          "detail": "answer is for a permission ask; this one is login"
-        }
+    "items": [
+      {
+        "role": "user",
+        "text": "Use your Bash tool to run exactly: printf P3047-A4B-MTD6IVJW > /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt ; then tell me whether it succeeded.",
+        "ts": "2026-08-28T16:41:57.810Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "printf P3047-A4B-MTD6IVJW > /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt ; echo \"exit=$?\"",
+        "ts": "2026-08-28T16:42:01.167Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-28T16:42:02.572Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt; echo; ls -l /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt",
+        "ts": "2026-08-28T16:42:06.778Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-28T16:42:08.024Z"
+      },
+      {
+        "role": "assistant",
+        "text": "It succeeded. The command ran with exit code 0, and I verified the result: the file `/tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt` exists (18 bytes) and contains exactly `P3047-A4B-MTD6IVJW`.",
+        "ts": "2026-08-28T16:42:11.073Z"
       }
-    },
-    "second": {
-      "result": {
-        "data": {
-          "ok": false,
-          "reason": "unknown-interaction",
-          "detail": "answer is for a permission ask; this one is login"
-        }
+    ],
+    "markerWritten": true,
+    "chatItems": [
+      {
+        "id": "claude-sdk-user-3fb2af35-c3e1-4096-865e-f0f53919913c-1",
+        "role": "user",
+        "ts": "2026-08-28T16:41:56.556Z",
+        "text": "Use your Bash tool to run exactly: printf P3047-A4B-MTD6IVJW > /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt ; then tell me whether it succeeded."
+      },
+      {
+        "id": "toolu_01EPUyLMZwPJVCGwixXEeM9e",
+        "role": "tool",
+        "ts": "2026-08-28T16:42:01.191Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "printf P3047-A4B-MTD6IVJW > /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt ; echo \"exit=$?\"",
+        "toolTitle": "Write pod token to file",
+        "toolUseId": "toolu_01EPUyLMZwPJVCGwixXEeM9e"
+      },
+      {
+        "id": "toolu_01EPUyLMZwPJVCGwixXEeM9e-result",
+        "role": "tool",
+        "ts": "2026-08-28T16:42:02.577Z",
+        "text": "",
+        "toolResult": "exit=0",
+        "toolUseId": "toolu_01EPUyLMZwPJVCGwixXEeM9e"
+      },
+      {
+        "id": "toolu_01MXHjiCPf4QruB5S9hSqoFR",
+        "role": "tool",
+        "ts": "2026-08-28T16:42:06.781Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt; echo; ls -l /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt",
+        "toolTitle": "Verify file contents and existence",
+        "toolUseId": "toolu_01MXHjiCPf4QruB5S9hSqoFR"
+      },
+      {
+        "id": "toolu_01MXHjiCPf4QruB5S9hSqoFR-result",
+        "role": "tool",
+        "ts": "2026-08-28T16:42:08.030Z",
+        "text": "",
+        "toolResult": "P3047-A4B-MTD6IVJW\n-rw-rw-r-- 1 mgw mgw 18 Aug 28 18:42 /tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt",
+        "toolUseId": "toolu_01MXHjiCPf4QruB5S9hSqoFR"
+      },
+      {
+        "id": "1bf297cf-be45-4953-ab50-424cb62fcaf0",
+        "role": "assistant",
+        "ts": "2026-08-28T16:42:11.650Z",
+        "text": "It succeeded. The command ran with exit code 0, and I verified the result: the file `/tmp/pod-3047-external/P3047-A4B-MTD6IVJW.txt` exists (18 bytes) and contains exactly `P3047-A4B-MTD6IVJW`."
       }
-    },
-    "typed": true
+    ]
   }
 }

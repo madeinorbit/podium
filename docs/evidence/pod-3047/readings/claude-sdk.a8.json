@@ -2,15 +2,15 @@
   "cell": "A8",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a8",
-  "at": "2026-08-28T16:06:09.491Z",
+  "at": "2026-08-28T16:43:47.254Z",
   "pin": {
     "cell": "A8",
-    "at": "2026-08-28T16:06:09.512Z",
+    "at": "2026-08-28T16:43:47.271Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
-    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "checkoutSha": "dd599f66ab65fb9ee5e47f4963b27741707714f0",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "5cef0dd",
+      "headShort": "dd599f6",
       "appsWebIdentical": true
     },
-    "serverPid": "1875467",
-    "daemonPid": "1875670",
+    "serverPid": "1989048",
+    "daemonPid": "2021175",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "18937584 kB",
-      "SwapFree": "41210052 kB"
+      "MemAvailable": "19219840 kB",
+      "SwapFree": "41213312 kB"
     },
-    "rootFreeKiB": 82650100,
-    "load1m": 5.33,
+    "rootFreeKiB": 81961632,
+    "load1m": 3.84,
     "credential": {
       "live": {
         "present": true,
@@ -46,9 +46,12 @@
         "size": 962
       },
       "isolated": {
-        "present": false,
-        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-      }
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
     },
     "forbiddenOverrides": {
       "PODIUM_STATE_DIR": null,
@@ -60,8 +63,8 @@
   "transcriptsOnDisk": {
     "instanceAgentHome": {
       "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a8",
-      "exists": true,
-      "files": 1
+      "exists": false,
+      "files": 0
     },
     "operatorHome": {
       "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a8",
@@ -69,26 +72,15 @@
       "files": 4
     }
   },
-  "verdict": "FAIL",
-  "summary": "logged-out spawn showed no working login path",
+  "verdict": "REFUSED",
+  "summary": "cell could not be driven: Error: isolated credential present; A8 must not copy or move it",
   "control": {
-    "fired": true,
-    "what": "logged-out Claude spawn producing a live surface",
-    "detail": "attached=1; screenBytes=0; items=0"
+    "fired": false,
+    "what": "the complete pinned cell running to a result",
+    "detail": "Error: isolated credential present; A8 must not copy or move it"
   },
   "evidence": [
-    "SCREEN            \"\"",
-    "LOGIN PATH        false",
-    "CLASS             {\"errorClass\":\"none\",\"retryable\":null}",
-    "STATUS            {\"sessionId\":\"6371dbbe-7ffc-4779-aa96-a021196fffd7\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
+    "ERROR             Error: isolated credential present; A8 must not copy or move it"
   ],
-  "data": {
-    "sid": "6371dbbe-7ffc-4779-aa96-a021196fffd7",
-    "loginPath": false,
-    "class": {
-      "errorClass": "none",
-      "retryable": null
-    },
-    "isolatedCredential": false
-  }
+  "data": {}
 }

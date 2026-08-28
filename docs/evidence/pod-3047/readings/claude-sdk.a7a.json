@@ -2,15 +2,15 @@
   "cell": "A7A",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a7a",
-  "at": "2026-08-28T16:13:53.207Z",
+  "at": "2026-08-28T16:44:47.252Z",
   "pin": {
     "cell": "A7A",
-    "at": "2026-08-28T16:13:53.233Z",
+    "at": "2026-08-28T16:44:47.272Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
-    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "checkoutSha": "dd599f66ab65fb9ee5e47f4963b27741707714f0",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "5cef0dd",
+      "headShort": "dd599f6",
       "appsWebIdentical": true
     },
-    "serverPid": "1875467",
-    "daemonPid": "1875670",
+    "serverPid": "1989048",
+    "daemonPid": "2021175",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "18521968 kB",
-      "SwapFree": "41211788 kB"
+      "MemAvailable": "19083996 kB",
+      "SwapFree": "41213340 kB"
     },
-    "rootFreeKiB": 82207064,
-    "load1m": 5.86,
+    "rootFreeKiB": 81960676,
+    "load1m": 2.56,
     "credential": {
       "live": {
         "present": true,
@@ -46,9 +46,12 @@
         "size": 962
       },
       "isolated": {
-        "present": false,
-        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-      }
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
     },
     "forbiddenOverrides": {
       "PODIUM_STATE_DIR": null,
@@ -61,7 +64,7 @@
     "instanceAgentHome": {
       "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a7a",
       "exists": true,
-      "files": 1
+      "files": 2
     },
     "operatorHome": {
       "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a7a",
@@ -69,18 +72,43 @@
       "files": 4
     }
   },
-  "verdict": "BLOCKED",
-  "summary": "pre-restart codeword control did not land",
+  "verdict": "PASS",
+  "summary": "daemon restart retained the same live conversation and codeword",
   "control": {
     "fired": true,
     "what": "pre-restart Claude codeword send/reply",
-    "detail": "user=true; reply=false"
+    "detail": "user=true; reply=true"
   },
   "evidence": [
-    "SEND              {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}"
+    "BASELINE          user=true reply=true",
+    "RESTART           {\"oldPid\":\"2021175\",\"newPid\":\"2028082\",\"out\":\"OLD_DAEMON_PID=2021175\\nNEW_DAEMON_PID=2028082 sha=ad02520c22a9cba42db7fc1dd8c44620f29f4509 tos=1\\n\"}",
+    "POST PIN          2028082 ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "RECALL            {\"ok\":true,\"disposition\":\"delivered\"} assistant=true",
+    "STATUS            {\"sessionId\":\"4cf3ce06-ec24-4749-9fa0-a33e7e906e71\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
   ],
   "data": {
-    "sid": "3bdc5272-1e07-4054-afaa-31b205123d93",
-    "secret": "P3047-A7A-MTD5IUC9"
+    "sid": "4cf3ce06-ec24-4749-9fa0-a33e7e906e71",
+    "secret": "P3047-A7A-MTD6MKXA",
+    "restart": {
+      "oldPid": "2021175",
+      "newPid": "2028082",
+      "out": "OLD_DAEMON_PID=2021175\nNEW_DAEMON_PID=2028082 sha=ad02520c22a9cba42db7fc1dd8c44620f29f4509 tos=1\n"
+    },
+    "got": {
+      "ok": true,
+      "ms": 13,
+      "items": [
+        {
+          "role": "user",
+          "text": "Remember this codeword: P3047-A7A-MTD6MKXA. Reply with exactly P3047-A7A-MTD6MKXA. Do not use tools.",
+          "ts": "2026-08-28T16:44:50.725Z"
+        },
+        {
+          "role": "assistant",
+          "text": "P3047-A7A-MTD6MKXA",
+          "ts": "2026-08-28T16:44:52.475Z"
+        }
+      ]
+    }
   }
 }
