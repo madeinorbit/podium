@@ -1,0 +1,55 @@
+ok  no other probe is driving this rig
+  ok  server pid=2461863 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 15e5afe
+  ok  daemon pid=2461938 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 15e5afe
+  ok  exactly one daemon (pid 2461938) on instance 'p2777' (state root /home/mgw/.local/state/podium/p2777)
+  ok  worktree at 15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f; product tree clean (apps/ packages/ scripts/ …)
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 15e5afe
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f","short":"15e5afe","spawnedSha":"15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f","serverPid":2461863,"daemonPid":2461938,"webSourceSha":"15e5afe","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running 15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=headless  expecting driver 'codex-app-server'
+PIN                15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f (web bundle 15e5afe, server pid 2461863, daemon pid 2461938)
+==============================================================================
+session 0531dfdc-b207-4d3b-b872-41840ae6a653 created; giving the harness 25000ms to come up
+BOUND DRIVER       codex-app-server (family server)
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   PASS  212 preview frames, 1201→6506 chars, monotonic per row
+   control: FIRED — 2 frame(s), first at +1ms
+   JOINED            8789ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)
+   PHASE AT JOIN     working — a turn was in flight when the viewer arrived
+   PREVIEW FRAMES    212
+   FIRST             +2ms  epoch=1 seq=312 rows=1 chars=1201
+   LAST              +22522ms  epoch=1 seq=1563 rows=1 chars=6506
+   GROWTH            211/211 transitions increased the visible character count
+   MONOTONIC/ROW     YES — no row ever shrank
+   FINE WATCH        ACQUIRED — the daemon moved the driver's fine refcount for this session
+   FRAME TYPES       turnPreview=212 hostMetricsChanged=6 machinesChanged=5 transcriptDelta=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 sessionAgentStateChanged=1
+
+── interrupt — interrupt a running turn
+   PASS  turn stopped 525ms after interrupt, but nothing marks it
+   control: FIRED — 1 preview frame(s) and 6506 new transcript chars — tokens are being produced; phase=working, 1 preview frame(s), 6506 new transcript chars, 0 new terminal bytes
+   WAS RUNNING       1 preview frame(s) and 6506 new transcript chars — tokens are being produced; phase=working, 1 preview frame(s), 6506 new transcript chars, 0 new terminal bytes
+   INTERRUPT SENT    {"ok":true,"requested":"protocol"}
+   SETTLED           phase left 'working' after 525ms
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT              6506 chars at the call -> 6506 chars at settle
+   FRAMES AFTER      0 preview frame(s) arrived AFTER the call
+   TERMINAL BYTES    0 at the call -> +0 after 6s -> +0 after 12s
+   AFTER THE CALL    phase=idle status=live error=none
+   SCORED ON         phase leaving 'working'
+
+==============================================================================
+RESULT  codex / headless / driver=codex-app-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+stream          PASS      fired     212 preview frames, 1201→6506 chars, monotonic per row
+interrupt       PASS      fired     turn stopped 525ms after interrupt, but nothing marks it
+==============================================================================
+written /tmp/pod-2777/results/codex.headless.json
