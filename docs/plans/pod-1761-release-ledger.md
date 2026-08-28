@@ -5881,3 +5881,85 @@ with the fresh reading. POD-3065 already ruled out the empty-read explanation.
   rig. Undriveable is not a pass.
 - **A3/codex and A3/opencode remain real but narrow:** the interrupt works and
   only its transcript record is missing. Main's legacy PTY has the same gap.
+
+
+## FOREST — Claude SDK matrix accepted; integration refresh underway (2026-08-28 19:15 CEST)
+
+POD-3047 is accepted and landed on the local epic at `d8048399d`, after its clean
+review branch was fast-forwarded under the merge lock. Its current-pin Claude SDK
+matrix is **25 exact eight-field rows and 27 pin-verified readings** at
+`ad02520c2` (19 SDK rows and 6 PTY comparison rows), with two credential postures:
+a symlink to the existing operator credential for model-dependent cells and a
+credential-free agent home for the logged-out cells. The symlink was authorised,
+never copied or printed a token, and its mtime was unchanged across the drive.
+
+The matrix is explicit rather than averaged away: **15 PASS, 1 PARTIAL, 2 FAIL,
+7 BLOCKED**. A3 and A5 pass with their controls; A1b is PARTIAL because
+`queued:false` and `disposition:delivered` contradict the returned
+`position:1` while the message still survives reload, and that exact finding was
+mailed to POD-2920. A8 and B auth are the first valid SDK logged-out readings and
+both fail because the SDK offers no login path while the PTY control does. A4a/A4b
+remain measured auto-approval blocks; A6a/A6b and A1c are structurally not
+applicable to the SDK path; no blocked cell is counted as a pass.
+
+POD-3025's current-tip Grok A5 validation is also complete and its issue is now
+closed: the allow-once controlled run at `3cd8fa16` proved the tool call and
+result live and after reload. Replacing the stale one-red snapshot from 19:09
+therefore yields **60 PASS, 7 PARTIAL, 3 BLOCKED, 0 FAIL of the prior 70
+shipping-driver cells**. The 25-row Claude matrix is tracked separately until
+the coordinator's final cell de-duplication.
+
+POD-3070 has now started on Opus 5 medium. Its first required action is to SSH to
+ludovico, push that machine's actual live `dev/mw` HEAD to `origin/dev/mw`,
+and then reconcile every divergent issue by intent. It must leave the sandbox
+stopped; the final acceptance gate, release ledger reconciliation, and operator
+test drive remain pending.
+
+## FOREST — 2026-08-28 19:14 CEST — NO FAILING CELLS
+
+**60 PASS, 7 PARTIAL, 3 BLOCKED, 0 FAIL, of 70 shipping-driver cells.**
+
+The last FAIL closed the way several others did today: **it was never a product
+failure.** POD-3025's corrected re-drive answered the protocol permission ask
+with allow-once and proved the tool call/result pair persisted live and after
+reload. The FAIL lineage — POD-2927 at `dded76d9c`, reproduced by POD-3065 at
+`f76f698ce` — **left that ask unanswered, so the call never completed and no
+result could exist.** The probe was scoring the absence of something it had
+itself prevented.
+
+**I superseded a newer reading with an older one deliberately.** Recency is the
+right tiebreak between two readings that both exercise the scenario; it is the
+wrong one when the newer probe never reaches the boundary. Same shape as
+A1a/claude, where a FAIL was a rig with no credential.
+
+### ZERO FAIL IS NOT DONE. What remains, precisely:
+
+**7 PARTIAL — real gaps, each with one unmet clause:**
+- **A3 codex, A3 opencode** — interrupt works (accepted, stops in 524ms/14ms, no
+  further output); only the transcript *record* is missing. **Main's legacy PTY
+  has the same gap**, so not a regression.
+- **A4a codex, A4a grok** — chat plane enumerates the structured ask; the
+  terminal plane still looks to be prompting after the answer.
+- **A6b codex, A6b opencode** — everything passes except no-scrollback-corruption,
+  which the probe cannot measure on either arm. **Main is PARTIAL for the same
+  reason.**
+- **A8 opencode** — demotion observable, but no working login affordance was
+  exposed.
+
+**3 BLOCKED — vendor instrument limits, not defects:**
+- **A4a/A4b claude** — claude-code 2.1.231 rewrites `permissions.defaultMode`
+  manual→auto, so an ask can never fire. Undriveable on **both** arms.
+- **A8 claude** — the login path is reachable but cannot be completed in the rig.
+
+**Undriveable is not a pass and is not counted as one.**
+
+### The claim this supports, and the one it does not
+
+**Supported:** no Tier-A cell on the shipping drivers is known to be worse than
+main, and every remaining non-PASS is an unmeasurable clause, a vendor limit, or
+a narrow gap main shares.
+
+**NOT supported:** that the epic is at parity everywhere. **Three A1c cells —
+codex, grok, opencode — have never been compared against main at all**, because
+main has no server-family driver. Absence of a main row is not a passing main.
+That gap is the last thing standing between this and a defensible release claim.
