@@ -1,0 +1,61 @@
+POD-3069 A1c current-tip evidence — claude-pty
+================================================
+
+Date: 2026-08-28 (Europe/Berlin)
+Runtime tip: ad02520c22a9cba42db7fc1dd8c44620f29f4509
+Measurement adapter: the issue-local stamped-child adapter later committed as af49f9c
+Web: served sourceSha 4d405af, reused because apps/web was unchanged through the runtime tip
+Instance: p3069c, server :19969, hook :46969, relay :46970
+Arm: CONTRACT=1, STREAMING=1, DRIVER=claude-pty
+
+The stock A1c probe was not used for the scored Claude reading: Claude PTY has
+three exact UUID+session stamped processes (abduco master, Claude executable,
+and attach client). The adapter retained POD-3044's sequence and selected the
+unique stamped abduco `-n` master as the durable terminal-session owner. A
+child-only diagnostic left that master alive and produced accepted-then-lost;
+it was not scored as the dead-session reading.
+
+Canonical pin before the scored run:
+
+  PINJSON {"want":"ad02520c22a9cba42db7fc1dd8c44620f29f4509","short":"ad02520","spawnedSha":"ad02520c22a9cba42db7fc1dd8c44620f29f4509","serverPid":1952188,"daemonPid":1952287,"webSourceSha":"4d405af","contract":"1","streaming":"1","driver":"claude-pty"}
+
+The repository's live reply preflight also fired before A1c: Claude bound as
+claude-pty and returned its nonce with {"ok":true,"disposition":"delivered"}.
+
+Scored A1c run:
+
+  session 87138dac-d328-49d6-ab90-275406a54217
+  product driver   claude-pty family=terminal
+  CONTROL          live send answered: true
+  live send return  {"ok":true,"disposition":"delivered"}
+  target stamp     uuid=82a649c0-8416-4206-b69a-ceea218110f1 source=/home/mgw/.local/state/podium/p3069c/instance.json
+  stamped chain    3 exact UUID+session process(es)
+    pid=1991249 ppid=1150 comm=abduco exe=/home/mgw/.local/state/podium/p3069c/bin/abduco cwd=/ cmd=abduco -n podium-p3069c-87138dac-d328-49d6-ab90-275406a54217 ...
+    pid=1991250 ppid=1991249 comm=claude exe=/home/mgw/.local/share/claude/versions/2.1.236 cwd=/tmp/pod-3069-claude/repo cmd=claude --append-system-prompt ...
+    pid=1991254 ppid=1952287 comm=abduco exe=/home/mgw/.local/state/podium/p3069c/bin/abduco cwd=/home/mgw/src/podium/.worktrees/issue-3069-dead-session-refusal-on-the-other-three cmd=abduco -q -e ... -a ...87138dac-d328-49d6-ab90-275406a54217@flatblock
+  target selector   durable abduco -n session owner; candidates=1
+  SIGKILL target   pid=1991249 start=2714302 sent=true
+  after child kill  row status=live
+  exact PID gone   true; remaining stamped PIDs=1991250
+  dead confirmed   true
+  send to dead     {"ok":false,"reason":"dead-lettered: delivery-failed","disposition":"dead_letter"}
+  typed refusal    true — reason="dead-lettered: delivery-failed"
+  accepted         false
+  delayed outcome  not applicable (refused before acceptance)
+  A1c PASS
+
+Clause verdicts:
+
+  live-send control: PASS — answered before the kill.
+  exact stamped-child attribution: PASS — the UUID+session chain was recorded;
+    the unique durable abduco master was selected.
+  exact SIGKILL/death: PASS — pid 1991249 was signaled and its original
+    PID/start identity was gone.
+  dead-send disposition: PASS — typed refusal before acceptance,
+    dead-lettered: delivery-failed.
+  delayed observation: not applicable — the send was refused before acceptance.
+  A1c: PASS.
+
+Classification: A1c/claude is an improvement over the known claude-pty-on-main
+    result (accepted after child death); it is not described as a repair of the
+    main result.

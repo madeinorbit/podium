@@ -1,0 +1,47 @@
+POD-3069 A1c current-tip evidence — opencode-server
+====================================================
+
+Date: 2026-08-28 (Europe/Berlin)
+Runtime tip: b314090cf268963a0b8f6bc89d68d2b55395f7fb
+Web: served sourceSha 4d405af, reused because apps/web was unchanged through the tip
+Instance: p3069o, server :19972, hook :46973, relay :46974
+Arm: CONTRACT=1, STREAMING=1, DRIVER=opencode-server
+Harness: /home/mgw/.opencode/bin/opencode, version 1.18.25
+
+Canonical pin before the scored run:
+
+  PINJSON {"want":"b314090cf268963a0b8f6bc89d68d2b55395f7fb","short":"b314090","spawnedSha":"b314090cf268963a0b8f6bc89d68d2b55395f7fb","serverPid":2018015,"daemonPid":2018102,"webSourceSha":"4d405af","contract":"1","streaming":"1","driver":"opencode-server"}
+
+Scored A1c run, using the POD-3044 sequence:
+
+  session a7a629b0-d88e-4e87-94f8-b523e1e944cb
+  product driver   opencode-server family=server
+  CONTROL          live send answered: true
+  live send return  {"ok":true,"disposition":"delivered"}
+  target stamp     uuid=5e2486c7-6072-4ad1-a7a8-def0b8b36887 source=/home/mgw/.local/state/podium/p3069o/instance.json
+  stamped chain    1 exact UUID+session process
+    pid=2019539 ppid=2018102 comm=opencode exe=/home/mgw/.opencode/bin/opencode cwd=/tmp/pod-3069-opencode/repo cmd=/home/mgw/.opencode/bin/opencode serve --port 33049 --hostname 127.0.0.1
+  target selector   harness executable name; candidates=1
+  SIGKILL target   pid=2019539 start=2766254 sent=true
+  after child kill  row status=live
+  exact PID gone   true; remaining stamped PIDs=(none)
+  dead confirmed   true
+  send to dead     {"ok":false,"reason":"dead-lettered: delivery-failed","disposition":"dead_letter"}
+  typed refusal    true — reason="dead-lettered: delivery-failed"
+  accepted         false
+  delayed outcome  not applicable (refused before acceptance)
+  A1c PASS
+
+Clause verdicts:
+
+  live-send control: PASS — answered before the kill.
+  exact stamped-child attribution: PASS — one UUID+session-stamped OpenCode PID.
+  exact SIGKILL/death: PASS — pid 2019539 was signaled and its original
+    PID/start identity was gone.
+  dead-send disposition: PASS — typed refusal before acceptance,
+    dead-lettered: delivery-failed.
+  delayed observation: not applicable — the send was refused before acceptance.
+  A1c: PASS.
+
+Classification: no OpenCode-on-main baseline was measured, so this is not
+described as fixing a regression.
