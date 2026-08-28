@@ -163,6 +163,47 @@ export PODIUM_DRIVE_REPO="${P2777_REPO:-/home/mgw/src/podium/.worktrees/issue-27
 # this reorder changes nothing else — bun still resolves from ~/.bun/bin.
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:$PATH"
 
+# --- PIN THE HARNESS BINARY, NOT JUST THE COMMIT -----------------------------
+# THE CODEX BINARY DRIFTED OUT FROM UNDER THIS RIG AND SILENTLY EMPTIED A
+# COLUMN. On 2026-08-28 17:29 ~/.local/bin/codex was repointed to the standalone
+# 0.150.1. The app-server driver is exercised against 0.147.x-0.149.x, so the
+# version gate refused — CORRECTLY, loudly, in the daemon log — and every codex
+# session fell back to generic-pty:
+#
+#   daemon:codex-app-server  codex 0.150.1 is outside the range this driver
+#                            was exercised against (0.147.x - 0.149.x)
+#   daemon:session           preferred=codex-app-server resolved=generic-pty
+#
+# drive.ts caught it at the binding check and REFUSED all nine cells rather than
+# reporting a terminal measurement in the headless column, which is the guard
+# doing exactly its job. But the run still cost a full rig cycle to diagnose,
+# because a pin that covers the COMMIT and not the HARNESS cannot see this at
+# all: server, daemon and web bundle were all provably correct while the thing
+# actually under test had been replaced underneath them.
+#
+# So the harness version is now a pinnable leg of the rig. Set P2777_CODEX_BIN
+# to an exact binary and the arm runs THAT one, through a rig-owned directory
+# placed ahead of everything:
+#
+#   P2777_CODEX_BIN=$HOME/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex
+#
+# DEFAULT IS DELIBERATELY UNSET, and that is not laziness. A rig that silently
+# reached for a supported version would hide the finding that matters to the
+# operator: on a STOCK box today, codex headless does not bind at all. The
+# default must keep showing that. Pinning is an explicit act, and drive-up.sh
+# prints the resolved version of every harness before it spawns anything, so
+# which one ran is on the record either way.
+#
+# The global ~/.local/bin/codex symlink is NOT touched: it is shared by every
+# live session on this host, and repointing it under running agents is the
+# operator's call, not this rig's.
+if [ -n "${P2777_CODEX_BIN:-}" ]; then
+  [ -x "$P2777_CODEX_BIN" ] || { echo "P2777_CODEX_BIN is not executable: $P2777_CODEX_BIN" >&2; return 1 2>/dev/null || exit 1; }
+  mkdir -p "$PODIUM_DRIVE_BASE/bin"
+  ln -sfn "$P2777_CODEX_BIN" "$PODIUM_DRIVE_BASE/bin/codex"
+  export PATH="$PODIUM_DRIVE_BASE/bin:$PATH"
+fi
+
 # Only the rig's own directory, and the state root the rig must write its
 # first-run files into. The runtime/abduco and runtime/tmux directories are
 # created by applyInstanceRuntimeEnv() inside the product, which is the point.
