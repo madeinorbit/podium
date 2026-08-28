@@ -1,11 +1,11 @@
 {
   "cell": "A2B",
-  "at": "2026-08-28T16:08:28.008Z",
+  "at": "2026-08-28T16:36:44.347Z",
   "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-  "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
-  "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-  "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-  "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+  "checkoutSha": "b3aafad7fe33db36bb3fd49b94dffcb0ad3c38b9",
+  "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+  "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+  "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
   "web": {
     "wireSchemaDigest": "c847f4452ebd568b",
     "wireVersion": 2,
@@ -16,11 +16,11 @@
   },
   "webReuseProof": {
     "servedSourceSha": "4d405af",
-    "headShort": "5cef0dd",
+    "headShort": "b3aafad",
     "appsWebIdentical": true
   },
-  "serverPid": "1875467",
-  "daemonPid": "1875670",
+  "serverPid": "1989048",
+  "daemonPid": "1989144",
   "serverAlive": true,
   "daemonAlive": true,
   "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -28,11 +28,11 @@
   "tosOnDaemon": true,
   "freeMemory": {
     "MemTotal": "24603312 kB",
-    "MemAvailable": "19028832 kB",
-    "SwapFree": "41210332 kB"
+    "MemAvailable": "19362300 kB",
+    "SwapFree": "41213004 kB"
   },
-  "rootFreeKiB": 82646352,
-  "load1m": 6.61,
+  "rootFreeKiB": 82150816,
+  "load1m": 4.03,
   "credential": {
     "live": {
       "present": true,
@@ -41,9 +41,12 @@
       "size": 962
     },
     "isolated": {
-      "present": false,
-      "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-    }
+      "present": true,
+      "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+      "mtime": "2026-08-28T14:15:35.225Z",
+      "size": 962
+    },
+    "posture": "symlink"
   },
   "forbiddenOverrides": {
     "PODIUM_STATE_DIR": null,

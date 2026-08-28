@@ -2,15 +2,15 @@
   "cell": "A1C",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a1c",
-  "at": "2026-08-28T16:26:54.438Z",
+  "at": "2026-08-28T16:36:47.204Z",
   "pin": {
     "cell": "A1C",
-    "at": "2026-08-28T16:26:54.467Z",
+    "at": "2026-08-28T16:36:47.226Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
-    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "checkoutSha": "b3aafad7fe33db36bb3fd49b94dffcb0ad3c38b9",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "5cef0dd",
+      "headShort": "b3aafad",
       "appsWebIdentical": true
     },
-    "serverPid": "1875467",
-    "daemonPid": "1875670",
+    "serverPid": "1989048",
+    "daemonPid": "1989144",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "18278704 kB",
-      "SwapFree": "41212508 kB"
+      "MemAvailable": "19386700 kB",
+      "SwapFree": "41213004 kB"
     },
-    "rootFreeKiB": 82195172,
-    "load1m": 5.66,
+    "rootFreeKiB": 82150608,
+    "load1m": 4.03,
     "credential": {
       "live": {
         "present": true,
@@ -46,9 +46,12 @@
         "size": 962
       },
       "isolated": {
-        "present": false,
-        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-      }
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
     },
     "forbiddenOverrides": {
       "PODIUM_STATE_DIR": null,
@@ -74,15 +77,15 @@
   "control": {
     "fired": false,
     "what": "a baseline prompt/reply and the exact claude-sdk-host child PID appearing before death",
-    "detail": "baseline user=true; baseline reply=false; claudeSdkHostPid=(none)"
+    "detail": "baseline user=true; baseline reply=true; claudeSdkHostPid=(none)"
   },
   "evidence": [
-    "BASELINE          {\"needle\":\"P3047-A1C-CONTROL-MTD5ZLG1\",\"sent\":{\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}},\"user\":{\"ok\":true,\"ms\":9,\"items\":[]},\"assistant\":{\"ok\":false,\"ms\":180505,\"items\":[{\"role\":\"user\",\"text\":\"Reply with exactly this word and nothing else: P304",
+    "BASELINE          {\"needle\":\"P3047-A1C-CONTROL-MTD6CAIX\",\"sent\":{\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}},\"user\":{\"ok\":true,\"ms\":8,\"items\":[]},\"assistant\":{\"ok\":true,\"ms\":3082,\"items\":[{\"role\":\"user\",\"text\":\"Reply with exactly this word and nothing else: P3047-A",
     "HOST CHILDREN     []",
     "ALL IN CWD        []"
   ],
   "data": {
-    "sid": "753cc17c-c0ff-4525-bd69-72c51924623a",
+    "sid": "2e38bee0-0e5f-4e7e-867a-22fddba2183d",
     "before": [],
     "allInCwd": []
   }

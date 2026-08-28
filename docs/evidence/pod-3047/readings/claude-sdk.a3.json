@@ -2,15 +2,15 @@
   "cell": "A3",
   "driver": "claude-sdk",
   "cwd": "/tmp/pod-3047n/probes/claude-sdk-a3",
-  "at": "2026-08-28T16:05:39.569Z",
+  "at": "2026-08-28T16:34:50.990Z",
   "pin": {
     "cell": "A3",
-    "at": "2026-08-28T16:05:39.594Z",
+    "at": "2026-08-28T16:34:51.018Z",
     "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
-    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
-    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
-    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "checkoutSha": "b3aafad7fe33db36bb3fd49b94dffcb0ad3c38b9",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
     "web": {
       "wireSchemaDigest": "c847f4452ebd568b",
       "wireVersion": 2,
@@ -21,11 +21,11 @@
     },
     "webReuseProof": {
       "servedSourceSha": "4d405af",
-      "headShort": "5cef0dd",
+      "headShort": "b3aafad",
       "appsWebIdentical": true
     },
-    "serverPid": "1875467",
-    "daemonPid": "1875670",
+    "serverPid": "1989048",
+    "daemonPid": "1989144",
     "serverAlive": true,
     "daemonAlive": true,
     "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
@@ -33,11 +33,11 @@
     "tosOnDaemon": true,
     "freeMemory": {
       "MemTotal": "24603312 kB",
-      "MemAvailable": "19011348 kB",
-      "SwapFree": "41210020 kB"
+      "MemAvailable": "18841056 kB",
+      "SwapFree": "41212948 kB"
     },
-    "rootFreeKiB": 82650340,
-    "load1m": 5.21,
+    "rootFreeKiB": 82154736,
+    "load1m": 5.19,
     "credential": {
       "live": {
         "present": true,
@@ -46,9 +46,12 @@
         "size": 962
       },
       "isolated": {
-        "present": false,
-        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
-      }
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
     },
     "forbiddenOverrides": {
       "PODIUM_STATE_DIR": null,
@@ -61,7 +64,7 @@
     "instanceAgentHome": {
       "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a3",
       "exists": true,
-      "files": 2
+      "files": 1
     },
     "operatorHome": {
       "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a3",
@@ -69,33 +72,33 @@
       "files": 9
     }
   },
-  "verdict": "BLOCKED",
-  "summary": "the harness reported itself not logged in, so no turn was ever really in flight and the interrupt had nothing to stop (no claude-sdk-host child existed at interrupt time). The product said so itself: class=authentication retryable=false error={\"class\":\"authentication\",\"retryable\":false,\"detail\":\"Claude Code returned an error result: Not logged in · Please run /login\"}",
+  "verdict": "PASS",
+  "summary": "live host: the turn stopped and left exactly one durable record that says the provider confirmed the interrupt; stopped=true exactlyOneStopRecord=true durableAfterReload=true outcome=confirmed expected=confirmed truthful=true idleReceiptOnePerEpoch=true stopRecordUnchangedByIdlePresses=true",
   "control": {
     "fired": true,
     "what": "a turn observed in flight and no pre-existing stop record",
-    "detail": "user=true; working=true; hostChildren=0; preExistingStopRecords=0"
+    "detail": "user=true; working=true; hostChildren=1; preExistingStopRecords=0"
   },
   "evidence": [
     "FROZEN HOSTS      []",
     "INTERRUPT         {\"ok\":true,\"requested\":\"protocol\"}",
-    "STOPPED           true in 15ms",
-    "STOP RECORDS      live=0 persisted=0",
-    "RECORD TEXTS      []",
-    "OUTCOME           none (expected confirmed)",
+    "STOPPED           true in 534ms",
+    "STOP RECORDS      live=1 persisted=1",
+    "RECORD TEXTS      [{\"id\":\"claude-sdk-interrupt-a6e31034-c4a5-438a-9682-3b40e0a382fe-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator.\"}]",
+    "OUTCOME           confirmed (expected confirmed)",
     "REFUSAL RECORDS   0",
-    "IDLE RECEIPTS     before=1 afterTwoPresses=1 onePerEpoch=false",
+    "IDLE RECEIPTS     before=0 afterTwoPresses=1 onePerEpoch=true",
     "TYPED REFUSAL     false",
-    "CLAUSES           stopped=true exactlyOneStopRecord=false durableAfterReload=false outcome=none expected=confirmed truthful=false idleReceiptOnePerEpoch=false stopRecordUnchangedByIdlePresses=true",
-    "AUTH CONDITION    blocked=true class=authentication retryable=false error={\"class\":\"authentication\",\"retryable\":false,\"detail\":\"Claude Code returned an error result: Not logged in · Please run /login\"}",
-    "NO REAL TURN      true (hostChildren at interrupt=0)",
+    "CLAUSES           stopped=true exactlyOneStopRecord=true durableAfterReload=true outcome=confirmed expected=confirmed truthful=true idleReceiptOnePerEpoch=true stopRecordUnchangedByIdlePresses=true",
+    "AUTH CONDITION    blocked=false not consulted; a stop record exists",
+    "NO REAL TURN      false (hostChildren at interrupt=1)",
     "SERVER READ ITEMS 2 (sessions.read)",
-    "CHILD HOMES       [{\"pid\":1908538,\"home\":\"/home/mgw\",\"cmd\":\"bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/docs/evidence/pod-3047/drive.ts A3 claude-sdk\"}]  <- the process half, read from /proc/<pid>/environ",
-    "JSONL ON DISK     {\"instanceAgentHome\":{\"dir\":\"/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a3\",\"exists\":true,\"files\":2},\"operatorHome\":{\"dir\":\"/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a3\",\"exists\":true,\"files\":9}}  <- the disk half, slug from the product",
-    "ALL ITEMS         [{\"id\":\"claude-sdk-user-9b885524-550f-434a-9972-036675e81515-1\",\"role\":\"user\",\"text\":\"Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD589FW in the final line.\"},{\"id\":\"claude-sdk-error-9b885524-550f-434a-9972-036675e81515-1\",\"role\":\"system\",\"text\":\"Provider authentication failed: Claude Code returned an error result: Not logged in · Please run /login\"},{\"id\":\"claude-sdk-interrupt-idle-9b885524-550f-434a-9972-036675e81515-1\",\"role\":\"system\",\"text\":\"Interrupt refused: no turn was in flight.\"}]"
+    "CHILD HOMES       [{\"pid\":1994710,\"home\":\"/home/mgw\",\"cmd\":\"bash /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/docs/evidence/pod-3047/run-cell.sh A3 claude-sdk\"},{\"pid\":1994735,\"home\":\"/home/mgw\",\"cmd\":\"bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/docs/evidence/pod-3047/drive.ts A3 claude-sdk\"},{\"pid\":1994901,\"home\":\"/home/mgw/.local/state/podium/p3047n/agent-home\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"},{\"pid\":1994930,\"home\":\"/home/mgw/.local/state/podium/p3047n/agent-home\",\"cmd\":\"/home/mgw/src/podium/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude --output-format stream-json --verbose --input-format stream-json --permission-prompt-tool stdio --permission-mode auto --include-parti  <- the process half, read from /proc/<pid>/environ",
+    "JSONL ON DISK     {\"instanceAgentHome\":{\"dir\":\"/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a3\",\"exists\":true,\"files\":1},\"operatorHome\":{\"dir\":\"/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a3\",\"exists\":true,\"files\":9}}  <- the disk half, slug from the product",
+    "ALL ITEMS         [{\"id\":\"claude-sdk-user-a6e31034-c4a5-438a-9682-3b40e0a382fe-1\",\"role\":\"user\",\"text\":\"Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD69SUP in the final line.\"},{\"id\":\"claude-sdk-interrupt-a6e31034-c4a5-438a-9682-3b40e0a382fe-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator.\"},{\"id\":\"claude-sdk-interrupt-idle-a6e31034-c4a5-438a-9682-3b40e0a382fe-1\",\"role\":\"system\",\"text\":\"Interrupt refused: no turn was in flight.\"}]"
   ],
   "data": {
-    "sid": "9b885524-550f-434a-9972-036675e81515",
+    "sid": "a6e31034-c4a5-438a-9682-3b40e0a382fe",
     "freezeHost": false,
     "frozen": [],
     "payload": {
@@ -104,9 +107,9 @@
     },
     "after": {
       "ok": true,
-      "ms": 15,
+      "ms": 534,
       "row": {
-        "sessionId": "9b885524-550f-434a-9972-036675e81515",
+        "sessionId": "a6e31034-c4a5-438a-9682-3b40e0a382fe",
         "agentKind": "claude-code",
         "harness": "claude-code",
         "driverId": "claude-sdk",
@@ -119,9 +122,9 @@
         "contextUsagePercent": null,
         "account": "native:claude-code",
         "error": {
-          "class": "authentication",
-          "retryable": false,
-          "detail": "Claude Code returned an error result: Not logged in · Please run /login"
+          "class": "interrupted",
+          "retryable": true,
+          "detail": "claude turn failed: error_during_execution: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null"
         },
         "draft": false,
         "nativeSubagentCount": 0,
@@ -129,7 +132,7 @@
         "subagents": [],
         "issue": null,
         "commits": [
-          "0702ac4 probe seed"
+          "9f9e701 probe seed"
         ],
         "files": [
           "## main"
@@ -138,81 +141,123 @@
       },
       "samples": [
         {
-          "ms": 15,
+          "ms": 18,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 534,
           "phase": "errored",
           "status": "live",
           "driverId": "claude-sdk"
         }
       ]
     },
-    "stopMs": 15,
-    "hosts": [],
-    "outcome": "none",
+    "stopMs": 534,
+    "hosts": [
+      {
+        "pid": 1994901,
+        "ppid": 1989144,
+        "cwd": "/tmp/pod-3047n/probes/claude-sdk-a3",
+        "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
+      }
+    ],
+    "outcome": "confirmed",
     "expected": "confirmed",
     "stopped": true,
-    "exactlyOne": false,
-    "durable": false,
-    "truthful": false,
-    "idleBefore": 1,
+    "exactlyOne": true,
+    "durable": true,
+    "truthful": true,
+    "idleBefore": 0,
     "idleAfter": 1,
-    "idleOnce": false,
+    "idleOnce": true,
     "stopUnchangedByIdle": true,
     "typedRefusal": false,
-    "liveStop": [],
-    "persistedStop": [],
+    "liveStop": [
+      {
+        "id": "claude-sdk-interrupt-a6e31034-c4a5-438a-9682-3b40e0a382fe-1",
+        "role": "system",
+        "ts": "2026-08-28T16:34:54.777Z",
+        "text": "Turn interrupted by the operator."
+      }
+    ],
+    "persistedStop": [
+      {
+        "id": "claude-sdk-interrupt-a6e31034-c4a5-438a-9682-3b40e0a382fe-1",
+        "role": "system",
+        "ts": "2026-08-28T16:34:54.777Z",
+        "text": "Turn interrupted by the operator."
+      }
+    ],
     "persistedRefused": [],
     "persistedIdle": [
       {
-        "id": "claude-sdk-interrupt-idle-9b885524-550f-434a-9972-036675e81515-1",
+        "id": "claude-sdk-interrupt-idle-a6e31034-c4a5-438a-9682-3b40e0a382fe-1",
         "role": "system",
-        "ts": "2026-08-28T16:05:43.127Z",
+        "ts": "2026-08-28T16:35:01.595Z",
         "text": "Interrupt refused: no turn was in flight."
       }
     ],
     "allItems": [
       {
-        "id": "claude-sdk-user-9b885524-550f-434a-9972-036675e81515-1",
+        "id": "claude-sdk-user-a6e31034-c4a5-438a-9682-3b40e0a382fe-1",
         "role": "user",
-        "ts": "2026-08-28T16:05:41.717Z",
-        "text": "Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD589FW in the final line."
+        "ts": "2026-08-28T16:34:53.150Z",
+        "text": "Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD69SUP in the final line."
       },
       {
-        "id": "claude-sdk-error-9b885524-550f-434a-9972-036675e81515-1",
+        "id": "claude-sdk-interrupt-a6e31034-c4a5-438a-9682-3b40e0a382fe-1",
         "role": "system",
-        "ts": "2026-08-28T16:05:42.976Z",
-        "text": "Provider authentication failed: Claude Code returned an error result: Not logged in · Please run /login"
+        "ts": "2026-08-28T16:34:54.777Z",
+        "text": "Turn interrupted by the operator."
       },
       {
-        "id": "claude-sdk-interrupt-idle-9b885524-550f-434a-9972-036675e81515-1",
+        "id": "claude-sdk-interrupt-idle-a6e31034-c4a5-438a-9682-3b40e0a382fe-1",
         "role": "system",
-        "ts": "2026-08-28T16:05:43.127Z",
+        "ts": "2026-08-28T16:35:01.595Z",
         "text": "Interrupt refused: no turn was in flight."
       }
     ],
     "serverReadItems": [
       {
         "role": "user",
-        "text": "Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD589FW in the final line.",
-        "ts": "2026-08-28T16:05:42.690Z"
+        "text": "Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD69SUP in the final line.",
+        "ts": "2026-08-28T16:34:54.506Z"
       },
       {
-        "role": "assistant",
-        "text": "Not logged in · Please run /login",
-        "ts": "2026-08-28T16:05:42.730Z"
+        "role": "user",
+        "text": "[Request interrupted by user]",
+        "ts": "2026-08-28T16:34:54.762Z"
       }
     ],
     "childHomes": [
       {
-        "pid": 1908538,
+        "pid": 1994710,
+        "home": "/home/mgw",
+        "cmd": "bash /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/docs/evidence/pod-3047/run-cell.sh A3 claude-sdk"
+      },
+      {
+        "pid": 1994735,
         "home": "/home/mgw",
         "cmd": "bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/docs/evidence/pod-3047/drive.ts A3 claude-sdk"
+      },
+      {
+        "pid": 1994901,
+        "home": "/home/mgw/.local/state/podium/p3047n/agent-home",
+        "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
+      },
+      {
+        "pid": 1994930,
+        "home": "/home/mgw/.local/state/podium/p3047n/agent-home",
+        "cmd": "/home/mgw/src/podium/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude --output-format stream-json --verbose --input-format stream-json --permission-prompt-tool stdio --permission-mode auto --include-partial-messages --session-id 66bf8ef7-f344-4b54-a7ff-120c08a49b11"
       }
     ],
     "transcriptsOnDisk": {
       "instanceAgentHome": {
         "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a3",
         "exists": true,
-        "files": 2
+        "files": 1
       },
       "operatorHome": {
         "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a3",
@@ -221,7 +266,7 @@
       }
     },
     "statusAfter": {
-      "sessionId": "9b885524-550f-434a-9972-036675e81515",
+      "sessionId": "a6e31034-c4a5-438a-9682-3b40e0a382fe",
       "agentKind": "claude-code",
       "harness": "claude-code",
       "driverId": "claude-sdk",
@@ -234,9 +279,9 @@
       "contextUsagePercent": null,
       "account": "native:claude-code",
       "error": {
-        "class": "authentication",
-        "retryable": false,
-        "detail": "Claude Code returned an error result: Not logged in · Please run /login"
+        "class": "interrupted",
+        "retryable": true,
+        "detail": "claude turn failed: error_during_execution: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null"
       },
       "draft": false,
       "nativeSubagentCount": 0,
@@ -244,7 +289,7 @@
       "subagents": [],
       "issue": null,
       "commits": [
-        "0702ac4 probe seed"
+        "9f9e701 probe seed"
       ],
       "files": [
         "## main"

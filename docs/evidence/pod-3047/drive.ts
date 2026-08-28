@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { claudeProjectSlug } from '@podium/harness'
 import { Chat, login, mutate, primeTerminalTui, query, wait } from '../pod-2777/rig'
 
-type Verdict = 'PASS' | 'FAIL' | 'BLOCKED' | 'UNDRIVEN' | 'REFUSED'
+type Verdict = 'PASS' | 'FAIL' | 'PARTIAL' | 'BLOCKED' | 'UNDRIVEN' | 'REFUSED'
 type Driver = 'claude-sdk' | 'claude-pty'
 type Mode = 'native' | 'chat'
 
@@ -582,6 +582,13 @@ async function runA1b() {
         working: working.samples,
       })
     }
+    // THE BUSY CONDITION HAS TO HOLD AT THE MOMENT OF THE SEND, NOT MERELY BEFORE IT.
+    // `working.ok` above proves the first turn was seen in flight; it does not prove
+    // it was STILL in flight when the second send left. On the repaired reader the
+    // first turn finished sooner and the product answered {queued:false, position:1,
+    // disposition:"delivered"} — correct behaviour for an IDLE session, scored as a
+    // failure to queue. A cell whose condition evaporated is BLOCKED, not FAIL.
+    const phaseAtSend = (await status(sid))?.phase
     const secondSent = await mutate('sessions.sendText', {
       sessionId: sid,
       text: 'Reply with exactly this word and nothing else: ' + queued + '. Do not use tools.',
@@ -600,14 +607,51 @@ async function runA1b() {
     const position =
       payloadObject?.position ?? payloadObject?.queuePosition ?? framePosition?.position ?? framePosition?.queuePosition ?? null
     const hasPositionField = typeof position === 'number' || positionFrames.length > 0
+    const busyAtSend = phaseAtSend === 'working'
     const pass = queuedFlag && hasPositionField && secondAssistant.ok
-    const v = await verdictOrAuthBlock(
-      pass,
-      sid,
-      reloaded,
-      'busy send queued with a durable position, survived reload, and answered idle',
-      'busy send did not show a durable queue position or did not answer after reload',
-    )
+    if (!pass && !busyAtSend) {
+      const out = result(
+        'BLOCKED',
+        'the first turn had already finished when the second send left (phase=' + String(phaseAtSend) + '), so the busy-send condition was not established and queueing was never exercised',
+        control,
+        ['PHASE AT SEND     ' + String(phaseAtSend), 'SECOND SEND       ' + short(payload), 'QUEUE POSITION    ' + String(position)],
+        { sid, phaseAtSend, busyAtSend, second: payload, position, hasPositionField },
+      )
+      await reloaded.close()
+      return out
+    }
+    // SCORE THE CLAUSES SEPARATELY, because they do not all fail together here.
+    //
+    // Sent while the session was provably `working`, the product answers
+    // {queued:false, position:1, disposition:"delivered"} — and the reply does
+    // arrive after a reload. So the message is NOT lost, which is the clause this
+    // cell exists to protect, and a position IS present. What is unmet is the
+    // self-description: it reports itself DELIVERED, with queued false, while
+    // also carrying a queue position, for a send made into a running turn.
+    //
+    // A bare FAIL would say the message was lost. A bare PASS would bless a
+    // disposition that contradicts itself. PARTIAL with the clause list is the
+    // only honest one, and the clause list is what makes it actionable.
+    const noLostMessage = secondAssistant.ok
+    const partial = !pass && busyAtSend && hasPositionField && noLostMessage && !queuedFlag
+    const clauseList =
+      'busyAtSend=' + busyAtSend + ' queuedFlag=' + queuedFlag + ' position=' + String(position) +
+      ' answeredAfterReload=' + noLostMessage
+    const v = partial
+      ? {
+          verdict: 'PARTIAL' as Verdict,
+          summary:
+            'sent while the session was provably working, the message was NOT lost and came back after a reload with a position, but the product reported it queued=false disposition=delivered — a disposition that contradicts both the position it carries and the running turn it was sent into. ' +
+            clauseList,
+          auth: { blocked: false, detail: 'not consulted; the turn ran' },
+        }
+      : await verdictOrAuthBlock(
+          pass,
+          sid,
+          reloaded,
+          'busy send queued with a durable position, survived reload, and answered idle',
+          'busy send did not show a durable queue position or did not answer after reload',
+        )
     const out = result(
       v.verdict,
       v.summary,
@@ -619,8 +663,10 @@ async function runA1b() {
         'POSITION FIELD    ' + hasPositionField,
         'RELOADED USER     ' + secondUser.ok + ' in ' + secondUser.ms + 'ms',
         'RELOADED REPLY    ' + secondAssistant.ok + ' in ' + secondAssistant.ms + 'ms',
+        'PHASE AT SEND     ' + String(phaseAtSend) + ' (busyAtSend=' + busyAtSend + ')',
+        'QUEUED FLAG       ' + queuedFlag,
       ],
-      { sid, first, queued, firstUser: firstUser.ok, working: working.samples, second: payload, secondUser: secondUser.ok, secondAssistant: secondAssistant.ok, position, hasPositionField },
+      { sid, first, queued, firstUser: firstUser.ok, working: working.samples, second: payload, secondUser: secondUser.ok, secondAssistant: secondAssistant.ok, position, hasPositionField, phaseAtSend, busyAtSend, queuedFlag },
     )
     await reloaded.close()
     return out
@@ -727,7 +773,14 @@ async function runA2a() {
     const workingAt = samples.find((x) => x.phase === 'working')
     const idleDuring = samples.filter((x) => x.phase === 'idle').length
     const assistant = await waitForNeedle(sid, chat, needle, 'assistant', BUSY_MS)
-    const after = await status(sid)
+    // THE CRITERION SAYS "idle AFTER END", WHICH IS A WAIT AND NOT A SAMPLE.
+    // With sessions.read repaired, waitForNeedle can fire the moment the reply is
+    // persisted, which is BEFORE the turn formally closes — so reading the phase
+    // on the next line caught it still `working` and scored a FAIL on a badge that
+    // had behaved perfectly (working at 26ms, zero flicker-idle across the sample).
+    // Bounded, so a turn that genuinely never closes still fails.
+    const settled = await waitPhase(sid, (phase) => phase !== 'working', 60_000, 500)
+    const after = settled.row ?? (await status(sid))
     const control: Control = {
       fired: user.ok || assistant.ok || Boolean(workingAt) || Boolean((sent.result?.data as { ok?: boolean } | undefined)?.ok),
       what: 'the working-turn send delivering or producing a measurable in-flight signal',
@@ -746,7 +799,7 @@ async function runA2a() {
       !control.fired ? 'working-turn control did not land' : v.summary,
       control,
       ['SEND              ' + short(sent.result?.data ?? sent.error ?? null), 'WORKING AT        ' + short(workingAt ?? null), 'IDLE SAMPLES      ' + idleDuring, 'AFTER             ' + short(after)],
-      { sid, user: user.ok, assistant: assistant.ok, workingAt, idleDuring, samples, after },
+      { sid, user: user.ok, assistant: assistant.ok, workingAt, idleDuring, samples, after, settledMs: settled.ms },
     )
   } finally {
     await cleanup(sid, chat)
