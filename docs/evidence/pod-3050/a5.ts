@@ -266,115 +266,118 @@ async function create(): Promise<{ sid: string; chat: Chat; row: unknown }> {
   return { sid, chat, row }
 }
 
-/** POD-3036's A5, verbatim in its predicates. */
+/**
+ * A5, on BOTH surfaces the cell could mean by "the transcript".
+ *
+ * POD-3036 read only `sessions.read`, which on a NAMED instance answers from the
+ * harness's on-disk JSONL under the daemon's instance agent home — while the SDK
+ * child writes its JSONL under the ambient HOME. That split empties the read for
+ * EVERY item, prompt and answer included, and has nothing to do with tool
+ * identity; it is recorded here and carried as its own issue.
+ *
+ * The surface this issue owns is the durable transcript plane: the items the
+ * driver publishes, which the server retains and replays to a client that opens
+ * the session fresh. The verdict below is computed there, and the reload arm is
+ * a genuinely new connection rather than the same socket read twice.
+ */
 async function runA5(): Promise<Record<string, unknown>> {
   const { sid, chat, row } = await create()
+  let reload: Chat | undefined
   try {
-    const marker = 'P3050-A5-MARKER-' + Date.now().toString(36).toUpperCase()
-    writeFileSync(
-      join(cwd, 'transcript-fixture.txt'),
-      'transcript fixture test marker ' + marker + '\n',
-    )
+    const marker = `P3050-A5-MARKER-${Date.now().toString(36).toUpperCase()}`
+    writeFileSync(join(cwd, 'transcript-fixture.txt'), `transcript fixture test marker ${marker}\n`)
     const sent = await mutate('sessions.sendText', {
       sessionId: sid,
-      text:
-        'Use your Bash tool to run cat ' +
-        join(cwd, 'transcript-fixture.txt') +
-        ' and then reply with only the test marker it contains.',
+      text: `Use your Bash tool to run cat ${join(cwd, 'transcript-fixture.txt')} and then reply with only the test marker it contains.`,
     })
     const user = await waitForNeedle(sid, chat, 'transcript-fixture.txt', 'user', 5_000)
     const assistant = await waitForNeedle(sid, chat, marker, 'assistant', REPLY_MS)
-    const before = await transcript(sid)
-    await chat.close()
-    const reload = new Chat(sid)
-    await reload.open('chat')
-    await wait(2_000)
-    const after = await transcript(sid)
+    const before = chat.items.map((x) => ({ ...x }) as Item)
+    const readBefore = await transcript(sid)
 
-    const toolItems = before.filter(
-      (x) => x.role === 'tool' || x.toolName || /tool/i.test(textOf(x.event)),
+    await chat.close()
+    reload = new Chat(sid)
+    await reload.open('chat')
+    await wait(4_000)
+    const after = reload.items.map((x) => ({ ...x }) as Item)
+    const readAfter = await transcript(sid)
+
+    const calls = before.filter((x) => x.role === 'tool' && x.toolName)
+    const results = before.filter((x) => x.role === 'tool' && !x.toolName && x.toolUseId)
+    const pairs = calls
+      .map((c) => ({ call: c, result: results.find((r) => r.toolUseId === c.toolUseId) }))
+      .filter((p) => p.result)
+    // Order is the claim, so it is measured on the durable order and not assumed.
+    const callBeforeResult = pairs.every(
+      (p) => before.indexOf(p.call) < before.indexOf(p.result as Item),
     )
-    const resultItems = before.filter(
-      (x) =>
-        (x.role === 'tool' && !x.toolName) ||
-        x.role === 'tool_result' ||
-        /result/i.test(textOf(x.event)),
-    )
-    const paired =
-      toolItems.length > 0 && (resultItems.length > 0 || before.some((x) => Boolean(x.toolName)))
     const project = (items: Item[]) =>
       JSON.stringify(
         items.map((x) => ({
           id: x.id,
           role: x.role,
           text: x.text,
-          event: x.event,
           toolName: x.toolName,
+          toolUseId: x.toolUseId,
+          toolResult: x.toolResult,
         })),
       )
     const sameHistory = project(before) === project(after)
-    // Beyond POD-3036's predicates: the pair must actually JOIN, which is what
-    // makes the record replayable rather than merely present.
-    const calls = before.filter((x) => x.role === 'tool' && x.toolName)
-    const results = before.filter((x) => x.role === 'tool' && !x.toolName && x.toolUseId)
-    const joinedPairs = calls.filter((c) => results.some((r) => r.toolUseId === c.toolUseId))
-    const callBeforeResult = joinedPairs.every(
-      (c) =>
-        before.indexOf(c) <
-        before.indexOf(results.find((r) => r.toolUseId === c.toolUseId) as Item),
-    )
     const controlFired =
       user.ok || assistant.ok || Boolean((sent.result?.data as { ok?: boolean } | undefined)?.ok)
+    const toolRan = existsSync(join(cwd, 'transcript-fixture.txt')) && assistant.ok
 
-    await reload.close()
     const verdict = !controlFired
       ? 'BLOCKED'
-      : !toolItems.length
-        ? 'BLOCKED'
-        : paired && sameHistory && assistant.ok && joinedPairs.length > 0 && callBeforeResult
+      : calls.length === 0
+        ? toolRan
+          ? 'FAIL'
+          : 'BLOCKED'
+        : pairs.length > 0 && callBeforeResult && sameHistory && assistant.ok
           ? 'PASS'
           : 'FAIL'
     return {
       verdict,
-      summary: !controlFired
-        ? 'transcript control did not fire'
-        : !toolItems.length
-          ? 'agent did not produce a tool call, so pairing was not exercised'
-          : verdict === 'PASS'
-            ? 'tool call/result pair joined on toolUseId, call first, and reload history is intact'
-            : 'tool transcript pairing or reload history failed',
+      summary:
+        verdict === 'PASS'
+          ? 'the tool call and its result are durable, paired on toolUseId, call first, and identical after a fresh reload'
+          : verdict === 'BLOCKED'
+            ? 'the turn did not produce an observable tool call, so pairing was not exercised'
+            : calls.length === 0
+              ? 'the agent ran a tool and the transcript kept no record of it'
+              : 'pairing, ordering or reload equality failed',
       control: {
         fired: controlFired,
         what: 'the transcript fixture send delivering or a needle appearing',
-        detail: 'user=' + user.ok + '; assistant=' + assistant.ok + '; items=' + before.length,
+        detail: `user=${user.ok}; assistant=${assistant.ok}; planeItems=${before.length}`,
       },
       evidence: [
-        'DRIVER            ' + short(row, 200),
-        'SEND              ' + short(sent.result?.data ?? sent.error ?? null),
-        'USER              ' + user.ok,
-        'ASSISTANT         ' + assistant.ok,
-        'TOOL ITEMS        ' + short(toolItems, 1400),
-        'JOINED PAIRS      ' +
-          joinedPairs.length +
-          ' (call-before-result=' +
-          callBeforeResult +
-          ')',
-        'RELOAD SAME       ' + sameHistory,
+        `DRIVER            ${short(row, 200)}`,
+        `SEND              ${short(sent.result?.data ?? sent.error ?? null)}`,
+        `USER              ${user.ok}`,
+        `ASSISTANT         ${assistant.ok}`,
+        `PLANE ITEMS       ${before.length}`,
+        `TOOL CALLS        ${short(calls, 900)}`,
+        `TOOL RESULTS      ${short(results, 900)}`,
+        `JOINED PAIRS      ${pairs.length} (call-before-result=${callBeforeResult})`,
+        `RELOAD SAME       ${sameHistory}`,
+        `SESSIONS.READ     ${readBefore.length} items before / ${readAfter.length} after (separate read path)`,
       ],
       data: {
         sid,
         marker,
         before,
         after,
-        toolItems,
-        resultItems,
-        paired,
-        sameHistory,
-        joinedPairs: joinedPairs.length,
+        calls,
+        results,
+        pairs: pairs.length,
         callBeforeResult,
+        sameHistory,
+        sessionsRead: { before: readBefore, after: readAfter },
       },
     }
   } finally {
+    await reload?.close().catch(() => {})
     await chat.close().catch(() => {})
     await mutate('sessions.kill', { sessionId: sid }).catch(() => {})
   }
