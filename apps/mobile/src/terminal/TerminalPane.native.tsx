@@ -1,8 +1,9 @@
 import type { ConnectionState, SessionConnection } from '@podium/client-core/socket-transport'
 import type { IssueId, SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
-import { KeyboardAvoidingView, StyleSheet } from 'react-native'
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
 import { useConnected, useHub, useSpawnPending } from '../client/hooks'
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { color } from '../theme/theme'
 import TerminalDom from './TerminalDom'
 import type { TerminalControlState } from './terminal-control'
@@ -46,6 +47,9 @@ export function TerminalPane({
   const hub = useHub()
   const connected = useConnected()
   const spawnPending = useSpawnPending(sessionId)
+  // The keyboard belongs to the webview's focus, but UIKit's notifications are
+  // app-wide, so the native side still sees it come up. See ACCESSORY_INSET.
+  const keyboardUp = useKeyboardHeight() > 0 && Platform.OS === 'ios'
 
   const domRef = useRef<TerminalDomHandle>(null)
   const connRef = useRef<SessionConnection | null>(null)
@@ -156,32 +160,44 @@ export function TerminalPane({
     // The soft keyboard belongs to the webview's own focus, so the native side
     // only has to keep the pane above it; inset padding when it shows.
     <KeyboardAvoidingView behavior="padding" style={styles.pane}>
-      <TerminalDom
-        ref={domRef}
-        dom={{
-          // The pane is one fixed page, never a scrolling document; the crop
-          // viewport inside owns panning. Transparent so `styles.pane` is the
-          // ground during webview startup — no white flash.
-          scrollEnabled: false,
-          contentInsetAdjustmentBehavior: 'never',
-          style: styles.webview,
-        }}
-        sessionId={sessionId}
-        active={active}
-        connected={connected}
-        spawnPending={spawnPending}
-        onAttachTerminal={onAttachTerminal}
-        onDetachTerminal={onDetachTerminal}
-        onSendInput={onSendInput}
-        onSendResize={onSendResize}
-        onReportViewport={onReportViewport}
-        onRequestControl={onRequestControl}
-        onRedraw={onRedraw}
-        onControlState={onControlEvent}
-      />
+      <View style={[styles.body, keyboardUp ? styles.bodyAboveAccessory : null]}>
+        <TerminalDom
+          ref={domRef}
+          dom={{
+            // The pane is one fixed page, never a scrolling document; the crop
+            // viewport inside owns panning. Transparent so `styles.pane` is the
+            // ground during webview startup — no white flash.
+            scrollEnabled: false,
+            contentInsetAdjustmentBehavior: 'never',
+            style: styles.webview,
+          }}
+          sessionId={sessionId}
+          active={active}
+          connected={connected}
+          spawnPending={spawnPending}
+          onAttachTerminal={onAttachTerminal}
+          onDetachTerminal={onDetachTerminal}
+          onSendInput={onSendInput}
+          onSendResize={onSendResize}
+          onReportViewport={onReportViewport}
+          onRequestControl={onRequestControl}
+          onRedraw={onRedraw}
+          onControlState={onControlEvent}
+        />
+      </View>
     </KeyboardAvoidingView>
   )
 }
+
+/**
+ * WKWebView's own form accessory — the floating ⌃ ⌄ ✓ capsule iOS puts over the
+ * keyboard for the focused xterm input — is a SEPARATE WINDOW. It is not part of
+ * the keyboard frame KeyboardAvoidingView compensates for, so it lands on top of
+ * the page: the terminal's last rows and the page's Submit/Newline/Paste bar go
+ * under it, which are exactly the rows you are typing at (2026-08-28, device).
+ * Nothing measures it, so this is its height plus the margin it floats on.
+ */
+const ACCESSORY_INSET = 56
 
 const styles = StyleSheet.create({
   pane: {
@@ -192,6 +208,10 @@ const styles = StyleSheet.create({
     // while it boots, so the reveal is dark-on-dark.
     backgroundColor: color.bg,
   },
+  // KeyboardAvoidingView owns its own paddingBottom while the keyboard is up, so
+  // the accessory inset has to ride on a child rather than fight it for the prop.
+  body: { flex: 1, minHeight: 0 },
+  bodyAboveAccessory: { paddingBottom: ACCESSORY_INSET },
   webview: {
     flex: 1,
     backgroundColor: 'transparent',
