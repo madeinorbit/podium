@@ -32,6 +32,21 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
   const ts = stringField(record, 'timestamp') ?? stringField(payload, 'timestamp')
 
   if (type === 'event_msg') {
+    // Codex writes an aborted turn as an event rather than as a user message.
+    // It is still a user action, and carrying the shared interrupt marker lets
+    // chat and delivery agree that a prompt cancelled at the CLI must not be
+    // retried behind the operator's back.
+    if (ptype === 'turn_aborted') {
+      return [
+        {
+          id: stableId('codex-interrupt', ts ?? 'turn-aborted'),
+          role: 'user',
+          ...(ts ? { ts } : {}),
+          text: 'Conversation interrupted',
+          event: 'interrupt',
+        },
+      ]
+    }
     const completedItem = isRecord(payload.item) ? payload.item : undefined
     const currentUserMessage =
       ptype === 'item_completed' && stringField(completedItem ?? {}, 'type') === 'UserMessage'

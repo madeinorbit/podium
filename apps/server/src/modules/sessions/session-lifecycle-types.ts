@@ -86,6 +86,9 @@ export interface SessionLifecycleDeps {
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */
   noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): void
+  /** Cancel a queued source intent after the harness reports that the operator
+   *  interrupted the physical delivery before it became a turn. */
+  interruptQueuedMessage?(messageId: string): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
    * `MutationLedger`. Threaded through rather than constructed here — the service
@@ -123,7 +126,11 @@ export interface SessionLifecycleDeps {
   machines: MachinesService
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */
-  onSpawnTargetLogin?(input: { machineId: MachineId; agentKind: AgentKind; ownerUserId: UserId }): void
+  onSpawnTargetLogin?(input: {
+    machineId: MachineId
+    agentKind: AgentKind
+    ownerUserId: UserId
+  }): void
   memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex

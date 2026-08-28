@@ -117,6 +117,8 @@ export interface UseChatSendResult {
    *  its paint if the write is ever refused. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
+  /** Keep the outgoing prompt in place but mark that this interaction stopped. */
+  markInterrupted: () => void
   /** Optimistic hide of the offer bar, keyed by the offer's createdAt. */
   dismissedOfferAt: string | null
   setDismissedOfferAt: (at: string | null) => void
@@ -170,6 +172,17 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const [pending, setPending] = useState<PendingItem[]>(initialPending)
   const pendingRef = useRef(pending)
   pendingRef.current = pending
+  const markInterrupted = useCallback(() => {
+    setPending((items) => {
+      const index = items.findLastIndex(
+        (item) => item.state !== 'failed' && item.state !== 'interrupted',
+      )
+      if (index < 0) return items
+      return items.map((item, at) =>
+        at === index ? { ...item, state: 'interrupted' as const } : item,
+      )
+    })
+  }, [])
   const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   /**
    * THE OPEN SEND, AS STATE RATHER THAN A FLAG (POD-1595 review).
@@ -280,24 +293,29 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     for (const item of userItems) prev.add(item.id)
     seenUserTailId.current = userItems.at(-1)?.id ?? null
     if (newUserItems.length > 0) {
+      const conversationalItems = newUserItems.filter((item) => item.event !== 'interrupt')
+      const wasInterrupted = conversationalItems.length !== newUserItems.length
       const before = pendingRef.current
       const seededBefore = before.some((item) => item.id === 'pending-first-turn')
       const seededAfter = headless
         ? false
-        : reconcilePending(before, newUserItems).some(
+        : reconcilePending(before, conversationalItems).some(
             (item) => item.id === 'pending-first-turn',
           )
+      if (wasInterrupted) {
+        markInterrupted()
+      }
       // Headless: the server prepends machine context (seed/delta blocks) to the
       // delivered turn text, so the echoed user item rarely equals the optimistic
       // bubble verbatim — any new user item means the send landed; drop them all.
-      if (headless) setPending([])
+      if (headless && !wasInterrupted) setPending([])
       else {
-        setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserItems)))
-        setQueuedMessages((q) => (q.length === 0 ? q : reconcileQueued(q, newUserItems)))
+        setPending((p) => (p.length === 0 ? p : reconcilePending(p, conversationalItems)))
+        setQueuedMessages((q) => (q.length === 0 ? q : reconcileQueued(q, conversationalItems)))
       }
       if (seededBefore && !seededAfter) onInitialPendingSettled?.()
     }
-  }, [blocks, headless, onInitialPendingSettled])
+  }, [blocks, headless, markInterrupted, onInitialPendingSettled])
 
   // Drop the "sending" affordance after a grace period even if no echo arrived
   // (slow tail / uninstrumented) — the prompt was still sent, so settle to 'sent'
@@ -680,6 +698,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     sendOfferPrompt,
     dismissOffer,
     retractQueuedMessage,
+    markInterrupted,
     dismissedOfferAt,
     setDismissedOfferAt: applyDismissedOfferAt,
   }

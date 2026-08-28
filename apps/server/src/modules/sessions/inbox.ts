@@ -217,9 +217,12 @@ export interface InboxAuthorizationPort {
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): void
   /** The bytes went into the CLI; the agent has not been seen to take them yet
-   *  (POD-1242). Between this and {@link applied} the message is the harness's,
-   *  not the queue's — nothing more will be typed, and nothing can be retracted. */
+   *  (POD-1242). Between this and {@link applied} the message is normally the
+   *  harness's. An explicit interrupt is the one signal that returns ownership
+   *  to this queue so it can cancel instead of retrying. */
   injected?(input: { sourceMessageId: string; sessionId: SessionId }): void
+  /** The operator interrupted an injected row before it became a user turn. */
+  interrupted?(input: { sourceMessageId: string | null; sessionId: SessionId }): void
 }
 
 export interface InboxAttentionPort {
@@ -401,6 +404,10 @@ const stateStampMs = (session: Session): number | undefined => {
 
 export class SessionInbox {
   private readonly activeDrains = new Set<SessionId>()
+  /** One generation owns every delayed submit key for a session. Deleting it
+   *  is the cancellation token used by both chat stop and native CLI interrupts. */
+  private readonly submitVerificationGeneration = new Map<SessionId, number>()
+  private nextSubmitVerificationGeneration = 0
 
   constructor(private readonly deps: SessionInboxDeps) {}
 
@@ -456,12 +463,14 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
+    const cancelledDelivery = this.cancelInterruptedDelivery(input.sessionId, true)
     const abort = this.abortKeyFor(session)
     // REFUSED, not skipped: unlike interruptText there is nothing else this call
     // does, so a silent `{ ok: true }` would be the lie POD-1214 set out to fix —
     // the operator pressed stop and would be told it worked. The reason is
     // user-facing (the chat composer prints it verbatim).
     if (!abort) {
+      if (cancelledDelivery) return { ok: true }
       return {
         ok: false,
         reason: `${this.deps.harnessName(session.agentKind)} only takes an interrupt while it is working, and it is not working right now`,
@@ -470,6 +479,34 @@ export class SessionInbox {
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
     this.sendInput(session, abort, input.inputOrigin ?? 'controller', principal.attribution)
     return { ok: true }
+  }
+
+  /** Apply the same cancellation when the operator used the native CLI instead
+   *  of Podium's stop control. Transcript parsers normalize every harness's
+   *  wording to `event: interrupt`, so delivery policy stays provider-neutral. */
+  onTranscriptDelta(sessionId: SessionId, items: readonly { event?: string }[]): void {
+    if (!items.some((item) => item.event === 'interrupt')) return
+    this.cancelInterruptedDelivery(sessionId)
+  }
+
+  private cancelInterruptedDelivery(sessionId: SessionId, includeUnattempted = false): boolean {
+    const verification = this.submitVerificationGeneration.delete(sessionId)
+    const session = this.deps.getSession(sessionId)
+    if (!session) return verification
+    // Only the head can have crossed into the CLI. Rows behind it have not been
+    // part of the interrupted interaction and remain individually retractable.
+    const rows = this.deps.queue.list(sessionId)
+    const head = rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined)
+    if (!head) return verification
+    this.deps.queue.delete(head.id)
+    session.queuedMessageCount = Math.max(0, session.queuedMessageCount - 1)
+    this.deps.persist(session)
+    this.deps.broadcast()
+    this.deps.authorization.interrupted?.({
+      sourceMessageId: head.sourceMessageId,
+      sessionId,
+    })
+    return true
   }
 
   /**
@@ -671,6 +708,10 @@ export class SessionInbox {
           stop()
           return
         }
+        if (!this.deps.queue.list(sessionId).some((row) => row.id === head.id)) {
+          afterHead(current)
+          return
+        }
         if (tailUserTurnMatches(current, needle)) {
           settleHead(current, head)
           return
@@ -705,6 +746,10 @@ export class SessionInbox {
       const current = this.deps.getSession(sessionId)
       if (!current || (current.status !== 'live' && current.status !== 'starting')) {
         stop()
+        return
+      }
+      if (!this.deps.queue.list(sessionId).some((row) => row.id === head.id)) {
+        afterHead(current)
         return
       }
       // Re-authorize immediately before EVERY physical attempt. Confirmation
@@ -1111,13 +1156,22 @@ export class SessionInbox {
     // matches what works in the native composer (POD-901).
     const payload = this.isRawFirstTurn(session) ? input.text : `\x1b[200~${input.text}\x1b[201~`
     this.sendInput(session, payload, input.inputOrigin ?? 'controller', principal.attribution)
-    setTimeout(
-      () => this.sendInput(session, '\r', input.inputOrigin ?? 'controller', principal.attribution),
-      SUBMIT_CR_DELAY_MS,
-    ).unref?.()
-    if (this.deps.needsSubmitVerification(session.agentKind)) {
-      this.scheduleSubmitVerify(input.sessionId, baseline, principal.attribution, 1)
-    }
+    const generation = ++this.nextSubmitVerificationGeneration
+    this.submitVerificationGeneration.set(input.sessionId, generation)
+    setTimeout(() => {
+      if (this.submitVerificationGeneration.get(input.sessionId) !== generation) return
+      const current = this.deps.getSession(input.sessionId)
+      if (!current || (current.status !== 'live' && current.status !== 'starting')) {
+        this.submitVerificationGeneration.delete(input.sessionId)
+        return
+      }
+      this.sendInput(current, '\r', input.inputOrigin ?? 'controller', principal.attribution)
+      if (this.deps.needsSubmitVerification(current.agentKind)) {
+        this.scheduleSubmitVerify(input.sessionId, baseline, principal.attribution, 1, generation)
+      } else {
+        this.submitVerificationGeneration.delete(input.sessionId)
+      }
+    }, SUBMIT_CR_DELAY_MS).unref?.()
     return { ok: true }
   }
 
@@ -1126,20 +1180,38 @@ export class SessionInbox {
     baselineUserTurns: number,
     attribution: Attribution,
     attempt: number,
+    generation: number,
   ): void {
     setTimeout(() => {
+      if (this.submitVerificationGeneration.get(sessionId) !== generation) return
       const session = this.deps.getSession(sessionId)
-      if (!session || (session.status !== 'live' && session.status !== 'starting')) return
+      if (!session || (session.status !== 'live' && session.status !== 'starting')) {
+        this.submitVerificationGeneration.delete(sessionId)
+        return
+      }
       const phase = session.agentState?.phase
-      if (phase !== undefined && phase !== 'idle') return
+      if (phase !== undefined && phase !== 'idle') {
+        this.submitVerificationGeneration.delete(sessionId)
+        return
+      }
       if (
         session.terminal.transcriptItems().filter((item) => item.role === 'user').length >
         baselineUserTurns
-      )
+      ) {
+        this.submitVerificationGeneration.delete(sessionId)
         return
+      }
       this.sendInput(session, '\r', 'controller', attribution)
       if (attempt < SUBMIT_MAX_RETRIES) {
-        this.scheduleSubmitVerify(sessionId, baselineUserTurns, attribution, attempt + 1)
+        this.scheduleSubmitVerify(
+          sessionId,
+          baselineUserTurns,
+          attribution,
+          attempt + 1,
+          generation,
+        )
+      } else {
+        this.submitVerificationGeneration.delete(sessionId)
       }
     }, SUBMIT_VERIFY_DELAY_MS).unref?.()
   }

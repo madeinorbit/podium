@@ -51,6 +51,7 @@ function harness(
   let authorized = true
   const applied = vi.fn()
   const injected = vi.fn()
+  const interrupted = vi.fn()
   const handleInput = vi.fn()
   const transcript: Array<{ id: string; role: 'user' | 'assistant'; text: string }> = Array.from(
     { length: options.userTurns ?? 0 },
@@ -114,6 +115,7 @@ function harness(
         authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const),
       applied,
       injected,
+      interrupted,
       rejected: (input) => rejected.push(input),
     },
     attention: {
@@ -142,6 +144,7 @@ function harness(
     answered,
     applied,
     injected,
+    interrupted,
     handleInput,
     transcript,
     revoke: () => {
@@ -434,6 +437,26 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toEqual([])
   })
 
+  it('lets stop cancel a queued prompt even when idle codex has no turn to abort', () => {
+    const h = harness({ agentKind: 'codex', phase: 'idle' })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'cancel before delivery',
+      sourceMessageId: 'message-not-yet-injected',
+      principal: agentPrincipal(),
+    })
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+    })
+    expect(h.sent).toEqual([])
+    expect(h.rows).toEqual([])
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-not-yet-injected',
+      sessionId: SID,
+    })
+  })
+
   // Esc is inert at an idle prompt, so it needs no guard — and gating it would
   // reintroduce the stale-phase hole the client just stopped relying on.
   it('interrupts an idle Esc harness anyway', () => {
@@ -443,6 +466,47 @@ describe('SessionInbox authorization and identity', () => {
       ok: true,
     })
     expect(h.sent).toHaveLength(1)
+  })
+
+  it('stops submit verification after the chat stop control interrupts the prompt', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+
+    h.inbox.sendText({ sessionId: SID, text: 'do not send this', principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(
+      h.sent
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+        .filter((text) => text === '\r'),
+    ).toHaveLength(1)
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(
+      h.sent
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+        .filter((text) => text === '\r'),
+    ).toHaveLength(1)
+  })
+
+  it('cancels the first delayed submit when stop wins the paste-to-Enter race', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+
+    h.inbox.sendText({ sessionId: SID, text: 'cancel immediately', principal: agentPrincipal() })
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    const decoded = h.sent.map((message) =>
+      Buffer.from((message as { data: string }).data, 'base64').toString(),
+    )
+    expect(decoded).toContain('\x1b')
+    expect(decoded).not.toContain('\r')
   })
 
   // interruptText SKIPS the key rather than refusing: its job is to deliver the
@@ -601,6 +665,33 @@ describe('SessionInbox authorization and identity', () => {
  */
 describe('SessionInbox queued delivery is confirmed, not assumed', () => {
   const PROMPT = 'merge the branch and close the issue'
+
+  it('cancels an injected row when the CLI transcript reports an interrupt', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true, phase: 'working' })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      sourceMessageId: 'message-interrupted',
+      principal: agentPrincipal(),
+    })
+    await vi.advanceTimersByTimeAsync(6_500)
+    expect(h.rows[0]?.attempts).toBe(1)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    h.inbox.onTranscriptDelta(SID, [{ event: 'interrupt' }])
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-interrupted',
+      sessionId: SID,
+    })
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
 
   it('keeps the row queued when the typed prompt never becomes a turn', () => {
     vi.useFakeTimers()

@@ -941,6 +941,7 @@ export class SessionRegistry {
     const queuedApplyHooks: {
       applied?: (messageId: string, sessionId: SessionId) => void
       injected?: (messageId: string, sessionId: SessionId) => void
+      interrupted?: (messageId: string) => void
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
@@ -962,6 +963,7 @@ export class SessionRegistry {
         queuedMessageApply.applied(messageId, sessionId),
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
+      interruptQueuedMessage: (messageId) => queuedApplyHooks.interrupted?.(messageId),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
@@ -1422,6 +1424,13 @@ export class SessionRegistry {
       messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.injected = (messageId, sessionId) =>
       messagesSvc.onQueuedInputInjected(messageId, sessionId)
+    queuedApplyHooks.interrupted = (messageId) => {
+      try {
+        messagesSvc.cancel(messageId)
+      } catch {
+        // A concurrent echo or explicit retraction already made the row final.
+      }
+    }
     this.bus.on('message.deadLettered', ({ messageId, reason }) =>
       messagesSvc.notifyQueuedInputRejected(messageId, reason),
     )
@@ -2511,7 +2520,10 @@ export class SessionRegistry {
     // typed into a PTY reappears as a user turn carrying its `[podium message
     // <id>]` frame — seeing that echo is what flips the ledger queued → delivered
     // (an honest "the agent has it", never the old enqueue-time lie).
-    this.bus.on('transcript.delta', ({ sessionId, items }) => {
+    this.bus.on('transcript.delta', ({ sessionId, items, reset }) => {
+      // A reset can replay an old interrupt marker while a new prompt is queued.
+      // Only a fresh tail event is evidence about the current delivery.
+      if (reset !== true) sessionsSvc.inbox.onTranscriptDelta(sessionId, items)
       messagesSvc.onTranscriptDelta(sessionId, items)
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
