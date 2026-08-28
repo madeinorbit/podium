@@ -1365,3 +1365,35 @@ delete every copy at teardown.
 
 I am not deciding the rig posture under a green. Flagging it for the operator
 with the safety asymmetry stated.
+
+## Decision 37 — the home split is actually fixed this time (2026-08-28 17:57 CEST)
+
+POD-3057 landed `350da768e`, verified on the epic. **Real named-instance A/B:
+`sessions.read` went from 0 items to 2 items.** Focused 26-test gate and
+typecheck 25/25 green, only the documented inherited daemon failures.
+
+**Why I believe this one where I did not believe `ccdea1f93`.** POD-3059's fix
+was pinned by a unit test that asserted the env-merge expression, and the live
+`claude-sdk` spawn never reached the code that test covered — it passed for the
+case it named while the product stayed broken. POD-3057 fixed the test as well
+as the code. It extracted and exported `claudeSdkHostEnv` explicitly *"so a test
+can spawn a real process with it and read back the `HOME` that process actually
+ran under — rather than re-asserting this merge expression against itself."* The
+test now spawns `process.execPath` with `-e` printing `process.env.HOME` and
+reads what the **process itself** printed.
+
+**That is the correction to the seventh instrument, made by the session that had
+to live with it.** An assertion about a value the code computes is not an
+assertion about the value a process receives.
+
+**Chain, both halves:** the driver puts the instance's agent home on the turn
+spec; the spawn carries it to the process. Either half alone leaves the child on
+the daemon's HOME — which the driver's own comment notes is also the
+credential-isolation leak POD-2247 names.
+
+**What this does and does not change.** It does **not** move the release bar —
+`claude-sdk` is not on it. It does mean transcript-scored cells are trustworthy
+from here. And it does **not** retroactively invalidate Decision 35: POD-3065
+re-read the three no-marker cells *before* this landed and found **items
+enumerated**, so those readings were never against an empty reader. Decision 35
+stands on its own evidence.
