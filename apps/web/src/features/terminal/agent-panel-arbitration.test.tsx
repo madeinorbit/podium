@@ -71,13 +71,15 @@ let storePendingSpawnIds = new Set<string>()
 let storePendingSpawnPrompts = new Map<string, string>()
 
 const subscribeTranscript = vi.fn(
-  (_s: string, _since: string | undefined, _cb: unknown): (() => void) => () => {},
+  (_s: string, _since: string | undefined, _cb: unknown): (() => void) =>
+    () => {},
 )
 const fakeHub = {
   subscribeTranscript,
 }
 
 const transcriptRead = vi.fn(async () => ({ items: [], tail: 'confirmed-tail', hasMore: false }))
+const accountsLogin = vi.fn(async () => ({ sessionId: asSessionId('login-1') }))
 const fakeTrpc = {
   settings: {
     get: { query: vi.fn(async () => ({ roles: { coding: { startScreen: 'native' } } })) },
@@ -85,6 +87,9 @@ const fakeTrpc = {
   sessions: {
     sendText: { mutate: vi.fn(async () => {}) },
     transcriptRead: { query: transcriptRead },
+  },
+  accounts: {
+    login: { mutate: accountsLogin },
   },
 }
 
@@ -97,6 +102,7 @@ const stableStoreFns = {
   uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
   resurrectSession: vi.fn(async () => {}),
   killSession: vi.fn(async () => {}),
+  navigateToSession: vi.fn(),
 }
 
 vi.mock('@/app/store', () => {
@@ -210,6 +216,38 @@ describe('AgentPanel panel-mode persistence', () => {
     expect(container.querySelector('[data-testid="mode-chat"]')).toBeNull()
     expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
     expect(container.querySelector('[role="status"]')?.textContent).toContain("isn't logged in")
+  })
+
+  it('opens a PTY login session for a logged-out embedded driver, then navigates after its row arrives', async () => {
+    storePanelMode = { s1: 'chat' }
+    storeSessions = [
+      meta({
+        condition: 'logged-out',
+        driverFamily: 'embedded',
+        machineId: 'machine-1',
+      }),
+    ]
+    await render({ active: true })
+
+    expect(container.querySelector('[data-testid="terminal-surface"]')).toBeNull()
+    expect(container.querySelector('[data-testid="no-terminal-pane"]')?.textContent).toContain(
+      'needs sign-in',
+    )
+    const login = container.querySelector<HTMLButtonElement>('[data-testid="open-login-terminal"]')
+    expect(login).toBeTruthy()
+    await act(async () => {
+      login?.click()
+      await Promise.resolve()
+    })
+    expect(accountsLogin).toHaveBeenCalledWith({
+      harness: 'claude-code',
+      machineId: 'machine-1',
+    })
+    expect(stableStoreFns.navigateToSession).not.toHaveBeenCalled()
+
+    storeSessions = [...storeSessions, meta({ sessionId: asSessionId('login-1') })]
+    await render({ active: true })
+    expect(stableStoreFns.navigateToSession).toHaveBeenCalledWith(asSessionId('login-1'))
   })
 })
 
@@ -361,9 +399,9 @@ describe('AgentPanel mount gating', () => {
     expect(transcriptRead).not.toHaveBeenCalled()
     // AgentPanel's terminal file-link index observes all transcript deltas from
     // mount. The window subscription is the one anchored to the read's tail.
-    expect(subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail')).toEqual(
-      [],
-    )
+    expect(
+      subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail'),
+    ).toEqual([])
     expect(container.textContent).toContain(prompt)
 
     // One store publication installs the authoritative terminal row and retires
@@ -406,9 +444,9 @@ describe('AgentPanel on a server-family client terminal', () => {
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
     expect(container.querySelector('[data-testid="chat-surface"]')).toBeTruthy()
     expect(container.querySelector('[data-testid="chat-surface"]')?.className).toContain('hidden')
-    expect(container.querySelector('[data-testid="mode-native"]')?.getAttribute('aria-selected')).toBe(
-      'true',
-    )
+    expect(
+      container.querySelector('[data-testid="mode-native"]')?.getAttribute('aria-selected'),
+    ).toBe('true')
     expect(container.querySelector('[data-testid="mode-chat"]')).toBeTruthy()
   })
 
@@ -435,9 +473,9 @@ describe('AgentPanel on a server-family client terminal', () => {
     await render({ active: true })
     expect(mountSessionMock).not.toHaveBeenCalled()
     expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
-    expect(container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected')).toBe(
-      'true',
-    )
+    expect(
+      container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected'),
+    ).toBe('true')
     storePanelMode = { s1: 'native' }
     await render({ active: true })
     expect(mountSessionMock).toHaveBeenCalledTimes(1)

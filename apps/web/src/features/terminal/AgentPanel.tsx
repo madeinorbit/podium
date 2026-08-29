@@ -231,6 +231,7 @@ export function AgentPanel({
     openFile,
     uiState,
     selectedIssueId,
+    navigateToSession,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -246,10 +247,37 @@ export function AgentPanel({
       openFile: s.openFile,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
+      navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
   const session = useSession(sessionId)
+  const [loginTerminalBusy, setLoginTerminalBusy] = useState(false)
+  const [loginTerminalError, setLoginTerminalError] = useState<string | null>(null)
+  const [pendingLoginSessionId, setPendingLoginSessionId] = useState<SessionId | null>(null)
+  const pendingLoginSession = useSession(pendingLoginSessionId ?? undefined)
+  useEffect(() => {
+    if (!pendingLoginSession) return
+    navigateToSession(pendingLoginSession.sessionId)
+    setPendingLoginSessionId(null)
+  }, [navigateToSession, pendingLoginSession])
+  const openLoginTerminal = useCallback(async (): Promise<void> => {
+    const harness = issueAgentKind(session?.agentKind)
+    if (!session || !harness || loginTerminalBusy) return
+    setLoginTerminalBusy(true)
+    setLoginTerminalError(null)
+    try {
+      const result = await trpc.accounts.login.mutate({
+        harness,
+        ...(session.machineId ? { machineId: session.machineId } : {}),
+      })
+      setPendingLoginSessionId(result.sessionId)
+    } catch (cause) {
+      setLoginTerminalError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setLoginTerminalBusy(false)
+    }
+  }, [loginTerminalBusy, session, trpc])
   const spawnConfirmed = useStoreSelector((s) => !s.pendingSpawnIds.has(sessionId))
   const observedOptimisticFirstPrompt = useStoreSelector((s) =>
     s.pendingSpawnPrompts.get(sessionId),
@@ -278,9 +306,7 @@ export function AgentPanel({
       ? heldOptimisticFirstPrompt.text
       : undefined)
   const settleOptimisticFirstPrompt = useCallback(() => {
-    setHeldOptimisticFirstPrompt((current) =>
-      current?.sessionId === sessionId ? null : current,
-    )
+    setHeldOptimisticFirstPrompt((current) => (current?.sessionId === sessionId ? null : current))
   }, [sessionId])
   // Agent chrome needs durable issue fields (colour, branch, git state), not
   // session-derived rollups. `useReplicaIssues` intentionally invalidates on
@@ -1167,7 +1193,11 @@ export function AgentPanel({
           className="flex flex-none items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
         >
           <strong>{panelLabel(session.agentKind)} isn&apos;t logged in</strong>
-          <span>Run its login command in this pane to continue.</span>
+          <span>
+            {terminalOutlook === 'none'
+              ? 'Open a sign-in terminal to authenticate, then retry here.'
+              : 'Run its login command in this pane to continue.'}
+          </span>
         </div>
       )}
       {handover && <HandoverPane view={handover} background={termBg} />}
@@ -1258,10 +1288,7 @@ export function AgentPanel({
         // state survive a warm mode switch.
         <>
           <div
-            className={cn(
-              'flex min-h-0 flex-1 flex-col',
-              effectiveMode !== 'chat' && 'hidden',
-            )}
+            className={cn('flex min-h-0 flex-1 flex-col', effectiveMode !== 'chat' && 'hidden')}
             data-testid="chat-surface"
           >
             <ChatView
@@ -1287,22 +1314,43 @@ export function AgentPanel({
             >
               <SquareTerminal size={22} className="text-zinc-600" aria-hidden="true" />
               <span className="text-[13px] text-zinc-400">
-                {session ? panelLabel(session.agentKind) : 'This agent'} is running without a
-                terminal
+                {session?.condition === 'logged-out'
+                  ? `${panelLabel(session.agentKind)} needs sign-in`
+                  : `${session ? panelLabel(session.agentKind) : 'This agent'} is running without a terminal`}
               </span>
               <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                It is driven over its own protocol rather than a shell, so there is no screen to
-                attach to. Everything it does shows up in Chat.
+                {session?.condition === 'logged-out'
+                  ? 'This headless session has no command-line screen. Open a temporary terminal to sign in, then retry the session here.'
+                  : 'It is driven over its own protocol rather than a shell, so there is no screen to attach to. Everything it does shows up in Chat.'}
               </span>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="mt-1"
-                onClick={() => pickModeWithTrace('chat')}
-              >
-                <MessageSquareText size={13} aria-hidden="true" /> Open Chat
-              </Button>
+              <span className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                {session?.condition === 'logged-out' && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    data-testid="open-login-terminal"
+                    disabled={loginTerminalBusy}
+                    onClick={() => void openLoginTerminal()}
+                  >
+                    <SquareTerminal size={13} aria-hidden="true" />
+                    {loginTerminalBusy ? 'Opening…' : 'Open sign-in terminal'}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => pickModeWithTrace('chat')}
+                >
+                  <MessageSquareText size={13} aria-hidden="true" /> Open Chat
+                </Button>
+              </span>
+              {loginTerminalError && (
+                <span className="max-w-[44ch] text-[11px] text-danger" role="alert">
+                  {loginTerminalError}
+                </span>
+              )}
             </div>
           )}
           {/* …but a session with NO terminal keeps nothing warm [POD-2290]: the
