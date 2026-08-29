@@ -14,7 +14,7 @@
  * the way in — an inherited override is the same defect as a declared one, and
  * this shell runs inside a Podium session on the default instance.
  */
-import { instanceStateDir, applyInstanceRuntimeEnv, resolveInstanceId } from '@podium/runtime/instance'
+import { instanceStateDir, applyInstanceRuntimeEnv, resolveInstanceId } from '../../../packages/runtime/src/instance.ts'
 
 const claimed = process.env.P2777_STATE_ROOT
 if (!claimed) {
