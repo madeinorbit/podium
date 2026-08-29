@@ -146,8 +146,8 @@ start_pair() {
   for _ in $(seq 1 120); do curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break; sleep 1; done
   curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null || fail "server did not become healthy"
   start_one daemon scripts/daemon.ts "$contract" "$driver"
-  for _ in $(seq 1 120); do rg -q 'podium daemon up: connected to' "$LOGS/daemon.log" 2>/dev/null && break; sleep 1; done
-  rg -q 'podium daemon up: connected to' "$LOGS/daemon.log" || fail "daemon did not connect"
+  for _ in $(seq 1 120); do grep -q 'podium daemon up: connected to' "$LOGS/daemon.log" 2>/dev/null && break; sleep 1; done
+  grep -q 'podium daemon up: connected to' "$LOGS/daemon.log" || fail "daemon did not connect"
   verify_runtime "${1:-headless}"
 }
 
@@ -175,7 +175,7 @@ verify_runtime() {
   [ "$(env_value "$daemon_pid" PODIUM_RUNTIME_CONTRACT)" = "$contract" ] || fail "contract arm mismatch"
   [ "$(env_value "$daemon_pid" PODIUM_RUNTIME_DRIVER)" = "$driver" ] || fail "driver arm mismatch"
   stamp="$(curl -fsS "http://127.0.0.1:$PORT/podium-build.json")"
-  printf '%s' "$stamp" | rg -q '"sourceSha"\s*:\s*"fbc2f18"' || fail "served web pin is not fbc2f18: $stamp"
+  printf '%s' "$stamp" | grep -Eq '"sourceSha"[[:space:]]*:[[:space:]]*"fbc2f18"' || fail "served web pin is not fbc2f18: $stamp"
   echo "PIN VERIFIED head=$PIN server=$(sed -n '1p' "$BASE/server.sha") daemon=$(sed -n '1p' "$BASE/daemon.sha") web=fbc2f18 arm=$arm instance=$INSTANCE state=$STATE_ROOT agentHome=$AGENT_HOME ports=$PORT/$HOOK_PORT/$RELAY_PORT"
 }
 
