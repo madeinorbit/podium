@@ -97,7 +97,7 @@ async function pins() {
     fact.trees.server === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/server`]) &&
     fact.trees.daemon === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/daemon`]) &&
     fact.trees.web === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/web`])
-  const webExact = String(web.sourceSha) === PIN.slice(0, 7)
+  const webExact = String(web.sourceSha) === fact.head.slice(0, 7)
   const processesExact = processFacts.every((p) => p.sha === PIN && p.cwd === ROOT && p.instance === INSTANCE && p.stateRoot === STATE && p.agentHome === AGENT_HOME && p.port === PORT && p.hookPort === HOOK_PORT && p.relayPort === RELAY_PORT)
   if (!exact || !webExact || !processesExact || [PORT, HOOK_PORT, RELAY_PORT].includes('19797')) {
     throw new Error(`pin refusal ${JSON.stringify({ exact, webExact, processesExact, fact })}`)
@@ -210,7 +210,7 @@ const expectedDriver: Record<Cell, string> = {
 const created = await mutate('sessions.create', {
   cwd: PROBE_REPO,
   agentKind,
-  ...(cell === 'terminal' ? { runtimeContract: 'generic-pty' } : {}),
+  runtimeContract: expectedDriver[cell],
 })
 const sid = created.result?.data?.sessionId as string | undefined
 if (!sid) throw new Error(`create failed: ${JSON.stringify(created)}`)

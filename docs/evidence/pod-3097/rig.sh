@@ -131,7 +131,7 @@ case "$action" in
       echo "refusing reused state root: $P3097_STATE_ROOT" >&2
       exit 2
     }
-    [ "$(sed -n 's/.*\"sourceSha\": *\"\([^\"]*\)\".*/\1/p' "$P3097_REPO/apps/web/dist/podium-build.json")" = "${P3097_SHA:0:7}" ]
+    [ "$(sed -n 's/.*\"sourceSha\": *\"\([^\"]*\)\".*/\1/p' "$P3097_REPO/apps/web/dist/podium-build.json")" = "$(git -C "$P3097_REPO" rev-parse --short=7 HEAD)" ]
     mkdir -p "$P3097_STATE_ROOT"
     PODIUM_DRIVE_REPO="$P3097_REPO" bash "$P3097_REPO/docs/evidence/claim-instance.sh"
     seed_agent_home
