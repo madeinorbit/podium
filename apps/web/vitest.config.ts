@@ -9,11 +9,11 @@ import { sharedVitestConfig } from '../../vitest.config'
 const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
   fileURLToPath(new URL(`../../${file}`, import.meta.url)),
 )
-// Keep terminal-client subpaths on the package exports map; the root's bare alias would
-// prefix-rewrite `@podium/terminal-client/terminal-view` to `index.ts/terminal-view`.
+// Keep package subpaths on their exports maps; the root's bare aliases would
+// prefix-rewrite `/browser` or `/terminal-view` onto `index.ts`.
 
 const sharedAliases = sharedVitestConfig.resolve.alias.filter(
-  ({ find }) => find !== '@podium/terminal-client',
+  ({ find }) => find !== '@podium/terminal-client' && find !== '@podium/transcript',
 )
 
 export default defineConfig({

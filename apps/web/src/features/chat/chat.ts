@@ -1,6 +1,6 @@
 import { type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model/browser'
-import { streamIdOfCursor, streamItemIdOf } from '@podium/transcript/browser'
+import { decodeCursor, streamIdOfCursor } from '@podium/transcript/browser'
 import { deadLetterDeliveryLine } from '../messages/message-ledger'
 
 /**
@@ -94,7 +94,16 @@ export class FileLinkPathIndex {
  * moments. The shared contract zeros that mutable offset while retaining the
  * provider part/sub-item identity; cursor-less families keep using `id`. */
 export function itemKey(item: TranscriptItem): string {
-  return streamItemIdOf(item)
+  if (item.cursor === undefined) return item.id
+  return cursorKey(item.cursor)
+}
+
+/** Offset-zeroed identity is safe only when the provider supplied a stable UUID.
+ * A null UUID means the cursor is purely positional, so its full offset remains
+ * part of the identity or distinct records at the same file/sub-index collapse. */
+function cursorKey(cursor: string): string {
+  const parts = decodeCursor(cursor)
+  return parts?.uuid != null ? (streamIdOfCursor(cursor) ?? cursor) : cursor
 }
 
 /**
@@ -204,7 +213,7 @@ export function reconcileReset(
   snapshotTail: string | undefined,
 ): TranscriptItem[] {
   if (snapshot.length === 0) return prev
-  const tailKey = snapshotTail !== undefined ? streamIdOfCursor(snapshotTail) : undefined
+  const tailKey = snapshotTail !== undefined ? cursorKey(snapshotTail) : undefined
   const tailIdx = tailKey !== undefined ? prev.findIndex((it) => itemKey(it) === tailKey) : -1
   // Roll/replacement (tail not in the held window): adopt the snapshot verbatim.
   if (tailIdx < 0) return snapshot

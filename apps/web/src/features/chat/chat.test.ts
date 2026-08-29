@@ -366,6 +366,15 @@ describe('mergeByCursor', () => {
     expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
 
+  it('keeps distinct positional rows when provider UUID is null', () => {
+    const first = it_('first', cursor('same-file', 10))
+    const second = it_('second', cursor('same-file', 20))
+
+    const merged = mergeByCursor([first], [second])
+
+    expect(merged.map((item) => item.id)).toEqual(['first', 'second'])
+  })
+
   it('returns prev unchanged when every delta item is a duplicate', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
     const merged = mergeByCursor(prev, [it_('b', 'c2')])
