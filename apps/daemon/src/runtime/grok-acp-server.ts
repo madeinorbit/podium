@@ -6,7 +6,16 @@
  * the binding journal; the journal is durable, the pipe is intentionally not.
  */
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import {
   type GrokAcpEndpoint,
@@ -311,6 +320,30 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       return endpoint
     },
 
+    async readNativeUpdates(input) {
+      const path = grokSessionPaths({
+        cwd: input.workdir,
+        sessionId: input.grokSessionId,
+      }).updatesPath
+      let descriptor: number | undefined
+      try {
+        descriptor = openSync(path, 'r')
+        const size = fstatSync(descriptor).size
+        const offset = size < input.offset ? 0 : input.offset
+        const bytes = Buffer.allocUnsafe(Math.max(0, size - offset))
+        let read = 0
+        while (read < bytes.length) {
+          const count = readSync(descriptor, bytes, read, bytes.length - read, offset + read)
+          if (count === 0) break
+          read += count
+        }
+        return { offset, bytes: bytes.subarray(0, read) }
+      } catch {
+        return undefined
+      } finally {
+        if (descriptor !== undefined) closeSync(descriptor)
+      }
+    },
     async readArchive(input) {
       const paths = grokSessionPaths({ cwd: input.workdir, sessionId: input.grokSessionId })
       const candidates = [

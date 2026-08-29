@@ -102,6 +102,12 @@ export interface GrokAcpRuntimeHost {
     grokSessionId: string
     workdir: string
   }): Promise<readonly ArchiveFile[] | undefined>
+  readNativeUpdates?(input: {
+    sessionId: SessionId
+    grokSessionId: string
+    workdir: string
+    offset: number
+  }): Promise<{ offset: number; bytes: Uint8Array } | undefined>
   attachClient?(input: {
     sessionId: SessionId
     grokSessionId: string
@@ -121,6 +127,8 @@ export interface GrokAcpRuntimeHost {
   journal: GrokAcpJournal
   now(): number
   mintSessionId(): SessionId
+  /** Poll cadence while a native Grok controller may append provider updates. */
+  nativeArchivePollMs?: number
   makeClient?(config: GrokAcpClientConfig): GrokAcpClient
 }
 
@@ -184,6 +192,9 @@ interface DriverSession {
   transcriptItems: TranscriptItem[]
   transcriptIds: Set<string>
   seenProviderEventIds: Set<string>
+  nativeArchiveOffset: number
+  nativeArchivePrimed: boolean
+  nativeArchiveSyncRunning: boolean
   toolCallIds: Set<string>
   toolResults: Map<string, BufferedToolResult>
   userBuffer: { id: string; text: string; at: string } | undefined
@@ -574,8 +585,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         return
       }
       case 'tool_call_update': {
-        const status =
-          typeof update.status === 'string' ? update.status.trim().toLowerCase() : ''
+        const status = typeof update.status === 'string' ? update.status.trim().toLowerCase() : ''
         if (status !== 'completed' && status !== 'failed') return
         const toolUseId =
           (typeof update.toolCallId === 'string' && update.toolCallId) ||
@@ -596,8 +606,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
             role: 'tool',
             text: '',
             ts: at,
-            toolResult:
-              resultText.length > 2000 ? `${resultText.slice(0, 2000)}...` : resultText,
+            toolResult: resultText.length > 2000 ? `${resultText.slice(0, 2000)}...` : resultText,
             toolUseId,
           },
           at,
@@ -654,6 +663,57 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     })
   }
 
+  async function syncNativeArchiveOnce(session: DriverSession): Promise<void> {
+    if (!host.readNativeUpdates || session.disposed) return
+    const chunk = await host.readNativeUpdates({
+      sessionId: session.sessionId,
+      grokSessionId: session.grokSessionId,
+      workdir: session.spec.workdir,
+      offset: session.nativeArchiveOffset,
+    })
+    if (!chunk) return
+    session.nativeArchiveOffset = chunk.offset
+    if (!session.nativeArchivePrimed) {
+      session.nativeArchiveOffset += chunk.bytes.length
+      session.nativeArchivePrimed = true
+      return
+    }
+
+    const text = new TextDecoder().decode(chunk.bytes)
+    let consumed = 0
+    for (const line of text.split('\n').slice(0, -1)) {
+      consumed += new TextEncoder().encode(line + '\n').length
+      if (!line.trim()) continue
+      try {
+        ingestNotification(session, JSON.parse(line) as GrokAcpFrame, 'live')
+      } catch {
+        // Grok owns this append-only file. A malformed provider line is not a
+        // reason to stop observing later complete frames.
+      }
+    }
+    session.nativeArchiveOffset += consumed
+    await session.ingestChain
+  }
+
+  async function startNativeArchiveSync(session: DriverSession): Promise<void> {
+    if (!host.readNativeUpdates || session.nativeArchiveSyncRunning || session.disposed) return
+    session.nativeArchiveSyncRunning = true
+    try {
+      while (!session.disposed && session.lease?.kind === 'human-controller') {
+        try {
+          await syncNativeArchiveOnce(session)
+        } catch {
+          // A transient read failure must not permanently disconnect native sync.
+        }
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, host.nativeArchivePollMs ?? 250)
+          if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+        })
+      }
+    } finally {
+      session.nativeArchiveSyncRunning = false
+    }
+  }
   function answeredBy(options?: AnswerOptions): 'policy' | 'superagent' | 'human' {
     return options?.principal?.kind === 'system'
       ? 'policy'
@@ -828,6 +888,9 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       transcriptItems: [],
       transcriptIds: new Set(),
       seenProviderEventIds: new Set(),
+      nativeArchiveOffset: 0,
+      nativeArchivePrimed: false,
+      nativeArchiveSyncRunning: false,
       toolCallIds: new Set(),
       toolResults: new Map(),
       userBuffer: undefined,
@@ -1670,6 +1733,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
             detail: 'this machine cannot host a Grok ACP client terminal',
           }
         }
+        if (req.mode === 'takeover') void startNativeArchiveSync(session)
         return {
           kind: 'client',
           placement: 'on-machine',

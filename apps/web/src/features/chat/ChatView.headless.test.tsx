@@ -6,7 +6,7 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
-import type { HeadlessActivityEvent } from '@podium/protocol'
+import type { HeadlessActivityEvent, TurnPreviewMessage } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -21,10 +21,12 @@ import './test-support/client-core-mock'
 
 type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
 type HeadlessCb = (e: HeadlessActivityEvent) => void
+type PreviewCb = (sessionId: SessionId, frame: TurnPreviewMessage) => void
 
 const fakeHub = {
   subscribes: [] as Array<{ sessionId: SessionId; since: string | undefined; cb: DeltaCb }>,
   headlessSubs: [] as Array<{ sessionId: SessionId; cb: HeadlessCb }>,
+  previewSubs: [] as PreviewCb[],
   subscribeTranscript(sessionId: SessionId, since: string | undefined, cb: DeltaCb): () => void {
     this.subscribes.push({ sessionId, since, cb })
     return () => {}
@@ -32,6 +34,14 @@ const fakeHub = {
   subscribeHeadless(sessionId: SessionId, cb: HeadlessCb): () => void {
     this.headlessSubs.push({ sessionId, cb })
     return () => {}
+  },
+  on(event: string, cb: PreviewCb): () => void {
+    if (event !== 'turnPreview') return () => {}
+    this.previewSubs.push(cb)
+    return () => {
+      const index = this.previewSubs.indexOf(cb)
+      if (index >= 0) this.previewSubs.splice(index, 1)
+    }
   },
 }
 
@@ -135,6 +145,7 @@ let root: Root
 beforeEach(() => {
   fakeHub.subscribes.length = 0
   fakeHub.headlessSubs.length = 0
+  fakeHub.previewSubs.length = 0
   drafts = {}
   attachedSessionId = null
   storeSessions = [meta({})]
@@ -159,6 +170,20 @@ async function flush(): Promise<void> {
 function push(event: HeadlessActivityEvent): void {
   act(() => {
     for (const s of fakeHub.headlessSubs) s.cb(event)
+  })
+}
+
+function pushPreview(text: string): void {
+  act(() => {
+    for (const cb of fakeHub.previewSubs) {
+      cb(asSessionId('h1'), {
+        type: 'turnPreview',
+        sessionId: asSessionId('h1'),
+        turnEpoch: 1,
+        seq: 1,
+        items: [{ kind: 'text', itemId: 'grok-assistant-1', text }],
+      })
+    }
   })
 }
 
@@ -202,6 +227,17 @@ describe('ChatView headless mode', () => {
     // …and turn-end clears everything.
     push({ kind: 'turn-end' })
     expect(overlayEl()).toBeNull()
+  })
+
+  it('renders one streaming copy when legacy activity and turn preview carry the same text', async () => {
+    mount()
+    await flush()
+    push({ kind: 'turn-start' })
+    push({ kind: 'partial-text', text: 'one Grok answer' })
+    expect(overlayEl()?.textContent).toContain('one Grok answer')
+    pushPreview('one Grok answer')
+    expect(overlayEl()).toBeNull()
+    expect(container.textContent?.split('one Grok answer')).toHaveLength(2)
   })
 
   it('gates the composer on the running turn, not PTY status', async () => {

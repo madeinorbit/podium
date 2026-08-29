@@ -301,6 +301,9 @@ export function TranscriptFeed({
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.
+  const previewHasText =
+    turnPreview?.items.some((item) => item.kind === 'text') === true
+
   const dayMarks = useMemo(() => dayMarksByPosition(rows, new Date()), [rows])
   const lastRow = rows[rows.length - 1]?.row
   const tailActivity: ChatActivity | null = overlay?.status
@@ -696,7 +699,7 @@ export function TranscriptFeed({
       {/* The text carries a caret while it is still being written (POD-423):
           the overlay exists only mid-turn, so its presence IS the signal, and
           it goes away when the finished item takes over. */}
-        {overlay?.text !== undefined && (
+        {overlay?.text !== undefined && !previewHasText && (
           <div className="transcript-row" data-headless-overlay>
             <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
             <div className="transcript-body">

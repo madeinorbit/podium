@@ -29,6 +29,8 @@ export interface FakeGrokAcpServerOptions {
    * exactly one and never load.
    */
   store?: Map<string, Record<string, unknown>[]>
+  /** Exact notification frames appended to the provider update log. */
+  frameStore?: Map<string, Record<string, unknown>[]>
   /** Hold `session/cancel` open until the test supplies the prompt result. The
    *  production protocol separates the cancellation request from its fence;
    *  this option lets a test prove the driver does too. */
@@ -120,6 +122,9 @@ export function startFakeGrokAcpServer(
       },
     }
     lastNotificationFrame = frame
+    const frames = options.frameStore?.get(sessionId) ?? []
+    frames.push(frame)
+    options.frameStore?.set(sessionId, frames)
     push(frame)
   }
 

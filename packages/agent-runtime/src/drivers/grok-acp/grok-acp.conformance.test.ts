@@ -72,10 +72,7 @@ function makeWorld(options: WorldOptions = {}): {
     sessionId: SessionId,
     stopReason?: 'end_turn' | 'cancelled' | 'refusal',
   ): void
-  toolCall(
-    sessionId: SessionId,
-    input: Parameters<FakeGrokAcpServer['toolCall']>[0],
-  ): void
+  toolCall(sessionId: SessionId, input: Parameters<FakeGrokAcpServer['toolCall']>[0]): void
   toolCallUpdate(
     sessionId: SessionId,
     input: Parameters<FakeGrokAcpServer['toolCallUpdate']>[0],
@@ -84,6 +81,7 @@ function makeWorld(options: WorldOptions = {}): {
   rawFrames: unknown[]
   streamAssistantText(sessionId: SessionId, chunks: readonly string[]): Promise<void>
   replayLastUpdate(sessionId: SessionId): void
+  appendNativeTurn(sessionId: SessionId, userText: string, assistantText: string): void
 } {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   const archiveReader = options.archiveReader ?? 'ready'
@@ -92,6 +90,8 @@ function makeWorld(options: WorldOptions = {}): {
   let seq = 0
   /** Grok's own session store, per WORLD rather than per agent process. */
   const conversations = new Map<string, Record<string, unknown>[]>()
+  const archiveFrames = new Map<string, Record<string, unknown>[]>()
+  let nativeEventSeq = 0
   const servers = new Map<SessionId, FakeGrokAcpServer>()
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
   const rawFrames: unknown[] = []
@@ -107,6 +107,7 @@ function makeWorld(options: WorldOptions = {}): {
     journal,
     now: () => Date.UTC(2026, 7, 16) + ++seq * 1000,
     mintSessionId: () => `gk-session-${++seq}` as SessionId,
+    nativeArchivePollMs: 5,
     onRawFrame: (_sessionId, frame) => rawFrames.push(frame),
     makeClient(config) {
       const client = createGrokAcpClient(config)
@@ -147,6 +148,7 @@ function makeWorld(options: WorldOptions = {}): {
         // `session/load`. See the option's own doc for what a private map per
         // server made unfalsifiable.
         store: conversations,
+        frameStore: archiveFrames,
         ...(options.deferCancellation !== undefined
           ? { deferCancellation: options.deferCancellation }
           : {}),
@@ -193,12 +195,30 @@ function makeWorld(options: WorldOptions = {}): {
               {
                 path: `grok/${grokSessionId}/updates.jsonl`,
                 bytes: new TextEncoder().encode(
-                  (conversations.get(grokSessionId) ?? [])
-                    .map((update) => JSON.stringify(update))
-                    .join('\n') + '\n',
+                  (archiveFrames.get(grokSessionId) ?? [])
+                    .map((frame) => JSON.stringify(frame))
+                    .join('\n') + ((archiveFrames.get(grokSessionId)?.length ?? 0) > 0 ? '\n' : ''),
                 ),
               },
             ]
+          },
+        }),
+    ...(archiveReader === 'absent'
+      ? {}
+      : {
+          readNativeUpdates: async ({
+            grokSessionId,
+            offset,
+          }: {
+            grokSessionId: string
+            offset: number
+          }) => {
+            if (archiveReader === 'not-yet') return undefined
+            const frames = archiveFrames.get(grokSessionId) ?? []
+            const text = frames.map((frame) => JSON.stringify(frame)).join('\n')
+            const bytes = new TextEncoder().encode(text ? `${text}\n` : '')
+            const start = bytes.length < offset ? 0 : offset
+            return { offset: start, bytes: bytes.subarray(start) }
           },
         }),
     // `mode` HAS ALWAYS BEEN ON THE HOST CONTRACT — a real host needs it to
@@ -269,14 +289,42 @@ function makeWorld(options: WorldOptions = {}): {
   return {
     failProviderTurn: (sessionId, detail) => serverFor(sessionId).failProviderTurn(detail),
     failProviderAttempt: (sessionId, detail) => serverFor(sessionId).failProviderAttempt(detail),
-    completeProviderTurn: (sessionId, stopReason) =>
-      serverFor(sessionId).completeTurn(stopReason),
+    completeProviderTurn: (sessionId, stopReason) => serverFor(sessionId).completeTurn(stopReason),
     toolCall: (sessionId, input) => serverFor(sessionId).toolCall(input),
     toolCallUpdate: (sessionId, input) => serverFor(sessionId).toolCallUpdate(input),
     streamAssistantText: async (sessionId, chunks) => {
       await control.streamAssistantText?.(sessionId, chunks)
     },
     replayLastUpdate: (sessionId) => serverFor(sessionId).replayLastUpdate(),
+    appendNativeTurn: (sessionId, userText, assistantText) => {
+      const grokSessionId = serverFor(sessionId).sessionId
+      const frames = archiveFrames.get(grokSessionId) ?? []
+      const append = (update: Record<string, unknown>): void => {
+        nativeEventSeq += 1
+        frames.push({
+          jsonrpc: '2.0',
+          method: 'session/update',
+          params: {
+            sessionId: grokSessionId,
+            update,
+            _meta: {
+              eventId: `${grokSessionId}-native-${nativeEventSeq}`,
+              agentTimestampMs: 1_786_800_000_000 + nativeEventSeq,
+            },
+          },
+        })
+      }
+      append({
+        sessionUpdate: 'user_message_chunk',
+        content: { type: 'text', text: userText },
+      })
+      append({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: assistantText },
+      })
+      append({ sessionUpdate: 'turn_completed', stop_reason: 'end_turn' })
+      archiveFrames.set(grokSessionId, frames)
+    },
     failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
     rawFrames,
     target: {
@@ -295,8 +343,10 @@ function makeWorld(options: WorldOptions = {}): {
         // The store is per-WORLD, not per-server, but a property must not
         // inherit a previous property's conversation.
         conversations.clear()
+        archiveFrames.clear()
         replayPromptSettlement = undefined
         seq = 0
+        nativeEventSeq = 0
       },
       spec: () => ({
         harness: 'grok',
@@ -354,9 +404,7 @@ describe('grok-acp tool result transcript', () => {
       expectToolPair(history, 'completed', 'canonical completed output')
       expectToolPair(history, 'failed', 'command failed')
       expectToolPair(history, 'explicit-empty', '')
-      expect(
-        history.filter((item) => item.id === 'initially-absent:result'),
-      ).toHaveLength(0)
+      expect(history.filter((item) => item.id === 'initially-absent:result')).toHaveLength(0)
 
       // An absent terminal payload is not absorbing. A later update that
       // explicitly carries empty output may resolve the same call.
@@ -420,8 +468,7 @@ describe('grok-acp tool result transcript', () => {
       expect(
         history.filter(
           (item) =>
-            item.id === 'duplicate-completed:result' ||
-            item.id === 'duplicate-failed:result',
+            item.id === 'duplicate-completed:result' || item.id === 'duplicate-failed:result',
         ),
       ).toHaveLength(2)
       const events: RuntimeEvent[] = []
@@ -547,6 +594,50 @@ describe('grok-acp provider event identity', () => {
   })
 })
 
+describe('grok-acp native controller sync', () => {
+  it('tails native Grok updates into chat exactly once while takeover holds the lease', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'headless prompt before takeover' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await world.streamAssistantText(handle.binding.sessionId, ['headless answer'])
+      world.completeProviderTurn(handle.binding.sessionId, 'refusal')
+      await expect
+        .poll(async () => await handle.transcript.history({ limit: 20 }))
+        .toContainEqual(expect.objectContaining({ role: 'assistant', text: 'headless answer' }))
+
+      const holder = 'native-sync-test'
+      await expect(handle.attach({ mode: 'takeover', holder })).resolves.toMatchObject({
+        kind: 'client',
+      })
+
+      world.appendNativeTurn(handle.binding.sessionId, 'native user prompt', 'native answer')
+      const counts = async (): Promise<[number, number]> => {
+        const history = await handle.transcript.history({ limit: 20 })
+        return [
+          history.filter((item) => item.role === 'user' && item.text === 'native user prompt')
+            .length,
+          history.filter((item) => item.role === 'assistant' && item.text === 'native answer')
+            .length,
+        ]
+      }
+      await expect.poll(counts).toEqual([1, 1])
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      await expect(counts()).resolves.toEqual([1, 1])
+      const history = await handle.transcript.history({ limit: 20 })
+      expect(
+        history.filter((item) => item.role === 'assistant' && item.text === 'headless answer'),
+      ).toHaveLength(1)
+      await handle.lease.release(holder)
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 function expectToolPair(
   items: Awaited<ReturnType<AgentSessionHandle['transcript']['history']>>,
   toolUseId: string,
