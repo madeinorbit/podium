@@ -451,12 +451,13 @@ for (const a of asks) {
  * workaround, but attaching after enumeration preserves their established chat
  * arm while exercising the same two-viewer state the criterion requires.
  */
+const terminalApplicable = row0?.driverId !== 'claude-sdk'
 const term = new Chat(sid)
-await term.open('native')
+if (terminalApplicable) await term.open('native')
 
 let termScreenAtAsk = ''
 const termDeadline = now() + 30_000
-while (now() < termDeadline) {
+while (terminalApplicable && now() < termDeadline) {
   termScreenAtAsk = stripTerm(term.screen)
   const tail = termScreenAtAsk.slice(-2_500)
   if (/permission|approve|allow|grant|\[y\/n\]|yes\/no/i.test(tail) && tail.includes(marker)) {
@@ -474,9 +475,13 @@ const toolNameOnScreen =
   toolOnScreen.length > 0 && termTailAtAsk.toLowerCase().includes(toolOnScreen.toLowerCase())
 
 log('')
-log('A4a  the TERMINAL half — attached after the structured ask was enumerable')
+log(
+  terminalApplicable
+    ? 'A4a  the TERMINAL half — attached after the structured ask was enumerable'
+    : 'A4a  the TERMINAL half — N/A: claude-sdk declares no client terminal',
+)
 log(`     terminal bytes   ${term.screenBytes} (outputSeen=${term.attached?.outputSeen})`)
-log(`     same ask visible before answering: ${termShowsAsk}`)
+log(`     same ask visible before answering: ${terminalApplicable ? termShowsAsk : 'not applicable'}`)
 log(`       permission wording present: ${askWordOnScreen}`)
 log(`       unique command marker '${marker}' present: ${markerOnScreen}`)
 log(`       tool name '${toolOnScreen}' present (supporting only): ${toolNameOnScreen}`)
@@ -524,7 +529,8 @@ const termStillAsks =
   /permission|approve|allow|grant|\[y\/n\]|yes\/no/i.test(termTailAfterAnswer) &&
   termTailAfterAnswer.includes(marker)
 log(`     terminal after answering: +${term.screenBytes - termBytesAtAnswer} byte(s), same ask still prompting: ${termStillAsks}`)
-const resolvedBoth = cleared && termShowsAsk && termMoved && !termStillAsks
+const resolvedBoth =
+  cleared && (!terminalApplicable || (termShowsAsk && termMoved && !termStillAsks))
 
 // ---------------------------------------------------------------------------
 // A4b — answer the same ask a second time
@@ -618,8 +624,15 @@ log(
 const a4bPass = typedRefusal && !doubleAction
 log('')
 log('='.repeat(78))
-const a4aPass = cleared && termShowsAsk && resolvedBoth
-log(`A4a  ${a4aPass ? 'PASS' : cleared ? 'PARTIAL' : 'FAIL'} — chat half ${cleared ? 'PASS' : 'FAIL'}, terminal half ${termShowsAsk ? (resolvedBoth ? 'PASS' : 'shows the ask but did not resolve') : 'did NOT show the ask'}`)
+const a4aPass = cleared && resolvedBoth
+const terminalVerdict = terminalApplicable
+  ? termShowsAsk
+    ? resolvedBoth
+      ? 'PASS'
+      : 'shows the ask but did not resolve'
+    : 'did NOT show the ask'
+  : 'N/A (driver declares no client terminal)'
+log(`A4a  ${a4aPass ? 'PASS' : cleared ? 'PARTIAL' : 'FAIL'} — chat half ${cleared ? 'PASS' : 'FAIL'}, terminal half ${terminalVerdict}`)
 log(`A4b  ${a4bPass ? 'PASS' : 'FAIL'} — second answer ${typedRefusal ? 'was a typed error' : 'was NOT a typed error'}, double action: ${doubleAction}`)
 log(`     controls: turn + structured ask FIRED; first answer succeeded, resolved, and acted once FIRED`)
 log('='.repeat(78))
