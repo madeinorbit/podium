@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$PODIUM_DRIVE_REPO"
 
 bun --conditions=@podium/source -e '
-  import { loadConfig, saveConfig } from "@podium/runtime/config"
+  import { loadConfig, saveConfig } from "./packages/runtime/src/config.ts"
   saveConfig({ ...loadConfig(), mode: "all-in-one" })
 '
 
