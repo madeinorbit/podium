@@ -1,6 +1,6 @@
-import { driverFamilyForId, type DriverId, type MachineHarnessInventory, probeAllModels } from '@podium/harness'
+import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { asMachineId, type HarnessAgent, type Inventory } from '@podium/model'
+import { asMachineId, type Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
@@ -38,6 +38,16 @@ const inventoryRebuildQueued = new Map<string, Promise<void>>()
 
 export const DEFAULT_INVENTORY_REFRESH_INTERVAL_MS = 60_000
 
+export function terminalRuntimeDriverInventory(): NonNullable<Inventory['runtimeDrivers']> {
+  return [
+    { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+    { harness: 'codex', id: 'generic-pty', family: 'terminal' },
+    { harness: 'grok', id: 'generic-pty', family: 'terminal' },
+    { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
+    { harness: 'cursor', id: 'generic-pty', family: 'terminal' },
+  ]
+}
+
 /** Product-facing projection of the same cached admission probes session spawn
  * uses. It reports only concrete drivers this machine can select right now. */
 export async function runtimeDriverInventory(): Promise<NonNullable<Inventory['runtimeDrivers']>> {
@@ -46,25 +56,56 @@ export async function runtimeDriverInventory(): Promise<NonNullable<Inventory['r
     grokAcpVersionProbe(),
     opencodeVersionProbe(),
   ])
-  const rows: Array<{ harness: HarnessAgent; id: DriverId }> = [
-    { harness: 'claude-code', id: 'claude-pty' },
-    { harness: 'codex', id: 'generic-pty' },
-    { harness: 'grok', id: 'generic-pty' },
-    { harness: 'opencode', id: 'generic-pty' },
-    { harness: 'cursor', id: 'generic-pty' },
+  return [
+    ...terminalRuntimeDriverInventory(),
     ...(claudeSdkTosAcceptedByEnv()
-      ? ([{ harness: 'claude-code', id: 'claude-sdk' }] as const)
+      ? ([{ harness: 'claude-code', id: 'claude-sdk', family: 'embedded' }] as const)
       : []),
-    ...(codex.drivable ? ([{ harness: 'codex', id: 'codex-app-server' }] as const) : []),
-    ...(grok.drivable ? ([{ harness: 'grok', id: 'grok-acp' }] as const) : []),
-    ...(opencode.drivable ? ([{ harness: 'opencode', id: 'opencode-server' }] as const) : []),
+    ...(codex.drivable
+      ? ([{ harness: 'codex', id: 'codex-app-server', family: 'server' }] as const)
+      : []),
+    ...(grok.drivable
+      ? ([{ harness: 'grok', id: 'grok-acp', family: 'server' }] as const)
+      : []),
+    ...(opencode.drivable
+      ? ([{ harness: 'opencode', id: 'opencode-server', family: 'server' }] as const)
+      : []),
   ]
-  return rows.map((row) => ({ ...row, family: driverFamilyForId(row.id) }))
+}
+
+function publishInventoryWithDriverRefresh(
+  ctx: DaemonContext,
+  machineId: string,
+  inventory: Inventory,
+  loadDrivers: () => Promise<NonNullable<Inventory['runtimeDrivers']>>,
+  current: () => boolean,
+): void {
+  const terminalDrivers = terminalRuntimeDriverInventory()
+  ctx.send({
+    type: 'inventoryReport',
+    machineId: asMachineId(machineId),
+    inventory: { ...inventory, runtimeDrivers: terminalDrivers },
+  })
+  void loadDrivers()
+    .then((runtimeDrivers) => {
+      if (!current()) return
+      if (JSON.stringify(runtimeDrivers) === JSON.stringify(terminalDrivers)) return
+      ctx.send({
+        type: 'inventoryReport',
+        machineId: asMachineId(machineId),
+        inventory: { ...inventory, runtimeDrivers },
+      })
+    })
+    .catch((err) => log.warn('runtime driver inventory refresh failed', { err }))
 }
 
 export async function reportInventory(
   ctx: DaemonContext,
-  opts: { rebuild?: boolean; reprobe?: boolean } = {},
+  opts: {
+    rebuild?: boolean
+    reprobe?: boolean
+    runtimeDrivers?: () => Promise<NonNullable<Inventory['runtimeDrivers']>>
+  } = {},
 ): Promise<void> {
   // The separator is a real NUL written as an ESCAPE, deliberately. NUL cannot
   // occur in a machineId or a path, so the composite key can never collide --
@@ -84,16 +125,15 @@ export async function reportInventory(
         : ctx.harnessRuntime.reprobe())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
-      const inventory = {
-        ...(await ctx.agentRuntime.inventory()),
-        runtimeDrivers: await runtimeDriverInventory(),
-      }
+      const inventory = await ctx.agentRuntime.inventory()
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
-      ctx.send({
-        type: 'inventoryReport',
-        machineId: asMachineId(ctx.machineId),
+      publishInventoryWithDriverRefresh(
+        ctx,
+        ctx.machineId,
         inventory,
-      })
+        opts.runtimeDrivers ?? runtimeDriverInventory,
+        () => ctx.harnessRuntime?.isCurrent(snapshot) === true,
+      )
     } catch (err) {
       log.warn('inventory report failed', { err })
     }
@@ -131,12 +171,10 @@ export async function reportInventory(
     pending = opts.rebuild || opts.reprobe ? undefined : inventoryCache.get(key)
     if (!pending) {
       if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
-      pending = Promise.all([ctx.agentRuntime.inventory(), runtimeDriverInventory()]).then(
-        ([inventory, runtimeDrivers]) => ({
-          machineId: ctx.machineId,
-          inventory: { ...inventory, runtimeDrivers },
-        }),
-      )
+      pending = ctx.agentRuntime.inventory().then((inventory) => ({
+        machineId: ctx.machineId,
+        inventory,
+      }))
       inventoryCache.set(key, pending)
       inventoryInFlight.set(key, pending)
     }
@@ -162,7 +200,13 @@ export async function reportInventory(
     // The brand is asserted, not validated: this id is the daemon's OWN, read
     // from its state file at boot and carried through `DaemonContext.machineId`
     // and the inventory build, neither of which is a wire boundary.
-    ctx.send({ type: 'inventoryReport', machineId: asMachineId(machineId), inventory })
+    publishInventoryWithDriverRefresh(
+      ctx,
+      machineId,
+      inventory,
+      opts.runtimeDrivers ?? runtimeDriverInventory,
+      () => inventoryCache.get(key) === pending,
+    )
   } catch (err) {
     // Evict only OUR failed build — a concurrent rebuild may have already stored
     // a fresh pending under this key; don't discard it.
