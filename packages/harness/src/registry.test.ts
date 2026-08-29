@@ -556,6 +556,20 @@ describe('driverFamilyForId (POD-2290)', () => {
     expect(driverFamilyForId('generic-pty')).toBe('terminal')
   })
 
+  it('gives acceptance rigs an exact terminal-only gate for concrete overrides', () => {
+    const explicitContracts = [
+      'claude-pty',
+      'generic-pty',
+      'codex-app-server',
+      'opencode-server',
+      'some-driver-from-2027',
+    ]
+    expect(explicitContracts.filter((id) => driverFamilyForId(id) === 'terminal')).toEqual([
+      'claude-pty',
+      'generic-pty',
+    ])
+  })
+
   it('says UNKNOWN rather than guessing for an id no manifest claims', () => {
     // The conformance driver, and anything a newer daemon might bind. Callers
     // must have an answer for unknown; inventing a family here would hand them a

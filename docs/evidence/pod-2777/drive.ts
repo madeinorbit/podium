@@ -35,6 +35,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { driverFamilyForId } from '@podium/harness/metadata'
 import {
   BASE,
   Chat,
@@ -72,6 +73,16 @@ import {
 const harness = (process.argv[2] ?? 'opencode') as 'codex' | 'grok' | 'opencode' | 'claude'
 const PIN = process.env.P2777_PIN ?? 'HEAD'
 const SPAWN_RUNTIME_CONTRACT = process.env.P3103_RUNTIME_CONTRACT?.trim() || undefined
+const requestedDriverFamily = SPAWN_RUNTIME_CONTRACT
+  ? driverFamilyForId(SPAWN_RUNTIME_CONTRACT)
+  : undefined
+if (SPAWN_RUNTIME_CONTRACT && requestedDriverFamily !== 'terminal') {
+  console.error(
+    `P3103_RUNTIME_CONTRACT must name a terminal-family driver; '${SPAWN_RUNTIME_CONTRACT}' is ${requestedDriverFamily ?? 'unknown'}`,
+  )
+  console.error('Refusing before login or session creation.')
+  process.exit(6)
+}
 /** How long the streaming turn runs before the chat is opened into it. 8.5s is
  *  the delay POD-2745's codex drive used and POD-2773 kept; unchanged here so
  *  the numbers stay comparable across three drives. */
@@ -163,8 +174,10 @@ const pin = JSON.parse(
 ) as Record<string, unknown>
 
 const arm: 'headless' | 'terminal' =
-  SPAWN_RUNTIME_CONTRACT !== undefined || pin.driver === 'generic-pty'
+  requestedDriverFamily === 'terminal' || pin.driver === 'generic-pty'
     ? 'terminal' : 'headless'
+const expectedHeadedDriver = SPAWN_RUNTIME_CONTRACT
+  ?? (pin.driver === 'generic-pty' ? 'generic-pty' : undefined)
 
 /** Which driver this arm is entitled to bind. An isolated agent home missing a
  *  credential does not fail loudly — the server driver declines, the session
@@ -396,17 +409,21 @@ if (!bindingOk) {
       const firstNeedle = probeCtx.chat.items.find((item) => item.role === 'assistant')?.text ?? ''
       const beforeCount = firstNeedle ? count(screenBefore, firstNeedle) : 0
       const afterCount = firstNeedle ? count(probeCtx.chat.screen, firstNeedle) : 0
-      const identityStable = rowBefore?.driverId === 'generic-pty' && rowAfter?.driverId === 'generic-pty' && rowAfter?.driverFamily === 'terminal'
+      const identityStable = expectedHeadedDriver !== undefined
+        && rowBefore?.driverId === expectedHeadedDriver
+        && rowBefore?.driverFamily === 'terminal'
+        && rowAfter?.driverId === expectedHeadedDriver
+        && rowAfter?.driverFamily === 'terminal'
       const bytesGrew = bytesAfter > bytesBefore
       const corePassed = control.fired && identityStable && working.ok && secondReply.ok && echoAfter.ok && bytesGrew
       return { control, outcome: {
         verdict: corePassed ? 'PARTIAL' : 'FAIL',
-        summary: corePassed ? 'four headed switches preserved generic-pty identity, both inputs, transcript sync, and terminal growth; scrollback corruption remains unmeasured' : 'a headed switch, identity, input, transcript, or byte-growth clause failed',
+        summary: corePassed ? `four headed switches preserved ${expectedHeadedDriver} identity, both inputs, transcript sync, and terminal growth; scrollback corruption remains unmeasured` : 'a headed switch, identity, input, transcript, or byte-growth clause failed',
         evidence: [
           `CREATE TO BIND    ${READY_MS + bound.ms}ms`,
           `FIRST NATIVE BYTE ${firstBytes.ms}ms after native view; bytes=${bytesAtReady}`,
           `INPUT READY       primed=${primed.join('; ') || 'none'}`,
-          `IDENTITY          before=${rowBefore?.driverId}/${rowBefore?.driverFamily} after=${rowAfter?.driverId}/${rowAfter?.driverFamily}`,
+          `IDENTITY          expected=${expectedHeadedDriver ?? '(none)'} before=${rowBefore?.driverId}/${rowBefore?.driverFamily} after=${rowAfter?.driverId}/${rowAfter?.driverFamily}`,
           `SWITCHES          ${JSON.stringify(observations)}`,
           `SECOND SEND       ${JSON.stringify(send.result?.data ?? send.error ?? null)} working=${working.ok} reply+idle=${secondReply.ok} ${secondReply.ms}ms`,
           `TERMINAL BYTES    before=${bytesBefore} after=${bytesAfter} delta=${bytesAfter - bytesBefore}`,
