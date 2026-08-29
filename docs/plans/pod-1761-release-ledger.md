@@ -6307,3 +6307,39 @@ filed as POD-3095 and is not hidden as a green gate here.
 
 No provider, server, daemon, browser, credential, state root, or `instance.json` was
 touched. A real current-tip permission reading remains part of the final narrow acceptance pass.
+
+## FOREST — 2026-08-29 21:23 CEST — final drive is narrow, not a matrix replay
+
+The integration branch is backed up at `abe51e0d9a61bfbb0adddaae0f49ba595bdf2232`,
+which is 1,126 commits ahead of and zero commits behind `origin/dev/mw`. The only
+untracked path is the operator-owned `operator-headless-sandbox.md`; it remains
+untouched.
+
+The unrelated Codex environment assertion exposed by the Claude permission lane is
+repaired at this tip. Its focused lane is green at one file and 19/19 tests. This
+changes test truth only: the assertion now accepts the required `HOME` and `PATH`
+entries while retaining its bearer-secret and argv non-leak checks.
+
+The remaining release evidence is four targeted groups, not a blanket re-drive:
+
+1. **A11 configure:** Codex app-server, OpenCode server, and Claude SDK must each
+   prove a sticky model and effort change through the real product route, a provider
+   turn, projection, and reload. Grok and terminal controls must return their typed
+   unsupported result without changing requested state.
+2. **A3 interrupt:** Codex app-server, OpenCode server, and Claude SDK must each
+   prove the landed durable interrupt item survives a fresh read/reload. Grok already
+   had its provider-specific durable path; re-drive it only if the shared acceptance
+   instrument reaches that path.
+3. **A4 Claude permission:** a guarded Claude SDK tool call must surface a structured
+   permission interaction before the side effect, then execute exactly once after an
+   allow-once answer and refuse a duplicate answer.
+4. **Basic surface regression:** Grok must show no replayed duplicate text and must
+   continue synchronizing Chat after a CLI-originated prompt; OpenCode must expose the
+   CLI switch before transcript capability settles and remain functional in both views.
+
+The real Codex native-view measurement is already current for the affected product
+bytes: first attach 149.9 ms; four warm returns p50 17.6 ms and p90/max 19.2 ms.
+Later changes are Claude permission, documentation, and a test-only assertion, so
+that measurement does not need to be repeated unless the integration branch changes
+the native attach path again. No provider rig or Podium instance was launched for
+this audit.
