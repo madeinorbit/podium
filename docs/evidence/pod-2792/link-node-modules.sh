@@ -20,7 +20,7 @@ if [ -L node_modules ]; then
 fi
 
 if [ -d node_modules ]; then
-  target="$(readlink -f node_modules/@podium/client-core 2>/dev/null || true)"
+  target="$(readlink -f apps/web/node_modules/@podium/client-core 2>/dev/null || true)"
   expected="$(readlink -f packages/client-core)"
   if [ -d node_modules/.bun ] && [ "$target" = "$expected" ]; then
     echo "checkout-local node_modules already matches $REPO"
