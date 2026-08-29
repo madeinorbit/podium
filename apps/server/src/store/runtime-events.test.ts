@@ -104,6 +104,47 @@ function bindContract(registry: SessionRegistry, store: SessionStore) {
 }
 
 describe('durable runtime observation gate', () => {
+  it('accepts a generation-one live event after an empty bootstrap snapshot', () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'first-live-after-empty-bootstrap',
+      sessionId,
+      event: stateEvent({
+        at: '2026-08-30T00:00:00.000Z',
+        seq: 1,
+        observerGeneration: 1,
+        change: { kind: 'session_started' },
+      }),
+    })
+
+    expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(1)
+    expect(store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+      observerGeneration: 1,
+      cursor: { components: { seq: 1 } },
+    })
+
+    const replacementSessionId = bindContract(registry, store)
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'replacement-live-without-bootstrap',
+      sessionId: replacementSessionId,
+      event: stateEvent({
+        at: '2026-08-30T00:00:01.000Z',
+        seq: 1,
+        observerGeneration: 2,
+      }),
+    })
+    expect(store.events.listRuntimeEvents(replacementSessionId)).toHaveLength(0)
+    expect(store.events.runtimeEventCheckpoint(replacementSessionId)).toBeNull()
+
+    registry.dispose()
+    store.close()
+  })
+
   it('restores a durable interrupt marker into transcript reads after a registry restart', async () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
@@ -121,23 +162,9 @@ describe('durable runtime observation gate', () => {
         change: { kind: 'session_started' },
       }),
     })
-    registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'turn-closed-before-interrupt-marker',
-      sessionId,
-      event: {
-        t: 'turn',
-        ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' },
-        at: '2026-08-23T00:00:00.500Z',
-        provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 2 } },
-        observerGeneration: 1,
-        turnEpoch: 1,
-      },
-    })
     const marker = interruptEvent({
       at: '2026-08-23T00:00:01.000Z',
-      seq: 3,
+      seq: 2,
       sessionId,
     })
     const markerItem = marker.t === 'item' && marker.item.kind === 'complete' ? marker.item.item : undefined

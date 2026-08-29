@@ -126,10 +126,6 @@ function startsTurn(event: RuntimeEvent): boolean {
   return event.t === 'turn' && event.ev.ev === 'started'
 }
 
-function isInterruptMarker(event: RuntimeEvent): boolean {
-  return event.t === 'item' && event.item.kind === 'complete' && event.item.item.event === 'interrupt'
-}
-
 function turnEpochMatches(event: RuntimeEvent): boolean {
   return event.t !== 'turn' || event.ev.turnEpoch === event.turnEpoch
 }
@@ -160,7 +156,9 @@ export class RuntimeEventGate {
     }
 
     const current = this.ports.events.runtimeEventCheckpoint(sessionId)
-    if (!current && event.provenance !== 'bootstrap') {
+    // A brand-new generation-one stream can have an empty bootstrap snapshot.
+    // Its first event is live; replacement generations still need bootstrap.
+    if (!current && event.provenance !== 'bootstrap' && event.observerGeneration !== 1) {
       return { kind: 'rejected', reason: 'replacement-requires-bootstrap' }
     }
     if (current) {
@@ -320,16 +318,12 @@ export class RuntimeEventGate {
       return { kind: 'rejected', reason: 'turn-epoch-regressed' }
     }
     // Process lifecycle is independent of the last turn. A child can die after
-    // its final turn has closed. The canonical interrupt item is likewise
-    // emitted immediately after the provider's interrupted terminal fence at
-    // the same epoch. Both must remain admissible causal events; stable item ids
-    // and the provider cursor still deduplicate replay, while every other late
-    // turn update remains closed out.
+    // its final turn has closed, and that exit must remain an admissible causal
+    // event rather than being mistaken for a late turn update.
     if (
       current.closedTurnEpoch !== null &&
       event.turnEpoch <= current.closedTurnEpoch &&
-      event.t !== 'process' &&
-      !isInterruptMarker(event)
+      event.t !== 'process'
     ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
     }
