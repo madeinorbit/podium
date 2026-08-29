@@ -63,6 +63,7 @@ async function pins() {
     head: out('git', ['-C', ROOT, 'rev-parse', 'HEAD']),
     integrationTip: out('git', ['-C', ROOT, 'rev-parse', 'refs/heads/issue/1761-agent-runtime']),
     mergeBase: out('git', ['-C', ROOT, 'merge-base', 'HEAD', 'refs/heads/issue/1761-agent-runtime']),
+    nonEvidenceChanges: out('git', ['-C', ROOT, 'diff', '--name-only', `${PIN}..HEAD`]).split('\n').filter((path) => path && !path.startsWith('docs/')),
     trees: {
       server: out('git', ['-C', ROOT, 'rev-parse', 'HEAD:apps/server']),
       daemon: out('git', ['-C', ROOT, 'rev-parse', 'HEAD:apps/daemon']),
@@ -89,7 +90,10 @@ async function pins() {
     },
   }
   const processFacts = [server, daemon]
-  const exact = fact.head === PIN && fact.integrationTip === PIN && fact.mergeBase === PIN
+  const exact = fact.integrationTip === PIN && fact.mergeBase === PIN && fact.nonEvidenceChanges.length === 0 &&
+    fact.trees.server === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/server`]) &&
+    fact.trees.daemon === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/daemon`]) &&
+    fact.trees.web === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/web`])
   const webExact = String(web.sourceSha) === PIN.slice(0, 7)
   const processesExact = processFacts.every((p) => p.sha === PIN && p.cwd === ROOT && p.instance === INSTANCE && p.stateRoot === STATE && p.agentHome === AGENT_HOME && p.port === PORT && p.hookPort === HOOK_PORT && p.relayPort === RELAY_PORT)
   if (!exact || !webExact || !processesExact || [PORT, HOOK_PORT, RELAY_PORT].includes('19797')) {
@@ -159,8 +163,8 @@ function chooseTarget(cell: Cell, baseline: NonNullable<Row>, catalog: any): { m
   const models = catalog.byAgent?.[agent] ?? []
   const preferences: Record<string, string[]> = {
     codex: ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'],
-    opencode: ['opencode-go/gpt-5.6-luna', 'opencode-go/kimi-k3', 'opencode-go/glm-5.3'],
-    claude: ['claude-fable-5', 'claude-sonnet-5', 'claude-opus-5'],
+    opencode: ['opencode-go/kimi-k3', 'opencode-go/glm-5.3', 'opencode-go/gpt-5.6-luna'],
+    claude: ['claude-opus-5', 'claude-fable-5', 'claude-sonnet-5'],
   }
   const picked = [...(preferences[cell] ?? []), ...models.map((x: any) => x.value)]
     .map((value) => models.find((x: any) => x.value === value))
