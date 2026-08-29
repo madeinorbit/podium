@@ -98,9 +98,12 @@ async function main() {
   if (!existsSync('/home/mgw/.local/bin/podium') || !process.env.PODIUM_SESSION_RELAY) {
     throw new Error('A3 WAIT: installed Podium relay unavailable; source CLI substitution is forbidden')
   }
-  const head = command('git', ['rev-parse', 'HEAD'])
+  const evidenceHead = command('git', ['rev-parse', 'HEAD'])
   const base = command('git', ['rev-parse', 'refs/heads/issue/1761-agent-runtime'])
-  if (head !== PIN || base !== PIN) throw new Error(`pin moved: head=${head} base=${base}`)
+  if (base !== PIN) throw new Error(`integration pin moved: base=${base}`)
+  const productDiff = spawnSync('git', ['diff', '--quiet', PIN, evidenceHead, '--', '.', ':!docs'], { cwd: ROOT })
+  if (productDiff.status !== 0) throw new Error(`product source differs from exact pin ${PIN}`)
+  const head = PIN
   command('bash', [RUNTIME, 'verify', runtimeArm])
   await login()
 
@@ -219,7 +222,7 @@ async function main() {
       ? `real turn stopped in ${stoppedMs}ms; exactly one durable interrupt item survived reload and server/daemon restart`
       : `A3 clauses unmet: accepted=${callAccepted} stoppedMs=${stoppedMs} quietTail=${quietTail} exactlyOneDurable=${sameMarker} idleDistinct=${idleDistinguished}`,
     pins: {
-      head, base,
+      head, base, evidenceHead,
       serverSource: 'c6bd6e350479ec1b2de986ee4d3f6a14365ae38d',
       daemonSource: 'd77713859196462a59e4898f4f5e4ac0e29c5787',
       webSource: '1e6569960c7b7f4a61391ae8b52c94e98952aa78',

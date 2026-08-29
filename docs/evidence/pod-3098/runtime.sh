@@ -23,7 +23,8 @@ RUNTIME_PATH=/tmp/pod-2777/bin:/home/mgw/.local/bin:/home/mgw/.opencode/bin:/hom
 fail() { echo "POD-3098 RUNTIME REFUSED: $*" >&2; exit 2; }
 
 assert_source() {
-  [ "$(git -C "$ROOT" rev-parse HEAD)" = "$PIN" ] || fail "HEAD moved from $PIN"
+  git -C "$ROOT" merge-base --is-ancestor "$PIN" HEAD || fail "evidence branch no longer descends from $PIN"
+  git -C "$ROOT" diff --quiet "$PIN" HEAD -- . ":!docs" || fail "product source differs from exact pin $PIN"
   [ "$(git -C "$ROOT" rev-parse refs/heads/issue/1761-agent-runtime)" = "$PIN" ] \
     || fail "issue/1761-agent-runtime moved from $PIN"
   local dirty
