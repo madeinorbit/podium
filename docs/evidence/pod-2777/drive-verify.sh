@@ -251,12 +251,14 @@ WEB_SHA="$(printf '%s' "$STAMP_JSON" | sed -n 's/.*"sourceSha": *"\([^"]*\)".*/\
   || fail "/podium-build.json carries no sourceSha, so the served bundle cannot name its commit: $STAMP_JSON"
 if [ -n "${P2777_REUSE_WEB_FROM:-}" ]; then
   WEB_REUSE_FROM="$(readlink -f "$P2777_REUSE_WEB_FROM")"
-  WEB_BASE_SHA="$(git -C "$WEB_REUSE_FROM" rev-parse HEAD)"
-  WEB_BASE_SHORT="$(git -C "$WEB_REUSE_FROM" rev-parse --short=7 HEAD)"
-  [ "$WEB_SHA" = "$WEB_BASE_SHORT" ] \
-    || fail "the SERVED web bundle was built from $WEB_SHA, but the declared reuse source is $WEB_BASE_SHORT ($WEB_REUSE_FROM)"
-  if ! git -C "$PODIUM_DRIVE_REPO" diff --quiet "$WEB_BASE_SHA" "$WANT_SHA" -- apps/web; then
-    fail "the declared reused web source differs from apps/web at $WANT ($WANT_SHA)"
+  SERVED_STAMP="$(sed -n 's/.*"sourceSha": *"\([^"]*\)".*/\1/p' "$WEB_REUSE_FROM/apps/web/dist/podium-build.json" 2>/dev/null || true)"
+  [ "$WEB_SHA" = "$SERVED_STAMP" ] \
+    || fail "the served bundle stamp $WEB_SHA differs from the declared reuse directory stamp ${SERVED_STAMP:-missing} ($WEB_REUSE_FROM)"
+  WEB_BUILD_SHA="$(git -C "$PODIUM_DRIVE_REPO" rev-parse "${WEB_SHA}^{commit}" 2>/dev/null || true)"
+  [ -n "$WEB_BUILD_SHA" ] \
+    || fail "the served bundle names unknown commit $WEB_SHA, so its source bytes cannot be compared"
+  if ! git -C "$PODIUM_DRIVE_REPO" diff --quiet "$WEB_BUILD_SHA" "$WANT_SHA" -- apps/web; then
+    fail "apps/web changed between served bundle $WEB_SHA and $WANT ($WANT_SHA)"
   fi
   echo "  ok  web bundle served from :$PODIUM_PORT is $WEB_SHA, unchanged through $WANT_SHORT"
 else
