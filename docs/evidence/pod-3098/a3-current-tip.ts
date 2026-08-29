@@ -109,7 +109,11 @@ async function main() {
   await login()
 
   const cwd = join(BASE, 'provider-work')
-  const created = await mutate('sessions.create', { cwd, agentKind: AGENT_KIND[harness] })
+  const created = await mutate('sessions.create', {
+    cwd,
+    agentKind: AGENT_KIND[harness],
+    runtimeContract: expectedDriver[harness][arm],
+  })
   const sid = created.result?.data?.sessionId as string | undefined
   if (!sid) throw new Error(`sessions.create failed: ${JSON.stringify(created).slice(0, 800)}`)
   const bound = await until(sid, (row) => Boolean(row?.driverId), 90_000, 500)
