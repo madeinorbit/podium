@@ -1,0 +1,1030 @@
+{
+  "startedAt": "2026-08-29T22:31:07.644Z",
+  "root": "/tmp/podium-p3100-opencode-fbc2f18b",
+  "instance": "p3100oc",
+  "ports": {
+    "server": 19910,
+    "hook": 46910,
+    "relay": 46911,
+    "web": 32110
+  },
+  "runs": [
+    {
+      "run": 1,
+      "pin": {
+        "version": {
+          "wireVersion": 2,
+          "minSupportedVersion": 1,
+          "wireSchemaDigest": "737208997d531cc3",
+          "appVersion": "dev+62bb4a7",
+          "sourceDigest": "62bb4a7",
+          "installKind": "source",
+          "instanceId": "p3100oc",
+          "feedScoping": "per-principal",
+          "daemonConnected": true,
+          "components": {
+            "daemon": {
+              "state": "connected"
+            }
+          },
+          "web": {
+            "present": false
+          }
+        },
+        "processes": [
+          {
+            "pid": 1738737,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          },
+          {
+            "pid": 1739380,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          },
+          {
+            "pid": 1755584,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send/apps/web",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          }
+        ]
+      },
+      "sessionId": "e4e798dc-c923-4a73-a0d2-a4d5437719b9",
+      "driverId": "opencode-server",
+      "creationTransitions": [
+        {
+          "ms": 661,
+          "ui": "none"
+        },
+        {
+          "ms": 982,
+          "status": "starting",
+          "queued": 1,
+          "ui": "none"
+        }
+      ],
+      "first": {
+        "marks": {
+          "submit": 0,
+          "sessionRow": 1003,
+          "bind": 5565,
+          "durableUser": 6801,
+          "providerPrompt": 6801,
+          "firstOutput": 9231,
+          "idle": 9879,
+          "composerReady": 9879
+        },
+        "transitions": [
+          {
+            "ms": 1003,
+            "status": "starting",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "none",
+            "composerReady": false
+          },
+          {
+            "ms": 2356,
+            "status": "starting",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Waking the agent",
+            "composerReady": false
+          },
+          {
+            "ms": 5565,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "none",
+            "composerReady": true
+          },
+          {
+            "ms": 6052,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 6801,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 9231,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 9879,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          }
+        ],
+        "timedOut": false
+      },
+      "second": {
+        "marks": {
+          "submit": 0,
+          "sessionRow": 133,
+          "bind": 133,
+          "providerPrompt": 133,
+          "durableUser": 473,
+          "receipt": 473,
+          "firstOutput": 1387,
+          "idle": 1925,
+          "composerReady": 1925
+        },
+        "transitions": [
+          {
+            "ms": 133,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": false,
+            "output": false,
+            "ui": "Sending",
+            "composerReady": true
+          },
+          {
+            "ms": 473,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 1387,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 1925,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          }
+        ],
+        "timedOut": false,
+        "responses": [
+          {
+            "at": 763,
+            "body": "[{\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}]"
+          }
+        ]
+      },
+      "finalQueue": [],
+      "transcript": {
+        "user": "Reply with exactly BATCH-1-FIRST-3100\nReply with exactly BATCH-1-SECOND-3100",
+        "assistant": "BATCH-1-FIRST-3100\nBATCH-1-SECOND-3100"
+      },
+      "frames": "sessionAgentStateChanged=11 transcriptDelta=4 turnPreview=4 hostMetricsChanged=3 sessionDraftChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1"
+    },
+    {
+      "run": 2,
+      "pin": {
+        "version": {
+          "wireVersion": 2,
+          "minSupportedVersion": 1,
+          "wireSchemaDigest": "737208997d531cc3",
+          "appVersion": "dev+62bb4a7",
+          "sourceDigest": "62bb4a7",
+          "installKind": "source",
+          "instanceId": "p3100oc",
+          "feedScoping": "per-principal",
+          "daemonConnected": true,
+          "components": {
+            "daemon": {
+              "state": "connected"
+            }
+          },
+          "web": {
+            "present": false
+          }
+        },
+        "processes": [
+          {
+            "pid": 1738737,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          },
+          {
+            "pid": 1739380,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          },
+          {
+            "pid": 1755584,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send/apps/web",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          }
+        ]
+      },
+      "sessionId": "68d57fe6-1c29-4c8b-8ead-e9db21e428a2",
+      "driverId": "opencode-server",
+      "creationTransitions": [
+        {
+          "ms": 545,
+          "ui": "none"
+        },
+        {
+          "ms": 870,
+          "status": "starting",
+          "family": "server",
+          "queued": 1,
+          "ui": "Waking the agent"
+        }
+      ],
+      "first": {
+        "marks": {
+          "submit": 0,
+          "sessionRow": 877,
+          "bind": 4710,
+          "durableUser": 6363,
+          "providerPrompt": 6827,
+          "firstOutput": 8512,
+          "idle": 8947,
+          "composerReady": 8947
+        },
+        "transitions": [
+          {
+            "ms": 877,
+            "status": "starting",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Waking the agent",
+            "composerReady": false
+          },
+          {
+            "ms": 4710,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Sending",
+            "composerReady": true
+          },
+          {
+            "ms": 5259,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 6363,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": false,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 6827,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 8512,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 8947,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          }
+        ],
+        "timedOut": false
+      },
+      "second": {
+        "marks": {
+          "submit": 0,
+          "sessionRow": 377,
+          "bind": 377,
+          "durableUser": 377,
+          "providerPrompt": 377,
+          "receipt": 725,
+          "firstOutput": 1610,
+          "idle": 2033,
+          "composerReady": 2033
+        },
+        "transitions": [
+          {
+            "ms": 377,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Sending",
+            "composerReady": true
+          },
+          {
+            "ms": 725,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 1610,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 2033,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          }
+        ],
+        "timedOut": false,
+        "responses": [
+          {
+            "at": 868,
+            "body": "[{\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}]"
+          }
+        ]
+      },
+      "finalQueue": [],
+      "transcript": {
+        "user": "Reply with exactly BATCH-2-FIRST-3100\nReply with exactly BATCH-2-SECOND-3100",
+        "assistant": "BATCH-2-FIRST-3100\nBATCH-2-SECOND-3100"
+      },
+      "frames": "sessionAgentStateChanged=11 hostMetricsChanged=4 transcriptDelta=4 turnPreview=4 sessionDraftChanged=3 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+    },
+    {
+      "run": 3,
+      "pin": {
+        "version": {
+          "wireVersion": 2,
+          "minSupportedVersion": 1,
+          "wireSchemaDigest": "737208997d531cc3",
+          "appVersion": "dev+62bb4a7",
+          "sourceDigest": "62bb4a7",
+          "installKind": "source",
+          "instanceId": "p3100oc",
+          "feedScoping": "per-principal",
+          "daemonConnected": true,
+          "components": {
+            "daemon": {
+              "state": "connected"
+            }
+          },
+          "web": {
+            "present": false
+          }
+        },
+        "processes": [
+          {
+            "pid": 1738737,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          },
+          {
+            "pid": 1739380,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          },
+          {
+            "pid": 1755584,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send/apps/web",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          }
+        ]
+      },
+      "sessionId": "e82dba10-df6d-40b1-9e3e-07009ab58e64",
+      "driverId": "opencode-server",
+      "creationTransitions": [
+        {
+          "ms": 750,
+          "status": "starting",
+          "family": "server",
+          "queued": 1,
+          "ui": "none"
+        }
+      ],
+      "first": {
+        "marks": {
+          "submit": 0,
+          "sessionRow": 757,
+          "bind": 5268,
+          "durableUser": 6706,
+          "providerPrompt": 7137,
+          "firstOutput": 9156,
+          "idle": 9939,
+          "composerReady": 9939
+        },
+        "transitions": [
+          {
+            "ms": 757,
+            "status": "starting",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "none",
+            "composerReady": false
+          },
+          {
+            "ms": 1290,
+            "status": "starting",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Waking the agent",
+            "composerReady": false
+          },
+          {
+            "ms": 5268,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "none",
+            "composerReady": true
+          },
+          {
+            "ms": 5817,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 6706,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": false,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 7137,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 9156,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 9452,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          },
+          {
+            "ms": 9939,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          }
+        ],
+        "timedOut": false
+      },
+      "second": {
+        "marks": {
+          "submit": 0,
+          "sessionRow": 79,
+          "bind": 79,
+          "providerPrompt": 79,
+          "durableUser": 868,
+          "receipt": 868,
+          "firstOutput": 2160,
+          "idle": 2691,
+          "composerReady": 2691
+        },
+        "transitions": [
+          {
+            "ms": 79,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": false,
+            "output": false,
+            "ui": "Sending",
+            "composerReady": true
+          },
+          {
+            "ms": 868,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 2160,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 2691,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          }
+        ],
+        "timedOut": false,
+        "responses": [
+          {
+            "at": 819,
+            "body": "[{\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}]"
+          }
+        ]
+      },
+      "finalQueue": [],
+      "transcript": {
+        "user": "Reply with exactly BATCH-3-FIRST-3100\nReply with exactly BATCH-3-SECOND-3100",
+        "assistant": "BATCH-3-FIRST-3100\nBATCH-3-SECOND-3100"
+      },
+      "frames": "sessionAgentStateChanged=11 transcriptDelta=4 turnPreview=4 hostMetricsChanged=3 sessionDraftChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+    },
+    {
+      "run": 4,
+      "pin": {
+        "version": {
+          "wireVersion": 2,
+          "minSupportedVersion": 1,
+          "wireSchemaDigest": "737208997d531cc3",
+          "appVersion": "dev+62bb4a7",
+          "sourceDigest": "62bb4a7",
+          "installKind": "source",
+          "instanceId": "p3100oc",
+          "feedScoping": "per-principal",
+          "daemonConnected": true,
+          "components": {
+            "daemon": {
+              "state": "connected"
+            }
+          },
+          "web": {
+            "present": false
+          }
+        },
+        "processes": [
+          {
+            "pid": 1738737,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          },
+          {
+            "pid": 1739380,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          },
+          {
+            "pid": 1755584,
+            "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send/apps/web",
+            "instance": "PODIUM_INSTANCE=p3100oc"
+          }
+        ]
+      },
+      "sessionId": "b086451e-93a1-4a1c-904f-6c38cfc56aeb",
+      "driverId": "opencode-server",
+      "creationTransitions": [
+        {
+          "ms": 799,
+          "status": "starting",
+          "queued": 1,
+          "ui": "none"
+        }
+      ],
+      "first": {
+        "marks": {
+          "submit": 0,
+          "sessionRow": 809,
+          "bind": 5179,
+          "durableUser": 6457,
+          "providerPrompt": 6730,
+          "firstOutput": 9061,
+          "idle": 9849,
+          "composerReady": 9849
+        },
+        "transitions": [
+          {
+            "ms": 809,
+            "status": "starting",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "none",
+            "composerReady": false
+          },
+          {
+            "ms": 1474,
+            "status": "starting",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Waking the agent",
+            "composerReady": false
+          },
+          {
+            "ms": 5179,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queued": 1,
+            "queueRows": 1,
+            "attempts": [
+              0
+            ],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "none",
+            "composerReady": true
+          },
+          {
+            "ms": 5561,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": false,
+            "user": false,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 6457,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": false,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 6730,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 9061,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 9849,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          }
+        ],
+        "timedOut": false
+      },
+      "second": {
+        "marks": {
+          "submit": 0,
+          "sessionRow": 359,
+          "bind": 359,
+          "providerPrompt": 359,
+          "receipt": 359,
+          "durableUser": 949,
+          "firstOutput": 2936,
+          "idle": 3709,
+          "composerReady": 3709
+        },
+        "transitions": [
+          {
+            "ms": 359,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": false,
+            "output": false,
+            "ui": "Sending",
+            "composerReady": true
+          },
+          {
+            "ms": 949,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": false,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 2936,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "working",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "Working",
+            "composerReady": true
+          },
+          {
+            "ms": 3709,
+            "status": "live",
+            "driverId": "opencode-server",
+            "phase": "idle",
+            "queueRows": 0,
+            "attempts": [],
+            "provider": true,
+            "user": true,
+            "output": true,
+            "ui": "none",
+            "composerReady": true
+          }
+        ],
+        "timedOut": false,
+        "responses": [
+          {
+            "at": 836,
+            "body": "[{\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}]"
+          }
+        ]
+      },
+      "finalQueue": [],
+      "transcript": {
+        "user": "Reply with exactly BATCH-4-FIRST-3100\nReply with exactly BATCH-4-SECOND-3100",
+        "assistant": "BATCH-4-FIRST-3100\nBATCH-4-SECOND-3100"
+      },
+      "frames": "sessionAgentStateChanged=11 turnPreview=5 hostMetricsChanged=4 transcriptDelta=4 sessionDraftChanged=3 machinesChanged=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+    }
+  ],
+  "finishedAt": "2026-08-29T22:32:03.334Z"
+}
