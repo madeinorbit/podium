@@ -32,6 +32,10 @@ everything general lives here so it stops being re-typed one session at a time.
 worker, use Claude Opus 5 (`claude-opus-5`) at `low` effort. This later explicit
 instruction supersedes the generic Codex model default above for future workers;
 do not restart an already-running worker solely to change its model.
+
+**Latest operator override, 2026-08-29:** for every new or restarted worker, use
+Codex `gpt-5.6-sol` at `high` effort. This supersedes the temporary Opus override
+above; do not restart an already-running worker solely to change its model.
 ## Rigs
 
 - **Run as a NAMED instance.** Even the default is named `default` now.
