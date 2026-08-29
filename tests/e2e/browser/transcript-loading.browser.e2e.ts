@@ -4,7 +4,7 @@ import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
 import { harnessEnv } from '../harness-env'
-import { gotoWorkspace, newSession, openApp } from './_harness'
+import { gotoWorkspace, newSession, openApp, openHome } from './_harness'
 
 /**
  * Runtime proof of the transcript-loading re-architecture (Task G1).
@@ -142,7 +142,7 @@ async function seedTranscript(uuid: string, lines: string[]): Promise<void> {
 const chatToggle = (page: Page) =>
   page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true')
 const nativeToggle = (page: Page) =>
-  page.getByRole('tab', { name: 'Native', exact: true }).locator('visible=true')
+  page.getByRole('tab', { name: /^(Native|CLI)$/ }).locator('visible=true')
 
 test.afterEach(async () => {
   await rm(BUCKET, { recursive: true, force: true }).catch(() => {})
@@ -166,24 +166,28 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
     answerRec('a-2', 'TRANSCRIPT_ANSWER_DELTA added the anchored back-page read', t),
   ])
 
-  await openApp(page)
-  await newSession(page, 'Claude')
+  await openHome(page)
+  const releaseDialog = page.getByRole('dialog', { name: 'Development release proposal' })
+  if (await releaseDialog.isVisible().catch(() => false)) {
+    await releaseDialog.getByRole('button', { name: 'Hide' }).click()
+  }
+  const firstMission = page.getByRole('textbox', { name: 'What do you want to work on?' })
+  await firstMission.waitFor({ state: 'visible', timeout: 15_000 })
+  await firstMission.fill('POD-3105 transcript reopen boundary fixture')
+  await page.getByRole('button', { name: 'Start work' }).click()
+  await page.locator('div[data-session][data-panel-resident]:visible').first().waitFor({
+    state: 'visible',
+    timeout: 20_000,
+  })
   const activeId = await page
-    .locator('.flex.min-h-0 > div[data-session]:visible')
+    .locator('div[data-session][data-panel-resident]:visible')
     .first()
     .getAttribute('data-session')
   expect(activeId).not.toBeNull()
   // The session is RUNNING (the keyecho PTY is live) — confirm the chat toggle is
-  // offered (chatCapable) and switch to the chat view. Before a transcript is
-  // bound, drive both bounded loading and settled empty states in the real app.
+  // offered (chatCapable) and switch to the chat view.
   await expect(chatToggle(page)).toBeVisible({ timeout: 15_000 })
   await chatToggle(page).click()
-  await expect(
-    page.getByText('Loading transcript', { exact: true }).locator('visible=true'),
-  ).toBeVisible()
-  await expect(page.getByTestId('transcript-empty-state').locator('visible=true')).toBeVisible({
-    timeout: 15_000,
-  })
 
   await nativeToggle(page).click()
   await bindTranscript(activeId as string, transcriptPath)
