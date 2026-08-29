@@ -6284,3 +6284,26 @@ The result measures first native attachment after the headless driver has bound,
 not provider startup from the initial Start Work click. The harness used a
 unique state root and port; the operator daemon, relay, state, processes, and
 `instance.json` were untouched.
+
+## FOREST — 2026-08-29 21:12 CEST — Claude structured permissions are authoritative
+
+The Claude SDK bridge installed a structured `canUseTool` callback but defaulted
+the SDK query to `permissionMode: auto`. Claude's auto-mode classifier may approve
+or deny a guarded tool before that callback, which explains the real acceptance
+reading where an outside-workdir write executed without a Podium permission card.
+
+At `8f23d9878`, a structured-permission session now defaults to Claude's normal
+`default` posture so the SDK surfaces asks through `canUseTool`. A session with an
+explicit authorization mode still keeps it, and the legacy unstructured caller
+keeps its old `auto` default; the fix does not turn permission mode into a settings
+control or broaden any authorization.
+
+The focused related lane collected 51 tests. The new three-arm permission regression
+and the existing permission-answer bridge passed; 50 tests passed in total. Its only
+failure was unrelated Codex test drift: the MCP bearer assertion expected the generated
+environment to contain only the bearer variable, while the recovered command environment
+also correctly carried `HOME` and `PATH`. That separately shippable assertion correction is
+filed as POD-3095 and is not hidden as a green gate here.
+
+No provider, server, daemon, browser, credential, state root, or `instance.json` was
+touched. A real current-tip permission reading remains part of the final narrow acceptance pass.
