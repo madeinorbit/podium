@@ -17,8 +17,8 @@ RELAY_PORT=46984
 PASSWORD=p3098-a3
 PIN=fbc2f18baf77d74d370c6469444b3c3d800b0a71
 BUN=/home/mgw/.bun/bin/bun
-XDG_RUN="/run/user/1001 27 112 1001id -u)"
-DBUS_ADDR="unix:path=/bus"
+XDG_RUN=/run/user/1001
+DBUS_ADDR=unix:path=/run/user/1001/bus
 INSTALLED_PODIUM=/home/mgw/.local/bin/podium
 RUNTIME_PATH=/tmp/pod-2777/bin:/home/mgw/.local/bin:/home/mgw/.opencode/bin:/home/mgw/.bun/bin:/usr/local/bin:/usr/bin:/bin
 
@@ -40,7 +40,7 @@ assert_source() {
 common_env() {
   env -i \
     HOME=/home/mgw USER=mgw LANG=C.UTF-8 TERM=xterm-256color \
-    XDG_RUNTIME_DIR="" DBUS_SESSION_BUS_ADDRESS="" \
+    XDG_RUNTIME_DIR="$XDG_RUN" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDR" \
     PATH="$RUNTIME_PATH" \
     PODIUM_INSTANCE="$INSTANCE" \
     PODIUM_STATE_DIR="$STATE_ROOT" \
@@ -117,6 +117,7 @@ start_one() {
     cd "$ROOT"
     nohup setsid "$(type -P env)" -i \
       HOME=/home/mgw USER=mgw LANG=C.UTF-8 TERM=xterm-256color \
+      XDG_RUNTIME_DIR="$XDG_RUN" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDR" \
       PATH="$RUNTIME_PATH" \
       PODIUM_INSTANCE="$INSTANCE" PODIUM_STATE_DIR="$STATE_ROOT" PODIUM_AGENT_HOME="$AGENT_HOME" \
       PODIUM_PORT="$PORT" PODIUM_HOOK_PORT="$HOOK_PORT" PODIUM_AGENT_RELAY_PORT="$RELAY_PORT" \
