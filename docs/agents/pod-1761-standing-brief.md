@@ -27,6 +27,11 @@ everything general lives here so it stops being re-typed one session at a time.
 - Let workers already in flight finish on the model they started with; do not throw
   away a live rig or unreported evidence merely to change its model.
 
+
+**Later operator override, 2026-08-29 16:34 CEST:** for every new or restarted
+worker, use Claude Opus 5 (`claude-opus-5`) at `low` effort. This later explicit
+instruction supersedes the generic Codex model default above for future workers;
+do not restart an already-running worker solely to change its model.
 ## Rigs
 
 - **Run as a NAMED instance.** Even the default is named `default` now.
