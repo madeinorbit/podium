@@ -102,8 +102,8 @@ export class SessionClientPlane {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
-      ...(session.requestedDriverId
-        ? { runtimeContract: session.requestedDriverId }
+      ...(session.lifecycleDriverRequest()
+        ? { runtimeContract: session.lifecycleDriverRequest() }
         : {}),
       ...(this.ports.rpc.transcriptPathHint(
         { kind: 'system', id: 'session-attach' },

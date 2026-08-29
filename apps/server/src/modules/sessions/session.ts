@@ -926,6 +926,16 @@ export class Session {
     return ms > 0 ? new Date(ms).toISOString() : null
   }
 
+  /** Preserve pre-requested-driver headless rows without turning terminal or unknown selections into policy. */
+  lifecycleDriverRequest(): string | undefined {
+    if (this.requestedDriverId) return this.requestedDriverId
+    const selectedFamily = driverFamilyForId(this.selectedDriverId ?? '')
+    if (this.selectedDriverId && (selectedFamily === 'server' || selectedFamily === 'embedded')) {
+      return this.selectedDriverId
+    }
+    return undefined
+  }
+
   /**
    * Project this session for ONE READER (POD-1076).
    *

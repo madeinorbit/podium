@@ -224,6 +224,144 @@ describe('Claude SDK continuity projection', () => {
     })
   })
 })
+describe('legacy selected-driver lifecycle compatibility', () => {
+  it('reattaches a reloaded legacy headless row with its selected concrete driver', () => {
+    const store = new SessionStore(':memory:')
+    const first = makeRegistry(store)
+    const { sessionId } = first.reg.modules.sessions.createSession({
+      agentKind: 'opencode',
+      cwd: '/proj',
+    })
+    first.reg.gateway.routeDaemonFrame(first.reg.sessionStore.hostMachineId, {
+      type: 'driverSelected',
+      sessionId,
+      driverId: 'opencode-server',
+    })
+    expect(store.sessions.loadSessions().at(-1)).toMatchObject({
+      selectedDriverId: 'opencode-server',
+      requestedDriverId: null,
+    })
+    first.reg.gateway.detachDaemon(first.reg.sessionStore.hostMachineId)
+    first.reg.dispose()
+
+    const reloaded = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    registries.push(reloaded)
+    const daemon: ControlMessage[] = []
+    reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
+      daemon.push(message),
+    )
+    expect(
+      daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId),
+    ).toMatchObject({ runtimeContract: 'opencode-server' })
+  })
+
+  it('revives a reloaded legacy headless row with its selected concrete driver', async () => {
+    const store = new SessionStore(':memory:')
+    const { reg, daemon } = makeRegistry(store)
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'opencode',
+      cwd: '/proj',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'opencode',
+      cwd: '/proj',
+      agentKind: 'opencode',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'opencode-server',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'opencode-session', value: 'legacy-revival' },
+      confidence: 'exact',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+    expect(store.sessions.loadSessions().at(-1)?.requestedDriverId).toBeNull()
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    daemon.length = 0
+    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+      ok: true,
+    })
+    expect(spawns(daemon).at(-1)).toMatchObject({
+      sessionId,
+      runtimeContract: 'opencode-server',
+    })
+  })
+
+  it('lets explicit requested configuration override a degraded selected driver', async () => {
+    const store = new SessionStore(':memory:')
+    const { reg, daemon } = makeRegistry(store)
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'opencode',
+      cwd: '/proj',
+      runtimeContract: 'opencode-server',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'opencode',
+      cwd: '/proj',
+      agentKind: 'opencode',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'generic-pty',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'opencode-session', value: 'legacy-resume' },
+      confidence: 'exact',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    daemon.length = 0
+    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+      ok: true,
+    })
+    expect(spawns(daemon).at(-1)).toMatchObject({
+      sessionId,
+      runtimeContract: 'opencode-server',
+    })
+  })
+
+  it('does not turn a legacy selected terminal driver into an explicit request', () => {
+    const store = new SessionStore(':memory:')
+    const first = makeRegistry(store)
+    const { sessionId } = first.reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/proj',
+    })
+    first.reg.gateway.routeDaemonFrame(first.reg.sessionStore.hostMachineId, {
+      type: 'driverSelected',
+      sessionId,
+      driverId: 'generic-pty',
+    })
+    first.reg.gateway.detachDaemon(first.reg.sessionStore.hostMachineId)
+    first.reg.dispose()
+
+    const reloaded = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    registries.push(reloaded)
+    const daemon: ControlMessage[] = []
+    reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
+      daemon.push(message),
+    )
+    expect(
+      daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId),
+    ).not.toHaveProperty('runtimeContract')
+  })
+})
+
 describe('SessionStart: live session-id collision guard', () => {
   // Property is survival of the first live session, not merely that an error is thrown.
   it('refusing a live sessionId leaves the first session live and bound (not only throws)', () => {

@@ -399,8 +399,8 @@ export class SessionRevival {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
-      ...(session.requestedDriverId
-        ? { runtimeContract: session.requestedDriverId }
+      ...(session.lifecycleDriverRequest()
+        ? { runtimeContract: session.lifecycleDriverRequest() }
         : {}),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
