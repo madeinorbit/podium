@@ -17,6 +17,8 @@ RELAY_PORT=46984
 PASSWORD=p3098-a3
 PIN=fbc2f18baf77d74d370c6469444b3c3d800b0a71
 BUN=/home/mgw/.bun/bin/bun
+XDG_RUN="/run/user/1001 27 112 1001id -u)"
+DBUS_ADDR="unix:path=/bus"
 INSTALLED_PODIUM=/home/mgw/.local/bin/podium
 RUNTIME_PATH=/tmp/pod-2777/bin:/home/mgw/.local/bin:/home/mgw/.opencode/bin:/home/mgw/.bun/bin:/usr/local/bin:/usr/bin:/bin
 
@@ -38,6 +40,7 @@ assert_source() {
 common_env() {
   env -i \
     HOME=/home/mgw USER=mgw LANG=C.UTF-8 TERM=xterm-256color \
+    XDG_RUNTIME_DIR="" DBUS_SESSION_BUS_ADDRESS="" \
     PATH="$RUNTIME_PATH" \
     PODIUM_INSTANCE="$INSTANCE" \
     PODIUM_STATE_DIR="$STATE_ROOT" \
