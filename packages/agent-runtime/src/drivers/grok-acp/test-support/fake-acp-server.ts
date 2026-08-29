@@ -47,6 +47,8 @@ export interface FakeGrokAcpServer {
    *  itself is not pushed — this family flushes its buffer at the fence, which
    *  is the behaviour the corpus is there to hold. */
   streamAgentText(chunks: readonly string[]): void
+  /** Replay the most recent provider update with the same wire identity. */
+  replayLastUpdate(): void
   toolCall(input: {
     toolCallId: string
     title?: string
@@ -83,6 +85,7 @@ export function startFakeGrokAcpServer(
   let failNext = false
   let failNextDetail = 'fixture prompt failure'
   let eventSeq = 0
+  let lastNotificationFrame: Record<string, unknown> | undefined
   const store = options.store ?? new Map<string, Record<string, unknown>[]>()
   const recorded = (id: string): Record<string, unknown>[] => store.get(id) ?? []
 
@@ -104,7 +107,7 @@ export function startFakeGrokAcpServer(
     log.push(update)
     store.set(sessionId, log)
     eventSeq += 1
-    push({
+    const frame: Record<string, unknown> = {
       jsonrpc: '2.0',
       method,
       params: {
@@ -115,7 +118,9 @@ export function startFakeGrokAcpServer(
           agentTimestampMs: 1_786_700_000_000 + eventSeq,
         },
       },
-    })
+    }
+    lastNotificationFrame = frame
+    push(frame)
   }
 
   const server: FakeGrokAcpServer = {
@@ -286,6 +291,10 @@ export function startFakeGrokAcpServer(
         })
       }
     },
+    replayLastUpdate() {
+      if (lastNotificationFrame !== undefined) push(lastNotificationFrame)
+    },
+
     toolCall(input) {
       notifyUpdate({
         sessionUpdate: 'tool_call',

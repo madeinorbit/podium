@@ -352,7 +352,7 @@ describe('AgentPanel mount gating', () => {
   it('starts the transcript exactly once after an optimistic spawn is confirmed', async () => {
     const prompt = 'Keep the optimistic first turn visible.'
     storePanelMode = { s1: 'chat' }
-    storeSessions = [meta({ status: 'starting' })]
+    storeSessions = [meta({ status: 'starting', driverFamily: 'server' })]
     storePendingSpawnIds = new Set(['s1'])
     storePendingSpawnPrompts = new Map([['s1', prompt]])
 
@@ -404,21 +404,60 @@ describe('AgentPanel on a server-family client terminal', () => {
     storeSessions = [serverDriven()]
     await render({ active: true })
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[data-testid="chat-surface"]')).toBeTruthy()
+    expect(container.querySelector('[data-testid="chat-surface"]')?.className).toContain('hidden')
     expect(container.querySelector('[data-testid="mode-native"]')?.getAttribute('aria-selected')).toBe(
       'true',
     )
     expect(container.querySelector('[data-testid="mode-chat"]')).toBeTruthy()
   })
 
-  it('chat-default keeps chat selected while retaining the warm terminal transport', async () => {
+  it('offers the CLI switch before a server transcript has reported its first item', async () => {
+    // The daemon publishes `transcriptAvailable` only after the first read. A
+    // live server-family session still has a native attach surface immediately,
+    // and the fallback must keep the Chat/CLI control visible during that gap.
+    storeSessions = [
+      meta({
+        agentKind: 'opencode',
+        driverId: 'opencode-server',
+        driverFamily: 'server',
+        transcriptAvailable: undefined,
+      }),
+    ]
+    await render({ active: true })
+    expect(container.querySelector('[data-testid="mode-chat"]')).toBeTruthy()
+    expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
+  })
+
+  it('chat-default keeps chat selected and defers native loading until requested', async () => {
     storePanelMode = { s1: 'chat' }
     storeSessions = [serverDriven()]
     await render({ active: true })
-    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(mountSessionMock).not.toHaveBeenCalled()
     expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
     expect(container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected')).toBe(
       'true',
     )
+    storePanelMode = { s1: 'native' }
+    await render({ active: true })
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps ChatView subscribed while the native view is selected', async () => {
+    storeSessions = [serverDriven()]
+    await render({ active: true })
+
+    const chatSurface = container.querySelector('[data-testid="chat-surface"]')
+    expect(chatSurface).toBeTruthy()
+    expect(subscribeTranscript).toHaveBeenCalled()
+
+    // A CLI turn can arrive while the operator is looking at native mode. The
+    // hidden ChatView must stay mounted so its live subscription can fold that
+    // delta; switching back only changes visibility and foreground activity.
+    storePanelMode = { s1: 'chat' }
+    await render({ active: true })
+    expect(container.querySelector('[data-testid="chat-surface"]')).toBe(chatSurface)
+    expect(chatSurface?.className).not.toContain('hidden')
   })
 
   it('keeps an embedded session chat-only', async () => {

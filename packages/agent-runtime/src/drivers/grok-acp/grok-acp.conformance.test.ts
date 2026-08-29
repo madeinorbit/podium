@@ -82,6 +82,8 @@ function makeWorld(options: WorldOptions = {}): {
   ): void
   failNextPrompt(sessionId: SessionId, detail?: string): void
   rawFrames: unknown[]
+  streamAssistantText(sessionId: SessionId, chunks: readonly string[]): Promise<void>
+  replayLastUpdate(sessionId: SessionId): void
 } {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   const archiveReader = options.archiveReader ?? 'ready'
@@ -271,6 +273,10 @@ function makeWorld(options: WorldOptions = {}): {
       serverFor(sessionId).completeTurn(stopReason),
     toolCall: (sessionId, input) => serverFor(sessionId).toolCall(input),
     toolCallUpdate: (sessionId, input) => serverFor(sessionId).toolCallUpdate(input),
+    streamAssistantText: async (sessionId, chunks) => {
+      await control.streamAssistantText?.(sessionId, chunks)
+    },
+    replayLastUpdate: (sessionId) => serverFor(sessionId).replayLastUpdate(),
     failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
     rawFrames,
     target: {
@@ -510,6 +516,31 @@ describe('grok-acp tool result transcript', () => {
         'out-of-order-completed',
         'fresh after reset',
       )
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+describe('grok-acp provider event identity', () => {
+  it('absorbs a replayed notification but keeps identical real chunks', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const sessionId = handle.binding.sessionId
+      await handle.send({ text: 'identity witness' }, { origin: 'human', delivery: 'when-ready' })
+      await world.streamAssistantText(sessionId, ['same'])
+      world.replayLastUpdate(sessionId)
+      await world.streamAssistantText(sessionId, ['same'])
+      world.completeProviderTurn(sessionId, 'refusal')
+      for await (const event of handle.events('bootstrap')) {
+        if (event.t === 'turn' && (event.ev.ev === 'completed' || event.ev.ev === 'failed')) break
+      }
+      const history = await handle.transcript.history({ limit: 20 })
+      const assistants = history.filter((item) => item.role === 'assistant')
+      expect(assistants).toHaveLength(1)
+      expect(assistants[0]?.text).toBe('samesame')
     } finally {
       world.target.reset()
     }

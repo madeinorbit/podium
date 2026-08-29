@@ -1253,18 +1253,25 @@ export function AgentPanel({
       ) : (
         // Warm chat<->native toggle (Task 6): the terminal container stays
         // mounted in BOTH modes — `hidden` (display:none) when in chat — so
-        // switching modes never disposes and re-attaches the PTY. ChatView is
-        // rendered as a sibling overlay on top when in chat mode.
+        // Switching modes never disposes and re-attaches the PTY. Both surfaces
+        // stay mounted; the inactive one is hidden so subscriptions and terminal
+        // state survive a warm mode switch.
         <>
-          {effectiveMode === 'chat' && (
+          <div
+            className={cn(
+              'flex min-h-0 flex-1 flex-col',
+              effectiveMode !== 'chat' && 'hidden',
+            )}
+            data-testid="chat-surface"
+          >
             <ChatView
               sessionId={sessionId}
-              active={active}
+              active={active && effectiveMode === 'chat'}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
               deferInitialTranscript={!spawnConfirmed}
             />
-          )}
+          </div>
           {/* THE ONE HONEST NATIVE PANE [POD-2290]. Reachable only through the
               switcher's stickiness — a session that once had a terminal and
               stopped having one — because the switch is never withdrawn under

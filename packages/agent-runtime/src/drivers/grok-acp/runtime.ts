@@ -77,6 +77,7 @@ import {
 
 export const GROK_ACP_DRIVER_ID = 'grok-acp'
 export const GROK_ACP_EVENT_LOG_LIMIT = 512
+const GROK_ACP_SEEN_EVENT_ID_LIMIT = 2048
 const WHEN_READY_TIMEOUT_MS = 10 * 60_000
 
 export interface GrokAcpEndpoint {
@@ -182,6 +183,7 @@ interface DriverSession {
   state: AgentRuntimeState
   transcriptItems: TranscriptItem[]
   transcriptIds: Set<string>
+  seenProviderEventIds: Set<string>
   toolCallIds: Set<string>
   toolResults: Map<string, BufferedToolResult>
   userBuffer: { id: string; text: string; at: string } | undefined
@@ -628,6 +630,17 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     // Every event Podium treats as causal must carry the provider cursor. The
     // W7 probe found uncursored `_x.ai/*` side channels; they stay side channels.
     if (ordinal === undefined) return
+    // ACP adapters may mirror an update during reconnect or replay. The
+    // provider event id is the causal identity; fold an exact event only once
+    // so a replay cannot append the same chunk or re-run its state transition.
+    if (eventId !== undefined) {
+      if (session.seenProviderEventIds.has(eventId)) return
+      session.seenProviderEventIds.add(eventId)
+      if (session.seenProviderEventIds.size > GROK_ACP_SEEN_EVENT_ID_LIMIT) {
+        const oldest = session.seenProviderEventIds.values().next()
+        if (!oldest.done) session.seenProviderEventIds.delete(oldest.value)
+      }
+    }
     const at = iso(notification.params._meta?.agentTimestampMs)
     const native = { ...(eventId ? { eventId } : {}), ordinal }
     ingestTranscriptUpdate(session, notification.params.update, at, provenance, native)
@@ -814,6 +827,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       state,
       transcriptItems: [],
       transcriptIds: new Set(),
+      seenProviderEventIds: new Set(),
       toolCallIds: new Set(),
       toolResults: new Map(),
       userBuffer: undefined,
