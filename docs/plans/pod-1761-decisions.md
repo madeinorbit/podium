@@ -1637,4 +1637,19 @@ because neither exposes a safe model-and-effort control path.
 This is implementation and hermetic evidence only. No provider runtime was
 launched, and no current acceptance row is promoted on its strength.
 
+
+## Decision 47 — model controls are Tier A where declared (2026-08-29 16:13 CEST)
+
+The release plan and execution ledger now treat running model/effort controls as
+Tier A11 rather than deferred Tier C work. This matches the landed implementation:
+Codex, OpenCode, and Claude SDK persist sticky model and effort changes across
+reload, while Grok and terminal drivers return typed refusals for unsupported
+changes. The release requirement is capability-aware: a driver must either make
+the declared change durable or clearly refuse it.
+
+The implementation remains hermetically gated but not provider-runtime-proven at
+the final integration tip. The broad acceptance re-drive stays deferred until
+that tip is stable; no acceptance row is promoted by this documentation update.
+
+*Podium-Issue: POD-1761*
 *Podium-Issue: POD-1761*
