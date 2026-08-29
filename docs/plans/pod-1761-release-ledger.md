@@ -6213,3 +6213,30 @@ failed because `document` was absent. The earlier `test:affected` command ran
 no tests and refused honestly because `@podium/terminal-client-react` has no
 Turbo test task. These are validation-lane findings, not a claim that the full
 suite is green. No additional validation command was run.
+
+## FOREST — 2026-08-29 20:20 CEST — controlled CLI open is below one frame cluster plus attach
+
+The exact current web product at `0c13489c9` was built and driven in the
+browser harness's unique state root on port 18961. The benchmark file is the
+only later tree delta. The operator daemon, relay, state, credentials, provider
+processes, and `instance.json` were untouched.
+
+On a fresh Chat-first Codex-shaped fixture, the first CLI view became
+interactable in **205 ms**. Eight warm Chat -> CLI returns measured **p50
+9.4 ms, p90 13.2 ms, max 13.2 ms**, with zero timeouts. The first trace reached
+terminal mount at 108.6 ms, attach at 167.0 ms, `ready(source=attach)` at
+167.2 ms, and interactable at 205.0 ms. A 129 ms browser long task overlapped
+the beginning of the switch and explains most of the controlled first-open
+cost.
+
+The selected Playwright file passed 1/1 in 11.9 s after Chromium's sole missing
+runtime library (`libasound.so.2`) was extracted rootlessly under `/tmp`;
+nothing was installed system-wide. The standard browser-lane wrapper twice
+misclassified the suite as unloadable after its lease re-entry even though
+Playwright's exact `--list` probe reported one test. The documented direct
+Playwright fallback was therefore run under an explicitly acquired and released
+`test:heavy` lease.
+
+This is frontend/terminal-boundary evidence, not a real-provider acceptance row.
+A named current-tip Codex provider sample is still required to retire the
+historical 2.3-13.4 s live tail.

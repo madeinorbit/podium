@@ -470,3 +470,36 @@ No new latency number is claimed here. The current operator sandbox is pinned
 to an older product commit and runs from the coordinator checkout, so restarting
 or scoring it would violate the isolation rule. Before/after time-to-interactable
 must be measured on a current-tip, named state root once that rig is safe.
+
+## 2026-08-29 20:20 CEST — isolated first-open latency after idle prefetch
+
+The current web product at `0c13489c9` was measured through the browser
+harness's owned state root on port 18961. The benchmark source is the only
+later tree change; no operator state, relay, credential, provider process, or
+`instance.json` was read or written. The fixture launches a Codex-shaped
+keyecho process, so this isolates the web/terminal construction and attach path
+without claiming a paid-provider acceptance result.
+
+The first Chat -> CLI open became interactable in **205 ms**. Eight subsequent
+Chat -> CLI returns were **p50 9.4 ms, p90 13.2 ms, max 13.2 ms**, with zero
+timeouts.
+
+The first-open trace retained the attribution that was previously lost:
+
+| mark | offset |
+|---|---:|
+| terminal mount | 108.6 ms |
+| first measured fit | 115.3 ms |
+| connection reset | 166.5 ms |
+| connection attached | 167.0 ms |
+| ready (`source=attach`) | 167.2 ms |
+| interactable | 205.0 ms |
+
+A 129 ms browser long task overlapped the gesture (its buffered start was
+7.4 ms before the click and its end was 121.6 ms after it). That accounts for
+most of the controlled first-open cost; attach then completed in the same frame
+cluster rather than waiting for the 2 s fallback.
+
+This closes the controlled client-side measurement, not the real Codex tail.
+The earlier 2.3-13.4 s live outliers still require a named current-tip provider
+sample before they can be called eliminated.
