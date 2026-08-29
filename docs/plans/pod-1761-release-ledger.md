@@ -6142,3 +6142,20 @@ gap points at a blocked browser main thread, while server-side `ws.attach` was
 2.7ms, but that attribution is not yet a post-fix runtime verdict. A safe,
 isolated current-tip drive remains required before calling cold-open performance
 fixed.
+
+## FOREST — 2026-08-29 19:21 CEST — Claude SDK login hands off to PTY
+
+The logged-out Claude SDK gap now has a product path at `91fe62c79`. An
+embedded `claude-sdk` session has no native command-line screen, so the prior
+forced-native banner told the operator to run `/login` in a pane where that was
+impossible. The terminal-less logged-out state now names that limitation,
+offers **Open sign-in terminal**, invokes the existing machine-scoped
+`accounts.login` procedure, and navigates only after the spawned PTY login
+session appears in the replica. Terminal-backed logged-out sessions retain the
+existing in-pane `/login` instruction.
+
+The focused web lane is green at one file and 27/27 tests in 10.52s. The new
+test proves the embedded surface has no terminal, the login request preserves
+the Claude harness and source machine, and navigation does not happen before
+the new row exists. No live instance was touched, so A8 remains awaiting a
+current-tip isolated runtime reading rather than being silently promoted.
