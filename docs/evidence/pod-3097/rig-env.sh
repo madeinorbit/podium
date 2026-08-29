@@ -12,6 +12,7 @@ export P3097_RELAY_PORT="47098"
 export P3097_PASSWORD="p3097-a11-proof"
 export P3097_SHA="16c1c9c446bd67e8537884c725d9e8e4fabe5afa"
 export P3097_INTEGRATION_SHA="71cb2b78855b32e445380b064040e8e9fe9784de"
+export P3097_WEB_SHA="31c09aee6509a52f9263742c706375e97ec2149b"
 export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin"
 
 export PODIUM_INSTANCE="$P3097_INSTANCE"

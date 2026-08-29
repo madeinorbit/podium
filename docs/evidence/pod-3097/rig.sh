@@ -69,7 +69,10 @@ start_pair() {
   [ "$(git -C "$P3097_REPO" rev-parse HEAD:apps/server)" = "$(git -C "$P3097_REPO" rev-parse "$P3097_SHA:apps/server")" ]
   [ "$(git -C "$P3097_REPO" rev-parse HEAD:apps/daemon)" = "$(git -C "$P3097_REPO" rev-parse "$P3097_SHA:apps/daemon")" ]
   [ "$(git -C "$P3097_REPO" rev-parse HEAD:apps/web)" = "$(git -C "$P3097_REPO" rev-parse "$P3097_SHA:apps/web")" ]
-  [ "$(git -C "$P3097_REPO" rev-parse refs/heads/issue/1761-agent-runtime)" = "$P3097_INTEGRATION_SHA" ]
+  for tree in apps/server apps/daemon apps/web; do
+    [ "$(git -C "$P3097_REPO" rev-parse "refs/heads/issue/1761-agent-runtime:$tree")" = "$(git -C "$P3097_REPO" rev-parse "$P3097_INTEGRATION_SHA:$tree")" ]
+  done
+  [ "$(git -C "$P3097_REPO" merge-base HEAD refs/heads/issue/1761-agent-runtime)" = "$P3097_INTEGRATION_SHA" ]
   local generation
   generation="$(date -u +%Y%m%dT%H%M%SZ)"
   spawn_one server scripts/server.ts "$generation"
@@ -131,7 +134,7 @@ case "$action" in
       echo "refusing reused state root: $P3097_STATE_ROOT" >&2
       exit 2
     }
-    [ "$(sed -n 's/.*\"sourceSha\": *\"\([^\"]*\)\".*/\1/p' "$P3097_REPO/apps/web/dist/podium-build.json")" = "$(git -C "$P3097_REPO" rev-parse --short=7 HEAD)" ]
+    [ "$(sed -n 's/.*\"sourceSha\": *\"\([^\"]*\)\".*/\1/p' "$P3097_REPO/apps/web/dist/podium-build.json")" = "${P3097_WEB_SHA:0:7}" ]
     mkdir -p "$P3097_STATE_ROOT"
     PODIUM_DRIVE_REPO="$P3097_REPO" bash "$P3097_REPO/docs/evidence/claim-instance.sh"
     seed_agent_home

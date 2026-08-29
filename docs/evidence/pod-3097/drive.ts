@@ -17,6 +17,7 @@ const STATE = process.env.P3097_STATE_ROOT!
 const AGENT_HOME = process.env.P3097_AGENT_HOME!
 const PIN = process.env.P3097_SHA!
 const INTEGRATION_PIN = process.env.P3097_INTEGRATION_SHA!
+const WEB_PIN = process.env.P3097_WEB_SHA!
 const INSTANCE = process.env.P3097_INSTANCE!
 const PORT = process.env.P3097_PORT!
 const HOOK_PORT = process.env.P3097_HOOK_PORT!
@@ -92,12 +93,12 @@ async function pins() {
     },
   }
   const processFacts = [server, daemon]
-  const exact = fact.integrationTip === INTEGRATION_PIN &&
-    fact.mergeBase === INTEGRATION_PIN && fact.nonEvidenceChanges.length === 0 &&
+  const exact = fact.mergeBase === INTEGRATION_PIN && fact.nonEvidenceChanges.length === 0 &&
+    fact.integrationNonEvidenceChanges.length === 0 &&
     fact.trees.server === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/server`]) &&
     fact.trees.daemon === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/daemon`]) &&
     fact.trees.web === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/web`])
-  const webExact = String(web.sourceSha) === fact.head.slice(0, 7)
+  const webExact = String(web.sourceSha) === WEB_PIN.slice(0, 7)
   const processesExact = processFacts.every((p) => p.sha === PIN && p.cwd === ROOT && p.instance === INSTANCE && p.stateRoot === STATE && p.agentHome === AGENT_HOME && p.port === PORT && p.hookPort === HOOK_PORT && p.relayPort === RELAY_PORT)
   if (!exact || !webExact || !processesExact || [PORT, HOOK_PORT, RELAY_PORT].includes('19797')) {
     throw new Error(`pin refusal ${JSON.stringify({ exact, webExact, processesExact, fact })}`)
@@ -166,7 +167,7 @@ function chooseTarget(cell: Cell, baseline: NonNullable<Row>, catalog: any): { m
   const models = catalog.byAgent?.[agent] ?? []
   const preferences: Record<string, string[]> = {
     codex: ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'],
-    opencode: ['opencode-go/kimi-k3', 'opencode-go/glm-5.3', 'opencode-go/gpt-5.6-luna'],
+    opencode: ['opencode-go/gpt-5.6-luna', 'opencode-go/kimi-k3', 'opencode-go/glm-5.3'],
     claude: ['claude-opus-5', 'claude-fable-5', 'claude-sonnet-5'],
   }
   const picked = [...(preferences[cell] ?? []), ...models.map((x: any) => x.value)]
