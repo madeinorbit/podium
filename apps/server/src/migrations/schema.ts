@@ -157,6 +157,7 @@ export const sessions = sqliteTable(
      * were not told about is the guess this whole issue is about removing.
      */
     selectedDriverId: text('selected_driver_id'),
+    requestedDriverId: text('requested_driver_id'),
     /**
      * WHETHER THIS LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).
      *

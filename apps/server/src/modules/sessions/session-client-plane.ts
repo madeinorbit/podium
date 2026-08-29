@@ -102,8 +102,8 @@ export class SessionClientPlane {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
-      ...(session.selectedDriverId === 'claude-sdk'
-        ? { runtimeContract: 'claude-sdk' as const }
+      ...(session.requestedDriverId
+        ? { runtimeContract: session.requestedDriverId }
         : {}),
       ...(this.ports.rpc.transcriptPathHint(
         { kind: 'system', id: 'session-attach' },

@@ -38,6 +38,7 @@ import {
   loginWarning,
 } from '@/lib/agent-capability'
 import { AGENT_KIND_ICON } from '@/lib/agent-tone'
+import { useFeature } from '@/lib/use-feature'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
 import { useStoreSelector } from './store'
 
@@ -143,6 +144,7 @@ export function NewPanelMenu({
   // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
   // driving its open state; the controlled props win when supplied.
   const [internalOpen, setInternalOpen] = useState(false)
+  const runtimeDriversEnabled = useFeature('runtime-drivers')
   const isControlled = controlledOpen !== undefined
   const open = isControlled ? controlledOpen : internalOpen
   const setOpen = (next: boolean) => {
@@ -176,13 +178,14 @@ export function NewPanelMenu({
     return repoView.machines.find((m) => m.machineId === machineId)?.path ?? worktree.path
   }
 
-  async function create(agentKind: AgentKind, machineId?: MachineId) {
+  async function create(agentKind: AgentKind, machineId?: MachineId, runtimeContract?: string) {
     const cwd = cwdFor(machineId)
     const { sessionId } = await trpc.sessions.create.mutate({
       agentKind,
       cwd,
       ...(machineId ? { machineId } : {}),
       ...(issueId ? { issueId } : {}),
+      ...(runtimeContract ? { runtimeContract } : {}),
     })
     onOpened(sessionId)
   }
@@ -248,6 +251,9 @@ export function NewPanelMenu({
               />
             )
           })}
+          {runtimeDriversEnabled && machine ? (
+            <HeadlessDriverItems machine={machine} onCreate={create} />
+          ) : null}
           <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
         </DropdownMenuContent>
       </DropdownMenu>
@@ -326,7 +332,14 @@ export function NewPanelMenu({
               )
             }
 
-            return <MachineSubmenu key={machine.id} machine={machine} onCreate={create} />
+            return (
+              <MachineSubmenu
+                key={machine.id}
+                machine={machine}
+                onCreate={create}
+                runtimeDriversEnabled={runtimeDriversEnabled}
+              />
+            )
           })}
         </TooltipProvider>
 
@@ -408,12 +421,51 @@ function RecentFilesSection({
 }
 
 /** The submenu for one eligible machine in the multi-machine menu. */
-function MachineSubmenu({
+function HeadlessDriverItems({
   machine,
   onCreate,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId) => Promise<void>
+  onCreate: (kind: AgentKind, machineId: MachineId, runtimeContract?: string) => Promise<void>
+}): JSX.Element | null {
+  const drivers =
+    machine.inventory?.runtimeDrivers?.filter((driver) => driver.family !== 'terminal') ?? []
+  if (drivers.length === 0) return null
+  return (
+    <>
+      <div className={MENU_SECTION}>HEADLESS DRIVERS</div>
+      {drivers.map((driver) => {
+        const agent = NEW_AGENTS.find((candidate) => candidate.kind === driver.harness)
+        if (!agent) return null
+        const Icon = agent.Icon
+        return (
+          <CapabilityAgentItem
+            key={`${driver.harness}:${driver.id}`}
+            label={`${agent.label} — ${driver.id}`}
+            icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
+            status={{
+              ...(agentLoginCondition(machine, driver.harness) === 'out'
+                ? {
+                    warning: `${machine.name} is logged out; this driver may refuse or fall back.`,
+                  }
+                : {}),
+            }}
+            onSelect={() => void onCreate(driver.harness, machine.id, driver.id)}
+          />
+        )
+      })}
+    </>
+  )
+}
+
+function MachineSubmenu({
+  machine,
+  onCreate,
+  runtimeDriversEnabled,
+}: {
+  machine: MachineWire
+  onCreate: (kind: AgentKind, machineId: MachineId, runtimeContract?: string) => Promise<void>
+  runtimeDriversEnabled: boolean
 }): JSX.Element {
   return (
     <DropdownMenuSub>
@@ -451,6 +503,9 @@ function MachineSubmenu({
             />
           )
         })}
+        {runtimeDriversEnabled ? (
+          <HeadlessDriverItems machine={machine} onCreate={onCreate} />
+        ) : null}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   )

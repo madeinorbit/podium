@@ -149,7 +149,7 @@ describe('resolved runtime driver projection', () => {
       status: 'live',
       driverId: 'codex-app-server',
     })
-    expect(recovered?.requestedDriverId).toBeUndefined()
+    expect(recovered?.requestedDriverId).toBe('opencode-server')
   })
 })
 
@@ -191,6 +191,9 @@ describe('Claude SDK continuity projection', () => {
     expect(
       store.sessions.loadSessions().find((row) => row.id === sessionId)?.selectedDriverId,
     ).toBe('claude-sdk')
+    expect(
+      store.sessions.loadSessions().find((row) => row.id === sessionId)?.requestedDriverId,
+    ).toBe('claude-sdk')
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     reg.dispose()
     const reloaded = new SessionRegistry(store, undefined, { instanceId: 'default' })
@@ -204,7 +207,7 @@ describe('Claude SDK continuity projection', () => {
         message.type === 'reattach' && message.sessionId === sessionId,
     )
     expect(reattach).toMatchObject({ sessionId, resume, runtimeContract: 'claude-sdk' })
-    expect(reattach).not.toHaveProperty('requestedDriverId')
+    expect(reattach).toMatchObject({ requestedDriverId: 'claude-sdk' })
 
     daemon.length = 0
     expect(reloaded.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })

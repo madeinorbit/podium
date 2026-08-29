@@ -466,6 +466,9 @@ export class SessionStart {
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.name ? { name: input.name } : {}),
       ...(input.nameSource ? { nameSource: input.nameSource } : {}),
+      ...(typeof input.runtimeContract === 'string'
+        ? { requestedDriverId: input.runtimeContract }
+        : {}),
     })
     this.ports.registerSession(session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent

@@ -368,7 +368,7 @@ export class SessionDaemonLifecycle {
           if (msg.driverId) s.selectedDriverId = msg.driverId
           // Present only for a permitted manifest/machine default degradation.
           // Reattach echoes it so daemon reconnects preserve the fact.
-          s.requestedDriverId = msg.requestedDriverId
+          if (msg.requestedDriverId && !s.requestedDriverId) s.requestedDriverId = msg.requestedDriverId
           this.persist(s)
           this.autoContinue.onSessionLive(s.sessionId)
         }

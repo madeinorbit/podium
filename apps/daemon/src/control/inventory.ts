@@ -1,7 +1,11 @@
-import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
+import { driverFamilyForId, type DriverId, type MachineHarnessInventory, probeAllModels } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { asMachineId } from '@podium/model'
+import { asMachineId, type HarnessAgent, type Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
+import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
+import { claudeSdkTosAcceptedByEnv } from '../runtime/registry'
+import { opencodeVersionProbe } from '../runtime/opencode-server'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -34,6 +38,30 @@ const inventoryRebuildQueued = new Map<string, Promise<void>>()
 
 export const DEFAULT_INVENTORY_REFRESH_INTERVAL_MS = 60_000
 
+/** Product-facing projection of the same cached admission probes session spawn
+ * uses. It reports only concrete drivers this machine can select right now. */
+export async function runtimeDriverInventory(): Promise<NonNullable<Inventory['runtimeDrivers']>> {
+  const [codex, grok, opencode] = await Promise.all([
+    codexAppServerVersionProbe(),
+    grokAcpVersionProbe(),
+    opencodeVersionProbe(),
+  ])
+  const rows: Array<{ harness: HarnessAgent; id: DriverId }> = [
+    { harness: 'claude-code', id: 'claude-pty' },
+    { harness: 'codex', id: 'generic-pty' },
+    { harness: 'grok', id: 'generic-pty' },
+    { harness: 'opencode', id: 'generic-pty' },
+    { harness: 'cursor', id: 'generic-pty' },
+    ...(claudeSdkTosAcceptedByEnv()
+      ? ([{ harness: 'claude-code', id: 'claude-sdk' }] as const)
+      : []),
+    ...(codex.drivable ? ([{ harness: 'codex', id: 'codex-app-server' }] as const) : []),
+    ...(grok.drivable ? ([{ harness: 'grok', id: 'grok-acp' }] as const) : []),
+    ...(opencode.drivable ? ([{ harness: 'opencode', id: 'opencode-server' }] as const) : []),
+  ]
+  return rows.map((row) => ({ ...row, family: driverFamilyForId(row.id) }))
+}
+
 export async function reportInventory(
   ctx: DaemonContext,
   opts: { rebuild?: boolean; reprobe?: boolean } = {},
@@ -56,7 +84,10 @@ export async function reportInventory(
         : ctx.harnessRuntime.reprobe())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
-      const inventory = await ctx.agentRuntime.inventory()
+      const inventory = {
+        ...(await ctx.agentRuntime.inventory()),
+        runtimeDrivers: await runtimeDriverInventory(),
+      }
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       ctx.send({
         type: 'inventoryReport',
@@ -100,10 +131,12 @@ export async function reportInventory(
     pending = opts.rebuild || opts.reprobe ? undefined : inventoryCache.get(key)
     if (!pending) {
       if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
-      pending = ctx.agentRuntime.inventory().then((inventory) => ({
-        machineId: ctx.machineId,
-        inventory,
-      }))
+      pending = Promise.all([ctx.agentRuntime.inventory(), runtimeDriverInventory()]).then(
+        ([inventory, runtimeDrivers]) => ({
+          machineId: ctx.machineId,
+          inventory: { ...inventory, runtimeDrivers },
+        }),
+      )
       inventoryCache.set(key, pending)
       inventoryInFlight.set(key, pending)
     }

@@ -483,6 +483,7 @@ export class SessionRepository {
        * until a daemon rebinds.
       */
       ...(r.selectedDriverId ? { selectedDriverId: r.selectedDriverId } : {}),
+      ...(r.requestedDriverId ? { requestedDriverId: r.requestedDriverId } : {}),
       // Passed through, never defaulted: a row from before this column exists
       // makes no claim about whether its launch ever had a conversation, and
       // inventing `'never'` for it would authorize discarding one.

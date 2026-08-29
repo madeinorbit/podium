@@ -191,6 +191,8 @@ export interface SessionRow {
    * a selection. Never backfilled.
   */
   selectedDriverId?: string | null
+  /** Concrete per-session driver preference, preserved independently of fallback. */
+  requestedDriverId?: string | null
   /** Did this launch EVER have a native conversation — see {@link ConversationBinding}.
    *  Absent/null = the row predates the fact and makes no claim either way. */
   conversationBinding?: ConversationBinding | null

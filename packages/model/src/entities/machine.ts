@@ -177,6 +177,18 @@ export const Inventory = z.object({
   podiumVersion: z.string().optional(),
   /** All 5 HarnessAgent kinds, present or not. */
   agents: z.array(AgentInventory),
+  /** Concrete runtime drivers admitted by this daemon's manifest and live
+   * version/auth gates. Optional for older daemons; terminal drivers are
+   * included so API consumers can distinguish a complete report. */
+  runtimeDrivers: z
+    .array(
+      z.object({
+        harness: HarnessAgent,
+        id: z.string().min(1),
+        family: z.enum(['terminal', 'server', 'embedded']),
+      }),
+    )
+    .optional(),
   /** Non-harness CLIs (currently just `gh` for #214). Defaulted so an
    *  inventory_json blob persisted before this field parses back cleanly. */
   tools: z.array(ToolInventory).default([]),

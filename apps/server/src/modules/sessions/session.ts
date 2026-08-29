@@ -117,6 +117,8 @@ export interface SessionInit {
   headless?: boolean
   /** The driver the daemon decided on, restored from the row (POD-2290). */
   selectedDriverId?: string
+  /** Concrete driver requested at birth; durable lifecycle configuration. */
+  requestedDriverId?: string
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
   /** Birth-issue nice-name fields (#474). Absent = not yet named. */
@@ -426,6 +428,7 @@ export class Session {
     // persisting it: without this line the rehydrated session is family-unknown
     // and the panel falls back to "assume a terminal" (POD-2290 round 2).
     this.selectedDriverId = init.selectedDriverId
+    this.requestedDriverId = init.requestedDriverId
     this.issueId = init.issueId
     this.refIssueId = init.refIssueId ?? null
     this.refLetter = init.refLetter ?? null
@@ -886,6 +889,7 @@ export class Session {
       // a live handle, and a row that claimed one across a restart would send
       // W4's migrated callers down the receipt path for a driver that is gone.
       selectedDriverId: this.selectedDriverId ?? null,
+      requestedDriverId: this.requestedDriverId ?? null,
       conversationBinding: this.conversationBinding ?? null,
       status: this.status,
       exitCode: this.exitCode ?? null,

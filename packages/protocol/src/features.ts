@@ -31,6 +31,13 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
+    id: 'runtime-drivers',
+    name: 'Headless session drivers',
+    description:
+      'Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.',
+    visibility: 'edge',
+  },
+  {
     id: 'settings-search',
     name: 'Settings search',
     description: 'Show the "Find a setting" filter box in the Settings side nav.',
