@@ -6108,3 +6108,37 @@ The only paths added after the 16:27 acceptance audit are documentation files
 or runtime bytes changed. The 85-path staleness count and the requirement for
 an isolated, fully pinned current-tip re-drive are therefore unchanged.
 The worker default is now Claude Opus 5 at low effort for new workers.
+
+## FOREST — 2026-08-29 19:05 CEST — basic chat/native corrections and measured cold tail
+
+The coordinator tip is `bcab6ef1b541cda9ca19e686df7b1add2a8cd713`, and the exact
+tip is backed up at `origin/issue/1761-agent-runtime`. Four operator sandbox
+reports now have code-level corrections on the integration branch:
+
+- Grok ACP folds an exact replayed provider event by provider event identity,
+  while two genuinely distinct events with identical text remain distinct.
+- The OpenCode CLI switch is offered before transcript capability observation
+  settles, instead of disappearing during that bind window.
+- Chat stays mounted while the native pane is visible, so its transcript
+  subscription remains live and a CLI-originated Grok turn can synchronize back
+  into Chat.
+- Both chat and native panes now survive repeated switching; the inactive pane
+  is hidden rather than destroyed.
+
+The focused Grok conformance lane is green at 73/73, the focused web arbitration
+lane is green at 26/26, typecheck is green at 25/25 packages, and the lean gate
+is green at 4/1100 collected files and 103/103 tests. These are hermetic results,
+not promoted acceptance rows; no provider, server, daemon, source CLI, sandbox,
+credential, or instance marker was touched.
+
+The Codex native-view performance complaint remains only partly resolved. The
+mounted-state change removes repeated cold attaches after the first successful
+open, but the first open is still a real tail. Existing instrumented browser
+measurements in `docs/measurements/POD-1710-live-loop-stalls.md` show cold native
+open at n=13, p50 1106ms, p90 2724ms, max 3144ms versus warm n=33, p50 203ms,
+max 307ms. Later time-to-interactable samples on one session were 304ms, 575ms,
+2252ms, and a 13438ms timeout; the warm sample was 51ms. The 12.857s unmarked
+gap points at a blocked browser main thread, while server-side `ws.attach` was
+2.7ms, but that attribution is not yet a post-fix runtime verdict. A safe,
+isolated current-tip drive remains required before calling cold-open performance
+fixed.
