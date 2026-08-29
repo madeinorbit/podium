@@ -155,7 +155,7 @@ a v1 requirement. First in the Tier C queue because it is the most visible.
 ### M4 — new capabilities (Tier C, pick by demand)
 
 Cross-machine session handoff (import/export), machine process inventory,
-mid-session model switching — each its own release, each pulled from the
+session forking and rewind/checkpoints — each its own release, each pulled from the
 capability catalogue when someone actually needs it.
 
 ### M5 — deletion

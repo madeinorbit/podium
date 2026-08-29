@@ -23,6 +23,20 @@ POD-2691) plus POD-2432 (restart-safe inventory).
 
 ---
 
+## Current configure correction — 2026-08-29 16:08 CEST
+
+The configure rows in the historical matrix below predate POD-3081 and are
+superseded by the current implementation:
+
+- **Sticky model/effort** is implemented and durably persisted for Codex,
+  OpenCode, and Claude SDK; Grok's supported field is permission mode, while
+  terminal drivers publish a typed refusal.
+- **Per-turn model/effort overrides** are mutation-pinned to remain one turn and
+  not leak into the sticky policy.
+- **Acceptance status:** hermetic gates are green, but provider-runtime readings
+  at the final integration tip are still required before these rows are called
+  live-proven.
+
 ## Tonight's runbook (M0 + M1 candidate)
 
 Ordered. Each step has a measurable exit; do not start a step before the
