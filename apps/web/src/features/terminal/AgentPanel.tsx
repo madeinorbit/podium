@@ -1192,7 +1192,7 @@ export function AgentPanel({
           data-testid="runtime-configure-mobile"
           className="flex min-w-0 flex-none items-center gap-2 border-b border-hairline-soft px-3 py-1.5 lg:hidden"
         >
-          <span className="flex-none text-[10px] font-medium text-text-dim">Running with</span>
+          <span className="flex-none text-[10px] font-medium text-text-dim">Next turn</span>
           <ModelPicker
             agentKind={runtimeAgentKind}
             value={runtimeModel}

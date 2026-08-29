@@ -15,10 +15,12 @@ const sdk = vi.hoisted(() => ({
   interruptError: null as string | null,
   endStream: undefined as (() => void) | undefined,
   scripted: null as unknown[] | null,
+  queryInput: null as { options?: Record<string, unknown> } | null,
 }))
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: () => {
+  query: (input: { options?: Record<string, unknown> }) => {
+    sdk.queryInput = input
     const scripted = sdk.scripted
     if (scripted) {
       return {
@@ -63,6 +65,7 @@ afterEach(() => {
   sdk.interruptError = null
   sdk.endStream = undefined
   sdk.scripted = null
+  sdk.queryInput = null
 })
 
 const TURN = JSON.stringify({
@@ -214,7 +217,7 @@ describe('SDK result error frames', () => {
 })
 
 describe('the SDK host reports completed-turn configuration', () => {
-  it('carries the provider model and the applied effort on the terminal frame', async () => {
+  it('keeps requested SDK options separate from provider-observed fields', async () => {
     sdk.scripted = [
       { type: 'system', subtype: 'init', session_id: 'sess-configured' },
       {
@@ -239,6 +242,34 @@ describe('the SDK host reports completed-turn configuration', () => {
     const frames: ClaudeSdkHostFrame[] = []
     await runClaudeSdkHost({
       commands: commandsThenEof([configuredTurn]),
+      send: (frame) => frames.push(frame),
+    })
+    expect(sdk.queryInput?.options).toMatchObject({ model: 'claude-opus-5', effort: 'max' })
+    expect(frames.find((frame) => frame.t === 'done')).toEqual(
+      expect.objectContaining({
+        observedModel: 'claude-opus-5',
+      }),
+    )
+    expect(frames.find((frame) => frame.t === 'done')).not.toHaveProperty('observedEffort')
+  }, 10_000)
+
+  it('carries effort only when the assistant event reports it', async () => {
+    sdk.scripted = [
+      { type: 'system', subtype: 'init', session_id: 'sess-observed-effort' },
+      {
+        type: 'assistant',
+        uuid: 'observed-effort-answer',
+        message: {
+          model: 'claude-opus-5',
+          effort: 'max',
+          content: [{ type: 'text', text: 'done' }],
+        },
+      },
+      { type: 'result', subtype: 'success', result: 'done' },
+    ]
+    const frames: ClaudeSdkHostFrame[] = []
+    await runClaudeSdkHost({
+      commands: commandsThenEof([TURN]),
       send: (frame) => frames.push(frame),
     })
     expect(frames.find((frame) => frame.t === 'done')).toMatchObject({

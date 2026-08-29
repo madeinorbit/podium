@@ -451,6 +451,7 @@ describe('AgentPanel on a server-family client terminal', () => {
     const mobileRoute = container.querySelector('[data-testid="runtime-configure-mobile"]')
     expect(mobileRoute).toBeTruthy()
     expect(mobileRoute?.className).toContain('lg:hidden')
+    expect(mobileRoute?.textContent).toContain('Next turn')
     expect(mobileRoute?.querySelector('[aria-label="Model"]')).toBeTruthy()
     expect(mobileRoute?.querySelector('[aria-label="Effort"]')).toBeTruthy()
   })

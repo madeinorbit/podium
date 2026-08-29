@@ -332,6 +332,7 @@ function makeWorld(options: WorldOptions = {}): {
       const messageId = `msg_stream_${streamSeq++}`
       const partId = `prt_stream_${streamSeq++}`
       const start = Date.now()
+      const requestedModel = server.lastPrompt(opencodeId)?.model
       server.emit('message.updated', {
         sessionID: opencodeId,
         info: {
@@ -339,6 +340,9 @@ function makeWorld(options: WorldOptions = {}): {
           role: 'assistant',
           sessionID: opencodeId,
           time: { created: start },
+          ...(requestedModel
+            ? { providerID: requestedModel.providerID, modelID: requestedModel.modelID }
+            : {}),
         },
       })
       const part = (text: string, time: Record<string, number>): Record<string, unknown> => ({
@@ -510,7 +514,7 @@ function makeWorld(options: WorldOptions = {}): {
 const { target } = makeWorld()
 
 describe('opencode completed-turn configuration observation', () => {
-  it('reports the exact accepted pair only after the provider completion fence', async () => {
+  it('reports provider message fields without promoting the requested variant', async () => {
     const world = makeWorld()
     const { driver, control } = world.target.createDriver()
     try {
@@ -523,6 +527,13 @@ describe('opencode completed-turn configuration observation', () => {
         { origin: 'human', delivery: 'when-ready' },
       )
       expect(world.observed).toEqual([])
+      expect(world.prompt(handle.binding.sessionId)).toMatchObject({
+        model: { providerID: 'anthropic', modelID: 'claude-opus-4-1' },
+        variant: 'high',
+      })
+
+      await control.streamAssistantText(handle.binding.sessionId, ['done'])
+      expect(world.observed).toEqual([])
 
       await control.completeTurn(handle.binding.sessionId)
       await vi.waitFor(() =>
@@ -530,7 +541,6 @@ describe('opencode completed-turn configuration observation', () => {
           {
             sessionId: handle.binding.sessionId,
             model: 'anthropic/claude-opus-4-1',
-            effort: 'high',
           },
         ]),
       )

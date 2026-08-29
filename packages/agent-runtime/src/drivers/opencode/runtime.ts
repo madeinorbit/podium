@@ -308,8 +308,8 @@ interface DriverSession {
   /** opencode's own view: is a turn running right now? Fed by session.status /
    *  session.idle, never guessed. */
   busy: boolean
-  /** Exact model policy accepted for the open turn, pending its completion fence. */
-  activeConfiguration: { model: string; effort?: string } | undefined
+  /** Provider fields from the open turn's assistant message, pending its completion fence. */
+  observedConfiguration: { model: string; effort?: string } | undefined
   /** An abort was requested and no terminal event has landed yet. The fence's
    *  verdict reads this so an interrupted turn is reported as interrupted. */
   interruptPending: boolean
@@ -502,7 +502,17 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
     switch (event.type) {
       case 'message.updated': {
-        session.messages.set(event.properties.info.id, event.properties.info)
+        const info = event.properties.info
+        session.messages.set(info.id, info)
+        // `modelID` and `providerID` are fields on opencode's assistant event,
+        // unlike `variant`, which exists only on our outgoing prompt. Buffer
+        // only what the provider actually reported and publish it only after
+        // the same turn reaches its authoritative completion fence.
+        if (session.busy && info.role === 'assistant' && info.modelID && info.providerID) {
+          session.observedConfiguration = {
+            model: `${info.providerID}/${info.modelID}`,
+          }
+        }
         break
       }
       case 'message.part.updated': {
@@ -850,8 +860,8 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     const interrupted = session.interruptPending
     session.busy = false
     session.interruptPending = false
-    const completedConfiguration = session.activeConfiguration
-    session.activeConfiguration = undefined
+    const completedConfiguration = session.observedConfiguration
+    session.observedConfiguration = undefined
     persist(session)
 
     /**
@@ -1103,6 +1113,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     }
     const model = modelFor(session.spec, input)
     const effort = effortFor(session.spec, input)
+    session.observedConfiguration = undefined
     await session.client.prompt(session.opencodeSessionId, {
       parts: [
         { type: 'text', text: input.text },
@@ -1123,9 +1134,6 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       // precedence rule worth stating identically.
       ...(effort ? { variant: effort } : {}),
     })
-    session.activeConfiguration = model
-      ? { model: `${model.providerID}/${model.modelID}`, ...(effort ? { effort } : {}) }
-      : undefined
     // The 204 IS the acceptance, and it is also the moment the turn opens as far
     // as this driver is concerned. opencode's `session.status: busy` confirms it
     // microseconds later; the epoch advances here so the receipt can name it.
@@ -1987,7 +1995,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       turnEpoch: Math.max(carried?.turnEpoch ?? 0, journalled?.turnEpoch ?? 0),
       seq: Math.max(carried?.seq ?? 0, journalled?.seq ?? 0),
       busy: false,
-      activeConfiguration: undefined,
+      observedConfiguration: undefined,
       fencedTurnEpoch: Math.max(carried?.fencedTurnEpoch ?? 0, journalled?.fencedTurnEpoch ?? 0),
       interruptPending: false,
       interactions: new Map(),

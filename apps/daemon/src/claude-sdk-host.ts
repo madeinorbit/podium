@@ -431,9 +431,6 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
                 }
                 if (typeof message.model === 'string') observedModel = message.model
                 if (typeof message.effort === 'string') observedEffort = message.effort
-                else if (turnSpec.effort && turnSpec.effort !== 'auto') {
-                  observedEffort = turnSpec.effort
-                }
               }
               for (const block of msg.message.content) {
                 if (block.type === 'tool_use') {
