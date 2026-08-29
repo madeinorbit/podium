@@ -22,9 +22,9 @@ const MANIFESTS = Object.entries(AGENT_MANIFESTS)
 describe('the AgentManifest runtime axis', () => {
   it.each(MANIFESTS)('%s declares a terminal driver', (_kind, manifest) => {
     // §2's decision, enforced: the terminal family is a PERMANENT tier and every
-    // harness has one. It is the only subscription-preserving way to run Claude
-    // Code and the only way to run a harness that never grows a protocol, so a
-    // manifest without one describes a session Podium cannot fall back to.
+    // harness has one. It remains Claude's permanent fallback when the headless
+    // SDK is unavailable or declined, and the only path for a harness that never
+    // grows a protocol; a manifest without one has no honest fallback.
     expect(manifest.runtime.terminal.driverId).toBeTruthy()
     expect(DRIVER_IDS).toContain(manifest.runtime.terminal.driverId)
   })
