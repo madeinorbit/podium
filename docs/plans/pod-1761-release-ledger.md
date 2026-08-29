@@ -6084,3 +6084,18 @@ path: Codex, OpenCode, and Claude SDK persist requested model and effort and
 expose the running-session picker; Grok and terminal publish typed unsupported
 responses. These controls have hermetic coverage but no provider runtime reading
 yet.
+
+## FOREST — 2026-08-29 16:27 CEST — current-tip acceptance still pending
+
+The coordinator tip is `9e1f294520f36963ca4f9b601c173a4885d94898`.
+`origin/dev/mw` at `363d9733663c7f3b98adb01ed54b61d6be7eb1c6` is an ancestor
+of that tip. A static audit against the replay-seam pin
+`15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f` finds 85 non-document paths
+changed on the coordinator branch, including daemon/runtime, server
+session/store, protocol, model, web, configure, and durable-interrupt code.
+
+The eight replay/stream rows at the older pin remain historical evidence;
+the matrix has no release-green claim at this tip. The final drive must pin
+server, web, and daemon from this stable tip and re-drive rows whose behavior
+reads the changed paths before any current acceptance verdict is promoted.
+No provider rig or operator sandbox was launched for this documentation note.
