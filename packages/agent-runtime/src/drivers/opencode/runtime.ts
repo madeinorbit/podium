@@ -209,6 +209,13 @@ export interface OpencodeRuntimeHost {
    */
   onQueueAbandoned?: OnQueueAbandoned
 
+  /** Report the exact configuration of a turn only after opencode completes it. */
+  reportObservedConfiguration?(input: {
+    sessionId: SessionId
+    model: string
+    effort?: string
+  }): void
+
   /** Persist enough to rebind after a daemon restart: port, secret, opencode
    *  session id, scope unit. Written before the first turn, cleared on kill. */
   journal: OpencodeJournal
@@ -301,6 +308,8 @@ interface DriverSession {
   /** opencode's own view: is a turn running right now? Fed by session.status /
    *  session.idle, never guessed. */
   busy: boolean
+  /** Exact model policy accepted for the open turn, pending its completion fence. */
+  activeConfiguration: { model: string; effort?: string } | undefined
   /** An abort was requested and no terminal event has landed yet. The fence's
    *  verdict reads this so an interrupted turn is reported as interrupted. */
   interruptPending: boolean
@@ -841,6 +850,8 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     const interrupted = session.interruptPending
     session.busy = false
     session.interruptPending = false
+    const completedConfiguration = session.activeConfiguration
+    session.activeConfiguration = undefined
     persist(session)
 
     /**
@@ -930,6 +941,9 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         at,
       )
       change = idleToStateEvent(verdict, at)
+      if (!failure && completedConfiguration) {
+        host.reportObservedConfiguration?.({ sessionId: session.sessionId, ...completedConfiguration })
+      }
     }
     emit(session, { t: 'state', change }, at)
     session.state = reduceAgentState(session.state, change, at)
@@ -1088,6 +1102,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       return url.href
     }
     const model = modelFor(session.spec, input)
+    const effort = effortFor(session.spec, input)
     await session.client.prompt(session.opencodeSessionId, {
       parts: [
         { type: 'text', text: input.text },
@@ -1106,8 +1121,11 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       // the one field where the difference is invisible in the transcript.
       // POD-3081 made the sticky half real, which makes the two halves of the
       // precedence rule worth stating identically.
-      ...(effortFor(session.spec, input) ? { variant: effortFor(session.spec, input) } : {}),
+      ...(effort ? { variant: effort } : {}),
     })
+    session.activeConfiguration = model
+      ? { model: `${model.providerID}/${model.modelID}`, ...(effort ? { effort } : {}) }
+      : undefined
     // The 204 IS the acceptance, and it is also the moment the turn opens as far
     // as this driver is concerned. opencode's `session.status: busy` confirms it
     // microseconds later; the epoch advances here so the receipt can name it.
@@ -1969,6 +1987,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       turnEpoch: Math.max(carried?.turnEpoch ?? 0, journalled?.turnEpoch ?? 0),
       seq: Math.max(carried?.seq ?? 0, journalled?.seq ?? 0),
       busy: false,
+      activeConfiguration: undefined,
       fencedTurnEpoch: Math.max(carried?.fencedTurnEpoch ?? 0, journalled?.fencedTurnEpoch ?? 0),
       interruptPending: false,
       interactions: new Map(),

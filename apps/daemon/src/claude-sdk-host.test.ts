@@ -213,6 +213,41 @@ describe('SDK result error frames', () => {
   }, 10_000)
 })
 
+describe('the SDK host reports completed-turn configuration', () => {
+  it('carries the provider model and the applied effort on the terminal frame', async () => {
+    sdk.scripted = [
+      { type: 'system', subtype: 'init', session_id: 'sess-configured' },
+      {
+        type: 'assistant',
+        uuid: 'configured-answer',
+        message: { model: 'claude-opus-5', content: [{ type: 'text', text: 'done' }] },
+      },
+      { type: 'result', subtype: 'success', result: 'done' },
+    ]
+    const configuredTurn = JSON.stringify({
+      t: 'turn',
+      spec: {
+        agent: 'claude-code',
+        accountId: 'native:claude-code:test',
+        requestDigest: 'a'.repeat(64),
+        cwd: process.cwd(),
+        prompt: 'hello',
+        model: 'claude-opus-5',
+        effort: 'max',
+      },
+    })
+    const frames: ClaudeSdkHostFrame[] = []
+    await runClaudeSdkHost({
+      commands: commandsThenEof([configuredTurn]),
+      send: (frame) => frames.push(frame),
+    })
+    expect(frames.find((frame) => frame.t === 'done')).toMatchObject({
+      observedModel: 'claude-opus-5',
+      observedEffort: 'max',
+    })
+  }, 10_000)
+})
+
 describe('the SDK host records the tools a turn ran (POD-3050)', () => {
   /** One scripted turn: an assistant message with `blocks`, then the tool
    *  results in `results`, then a successful result. */

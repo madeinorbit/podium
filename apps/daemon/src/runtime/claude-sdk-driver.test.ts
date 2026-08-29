@@ -67,6 +67,8 @@ describe('Claude SDK daemon host adapter', () => {
         done: Promise.resolve({
           harnessSessionId: spec.resumeValue ?? spec.sessionUuid ?? RESUME.value,
           output: 'the next answer',
+          observedModel: 'claude-opus-5',
+          observedEffort: 'max',
         }),
         interrupt: vi.fn(),
         requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
@@ -78,11 +80,14 @@ describe('Claude SDK daemon host adapter', () => {
     const runtime = createDaemonClaudeSdkRuntime({
       send: (message) => sent.push(message),
       host: host(reads),
+      executablePath: '/opt/claude/2.1.236/claude',
     })
     const handle = await runtime.launch({
       sessionId: SESSION_ID,
       cwd: '/project',
       resume: RESUME,
+      model: 'claude-opus-5',
+      effort: 'max',
     })
 
     expect(handle.binding).toMatchObject({
@@ -117,8 +122,19 @@ describe('Claude SDK daemon host adapter', () => {
       cwd: '/project',
       prompt: 'continue the existing conversation',
       resumeValue: RESUME.value,
+      model: 'claude-opus-5',
+      effort: 'max',
+      executablePath: '/opt/claude/2.1.236/claude',
     })
     expect(childSpecs[0]).not.toHaveProperty('sessionUuid')
+    await vi.waitFor(() =>
+      expect(sent).toContainEqual({
+        type: 'agentModel',
+        sessionId: SESSION_ID,
+        model: 'claude-opus-5',
+        effort: 'max',
+      }),
+    )
     await handle.stop()
     runtime.dispose()
   })

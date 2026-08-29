@@ -85,6 +85,8 @@ export interface ClaudeSdkTurnResult {
   resumeValue: string
   output: string
   itemId?: string
+  observedModel?: string
+  observedEffort?: string
 }
 
 /**
@@ -148,6 +150,12 @@ export interface ClaudeSdkRuntimeHost {
     workdir: string
     resumeValue: string
   }): Promise<{ path: string; bytes: Uint8Array } | undefined>
+  /** Report the provider fields carried by a successfully completed assistant turn. */
+  reportObservedConfiguration?(input: {
+    sessionId: SessionId
+    model: string
+    effort?: string
+  }): void
   /** Report accepted turns that cannot be delivered after teardown or failure. */
   onQueueAbandoned?: OnQueueAbandoned
 }
@@ -657,6 +665,13 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
           resume: { kind: 'claude-session', value: result.resumeValue },
         }
         const text = result.output || core.partialText
+        if (result.observedModel) {
+          host.reportObservedConfiguration?.({
+            sessionId: core.sessionId,
+            model: result.observedModel,
+            ...(result.observedEffort ? { effort: result.observedEffort } : {}),
+          })
+        }
         if (text) {
           push(core, {
             t: 'item',

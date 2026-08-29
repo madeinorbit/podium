@@ -73,7 +73,10 @@ interface WorldOptions {
   hostsClientTerminals?: boolean | 'spectators-only'
 }
 
-function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
+function makeWorld(options: WorldOptions = {}): {
+  target: ConformanceTarget
+  observed: Array<{ sessionId: SessionId; model: string; effort?: string }>
+} {
   const hostsClientTerminals = options.hostsClientTerminals ?? true
   let runtime: CodexRuntime | undefined
   let seq = 0
@@ -91,6 +94,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
    *  `reset` closes any the property left standing. */
   const retired: FakeAppServer[] = []
   const entries = new Map<SessionId, CodexJournalEntry>()
+  const observed: Array<{ sessionId: SessionId; model: string; effort?: string }> = []
 
   const journal: CodexJournal = {
     read: (sessionId) => entries.get(sessionId),
@@ -106,6 +110,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   const processKey = (sessionId: SessionId): string => `podium-cx-${sessionId}`
 
   const host: CodexRuntimeHost = {
+    reportObservedConfiguration: (input) => observed.push(input),
     stageAttachment: async ({ source }) => {
       const id = 'attachment-' + ++seq
       return {
@@ -366,6 +371,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   }
 
   return {
+    observed,
     target: {
       name: 'codex-app-server',
       family: 'server',
@@ -400,6 +406,35 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
 }
 
 const { target } = makeWorld()
+
+describe('codex completed-turn configuration observation', () => {
+  it('reports the exact accepted pair only after the provider completion fence', async () => {
+    const world = makeWorld()
+    const { driver, control } = world.target.createDriver()
+    try {
+      const handle = await driver.create({
+        ...world.target.spec(),
+        model: { model: 'gpt-5.1-codex-max', effort: 'medium' },
+      })
+      await handle.send(
+        { text: 'use the configured pair' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(world.observed).toEqual([])
+
+      await control.completeTurn(handle.binding.sessionId)
+      expect(world.observed).toEqual([
+        {
+          sessionId: handle.binding.sessionId,
+          model: 'gpt-5.1-codex-max',
+          effort: 'medium',
+        },
+      ])
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 
 /**
  * THE REFUSAL ARM, ON A REAL DRIVER (POD-2486; the arms are POD-2121's and

@@ -96,6 +96,7 @@ function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   prompt(sessionId: SessionId): ReturnType<FakeOpencodeServer['lastPrompt']>
   failTurn(sessionId: SessionId): void
+  observed: Array<{ sessionId: SessionId; model: string; effort?: string }>
   /** The same channel with the error the caller names — `MessageAborted` is the
    *  one opencode sends for a cancelled turn (POD-2792). */
   emitSessionError(sessionId: SessionId, error: { name: string; message: string }): void
@@ -113,6 +114,7 @@ function makeWorld(options: WorldOptions = {}): {
    *  modelled the wrong world. */
   const store = new Map<string, FakeOpencodeSession>()
   const entries = new Map<SessionId, OpencodeJournalEntry>()
+  const observed: Array<{ sessionId: SessionId; model: string; effort?: string }> = []
 
   const journal: OpencodeJournal = {
     read: (sessionId) => entries.get(sessionId),
@@ -152,6 +154,7 @@ function makeWorld(options: WorldOptions = {}): {
   })
 
   const host: OpencodeRuntimeHost = {
+    reportObservedConfiguration: (input) => observed.push(input),
     stageAttachment:
       options.stageAttachment ??
       (async ({ source }) => {
@@ -457,6 +460,7 @@ function makeWorld(options: WorldOptions = {}): {
   }
 
   return {
+    observed,
     prompt: (sessionId) => serverFor(sessionId).lastPrompt(opencodeIdFor(sessionId)),
     failTurn: (sessionId) =>
       serverFor(sessionId).emit('session.error', {
@@ -504,6 +508,37 @@ function makeWorld(options: WorldOptions = {}): {
 }
 
 const { target } = makeWorld()
+
+describe('opencode completed-turn configuration observation', () => {
+  it('reports the exact accepted pair only after the provider completion fence', async () => {
+    const world = makeWorld()
+    const { driver, control } = world.target.createDriver()
+    try {
+      const handle = await driver.create({
+        ...world.target.spec(),
+        model: { model: 'anthropic/claude-opus-4-1', effort: 'high' },
+      })
+      await handle.send(
+        { text: 'use the configured pair' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(world.observed).toEqual([])
+
+      await control.completeTurn(handle.binding.sessionId)
+      await vi.waitFor(() =>
+        expect(world.observed).toEqual([
+          {
+            sessionId: handle.binding.sessionId,
+            model: 'anthropic/claude-opus-4-1',
+            effort: 'high',
+          },
+        ]),
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+})
 
 describe('opencode provider failure detail', () => {
   it('carries the provider text on the normalized state event', async () => {

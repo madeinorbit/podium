@@ -239,6 +239,13 @@ export interface CodexRuntimeHost {
     subscription: boolean
   }): void
 
+  /** Report the exact configuration of a turn only after Codex completes it. */
+  reportObservedConfiguration?(input: {
+    sessionId: SessionId
+    model: string
+    effort?: string
+  }): void
+
   /** Start Codex's own TUI against this thread, for `attach()`. `undefined` when
    *  the host has nowhere to run one. */
   attachClient?(input: {
@@ -384,6 +391,8 @@ interface DriverSession {
   /** A turn we have accepted but whose `turn/started` has not landed yet. This
    *  is the measured window between the ack and the open turn. */
   pendingTurnId: CodexTurnId | undefined
+  /** Exact model policy accepted for the open turn, pending its completion fence. */
+  activeConfiguration: { model: string; effort?: string } | undefined
   /** Provider turn ids whose terminal notification has already been folded. */
   fencedTurnIds: Set<CodexTurnId>
   asks: Map<string, OpenAsk>
@@ -923,6 +932,8 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     const at = iso(turn.completedAt ? turn.completedAt * 1000 : undefined)
     session.openTurnId = undefined
     session.pendingTurnId = undefined
+    const completedConfiguration = session.activeConfiguration
+    session.activeConfiguration = undefined
 
     /**
      * THE PROJECTION IS FOLDED FROM THE CHANGE THAT IS EMITTED (POD-2811).
@@ -980,6 +991,9 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         at,
       )
       change = idleToStateEvent(verdict, at)
+      if (completedConfiguration) {
+        host.reportObservedConfiguration?.({ sessionId: session.sessionId, ...completedConfiguration })
+      }
     }
     emit(session, { t: 'state', change }, at)
     session.state = reduceAgentState(session.state, change, at)
@@ -1064,6 +1078,9 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       ...(model ? { model } : {}),
       ...(effort && effort !== 'auto' ? { effort } : {}),
     })
+    session.activeConfiguration = model
+      ? { model, ...(effort && effort !== 'auto' ? { effort } : {}) }
+      : undefined
     /**
      * THE RESPONSE IS THE ACK AND *NOT* THE OPEN TURN.
      *
@@ -2134,6 +2151,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       seq: Math.max(carried?.seq ?? 0, journalled?.seq ?? 0),
       openTurnId: undefined,
       pendingTurnId: undefined,
+      activeConfiguration: undefined,
       fencedTurnIds: new Set(),
       asks: new Map(),
       answered: new Set(),

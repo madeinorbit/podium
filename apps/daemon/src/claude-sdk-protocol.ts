@@ -104,7 +104,13 @@ export type ClaudeSdkHostFrame =
    * the call in the transcript looking like it never returned.
    */
   | { t: 'tool-result'; toolUseId: string; output: string; isError?: boolean }
-  | { t: 'done'; harnessSessionId: string; output: string }
+  | {
+      t: 'done'
+      harnessSessionId: string
+      output: string
+      observedModel?: string
+      observedEffort?: string
+    }
   | { t: 'error'; message: string; harnessSessionId?: string }
 
 /**

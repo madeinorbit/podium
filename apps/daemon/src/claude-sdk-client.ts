@@ -229,7 +229,13 @@ export function runClaudeSdkChildTurn(
         // this replaced ended with `if (interrupted) fail('turn timed out')`
         // for exactly this reason; losing it was a regression, not a redesign.
         if (timedOut) fail('turn timed out')
-        else succeed({ harnessSessionId: frame.harnessSessionId, output: frame.output })
+        else
+          succeed({
+            harnessSessionId: frame.harnessSessionId,
+            output: frame.output,
+            ...(frame.observedModel ? { observedModel: frame.observedModel } : {}),
+            ...(frame.observedEffort ? { observedEffort: frame.observedEffort } : {}),
+          })
         break
       case 'error':
         if (frame.harnessSessionId) harnessSessionId = frame.harnessSessionId

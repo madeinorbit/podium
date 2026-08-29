@@ -8,6 +8,7 @@ import {
   harnessDetectLogin,
   harnessLoginReadEnv,
   type HarnessEnvironment,
+  resolvedHarnessPath,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
@@ -805,6 +806,7 @@ export async function createDaemonHostRuntime(args: {
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
   const contractHost = daemonRuntimeHost(ctx, send, stageAttachment)
   terminalRuntime = createTerminalRuntime(contractHost)
+  const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   claudeRuntime = createDaemonClaudeSdkRuntime({
     send,
     host: contractHost,
@@ -812,6 +814,9 @@ export async function createDaemonHostRuntime(args: {
     // (control/transcripts.ts sourceForRead), so the SDK child writes its JSONL
     // where sessions.read looks for it (POD-3057).
     ...(homeDir ? { homeDir } : {}),
+    ...(generationInventory?.executables.has('claude-code')
+      ? { executablePath: resolvedHarnessPath(generationInventory, 'claude-code') }
+      : {}),
   })
   /**
    * THE SERVER-FAMILY RUNTIME (POD-1761 W5), built the same way and for the same

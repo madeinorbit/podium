@@ -436,7 +436,24 @@ describe('AgentPanel mount gating', () => {
 
 describe('AgentPanel on a server-family client terminal', () => {
   const serverDriven = () =>
-    meta({ agentKind: 'opencode', driverId: 'opencode-server', driverFamily: 'server' })
+    meta({
+      agentKind: 'opencode',
+      driverId: 'opencode-server',
+      driverFamily: 'server',
+      configureFields: ['model', 'effort'],
+      requestedModel: 'opencode-go/kimi-k3',
+      requestedEffort: 'max',
+    })
+
+  it('keeps model and effort controls reachable below the desktop breakpoint', async () => {
+    storeSessions = [serverDriven()]
+    await render({ active: true })
+    const mobileRoute = container.querySelector('[data-testid="runtime-configure-mobile"]')
+    expect(mobileRoute).toBeTruthy()
+    expect(mobileRoute?.className).toContain('lg:hidden')
+    expect(mobileRoute?.querySelector('[aria-label="Model"]')).toBeTruthy()
+    expect(mobileRoute?.querySelector('[aria-label="Effort"]')).toBeTruthy()
+  })
 
   it('native-default mounts the original harness terminal and offers both modes', async () => {
     storeSessions = [serverDriven()]

@@ -92,6 +92,13 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
     // A queue this driver loses becomes a durable server-side receipt
     // correction, so the port is wired HERE, next to `send` (POD-2297).
     onQueueAbandoned: reportQueueAbandonment('opencode', deps.send),
+    reportObservedConfiguration: ({ sessionId, model, effort }) =>
+      deps.send({
+        type: 'agentModel',
+        sessionId,
+        model,
+        ...(effort ? { effort } : {}),
+      }),
   })
 
   /**

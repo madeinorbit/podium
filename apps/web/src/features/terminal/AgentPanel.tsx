@@ -1187,6 +1187,37 @@ export function AgentPanel({
           </span>
         </div>
       )}
+      {showHeader && session && runtimeAgentKind && canConfigureRuntime && (
+        <div
+          data-testid="runtime-configure-mobile"
+          className="flex min-w-0 flex-none items-center gap-2 border-b border-hairline-soft px-3 py-1.5 lg:hidden"
+        >
+          <span className="flex-none text-[10px] font-medium text-text-dim">Running with</span>
+          <ModelPicker
+            agentKind={runtimeAgentKind}
+            value={runtimeModel}
+            onChange={(model) => {
+              void configureRuntime({ model })
+            }}
+            variant="pill"
+            className="min-w-0 max-w-[min(14rem,58vw)] flex-1 truncate"
+            machineId={session.machineId}
+          />
+          {canConfigureRuntimeEffort && (
+            <EffortPicker
+              agentKind={runtimeAgentKind}
+              model={runtimeModel}
+              value={runtimeEffort}
+              onChange={(effort) => {
+                void configureRuntime({ effort })
+              }}
+              variant="pill"
+              className="min-w-0 max-w-[8rem] flex-1 truncate"
+              machineId={session.machineId}
+            />
+          )}
+        </div>
+      )}
       {session?.condition === 'logged-out' && (
         <div
           role="status"

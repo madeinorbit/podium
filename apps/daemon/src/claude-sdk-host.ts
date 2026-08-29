@@ -357,6 +357,8 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
       let output = ''
       let partial = ''
       let partialUuid = ''
+      let observedModel: string | undefined
+      let observedEffort: string | undefined
       // Report the id we were handed before the SDK confirms it, so a child that
       // dies during startup is still attributable to the right conversation.
       if (sessionId) io.send({ t: 'session', harnessSessionId: sessionId })
@@ -422,6 +424,17 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
               break
             }
             case 'assistant':
+              {
+                const message = msg.message as typeof msg.message & {
+                  model?: unknown
+                  effort?: unknown
+                }
+                if (typeof message.model === 'string') observedModel = message.model
+                if (typeof message.effort === 'string') observedEffort = message.effort
+                else if (turnSpec.effort && turnSpec.effort !== 'auto') {
+                  observedEffort = turnSpec.effort
+                }
+              }
               for (const block of msg.message.content) {
                 if (block.type === 'tool_use') {
                   io.send({
@@ -499,7 +512,13 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
         io.send({ t: 'error', message: 'claude turn ended without reporting a session id' })
         return
       }
-      io.send({ t: 'done', harnessSessionId: sessionId, output })
+      io.send({
+        t: 'done',
+        harnessSessionId: sessionId,
+        output,
+        ...(observedModel ? { observedModel } : {}),
+        ...(observedEffort ? { observedEffort } : {}),
+      })
     })().finally(() => {
       denyPendingPermissions()
       finish()

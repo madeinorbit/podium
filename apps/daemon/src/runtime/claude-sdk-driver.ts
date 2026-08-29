@@ -96,6 +96,8 @@ export function createDaemonClaudeSdkRuntime(deps: {
   host: TerminalRuntimeHost
   /** `ctx.homeDir` — the named instance's agent home, when there is one. */
   homeDir?: string
+  /** Installed Claude executable captured from this daemon generation. */
+  executablePath?: string
 }): DaemonClaudeSdkRuntime {
   /**
    * The instance-owned overlay, layered LAST so it outranks the spawn frame's
@@ -140,6 +142,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
         structuredPermissions: true,
         ...(model && model !== 'auto' ? { model } : {}),
         ...(effort && effort !== 'auto' ? { effort } : {}),
+        ...(deps.executablePath ? { executablePath: deps.executablePath } : {}),
         ...(instructions ? { systemPrompt: instructions } : {}),
         ...(mcpConfig ? { mcpConfig } : {}),
         ...(input.spec.env || instanceEnv ? { env: { ...input.spec.env, ...instanceEnv } } : {}),
@@ -161,6 +164,8 @@ export function createDaemonClaudeSdkRuntime(deps: {
         done: child.done.then((outcome) => ({
           resumeValue: outcome.harnessSessionId,
           output: outcome.output,
+          ...(outcome.observedModel ? { observedModel: outcome.observedModel } : {}),
+          ...(outcome.observedEffort ? { observedEffort: outcome.observedEffort } : {}),
         })),
         interrupt: child.interrupt,
         // The acknowledged form, kept separate from `interrupt` above so
@@ -196,6 +201,13 @@ export function createDaemonClaudeSdkRuntime(deps: {
         return undefined
       }
     },
+    reportObservedConfiguration: ({ sessionId, model, effort }) =>
+      deps.send({
+        type: 'agentModel',
+        sessionId,
+        model,
+        ...(effort ? { effort } : {}),
+      }),
     onQueueAbandoned: reportQueueAbandonment('claude-sdk', deps.send),
   }
 

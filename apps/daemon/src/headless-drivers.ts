@@ -51,6 +51,8 @@ export interface HeadlessTurnOutcome {
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId: string
   output: string
+  observedModel?: string
+  observedEffort?: string
 }
 
 /**
