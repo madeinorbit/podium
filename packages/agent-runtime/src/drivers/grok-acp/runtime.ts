@@ -154,11 +154,19 @@ interface QueuedTurn {
   options: SendOptions
 }
 
+interface NativeObservation {
+  eventId?: string
+  ordinal?: number
+  /** A load replay at or behind the durable provider checkpoint still rebuilds
+   *  this handle's projection, but must not mint a later local event cursor. */
+  replayedBeforeCheckpoint?: boolean
+}
+
 interface BufferedToolResult {
   item: TranscriptItem
   at: string
   provenance: ObservationProvenance
-  native: { eventId?: string; ordinal?: number }
+  native: NativeObservation
   emitted: boolean
 }
 
@@ -277,9 +285,10 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     body: RuntimeEventBody,
     at: string,
     provenance: ObservationProvenance = 'live',
-    native?: { eventId?: string; ordinal?: number },
+    native?: NativeObservation,
   ): void {
     if (session.disposed) return
+    if (native?.replayedBeforeCheckpoint) return
     if (native?.ordinal !== undefined) {
       session.providerEventSeq = Math.max(session.providerEventSeq, native.ordinal)
     }
@@ -302,7 +311,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     change: AgentStateEvent,
     at: string,
     provenance: ObservationProvenance,
-    native?: { eventId?: string; ordinal?: number },
+    native?: NativeObservation,
   ): void {
     if (change.kind === 'turn_failed') {
       const turnEpoch = session.openTurnEpoch ?? session.turnEpoch
@@ -339,7 +348,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     item: TranscriptItem,
     at: string,
     provenance: ObservationProvenance,
-    native?: { eventId?: string; ordinal?: number },
+    native?: NativeObservation,
   ): void {
     if (session.transcriptIds.has(item.id)) {
       const index = session.transcriptItems.findIndex((candidate) => candidate.id === item.id)
@@ -378,7 +387,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
   function flushUser(
     session: DriverSession,
     provenance: ObservationProvenance,
-    native?: { eventId?: string; ordinal?: number },
+    native?: NativeObservation,
   ): void {
     const buffer = session.userBuffer
     if (!buffer) return
@@ -401,7 +410,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
   function flushAssistant(
     session: DriverSession,
     provenance: ObservationProvenance,
-    native?: { eventId?: string; ordinal?: number },
+    native?: NativeObservation,
   ): void {
     const buffer = session.assistantBuffer
     if (!buffer) return
@@ -482,7 +491,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     update: Record<string, unknown>,
     at: string,
     provenance: ObservationProvenance,
-    native: { eventId?: string; ordinal?: number },
+    native: NativeObservation,
   ): void {
     const kind = typeof update.sessionUpdate === 'string' ? update.sessionUpdate : ''
     switch (kind) {
@@ -652,7 +661,19 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       }
     }
     const at = iso(notification.params._meta?.agentTimestampMs)
-    const native = { ...(eventId ? { eventId } : {}), ordinal }
+    const replayedBeforeCheckpoint =
+      provenance === 'replay' && ordinal <= session.providerEventSeq
+    if (!replayedBeforeCheckpoint && ordinal > session.providerEventSeq) {
+      // Observation advances even when this update only fills a transcript
+      // buffer and therefore emits no runtime event of its own.
+      session.providerEventSeq = ordinal
+      persist(session)
+    }
+    const native: NativeObservation = {
+      ...(eventId ? { eventId } : {}),
+      ordinal,
+      replayedBeforeCheckpoint,
+    }
     ingestTranscriptUpdate(session, notification.params.update, at, provenance, native)
     const payload = {
       ...frame,

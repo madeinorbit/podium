@@ -740,9 +740,10 @@ describe('grok-acp interrupt transcript marker', () => {
 
   it('keeps the confirmed marker reconstructable after native output and restart', async () => {
     const world = makeWorld({ deferCancellation: true })
-    const { driver } = world.target.createDriver()
+    const { driver, control } = world.target.createDriver()
     try {
       const handle = await driver.create(world.target.spec())
+      const binding = handle.binding
       const observed: RuntimeEvent[] = []
       const pump = (async () => {
         for await (const event of handle.events('bootstrap')) {
@@ -799,6 +800,54 @@ describe('grok-acp interrupt transcript marker', () => {
           event: 'interrupt',
         }),
       ])
+
+      // Recreate the daemon's adopt path, not merely its cursor comparator:
+      // the fresh ACP process loads the journalled provider cursor and Grok
+      // replays the native conversation before `adopt()` returns. That replay
+      // must rebuild this handle's local projection without advertising old
+      // transcript/state as new durable events after the saved checkpoint.
+      control.restartSupervisor()
+      const { driver: restartedDriver } = world.target.createDriver()
+      const adopted = await restartedDriver.adopt(binding)
+      const adoptedEvents: RuntimeEvent[] = []
+      for await (const event of adopted.events('bootstrap')) {
+        adoptedEvents.push(event)
+        if (event.t === 'process' && event.ev.ev === 'adopted') break
+      }
+
+      expect(await adopted.transcript.history({ limit: 20 })).toContainEqual(
+        expect.objectContaining({
+          role: 'user',
+          text: 'emit native output before the stop fence',
+        }),
+      )
+      expect(
+        adoptedEvents.filter(
+          (event) => event.t === 'item' || event.t === 'state',
+        ),
+      ).toEqual([])
+
+      const acceptedAfterRestart: RuntimeEvent[] = []
+      for (const event of adoptedEvents) {
+        if (isRuntimeFineEvent(event)) continue
+        if (compareProviderCursor(checkpoint, event.cursor) !== 'after') continue
+        acceptedAfterRestart.push(event)
+        checkpoint = event.cursor
+      }
+      const reconstructedWithAdopt = [...durableAfterStart, ...acceptedAfterRestart]
+      expect(
+        reconstructedWithAdopt.filter(
+          (event) =>
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            event.item.item.event === 'interrupt',
+        ),
+      ).toHaveLength(1)
+      expect(
+        acceptedAfterRestart.filter(
+          (event) => event.t === 'item' || event.t === 'state',
+        ),
+      ).toEqual([])
     } finally {
       world.target.reset()
     }
