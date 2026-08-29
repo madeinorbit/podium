@@ -324,6 +324,7 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       const path = grokSessionPaths({
         cwd: input.workdir,
         sessionId: input.grokSessionId,
+        homeDir: deps.homeDir,
       }).updatesPath
       let descriptor: number | undefined
       try {
@@ -345,7 +346,11 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       }
     },
     async readArchive(input) {
-      const paths = grokSessionPaths({ cwd: input.workdir, sessionId: input.grokSessionId })
+      const paths = grokSessionPaths({
+        cwd: input.workdir,
+        sessionId: input.grokSessionId,
+        homeDir: deps.homeDir,
+      })
       const candidates = [
         ['updates.jsonl', paths.updatesPath],
         ['chat_history.jsonl', paths.chatHistoryPath],

@@ -28,6 +28,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { grokSessionPaths } from '@podium/harness'
 import { asSessionId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -301,6 +302,39 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       await endpoint.kill()
     }
   }, 30_000)
+  it('grok readers use the instance home and tail only new update bytes', async () => {
+    const grokSessionId = 'native-reader-session'
+    const paths = grokSessionPaths({
+      cwd: workdir,
+      sessionId: grokSessionId,
+      homeDir: instanceHome,
+    })
+    mkdirSync(paths.sessionDir, { recursive: true })
+    const first = '{"native":1}\n'
+    const second = '{"native":2}\n'
+    writeFileSync(paths.updatesPath, first + second)
+
+    const host = createGrokAcpHost({ resources, homeDir: instanceHome })
+    const tail = await host.readNativeUpdates?.({
+      sessionId: asSessionId('podium-reader-session'),
+      grokSessionId,
+      workdir,
+      offset: Buffer.byteLength(first),
+    })
+    expect(tail?.offset).toBe(Buffer.byteLength(first))
+    expect(new TextDecoder().decode(tail?.bytes)).toBe(second)
+
+    const archive = await host.readArchive?.({
+      sessionId: asSessionId('podium-reader-session'),
+      grokSessionId,
+      workdir,
+    })
+    expect(archive).toContainEqual({
+      path: 'updates.jsonl',
+      bytes: expect.any(Uint8Array),
+    })
+    expect(new TextDecoder().decode(archive?.[0]?.bytes)).toBe(first + second)
+  })
 })
 
 it('the fake harness wrapper actually runs on this machine (test-rig sanity)', () => {
