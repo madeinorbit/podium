@@ -34,9 +34,9 @@ if (!['codex', 'opencode', 'claude', 'grok'].includes(harness)) throw new Error(
 if (arm !== 'headless' && arm !== 'terminal') throw new Error(`unknown arm ${arm}`)
 
 const ROOT = process.cwd()
-const BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-3098-a3-14c298d'
-const BASE_PIN = '672bf9c6fb20feb059498620ec538e0743d00c6c'
-const PIN = '14c298de7d2db7d30cf05a6ce242cb57cd0e3cc1'
+const BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-3098-a3-40a56e7'
+const BASE_PIN = '153945bd24eee3f6d479e3591c4bbc86e712903f'
+const PIN = '40a56e72613b8bb4a965e917fab0046aace4d6da'
 const INSTANCE = 'p3098-a3-current-tip'
 const STATE_ROOT = join(BASE, 'state')
 const AGENT_HOME = join(BASE, 'agent-home')
@@ -233,12 +233,12 @@ async function main() {
       : `A3 clauses unmet: accepted=${callAccepted} stoppedMs=${stoppedMs} quietTail=${quietTail} exactlyOneDurable=${sameMarker} idleDistinct=${idleDistinguished}`,
     pins: {
       head, base, evidenceHead,
-      serverSource: '14c298de7d2db7d30cf05a6ce242cb57cd0e3cc1',
+      serverSource: '40a56e72613b8bb4a965e917fab0046aace4d6da',
       daemonSource: '672bf9c6fb20feb059498620ec538e0743d00c6c',
       webSource: '574e2666043359d28cf2b876201d41cf241ff629',
       runtimeServer: readFileSync(join(BASE, 'server.sha'), 'utf8').trim(),
       runtimeDaemon: readFileSync(join(BASE, 'daemon.sha'), 'utf8').trim(),
-      servedWeb: '14c298d',
+      servedWeb: '40a56e7',
       instance: INSTANCE, stateRoot: STATE_ROOT, agentHome: AGENT_HOME,
       ports: { server: 19983, hook: 46983, relay: 46984 },
       runtimeArm,
