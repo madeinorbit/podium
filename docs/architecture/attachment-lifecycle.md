@@ -30,6 +30,20 @@ is a proposal.*
 > half was the half that decides the fix. Details and the measured tables are in
 > `docs/evidence/pod-2761/README.md`.
 
+> ## CURRENT STATUS — 2026-08-29
+>
+> The old measurement remains valid as pre-fix evidence, but it is no longer the
+> current implementation description. OpenCode now declares `parkOnRelease` and
+> parks its abduco master when the viewer returns to Chat; the next Native attach
+> adopts that master and keeps its scrollback. The shared attach seam also emits a
+> clear/reset sequence only for a newly created client generation, so Codex and
+> Grok's deliberate cold starts cannot paint a fresh interface into old scrollback.
+>
+> Codex and Grok remain non-parkable because their native clients own direct
+> writers that must be revoked on release. The explicit `parkable`/`revokeOnRelease`
+> capability pair and a recency-based retention policy are still proposal work;
+> no provider runtime drive has yet promoted the continuity rows at the current tip.
+
 ---
 
 ## 1. The question
