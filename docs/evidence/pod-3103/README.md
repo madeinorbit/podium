@@ -1,5 +1,19 @@
 # POD-3103 headed driver acceptance
 
+## Tip-drift status
+
+At 2026-08-30 00:56 CEST the parent reported epic tip `153945bd`. Relative to
+the original `fbc2f18b` pin, that tip changes product paths used by this lane,
+including daemon runtime selection/inventory and server session creation,
+lifecycle, revival, and client-plane code. Therefore every live cell below is
+historical evidence for its exact recorded pin and is superseded as current-tip
+acceptance. Its measurements and defect reproduction remain valid for that pin;
+they must not be represented as proof of `153945bd` or a later stable tip.
+
+The offline Claude diagnosis and classifier repair at `582a3c6ba` remain current
+source evidence. No POD-3103 rig was running when the pause was checked, and no
+new Claude, Codex, or Grok runtime was launched after the drift notice.
+
 ## Pins and isolation
 
 The source branch and local `issue/1761-agent-runtime` both pointed to
