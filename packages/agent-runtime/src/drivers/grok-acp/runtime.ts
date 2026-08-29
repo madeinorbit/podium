@@ -173,7 +173,6 @@ interface DriverSession {
   turnEpoch: number
   openTurnEpoch: number | undefined
   providerEventSeq: number
-  lastEventId: string | undefined
   seq: number
   busy: boolean
   /** The exact open prompt epoch for which Podium sent `session/cancel`. */
@@ -251,9 +250,12 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
   const capabilities = grokAcpCapabilities()
   const iso = (ms?: number): string => new Date(ms ?? host.now()).toISOString()
 
+  // ACP event ids identify individual updates, not a stable file or provider
+  // path. Putting the latest id in pathHint makes every native update look like
+  // an unproven path replacement to the durable server gate. The provider
+  // ordinal and local sequence are the monotonic cursor components.
   const cursorFor = (session: DriverSession): ProviderCursor => ({
     segmentId: session.grokSessionId || session.binding.process.key,
-    ...(session.lastEventId ? { pathHint: session.lastEventId } : {}),
     components: { event: session.providerEventSeq, seq: session.seq },
   })
 
@@ -281,7 +283,6 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     if (native?.ordinal !== undefined) {
       session.providerEventSeq = Math.max(session.providerEventSeq, native.ordinal)
     }
-    if (native?.eventId) session.lastEventId = native.eventId
     session.seq += 1
     const event = stampRuntimeEvent(body, at, provenance, {
       cursor: cursorFor(session),
@@ -870,7 +871,6 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       turnEpoch: input.turnEpoch ?? 0,
       openTurnEpoch: undefined,
       providerEventSeq: input.providerEventSeq ?? 0,
-      lastEventId: undefined,
       seq: input.seq ?? 0,
       busy: false,
       interruptRequestedEpoch: undefined,

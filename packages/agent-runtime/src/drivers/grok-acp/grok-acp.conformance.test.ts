@@ -1,4 +1,6 @@
+import { compareProviderCursor } from '@podium/harness/metadata'
 import type { SessionId } from '@podium/model'
+import { isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
@@ -731,6 +733,72 @@ describe('grok-acp interrupt transcript marker', () => {
         phase: 'idle',
         idle: { kind: 'interrupted' },
       })
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('keeps the confirmed marker reconstructable after native output and restart', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const observed: RuntimeEvent[] = []
+      const pump = (async () => {
+        for await (const event of handle.events('bootstrap')) {
+          observed.push(event)
+          if (
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            event.item.item.event === 'interrupt'
+          ) {
+            return
+          }
+        }
+      })()
+
+      await handle.send(
+        { text: 'emit native output before the stop fence' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await world.streamAssistantText(handle.binding.sessionId, ['partial before stop'])
+      await handle.interrupt()
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+      await pump
+
+      const turnStartIndex = observed.findIndex(
+        (event) => event.t === 'turn' && event.ev.ev === 'started',
+      )
+      expect(turnStartIndex).toBeGreaterThanOrEqual(0)
+      const turnStart = observed[turnStartIndex]
+      if (!turnStart) throw new Error('Grok turn start was not observed')
+
+      // Reproduce the durable gate from the exact live checkpoint seen in the
+      // failed A3 cell. Fine fragments never move that checkpoint; every later
+      // coarse event must prove it follows the accepted turn start. A restart
+      // can reconstruct only the complete marker that survives this gate.
+      let checkpoint = turnStart.cursor
+      const durableAfterStart: RuntimeEvent[] = []
+      for (const event of observed.slice(turnStartIndex + 1)) {
+        if (isRuntimeFineEvent(event)) continue
+        if (compareProviderCursor(checkpoint, event.cursor) !== 'after') continue
+        durableAfterStart.push(event)
+        checkpoint = event.cursor
+      }
+      const reconstructedAfterRestart = durableAfterStart.flatMap((event) =>
+        event.t === 'item' &&
+        event.item.kind === 'complete' &&
+        event.item.item.event === 'interrupt'
+          ? [event.item.item]
+          : [],
+      )
+      expect(reconstructedAfterRestart).toEqual([
+        expect.objectContaining({
+          id: 'grok-interrupt-1',
+          role: 'user',
+          event: 'interrupt',
+        }),
+      ])
     } finally {
       world.target.reset()
     }
