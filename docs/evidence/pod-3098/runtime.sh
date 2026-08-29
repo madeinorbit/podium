@@ -5,7 +5,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-BASE=/tmp/pod-3098-a3-7574664
+BASE=/tmp/pod-3098-a3-eb8b116
 STATE_ROOT="$BASE/state"
 AGENT_HOME="$BASE/agent-home"
 SCRATCH="$BASE/provider-work"
@@ -16,7 +16,7 @@ HOOK_PORT=46983
 RELAY_PORT=46984
 PASSWORD=p3098-a3
 BASE_PIN=62bb4a749241c7c7bd85fbca59e86a9651e4f4de
-PIN=75746645d07b29c5571f7821d9a2467990e828e2
+PIN=eb8b116a8e858c21a9a258df690956fb29e52c50
 BUN=/home/mgw/.bun/bin/bun
 XDG_RUN=/run/user/1001
 DBUS_ADDR=unix:path=/run/user/1001/bus
@@ -180,8 +180,8 @@ verify_runtime() {
   [ "$(env_value "$daemon_pid" PODIUM_RUNTIME_CONTRACT)" = "$contract" ] || fail "contract arm mismatch"
   [ "$(env_value "$daemon_pid" PODIUM_RUNTIME_DRIVER)" = "$driver" ] || fail "driver arm mismatch"
   stamp="$(curl -fsS "http://127.0.0.1:$PORT/podium-build.json")"
-  printf '%s' "$stamp" | grep -Eq '"sourceSha"[[:space:]]*:[[:space:]]*"7574664"' || fail "served web pin is not 7574664: $stamp"
-  echo "PIN VERIFIED head=$PIN server=$(sed -n '1p' "$BASE/server.sha") daemon=$(sed -n '1p' "$BASE/daemon.sha") web=7574664 arm=$arm instance=$INSTANCE state=$STATE_ROOT agentHome=$AGENT_HOME ports=$PORT/$HOOK_PORT/$RELAY_PORT"
+  printf '%s' "$stamp" | grep -Eq '"sourceSha"[[:space:]]*:[[:space:]]*"eb8b116"' || fail "served web pin is not eb8b116: $stamp"
+  echo "PIN VERIFIED head=$PIN server=$(sed -n '1p' "$BASE/server.sha") daemon=$(sed -n '1p' "$BASE/daemon.sha") web=eb8b116 arm=$arm instance=$INSTANCE state=$STATE_ROOT agentHome=$AGENT_HOME ports=$PORT/$HOOK_PORT/$RELAY_PORT"
 }
 
 case "${1:-}" in
