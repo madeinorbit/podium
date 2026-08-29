@@ -36,6 +36,12 @@ do not restart an already-running worker solely to change its model.
 **Latest operator override, 2026-08-29:** for every new or restarted worker, use
 Codex `gpt-5.6-sol` at `high` effort. This supersedes the temporary Opus override
 above; do not restart an already-running worker solely to change its model.
+
+**Latest operator override, 2026-08-30 00:01 CEST:** for every new or restarted
+worker, use Codex `gpt-5.6-sol` at `low` effort. This supersedes the high-effort
+override above; let workers already in flight finish at the effort they started
+with rather than discarding a live rig or unreported evidence.
+
 ## Rigs
 
 - **Run as a NAMED instance.** Even the default is named `default` now.
@@ -1655,6 +1661,35 @@ and do not rewrite `results.tsv` or evidence reports to match.
 - This documentation change does not run provider or heavy tests. Future SDK drives still
   follow every other rule in this brief (three-part pin, `test:heavy` for RAM, never merge
   main into the epic branch).
+
+## Headed and headless are one runtime surface — 2026-08-30 00:01 CEST
+
+**Operator ruling.** The shared `RuntimeDriver` contract remains the abstraction
+boundary. Do not fork a second interface for interactive sessions and do not redesign
+the contract merely to expose selection: the terminal-driver adapter already puts the
+current PTY/native-CLI sessions behind it.
+
+- Today's interactive drivers (`claude-pty` and the harness-parameterized terminal
+  driver used by Codex, Grok, and OpenCode) remain the default. Existing sessions and
+  ordinary new sessions must not move silently to a headless provider path.
+- Headless server/SDK drivers are exposed by a replicated experimental setting. The
+  setting enables the product affordance; it does not itself silently change the
+  default driver.
+- With the experiment enabled, a new session may select a concrete available driver.
+  That per-session request is durable, visible, and must survive reload, park/resume,
+  server/daemon restart, resurrection, and adoption. The actual bound driver remains a
+  separately reported runtime fact; requested and observed values must not be conflated.
+- Logged-out, unavailable, version-refused, or policy-refused headless choices must
+  produce a typed, visible result or the existing explicit fallback. They must never
+  hang at startup or silently bind a different driver while claiming the request was
+  honoured. Interactive login continues on the terminal path.
+- Headed drivers receive real acceptance drives too. For Claude, Codex, Grok, and
+  OpenCode, measure and repair launch/input readiness, first and subsequent sends,
+  real-time PTY bytes, transcript synchronization where supported, Chat/Native
+  switching, interrupt, resume/reconnect, login/error visibility, and latency. A
+  conformance test is not a substitute for these live boundaries.
+- Headless acceptance remains first-class. This ruling adds the headed column and the
+  selection surface; it does not demote or delete any server/SDK driver work.
 
 
 ## Current acceptance priority — 2026-08-29 16:13 CEST
