@@ -121,14 +121,14 @@ describe('driver resolution', () => {
     ['opencode', 'opencode-server'],
     ['codex', 'codex-app-server'],
     ['grok', 'grok-acp'],
-  ] as const)('%s defaults to its server, degrades visibly, and preserves explicit overrides', (agentKind, serverDriver) => {
+  ] as const)('%s defaults to its terminal, degrades visibly, and preserves explicit overrides', (agentKind, serverDriver) => {
     expect(
       runtimeDriverIntentForSpawn({
         agentKind,
         perSpawn: undefined,
         machineDefault: undefined,
       }),
-    ).toEqual({ requested: undefined, preferred: serverDriver })
+    ).toEqual({ requested: undefined, preferred: undefined })
 
     const supported = resolveRuntimeDriver({
       agentKind,
@@ -137,7 +137,7 @@ describe('driver resolution', () => {
       available: [serverDriver, 'generic-pty'],
       platform: 'linux',
     })
-    expect(supported).toEqual({ ok: true, driverId: serverDriver })
+    expect(supported).toEqual({ ok: true, driverId: 'generic-pty' })
 
     const loggedOut = resolveRuntimeDriver({
       agentKind,
@@ -216,8 +216,7 @@ describe('driver resolution', () => {
     ).toBe(false)
   })
 
-  it('defaults to opencode-server when the machine admits it', () => {
-    // No per-spawn or machine preference: the harness policy owns the choice.
+  it('defaults to the terminal when no per-spawn choice exists', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'opencode',
       requested: undefined,
@@ -225,7 +224,7 @@ describe('driver resolution', () => {
       available: [...available],
       platform: 'linux',
     })
-    expect(resolved).toEqual({ ok: true, driverId: 'opencode-server' })
+    expect(resolved).toEqual({ ok: true, driverId: 'generic-pty' })
     expect(isServerDriver('opencode', 'opencode-server')).toBe(true)
   })
 

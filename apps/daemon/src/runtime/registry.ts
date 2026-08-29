@@ -227,6 +227,9 @@ export function resolveRuntimeDriver(input: {
 }): DriverResolution {
   const manifest = manifestFor(input.agentKind)
   if (!manifest) return { ok: false, reason: `no manifest for harness '${input.agentKind}'` }
+  if (input.requested === undefined) {
+    return { ok: true, driverId: manifest.runtime.terminal.driverId }
+  }
   const preference = runtimeDriverFor(input.machineDefault, input.requested)
   if (preference !== undefined && !IMPLEMENTED.has(preference)) {
     return { ok: false, reason: `unknown runtime driver '${preference}'` }
@@ -265,15 +268,17 @@ export function resolveRuntimeDriver(input: {
   return { ok: true, driverId: manifest.runtime.select(ctx) }
 }
 /**
- * The preference whose probe a spawn must consult. With no explicit or
- * machine-wide value, a server-capable harness contributes its own declared
- * server id; a terminal-only harness contributes nothing and skips probing.
+ * The preference whose probe a spawn must consult. An absent per-spawn choice
+ * is the product's headed default and skips every headless probe, regardless of
+ * machine-wide policy. Explicit true retains API compatibility by consulting
+ * the manifest default; an explicit id probes that concrete driver.
  */
 export function runtimeDriverIntentForSpawn(input: {
   agentKind: AgentKind
   perSpawn: RuntimeContractRequest | undefined
   machineDefault: string | undefined
 }): { requested: string | undefined; preferred: string | undefined } {
+  if (input.perSpawn === undefined) return { requested: undefined, preferred: undefined }
   const requested = runtimeDriverFor(input.machineDefault, input.perSpawn)
   const manifest = manifestFor(input.agentKind)
   const declaredServer = manifest ? declaredValue(manifest.runtime.server) : undefined

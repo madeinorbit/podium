@@ -83,7 +83,7 @@ describe('Claude SDK runtime selection', () => {
     )
   })
 
-  it('routes subscription auth to the SDK only when the ToS gate admits it', () => {
+  it('keeps subscription auth headed until the SDK is explicitly requested', () => {
     const admitted = ['claude-pty', 'generic-pty', 'claude-sdk'] as const
     expect(
       resolveRuntimeDriver({
@@ -93,7 +93,7 @@ describe('Claude SDK runtime selection', () => {
         machineDefault: undefined,
         available: admitted,
       }),
-    ).toEqual({ ok: true, driverId: 'claude-sdk' })
+    ).toEqual({ ok: true, driverId: 'claude-pty' })
     expect(
       resolveRuntimeDriver({
         ...base,

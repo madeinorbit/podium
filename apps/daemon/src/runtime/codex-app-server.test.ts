@@ -325,8 +325,7 @@ describe('selection — server first, terminal fallback', () => {
     expect(isServerDriver('opencode', 'codex-app-server')).toBe(false)
   })
 
-  it('defaults to app-server when a spawn expresses no preference', () => {
-    // The terminal driver remains the fallback, not the first-ranked choice.
+  it('defaults to terminal when a spawn expresses no preference', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: undefined,
@@ -335,7 +334,7 @@ describe('selection — server first, terminal fallback', () => {
       platform: 'linux',
     })
     expect(resolved.ok).toBe(true)
-    if (resolved.ok) expect(resolved.driverId).toBe('codex-app-server')
+    if (resolved.ok) expect(resolved.driverId).toBe('generic-pty')
   })
 
   it('honours an explicit per-spawn preference', () => {
