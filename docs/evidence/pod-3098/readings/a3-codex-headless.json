@@ -3,21 +3,21 @@
   "harness": "codex",
   "arm": "headless",
   "verdict": "PASS",
-  "at": "2026-08-29T22:46:17.088Z",
-  "summary": "real turn stopped in 427ms; exactly one durable interrupt item survived reload and server/daemon restart",
+  "at": "2026-08-29T22:57:38.184Z",
+  "summary": "real turn stopped in 353ms; exactly one durable interrupt item survived reload and server/daemon restart",
   "pins": {
-    "head": "40a56e72613b8bb4a965e917fab0046aace4d6da",
-    "base": "153945bd24eee3f6d479e3591c4bbc86e712903f",
-    "evidenceHead": "bbcbcef4e117171e55a992639c9fb96bec41ca5c",
-    "serverSource": "40a56e72613b8bb4a965e917fab0046aace4d6da",
-    "daemonSource": "672bf9c6fb20feb059498620ec538e0743d00c6c",
+    "head": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "base": "71cb2b78855b32e445380b064040e8e9fe9784de",
+    "evidenceHead": "18f3f86e51fad7f903d3dd984198a8a6a632ae83",
+    "serverSource": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "daemonSource": "71cb2b78855b32e445380b064040e8e9fe9784de",
     "webSource": "574e2666043359d28cf2b876201d41cf241ff629",
-    "runtimeServer": "40a56e72613b8bb4a965e917fab0046aace4d6da",
-    "runtimeDaemon": "40a56e72613b8bb4a965e917fab0046aace4d6da",
-    "servedWeb": "40a56e7",
+    "runtimeServer": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "runtimeDaemon": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "servedWeb": "ef1b5e4",
     "instance": "p3098-a3-current-tip",
-    "stateRoot": "/tmp/pod-3098-a3-40a56e7/state",
-    "agentHome": "/tmp/pod-3098-a3-40a56e7/agent-home",
+    "stateRoot": "/tmp/pod-3098-a3-ef1b5e4/state",
+    "agentHome": "/tmp/pod-3098-a3-ef1b5e4/agent-home",
     "ports": {
       "server": 19983,
       "hook": 46983,
@@ -31,12 +31,12 @@
     "versions": [
       "/tmp/pod-2777/bin/codex: codex-cli 0.149.1"
     ],
-    "sessionId": "02b470b1-3441-4b2e-ab4f-a88655d95b66",
+    "sessionId": "f20c49c4-91ef-4835-b5bd-05247fe75c77",
     "primed": []
   },
   "admission": {
-    "loadAtAdmission": 7.14,
-    "loadAtInterrupt": 7.3,
+    "loadAtAdmission": 6.46,
+    "loadAtInterrupt": 6.58,
     "limit": 12,
     "installedRelayAvailable": true
   },
@@ -45,7 +45,7 @@
     "workingSeen": true,
     "growthTransitions": 2,
     "baseline": {
-      "ms": 4,
+      "ms": 6,
       "phase": "idle",
       "previews": 0,
       "assistantChars": 0,
@@ -53,9 +53,9 @@
       "deltaFrames": 0
     },
     "atRequest": {
-      "ms": 13,
+      "ms": 10,
       "phase": "working",
-      "previews": 5,
+      "previews": 3,
       "assistantChars": 0,
       "terminalBytes": 0,
       "deltaFrames": 1
@@ -70,7 +70,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 264,
+        "ms": 262,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -78,7 +78,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 526,
+        "ms": 531,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -86,7 +86,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 789,
+        "ms": 787,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -94,7 +94,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 1050,
+        "ms": 1047,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -102,7 +102,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 1305,
+        "ms": 1303,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -110,7 +110,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 1559,
+        "ms": 1557,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -118,15 +118,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 1815,
-        "phase": "working",
-        "previews": 0,
-        "assistantChars": 0,
-        "terminalBytes": 0,
-        "deltaFrames": 0
-      },
-      {
-        "ms": 2073,
+        "ms": 1821,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -134,7 +126,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2330,
+        "ms": 2078,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -142,7 +134,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2589,
+        "ms": 2354,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -150,7 +142,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2853,
+        "ms": 2612,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -158,7 +150,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3108,
+        "ms": 2873,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -166,7 +158,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3365,
+        "ms": 3147,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -174,7 +166,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3621,
+        "ms": 3402,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -182,7 +174,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3881,
+        "ms": 3658,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -190,7 +182,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4137,
+        "ms": 3919,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -198,7 +190,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4394,
+        "ms": 4181,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -206,7 +198,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4650,
+        "ms": 4438,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -214,7 +206,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4935,
+        "ms": 4695,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -222,7 +214,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 5202,
+        "ms": 4951,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -230,7 +222,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 5499,
+        "ms": 5208,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -238,41 +230,17 @@
         "deltaFrames": 1
       },
       {
-        "ms": 5767,
+        "ms": 5465,
         "phase": "working",
-        "previews": 0,
+        "previews": 1,
         "assistantChars": 0,
         "terminalBytes": 0,
         "deltaFrames": 1
       },
       {
-        "ms": 6026,
+        "ms": 5726,
         "phase": "working",
-        "previews": 0,
-        "assistantChars": 0,
-        "terminalBytes": 0,
-        "deltaFrames": 1
-      },
-      {
-        "ms": 6282,
-        "phase": "working",
-        "previews": 0,
-        "assistantChars": 0,
-        "terminalBytes": 0,
-        "deltaFrames": 1
-      },
-      {
-        "ms": 6543,
-        "phase": "working",
-        "previews": 2,
-        "assistantChars": 0,
-        "terminalBytes": 0,
-        "deltaFrames": 1
-      },
-      {
-        "ms": 6824,
-        "phase": "working",
-        "previews": 5,
+        "previews": 3,
         "assistantChars": 0,
         "terminalBytes": 0,
         "deltaFrames": 1
@@ -289,7 +257,7 @@
       "ok": true,
       "requested": "protocol"
     },
-    "requestToStoppedMs": 427,
+    "requestToStoppedMs": 353,
     "quickCeilingMs": 5000,
     "outputAfterRequest": {
       "previewFrames": 2,
@@ -298,361 +266,369 @@
       "transcriptDeltaFrames": 2,
       "samples": [
         {
-          "ms": 93,
+          "ms": 94,
           "phase": "working",
-          "previews": 6,
+          "previews": 4,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 1
         },
         {
-          "ms": 427,
+          "ms": 353,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 838,
+          "ms": 619,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 1095,
+          "ms": 875,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 1355,
+          "ms": 1130,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 1612,
+          "ms": 1403,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 1875,
+          "ms": 1665,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 2138,
+          "ms": 1934,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 2399,
+          "ms": 2194,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 2655,
+          "ms": 2450,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 2913,
+          "ms": 2705,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 3172,
+          "ms": 2963,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 3431,
+          "ms": 3223,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 3688,
+          "ms": 3477,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 3976,
+          "ms": 3732,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 4235,
+          "ms": 3988,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 4499,
+          "ms": 4243,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 4766,
+          "ms": 4498,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 5024,
+          "ms": 4754,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 5311,
+          "ms": 5011,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 5573,
+          "ms": 5265,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 5830,
+          "ms": 5520,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 6088,
+          "ms": 5775,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 6343,
+          "ms": 6035,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 6600,
+          "ms": 6298,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 6863,
+          "ms": 6553,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 7121,
+          "ms": 6808,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 7380,
+          "ms": 7064,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 7639,
+          "ms": 7329,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 7894,
+          "ms": 7585,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 8167,
+          "ms": 7841,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 8430,
+          "ms": 8096,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 8688,
+          "ms": 8350,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 8946,
+          "ms": 8606,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 9203,
+          "ms": 8867,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 9464,
+          "ms": 9121,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 9720,
+          "ms": 9383,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 9984,
+          "ms": 9639,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 10247,
+          "ms": 9893,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 10582,
+          "ms": 10167,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 10845,
+          "ms": 10449,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 11100,
+          "ms": 10704,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 11371,
+          "ms": 10962,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 11627,
+          "ms": 11222,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
         },
         {
-          "ms": 11882,
+          "ms": 11482,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 11753,
+          "phase": "idle",
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 3
@@ -664,7 +640,7 @@
   "durable": {
     "live": [
       {
-        "id": "codex-interrupt-02b470b1-3441-4b2e-ab4f-a88655d95b66-1",
+        "id": "codex-interrupt-f20c49c4-91ef-4835-b5bd-05247fe75c77-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
@@ -672,7 +648,7 @@
     ],
     "afterClientReload": [
       {
-        "id": "codex-interrupt-02b470b1-3441-4b2e-ab4f-a88655d95b66-1",
+        "id": "codex-interrupt-f20c49c4-91ef-4835-b5bd-05247fe75c77-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
@@ -680,7 +656,7 @@
     ],
     "afterServerDaemonRestart": [
       {
-        "id": "codex-interrupt-02b470b1-3441-4b2e-ab4f-a88655d95b66-1",
+        "id": "codex-interrupt-f20c49c4-91ef-4835-b5bd-05247fe75c77-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
@@ -689,12 +665,12 @@
     "exactlyOneStableId": true,
     "liveItems": [
       {
-        "id": "01a04fb3-61e2-73a3-91fd-94e2d8de005e",
+        "id": "01a04fbd-cf17-7a13-9fd2-1e9a2922db1a",
         "role": "user",
-        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEYYOA5 only in the final line."
+        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEZDBOM only in the final line."
       },
       {
-        "id": "codex-interrupt-02b470b1-3441-4b2e-ab4f-a88655d95b66-1",
+        "id": "codex-interrupt-f20c49c4-91ef-4835-b5bd-05247fe75c77-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
@@ -702,32 +678,32 @@
     ],
     "restartItems": [
       {
-        "id": "codex-interrupt-02b470b1-3441-4b2e-ab4f-a88655d95b66-1",
+        "id": "codex-interrupt-f20c49c4-91ef-4835-b5bd-05247fe75c77-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
       }
     ],
-    "preRestartLedger": "7|session.runtime|{\"at\":\"2026-08-29T22:45:49.102Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fb3-585e-7d31-9288-4729a240ed69\",\"components\":{\"seq\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"started\",\"turnEpoch\":1,\"origin\":\"controller\"}}\n8|session.runtime|{\"at\":\"2026-08-29T22:45:49.124Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fb3-585e-7d31-9288-4729a240ed69\",\"components\":{\"seq\":2}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"kind\":\"activity\",\"at\":\"2026-08-29T22:45:49.124Z\"}}\n10|session.phase|{\"phase\":\"working\",\"agentKind\":\"codex\",\"cwd\":\"/tmp/pod-3098-a3-40a56e7/provider-work\"}\n11|session.runtime|{\"at\":\"2026-08-29T22:45:51.202Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fb3-585e-7d31-9288-4729a240ed69\",\"components\":{\"seq\":3}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"01a04fb3-61e2-73a3-91fd-94e2d8de005e\",\"role\":\"user\",\"ts\":\"2026-08-29T22:45:51.202Z\",\"text\":\"Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEYYOA5 only in the final line.\"}}}\n12|session.runtime|{\"at\":\"2026-08-29T22:45:56.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fb3-585e-7d31-9288-4729a240ed69\",\"components\":{\"seq\":24}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"codex-interrupt-02b470b1-3441-4b2e-ab4f-a88655d95b66-1\",\"role\":\"user\",\"ts\":\"2026-08-29T22:45:56.000Z\",\"text\":\"[Request interrupted by user]\",\"event\":\"interrupt\"}}}\n13|session.runtime|{\"at\":\"2026-08-29T22:45:56.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fb3-585e-7d31-9288-4729a240ed69\",\"components\":{\"seq\":25}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"completed\",\"turnEpoch\":1,\"verdict\":\"interrupted\"}}\n15|session.phase|{\"phase\":\"idle\",\"verdict\":\"interrupted\",\"agentKind\":\"codex\",\"cwd\":\"/tmp/pod-3098-a3-40a56e7/provider-work\"}\ncheckpoint|1|{\"segmentId\":\"01a04fb3-585e-7d31-9288-4729a240ed69\",\"components\":{\"seq\":25}}|1|1",
+    "preRestartLedger": "7|session.runtime|{\"at\":\"2026-08-29T22:57:12.613Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fbd-c537-7701-bde6-59019ded16d2\",\"components\":{\"seq\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"started\",\"turnEpoch\":1,\"origin\":\"controller\"}}\n8|session.runtime|{\"at\":\"2026-08-29T22:57:12.645Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fbd-c537-7701-bde6-59019ded16d2\",\"components\":{\"seq\":2}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"kind\":\"activity\",\"at\":\"2026-08-29T22:57:12.645Z\"}}\n10|session.phase|{\"phase\":\"working\",\"agentKind\":\"codex\",\"cwd\":\"/tmp/pod-3098-a3-ef1b5e4/provider-work\"}\n11|session.runtime|{\"at\":\"2026-08-29T22:57:14.519Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fbd-c537-7701-bde6-59019ded16d2\",\"components\":{\"seq\":3}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"01a04fbd-cf17-7a13-9fd2-1e9a2922db1a\",\"role\":\"user\",\"ts\":\"2026-08-29T22:57:14.519Z\",\"text\":\"Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEZDBOM only in the final line.\"}}}\n12|session.runtime|{\"at\":\"2026-08-29T22:57:18.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fbd-c537-7701-bde6-59019ded16d2\",\"components\":{\"seq\":17}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"codex-interrupt-f20c49c4-91ef-4835-b5bd-05247fe75c77-1\",\"role\":\"user\",\"ts\":\"2026-08-29T22:57:18.000Z\",\"text\":\"[Request interrupted by user]\",\"event\":\"interrupt\"}}}\n13|session.runtime|{\"at\":\"2026-08-29T22:57:18.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fbd-c537-7701-bde6-59019ded16d2\",\"components\":{\"seq\":18}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"completed\",\"turnEpoch\":1,\"verdict\":\"interrupted\"}}\n15|session.phase|{\"phase\":\"idle\",\"verdict\":\"interrupted\",\"agentKind\":\"codex\",\"cwd\":\"/tmp/pod-3098-a3-ef1b5e4/provider-work\"}\ncheckpoint|1|{\"segmentId\":\"01a04fbd-c537-7701-bde6-59019ded16d2\",\"components\":{\"seq\":18}}|1|1",
     "publicRead": {
-      "sessionId": "02b470b1-3441-4b2e-ab4f-a88655d95b66",
+      "sessionId": "f20c49c4-91ef-4835-b5bd-05247fe75c77",
       "items": [
         {
           "role": "user",
-          "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEYYOA5 only in the final line.",
-          "ts": "2026-08-29T22:45:51.202Z"
+          "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEZDBOM only in the final line.",
+          "ts": "2026-08-29T22:57:14.519Z"
         },
         {
           "role": "user",
           "text": "[Request interrupted by user]",
-          "ts": "2026-08-29T22:45:56.000Z"
+          "ts": "2026-08-29T22:57:18.000Z"
         }
       ],
-      "cursor": "WyJjYWU2NGRlZGExMTYiLDQyNDYyLG51bGwsMF0",
+      "cursor": "WyIyYjI3OTM2MjlkMzIiLDQyNDYyLG51bGwsMF0",
       "hasMore": false,
       "truncated": false
     },
-    "restartOutput": "PIN VERIFIED head=40a56e72613b8bb4a965e917fab0046aace4d6da server=40a56e72613b8bb4a965e917fab0046aace4d6da daemon=40a56e72613b8bb4a965e917fab0046aace4d6da web=40a56e7 arm=headless instance=p3098-a3-current-tip state=/tmp/pod-3098-a3-40a56e7/state agentHome=/tmp/pod-3098-a3-40a56e7/agent-home ports=19983/46983/46984"
+    "restartOutput": "PIN VERIFIED head=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc server=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc daemon=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc web=ef1b5e4 arm=headless instance=p3098-a3-current-tip state=/tmp/pod-3098-a3-ef1b5e4/state agentHome=/tmp/pod-3098-a3-ef1b5e4/agent-home ports=19983/46983/46984"
   },
   "idleRefusal": {
     "response": {
@@ -737,7 +713,7 @@
     "newItems": [],
     "interruptItemsAfter": [
       {
-        "id": "codex-interrupt-02b470b1-3441-4b2e-ab4f-a88655d95b66-1",
+        "id": "codex-interrupt-f20c49c4-91ef-4835-b5bd-05247fe75c77-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
