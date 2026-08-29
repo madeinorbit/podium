@@ -13,16 +13,32 @@ const probeModels = vi.fn<(opts: unknown) => Promise<Record<string, unknown[]>>>
 vi.mock('@podium/harness', () => ({
   probeAllModels: (opts: unknown) => probeModels(opts),
 }))
+vi.mock('@podium/agent-runtime', () => ({
+  gateCodexVersion: vi.fn((version: string) =>
+    version === 'codex-cli 0.101.0' ? null : { code: 'unsupported' },
+  ),
+  gateGrokVersion: vi.fn((version: string) =>
+    version === 'grok 0.3.0' ? null : { code: 'unsupported' },
+  ),
+  gateOpencodeVersion: vi.fn((version: string) =>
+    version === '1.2.3' ? null : { code: 'unsupported' },
+  ),
+}))
 vi.mock('../runtime/codex-app-server', () => ({
-  codexAppServerVersionProbe: vi.fn(async () => ({ drivable: false })),
+  codexAppServerVersionProbe: vi.fn(() => new Promise(() => {})),
 }))
 vi.mock('../runtime/grok-acp-server', () => ({
-  grokAcpVersionProbe: vi.fn(async () => ({ drivable: false })),
+  grokAcpVersionProbe: vi.fn(() => new Promise(() => {})),
 }))
 vi.mock('../runtime/opencode-server', () => ({
-  opencodeVersionProbe: vi.fn(async () => ({ drivable: false })),
+  opencodeVersionProbe: vi.fn(() => new Promise(() => {})),
 }))
 vi.mock('../runtime/registry', () => ({ claudeSdkTosAcceptedByEnv: () => false }))
+
+import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/agent-runtime'
+import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
+import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
+import { opencodeVersionProbe } from '../runtime/opencode-server'
 
 import type { DaemonContext } from './context'
 import {
@@ -42,6 +58,15 @@ const withTerminalDrivers = (inventory: Inventory): Inventory => ({
   ...inventory,
   runtimeDrivers: terminalRuntimeDriverInventory(),
 })
+const HEADLESS_INV: Inventory = {
+  ...INV,
+  agents: [
+    ...INV.agents,
+    { kind: 'codex', installed: true, version: 'codex-cli 0.101.0', login: { state: 'in' } },
+    { kind: 'grok', installed: true, version: 'grok 0.3.0', login: { state: 'in' } },
+    { kind: 'opencode', installed: true, version: '1.2.3', login: { state: 'in' } },
+  ],
+}
 const LOGGED_OUT_INV: Inventory = {
   ...INV,
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'out' } }],
@@ -117,34 +142,33 @@ describe('daemon inventory reporting (#222)', () => {
     expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-runtime', inventory: withTerminalDrivers(INV) }])
   })
 
-  it('publishes ordinary inventory before a delayed headless-driver probe settles', async () => {
-    const { ctx, sent } = makeRuntimeCtx()
-    let resolveDrivers!: (drivers: NonNullable<Inventory['runtimeDrivers']>) => void
-    const drivers = new Promise<NonNullable<Inventory['runtimeDrivers']>>((resolve) => {
-      resolveDrivers = resolve
-    })
+  it('projects headless availability from the completed inventory without driver probes', async () => {
+    const { ctx, sent } = makeCtx()
+    buildInventory.mockResolvedValueOnce(HEADLESS_INV)
 
-    await reportInventory(ctx, { runtimeDrivers: () => drivers })
+    await reportInventory(ctx)
 
+    expect(gateCodexVersion).toHaveBeenCalledWith('codex-cli 0.101.0')
+    expect(gateGrokVersion).toHaveBeenCalledWith('grok 0.3.0')
+    expect(gateOpencodeVersion).toHaveBeenCalledWith('1.2.3')
+    expect(codexAppServerVersionProbe).not.toHaveBeenCalled()
+    expect(grokAcpVersionProbe).not.toHaveBeenCalled()
+    expect(opencodeVersionProbe).not.toHaveBeenCalled()
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-runtime', inventory: withTerminalDrivers(INV) },
-    ])
-    resolveDrivers([
-      ...terminalRuntimeDriverInventory(),
-      { harness: 'codex', id: 'codex-app-server', family: 'server' },
-    ])
-    await vi.waitFor(() => expect(sent).toHaveLength(2))
-    expect(sent[1]).toEqual({
-      type: 'inventoryReport',
-      machineId: 'm-runtime',
-      inventory: {
-        ...INV,
-        runtimeDrivers: [
-          ...terminalRuntimeDriverInventory(),
-          { harness: 'codex', id: 'codex-app-server', family: 'server' },
-        ],
+      {
+        type: 'inventoryReport',
+        machineId: 'm-test',
+        inventory: {
+          ...HEADLESS_INV,
+          runtimeDrivers: [
+            ...terminalRuntimeDriverInventory(),
+            { harness: 'codex', id: 'codex-app-server', family: 'server' },
+            { harness: 'grok', id: 'grok-acp', family: 'server' },
+            { harness: 'opencode', id: 'opencode-server', family: 'server' },
+          ],
+        },
       },
-    })
+    ])
   })
 
   it('routes inventoryRequest through the single-flight re-probe', async () => {

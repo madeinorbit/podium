@@ -1,11 +1,9 @@
+import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/agent-runtime'
 import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
-import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { claudeSdkTosAcceptedByEnv } from '../runtime/registry'
-import { opencodeVersionProbe } from '../runtime/opencode-server'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -48,64 +46,38 @@ export function terminalRuntimeDriverInventory(): NonNullable<Inventory['runtime
   ]
 }
 
-/** Product-facing projection of the same cached admission probes session spawn
- * uses. It reports only concrete drivers this machine can select right now. */
-export async function runtimeDriverInventory(): Promise<NonNullable<Inventory['runtimeDrivers']>> {
-  const [codex, grok, opencode] = await Promise.all([
-    codexAppServerVersionProbe(),
-    grokAcpVersionProbe(),
-    opencodeVersionProbe(),
-  ])
+/** Product-facing projection of the bounded harness inventory wave. It reports
+ * only concrete drivers this machine can select from the facts already observed. */
+export function runtimeDriverInventory(
+  inventory: Inventory,
+): NonNullable<Inventory['runtimeDrivers']> {
+  const versionFor = (kind: Inventory['agents'][number]['kind']): string | undefined => {
+    const agent = inventory.agents.find((candidate) => candidate.kind === kind)
+    return agent?.installed === true ? agent.version : undefined
+  }
+  const codex = versionFor('codex')
+  const grok = versionFor('grok')
+  const opencode = versionFor('opencode')
   return [
     ...terminalRuntimeDriverInventory(),
     ...(claudeSdkTosAcceptedByEnv()
       ? ([{ harness: 'claude-code', id: 'claude-sdk', family: 'embedded' }] as const)
       : []),
-    ...(codex.drivable
+    ...(codex && gateCodexVersion(codex) === null
       ? ([{ harness: 'codex', id: 'codex-app-server', family: 'server' }] as const)
       : []),
-    ...(grok.drivable
+    ...(grok && gateGrokVersion(grok) === null
       ? ([{ harness: 'grok', id: 'grok-acp', family: 'server' }] as const)
       : []),
-    ...(opencode.drivable
+    ...(opencode && gateOpencodeVersion(opencode) === null
       ? ([{ harness: 'opencode', id: 'opencode-server', family: 'server' }] as const)
       : []),
   ]
 }
 
-function publishInventoryWithDriverRefresh(
-  ctx: DaemonContext,
-  machineId: string,
-  inventory: Inventory,
-  loadDrivers: () => Promise<NonNullable<Inventory['runtimeDrivers']>>,
-  current: () => boolean,
-): void {
-  const terminalDrivers = terminalRuntimeDriverInventory()
-  ctx.send({
-    type: 'inventoryReport',
-    machineId: asMachineId(machineId),
-    inventory: { ...inventory, runtimeDrivers: terminalDrivers },
-  })
-  void loadDrivers()
-    .then((runtimeDrivers) => {
-      if (!current()) return
-      if (JSON.stringify(runtimeDrivers) === JSON.stringify(terminalDrivers)) return
-      ctx.send({
-        type: 'inventoryReport',
-        machineId: asMachineId(machineId),
-        inventory: { ...inventory, runtimeDrivers },
-      })
-    })
-    .catch((err) => log.warn('runtime driver inventory refresh failed', { err }))
-}
-
 export async function reportInventory(
   ctx: DaemonContext,
-  opts: {
-    rebuild?: boolean
-    reprobe?: boolean
-    runtimeDrivers?: () => Promise<NonNullable<Inventory['runtimeDrivers']>>
-  } = {},
+  opts: { rebuild?: boolean; reprobe?: boolean } = {},
 ): Promise<void> {
   // The separator is a real NUL written as an ESCAPE, deliberately. NUL cannot
   // occur in a machineId or a path, so the composite key can never collide --
@@ -124,16 +96,14 @@ export async function reportInventory(
         ? ctx.harnessRuntime.refresh()
         : ctx.harnessRuntime.reprobe())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
-      if (!ctx.agentRuntime) throw new Error('machine runtime is not composed')
-      const inventory = await ctx.agentRuntime.inventory()
-      if (!ctx.harnessRuntime.isCurrent(snapshot)) return
-      publishInventoryWithDriverRefresh(
-        ctx,
-        ctx.machineId,
-        inventory,
-        opts.runtimeDrivers ?? runtimeDriverInventory,
-        () => ctx.harnessRuntime?.isCurrent(snapshot) === true,
-      )
+      ctx.send({
+        type: 'inventoryReport',
+        machineId: asMachineId(ctx.machineId),
+        inventory: {
+          ...snapshot.inventory,
+          runtimeDrivers: runtimeDriverInventory(snapshot.inventory),
+        },
+      })
     } catch (err) {
       log.warn('inventory report failed', { err })
     }
@@ -200,13 +170,11 @@ export async function reportInventory(
     // The brand is asserted, not validated: this id is the daemon's OWN, read
     // from its state file at boot and carried through `DaemonContext.machineId`
     // and the inventory build, neither of which is a wire boundary.
-    publishInventoryWithDriverRefresh(
-      ctx,
-      machineId,
-      inventory,
-      opts.runtimeDrivers ?? runtimeDriverInventory,
-      () => inventoryCache.get(key) === pending,
-    )
+    ctx.send({
+      type: 'inventoryReport',
+      machineId: asMachineId(machineId),
+      inventory: { ...inventory, runtimeDrivers: runtimeDriverInventory(inventory) },
+    })
   } catch (err) {
     // Evict only OUR failed build — a concurrent rebuild may have already stored
     // a fresh pending under this key; don't discard it.
