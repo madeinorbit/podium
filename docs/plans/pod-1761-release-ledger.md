@@ -6343,3 +6343,35 @@ Later changes are Claude permission, documentation, and a test-only assertion, s
 that measurement does not need to be repeated unless the integration branch changes
 the native attach path again. No provider rig or Podium instance was launched for
 this audit.
+
+## FOREST — 2026-08-29 23:05 CEST — Grok basic Chat/CLI path is green on the isolated tip
+
+The operator-reported Grok failure was reproduced on exact tip `447376fca`: Chat and
+CLI both worked before and after four switches, but a real CLI-originated provider reply
+produced 17,043 terminal bytes and zero Chat occurrences. Provider `updates.jsonl` contained
+the user and assistant frames. The daemon reader was looking in the operator home rather than
+the named instance agent home, so the headless connection could not observe native writes.
+
+At `d77713859196462a59e4898f4f5e4ac0e29c5787`, both archive and incremental readers use
+the instance home. Native takeover primes at the current EOF, then tails only appended bytes at
+250 ms and folds frames through the existing provider-event deduper. The exact-tip A6b rerun
+passed: epoch stayed 0, agent PIDs and 120x40 geometry stayed stable, Chat and CLI controls
+worked before and after switching, and the CLI-originated reply appeared live in Chat exactly
+once (`count=1`, +17,024 terminal bytes), within the probe's 1 s observation interval.
+
+The separate Grok duplicate-text report was the web rendering of the same live text on both
+the legacy activity overlay and the turn-preview plane. Chat now suppresses the legacy text once
+a text preview exists; the exact web regression passed 15/15. OpenCode's current product bytes
+already contain and test the pre-transcript CLI switch, and the earlier real OpenCode A6b drive
+passed; this run did not invent another provider drive for unchanged behavior.
+
+Codex native-view timing remains fast on the affected bytes: the real `codex-app-server` run
+measured first interactable at 164.6 ms (mount 99.4 ms, attach 134.8 ms, ready 135.3 ms),
+with 8/8 warm switches at p50 12.8 ms and p90/max 21.8 ms. The later candidate changes only
+Grok file routing and Chat duplicate rendering, not the Codex attach path. The older multi-second
+sandbox experience is therefore not reproduced by the current isolated product path.
+
+Validation: focused Grok/daemon 83/83, exact Chat file 15/15, named-home reader 5/5, and
+the lean gate green at 25/25 typecheck tasks plus its four files / 103 tests. The branch is
+backed up at `origin/issue/1761-agent-runtime`. The operator daemon, port 19797, relay, state,
+credentials, and default `instance.json` were untouched.
