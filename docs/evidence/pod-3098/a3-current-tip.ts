@@ -34,9 +34,9 @@ if (!['codex', 'opencode', 'claude', 'grok'].includes(harness)) throw new Error(
 if (arm !== 'headless' && arm !== 'terminal') throw new Error(`unknown arm ${arm}`)
 
 const ROOT = process.cwd()
-const BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-3098-a3-4f3b4eb'
-const BASE_PIN = 'fbc2f18baf77d74d370c6469444b3c3d800b0a71'
-const PIN = '4f3b4ebfe68a9c804e3cc5eaa8359a4dec49d285'
+const BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-3098-a3-7574664'
+const BASE_PIN = '62bb4a749241c7c7bd85fbca59e86a9651e4f4de'
+const PIN = '75746645d07b29c5571f7821d9a2467990e828e2'
 const INSTANCE = 'p3098-a3-current-tip'
 const STATE_ROOT = join(BASE, 'state')
 const AGENT_HOME = join(BASE, 'agent-home')
@@ -234,7 +234,7 @@ async function main() {
       webSource: '1e6569960c7b7f4a61391ae8b52c94e98952aa78',
       runtimeServer: readFileSync(join(BASE, 'server.sha'), 'utf8').trim(),
       runtimeDaemon: readFileSync(join(BASE, 'daemon.sha'), 'utf8').trim(),
-      servedWeb: '4f3b4eb',
+      servedWeb: '7574664',
       instance: INSTANCE, stateRoot: STATE_ROOT, agentHome: AGENT_HOME,
       ports: { server: 19983, hook: 46983, relay: 46984 },
       runtimeArm,
