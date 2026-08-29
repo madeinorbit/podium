@@ -2,22 +2,22 @@
   "cell": "A3",
   "harness": "codex",
   "arm": "headless",
-  "verdict": "FAIL",
-  "at": "2026-08-29T22:07:31.548Z",
-  "summary": "A3 clauses unmet: accepted=true stoppedMs=371 quietTail=true exactlyOneDurable=false idleDistinct=true",
+  "verdict": "PASS",
+  "at": "2026-08-29T22:30:40.300Z",
+  "summary": "real turn stopped in 316ms; exactly one durable interrupt item survived reload and server/daemon restart",
   "pins": {
-    "head": "75746645d07b29c5571f7821d9a2467990e828e2",
+    "head": "eb8b116a8e858c21a9a258df690956fb29e52c50",
     "base": "62bb4a749241c7c7bd85fbca59e86a9651e4f4de",
-    "evidenceHead": "f1a425838458c257d7e9add8abfb55189bf5f4a5",
-    "serverSource": "c6bd6e350479ec1b2de986ee4d3f6a14365ae38d",
+    "evidenceHead": "4ef9770d8588d196e8c44089cea9856a026fd613",
+    "serverSource": "eb8b116a8e858c21a9a258df690956fb29e52c50",
     "daemonSource": "d77713859196462a59e4898f4f5e4ac0e29c5787",
     "webSource": "1e6569960c7b7f4a61391ae8b52c94e98952aa78",
-    "runtimeServer": "75746645d07b29c5571f7821d9a2467990e828e2",
-    "runtimeDaemon": "75746645d07b29c5571f7821d9a2467990e828e2",
-    "servedWeb": "7574664",
+    "runtimeServer": "eb8b116a8e858c21a9a258df690956fb29e52c50",
+    "runtimeDaemon": "eb8b116a8e858c21a9a258df690956fb29e52c50",
+    "servedWeb": "eb8b116",
     "instance": "p3098-a3-current-tip",
-    "stateRoot": "/tmp/pod-3098-a3-7574664/state",
-    "agentHome": "/tmp/pod-3098-a3-7574664/agent-home",
+    "stateRoot": "/tmp/pod-3098-a3-eb8b116/state",
+    "agentHome": "/tmp/pod-3098-a3-eb8b116/agent-home",
     "ports": {
       "server": 19983,
       "hook": 46983,
@@ -31,12 +31,12 @@
     "versions": [
       "/tmp/pod-2777/bin/codex: codex-cli 0.149.1"
     ],
-    "sessionId": "1dbb5593-95ff-44f5-a101-4935b756f322",
+    "sessionId": "1a04acb7-385c-49a3-955f-e83a59bf5eeb",
     "primed": []
   },
   "admission": {
-    "loadAtAdmission": 6.84,
-    "loadAtInterrupt": 6.33,
+    "loadAtAdmission": 5.7,
+    "loadAtInterrupt": 6.15,
     "limit": 12,
     "installedRelayAvailable": true
   },
@@ -45,7 +45,7 @@
     "workingSeen": true,
     "growthTransitions": 2,
     "baseline": {
-      "ms": 16,
+      "ms": 8,
       "phase": "idle",
       "previews": 0,
       "assistantChars": 0,
@@ -53,16 +53,16 @@
       "deltaFrames": 0
     },
     "atRequest": {
-      "ms": 36,
+      "ms": 13,
       "phase": "working",
-      "previews": 7,
+      "previews": 3,
       "assistantChars": 0,
       "terminalBytes": 0,
       "deltaFrames": 1
     },
     "samples": [
       {
-        "ms": 19,
+        "ms": 8,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -70,7 +70,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 277,
+        "ms": 275,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -78,7 +78,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 537,
+        "ms": 531,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -86,7 +86,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 792,
+        "ms": 787,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -94,7 +94,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 1048,
+        "ms": 1044,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -102,7 +102,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 1304,
+        "ms": 1300,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -110,7 +110,23 @@
         "deltaFrames": 0
       },
       {
-        "ms": 1564,
+        "ms": 1558,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 1814,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 2081,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -118,7 +134,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 1822,
+        "ms": 2343,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -126,7 +142,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2079,
+        "ms": 2601,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -134,7 +150,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2340,
+        "ms": 2858,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -142,7 +158,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2604,
+        "ms": 3117,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -150,7 +166,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2860,
+        "ms": 3377,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -158,7 +174,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3118,
+        "ms": 3648,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -166,7 +182,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3376,
+        "ms": 3909,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -174,7 +190,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3631,
+        "ms": 4178,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -182,7 +198,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3886,
+        "ms": 4439,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -190,7 +206,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4148,
+        "ms": 4695,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -198,7 +214,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4415,
+        "ms": 4953,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -206,7 +222,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4674,
+        "ms": 5208,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -214,7 +230,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4930,
+        "ms": 5465,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -222,7 +238,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 5193,
+        "ms": 5726,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -230,7 +246,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 5450,
+        "ms": 5982,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -238,7 +254,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 5706,
+        "ms": 6240,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -246,7 +262,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 5963,
+        "ms": 6496,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -254,17 +270,57 @@
         "deltaFrames": 1
       },
       {
-        "ms": 6219,
+        "ms": 6750,
         "phase": "working",
-        "previews": 2,
+        "previews": 0,
         "assistantChars": 0,
         "terminalBytes": 0,
         "deltaFrames": 1
       },
       {
-        "ms": 6680,
+        "ms": 7011,
         "phase": "working",
-        "previews": 6,
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 7266,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 7523,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 7781,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 8036,
+        "phase": "working",
+        "previews": 1,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 8295,
+        "phase": "working",
+        "previews": 3,
         "assistantChars": 0,
         "terminalBytes": 0,
         "deltaFrames": 1
@@ -281,381 +337,381 @@
       "ok": true,
       "requested": "protocol"
     },
-    "requestToStoppedMs": 371,
+    "requestToStoppedMs": 316,
     "quickCeilingMs": 5000,
     "outputAfterRequest": {
-      "previewFrames": 0,
+      "previewFrames": 2,
       "assistantChars": 0,
       "terminalBytes": 0,
-      "transcriptDeltaFrames": 1,
+      "transcriptDeltaFrames": 2,
       "samples": [
         {
-          "ms": 115,
+          "ms": 58,
           "phase": "working",
-          "previews": 7,
+          "previews": 4,
           "assistantChars": 0,
           "terminalBytes": 0,
           "deltaFrames": 1
         },
         {
-          "ms": 371,
+          "ms": 316,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 658,
+          "ms": 573,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 915,
+          "ms": 828,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 1171,
+          "ms": 1084,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 1434,
+          "ms": 1340,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 1690,
+          "ms": 1596,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 1946,
+          "ms": 1851,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 2203,
+          "ms": 2105,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 2460,
+          "ms": 2361,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 2717,
+          "ms": 2618,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 2972,
+          "ms": 2874,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 3246,
+          "ms": 3129,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 3504,
+          "ms": 3384,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 3764,
+          "ms": 3642,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 4021,
+          "ms": 3898,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 4277,
+          "ms": 4154,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 4536,
+          "ms": 4410,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 4799,
+          "ms": 4665,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 5062,
+          "ms": 4922,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 5319,
+          "ms": 5177,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 5575,
+          "ms": 5510,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 5830,
+          "ms": 5773,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 6096,
+          "ms": 6065,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 6351,
+          "ms": 6327,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
           "ms": 6607,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 6867,
+          "ms": 6865,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 7132,
+          "ms": 7121,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 7390,
+          "ms": 7376,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 7647,
+          "ms": 7634,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 7953,
+          "ms": 7893,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 8220,
+          "ms": 8158,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 8476,
+          "ms": 8417,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 8778,
+          "ms": 8674,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 9034,
+          "ms": 8935,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 9291,
+          "ms": 9202,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 9546,
+          "ms": 9457,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 9811,
+          "ms": 9713,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 10073,
+          "ms": 9970,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 10335,
+          "ms": 10225,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 10610,
+          "ms": 10485,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 10866,
+          "ms": 10740,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 11122,
+          "ms": 10995,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 11380,
+          "ms": 11252,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 11645,
+          "ms": 11508,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         },
         {
-          "ms": 11904,
+          "ms": 11762,
           "phase": "idle",
-          "previews": 7,
+          "previews": 5,
           "assistantChars": 0,
           "terminalBytes": 0,
-          "deltaFrames": 2
+          "deltaFrames": 3
         }
       ]
     },
@@ -664,7 +720,7 @@
   "durable": {
     "live": [
       {
-        "id": "codex-interrupt-1dbb5593-95ff-44f5-a101-4935b756f322-1",
+        "id": "codex-interrupt-1a04acb7-385c-49a3-955f-e83a59bf5eeb-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
@@ -672,43 +728,62 @@
     ],
     "afterClientReload": [
       {
-        "id": "codex-interrupt-1dbb5593-95ff-44f5-a101-4935b756f322-1",
+        "id": "codex-interrupt-1a04acb7-385c-49a3-955f-e83a59bf5eeb-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
       }
     ],
-    "afterServerDaemonRestart": [],
-    "exactlyOneStableId": false,
+    "afterServerDaemonRestart": [
+      {
+        "id": "codex-interrupt-1a04acb7-385c-49a3-955f-e83a59bf5eeb-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "exactlyOneStableId": true,
     "liveItems": [
       {
-        "id": "01a04f8f-8778-7741-a32a-e9afc7a462d6",
+        "id": "01a04fa5-151e-7b13-b3ae-f2a5b514c13a",
         "role": "user",
-        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEXKBKO only in the final line."
+        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEYEL1N only in the final line."
       },
       {
-        "id": "codex-interrupt-1dbb5593-95ff-44f5-a101-4935b756f322-1",
+        "id": "codex-interrupt-1a04acb7-385c-49a3-955f-e83a59bf5eeb-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
       }
     ],
-    "restartItems": [],
-    "preRestartLedger": "8|session.phase|{\"phase\":\"working\",\"agentKind\":\"codex\",\"cwd\":\"/tmp/pod-3098-a3-7574664/provider-work\"}\n10|session.phase|{\"phase\":\"idle\",\"verdict\":\"interrupted\",\"agentKind\":\"codex\",\"cwd\":\"/tmp/pod-3098-a3-7574664/provider-work\"}",
+    "restartItems": [
+      {
+        "id": "codex-interrupt-1a04acb7-385c-49a3-955f-e83a59bf5eeb-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "preRestartLedger": "7|session.runtime|{\"at\":\"2026-08-29T22:30:11.800Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fa5-0a56-7b11-b0c8-ad92fd8f0ed3\",\"components\":{\"seq\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"started\",\"turnEpoch\":1,\"origin\":\"controller\"}}\n8|session.runtime|{\"at\":\"2026-08-29T22:30:11.899Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fa5-0a56-7b11-b0c8-ad92fd8f0ed3\",\"components\":{\"seq\":2}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"kind\":\"activity\",\"at\":\"2026-08-29T22:30:11.899Z\"}}\n10|session.phase|{\"phase\":\"working\",\"agentKind\":\"codex\",\"cwd\":\"/tmp/pod-3098-a3-eb8b116/provider-work\"}\n11|session.runtime|{\"at\":\"2026-08-29T22:30:14.046Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fa5-0a56-7b11-b0c8-ad92fd8f0ed3\",\"components\":{\"seq\":3}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"01a04fa5-151e-7b13-b3ae-f2a5b514c13a\",\"role\":\"user\",\"ts\":\"2026-08-29T22:30:14.046Z\",\"text\":\"Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEYEL1N only in the final line.\"}}}\n12|session.runtime|{\"at\":\"2026-08-29T22:30:20.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fa5-0a56-7b11-b0c8-ad92fd8f0ed3\",\"components\":{\"seq\":25}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"codex-interrupt-1a04acb7-385c-49a3-955f-e83a59bf5eeb-1\",\"role\":\"user\",\"ts\":\"2026-08-29T22:30:20.000Z\",\"text\":\"[Request interrupted by user]\",\"event\":\"interrupt\"}}}\n13|session.runtime|{\"at\":\"2026-08-29T22:30:20.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fa5-0a56-7b11-b0c8-ad92fd8f0ed3\",\"components\":{\"seq\":26}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"completed\",\"turnEpoch\":1,\"verdict\":\"interrupted\"}}\n15|session.phase|{\"phase\":\"idle\",\"verdict\":\"interrupted\",\"agentKind\":\"codex\",\"cwd\":\"/tmp/pod-3098-a3-eb8b116/provider-work\"}\ncheckpoint|1|{\"segmentId\":\"01a04fa5-0a56-7b11-b0c8-ad92fd8f0ed3\",\"components\":{\"seq\":26}}|1|1",
     "publicRead": {
-      "sessionId": "1dbb5593-95ff-44f5-a101-4935b756f322",
+      "sessionId": "1a04acb7-385c-49a3-955f-e83a59bf5eeb",
       "items": [
         {
           "role": "user",
-          "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEXKBKO only in the final line.",
-          "ts": "2026-08-29T22:06:41.528Z"
+          "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEYEL1N only in the final line.",
+          "ts": "2026-08-29T22:30:14.046Z"
+        },
+        {
+          "role": "user",
+          "text": "[Request interrupted by user]",
+          "ts": "2026-08-29T22:30:20.000Z"
         }
       ],
-      "cursor": "WyI5YTQwYzI0MmU0NWMiLDQyNDYwLG51bGwsMF0",
+      "cursor": "WyJjMjdmMTk5ODZiMGIiLDQyNDYyLG51bGwsMF0",
       "hasMore": false,
       "truncated": false
     },
-    "restartOutput": "PIN VERIFIED head=75746645d07b29c5571f7821d9a2467990e828e2 server=75746645d07b29c5571f7821d9a2467990e828e2 daemon=75746645d07b29c5571f7821d9a2467990e828e2 web=7574664 arm=headless instance=p3098-a3-current-tip state=/tmp/pod-3098-a3-7574664/state agentHome=/tmp/pod-3098-a3-7574664/agent-home ports=19983/46983/46984"
+    "restartOutput": "PIN VERIFIED head=eb8b116a8e858c21a9a258df690956fb29e52c50 server=eb8b116a8e858c21a9a258df690956fb29e52c50 daemon=eb8b116a8e858c21a9a258df690956fb29e52c50 web=eb8b116 arm=headless instance=p3098-a3-current-tip state=/tmp/pod-3098-a3-eb8b116/state agentHome=/tmp/pod-3098-a3-eb8b116/agent-home ports=19983/46983/46984"
   },
   "idleRefusal": {
     "response": {
@@ -718,7 +793,7 @@
     "newItems": [],
     "interruptItemsAfter": [
       {
-        "id": "codex-interrupt-1dbb5593-95ff-44f5-a101-4935b756f322-1",
+        "id": "codex-interrupt-1a04acb7-385c-49a3-955f-e83a59bf5eeb-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
