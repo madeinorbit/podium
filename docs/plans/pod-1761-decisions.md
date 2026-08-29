@@ -1653,3 +1653,18 @@ that tip is stable; no acceptance row is promoted by this documentation update.
 
 *Podium-Issue: POD-1761*
 *Podium-Issue: POD-1761*
+
+## Decision 48 — current-tip matrix remains unconfirmed after configure and marker work (2026-08-29 16:21 CEST)
+
+A static staleness audit against replay-seam pin
+`15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f`, using
+`git diff --name-only 15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f..HEAD |
+grep -v '^docs/'`, finds 85 non-document paths changed on the coordinator
+branch. They include daemon/runtime, server session/store, protocol, model,
+web, configure, and durable-interrupt code. The eight replay/stream rows from
+Decision 43 therefore remain historical at their own pin; no acceptance row is
+promoted by this count.
+
+The final broad acceptance drive must start from the stable integration tip,
+pin server/web/daemon, and re-drive any row whose behavior reads these changed
+paths. Until then the matrix is not release green.
