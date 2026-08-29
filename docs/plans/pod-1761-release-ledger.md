@@ -1025,7 +1025,7 @@ Grouped by catalogue section. "Measured by" is the gate that keeps it true.
 | turn id carried, never minted | **check** | POD-2497 closes it; A1b reload leg |
 | queue abandonment | confident | per-driver tests |
 | principal survives the queue | **check** | code-read + one steward-send drive |
-| per-turn override stays one turn | defer(M4) | — (model switching is Tier C) |
+| per-turn override stays one turn | **pinned (M1)** | Agent Runtime configure conformance; both model and effort revert after the turn |
 | origin rides turn/started | check → M2 | attribution pane spot-check |
 | verdict from provider | **check** grok/opencode | A2a idle-badge honesty |
 | failure typed + disposition | confident | driver tests |
@@ -1089,14 +1089,16 @@ Grouped by catalogue section. "Measured by" is the gate that keeps it true.
 | refused never stays "delivered" | land (M1) | POD-2298 in review; A1c |
 | timeout reports failure | **check** grok/opencode (M1) | forced-timeout drive |
 
-### §7 Configuration → M1 spawn facts, M4 mutability
+### §7 Configuration → M1 spawn facts and declared mutability
 
 | row | action | measured by |
 |---|---|---|
 | workdir/env/initialPrompt honoured | confident (M1) | every spawn exercises it |
 | model/effort observed with provenance | **check** (M1) | A2 panel readout |
 | title/accent | **check** (M1) | sidebar shows a real title per driver |
-| sticky configure (model/effort/permission), per-turn overrides, subagent model, MCP forwarding, instruction re-prime | defer — M4 (re-prime M2) | catalogue keeps them |
+| sticky configure (model/effort/permission) | **check (M1)** | Codex/OpenCode/Claude SDK persist model and effort; Grok supports permission mode; terminal drivers refuse typed; provider-runtime reading remains pending |
+| per-turn overrides | **pinned (M1)** | Agent Runtime configure conformance; one-turn override does not leak into sticky policy |
+| subagent model, MCP forwarding, instruction re-prime | defer — M4 (re-prime M2) | catalogue keeps them |
 | usage per turn surfaced | defer(M4) | B5 |
 
 ### §8 State readout → M1 what the badge needs, rest deferred
