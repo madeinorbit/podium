@@ -1382,62 +1382,222 @@ export function providerError(harness: string): Probe {
 // 9 — model / effort switch
 // ---------------------------------------------------------------------------
 /**
- * WHAT THIS PROBE FOUND BEFORE IT RAN, and it is the reason it reads the way it
- * does. The catalogue lists "switch model" and "switch effort" as `declared` on
- * all four drivers — the capability announced and nothing checking the
- * announcement. Reading the source turns out to be blunter than that: every
- * production driver declares `configure` UNSUPPORTED except grok, which claims
- * only `permissionMode`, and NO server or daemon code calls `handle.configure()`
- * at all. There is no product surface to drive.
+ * DRIVE THE PRODUCT CONTROL, not the runtime package directly. The daemon's bind
+ * declares the fields the live driver accepts; the server routes the mutation,
+ * persists the requested pair, and the next provider turn stamps what actually
+ * answered. Those are three different facts and this probe requires all three.
  *
- * So the honest probe is not "does the switch work" — nothing anywhere could
- * make it work — but "does the product tell the truth about that". Two readings:
- * the declaration matches the driver's behaviour, and the model the operator
- * asked for is the model the session reports OBSERVING. The second is the one
- * with teeth: a driver with no transcript-level model stamp renders "requested,
- * not yet observed" dotted forever, and that is a real difference between the
- * two arms.
+ * The model comes from the machine-scoped live catalog. A drive may set
+ * P2777_SWITCH_MODEL / P2777_SWITCH_EFFORT when it needs a particular paid tier;
+ * otherwise the first catalog choice different from the current setting is used.
+ * No alternate means BLOCKED, not a made-up free-text model that may waste a turn.
  */
 export const modelSwitch: Probe = {
   id: 'model-switch',
   title: 'model / effort switch',
-  catalogRow: '§7 switch model / switch effort (DECLARED — no conformance property, no product caller)',
+  catalogRow: '§7 switch model / switch effort (sticky next-turn configuration)',
   async run(ctx) {
-    const row = await sessionRow(ctx.sid)
-    const control: ControlReading = {
-      fired: row !== undefined,
-      what: 'the session readable at all, reporting the model it was asked for',
-      detail: row ? `model=${row.model ?? '(unset)'} observedModel=${row.observedModel ?? '(none)'}` : 'session not readable',
+    const before = await sessionRow(ctx.sid)
+    const fields = before?.configureFields
+    const readControl = (): ControlReading => ({
+      fired: before !== undefined && fields !== undefined,
+      what: 'sessions.list returned the live daemon\'s explicit configureFields declaration',
+      detail: before
+        ? `driver=${before.driverId ?? '(unknown)'} fields=${fields === undefined ? '(not reported)' : JSON.stringify(fields)}`
+        : 'session not readable',
+    })
+
+    if (!before || fields === undefined) {
+      return {
+        control: readControl(),
+        outcome: {
+          verdict: 'BLOCKED',
+          summary: 'the daemon did not publish this live driver\'s configure fields',
+          evidence: [
+            `DRIVER            ${before?.driverId ?? '(session unreadable)'}`,
+            'CONFIGURE FIELDS  absent — unknown is not the same answer as unsupported',
+            'READING           refusing to guess during an unbound or mixed-version window.',
+          ],
+          data: { configureFields: null },
+        },
+      }
     }
 
-    const observed = row?.observedModel ?? null
-    const requested = row?.model ?? null
+    const supportsModel = fields.includes('model')
+    const supportsEffort = fields.includes('effort')
+    const beforeRequested = {
+      model: before.requestedModel ?? null,
+      effort: before.requestedEffort ?? null,
+    }
+
+    // The comparison arms have no sticky model/effort verb. Prove the SAME
+    // product route refuses explicitly and does not paint the requested pair.
+    if (!supportsModel || !supportsEffort) {
+      const response = await mutate('sessions.configure', {
+        sessionId: ctx.sid,
+        model: before.requestedModel ?? before.model ?? 'auto',
+        effort: before.requestedEffort ?? before.effort ?? 'medium',
+      })
+      const result = response.result?.data ?? response.data ?? response
+      const after = await sessionRow(ctx.sid)
+      const unchanged =
+        (after?.requestedModel ?? null) === beforeRequested.model &&
+        (after?.requestedEffort ?? null) === beforeRequested.effort
+      const refused = result?.reason === 'unsupported'
+      return {
+        control: readControl(),
+        outcome: {
+          verdict: refused && unchanged ? 'PASS' : 'FAIL',
+          summary:
+            refused && unchanged
+              ? 'unsupported arm refused explicitly and left requested state unchanged'
+              : 'unsupported arm did not give a clean typed refusal',
+          evidence: [
+            `DRIVER            ${before.driverId ?? '(unknown)'}`,
+            `CONFIGURE FIELDS  ${JSON.stringify(fields)}`,
+            `RESPONSE          ${JSON.stringify(result).slice(0, 300)}`,
+            `STATE BEFORE      ${JSON.stringify(beforeRequested)}`,
+            `STATE AFTER       ${JSON.stringify({ model: after?.requestedModel ?? null, effort: after?.requestedEffort ?? null })}`,
+          ],
+          data: { configureFields: fields, response: result, unchanged },
+        },
+      }
+    }
+
+    const agentKind = before.agentKind ?? AGENT_KIND[ctx.harness] ?? ctx.harness
+    const catalogInput = before.machineId ? { machineId: before.machineId } : {}
+    let catalogBody = await query('models.catalog', catalogInput)
+    let catalog = catalogBody.result?.data ?? catalogBody.data ?? catalogBody
+    let choices = (catalog?.byAgent?.[agentKind] ?? []) as {
+      value: string
+      efforts?: string[]
+    }[]
+    const baselineModel = before.requestedModel ?? before.model ?? before.observedModel ?? null
+    const baselineEffort = before.requestedEffort ?? before.effort ?? before.observedEffort ?? null
+    let targetModel = process.env.P2777_SWITCH_MODEL?.trim()
+    if (!targetModel) targetModel = choices.find((choice) => choice.value !== baselineModel)?.value
+
+    // An empty cache is allowed. Refresh once through the same machine-scoped
+    // product API the picker uses, then block honestly if it still has no target.
+    if (!targetModel) {
+      catalogBody = await mutate('models.refresh', catalogInput)
+      catalog = catalogBody.result?.data ?? catalogBody.data ?? catalogBody
+      choices = (catalog?.byAgent?.[agentKind] ?? []) as {
+        value: string
+        efforts?: string[]
+      }[]
+      targetModel = choices.find((choice) => choice.value !== baselineModel)?.value
+    }
+    const targetChoice = choices.find((choice) => choice.value === targetModel)
+    let targetEffort = process.env.P2777_SWITCH_EFFORT?.trim()
+    if (!targetEffort) {
+      targetEffort = targetChoice?.efforts?.find((effort) => effort !== baselineEffort)
+    }
+    if (!targetModel || !targetEffort) {
+      return {
+        control: readControl(),
+        outcome: {
+          verdict: 'BLOCKED',
+          summary: 'the live catalog did not provide an alternate model and effort pair',
+          evidence: [
+            `AGENT KIND        ${agentKind}`,
+            `CURRENT           model=${baselineModel ?? '(auto)'} effort=${baselineEffort ?? '(auto)'}`,
+            `CATALOG MODELS    ${choices.map((choice) => choice.value).join(', ') || '(none)'}`,
+            'OVERRIDE          set P2777_SWITCH_MODEL and P2777_SWITCH_EFFORT to drive a known paid tier.',
+          ],
+          data: { baselineModel, baselineEffort, catalogChoices: choices.length },
+        },
+      }
+    }
+
+    const configuredBody = await mutate('sessions.configure', {
+      sessionId: ctx.sid,
+      model: targetModel,
+      effort: targetEffort,
+    })
+    const configured = configuredBody.result?.data ?? configuredBody.data ?? configuredBody
+    if (configured?.ok !== true) {
+      return {
+        control: readControl(),
+        outcome: {
+          verdict: 'FAIL',
+          summary: `the declared model/effort configure was refused: ${configured?.reason ?? 'unknown response'}`,
+          evidence: [
+            `REQUEST           model=${targetModel} effort=${targetEffort}`,
+            `RESPONSE          ${JSON.stringify(configured).slice(0, 300)}`,
+          ],
+          data: { targetModel, targetEffort, response: configured },
+        },
+      }
+    }
+
+    const projected = await until(
+      ctx.sid,
+      (row) => row?.requestedModel === targetModel && row.requestedEffort === targetEffort,
+      15_000,
+      250,
+    )
+    const n = nonce('SWITCH')
+    const deltasBefore = ctx.chat.deltaFrames
+    await mutate('sessions.sendText', { sessionId: ctx.sid, text: say(n) })
+    const replied = await untilText(ctx.chat, (text) => text.includes(n), REPLY_MS, {
+      pumpFor: ctx.sid,
+    })
+    const observed = await until(
+      ctx.sid,
+      (row) => row?.observedModel === targetModel && row.observedEffort === targetEffort,
+      replied.ok ? 30_000 : 1_000,
+      500,
+    )
+    const after = observed.row ?? (await sessionRow(ctx.sid))
+    const control: ControlReading = {
+      fired: ctx.chat.userText().includes(n) || ctx.chat.deltaFrames > deltasBefore,
+      what: 'the post-configure prompt landed on the same session\'s durable transcript plane',
+      detail: `prompt echoed=${ctx.chat.userText().includes(n) ? 'yes' : 'no'}; transcriptDelta +${ctx.chat.deltaFrames - deltasBefore}`,
+    }
+    const errClass = after?.agentState?.error?.class
+    if (!replied.ok && errClass) {
+      return {
+        control,
+        outcome: {
+          verdict: 'BLOCKED',
+          summary: `the provider refused the proving turn: ${errClass}`,
+          evidence: [
+            `CONFIGURE         model=${targetModel} effort=${targetEffort}; effective=${configured.effective ?? '(missing)'}`,
+            `REQUESTED STATE   model=${after?.requestedModel ?? '(missing)'} effort=${after?.requestedEffort ?? '(missing)'}`,
+            `TURN ERROR        ${errClass} — ${after?.agentState?.error?.detail ?? ''}`,
+          ],
+          data: { targetModel, targetEffort, configured, providerError: errClass },
+        },
+      }
+    }
+
+    const passed =
+      configured.effective === 'next-turn' && projected.ok && replied.ok && observed.ok
     return {
       control,
       outcome: {
-        // NOT A FAIL. Nothing is broken: the capability is declared unsupported
-        // and the product honours that by exposing no switch. The verdict that
-        // fits is BLOCKED — the behaviour cannot be driven because it does not
-        // exist — and the report says so in those words rather than printing a
-        // red cell that implies a regression.
-        verdict: 'BLOCKED',
-        summary: 'no product surface exists to switch model or effort mid-session',
+        verdict: passed ? 'PASS' : 'FAIL',
+        summary: passed
+          ? `model and effort applied on the next turn (${replied.ms}ms reply)`
+          : 'the configured pair was not fully projected and observed on the next turn',
         evidence: [
-          `REQUESTED MODEL   ${requested ?? '(session default)'}`,
-          `OBSERVED MODEL    ${observed ?? '(none — renders "requested, not yet observed")'}`,
-          `OBSERVED EFFORT   ${row?.observedEffort ?? '(none)'}`,
-          'DECLARATION       codex: configure unsupported ("model and effort are set at',
-          '                  thread start and per turn"); opencode: unsupported; terminal:',
-          '                  unsupported ("a TUI takes its model at launch"); grok: supported',
-          '                  for permissionMode ONLY, explicitly not model/effort.',
-          'PRODUCT SURFACE   no server or daemon code calls handle.configure(); sessions.sendText',
-          '                  carries no per-turn model or effort override either.',
-          'READING           the declaration and the behaviour agree, and the product does',
-          '                  not offer a switch it cannot honour. Nothing is broken and',
-          '                  nothing is proven — the cell is empty on BOTH arms, so this is',
-          '                  not a way in which headless is better or worse.',
+          `CONFIGURE         model=${targetModel} effort=${targetEffort}`,
+          `RESPONSE          ${JSON.stringify(configured)}`,
+          `PROJECTED         ${projected.ok ? `after ${projected.ms}ms` : 'not within 15s'}`,
+          `PROVING TURN      ${replied.ok ? `nonce replied after ${replied.ms}ms` : `no nonce within ${REPLY_MS / 1000}s`}`,
+          `OBSERVED MODEL    ${after?.observedModel ?? '(none)'}`,
+          `OBSERVED EFFORT   ${after?.observedEffort ?? '(none)'}`,
         ],
-        data: { requested, observed, observedEffort: row?.observedEffort ?? null, productSurface: false },
+        data: {
+          targetModel,
+          targetEffort,
+          effective: configured.effective ?? null,
+          projectedMs: projected.ok ? projected.ms : null,
+          replyMs: replied.ok ? replied.ms : null,
+          observedModel: after?.observedModel ?? null,
+          observedEffort: after?.observedEffort ?? null,
+        },
       },
     }
   },

@@ -155,14 +155,20 @@ export async function query(path: string, input: unknown = {}): Promise<any> {
 
 export interface SessionRow {
   sessionId: string
+  agentKind?: string
   cwd?: string
   driverId?: string | null
   requestedDriverId?: string | null
   driverFamily?: string | null
   status?: string
   model?: string | null
+  effort?: string | null
+  requestedModel?: string | null
+  requestedEffort?: string | null
   observedModel?: string | null
   observedEffort?: string | null
+  configureFields?: string[]
+  machineId?: string
   /** The durable conversation pointer. Read across a park/resume so a row that
    *  was re-pointed at another thread cannot pass for the same conversation. */
   conversationId?: string | null

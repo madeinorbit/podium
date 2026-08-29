@@ -224,7 +224,7 @@ The controls are not decoration; three of them are the probe's whole design:
 | attach | a plain send on the same session having already worked (probe 1) | blaming attachments for a session that could not send |
 | interaction | the turn producing durable transcript items at all | "no ask appeared" vs "no turn ran" |
 | provider-error | this harness answering a normal question on this arm (probe 1) | an error arm that was never a working arm |
-| model-switch | the session readable, reporting the model it was asked for | an empty reading from an unreadable session |
+| model-switch | the live daemon reporting an explicit configure-field set; for supported drivers, the proving prompt then lands on the durable transcript | an unbound/mixed-version session; a provider turn measured through a dead subscription |
 
 Two probes carry a **negative** control as well, built into the measurement
 rather than bolted on: the attachment's secret word exists only in the file's
@@ -431,7 +431,7 @@ Raw output per probe is in `readings/`.
 | **attach a file** | **PASS** | a plain send on the same session had already worked (probe 1) | staged a text file and the agent echoed `FILESECRET-7VT24I` — a secret present in those bytes and nowhere else |
 | **pending interaction** | n/a | the turn produced durable transcript items | no ask raised: this harness ran the tool without asking. The product was never handed an ask to surface — a fact about the posture, not the ask plane |
 | **provider error surfaced honestly** | n/a | probe 1 PASSED, so a failure would be attributable to the injected fault | the bad model was **ignored** — the harness answered *"Hello!"*. The fault never fired, so nothing about error surfacing was measured |
-| **model / effort switch** | n/a | the session readable, reporting its model | no product surface exists on either arm (see below) |
+| **model / effort switch** | n/a | the session readable, reporting its model | at this historical pin no product surface existed on either arm (see below); the current probe now drives `sessions.configure` |
 
 ### What the three `n/a` cells mean, so they are not read as "untested"
 
@@ -449,11 +449,15 @@ arriving as TWO open asks, a protocol-structured one and a screen-classifier cop
 carrying the path glob in its `toolName`, where answering one leaves the session
 blocked on the other.
 
-**`model / effort switch` — nothing to drive on either arm.** `capabilities.ts`
-declares configure unsupported for codex, opencode and terminal; grok declares
-`permissionMode` only; and no server or daemon code calls `handle.configure()`.
-Declaration and behaviour agree. (This corrected the capability catalogue, which
-had the row as `declared` on all four drivers.)
+**`model / effort switch` — nothing existed at this historical pin.** At
+`e28013a8526ee454ca6b49296b9902daa6bbe1e2`, `capabilities.ts` declared configure
+unsupported for codex, opencode and terminal; grok declared `permissionMode`
+only; and no server or daemon code called `handle.configure()`. That reading is
+kept as evidence of what ran, not as a current product claim. The current probe
+uses the live model catalog and `sessions.configure`, requires the requested pair
+to project back, then requires the next provider turn to stamp the same observed
+model and effort. Unsupported arms must return a typed refusal without changing
+requested state.
 
 **`provider-error` — a fault that did not fire.** The first version named a
 nonsense model; opencode ignored it and answered "Hello!", so nothing about error

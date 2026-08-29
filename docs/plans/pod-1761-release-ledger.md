@@ -6159,3 +6159,25 @@ test proves the embedded surface has no terminal, the login request preserves
 the Claude harness and source machine, and navigation does not happen before
 the new row exists. No live instance was touched, so A8 remains awaiting a
 current-tip isolated runtime reading rather than being silently promoted.
+
+## FOREST — 2026-08-29 19:33 CEST — model/effort acceptance measures the product
+
+The executable Tier-A model/effort probe no longer repeats the pre-POD-3081
+claim that no configuration surface exists. On a driver that declares model and
+effort, it now chooses an alternate pair from the machine-scoped live catalog,
+calls the real `sessions.configure` product route, requires the requested pair to
+project back through `sessions.list`, sends a fresh proving turn, and requires
+the provider-observed model and effort to match. An explicit
+`P2777_SWITCH_MODEL` / `P2777_SWITCH_EFFORT` pair can pin a paid tier; absent a
+catalog-backed pair, the reading is BLOCKED rather than fabricated.
+
+The same route is exercised on Grok and terminal controls. Those arms pass only
+when the live daemon explicitly declares model/effort unsupported, the mutation
+returns a typed `unsupported` refusal, and requested state remains unchanged.
+An absent `configureFields` declaration is treated as an unbound or
+mixed-version window, never collapsed into unsupported.
+
+Both executable probe copies (`pod-2777` and `pod-2792`) compile together with
+Bun (8 modules; entry bundles 73.1 KB and 69.92 KB). This is static rig
+validation only: no server, daemon, provider, source CLI, credential, sandbox,
+or instance marker was touched, and no acceptance row was promoted.
