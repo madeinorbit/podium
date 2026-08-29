@@ -200,6 +200,11 @@ async function main() {
     && (/refus|no turn|not working|only takes an interrupt while/i.test(idleWords))
   await chat.close()
 
+  const preRestartLedger = command('sqlite3', [
+    join(STATE_ROOT, 'podium.db'),
+    `SELECT id || '|' || kind || '|' || payload FROM podium_events WHERE subject='${sid}' ORDER BY id; SELECT 'checkpoint|' || observer_generation || '|' || cursor_json || '|' || turn_epoch || '|' || COALESCE(closed_turn_epoch, 'null') FROM runtime_event_checkpoints WHERE session_id='${sid}';`,
+  ])
+
   const restartOutput = command('bash', [RUNTIME, 'restart', runtimeArm])
   await login()
   const afterRestartRow = await until(sid, (r) => Boolean(r), 60_000, 500)
@@ -265,6 +270,7 @@ async function main() {
       exactlyOneStableId: sameMarker,
       liveItems,
       restartItems,
+      preRestartLedger,
       publicRead: publicRead.result?.data ?? publicRead.error ?? null,
       restartOutput,
     },
