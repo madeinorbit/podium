@@ -6051,3 +6051,20 @@ current-tip readings. No additional rows are promoted. The next drive starts
 from the final integration tip and must still cover the logical matrix; this
 deferral does not waive the known catalogue gaps or the current A3 durable
 interrupt-marker `PARTIAL`.
+
+## FOREST — 2026-08-29 14:16 CEST — durable interrupt persistence and configure controls
+
+The coordinator branch now contains the server half of the durable headless
+interrupt repair at `c6bd6e350479ec1b2de986ee4d3f6a14365ae38d`. The runtime event
+log is the durable source; live session hydration and unanchored transcript reads
+overlay its synthetic `event: 'interrupt'` item, and provider reset deltas cannot
+erase it. A restart-focused store test covers the exact path. The lean gate is
+green at 25/25 typecheck tasks and 103/103 tests; the store lane is green at 45
+files and 367/367 tests. This changes no acceptance verdict: the real A3 arms
+still need a final drive at the next integration tip.
+
+The earlier model/effort limitation is also superseded by the landed configure
+path: Codex, OpenCode, and Claude SDK persist requested model and effort and
+expose the running-session picker; Grok and terminal publish typed unsupported
+responses. These controls have hermetic coverage but no provider runtime reading
+yet.

@@ -1606,3 +1606,35 @@ PTY fallback does. These are separate from the many behavior cells that are
 merely unconfirmed after integration and must be re-driven at the final tip.
 
 *Podium-Issue: POD-1761*
+
+## Decision 45 — durable headless interrupt records are implemented, not yet re-driven (2026-08-29 14:16 CEST)
+
+The missing A3 transcript record is now implemented on the coordinator branch at
+`c6bd6e350479ec1b2de986ee4d3f6a14365ae38d`, with the driver marker seam from
+`c4511a97e`. Accepted coarse interrupt events are persisted in the runtime event
+log, restored into the session terminal on registry hydration, included in
+unanchored transcript reads, and preserved across provider transcript resets.
+The cold-registry-restart test proves one marker survives a live delta, a reset,
+SQLite rehydration, and a second public transcript read.
+
+Validation is green: the lean gate ran 25/25 typecheck tasks and 103/103 tests;
+the server store lane ran 45 files and 367/367 tests. No provider, daemon,
+sandbox, credential, or instance marker was touched, so the acceptance rows are
+still unconfirmed at the current tip and A3 is not promoted until a final runtime
+drive observes the marker on the real arms.
+
+*Podium-Issue: POD-1761*
+
+## Decision 46 — model and effort controls are supported where the driver declares them (2026-08-29 14:16 CEST)
+
+Decision 44's statement that model/effort configure is unsupported is superseded.
+`f0723acc2` and `564508ff5` make requested model and effort sticky and durable
+for Codex, OpenCode, and Claude SDK; `3dafe4a8f` adds the running-session picker
+and three-valued capability readout. Those drivers declare the fields as taking
+effect on the next turn. Grok and the terminal driver retain typed refusals,
+because neither exposes a safe model-and-effort control path.
+
+This is implementation and hermetic evidence only. No provider runtime was
+launched, and no current acceptance row is promoted on its strength.
+
+*Podium-Issue: POD-1761*
