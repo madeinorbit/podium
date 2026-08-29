@@ -16,6 +16,7 @@ const BASE = process.env.P3097_BASE!
 const STATE = process.env.P3097_STATE_ROOT!
 const AGENT_HOME = process.env.P3097_AGENT_HOME!
 const PIN = process.env.P3097_SHA!
+const INTEGRATION_PIN = process.env.P3097_INTEGRATION_SHA!
 const INSTANCE = process.env.P3097_INSTANCE!
 const PORT = process.env.P3097_PORT!
 const HOOK_PORT = process.env.P3097_HOOK_PORT!
@@ -91,7 +92,8 @@ async function pins() {
     },
   }
   const processFacts = [server, daemon]
-  const exact = fact.mergeBase === PIN && fact.nonEvidenceChanges.length === 0 && fact.integrationNonEvidenceChanges.length === 0 &&
+  const exact = fact.integrationTip === INTEGRATION_PIN &&
+    fact.mergeBase === INTEGRATION_PIN && fact.nonEvidenceChanges.length === 0 &&
     fact.trees.server === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/server`]) &&
     fact.trees.daemon === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/daemon`]) &&
     fact.trees.web === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/web`])

@@ -66,6 +66,10 @@ spawn_one() {
 }
 
 start_pair() {
+  [ "$(git -C "$P3097_REPO" rev-parse HEAD:apps/server)" = "$(git -C "$P3097_REPO" rev-parse "$P3097_SHA:apps/server")" ]
+  [ "$(git -C "$P3097_REPO" rev-parse HEAD:apps/daemon)" = "$(git -C "$P3097_REPO" rev-parse "$P3097_SHA:apps/daemon")" ]
+  [ "$(git -C "$P3097_REPO" rev-parse HEAD:apps/web)" = "$(git -C "$P3097_REPO" rev-parse "$P3097_SHA:apps/web")" ]
+  [ "$(git -C "$P3097_REPO" rev-parse refs/heads/issue/1761-agent-runtime)" = "$P3097_INTEGRATION_SHA" ]
   local generation
   generation="$(date -u +%Y%m%dT%H%M%SZ)"
   spawn_one server scripts/server.ts "$generation"
@@ -122,8 +126,7 @@ seed_agent_home() {
 
 case "$action" in
   up)
-    [ "$(git -C "$P3097_REPO" rev-parse HEAD)" = "$P3097_SHA" ]
-    [ "$(git -C "$P3097_REPO" rev-parse refs/heads/issue/1761-agent-runtime)" = "$P3097_SHA" ]
+    [ "$(git -C "$P3097_REPO" merge-base HEAD refs/heads/issue/1761-agent-runtime)" = "$P3097_INTEGRATION_SHA" ]
     [ ! -e "$P3097_STATE_ROOT/instance.json" ] || {
       echo "refusing reused state root: $P3097_STATE_ROOT" >&2
       exit 2
