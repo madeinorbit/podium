@@ -3,21 +3,21 @@
   "harness": "opencode",
   "arm": "headless",
   "verdict": "PASS",
-  "at": "2026-08-29T22:47:20.432Z",
-  "summary": "real turn stopped in 202ms; exactly one durable interrupt item survived reload and server/daemon restart",
+  "at": "2026-08-29T22:58:41.042Z",
+  "summary": "real turn stopped in 140ms; exactly one durable interrupt item survived reload and server/daemon restart",
   "pins": {
-    "head": "40a56e72613b8bb4a965e917fab0046aace4d6da",
-    "base": "153945bd24eee3f6d479e3591c4bbc86e712903f",
-    "evidenceHead": "a22eade77769a87765ac9aab807ec0d21b3915fd",
-    "serverSource": "40a56e72613b8bb4a965e917fab0046aace4d6da",
-    "daemonSource": "672bf9c6fb20feb059498620ec538e0743d00c6c",
+    "head": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "base": "71cb2b78855b32e445380b064040e8e9fe9784de",
+    "evidenceHead": "e5174f9172a89a767152895b7edd1b252dd1be2e",
+    "serverSource": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "daemonSource": "71cb2b78855b32e445380b064040e8e9fe9784de",
     "webSource": "574e2666043359d28cf2b876201d41cf241ff629",
-    "runtimeServer": "40a56e72613b8bb4a965e917fab0046aace4d6da",
-    "runtimeDaemon": "40a56e72613b8bb4a965e917fab0046aace4d6da",
-    "servedWeb": "40a56e7",
+    "runtimeServer": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "runtimeDaemon": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "servedWeb": "ef1b5e4",
     "instance": "p3098-a3-current-tip",
-    "stateRoot": "/tmp/pod-3098-a3-40a56e7/state",
-    "agentHome": "/tmp/pod-3098-a3-40a56e7/agent-home",
+    "stateRoot": "/tmp/pod-3098-a3-ef1b5e4/state",
+    "agentHome": "/tmp/pod-3098-a3-ef1b5e4/agent-home",
     "ports": {
       "server": 19983,
       "hook": 46983,
@@ -31,12 +31,12 @@
     "versions": [
       "/home/mgw/.opencode/bin/opencode: 1.18.25"
     ],
-    "sessionId": "dfd8f020-659a-4466-a324-8a3f1c1fe0a9",
+    "sessionId": "4b000c11-b809-44d9-b2c8-82530aa981c9",
     "primed": []
   },
   "admission": {
-    "loadAtAdmission": 8.99,
-    "loadAtInterrupt": 11.8,
+    "loadAtAdmission": 8.75,
+    "loadAtInterrupt": 10.21,
     "limit": 12,
     "installedRelayAvailable": true
   },
@@ -45,7 +45,7 @@
     "workingSeen": true,
     "growthTransitions": 2,
     "baseline": {
-      "ms": 43,
+      "ms": 16,
       "phase": "idle",
       "previews": 0,
       "assistantChars": 0,
@@ -53,7 +53,7 @@
       "deltaFrames": 0
     },
     "atRequest": {
-      "ms": 13,
+      "ms": 4,
       "phase": "working",
       "previews": 4,
       "assistantChars": 0,
@@ -62,7 +62,7 @@
     },
     "samples": [
       {
-        "ms": 8,
+        "ms": 9,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -70,7 +70,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 275,
+        "ms": 268,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -78,7 +78,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 542,
+        "ms": 552,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -86,15 +86,7 @@
         "deltaFrames": 0
       },
       {
-        "ms": 864,
-        "phase": "working",
-        "previews": 0,
-        "assistantChars": 0,
-        "terminalBytes": 0,
-        "deltaFrames": 0
-      },
-      {
-        "ms": 1127,
+        "ms": 822,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -102,7 +94,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 1403,
+        "ms": 1100,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -110,7 +102,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 1684,
+        "ms": 1365,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -118,7 +110,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 1982,
+        "ms": 1634,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -126,7 +118,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2276,
+        "ms": 1916,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -134,7 +126,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2560,
+        "ms": 2178,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -142,7 +134,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 2820,
+        "ms": 2434,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -150,7 +142,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3103,
+        "ms": 2706,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -158,7 +150,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3360,
+        "ms": 2963,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -166,7 +158,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3645,
+        "ms": 3222,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -174,7 +166,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 3910,
+        "ms": 3483,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -182,7 +174,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4169,
+        "ms": 3745,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -190,7 +182,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4430,
+        "ms": 4006,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -198,7 +190,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4695,
+        "ms": 4262,
         "phase": "working",
         "previews": 0,
         "assistantChars": 0,
@@ -206,7 +198,15 @@
         "deltaFrames": 1
       },
       {
-        "ms": 4994,
+        "ms": 4524,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4807,
         "phase": "working",
         "previews": 2,
         "assistantChars": 0,
@@ -214,7 +214,7 @@
         "deltaFrames": 1
       },
       {
-        "ms": 5256,
+        "ms": 5067,
         "phase": "working",
         "previews": 4,
         "assistantChars": 0,
@@ -233,363 +233,379 @@
       "ok": true,
       "requested": "protocol"
     },
-    "requestToStoppedMs": 202,
+    "requestToStoppedMs": 140,
     "quickCeilingMs": 5000,
     "outputAfterRequest": {
       "previewFrames": 2,
-      "assistantChars": 242,
+      "assistantChars": 234,
       "terminalBytes": 0,
       "transcriptDeltaFrames": 3,
       "samples": [
         {
-          "ms": 202,
+          "ms": 140,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 0,
-          "terminalBytes": 0,
-          "deltaFrames": 3
-        },
-        {
-          "ms": 469,
-          "phase": "idle",
-          "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 729,
+          "ms": 400,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 989,
+          "ms": 676,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 1263,
+          "ms": 934,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 1520,
+          "ms": 1195,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 1777,
+          "ms": 1452,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 2080,
+          "ms": 1712,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 2342,
+          "ms": 1968,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 2673,
+          "ms": 2228,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 2931,
+          "ms": 2486,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 3197,
+          "ms": 2749,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 3454,
+          "ms": 3018,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 3717,
+          "ms": 3274,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 3978,
+          "ms": 3532,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 4236,
+          "ms": 3789,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 4492,
+          "ms": 4049,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 4754,
+          "ms": 4311,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 5010,
+          "ms": 4570,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 5275,
+          "ms": 4825,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 5566,
+          "ms": 5087,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 5864,
+          "ms": 5364,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 6154,
+          "ms": 5652,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 6417,
+          "ms": 5920,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 6684,
+          "ms": 6183,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 6957,
+          "ms": 6452,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 7217,
+          "ms": 6736,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 7481,
+          "ms": 6996,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 7743,
+          "ms": 7252,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 8081,
+          "ms": 7514,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 8353,
+          "ms": 7774,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 8631,
+          "ms": 8030,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 8887,
+          "ms": 8286,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 9206,
+          "ms": 8543,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 9464,
+          "ms": 8799,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 9724,
+          "ms": 9056,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 9982,
+          "ms": 9318,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 10249,
+          "ms": 9576,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 10508,
+          "ms": 9837,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 10768,
+          "ms": 10097,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 11028,
+          "ms": 10358,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 11284,
+          "ms": 10625,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 11540,
+          "ms": 10881,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         },
         {
-          "ms": 11795,
+          "ms": 11140,
           "phase": "idle",
           "previews": 6,
-          "assistantChars": 242,
+          "assistantChars": 234,
+          "terminalBytes": 0,
+          "deltaFrames": 4
+        },
+        {
+          "ms": 11396,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 234,
+          "terminalBytes": 0,
+          "deltaFrames": 4
+        },
+        {
+          "ms": 11651,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 234,
+          "terminalBytes": 0,
+          "deltaFrames": 4
+        },
+        {
+          "ms": 11908,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 234,
           "terminalBytes": 0,
           "deltaFrames": 4
         }
@@ -600,7 +616,7 @@
   "durable": {
     "live": [
       {
-        "id": "opencode-interrupt-dfd8f020-659a-4466-a324-8a3f1c1fe0a9-1",
+        "id": "opencode-interrupt-4b000c11-b809-44d9-b2c8-82530aa981c9-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
@@ -608,7 +624,7 @@
     ],
     "afterClientReload": [
       {
-        "id": "opencode-interrupt-dfd8f020-659a-4466-a324-8a3f1c1fe0a9-1",
+        "id": "opencode-interrupt-4b000c11-b809-44d9-b2c8-82530aa981c9-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
@@ -616,7 +632,7 @@
     ],
     "afterServerDaemonRestart": [
       {
-        "id": "opencode-interrupt-dfd8f020-659a-4466-a324-8a3f1c1fe0a9-1",
+        "id": "opencode-interrupt-4b000c11-b809-44d9-b2c8-82530aa981c9-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
@@ -625,55 +641,55 @@
     "exactlyOneStableId": true,
     "liveItems": [
       {
-        "id": "opencode-user-c136b02c",
+        "id": "opencode-user-fb37f539",
         "role": "user",
-        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-opencode-headless-MTEZ02IG only in the final line."
+        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-opencode-headless-MTEZEOMV only in the final line."
       },
       {
-        "id": "opencode-interrupt-dfd8f020-659a-4466-a324-8a3f1c1fe0a9-1",
+        "id": "opencode-interrupt-4b000c11-b809-44d9-b2c8-82530aa981c9-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
       },
       {
-        "id": "opencode-assistant-f82f7ee6",
+        "id": "opencode-assistant-43983e1b",
         "role": "assistant",
-        "text": "1. The morning began with a quiet sky.\n2. A gentle breeze moved through the trees.\n3. Sunlight spread across the open fields.\n4. Birds called from the distant branches.\n5. The vill"
+        "text": "1. The morning air feels calm and clear.\n2. A small bird rests on the garden fence.\n3. Sunlight spreads gently across the quiet street.\n4. The old clock continues measuring every p"
       }
     ],
     "restartItems": [
       {
-        "id": "opencode-interrupt-dfd8f020-659a-4466-a324-8a3f1c1fe0a9-1",
+        "id": "opencode-interrupt-4b000c11-b809-44d9-b2c8-82530aa981c9-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
       }
     ],
-    "preRestartLedger": "25|session.runtime|{\"at\":\"2026-08-29T22:46:54.273Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb04baa9effeV3Os4ckS63wCh7\",\"components\":{\"seq\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"started\",\"turnEpoch\":1,\"origin\":\"controller\"}}\n27|session.phase|{\"phase\":\"working\",\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3098-a3-40a56e7/provider-work\"}\n28|session.runtime|{\"at\":\"2026-08-29T22:46:55.452Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb04baa9effeV3Os4ckS63wCh7\",\"components\":{\"seq\":2}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"opencode-user-c136b02c\",\"cursor\":\"WyJvcGVuY29kZTpzZXNfZmIwNGJhYTllZmZlVjNPczRja1M2M3dDaDciLDE3ODgwNDM2MTU0MzIsInBydF8wNGZiNDVjZDUwMDFHZUlGYmJibjYzNmczbSIsMF0\",\"role\":\"user\",\"ts\":\"2026-08-29T22:46:55.432Z\",\"text\":\"Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-opencode-headless-MTEZ02IG only in the final line.\"}}}\n29|session.runtime|{\"at\":\"2026-08-29T22:46:55.535Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb04baa9effeV3Os4ckS63wCh7\",\"components\":{\"seq\":3}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"kind\":\"activity\",\"at\":\"2026-08-29T22:46:55.535Z\"}}\n30|session.runtime|{\"at\":\"2026-08-29T22:46:57.052Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb04baa9effeV3Os4ckS63wCh7\",\"components\":{\"seq\":4}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"kind\":\"activity\",\"at\":\"2026-08-29T22:46:57.052Z\"}}\n31|session.runtime|{\"at\":\"2026-08-29T22:46:59.848Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb04baa9effeV3Os4ckS63wCh7\",\"components\":{\"seq\":63}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"opencode-interrupt-dfd8f020-659a-4466-a324-8a3f1c1fe0a9-1\",\"role\":\"user\",\"ts\":\"2026-08-29T22:46:59.848Z\",\"text\":\"[Request interrupted by user]\",\"event\":\"interrupt\"}}}\n32|session.runtime|{\"at\":\"2026-08-29T22:46:59.848Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb04baa9effeV3Os4ckS63wCh7\",\"components\":{\"seq\":64}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"completed\",\"turnEpoch\":1,\"verdict\":\"interrupted\"}}\n34|session.phase|{\"phase\":\"idle\",\"verdict\":\"interrupted\",\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3098-a3-40a56e7/provider-work\"}\ncheckpoint|1|{\"segmentId\":\"ses_fb04baa9effeV3Os4ckS63wCh7\",\"components\":{\"seq\":64}}|1|1",
+    "preRestartLedger": "25|session.runtime|{\"at\":\"2026-08-29T22:58:16.149Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb0414321ffeK6Hkl7Ki3EgfMp\",\"components\":{\"seq\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"started\",\"turnEpoch\":1,\"origin\":\"controller\"}}\n27|session.phase|{\"phase\":\"working\",\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3098-a3-ef1b5e4/provider-work\"}\n28|session.runtime|{\"at\":\"2026-08-29T22:58:16.908Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb0414321ffeK6Hkl7Ki3EgfMp\",\"components\":{\"seq\":2}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"opencode-user-fb37f539\",\"cursor\":\"WyJvcGVuY29kZTpzZXNfZmIwNDE0MzIxZmZlSzZIa2w3S2kzRWdmTXAiLDE3ODgwNDQyOTY4ODcsInBydF8wNGZiZWMyYzQwMDFGWkhRSEdzZEpWc3RWQyIsMF0\",\"role\":\"user\",\"ts\":\"2026-08-29T22:58:16.887Z\",\"text\":\"Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-opencode-headless-MTEZEOMV only in the final line.\"}}}\n29|session.runtime|{\"at\":\"2026-08-29T22:58:16.989Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb0414321ffeK6Hkl7Ki3EgfMp\",\"components\":{\"seq\":3}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"kind\":\"activity\",\"at\":\"2026-08-29T22:58:16.989Z\"}}\n30|session.runtime|{\"at\":\"2026-08-29T22:58:18.424Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb0414321ffeK6Hkl7Ki3EgfMp\",\"components\":{\"seq\":4}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"kind\":\"activity\",\"at\":\"2026-08-29T22:58:18.424Z\"}}\n31|session.runtime|{\"at\":\"2026-08-29T22:58:21.431Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb0414321ffeK6Hkl7Ki3EgfMp\",\"components\":{\"seq\":57}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"complete\",\"item\":{\"id\":\"opencode-interrupt-4b000c11-b809-44d9-b2c8-82530aa981c9-1\",\"role\":\"user\",\"ts\":\"2026-08-29T22:58:21.431Z\",\"text\":\"[Request interrupted by user]\",\"event\":\"interrupt\"}}}\n32|session.runtime|{\"at\":\"2026-08-29T22:58:21.431Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"ses_fb0414321ffeK6Hkl7Ki3EgfMp\",\"components\":{\"seq\":58}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"completed\",\"turnEpoch\":1,\"verdict\":\"interrupted\"}}\n34|session.phase|{\"phase\":\"idle\",\"verdict\":\"interrupted\",\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3098-a3-ef1b5e4/provider-work\"}\ncheckpoint|1|{\"segmentId\":\"ses_fb0414321ffeK6Hkl7Ki3EgfMp\",\"components\":{\"seq\":58}}|1|1",
     "publicRead": {
-      "sessionId": "dfd8f020-659a-4466-a324-8a3f1c1fe0a9",
+      "sessionId": "4b000c11-b809-44d9-b2c8-82530aa981c9",
       "items": [
         {
           "role": "user",
-          "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-opencode-headless-MTEZ02IG only in the final line.",
-          "ts": "2026-08-29T22:46:55.454Z"
+          "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-opencode-headless-MTEZEOMV only in the final line.",
+          "ts": "2026-08-29T22:58:16.911Z"
         },
         {
           "role": "assistant",
-          "text": "1. The morning began with a quiet sky.\n2. A gentle breeze moved through the trees.\n3. Sunlight spread across the open fields.\n4. Birds called from the distant branches.\n5. The village slowly awakened.\n6. A baker opened the front door.\n7. Warm",
-          "ts": "2026-08-29T22:46:59.939Z"
+          "text": "1. The morning air feels calm and clear.\n2. A small bird rests on the garden fence.\n3. Sunlight spreads gently across the quiet street.\n4. The old clock continues measuring every passing moment.\n5. Fresh bread fills the kitchen with a",
+          "ts": "2026-08-29T22:58:21.513Z"
         },
         {
           "role": "user",
           "text": "[Request interrupted by user]",
-          "ts": "2026-08-29T22:46:59.848Z"
+          "ts": "2026-08-29T22:58:21.431Z"
         }
       ],
-      "cursor": "WyJvcGVuY29kZTpzZXNfZmIwNGJhYTllZmZlVjNPczRja1M2M3dDaDciLDE3ODgwNDM2MTU0NTIsInBydF8wNGZiNDVjZDUwMDFHZUlGYmJibjYzNmczbSIsMF0",
+      "cursor": "WyJvcGVuY29kZTpzZXNfZmIwNDE0MzIxZmZlSzZIa2w3S2kzRWdmTXAiLDE3ODgwNDQyOTY5MDgsInBydF8wNGZiZWMyYzQwMDFGWkhRSEdzZEpWc3RWQyIsMF0",
       "hasMore": false,
       "truncated": false
     },
-    "restartOutput": "PIN VERIFIED head=40a56e72613b8bb4a965e917fab0046aace4d6da server=40a56e72613b8bb4a965e917fab0046aace4d6da daemon=40a56e72613b8bb4a965e917fab0046aace4d6da web=40a56e7 arm=headless instance=p3098-a3-current-tip state=/tmp/pod-3098-a3-40a56e7/state agentHome=/tmp/pod-3098-a3-40a56e7/agent-home ports=19983/46983/46984"
+    "restartOutput": "PIN VERIFIED head=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc server=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc daemon=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc web=ef1b5e4 arm=headless instance=p3098-a3-current-tip state=/tmp/pod-3098-a3-ef1b5e4/state agentHome=/tmp/pod-3098-a3-ef1b5e4/agent-home ports=19983/46983/46984"
   },
   "idleRefusal": {
     "response": {
@@ -683,7 +699,7 @@
     "newItems": [],
     "interruptItemsAfter": [
       {
-        "id": "opencode-interrupt-dfd8f020-659a-4466-a324-8a3f1c1fe0a9-1",
+        "id": "opencode-interrupt-4b000c11-b809-44d9-b2c8-82530aa981c9-1",
         "role": "user",
         "event": "interrupt",
         "text": "[Request interrupted by user]"
