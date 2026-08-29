@@ -27,8 +27,9 @@ MemAvailable, 563,666,944 bytes swap used, 73 GiB root free, and load average
 14.53/11.53/7.76. The elevated load is part of the reading; these timings are not
 presented as an idle-host baseline.
 
-This cell proves current-tip binding, initial input acceptance, output delivery,
-and transcript synchronization. It is not a headed view-switch, interruption, or
+This headless context cell proves current-tip `opencode-server/server` binding,
+initial input acceptance, output delivery, and transcript synchronization. It does
+not count toward headed acceptance and is not a headed view-switch, interruption, or
 recovery verdict; those remain separate cells.
 
 ## Current evidence not repeated
@@ -41,3 +42,29 @@ would not test changed product bytes.
 ## Raw cell rows
 
 See `rows.tsv`; each populated line was checked for exactly eight tab-separated
+
+## 2026-08-30 headed OpenCode launch and switching
+
+The valid headed cell used per-spawn `runtimeContract='generic-pty'`; neither
+`PODIUM_RUNTIME_DRIVER` nor a daemon-wide driver override was set. Scoring was
+refused until the session reported both `driverId=generic-pty` and
+`driverFamily=terminal`. The isolated instance was
+`p3103-opencode-headed-final`, with product-derived state/agent home, scratch cwd
+`/tmp/pod-3103-opencode-headed-final/repo`, and ports 19974/46977/46978.
+
+Creation to observed bind was 1,014 ms. Native attach already had 35,250 terminal
+bytes available, required no first-run priming, and raw input echoed. The first
+prompt's exact reply arrived in 3,015 ms. Four Chat/Native changes kept the same
+`generic-pty/terminal` identity; the second send was accepted as `delivered`,
+entered `working`, and reached an exact reply plus `idle` in 1,581 ms. Terminal
+bytes grew from 76,094 to 317,602 (+241,508), and raw CLI input echoed both before
+and after switching.
+
+Verdict is **PARTIAL**, not PASS: raw PTY frames contain normal full-screen TUI
+redraws and cannot establish whether xterm scrollback duplicated or corrupted.
+The core launch/input/transcript/identity/terminal-growth clauses pass; the
+scrollback clause remains explicitly unmeasured rather than being inferred from
+redraw counts. Host state after the run was load 10.74/12.31/10.56,
+16,946,188,288 bytes MemAvailable, 1,592,061,952 bytes swap used, and 72 GiB root
+free. Server, daemon, and web were pinned to `d6b4ba8bf`; product paths are
+byte-identical to the original `fbc2f18b` runtime pin.

@@ -7,7 +7,7 @@
  * whose control did not fire.
  */
 
-export type Verdict = 'PASS' | 'FAIL' | 'BLOCKED' | 'REFUSED'
+export type Verdict = 'PASS' | 'FAIL' | 'PARTIAL' | 'BLOCKED' | 'REFUSED'
 
 export interface ProbeOutcome {
   verdict: Verdict
@@ -332,6 +332,11 @@ export class Chat {
       })
     }
   }
+  mode(mode: 'chat' | 'native'): void {
+    this.send({ type: 'viewState', visible: [this.sid], focused: this.sid, modes: { [this.sid]: mode } })
+    if (mode === 'native') this.send({ type: 'attach', sessionId: this.sid })
+  }
+
 
   private onFrame(raw: string): void {
     let m: Record<string, unknown>
