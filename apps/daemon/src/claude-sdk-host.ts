@@ -117,7 +117,9 @@ export function buildClaudeSdkOptions(
   const mode: PermissionMode =
     spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
       ? (spec.permissionMode as PermissionMode)
-      : 'auto'
+      : spec.structuredPermissions
+        ? 'default'
+        : 'auto'
   const options: Options = {
     cwd: spec.cwd,
     includePartialMessages: true,

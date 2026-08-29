@@ -40,6 +40,45 @@ describe('buildHeadlessExec argv shapes', () => {
     })
   })
 
+  it('makes structured permission prompts authoritative without overriding explicit policy', () => {
+    const canUseTool = vi.fn()
+    const structured = buildClaudeSdkOptions(
+      {
+        agent: 'claude-code',
+        ...identity,
+        cwd: '/repo',
+        prompt: 'change a guarded file',
+        structuredPermissions: true,
+      },
+      canUseTool,
+    )
+
+    expect(structured.permissionMode).toBe('default')
+    expect(structured.canUseTool).toBe(canUseTool)
+    expect(structured).not.toHaveProperty('allowDangerouslySkipPermissions')
+
+    const explicitlyAuthorized = buildClaudeSdkOptions(
+      {
+        agent: 'claude-code',
+        ...identity,
+        cwd: '/repo',
+        prompt: 'change a guarded file',
+        structuredPermissions: true,
+        permissionMode: 'auto',
+      },
+      canUseTool,
+    )
+    expect(explicitlyAuthorized.permissionMode).toBe('auto')
+
+    const legacyUnstructured = buildClaudeSdkOptions({
+      agent: 'claude-code',
+      ...identity,
+      cwd: '/repo',
+      prompt: 'change a guarded file',
+    })
+    expect(legacyUnstructured.permissionMode).toBe('auto')
+  })
+
   it('enforces a native no-tools posture and refuses unsupported adapters', () => {
     const options = buildClaudeSdkOptions({
       agent: 'claude-code',
