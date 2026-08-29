@@ -1647,6 +1647,20 @@ and do not rewrite `results.tsv` or evidence reports to match.
   follow every other rule in this brief (three-part pin, `test:heavy` for RAM, never merge
   main into the epic branch).
 
+
+## Current acceptance priority — 2026-08-29 16:13 CEST
+
+Running model and effort controls are Tier A11 where a driver declares them,
+not deferred Tier C work. Codex, OpenCode, and Claude SDK persist the sticky
+request across reload; Grok and terminal drivers refuse unsupported changes
+with typed outcomes. The implementation has hermetic coverage, but provider
+runtime readings at the final integration tip are still required before these
+controls are called live-proven.
+
+The next broad acceptance drive remains deferred until the integration tip is
+stable. Do not promote stale matrix rows, and do not launch a provider rig from
+the coordinator checkout while the relay/instance boundary is unsafe.
+
 ### The stop hook counts mail the reader cannot show you
 
 The hook will tell you "you have 102 messages from issue:#2941, #2987, #3025,
