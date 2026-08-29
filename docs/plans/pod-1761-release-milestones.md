@@ -49,6 +49,7 @@ the release route through it. Plain language throughout, on purpose.
 | A8 | A logged-out harness gets a working login path. |
 | A9 | Killing a session actually kills it, and dead helper processes don't pile up on the machine. |
 | A10 | Hibernate (park) and wake work without wedging the session. |
+| A11 | A running headless session can change its model and effort where its driver declares support, and the change survives reload; drivers that do not declare it refuse clearly. |
 
 ### Tier B — weak, flaky or embarrassing today (ship at "not worse", improve after v1)
 
@@ -66,10 +67,12 @@ the release route through it. Plain language throughout, on purpose.
 
 **Live streaming of replies into chat** (chat shows completed messages today —
 token-by-token streaming to viewers does not exist for any harness), moving a
-session between machines (import/export), switching model mid-session, session
-forking, rewind/checkpoints, "send this when the turn ends", a machine-level
-process inventory command. These stay in the capability catalogue as backlog;
-no release below waits on them.
+session between machines (import/export), session forking, rewind/checkpoints,
+"send this when the turn ends", a machine-level process inventory command.
+These stay in the capability catalogue as backlog; no release below waits on
+them. Mid-session model/effort switching is no longer Tier C: it is Tier A11
+where a driver declares the capability, with a typed refusal for drivers that
+do not.
 
 ## Sorting the open bugs by tier
 
