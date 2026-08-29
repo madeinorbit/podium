@@ -35,7 +35,7 @@ if (arm !== 'headless' && arm !== 'terminal') throw new Error(`unknown arm ${arm
 
 const ROOT = process.cwd()
 const BASE = process.env.PODIUM_DRIVE_BASE ?? '/tmp/pod-3098-a3-ef1b5e4'
-const BASE_PIN = '71cb2b78855b32e445380b064040e8e9fe9784de'
+const BASE_PIN = 'b64abaafd7f3c4dcaa034464e98d7304d1f175b3'
 const PIN = 'ef1b5e4d421e62e4e93e3fcec151eff75b832bbc'
 const INSTANCE = 'p3098-a3-current-tip'
 const STATE_ROOT = join(BASE, 'state')
