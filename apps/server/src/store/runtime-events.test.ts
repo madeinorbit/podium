@@ -121,9 +121,23 @@ describe('durable runtime observation gate', () => {
         change: { kind: 'session_started' },
       }),
     })
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'turn-closed-before-interrupt-marker',
+      sessionId,
+      event: {
+        t: 'turn',
+        ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' },
+        at: '2026-08-23T00:00:00.500Z',
+        provenance: 'live',
+        cursor: { segmentId: 'runtime-segment', components: { seq: 2 } },
+        observerGeneration: 1,
+        turnEpoch: 1,
+      },
+    })
     const marker = interruptEvent({
       at: '2026-08-23T00:00:01.000Z',
-      seq: 2,
+      seq: 3,
       sessionId,
     })
     const markerItem = marker.t === 'item' && marker.item.kind === 'complete' ? marker.item.item : undefined

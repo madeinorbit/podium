@@ -1034,6 +1034,23 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toEqual([])
   })
 
+  it('refuses an idle server-family interrupt with wording that cannot mean stopped', async () => {
+    const h = harness({
+      agentKind: 'codex',
+      phase: 'idle',
+      serverDriven: true,
+      contractInterrupt: { ok: true },
+    })
+
+    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+
+    expect(result).toEqual({
+      ok: false,
+      reason: 'Codex only takes an interrupt while it is working, and it is not working right now',
+    })
+    expect(h.contractInterrupts).toEqual([])
+  })
+
   it('reports a driver that refused the interrupt instead of confirming it', async () => {
     const h = harness({
       agentKind: 'opencode',

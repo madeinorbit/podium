@@ -840,7 +840,15 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
-    if (this.deps.serverDriven?.(session) === true) return this.contractInterrupt(session, input)
+    if (this.deps.serverDriven?.(session) === true) {
+      if (session.agentState?.phase !== 'working') {
+        return {
+          ok: false,
+          reason: `${this.deps.harnessName(session.agentKind)} only takes an interrupt while it is working, and it is not working right now`,
+        }
+      }
+      return this.contractInterrupt(session, input)
+    }
     const abort = this.abortKeyFor(session)
     // REFUSED, not skipped: unlike interruptText there is nothing else this call
     // does, so a silent `{ ok: true }` would be the lie POD-1214 set out to fix —
