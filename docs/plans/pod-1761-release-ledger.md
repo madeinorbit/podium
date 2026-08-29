@@ -6240,3 +6240,26 @@ Playwright fallback was therefore run under an explicitly acquired and released
 This is frontend/terminal-boundary evidence, not a real-provider acceptance row.
 A named current-tip Codex provider sample is still required to retire the
 historical 2.3-13.4 s live tail.
+
+
+## FOREST — 2026-08-29 20:33 CEST — Codex 0.150.1 stays headless
+
+The installed `codex-cli 0.150.1` is now inside the explicit app-server
+compatibility window instead of silently demoting to the terminal driver. The
+runtime gate and public harness manifest are derived from the same range, and a
+regression pins the exact highest version that has actually been proved.
+
+The proof was not based on version strings alone. `codex app-server
+generate-ts --experimental` first confirmed that 0.150.1 still exposes every
+method and notification the driver consumes. One isolated, subscription-backed
+focused run then exercised the real create/authentication, turn, steer,
+hibernate, and resume lifecycle together with the version and manifest guards:
+**3 files passed, 52 tests passed, duration 24.02 s**. The first shell attempt
+executed no test because Bun was absent from its inherited `PATH`; the reported
+result is the corrected collecting invocation.
+
+The live test used its own temporary working directory and direct Codex
+app-server child. It did not start a Podium server or daemon and did not touch
+the operator relay, state root, credentials, or `instance.json`. The
+`test:heavy` lease was acquired immediately before the collecting run and
+released immediately after it.

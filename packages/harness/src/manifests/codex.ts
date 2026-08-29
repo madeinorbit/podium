@@ -386,11 +386,11 @@ export const codexManifest: AgentManifest = {
       requiresPerSessionSecret: false,
       // PINNED AGAINST RECORDED FIXTURES, not guessed (W6). Every shape the
       // driver reads was captured from a live 0.147.0 app-server and replays in
-      // `packages/agent-runtime/src/drivers/codex/__fixtures__`; the gate that
-      // enforces this range is `gateCodexVersion`, and widening it means
-      // re-recording those fixtures first — which the binary makes cheap, since
-      // `codex app-server generate-ts` emits the whole protocol.
-      versionRange: supported('>=0.147 <0.150'),
+      // `packages/agent-runtime/src/drivers/codex/__fixtures__`. The 0.150.1
+      // generated bindings and real subscription live suite were compared on
+      // 2026-08-29 (POD-3093); `manifest-axis.test.ts` keeps this advertised
+      // range equal to the runtime gate.
+      versionRange: supported('>=0.147 <0.151'),
       /**
        * `codex resume --remote <socket>` — the stock TUI, joined to the
        * app-server this session is already running.

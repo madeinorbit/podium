@@ -47,6 +47,13 @@ describe('the supported window', () => {
     expect(supportsCodexAppServerDriver(recorded)).toBe(true)
   })
 
+  it('admits the current 0.150.1 binary that was re-proved live', () => {
+    const verified = parseCodexVersion(SUPPORTED_CODEX.verifiedThrough)
+    expect(verified).not.toBeNull()
+    if (!verified) return
+    expect(supportsCodexAppServerDriver(verified)).toBe(true)
+  })
+
   it('refuses a MAJOR bump outright', () => {
     // Codex is pre-1.0 and its minor is the breaking-change axis, so a major
     // bump is the loudest possible signal that everything below was rewritten.

@@ -15,6 +15,7 @@
 
 import { AGENT_MANIFESTS, DRIVER_IDS } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
+import { SUPPORTED_CODEX } from '../drivers/codex/version.js'
 import { SUPPORTED_OPENCODE } from '../drivers/opencode/version.js'
 
 const MANIFESTS = Object.entries(AGENT_MANIFESTS)
@@ -270,12 +271,12 @@ describe('server specs carry their security posture', () => {
     expect(codex.supported).toBe(true)
     if (codex.supported) {
       expect(codex.value.versionRange.supported).toBe(true)
-      // Assert a range EXISTS, not what it says. Pinning the prose would break
-      // this test on every re-record, which is the opposite of what it should
-      // react to — the fixtures are what make the number true, and they have
-      // their own test.
+      // Both sides move together: widening only the public manifest would
+      // promise a version the runtime gate still demotes to the terminal.
       if (codex.value.versionRange.supported) {
-        expect(codex.value.versionRange.value.length).toBeGreaterThan(0)
+        expect(codex.value.versionRange.value).toBe(
+          `>=${SUPPORTED_CODEX.major}.${SUPPORTED_CODEX.minMinor} <${SUPPORTED_CODEX.major}.${SUPPORTED_CODEX.maxMinor + 1}`,
+        )
       }
     }
 

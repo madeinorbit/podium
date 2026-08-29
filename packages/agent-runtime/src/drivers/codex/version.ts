@@ -47,15 +47,18 @@ export interface CodexVersion {
  *
  * The ceiling is a small forward allowance rather than an exact patch pin: Codex
  * ships minors frequently, and a gate people routinely widen to get their work
- * done is not a gate. It is deliberately NARROW anyway — two minors — because
+ * done is not a gate. It is deliberately NARROW anyway because
  * this protocol is the one the plan says has already renamed methods once.
+ * 0.150.1 was re-proved against generated bindings and the real subscription
+ * live suite on 2026-08-29 (POD-3093).
  */
 export const SUPPORTED_CODEX = {
   major: 0,
   minMinor: 147,
-  maxMinor: 149,
+  maxMinor: 150,
   /** What the fixtures were recorded from, for the diagnostic's body. */
   recordedAt: '0.147.0',
+  verifiedThrough: '0.150.1',
 } as const
 
 /**
