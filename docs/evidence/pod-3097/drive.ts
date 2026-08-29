@@ -64,6 +64,7 @@ async function pins() {
     integrationTip: out('git', ['-C', ROOT, 'rev-parse', 'refs/heads/issue/1761-agent-runtime']),
     mergeBase: out('git', ['-C', ROOT, 'merge-base', 'HEAD', 'refs/heads/issue/1761-agent-runtime']),
     nonEvidenceChanges: out('git', ['-C', ROOT, 'diff', '--name-only', `${PIN}..HEAD`]).split('\n').filter((path) => path && !path.startsWith('docs/')),
+    integrationNonEvidenceChanges: out('git', ['-C', ROOT, 'diff', '--name-only', `${PIN}..refs/heads/issue/1761-agent-runtime`]).split('\n').filter((path) => path && !path.startsWith('docs/')),
     trees: {
       server: out('git', ['-C', ROOT, 'rev-parse', 'HEAD:apps/server']),
       daemon: out('git', ['-C', ROOT, 'rev-parse', 'HEAD:apps/daemon']),
@@ -90,7 +91,7 @@ async function pins() {
     },
   }
   const processFacts = [server, daemon]
-  const exact = fact.integrationTip === PIN && fact.mergeBase === PIN && fact.nonEvidenceChanges.length === 0 &&
+  const exact = fact.mergeBase === PIN && fact.nonEvidenceChanges.length === 0 && fact.integrationNonEvidenceChanges.length === 0 &&
     fact.trees.server === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/server`]) &&
     fact.trees.daemon === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/daemon`]) &&
     fact.trees.web === out('git', ['-C', ROOT, 'rev-parse', `${PIN}:apps/web`])
@@ -196,7 +197,7 @@ const catalog = catalogReply.result?.data
 if (!catalog?.byAgent) throw new Error(`model catalog unavailable: ${JSON.stringify(catalogReply)}`)
 mark('live-catalog-read', { fetchedAt: catalog.fetchedAt, counts: Object.fromEntries(Object.entries(catalog.byAgent).map(([k, v]) => [k, (v as unknown[]).length])) })
 
-const agentKind = cell === 'claude' ? 'claude-code' : cell === 'terminal' ? 'shell' : cell
+const agentKind = cell === 'claude' ? 'claude-code' : cell === 'terminal' ? 'codex' : cell
 const expectedDriver: Record<Cell, string> = {
   codex: 'codex-app-server',
   opencode: 'opencode-server',
@@ -204,7 +205,11 @@ const expectedDriver: Record<Cell, string> = {
   grok: 'grok-acp',
   terminal: 'generic-pty',
 }
-const created = await mutate('sessions.create', { cwd: PROBE_REPO, agentKind })
+const created = await mutate('sessions.create', {
+  cwd: PROBE_REPO,
+  agentKind,
+  ...(cell === 'terminal' ? { runtimeContract: 'generic-pty' } : {}),
+})
 const sid = created.result?.data?.sessionId as string | undefined
 if (!sid) throw new Error(`create failed: ${JSON.stringify(created)}`)
 mark('session-created', { sid, agentKind })
@@ -215,12 +220,16 @@ let chat = new Chat(sid)
 await chat.open(cell === 'terminal' ? 'native' : 'chat')
 let control: any
 if (cell === 'terminal') {
-  const controlMarker = marker('TERMINAL-CONTROL')
   const startedAt = ts()
-  chat.send({ type: 'input', sessionId: sid, data: Buffer.from(`printf '%s\\n' '${controlMarker}'\r`).toString('base64'), inputOrigin: 'human' })
+  const geometry = { cols: 113, rows: 37 }
+  chat.send({ type: 'resize', sessionId: sid, ...geometry })
   const deadline = Date.now() + 30_000
-  while (Date.now() < deadline && !chat.screen.includes(controlMarker)) await wait(250)
-  control = { marker: controlMarker, startedAt, finishedAt: ts(), fired: chat.screen.includes(controlMarker), screenTail: chat.screenTail(600) }
+  let resized = await sessionRow(sid)
+  while (Date.now() < deadline && (resized?.geometry?.cols !== geometry.cols || resized?.geometry?.rows !== geometry.rows)) {
+    await wait(250)
+    resized = await sessionRow(sid)
+  }
+  control = { startedAt, finishedAt: ts(), geometry, row: snapshot(resized), fired: resized?.geometry?.cols === geometry.cols && resized?.geometry?.rows === geometry.rows }
 } else {
   const turn = await sendProviderTurn(chat, sid, marker(`${cell.toUpperCase()}-CONTROL`))
   let observed = turn.row
