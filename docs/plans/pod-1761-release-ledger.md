@@ -6099,3 +6099,12 @@ the matrix has no release-green claim at this tip. The final drive must pin
 server, web, and daemon from this stable tip and re-drive rows whose behavior
 reads the changed paths before any current acceptance verdict is promoted.
 No provider rig or operator sandbox was launched for this documentation note.
+
+## FOREST — 2026-08-29 16:40 CEST — policy follow-up is docs-only
+
+The current coordinator tip is `1239735970a4ab280e0315600ed0e102ddf34e9b`.
+The only paths added after the 16:27 acceptance audit are documentation files
+(`docs/agents/`, `docs/plans/`); no product, server, daemon, web, protocol,
+or runtime bytes changed. The 85-path staleness count and the requirement for
+an isolated, fully pinned current-tip re-drive are therefore unchanged.
+The worker default is now Claude Opus 5 at low effort for new workers.
