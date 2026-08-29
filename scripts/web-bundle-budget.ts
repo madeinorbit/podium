@@ -205,7 +205,16 @@ const BROWSER_HOSTILE_SOURCES = [
   'packages/transcript/src/',
 ] as const
 
-const BROWSER_HOSTILE_EXCEPTIONS = ['packages/harness/src/browser.ts'] as const
+/** Exact source files admitted through declared, transitively audited browser
+ * entrypoints. Keep this narrower than a directory: `manifest-browser-reach`
+ * proves these modules' complete closure remains Node-free, while this build
+ * check continues to reject every parser, pager and tailer in transcript. */
+const BROWSER_HOSTILE_EXCEPTIONS = [
+  'packages/harness/src/browser.ts',
+  'packages/transcript/src/browser.ts',
+  'packages/transcript/src/cursor-codec.ts',
+  'packages/transcript/src/stream-identity.ts',
+] as const
 
 /**
  * THE DUPLICATE CHECK LIVES NEXT DOOR, in web-bundle-duplicates.ts: the

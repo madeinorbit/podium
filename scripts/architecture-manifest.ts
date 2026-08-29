@@ -768,6 +768,9 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   // `createRequire is not a function` before it could render. This row is what
   // keeps `./browser` the only reachable one, and holds it to importing nothing.
   ['@podium/harness/browser', 'packages/harness/src/browser.ts'],
+  // packages/transcript — opaque cursor and stream-item identity only. Parsing,
+  // filesystem paging and tailing remain behind the host-only root barrel.
+  ['@podium/transcript/browser', 'packages/transcript/src/browser.ts'],
   // packages/telemetry — the pure display example apps/web renders in its
   // privacy and setup copy. The bare specifier pulls the emitter and node:fs.
   ['@podium/telemetry/example', 'packages/telemetry/src/example.ts'],

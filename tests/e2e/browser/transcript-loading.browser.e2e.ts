@@ -208,6 +208,19 @@ test('(a) a RUNNING claude session renders its on-disk transcript in the chat vi
 
   // And it is NOT the empty state (scope to the visible panel).
   await expect(page.getByTestId('transcript-empty-state').locator('visible=true')).toHaveCount(0)
+
+  // Exercise the real panel reopen/subscription boundary twice. The hermetic
+  // component regression supplies cursor drift; this one proves that routing a
+  // deterministic durable transcript through actual clicks never multiplies
+  // either side of the exchange as subscriptions are torn down and restored.
+  for (let cycle = 0; cycle < 2; cycle++) {
+    await nativeToggle(page).click()
+    await chatToggle(page).click()
+    await expect(msg('TRANSCRIPT_PROMPT_ALPHA please refactor the parser')).toHaveCount(1)
+    await expect(msg('TRANSCRIPT_ANSWER_BRAVO done — extracted the cursor codec')).toHaveCount(1)
+    await expect(msg('TRANSCRIPT_PROMPT_CHARLIE now add a paging test')).toHaveCount(1)
+    await expect(msg('TRANSCRIPT_ANSWER_DELTA added the anchored back-page read')).toHaveCount(1)
+  }
 })
 
 test('an uploaded image turn reconciles its optimistic bubble with the normalized transcript echo', async ({

@@ -5,6 +5,7 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
+import { encodeCursor } from '@podium/transcript/browser'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -170,6 +171,20 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
 
 function item(id: string, cursor: string, text: string): TranscriptItem {
   return { id, cursor, role: 'assistant', text }
+}
+
+function providerItem(
+  id: string,
+  role: 'user' | 'assistant',
+  text: string,
+  offset: number,
+): TranscriptItem {
+  return {
+    id,
+    role,
+    text,
+    cursor: encodeCursor({ fileId: 'headless-thread', offset, uuid: id, sub: 0 }),
+  }
 }
 
 let container: HTMLDivElement
@@ -366,6 +381,61 @@ describe('ChatView read-then-subscribe', () => {
     // 'second' must appear exactly once (no duplicate from the overlapping delta).
     const occurrences = container.textContent?.split('second').length ?? 0
     expect(occurrences - 1).toBe(1)
+  })
+
+  it('keeps provider user and assistant items unique through two reopen hydration cycles', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+
+    const hydrate = async (readIndex: number, offset: number): Promise<void> => {
+      const user = providerItem('provider-user-1', 'user', 'unique operator prompt', offset)
+      const assistant = providerItem(
+        'provider-assistant-1',
+        'assistant',
+        'unique assistant reply',
+        offset + 1,
+      )
+      await act(async () => {
+        reads[readIndex]?.resolve({
+          items: [user, assistant],
+          head: user.cursor,
+          tail: assistant.cursor,
+          hasMore: false,
+        })
+      })
+      await flush()
+    }
+
+    await hydrate(0, 10)
+    const subscription = fakeHub.subscribes[0]?.cb
+
+    for (let cycle = 0; cycle < 2; cycle++) {
+      // The live observer and the durable re-read describe the same provider
+      // items, but at later offsets — exactly the identity drift on reopen.
+      await act(async () => {
+        subscription?.(
+          [
+            providerItem('provider-user-1', 'user', 'unique operator prompt', 20 + cycle * 10),
+            providerItem(
+              'provider-assistant-1',
+              'assistant',
+              'unique assistant reply',
+              21 + cycle * 10,
+            ),
+          ],
+          { reset: false },
+        )
+        subscription?.([], { reset: true })
+      })
+      await hydrate(cycle + 1, 30 + cycle * 10)
+    }
+
+    const rows = [...container.querySelectorAll('.transcript-row')]
+    const rowCount = (text: string): number =>
+      rows.filter((row) => row.textContent?.includes(text)).length
+    expect(rowCount('unique operator prompt')).toBe(1)
+    expect(rowCount('unique assistant reply')).toBe(1)
   })
 
   it('re-reads the window when a reset delta arrives', async () => {

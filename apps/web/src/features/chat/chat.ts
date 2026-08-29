@@ -1,5 +1,6 @@
 import { type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model/browser'
+import { streamIdOfCursor, streamItemIdOf } from '@podium/transcript/browser'
 import { deadLetterDeliveryLine } from '../messages/message-ledger'
 
 /**
@@ -85,10 +86,15 @@ export class FileLinkPathIndex {
   }
 }
 
-/** Identity key for dedup/merge: the opaque cursor when present (stable across
- *  re-reads), else the synthesized `id` (a few items have no cursor). */
+/** Identity key for dedup/merge: the transcript contract's stream identity.
+ *
+ * A full cursor is a POSITION, not always an item identity: OpenCode stamps its
+ * mutable `timeUpdated` into the offset, so the same provider part has a new
+ * cursor when hydration and the live subscription observe it at different
+ * moments. The shared contract zeros that mutable offset while retaining the
+ * provider part/sub-item identity; cursor-less families keep using `id`. */
 export function itemKey(item: TranscriptItem): string {
-  return item.cursor ?? item.id
+  return streamItemIdOf(item)
 }
 
 /**
@@ -198,8 +204,8 @@ export function reconcileReset(
   snapshotTail: string | undefined,
 ): TranscriptItem[] {
   if (snapshot.length === 0) return prev
-  const tailIdx =
-    snapshotTail !== undefined ? prev.findIndex((it) => itemKey(it) === snapshotTail) : -1
+  const tailKey = snapshotTail !== undefined ? streamIdOfCursor(snapshotTail) : undefined
+  const tailIdx = tailKey !== undefined ? prev.findIndex((it) => itemKey(it) === tailKey) : -1
   // Roll/replacement (tail not in the held window): adopt the snapshot verbatim.
   if (tailIdx < 0) return snapshot
   // Same conversation: keep items the held window has beyond the snapshot's tail.
