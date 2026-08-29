@@ -503,3 +503,43 @@ cluster rather than waiting for the 2 s fallback.
 This closes the controlled client-side measurement, not the real Codex tail.
 The earlier 2.3-13.4 s live outliers still require a named current-tip provider
 sample before they can be called eliminated.
+
+
+## 2026-08-29 20:57 CEST — real headless Codex first native attachment
+
+A second isolated browser run used the real installed Codex provider and required
+the active session to report `driverId=codex-app-server` through
+`sessions.list` before the CLI click. This is the missing headless-driver proof;
+a terminal fallback cannot satisfy the benchmark. The run used a unique harness
+state root and port, copied auth into the harness-owned private Codex home, and
+touched no operator daemon, relay, state, process, or `instance.json`.
+
+After the headless bind and the idle renderer prefetch, the first Chat -> CLI
+attachment became interactable in **149.9 ms**. Four subsequent returns were
+**p50 17.6 ms, p90 19.2 ms, max 19.2 ms**, with zero timeouts.
+
+| mark | offset |
+|---|---:|
+| terminal mount | 70.1 ms |
+| first measured fit | 76.6 ms |
+| connection reset | 117.2 ms |
+| connection attached | 117.5 ms |
+| ready (`source=attach`) | 117.6 ms |
+| interactable | 149.9 ms |
+
+An 89 ms browser long task overlapped the gesture (starting 5.4 ms before the
+click and ending 83.6 ms after it), again accounting for most of the remaining
+first-open time. The Playwright file passed 1/1 in 11.5 s.
+
+Two preceding attempts are explicitly rejected. They bound `generic-pty`, and
+the new driver assertion failed them rather than letting their numbers score.
+The cause was the hand-run environment dropping `/home/mgw/.local/bin` from
+`PATH`; Codex uses an `env node` shebang, so the daemon version probe reported
+`node: No such file or directory` and correctly degraded. After restoring that
+host path, the exact daemon probe reported `drivable: true` and the asserted
+headless run passed. This distinction is now part of the benchmark output so a
+future fallback cannot masquerade as a fast headless result.
+
+This measurement starts after `codex-app-server` has bound. It shows that the
+current Chat -> native attach path itself is not the old multi-second tail; it
+does not measure initial provider startup from the Start Work click.

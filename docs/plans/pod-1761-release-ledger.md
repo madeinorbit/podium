@@ -6263,3 +6263,24 @@ app-server child. It did not start a Podium server or daemon and did not touch
 the operator relay, state root, credentials, or `instance.json`. The
 `test:heavy` lease was acquired immediately before the collecting run and
 released immediately after it.
+
+
+## FOREST — 2026-08-29 20:57 CEST — real Codex native attach is 150 ms
+
+The current isolated browser benchmark now reads `sessions.list` and refuses to
+score a real-provider run unless the session is bound to `codex-app-server`.
+With that assertion, the first Chat -> CLI attachment after headless bind was
+**149.9 ms**; four warm returns were **p50 17.6 ms, p90/max 19.2 ms**. Mount was
+70.1 ms, attach 117.5 ms, `ready(source=attach)` 117.6 ms, and interactable
+149.9 ms. The one-file Playwright run passed in 11.5 s.
+
+The assertion correctly rejected two `generic-pty` attempts. Their manually
+narrowed `PATH` omitted `/home/mgw/.local/bin`, so the Node-shebang Codex CLI
+could not answer the daemon version probe and the product degraded. Restoring
+the host Node path made the exact probe `drivable: true`; no runtime-driver
+override was used to manufacture the passing headless arm.
+
+The result measures first native attachment after the headless driver has bound,
+not provider startup from the initial Start Work click. The harness used a
+unique state root and port; the operator daemon, relay, state, processes, and
+`instance.json` were untouched.
