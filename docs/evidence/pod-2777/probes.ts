@@ -538,33 +538,60 @@ export const interrupt: Probe = {
      */
     const callOk = (res.result?.data as { ok?: boolean; reason?: string } | undefined)?.ok !== false
     const callReason = (res.result?.data as { reason?: string } | undefined)?.reason
-    const marked = chat.items.some((i) => i.event === 'interrupt')
+
+    // Wait for the durable item on the live subscription. Phase settlement can
+    // precede transcript projection by a few frames.
+    const markDeadline = now() + 15_000
+    while (!chat.items.some((i) => i.event === 'interrupt') && now() < markDeadline) {
+      await wait(250)
+    }
+    const markedLive = chat.items.some((i) => i.event === 'interrupt')
+
     // What the product says the session IS after the call — POD-2792's fix is
     // about an aborted turn reading as interrupted rather than broken, so the
     // error class (or its absence) is part of the reading, not a footnote.
     const afterRow = await sessionRow(ctx.sid)
     await chat.close()
+
+    // Discard the live socket and require the same marker from a fresh
+    // bootstrap. Otherwise an optimistic in-memory item can masquerade as
+    // durable evidence.
+    const reloaded = new Chat(ctx.sid)
+    await reloaded.open()
+    const reloadDeadline = now() + 10_000
+    while (!reloaded.items.some((i) => i.event === 'interrupt') && now() < reloadDeadline) {
+      await wait(250)
+    }
+    const markedAfterReload = reloaded.items.some((i) => i.event === 'interrupt')
+    await reloaded.close()
+
     const stopped = honoured && callOk
+    const passed = stopped && markedLive && markedAfterReload
     return {
       control,
       outcome: {
-        verdict: stopped ? 'PASS' : 'FAIL',
-        summary: stopped
-          ? `turn stopped ${settled.ms}ms after interrupt${marked ? ', transcript marks it' : ', but nothing marks it'}`
-          : callOk
-            ? `still working ${IDLE_MS / 1000}s after interrupt`
-            : `the product REFUSED the call: ${callReason ?? 'ok:false'}`,
+        verdict: passed ? 'PASS' : 'FAIL',
+        summary: passed
+          ? `turn stopped ${settled.ms}ms after interrupt; durable marker survived reload`
+          : !stopped
+            ? callOk
+              ? `still working ${IDLE_MS / 1000}s after interrupt`
+              : `the product REFUSED the call: ${callReason ?? 'ok:false'}`
+            : !markedLive
+              ? 'turn stopped, but no live interrupt marker appeared'
+              : 'the live interrupt marker was absent after a fresh reload',
         evidence: [
           `WAS RUNNING       ${observedDetail}`,
           `INTERRUPT SENT    ${JSON.stringify(res.result?.data ?? res.error ?? null).slice(0, 200)}`,
           ...(callOk ? [] : ['                  ^ ok:false — the product declined its own call, so nothing was interrupted and a "stopped" reading below means only that nothing was running.']),
           `SETTLED           ${stopped ? `phase left 'working' after ${settled.ms}ms` : `NEVER — phase=${settled.row?.agentState?.phase}`}`,
-          `TRANSCRIPT MARK   ${marked ? "an item carries event:'interrupt' — the product recorded a user action" : "no item carries event:'interrupt'"}`,
+          `LIVE MARK         ${markedLive ? "an item carries event:'interrupt' — the product recorded a user action" : "no item carries event:'interrupt'"}`,
+          `RELOAD MARK       ${markedAfterReload ? "a fresh socket bootstrapped the same interrupt item" : "fresh socket history omitted the interrupt item"}`,
           `TEXT              ${before} chars at the call -> ${after} chars at settle`,
           `FRAMES AFTER      ${framesAfter} preview frame(s) arrived AFTER the call`,
           `TERMINAL BYTES    ${screenAtInterrupt - baselineScreen} at the call -> +${screenAfterA - screenAtInterrupt} after 6s -> +${screenAfterB - screenAtInterrupt} after 12s`,
           `AFTER THE CALL    phase=${afterRow?.agentState?.phase ?? '?'} status=${afterRow?.status ?? '?'} error=${afterRow?.agentState?.error?.class ?? 'none'}`,
-          `SCORED ON         ${phaseNeverWorked ? 'output stopping — this arm never publishes phase=working, so "left working" would be vacuously true' : "phase leaving 'working'"}`,
+          `SCORED ON         ${phaseNeverWorked ? 'output stopping — this arm never publishes phase=working, so "left working" would be vacuously true' : "phase leaving 'working'"} PLUS live and reloaded durable marks`,
           ...(stopped
             ? []
             : framesAfter > 0 || after > before || screenAfterB > screenAtInterrupt + 2_000
@@ -583,7 +610,8 @@ export const interrupt: Probe = {
         ],
         data: {
           settledMs: stopped ? settled.ms : null,
-          marked,
+          markedLive,
+          markedAfterReload,
           charsBefore: before,
           charsAfter: after,
           framesAfterInterrupt: framesAfter,

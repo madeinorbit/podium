@@ -487,7 +487,54 @@ const echoAfter = await inCli(async () => {
 })
 log(`  CLI typing still echoes: ${echoAfter} (+${view.screenBytes - bytesBeforeMark} bytes)`)
 
-const pass = epochStable && pidsStable && sizeOk && chatAfter && echoAfter
+// Submit a real turn through the CLI while Chat remains subscribed. This is the
+// operator-reported Grok failure: the TUI kept working, but the hidden Chat
+// transcript stopped advancing. Ctrl-U clears the echo-only marker from the
+// composer before the measured prompt is entered.
+const cliReply = nonce('CLIREPLY')
+const cliReplyCountBefore = view.assistantText().split(cliReply).length - 1
+const bytesBeforeCliTurn = view.screenBytes
+await inCli(async () => {
+  view.send({
+    type: 'input',
+    sessionId: sid,
+    data: Buffer.from(
+      `\x15Reply with exactly this word and nothing else: ${cliReply}. Do not use any tools.\r`,
+    ).toString('base64'),
+    inputOrigin: 'human',
+  })
+})
+
+const cliTurnDeadline = now() + 120_000
+let cliTurnSyncedLive = false
+while (now() < cliTurnDeadline) {
+  if (view.assistantText().includes(cliReply)) {
+    cliTurnSyncedLive = true
+    break
+  }
+  await wait(1_000)
+}
+
+// Now reveal Chat and let any replay settle. One provider reply must remain one
+// Chat reply; a replayed ACP chunk must not append the same text again.
+view.send({ type: 'viewState', visible: [sid], focused: sid, modes: { [sid]: 'chat' } })
+await wait(5_000)
+const cliReplyCountAfter = view.assistantText().split(cliReply).length - 1
+const cliTurnExactlyOnce =
+  cliTurnSyncedLive &&
+  cliReplyCountBefore === 0 &&
+  cliReplyCountAfter === 1
+log(
+  `  CLI prompt synced to Chat once: ${cliTurnExactlyOnce} (live=${cliTurnSyncedLive}, count=${cliReplyCountAfter}, +${view.screenBytes - bytesBeforeCliTurn} terminal bytes)`,
+)
+
+const pass =
+  epochStable &&
+  pidsStable &&
+  sizeOk &&
+  chatAfter &&
+  echoAfter &&
+  cliTurnExactlyOnce
 log('')
 log('='.repeat(78))
 log(`A6b  ${pass ? 'PASS' : 'FAIL'}`)
@@ -506,7 +553,9 @@ log(`                     baseline line order preserved: ${orderIntact}   (a ref
 log(`                     Deciding between corruption and repaint needs a terminal`)
 log(`                     emulator's screen model, which this rig does not have.`)
 log(`     correct size    geometry unchanged: ${sizeOk}`)
-log(`     both views work chat answers: ${chatAfter}   CLI echoes: ${echoAfter}`)
+log(
+  `     both views work chat answers: ${chatAfter}   CLI echoes: ${echoAfter}   CLI->Chat exactly once: ${cliTurnExactlyOnce}`,
+)
 log(`     controls FIRED  CLI echoed and chat answered BEFORE any switching`)
 log('='.repeat(78))
 
