@@ -1,0 +1,760 @@
+{
+  "cell": "A3",
+  "harness": "codex",
+  "arm": "headless",
+  "verdict": "FAIL",
+  "at": "2026-08-29T21:40:12.937Z",
+  "summary": "A3 clauses unmet: accepted=true stoppedMs=318 quietTail=true exactlyOneDurable=false idleDistinct=false",
+  "pins": {
+    "head": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "base": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "evidenceHead": "f5a2e165958d1a43e8448fccc7d56106f4729bfb",
+    "serverSource": "c6bd6e350479ec1b2de986ee4d3f6a14365ae38d",
+    "daemonSource": "d77713859196462a59e4898f4f5e4ac0e29c5787",
+    "webSource": "1e6569960c7b7f4a61391ae8b52c94e98952aa78",
+    "runtimeServer": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "runtimeDaemon": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "servedWeb": "fbc2f18",
+    "instance": "p3098-a3-current-tip",
+    "stateRoot": "/tmp/pod-3098-a3-fbc2f18/state",
+    "agentHome": "/tmp/pod-3098-a3-fbc2f18/agent-home",
+    "ports": {
+      "server": 19983,
+      "hook": 46983,
+      "relay": 46984
+    },
+    "runtimeArm": "headless"
+  },
+  "provider": {
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "versions": [
+      "/tmp/pod-2777/bin/codex: codex-cli 0.149.1"
+    ],
+    "sessionId": "f6627348-f308-4c29-9d17-f83ff0f12046",
+    "primed": []
+  },
+  "admission": {
+    "loadAtAdmission": 6.51,
+    "loadAtInterrupt": 6.39,
+    "limit": 12,
+    "installedRelayAvailable": true
+  },
+  "control": {
+    "fired": true,
+    "workingSeen": true,
+    "growthTransitions": 2,
+    "baseline": {
+      "ms": 9,
+      "phase": "idle",
+      "previews": 0,
+      "assistantChars": 0,
+      "terminalBytes": 0,
+      "deltaFrames": 0
+    },
+    "atRequest": {
+      "ms": 4,
+      "phase": "working",
+      "previews": 5,
+      "assistantChars": 0,
+      "terminalBytes": 0,
+      "deltaFrames": 1
+    },
+    "samples": [
+      {
+        "ms": 4,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 259,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 516,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 773,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 1031,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 1287,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 1543,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 0
+      },
+      {
+        "ms": 1803,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 2063,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 2319,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 2583,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 2839,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 3096,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 3352,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 3606,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 3862,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4120,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4375,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4631,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4887,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 5141,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 5396,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 5652,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 5907,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 6171,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 6426,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 6681,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 6941,
+        "phase": "working",
+        "previews": 2,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 7198,
+        "phase": "working",
+        "previews": 5,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      }
+    ],
+    "preExistingInterruptItems": [],
+    "send": {
+      "ok": true,
+      "disposition": "delivered"
+    }
+  },
+  "interrupt": {
+    "request": {
+      "ok": true,
+      "requested": "protocol"
+    },
+    "requestToStoppedMs": 318,
+    "quickCeilingMs": 5000,
+    "outputAfterRequest": {
+      "previewFrames": 1,
+      "assistantChars": 0,
+      "terminalBytes": 0,
+      "transcriptDeltaFrames": 1,
+      "samples": [
+        {
+          "ms": 63,
+          "phase": "working",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 318,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 575,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 832,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 1088,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 1342,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 1598,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 1853,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 2109,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 2365,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 2643,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 2900,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 3155,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 3410,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 3668,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 3930,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 4190,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 4446,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 4702,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 4959,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 5226,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 5483,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 5741,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 5998,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 6255,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 6509,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 6764,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 7020,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 7275,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 7531,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 7788,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 8043,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 8297,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 8557,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 8813,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 9069,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 9324,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 9579,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 9833,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 10095,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 10350,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 10607,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 10862,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 11117,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 11371,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 11629,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        },
+        {
+          "ms": 11884,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 2
+        }
+      ]
+    },
+    "quietTail": true
+  },
+  "durable": {
+    "live": [
+      {
+        "id": "codex-interrupt-f6627348-f308-4c29-9d17-f83ff0f12046-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "afterClientReload": [
+      {
+        "id": "codex-interrupt-f6627348-f308-4c29-9d17-f83ff0f12046-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "afterServerDaemonRestart": [],
+    "exactlyOneStableId": false,
+    "liveItems": [
+      {
+        "id": "01a04f76-8660-7482-a27d-312be3184ca9",
+        "role": "user",
+        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEWL73C only in the final line."
+      },
+      {
+        "id": "codex-interrupt-f6627348-f308-4c29-9d17-f83ff0f12046-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "restartItems": [],
+    "publicRead": {
+      "sessionId": "f6627348-f308-4c29-9d17-f83ff0f12046",
+      "items": [
+        {
+          "role": "user",
+          "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-codex-headless-MTEWL73C only in the final line.",
+          "ts": "2026-08-29T21:39:22.848Z"
+        }
+      ],
+      "cursor": "WyJhMTg0N2I2YzNlN2UiLDQyNDY4LG51bGwsMF0",
+      "hasMore": false,
+      "truncated": false
+    },
+    "restartOutput": "PIN VERIFIED head=fbc2f18baf77d74d370c6469444b3c3d800b0a71 server=fbc2f18baf77d74d370c6469444b3c3d800b0a71 daemon=fbc2f18baf77d74d370c6469444b3c3d800b0a71 web=fbc2f18 arm=headless instance=p3098-a3-current-tip state=/tmp/pod-3098-a3-fbc2f18/state agentHome=/tmp/pod-3098-a3-fbc2f18/agent-home ports=19983/46983/46984"
+  },
+  "idleRefusal": {
+    "response": {
+      "ok": true,
+      "requested": "protocol"
+    },
+    "newItems": [],
+    "interruptItemsAfter": [
+      {
+        "id": "codex-interrupt-f6627348-f308-4c29-9d17-f83ff0f12046-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "distinguishedFromConfirmedStop": false
+  }
+}
