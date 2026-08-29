@@ -117,7 +117,28 @@ function switchTraceEnabled(): boolean {
  *  reads it through globalThis so client-core never runtime-imports the
  *  terminal stack (xterm) just to correlate lifecycle events. */
 interface TerminalDiagnosticsTap {
-  onTrace(listener: (entry: { sessionId: SessionId; event: string }) => void): () => void
+  onTrace(
+    listener: (entry: {
+      sessionId: SessionId
+      event: string
+      data?: Record<string, unknown>
+    }) => void,
+  ): () => void
+}
+
+/** Terminal diagnostics contain nested renderer/layout snapshots that do not
+ * belong on the bounded switch wire. Preserve only their primitive facts — in
+ * particular `ready.source`, the distinction between an attach, first output,
+ * and the 2 s timeout backstop. */
+function terminalMarkMeta(data: Record<string, unknown> | undefined): MarkMeta | undefined {
+  if (data === undefined) return undefined
+  const meta: MarkMeta = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      meta[key] = value
+    }
+  }
+  return Object.keys(meta).length > 0 ? meta : undefined
 }
 
 function boundedMarkMeta(meta: MarkMeta): MarkMeta | undefined {
@@ -179,7 +200,7 @@ function ensureTerminalTap(): void {
     const t = active
     if (!t || entry.sessionId !== t.sessionId) return
     if (!TERM_FORWARD.has(entry.event)) return
-    markSwitch(entry.sessionId, `term:${entry.event}`)
+    markSwitch(entry.sessionId, `term:${entry.event}`, terminalMarkMeta(entry.data))
     // A warm reveal never re-fires the mount's one-shot `ready`; retain the
     // reveal's measured/refit point as a lifecycle mark. AgentPanel records
     // `term:interactable` separately after the visible terminal can accept input.

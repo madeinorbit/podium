@@ -713,6 +713,14 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   useEffect(() => {
     const cancels = [
       prefetchAfterFirstPaint(loadAgentPanel),
+      // AgentPanel deliberately keeps chat-first sessions free of a hidden PTY.
+      // Warm only the renderer bytes here: preloadTerminalRuntime neither mounts
+      // xterm nor attaches a session, so the first CLI click avoids the cold
+      // chunk without changing view leases or message delivery while Chat runs.
+      prefetchAfterFirstPaint(async () => {
+        const { preloadTerminalRuntime } = await import('@podium/terminal-client-react')
+        await preloadTerminalRuntime()
+      }),
       prefetchAfterFirstPaint(() => import('@/components/RefMiniview')),
       prefetchAfterFirstPaint(() => import('@/features/settings/SettingsView')),
     ]

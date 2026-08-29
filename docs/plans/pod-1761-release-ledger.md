@@ -6181,3 +6181,35 @@ Both executable probe copies (`pod-2777` and `pod-2792`) compile together with
 Bun (8 modules; entry bundles 73.1 KB and 69.92 KB). This is static rig
 validation only: no server, daemon, provider, source CLI, credential, sandbox,
 or instance marker was touched, and no acceptance row was promoted.
+
+## FOREST — 2026-08-29 19:48 CEST — cold CLI load moved off the click
+
+The first native-view open no longer waits to begin fetching and evaluating the
+terminal renderer until the CLI click. The web shell now warms those deferred
+bytes during its first idle period after paint. This is not a hidden terminal:
+no xterm mounts, no PTY attaches, and no native view lease exists while Chat is
+active, preserving the message-delivery correction at `bcab6ef1b`.
+
+The latency trace also now keeps primitive terminal diagnostic metadata. The
+important recovered field is `term:ready.source`, which says whether readiness
+came from the attach acknowledgement, first output, or the 2 s fallback. Nested
+renderer snapshots remain excluded from the bounded wire; browser long-task
+marks remain opt-in under `switchTrace=1`.
+
+The existing baseline remains cold native n=13, p50 1106 ms, p90 2724 ms,
+max 3144 ms, with later same-session readings of 304 ms, 575 ms, 2252 ms and a
+13438 ms timeout; warm was 51–203 ms. No post-fix number is promoted: the only
+documented operator sandbox is stale and runs from this live checkout. It was
+not restarted or driven, and no server, daemon, provider, source CLI, state
+root, credential, or instance marker was touched.
+
+Validation at 2026-08-29 19:52 CEST: workspace typecheck was green at 25/25
+packages and the lean gate was green at 4/1100 collected files, 103/103 tests.
+The focused related lane executed 125 tests: 123 passed, including the changed
+switch-trace and terminal-loader regressions, and two unrelated tests failed.
+`engine/runtime.test.ts` missed the second call in a wall-clock throttle case;
+`react/use-model-catalog.test.tsx` was collected under the Node project and
+failed because `document` was absent. The earlier `test:affected` command ran
+no tests and refused honestly because `@podium/terminal-client-react` has no
+Turbo test task. These are validation-lane findings, not a claim that the full
+suite is green. No additional validation command was run.

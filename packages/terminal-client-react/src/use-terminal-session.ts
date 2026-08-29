@@ -28,11 +28,15 @@ function loadTerminalRuntime(): Promise<TerminalRuntime> {
   return terminalRuntimePromise
 }
 
-/** Start the renderer chunk on terminal intent without mounting or attaching a PTY. */
-export function preloadTerminalRuntime(): void {
-  void loadTerminalRuntime().catch((cause) => {
-    console.error('Could not load the terminal renderer', cause)
-  })
+/** Start the renderer chunk without mounting or attaching a PTY. The promise
+ * lets an after-paint prefetch own the complete fetch/evaluation window. */
+export function preloadTerminalRuntime(): Promise<void> {
+  return loadTerminalRuntime().then(
+    () => {},
+    (cause) => {
+      console.error('Could not load the terminal renderer', cause)
+    },
+  )
 }
 
 export interface UseTerminalSessionOptions {

@@ -444,3 +444,29 @@ tenth of a second.
 roots in a *single* RPC, so no individual root can be named without per-root
 timing in the protocol. That is a structural change, deliberately out of scope
 for a low-priority non-blocking path. No code was changed for POD-1717.
+
+## 2026-08-29 19:48 CEST — the next trace keeps the missing attribution
+
+The historical explanation above describes the instrument at the time of that
+run. Per-mark metadata and long-task observation subsequently landed, but one
+adapter still discarded every terminal diagnostic's data before calling the
+switch collector. In particular, `term:ready` still lost `source=attach|frame|timeout`,
+so a new run could not answer the question the instrument was changed to answer.
+
+The adapter now retains bounded primitive terminal facts while dropping its
+nested renderer snapshots. A repeat of the 13.4 s shape will therefore carry
+both browser `main:longtask` intervals and the readiness source. That makes an
+attach-delivery stall, output-driven readiness, and a delayed 2 s timeout
+distinguishable in the recorded trace.
+
+The product also starts fetching and evaluating the deferred terminal renderer
+on the first idle after the shell paints. This is deliberately only a code-load
+warm-up: it mounts no xterm, sends no terminal attach, and acquires no native
+view lease while Chat is active. It removes the renderer chunk from the first
+CLI click without reintroducing the hidden-native behavior that previously
+changed message delivery.
+
+No new latency number is claimed here. The current operator sandbox is pinned
+to an older product commit and runs from the coordinator checkout, so restarting
+or scoring it would violate the isolation rule. Before/after time-to-interactable
+must be measured on a current-tip, named state root once that rig is safe.
