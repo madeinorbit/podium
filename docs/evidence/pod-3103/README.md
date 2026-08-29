@@ -68,3 +68,21 @@ redraw counts. Host state after the run was load 10.74/12.31/10.56,
 16,946,188,288 bytes MemAvailable, 1,592,061,952 bytes swap used, and 72 GiB root
 free. Server, daemon, and web were pinned to `d6b4ba8bf`; product paths are
 byte-identical to the original `fbc2f18b` runtime pin.
+
+## 2026-08-30 headed Claude blocked cell
+
+Named instance `p3103-claude-headed` used product-derived state/agent home,
+scratch cwd `/tmp/pod-3103-claude-headed/repo`, ports 19975/46979/46980, and an
+opt-in symlink to the existing Claude credential (never copied). Per-spawn
+`runtimeContract='claude-pty'` bound exact `claude-pty/terminal`; no
+`PODIUM_RUNTIME_DRIVER` was present. The TUI produced a real native surface and
+the folder-trust modal was cleared through terminal input.
+
+The first send was accepted and one transcript delta carried the exact prompt,
+so the independent input/durable-plane control fired. The provider produced no
+token, returned an untyped `unknown` turn error, and left the session
+`live/errored`; the server recorded the send RPC at 25,118.7 ms. This is
+**BLOCKED**, not a terminal-driver failure: reply-dependent switching was not
+scored and the second send was deliberately not made. Admission was 8.72
+one-minute load and 14 GiB available before launch; after the blocked wait load
+was 12.08 with 16,317,468,672 bytes available, so Codex/Grok were not started.

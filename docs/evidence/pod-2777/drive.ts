@@ -163,7 +163,7 @@ const pin = JSON.parse(
 ) as Record<string, unknown>
 
 const arm: 'headless' | 'terminal' =
-  SPAWN_RUNTIME_CONTRACT === 'generic-pty' || pin.driver === 'generic-pty'
+  SPAWN_RUNTIME_CONTRACT !== undefined || pin.driver === 'generic-pty'
     ? 'terminal' : 'headless'
 
 /** Which driver this arm is entitled to bind. An isolated agent home missing a
@@ -307,8 +307,8 @@ const boundDriver = row0?.driverId ?? '(unknown)'
 log(`BOUND DRIVER       ${boundDriver} (family ${row0?.driverFamily ?? '?'})`)
 
 const boundFamily = row0?.driverFamily ?? '?'
-const bindingOk = SPAWN_RUNTIME_CONTRACT === 'generic-pty'
-  ? boundDriver === 'generic-pty' && boundFamily === 'terminal'
+const bindingOk = SPAWN_RUNTIME_CONTRACT
+  ? boundDriver === SPAWN_RUNTIME_CONTRACT && boundFamily === 'terminal'
   : arm === 'terminal' || !wantServer
     ? boundFamily === 'terminal'
     : boundDriver === wantServer
