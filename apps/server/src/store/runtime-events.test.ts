@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import {
@@ -63,6 +63,27 @@ function turnEvent(input: {
   }
 }
 
+function interruptEvent(input: { at: string; seq: number; sessionId: string }): RuntimeEvent {
+  return {
+    t: 'item',
+    item: {
+      kind: 'complete',
+      item: {
+        id: `codex-interrupt-${input.sessionId}-1`,
+        role: 'user',
+        text: '[Request interrupted by user]',
+        ts: input.at,
+        event: 'interrupt',
+      },
+    },
+    at: input.at,
+    provenance: 'live',
+    cursor: { segmentId: 'runtime-segment', components: { seq: input.seq } },
+    observerGeneration: 1,
+    turnEpoch: 1,
+  }
+}
+
 function bindContract(registry: SessionRegistry, store: SessionStore) {
   registry.gateway.attachDaemon(store.hostMachineId, () => {})
   const { sessionId } = registry.modules.sessions.createSession({
@@ -83,6 +104,75 @@ function bindContract(registry: SessionRegistry, store: SessionStore) {
 }
 
 describe('durable runtime observation gate', () => {
+  it('restores a durable interrupt marker into transcript reads after a registry restart', async () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'bootstrap-interrupt',
+      sessionId,
+      event: stateEvent({
+        at: '2026-08-23T00:00:00.000Z',
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+        change: { kind: 'session_started' },
+      }),
+    })
+    const marker = interruptEvent({
+      at: '2026-08-23T00:00:01.000Z',
+      seq: 2,
+      sessionId,
+    })
+    const markerItem = marker.t === 'item' && marker.item.kind === 'complete' ? marker.item.item : undefined
+    if (!markerItem) throw new Error('interrupt fixture must be a complete item')
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'interrupt-marker',
+      sessionId,
+      event: marker,
+    })
+    // The daemon also sends its normal transcript delta. It must not create a
+    // second marker or make the synthetic one disappear.
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [markerItem],
+    })
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [],
+      reset: true,
+    })
+
+    const liveTranscript = await registry.modules.rpc.readTranscript(
+      { sessionId, direction: 'before', limit: 50 },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+    )
+    expect(liveTranscript.items.filter((item) => item.event === 'interrupt')).toEqual([markerItem])
+    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)).toMatchObject({
+      transcriptAvailable: true,
+    })
+    expect(store.events.listRuntimeInterruptEvents(sessionId)).toHaveLength(1)
+
+    registry.dispose()
+    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const rehydrated = restarted.modules.sessions.sessionById(sessionId)
+    expect(rehydrated?.transcriptAvailable).toBe(true)
+
+    const transcript = await restarted.modules.rpc.readTranscript(
+      { sessionId, direction: 'before', limit: 50 },
+      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+    )
+    expect(transcript.items.filter((item) => item.event === 'interrupt')).toEqual([markerItem])
+
+    restarted.dispose()
+    store.close()
+  })
+
   it('projects causal failure detail into SessionMeta, beside the turn event', () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
@@ -548,7 +638,7 @@ describe('durable runtime observation gate', () => {
     store.close()
   })
 
-  it('accepts a process exit after the final turn epoch is closed', () => {
+  it('accepts a process exit after the final turn epoch is closed', async () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
@@ -595,6 +685,9 @@ describe('durable runtime observation gate', () => {
     expect(store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
     expect(registry.modules.sessions.sessionById(sessionId)?.status).toBe('exited')
 
+    // The relay's interaction cleanup is intentionally fire-and-forget. Let
+    // that listener finish before this test closes the in-memory database.
+    await new Promise((resolve) => setImmediate(resolve))
     registry.dispose()
     store.close()
   })

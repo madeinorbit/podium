@@ -398,20 +398,27 @@ export class SessionTerminal {
   }
 
   applyDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string }): boolean {
+    const preservedInterrupts = opts.reset
+      ? this.transcript.filter((item) => item.event === 'interrupt')
+      : []
     const becameAvailable =
       !this.transcriptAvailable && (items.length > 0 || this.transcript.length > 0)
     if (becameAvailable) {
       this.transcriptAvailable = true
       this.init.onTranscriptAvailable?.()
     }
-    this.transcript = mergeTranscriptCache(opts.reset ? [] : this.transcript, items)
+    const deltaItems =
+      opts.reset && preservedInterrupts.length > 0
+        ? mergeTranscriptCache(items, preservedInterrupts)
+        : items
+    this.transcript = mergeTranscriptCache(opts.reset ? [] : this.transcript, deltaItems)
     if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
       this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)
     }
     const delta: ServerMessage = {
       type: 'transcriptDelta',
       sessionId: this.init.sessionId,
-      items,
+      items: deltaItems,
       ...(opts.tail !== undefined ? { tail: opts.tail } : {}),
       ...(opts.reset ? { reset: true } : {}),
     }

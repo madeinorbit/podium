@@ -153,6 +153,35 @@ export class EventsRepository {
   }
 
   /**
+   * Read the synthetic user actions that headless drivers commit to the causal
+   * stream. They are intentionally narrower than {@link listRuntimeEvents}:
+   * boot hydration needs the durable interrupt markers, not a second parse of
+   * every state and turn event for every session.
+   */
+  listRuntimeInterruptEvents(sessionId: SessionId, limit = 12_000): RuntimeEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT payload FROM podium_events
+           WHERE kind = ? AND subject = ?
+             AND json_extract(payload, '$.t') = 'item'
+             AND json_extract(payload, '$.item.kind') = 'complete'
+             AND json_extract(payload, '$.item.item.event') = 'interrupt'
+           ORDER BY id ASC LIMIT ?`,
+      )
+      .all(RUNTIME_EVENT_LOG_KIND, sessionId, limit) as { payload: unknown }[]
+    const events: RuntimeEvent[] = []
+    for (const row of rows) {
+      try {
+        events.push(
+          RuntimeEvent.parse(
+            typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+          ),
+        )
+      } catch {}
+    }
+    return events
+  }
+  /**
    * Has this session's causal stream actually REPORTED A FAILURE in the turn
    * the checkpoint is sitting on (POD-2414 third pass)?
    *

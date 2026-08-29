@@ -61,6 +61,7 @@ import { SessionRepository } from './repository'
 import { RuntimeEventGate } from './runtime-event-gate'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 import { SessionRuntimeGateway } from './runtime-gateway'
+import { runtimeInterruptMarkerFromEvent } from './runtime-transcript'
 import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionClientPlane } from './session-client-plane'
@@ -688,6 +689,20 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
     now: () => bag.now(),
     events: runtimeEventGate,
+  })
+  // Durable headless interrupt markers have no provider-file representation.
+  // Capture the accepted coarse event at the gateway seam so the live chat and
+  // the restart hydration path share one synthetic transcript item. The normal
+  // transcriptDelta is still allowed to arrive; SessionTerminal upserts it by id.
+  bag.runtimeGateway.onEvent((sessionId: SessionId, event: RuntimeEvent) => {
+    const marker = runtimeInterruptMarkerFromEvent(event)
+    if (!marker) return
+    const session = bag.sessions.get(sessionId)
+    if (!session) return
+    if (session.terminal.applyDelta([marker], {})) {
+      bag.repository.persist(session)
+      bag.broadcastSessions()
+    }
   })
   /**
    * THE PREVIEW PLANE (POD-2293), SUBSCRIBED TO A RECEIVER THAT ALREADY EXISTED.

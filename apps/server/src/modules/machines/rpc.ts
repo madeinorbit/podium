@@ -78,6 +78,7 @@ import {
 import type { LakeReadSession, MemoryService } from '../memory/service'
 import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
+import { runtimeInterruptItems } from '../sessions/runtime-transcript'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
 
@@ -155,6 +156,30 @@ export interface RpcSessionView {
   agentKind: AgentKind
   resume?: ResumeRef
   transcriptItems(): TranscriptItem[]
+}
+
+function withRuntimeInterruptMarkers(
+  slice: TranscriptSlice,
+  session: RpcSessionView,
+  input: { anchor?: string; direction: 'before' | 'after'; limit: number },
+): TranscriptSlice {
+  // Synthetic markers have no provider cursor. They are therefore meaningful
+  // only on an unanchored "latest" page; attaching them to an anchored page
+  // would make the cursor claim a position the provider file never owned.
+  if (input.anchor || input.direction !== 'before') return slice
+  const markers = runtimeInterruptItems(session.transcriptItems())
+  if (markers.length === 0) return slice
+  const seen = new Set(slice.items.map((item) => item.id))
+  const additional = markers.filter((item) => !seen.has(item.id))
+  if (additional.length === 0) return slice
+  const combined = [...slice.items, ...additional]
+  const limit = Math.max(0, input.limit)
+  const items = limit === 0 ? [] : combined.length > limit ? combined.slice(-limit) : combined
+  return {
+    ...slice,
+    items,
+    hasMore: slice.hasMore || combined.length > limit,
+  }
 }
 
 interface DaemonRpcDeps {
@@ -1289,7 +1314,7 @@ export class DaemonRpcService {
         perf.record('phase', 'transcriptRead.lake', lakeMs, DEPLOYMENT)
         perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
         recordTotal()
-        return fromLake
+        return withRuntimeInterruptMarkers(fromLake, session, input)
       }
     }
     const hasDaemon = this.deps.hasDaemon(session.machineId)
@@ -1332,7 +1357,7 @@ export class DaemonRpcService {
       perf.record('phase', 'transcriptRead.daemon', daemonMs ?? 0, DEPLOYMENT)
       perf.record('phase', 'transcriptRead.items', fromDaemon.items.length, DEPLOYMENT)
       recordTotal()
-      return fromDaemon
+      return withRuntimeInterruptMarkers(fromDaemon, session, input)
     }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
     if (!lakeAttempted) fromLake = await readLake()
@@ -1341,7 +1366,12 @@ export class DaemonRpcService {
       perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
     }
     recordTotal()
-    return fromLake ?? fromDaemon ?? { items: [], hasMore: false }
+    const fallback = fromLake ?? fromDaemon ?? { items: [], hasMore: false }
+    const projected = withRuntimeInterruptMarkers(fallback, session, input)
+    if (projected !== fallback) {
+      perf.record('phase', 'transcriptRead.items', projected.items.length, DEPLOYMENT)
+    }
+    return projected
   }
 
   listDir(input: {
