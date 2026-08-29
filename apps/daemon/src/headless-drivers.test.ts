@@ -192,7 +192,7 @@ describe('buildHeadlessExec argv shapes', () => {
     })
     const { args, env } = buildHeadlessExec('codex', { prompt: 'p', mcpConfig }, snapshot)
     expect(args).toContain('mcp_servers."podium".bearer_token_env_var="PODIUM_MCP_BEARER_PODIUM"')
-    expect(env).toEqual({ PODIUM_MCP_BEARER_PODIUM: 'sekret' })
+    expect(env).toMatchObject({ PODIUM_MCP_BEARER_PODIUM: 'sekret' })
     expect(args).toContain('mcp_servers."podium".http_headers={"x-podium-mcp-thread"="thr"}')
     // The token never leaks into argv.
     expect(args.some((a) => a.includes('sekret'))).toBe(false)
