@@ -80,9 +80,24 @@ the folder-trust modal was cleared through terminal input.
 
 The first send was accepted and one transcript delta carried the exact prompt,
 so the independent input/durable-plane control fired. The provider produced no
-token, returned an untyped `unknown` turn error, and left the session
-`live/errored`; the server recorded the send RPC at 25,118.7 ms. This is
-**BLOCKED**, not a terminal-driver failure: reply-dependent switching was not
-scored and the second send was deliberately not made. Admission was 8.72
+token and left the session `live/errored`; the server recorded the send RPC at
+25,118.7 ms. The isolated provider transcript did contain specific evidence at
+2026-08-29 22:36:24.316Z: a synthetic API-error assistant record with
+`error=authentication_failed` and visible text `Login expired · Please run
+/login`. No credential bytes were read or copied during diagnosis.
+
+Podium collapsed that non-retryable authentication failure to an `unknown`
+retryable error because the Claude terminal transcript classifier treated the
+`Please run` wording as a generic user-action question. A hermetic regression
+reproduced the loss before the narrow classifier fix: expected
+`error/authentication/retryable=false`, received
+`idle.needs_input.text_question`. The original cell remains **BLOCKED** on the
+expired provider login, while its vague error projection is a product defect;
+reply-dependent switching was not scored and the second send was deliberately
+not made. A post-fix headed rerun remains required when the load guard admits it.
+
+Admission was 8.72
 one-minute load and 14 GiB available before launch; after the blocked wait load
 was 12.08 with 16,317,468,672 bytes available, so Codex/Grok were not started.
+At diagnosis completion the guard still refused a rerun at load
+11.44/11.10/10.58, with 15 GiB available memory and 71 GiB disk free.
