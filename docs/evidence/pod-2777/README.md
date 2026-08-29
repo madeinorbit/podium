@@ -678,8 +678,9 @@ into the main checkout — which was sitting on `issue/2417`. It failed on three
 missing exports, and failing was the lucky outcome: a build that had *succeeded*
 would have produced a dist stamped with OUR commit and built from someone else's
 code, and `drive-verify.sh` would have certified it. `link-node-modules.sh`
-repoints `@podium/*` at this worktree; the third-party tree stays shared, because
-this box has fallen over for memory before.
+now accepts only Bun's checkout-local isolated graph and delegates fresh setup to
+`bun run setup:worktree`; it refuses symlinked or mixed-linker trees instead of
+assembling one from another checkout.
 
 **The rig raced its own previous turn.** `sessions.sendText` into a busy session
 answers `{ok:true, queued:true, disposition:'queued'}` — the product doing
@@ -829,7 +830,7 @@ from another worktree adopting the root.
 | file | what it is |
 |---|---|
 | `drive-env.sh` | isolation: instance `p2777`, port 19847, state `/tmp/pod-2777`. **Source it, never execute it.** |
-| `link-node-modules.sh` | points `@podium/*` at THIS worktree so the bundle is this branch's |
+| `link-node-modules.sh` | verifies the checkout-local isolated graph, or runs the supported frozen worktree setup |
 | `drive-up.sh` | server + daemon + web bundle, split and detached; re-running IS how the arm is switched |
 | `drive-verify.sh` | the three-component pin, and the arm read back out of `/proc` |
 | `drive.ts` | one harness, one arm, nine probes; verifies the pin itself and exits 4 on a mismatch |
