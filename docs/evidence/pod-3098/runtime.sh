@@ -5,7 +5,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-BASE=/tmp/pod-3098-a3-eb8b116
+BASE=/tmp/pod-3098-a3-14c298d
 STATE_ROOT="$BASE/state"
 AGENT_HOME="$BASE/agent-home"
 SCRATCH="$BASE/provider-work"
@@ -15,8 +15,8 @@ PORT=19983
 HOOK_PORT=46983
 RELAY_PORT=46984
 PASSWORD=p3098-a3
-BASE_PIN=62bb4a749241c7c7bd85fbca59e86a9651e4f4de
-PIN=eb8b116a8e858c21a9a258df690956fb29e52c50
+BASE_PIN=672bf9c6fb20feb059498620ec538e0743d00c6c
+PIN=14c298de7d2db7d30cf05a6ce242cb57cd0e3cc1
 BUN=/home/mgw/.bun/bin/bun
 XDG_RUN=/run/user/1001
 DBUS_ADDR=unix:path=/run/user/1001/bus
@@ -36,6 +36,7 @@ assert_source() {
   [ -x "$INSTALLED_PODIUM" ] || fail "installed Podium CLI/relay is unavailable; wait instead of substituting source CLI"
   [ -n "${PODIUM_SESSION_RELAY:-}" ] || fail "installed session relay is unavailable; wait instead of using a source CLI"
   [ "$PORT" != 19797 ] || fail "port 19797 is forbidden"
+  [ "$PORT" != 32090 ] || fail "port 32090 is forbidden"
 }
 
 common_env() {
@@ -180,8 +181,8 @@ verify_runtime() {
   [ "$(env_value "$daemon_pid" PODIUM_RUNTIME_CONTRACT)" = "$contract" ] || fail "contract arm mismatch"
   [ "$(env_value "$daemon_pid" PODIUM_RUNTIME_DRIVER)" = "$driver" ] || fail "driver arm mismatch"
   stamp="$(curl -fsS "http://127.0.0.1:$PORT/podium-build.json")"
-  printf '%s' "$stamp" | grep -Eq '"sourceSha"[[:space:]]*:[[:space:]]*"eb8b116"' || fail "served web pin is not eb8b116: $stamp"
-  echo "PIN VERIFIED head=$PIN server=$(sed -n '1p' "$BASE/server.sha") daemon=$(sed -n '1p' "$BASE/daemon.sha") web=eb8b116 arm=$arm instance=$INSTANCE state=$STATE_ROOT agentHome=$AGENT_HOME ports=$PORT/$HOOK_PORT/$RELAY_PORT"
+  printf '%s' "$stamp" | grep -Eq '"sourceSha"[[:space:]]*:[[:space:]]*"14c298d"' || fail "served web pin is not 14c298d: $stamp"
+  echo "PIN VERIFIED head=$PIN server=$(sed -n '1p' "$BASE/server.sha") daemon=$(sed -n '1p' "$BASE/daemon.sha") web=14c298d arm=$arm instance=$INSTANCE state=$STATE_ROOT agentHome=$AGENT_HOME ports=$PORT/$HOOK_PORT/$RELAY_PORT"
 }
 
 case "${1:-}" in
