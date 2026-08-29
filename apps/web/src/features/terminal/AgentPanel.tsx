@@ -61,7 +61,9 @@ import { agentBrandDot } from '@/lib/agent-tone'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
+import { issueAgentKind } from '@/lib/issue-agents'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
+import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
@@ -373,6 +375,37 @@ export function AgentPanel({
   // resume ref is known. Also the first right-aligned header control, so the
   // `ml-auto` fallbacks below defer to it when present.
   const resumeCmd = session ? resumeCommand(session) : null
+  // A running-session control is deliberately a separate path from the model
+  // readout below. The daemon reports `configureFields` from the live driver's
+  // own capabilities; only an explicit `model` capability may expose these
+  // controls. `undefined` remains unknown during an older-daemon/rolling-bind
+  // window, and PATCH-shaped mutations preserve the other sticky field.
+  const runtimeAgentKind = session ? issueAgentKind(session.agentKind) : null
+  const canConfigureRuntime =
+    session !== undefined && runtimeAgentKind !== null && canConfigureModel(session) === 'yes'
+  const canConfigureRuntimeEffort =
+    canConfigureRuntime && session?.configureFields?.includes('effort') === true
+  const runtimeModel = session?.requestedModel ?? session?.model ?? 'auto'
+  const runtimeEffort = session?.requestedEffort ?? session?.effort ?? 'auto'
+  const configureRuntime = useCallback(
+    async (patch: { model?: string; effort?: string }) => {
+      try {
+        const result = await trpc.sessions.configure.mutate({ sessionId, ...patch })
+        if ('ok' in result) {
+          toast.success(
+            result.effective === 'next-turn'
+              ? 'The change applies from the next turn.'
+              : 'The running session changed.',
+          )
+          return
+        }
+        toast.error(result.detail ?? `Could not change the running session (${result.reason}).`)
+      } catch {
+        toast.error('Could not change the running session.')
+      }
+    },
+    [sessionId, trpc],
+  )
   // Manual hibernation, as a descriptor: whether it applies at all and why it is
   // blocked come from the SHARED eligibility rule (`sessionMenuEligibility`, also
   // read by the session context menu and the command palette) rather than from a
@@ -946,6 +979,36 @@ export function AgentPanel({
                 )}
                 <span className="model-token-text">{modelToken(session)}</span>
               </span>
+            )}
+            {/* Runtime model/effort controls [POD-3087]. These are offered only
+              after the daemon has positively reported the live driver's fields;
+              a missing report is not permission to guess from driver family. */}
+            {session && runtimeAgentKind && canConfigureRuntime && (
+              <>
+                <ModelPicker
+                  agentKind={runtimeAgentKind}
+                  value={runtimeModel}
+                  onChange={(model) => {
+                    void configureRuntime({ model })
+                  }}
+                  variant="pill"
+                  className="hidden flex-none lg:inline-flex"
+                  machineId={session.machineId}
+                />
+                {canConfigureRuntimeEffort && (
+                  <EffortPicker
+                    agentKind={runtimeAgentKind}
+                    model={runtimeModel}
+                    value={runtimeEffort}
+                    onChange={(effort) => {
+                      void configureRuntime({ effort })
+                    }}
+                    variant="pill"
+                    className="hidden flex-none lg:inline-flex"
+                    machineId={session.machineId}
+                  />
+                )}
+              </>
             )}
             {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
               control — both views always visible and labeled, the filled segment
