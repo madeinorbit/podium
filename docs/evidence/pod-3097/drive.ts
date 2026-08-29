@@ -66,7 +66,7 @@ async function pins() {
     integrationTip: out('git', ['-C', ROOT, 'rev-parse', 'refs/heads/issue/1761-agent-runtime']),
     mergeBase: out('git', ['-C', ROOT, 'merge-base', 'HEAD', 'refs/heads/issue/1761-agent-runtime']),
     nonEvidenceChanges: out('git', ['-C', ROOT, 'diff', '--name-only', `${PIN}..HEAD`]).split('\n').filter((path) => path && !path.startsWith('docs/')),
-    integrationNonEvidenceChanges: out('git', ['-C', ROOT, 'diff', '--name-only', `${PIN}..refs/heads/issue/1761-agent-runtime`]).split('\n').filter((path) => path && !path.startsWith('docs/')),
+    integrationNonEvidenceChanges: out('git', ['-C', ROOT, 'diff', '--name-only', `${INTEGRATION_PIN}..refs/heads/issue/1761-agent-runtime`]).split('\n').filter((path) => path && !path.startsWith('docs/')),
     trees: {
       server: out('git', ['-C', ROOT, 'rev-parse', 'HEAD:apps/server']),
       daemon: out('git', ['-C', ROOT, 'rev-parse', 'HEAD:apps/daemon']),
