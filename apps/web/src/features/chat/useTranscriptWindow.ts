@@ -196,6 +196,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     hasMoreOlder,
     loadingOlder,
     initialLoaded,
+    subscriptionHealthy,
     freshness: transcriptFreshness,
     offlineAsOf,
   } = transcript
@@ -279,12 +280,8 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   }, [deferInitialRead, transcriptController])
 
   useEffect(() => {
-    if (!initialLoaded || items.length === 0 || offlineAsOf !== null) {
-      windowHealthy.current = false
-      return
-    }
-    if (transcriptFreshness === null) windowHealthy.current = true
-  }, [initialLoaded, items.length, offlineAsOf, transcriptFreshness])
+    windowHealthy.current = subscriptionHealthy
+  }, [subscriptionHealthy])
 
   useEffect(() => {
     if (!initialLoaded || items.length === 0) return

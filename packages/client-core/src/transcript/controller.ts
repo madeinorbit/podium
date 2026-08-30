@@ -58,6 +58,8 @@ export interface TranscriptState {
   hasMoreOlder: boolean
   loadingOlder: boolean
   initialLoaded: boolean
+  /** A non-empty authority read established the current stream, and no reset has broken it. */
+  subscriptionHealthy: boolean
   freshness: TranscriptFreshness
   offlineAsOf: number | null
 }
@@ -198,6 +200,7 @@ export class TranscriptController {
       hasMoreOlder: true,
       loadingOlder: false,
       initialLoaded: false,
+      subscriptionHealthy: false,
       freshness: null,
       offlineAsOf: null,
     }
@@ -238,6 +241,7 @@ export class TranscriptController {
         ...(this.state.items.length === 0 && fallback ? { items: fallback.items } : {}),
         hasMoreOlder: false,
         initialLoaded: true,
+        subscriptionHealthy: false,
         freshness: this.state.items.length > 0 || fallback ? 'saved' : null,
         offlineAsOf: fallback?.savedAt ?? null,
       })
@@ -269,6 +273,7 @@ export class TranscriptController {
         hasMoreOlder: page.hasMore,
         loadingOlder: false,
         initialLoaded: true,
+        subscriptionHealthy: page.items.length > 0,
         freshness:
           this.state.freshness === null ? null : page.items.length > 0 ? 'rendering' : 'saved',
         offlineAsOf: null,
@@ -394,6 +399,7 @@ export class TranscriptController {
         if (this.disposed) return
         if (meta.reset) {
           this.windowEpoch += 1
+          this.patch({ subscriptionHealthy: false })
           void this.refresh({ disclose: true }).catch(() => {})
           return
         }

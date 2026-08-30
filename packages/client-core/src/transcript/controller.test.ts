@@ -78,6 +78,7 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
     const starting = controller.start()
     expect(controller.getSnapshot()).toMatchObject({
       items: [item('cached', 'c1', 'saved')],
+      subscriptionHealthy: false,
       freshness: 'checking',
       initialLoaded: false,
     })
@@ -89,6 +90,7 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
       hasMore: true,
     })
     await starting
+    expect(controller.getSnapshot().subscriptionHealthy).toBe(true)
     expect(io.port.subscribe).toHaveBeenCalledWith(asSessionId('s1'), 'c2', expect.any(Function))
 
     io.emit([item('tail-complete', 'c2', 'complete')])
@@ -305,6 +307,7 @@ describe('transcript lifecycle boundaries', () => {
 
     const stale = controller.refresh({ disclose: true })
     io.emit([], true)
+    expect(controller.getSnapshot().subscriptionHealthy).toBe(false)
     io.pending[2]?.resolve({ items: [item('fresh', 'c3')], head: 'c3', tail: 'c3', hasMore: false })
     await Promise.resolve()
     io.pending[1]?.resolve({ items: [item('stale', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
