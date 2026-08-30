@@ -1231,13 +1231,21 @@ function computeMissionProgress(
 ): MissionProgress {
   missionProgressComputes += 1
   const ids = missionIssueIds(issues, rootId, sessions)
-  const scope = issues.filter((issue) => ids.has(issue.id) && !issue.archived && !issue.deletedAt)
+  // `missionIssueIndex` already paid the one full-slice walk for this publish.
+  // Looking members up by id keeps a work list of N independent missions at
+  // O(N): the old `issues.filter(...)` repeated the same N-row scan once per
+  // visible mission and made the list O(N²), even when every mission stood alone.
+  const { byId } = missionIssueIndex(issues)
+  const scope: IssueNavigationModel[] = []
+  for (const id of ids) {
+    const issue = byId.get(id)
+    if (issue && !issue.archived && !issue.deletedAt) scope.push(issue)
+  }
   // The units are the accepted members; the root only becomes one when it has
   // no accepted members to be the container of. Proposed work is offered, not
   // remaining — leaving it in `members` is how a working parent with three
   // discoveries read as "3 to go". A root that is itself archived is already
   // out of `scope`, so the fallback never resurrects it.
-  const { byId } = missionIssueIndex(issues)
   const formal = formalMemberIds(issues, rootId)
   const members = scope.filter(
     (issue) => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue),

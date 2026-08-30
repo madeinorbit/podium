@@ -42,11 +42,6 @@ import { sharedVitestConfig } from '../../vitest.config'
  *
  *   `happy-dom` — react-native-web touches `document` at import time.
  *
- *   the `expo-sqlite` alias — it pulls `expo-modules-core`, which reads the
- *     native `globalThis.expo` at module scope. Nothing under test reaches it
- *     (`openMobileReplica` takes the database as an argument), and the stub
- *     throws so that stops being true loudly rather than quietly.
- *
  *   `__DEV__` — expo's runtime reads Metro's global at module scope. `false` is
  *     the honest value: a test run is not a Metro dev server.
  */
@@ -82,10 +77,6 @@ export default defineConfig({
     alias: [
       ...sharedAliases,
       { find: 'react-native', replacement: 'react-native-web' },
-      {
-        find: 'expo-sqlite',
-        replacement: fileURLToPath(new URL('./test/expo-sqlite-absent.ts', import.meta.url)),
-      },
       // react-native-svg publishes native CJS as its Node entrypoint. Its web
       // build is the same implementation Expo's web bundler selects, and an
       // absolute replacement keeps its imports inside Vite's alias pipeline.
