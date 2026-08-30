@@ -40,6 +40,8 @@ describe('r18 continuity selector contract', () => {
     expect(rig).not.toContain('PODIUM_RUNTIME_DRIVER=')
     expect(rig).not.toContain("m('sessions.create'")
     expect(rig).toContain("writeFileSync(base+'/a7a-ready'")
+    expect(rig).toContain("getAttribute('aria-checked')!=='true'")
+    expect(rig).not.toContain("getAttribute('data-state')")
     expect(rig).toContain("existsSync(base+'/a7a-continue')")
   })
 
