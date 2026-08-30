@@ -893,7 +893,7 @@ describe('warm-parking', () => {
     expect(terminals.redraw(SESSION)).toBe(false)
   })
 
-  it('reconnects the returning viewer to the SAME generation, keeping its scrollback', async () => {
+  it('repaints the same generation after Chat activity escaped the parked relay', async () => {
     // The second spawn adopts, because the park left the master running. An
     // adopted generation must not be reset: `[3J` would delete the surviving
     // TUI's history from the browser and the replay log both.
@@ -904,7 +904,9 @@ describe('warm-parking', () => {
       frames: (streamId, data) => frames.push({ streamId, data }),
       spawn: async (o) => {
         spawns.push(o.label)
-        const client = fakeClient()
+        const client = fakeClient(
+          spawns.length === 1 ? undefined : '\x1b[2Jseed marker learned while parked',
+        )
         clients.push(client)
         // A park leaves the master holding the label, so the NEXT spawn finds it.
         return spawns.length === 1 ? client : { ...client, adopted: true }
@@ -918,6 +920,10 @@ describe('warm-parking', () => {
     await terminals.attach({ sessionId: SESSION, target })
     await terminals.release(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
+    // Mutation tooth: treating every adoption as fully represented by server
+    // replay suppresses this redraw and loses provider output produced in Chat.
+    expect(clients[1]?.redraws).toBe(1)
+    expect(frames.some((frame) => Buffer.from(frame.data).includes('seed marker'))).toBe(true)
 
     const resets = frames
       .map((frame) => Buffer.from(frame.data).toString('latin1'))

@@ -363,8 +363,9 @@ interface Attachment {
    * redraws remain real.
    */
   suppressNextReplayRedraw?: boolean
-  /** A fresh web page attached after the server lost its replay window. This
-   *  obligation survives the race with recreating the adopted client handle. */
+  /** The server replay cannot rebuild the surviving TUI: either the server
+   *  restarted empty, or the parked master evolved while no attach client was
+   *  relaying frames. Survives the race with recreating the adopted handle. */
   replayRequired?: boolean
   timer?: unknown
   /** Does a client have this session open? Drives the idle clock, and keeps a
@@ -718,6 +719,12 @@ export function createOpencodeClientTerminals(
     // Cleared BEFORE the dispose, so no input, resize or redraw can find a
     // handle that is on its way out.
     record.session = undefined
+    // The master keeps following its provider while parked, but with this relay
+    // detached those bytes never enter SessionTerminal's replay. Returning to
+    // Native must repaint after subscribing even though spawn reports adoption.
+    record.replayRequired = true
+    record.suppressNextReplayRedraw = false
+
     try {
       client?.dispose()
     } catch {
