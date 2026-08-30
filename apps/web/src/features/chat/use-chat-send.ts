@@ -270,7 +270,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   useEffect(() => {
     void controller.start()
-    return () => controller.dispose()
+    return () => controller.stop()
   }, [controller])
   useEffect(() => controller.setActive(active), [active, controller])
   useEffect(

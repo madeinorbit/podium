@@ -107,6 +107,7 @@ export class ConversationController {
   private state: ConversationState
   private disposed = false
   private started = false
+  private generation = 0
   private active = true
   private pendingSeq = 0
   private sendSeq = 0
@@ -157,9 +158,11 @@ export class ConversationController {
   async start(): Promise<void> {
     if (this.started || this.disposed) return
     this.started = true
+    const generation = this.generation
     this.observeTranscript(true)
     this.unsubscribeTranscript = this.options.transcript.subscribe(() => this.observeTranscript())
     await this.refreshQueue()
+    if (!this.started || this.disposed || generation !== this.generation) return
     this.armQueueTimer()
     if (this.state.pending.some((turn) => turn.state === 'queued')) this.armAckTimer()
     this.armSendTimer()
@@ -373,9 +376,12 @@ export class ConversationController {
     }
   }
 
-  dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+  /** Release live resources while keeping the controller restartable by an adapter effect. */
+  stop(): void {
+    if (!this.started) return
+    this.started = false
+    this.generation += 1
+    this.queueReadSerial += 1
     this.unsubscribeTranscript?.()
     this.unsubscribeTranscript = null
     this.clearTimer('queue')
@@ -383,6 +389,12 @@ export class ConversationController {
     this.clearTimer('send')
     for (const token of this.settleTimers.values()) this.clock.clearTimeout(token)
     this.settleTimers.clear()
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.stop()
+    this.disposed = true
     this.listeners.clear()
   }
 

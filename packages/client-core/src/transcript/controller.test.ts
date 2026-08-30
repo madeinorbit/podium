@@ -132,6 +132,40 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
 })
 
 describe('transcript lifecycle boundaries', () => {
+  it('restarts cleanly after an adapter effect releases its resources', async () => {
+    const io = source()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+
+    const rehearsed = controller.start()
+    controller.stop()
+    const mounted = controller.start()
+    expect(io.reads).toHaveLength(2)
+
+    io.pending[0]?.resolve({
+      items: [item('stale', 'c1')],
+      head: 'c1',
+      tail: 'c1',
+      hasMore: false,
+    })
+    io.pending[1]?.resolve({
+      items: [item('mounted', 'c2')],
+      head: 'c2',
+      tail: 'c2',
+      hasMore: false,
+    })
+    await Promise.all([rehearsed, mounted])
+
+    expect(controller.getSnapshot()).toMatchObject({
+      items: [item('mounted', 'c2')],
+      initialLoaded: true,
+    })
+    expect(io.port.subscribe).toHaveBeenCalledTimes(1)
+    controller.dispose()
+  })
+
   it('refreshes on reconnect and drops the pre-reconnect result', async () => {
     const io = source()
     let connected = false

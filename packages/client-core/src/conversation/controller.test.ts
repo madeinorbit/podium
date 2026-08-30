@@ -37,6 +37,43 @@ function offer(createdAt = '2026-08-30T12:00:00.000Z'): SessionOffer {
 }
 
 describe('conversation controller contract', () => {
+  it('restarts cleanly after an adapter effect releases its resources', async () => {
+    const feed = transcript()
+    const reads: Array<ReturnType<typeof deferred<unknown>>> = []
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: vi.fn(),
+      readQueue: () => {
+        const next = deferred<unknown>()
+        reads.push(next)
+        return next.promise
+      },
+    })
+
+    const rehearsed = controller.start()
+    controller.stop()
+    const mounted = controller.start()
+    expect(reads).toHaveLength(2)
+
+    reads[0]?.resolve([])
+    reads[1]?.resolve([
+      {
+        id: 'mounted',
+        from: 'operator',
+        to: 'session:s1',
+        status: 'queued',
+        body: 'still live',
+        createdAt: '2026-08-30T12:00:00.000Z',
+      },
+    ])
+    await Promise.all([rehearsed, mounted])
+
+    expect(controller.getSnapshot().queued.map((message) => message.id)).toEqual(['mounted'])
+    controller.dispose()
+  })
+
   it('owns a controlled draft, exact-wire retry, offer restoration, and echo reconciliation', async () => {
     const feed = transcript()
     const drafts: string[] = []

@@ -217,7 +217,7 @@ export function SessionConversation({
   const [peekIssue, setPeekIssue] = useState<IssueWire | null>(null)
   useEffect(() => {
     void transcriptController.start()
-    return () => transcriptController.dispose()
+    return () => transcriptController.stop()
   }, [transcriptController])
 
   useEffect(() => {
@@ -226,7 +226,7 @@ export function SessionConversation({
 
   useEffect(() => {
     void conversationController.start()
-    return () => conversationController.dispose()
+    return () => conversationController.stop()
   }, [conversationController])
 
   useEffect(() => {

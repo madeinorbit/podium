@@ -274,7 +274,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     })
     return () => {
       windowHealthy.current = false
-      transcriptController.dispose()
+      transcriptController.stop()
     }
   }, [deferInitialRead, transcriptController])
 
