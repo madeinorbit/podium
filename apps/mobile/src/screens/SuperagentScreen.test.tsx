@@ -29,13 +29,6 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-vi.mock('lucide-react-native', () => ({
-  ArrowUp: () => null,
-  ChevronLeft: () => null,
-  Cpu: () => null,
-  Eraser: () => null,
-  Gauge: () => null,
-}))
 vi.mock('expo-blur', async () => {
   const { View } = await import('react-native')
   return { BlurView: (props: object) => <View {...props} /> }

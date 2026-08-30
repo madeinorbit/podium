@@ -1,4 +1,4 @@
-import { FileText, X } from 'lucide-react-native'
+import { FileText, X } from './icons'
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'

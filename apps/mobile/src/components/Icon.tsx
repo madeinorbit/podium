@@ -1,11 +1,20 @@
-import { type ComponentType, createElement } from 'react'
+import { SymbolView } from 'expo-symbols'
+import type { AppIcon } from './icons'
 
 interface IconProps {
-  as: ComponentType<any>
+  as: AppIcon
   size: number
   color: string
 }
 
 export function Icon({ as, size, color }: IconProps) {
-  return createElement(as, { size, color })
+  return (
+    <SymbolView
+      name={as}
+      size={size}
+      tintColor={color}
+      weight="regular"
+      resizeMode="scaleAspectFit"
+    />
+  )
 }

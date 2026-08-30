@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'
-import { Monitor } from 'lucide-react-native'
+import { Monitor } from '../components/icons'
 import { useState } from 'react'
 import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { logout } from '../client/auth'

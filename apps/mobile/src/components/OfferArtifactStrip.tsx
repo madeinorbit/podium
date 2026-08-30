@@ -1,5 +1,4 @@
 import type { IssueWire, SessionOffer } from '@podium/model'
-import { FileText, Globe, Image as ImageGlyph, Play } from 'lucide-react-native'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../client/authenticated-assets'
@@ -11,6 +10,7 @@ import { type OfferArtifactRow, offerArtifactRows } from '../lib/offer-artifacts
 import { color, font, monoLabel, radius, sans, space } from '../theme/theme'
 import { ArtifactViewer } from './ArtifactViewer'
 import { Icon } from './Icon'
+import { FileText, Globe, Image as ImageGlyph, Play } from './icons'
 import { PressableScale } from './PressableScale'
 
 /**

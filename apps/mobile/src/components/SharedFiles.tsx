@@ -1,6 +1,6 @@
 import { isImagePath } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
-import { FileText, X } from 'lucide-react-native'
+import { FileText, X } from './icons'
 import { useEffect, useState } from 'react'
 import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource, fetchAuthenticatedAsset } from '../client/authenticated-assets'

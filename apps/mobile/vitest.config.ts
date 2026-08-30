@@ -33,7 +33,7 @@ import { sharedVitestConfig } from '../../vitest.config'
  *     There are two ways out, and which one is right depends on whether the
  *     package belongs in the graph at all. A package the app genuinely renders
  *     comes back INSIDE vite — `server.deps.inline` plus an alias onto its web
- *     entry, as `react-native-svg` and `lucide-react-native` do below. A package
+ *     entry, as `react-native-svg` does below. A package
  *     that is only there because a leaf imported a composition root to read one
  *     context should not be in the graph in the first place: the context moves
  *     to its own module (`./launch-ready`, `./server-profile-context`) and the
@@ -41,6 +41,10 @@ import { sharedVitestConfig } from '../../vitest.config'
  *     for exactly that reason — if stubs reappear there, the split has regressed.
  *
  *   `happy-dom` — react-native-web touches `document` at import time.
+ *
+ *   the `expo-symbols` alias — glyph rendering is a native boundary while these
+ *   tests exercise the controls around it. A fixed-size View preserves layout
+ *   without loading Expo's native module or its web font.
  *
  *   `__DEV__` — expo's runtime reads Metro's global at module scope. `false` is
  *     the honest value: a test run is not a Metro dev server.
@@ -77,6 +81,10 @@ export default defineConfig({
     alias: [
       ...sharedAliases,
       { find: 'react-native', replacement: 'react-native-web' },
+      {
+        find: /^expo-symbols$/,
+        replacement: fileURLToPath(new URL('./test/expo-symbols.tsx', import.meta.url)),
+      },
       // react-native-svg publishes native CJS as its Node entrypoint. Its web
       // build is the same implementation Expo's web bundler selects, and an
       // absolute replacement keeps its imports inside Vite's alias pipeline.
@@ -123,7 +131,7 @@ export default defineConfig({
         // alias and `.web.*` resolution above apply transitively. Otherwise
         // react-native-svg reaches RN's Flow-typed index.js and Node fails on
         // its `import typeof` declaration.
-        inline: ['lucide-react-native', 'react-native-svg'],
+        inline: ['react-native-svg'],
       },
     },
     // `one-react.ts` last: it turns a drifted checkout into a message that names the

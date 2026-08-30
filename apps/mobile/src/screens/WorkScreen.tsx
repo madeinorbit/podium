@@ -37,7 +37,7 @@ import {
   Pin,
   Search,
   X,
-} from 'lucide-react-native'
+} from '../components/icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,

@@ -20,9 +20,9 @@ export default defineConfig({
     alias: [
       { find: /^react-native$/, replacement: 'react-native-web' },
       // The composer harness (POD-1659) pulls the real component, which reaches
-      // for three Expo modules a plain vite page has no runtime for. Stub the
-      // two that only matter on device; safe-area is a hook, so it gets a
-      // module rather than a provider tree.
+      // Expo modules a plain vite page has no runtime for. Stub the pieces that
+      // only matter on device; safe-area is a hook, so it gets a module rather
+      // than a provider tree.
       {
         find: /^expo-blur$/,
         replacement: fileURLToPath(new URL('./harness/stub-expo-blur.tsx', import.meta.url)),
@@ -36,8 +36,8 @@ export default defineConfig({
         replacement: fileURLToPath(new URL('./harness/stub-safe-area.ts', import.meta.url)),
       },
       {
-        find: /^lucide-react-native$/,
-        replacement: fileURLToPath(new URL('./harness/stub-lucide.tsx', import.meta.url)),
+        find: /^expo-symbols$/,
+        replacement: fileURLToPath(new URL('./harness/stub-expo-symbols.tsx', import.meta.url)),
       },
       // The backend-rail harness (POD-1677) pulls the real rail, whose model
       // picker is the app's one BottomSheet — reanimated, gesture-handler and
@@ -92,7 +92,7 @@ export default defineConfig({
     exclude: [
       'expo-blur',
       'expo-haptics',
-      'lucide-react-native',
+      'expo-symbols',
       'react-native-safe-area-context',
       'react-native-svg',
     ],

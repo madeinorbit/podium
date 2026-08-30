@@ -1,5 +1,4 @@
 import type { ModelCatalog } from '@podium/client-core/react'
-import { ChevronLeft, Cpu, Gauge } from 'lucide-react-native'
 import { useState } from 'react'
 // Namespace access, not a named import: react-native-web exports no
 // ActionSheetIOS, and a named import would break the web bundle (see
@@ -23,6 +22,7 @@ import { color, font, mono, monoLabel, radius, sans, space } from '../theme/them
 import { nativePickerSpec } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
+import { ChevronLeft, Cpu, Gauge } from './icons'
 import { PressableScale } from './PressableScale'
 
 type PickerStep = 'model' | 'effort' | null

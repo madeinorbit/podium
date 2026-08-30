@@ -8,7 +8,7 @@
  * can stand on one page. The layout, the styles and the geometry are untouched.
  */
 import { BlurView } from 'expo-blur'
-import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from 'lucide-react-native'
+import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from '../src/components/icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,

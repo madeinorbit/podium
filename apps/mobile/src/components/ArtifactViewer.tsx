@@ -1,6 +1,6 @@
 import type { IssuePanelArtifact } from '@podium/model'
-import { X } from 'lucide-react-native'
 import { type ComponentType, createElement, useEffect, useState } from 'react'
+import { X } from './icons'
 import {
   Image,
   Modal,

@@ -1,4 +1,4 @@
-import { Maximize2, Smartphone } from 'lucide-react-native'
+import { Maximize2, Smartphone } from '../components/icons'
 import { Icon } from '../components/Icon'
 import { HeaderButton } from '../components/Screen'
 import { color } from '../theme/theme'

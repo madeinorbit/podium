@@ -5,7 +5,7 @@
  */
 
 import type { ModelCatalog } from '@podium/client-core/react'
-import { ChevronLeft, Cpu, Gauge } from 'lucide-react-native'
+import { ChevronLeft, Cpu, Gauge } from '../src/components/icons'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { BottomSheet } from '../src/components/BottomSheet'

@@ -1,7 +1,7 @@
 import { groupRelations, ISSUE_STAGE_LABELS, sessionTitle } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { ChevronRight, ExternalLink, Plus, X } from 'lucide-react-native'
+import { ChevronRight, ExternalLink, Plus, X } from '../icons'
 import { type ReactNode, useState } from 'react'
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'

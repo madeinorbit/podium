@@ -18,7 +18,7 @@ import {
 import type { AgentKind, MachineId } from '@podium/model'
 import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
-import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react-native'
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { useMemo, useState } from 'react'
 // Namespace access, not a named import: react-native-web exports no
 // ActionSheetIOS (see ActionSheet.tsx, same pattern).

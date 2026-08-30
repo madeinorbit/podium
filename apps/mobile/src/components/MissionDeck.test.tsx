@@ -21,21 +21,6 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-// Flow-typed RN icon source never parses in this lane; every glyph is a no-op.
-// Named one by one because vitest validates a mock against the factory's OWN
-// keys — a Proxy's getter is never consulted — so when the deck's component
-// tree grows an icon, this list is what has to grow with it.
-vi.mock('lucide-react-native', () => ({
-  ArrowDown: () => null,
-  Check: () => null,
-  ChevronDown: () => null,
-  ChevronsDownUp: () => null,
-  ChevronsUpDown: () => null,
-  Plus: () => null,
-  SquareTerminal: () => null,
-  X: () => null,
-}))
-
 // The spine draws its rails with react-native-svg, whose RN source never parses
 // in this lane; the geometry is not what this file is about.
 vi.mock('react-native-svg', () => ({
