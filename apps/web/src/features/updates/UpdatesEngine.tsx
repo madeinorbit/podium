@@ -118,24 +118,29 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
    * collapsed the current situation? Everything else — whether there is
    * anything to show at all, what it says, what to press — is server truth.
    */
-  const [collapsed, setCollapsed] = useState(false)
+  // A newly discovered proposal starts on the non-obstructing status-strip surface.
+  // Ordinary update situations retain their existing expanded-first behavior.
+  const activeProposal = view.state === 'none' ? proposal : null
+  const showingProposal = activeProposal != null
+  const [collapsed, setCollapsed] = useState(showingProposal)
 
-  // A NEW SITUATION UNCOLLAPSES. The user hid a running update, it then failed
-  // or came to need them — that is a different question than the one they hid,
-  // and it must not stay hidden behind a dot they may never look at.
+  // A NEW ORDINARY UPDATE SITUATION UNCOLLAPSES. A newly discovered proposal is
+  // the deliberate exception: it starts collapsed behind its truthful indicator,
+  // while a state change on the same proposal may reopen the question.
   //
   // Adjusted during render rather than in an effect: React's own answer for
   // "state derived from a prop that changed", and it repaints once instead of
   // showing the collapsed panel for a frame first.
-  const activeProposal = view.state === 'none' ? proposal : null
-  const showingProposal = activeProposal != null
   const situation = activeProposal
     ? `proposal:${activeProposal.headSha}:${activeProposal.state}`
     : `${view.state}:${view.operationId ?? view.version ?? ''}`
   const [lastSituation, setLastSituation] = useState(situation)
   if (situation !== lastSituation) {
     setLastSituation(situation)
-    setCollapsed(false)
+    setCollapsed(
+      activeProposal != null &&
+        !lastSituation.startsWith('proposal:' + activeProposal.headSha + ':'),
+    )
   }
 
   // "Auto-collapses after a few seconds" (§6.2.4). The success announcement is

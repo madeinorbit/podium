@@ -2,6 +2,7 @@
  * Hide → indicator → reopen, which is the whole point of POD-2102's §6.1: the
  * old dialog's Hide set component state and the update became unreachable.
  */
+import type { ReleaseProposal } from '/protocol'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   run: vi.fn(),
   checkNow: vi.fn(async () => {}),
   acknowledge: vi.fn(),
+  approveProposal: vi.fn(async () => {}),
 }))
 
 vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
@@ -26,6 +28,16 @@ vi.mock('@/app/trpc', () => ({
 import { openUpdatePanel } from './open-panel'
 import { UpdatesEngine } from './UpdatesEngine'
 import { resetUpdates, useUpdates } from './updates-panel-context'
+
+const PROPOSAL: ReleaseProposal = {
+  headSha: 'abcdef1',
+  version: '0.1.2-dev.7+abcdef1',
+  runningVersion: '0.1.1-edge.1',
+  branch: 'feature/release',
+  commits: [{ sha: 'abcdef1', summary: 'Safety repair' }],
+  addedMigrations: [],
+  state: 'pending',
+}
 
 const OFFER: UpdatePanelView = {
   state: 'offer',
@@ -90,6 +102,49 @@ afterEach(() => {
 })
 
 describe('UpdatesEngine', () => {
+  it('surfaces a new proposal in the indicator until explicitly opened', () => {
+    mocks.useUpdateState.mockReturnValue({
+      view: {
+        state: 'none',
+        title: '',
+        steps: [],
+        awaitingElsewhere: [],
+        indicator: 'none',
+        indicatorLabel: '',
+      },
+      operation: null,
+      server: {},
+      fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
+      pending: null,
+      run: mocks.run,
+      checkNow: mocks.checkNow,
+      acknowledge: mocks.acknowledge,
+      proposal: PROPOSAL,
+      proposalPending: false,
+      proposalError: undefined,
+      approveProposal: mocks.approveProposal,
+    })
+    render(
+      <>
+        <UpdatesEngine httpOrigin="http://podium.test" />
+        <Strip />
+      </>,
+    )
+
+    const indicator = screen.getByTestId('update-indicator')
+    expect(indicator.getAttribute('aria-label')).toBe('Development release awaits approval')
+    expect(screen.queryByTestId('release-proposal-card')).toBeNull()
+
+    fireEvent.click(indicator)
+    expect(screen.getByTestId('release-proposal-card')).toBeTruthy()
+    const build = screen.getByRole('button', { name: 'Build and publish' })
+    fireEvent.click(build)
+    expect(mocks.approveProposal).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    expect(screen.queryByTestId('release-proposal-card')).toBeNull()
+    expect(screen.getByTestId('update-indicator')).toBeTruthy()
+  })
+
   it('shows the panel and the indicator for the same update', () => {
     mount()
     expect(screen.getByTestId('update-panel')).toBeTruthy()
