@@ -313,6 +313,16 @@ export function opencodeVersionProbe(
   return versionProbeCache.probe(probe, policy)
 }
 
+export function opencodeVersionProbeForExecutable(
+  executablePath: string,
+  policy?: VersionProbePolicy,
+): Promise<OpencodeProbeVerdict> {
+  return opencodeVersionProbe(
+    () => execVersionProbe(executablePath, VERSION_PROBE_TIMEOUT_MS),
+    policy,
+  )
+}
+
 /** The old shape, kept for the callers that only ask "may I drive it". A probe
  *  that could not answer reads as "no" here, which is right for an availability
  *  LIST — the distinction that matters is at the spawn site, which asks the
@@ -365,6 +375,8 @@ export interface OpencodeHostDeps {
    * declares is still the one this family produces wherever it CAN produce one.
    */
   clientTerminals?: OpencodeClientTerminals
+  /** Exact OpenCode executable resolved by this daemon generation. */
+  executablePath?: string
   /**
    * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
    * same way the PTY path does (POD-2247). Absent = default instance, daemon
@@ -381,6 +393,10 @@ export interface OpencodeHostDeps {
 /** The label a session's scope unit is named from. Same shape as the PTY side's
  *  so an operator reading `systemctl --user list-units` sees one convention. */
 export const opencodeScopeLabel = (sessionId: SessionId): string => `podium-oc-${sessionId}`
+
+export function opencodeServeArgv(executablePath: string, port: number): string[] {
+  return [executablePath, 'serve', '--port', String(port), '--hostname', '127.0.0.1']
+}
 
 export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost {
   const journal = deps.journal ?? createOpencodeJournal()
@@ -466,7 +482,10 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
     async launch(input) {
-      const diagnostic = await opencodeVersionDiagnostic()
+      const executablePath = deps.executablePath ?? 'opencode'
+      const diagnostic = await opencodeVersionDiagnostic(() =>
+        execVersionProbe(executablePath, VERSION_PROBE_TIMEOUT_MS),
+      )
       if (diagnostic) {
         // REFUSED, NOT DEGRADED. A driver written against shapes this binary may
         // not speak would fail somewhere deep in a mapping, and the operator
@@ -498,16 +517,8 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         }
       }
 
-      const serveArgv = [
-        'opencode',
-        'serve',
-        '--port',
-        String(port),
-        '--hostname',
-        // LOOPBACK, NOT A SETTING. `--hostname 0.0.0.0` would put spec §6's whole
-        // argument in a config file, so the driver does not offer it.
-        '127.0.0.1',
-      ]
+      // LOOPBACK, NOT A SETTING. The host is fixed and not configurable.
+      const serveArgv = opencodeServeArgv(executablePath, port)
       const [command, ...args] = scoped
         ? ['systemd-run', ...systemdScopeArgv(unit, serveArgv)]
         : serveArgv

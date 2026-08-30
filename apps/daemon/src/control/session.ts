@@ -45,7 +45,7 @@ import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
-import { opencodeVersionProbe } from '../runtime/opencode-server'
+import { opencodeVersionProbe, opencodeVersionProbeForExecutable } from '../runtime/opencode-server'
 import {
   availableDriverIds,
   claudeSdkTosAcceptedByEnv,
@@ -1117,6 +1117,13 @@ export function admissionProbeDriver(
   return preferred && isServerDriverId(preferred) ? preferred : undefined
 }
 
+export function resolvedAdmissionExecutable(
+  preferred: string | undefined,
+  executables: ReadonlyMap<string, { readonly path: string }> | undefined,
+): string | undefined {
+  return preferred === 'opencode-server' ? executables?.get('opencode')?.path : undefined
+}
+
 /**
  * Emit the operator-facing record for a permitted runtime-driver degradation
  * (machine-wide or manifest-default) and return the preferred id for the bind
@@ -1178,14 +1185,21 @@ type ServerDriverProbeVerdict =
 export type ServerDriverAdmissionProbe = (
   driverId: string,
   policy?: { retryInconclusive?: boolean },
+  executablePath?: string,
 ) => Promise<ServerDriverProbeVerdict>
 
-const defaultServerDriverAdmissionProbe: ServerDriverAdmissionProbe = (driverId, policy) =>
+const defaultServerDriverAdmissionProbe: ServerDriverAdmissionProbe = (
+  driverId,
+  policy,
+  executablePath,
+) =>
   driverId === 'codex-app-server'
     ? codexAppServerVersionProbe(undefined, policy)
     : driverId === 'grok-acp'
       ? grokAcpVersionProbe(undefined, policy)
-      : opencodeVersionProbe(undefined, policy)
+      : executablePath
+        ? opencodeVersionProbeForExecutable(executablePath, policy)
+        : opencodeVersionProbe(undefined, policy)
 
 export async function launchServerDriverSession(
   ctx: DaemonContext,
@@ -1235,8 +1249,18 @@ export async function launchServerDriverSession(
    * another. The REFUSAL below still keys on `namedHere`: an unprobeable
    * manifest or machine default degrades, while a per-spawn server id refuses.
    */
+  const admissionInventory =
+    preferred === 'opencode-server' ? await ctx.harnessRuntime?.current() : undefined
+  const resolvedOpencodeExecutable = resolvedAdmissionExecutable(
+    preferred,
+    admissionInventory?.executables,
+  )
   const probeFor = (driverId: string) =>
-    probeDriver(driverId, namedHere === driverId ? { retryInconclusive: true } : undefined)
+    probeDriver(
+      driverId,
+      namedHere === driverId ? { retryInconclusive: true } : undefined,
+      driverId === 'opencode-server' ? resolvedOpencodeExecutable : undefined,
+    )
   const preferredServer = admissionProbeDriver(preferred, selectionAuth)
   const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)
   const namedProbe = namedHere ? preferredProbe : undefined

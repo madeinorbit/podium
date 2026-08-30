@@ -9,7 +9,7 @@
  * `packages/agent-runtime`.
  */
 
-import { readFileSync, statSync } from 'node:fs'
+import { chmodSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,14 +17,20 @@ import { addSink, type LogRecord } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { admissionProbeDriver, reportDriverPreferenceDegrade } from '../control/session'
+import {
+  admissionProbeDriver,
+  reportDriverPreferenceDegrade,
+  resolvedAdmissionExecutable,
+} from '../control/session'
 import { runtimeContractEnabledFor, runtimeDriverFor } from './flag'
 import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import {
   createOpencodeJournal,
   opencodeScopeLabel,
+  opencodeServeArgv,
   opencodeVersionDiagnostic,
   opencodeVersionProbe,
+  opencodeVersionProbeForExecutable,
   resetOpencodeVersionProbe,
 } from './opencode-server'
 import {
@@ -452,6 +458,48 @@ describe('the version gate, as the daemon reads it', () => {
   const silent =
     (output = '') =>
     () => ({ output, ok: false })
+
+  it('uses a resolved absolute executable when no bare OpenCode command exists', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'resolved-opencode-'))
+    const executable = join(dir, 'resolved-opencode')
+    const previousPath = process.env.PATH
+    try {
+      writeFileSync(executable, '#!/bin/sh\nprintf "1.18.16\n"\n')
+      chmodSync(executable, 0o755)
+      process.env.PATH = '/usr/bin:/bin'
+      await expect(opencodeVersionProbeForExecutable(executable)).resolves.toEqual({
+        drivable: true,
+      })
+    } finally {
+      process.env.PATH = previousPath
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('selects only the generation-resolved OpenCode executable for admission', () => {
+    const executables = new Map([
+      ['opencode', { path: '/home/rig/.opencode/bin/opencode' }],
+      ['codex', { path: '/usr/bin/codex' }],
+    ])
+    expect(resolvedAdmissionExecutable('opencode-server', executables)).toBe(
+      '/home/rig/.opencode/bin/opencode',
+    )
+    expect(resolvedAdmissionExecutable('codex-app-server', executables)).toBeUndefined()
+    expect(resolvedAdmissionExecutable('opencode-server', undefined)).toBeUndefined()
+  })
+
+  it('builds serve argv from the resolved executable without changing PATH installs', () => {
+    expect(opencodeServeArgv('/opt/resolved/opencode', 41234)).toEqual([
+      '/opt/resolved/opencode',
+      'serve',
+      '--port',
+      '41234',
+      '--hostname',
+      '127.0.0.1',
+    ])
+    expect(opencodeServeArgv('/usr/bin/opencode', 41234)[0]).toBe('/usr/bin/opencode')
+    expect(opencodeServeArgv('opencode', 41234)[0]).toBe('opencode')
+  })
 
   it('admits a version in range and refuses one outside it', async () => {
     await expect(opencodeVersionProbe(answered('1.18.16'))).resolves.toEqual({ drivable: true })

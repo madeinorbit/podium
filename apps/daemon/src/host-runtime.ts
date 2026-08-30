@@ -846,6 +846,9 @@ export async function createDaemonHostRuntime(args: {
        * with the per-machine wording.
        */
       clientTerminals,
+      ...(generationInventory?.executables.has('opencode')
+        ? { executablePath: resolvedHarnessPath(generationInventory, 'opencode') }
+        : {}),
       // The instance agent home: a server-driver child's HOME must be the
       // instance's, exactly as the PTY path's children get it (POD-2247).
       ...(homeDir ? { homeDir } : {}),
