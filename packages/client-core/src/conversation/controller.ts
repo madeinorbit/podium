@@ -111,6 +111,7 @@ export class ConversationController {
   private pendingSeq = 0
   private sendSeq = 0
   private queueReadSerial = 0
+  private readonly retractingQueueIds = new Set<string>()
   private openSend: OpenSend | null = null
   private context: ConversationContext = { canInterrupt: false }
   private authoritativeOffer: SessionOffer | null = null
@@ -160,6 +161,7 @@ export class ConversationController {
     this.unsubscribeTranscript = this.options.transcript.subscribe(() => this.observeTranscript())
     await this.refreshQueue()
     this.armQueueTimer()
+    if (this.state.pending.some((turn) => turn.state === 'queued')) this.armAckTimer()
     this.armSendTimer()
   }
 
@@ -167,6 +169,11 @@ export class ConversationController {
     if (this.active === active) return
     this.active = active
     this.armQueueTimer()
+    if (!active) {
+      this.clearTimer('ack')
+    } else if (this.state.pending.some((turn) => turn.state === 'queued')) {
+      this.armAckTimer()
+    }
   }
 
   setDraft(text: string): void {
@@ -236,6 +243,7 @@ export class ConversationController {
     const linked = pairPendingWithConversationQueue(this.state.pending, queued).pending.find(
       (turn) => turn.durable?.id === id,
     )
+    this.retractingQueueIds.add(id)
     this.patch({
       queued: queued.filter((message) => message.id !== id),
       pending: linked
@@ -244,7 +252,18 @@ export class ConversationController {
     })
     try {
       await this.options.retract(id)
+      // A poll may begin after the optimistic removal but before cancellation
+      // commits. Retire that read and remove any row it managed to reinsert.
+      this.queueReadSerial += 1
+      this.patch({
+        queued: this.state.queued.filter((message) => message.id !== id),
+        pending: linked
+          ? this.state.pending.filter((turn) => turn.id !== linked.id)
+          : this.state.pending,
+      })
+      this.retractingQueueIds.delete(id)
     } catch (error) {
+      this.retractingQueueIds.delete(id)
       this.patch({
         queued:
           retracted && !this.state.queued.some((message) => message.id === id)
@@ -344,7 +363,11 @@ export class ConversationController {
     try {
       const rows = await this.options.readQueue()
       if (this.disposed || serial !== this.queueReadSerial) return
-      this.patch({ queued: queuedConversationMessages(rows, this.options.sessionId) })
+      this.patch({
+        queued: queuedConversationMessages(rows, this.options.sessionId).filter(
+          (message) => !this.retractingQueueIds.has(message.id),
+        ),
+      })
     } catch {
       // Keep the last durable projection. Transcript and sending remain usable.
     }

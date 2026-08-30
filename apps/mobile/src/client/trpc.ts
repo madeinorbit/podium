@@ -78,7 +78,10 @@ interface MobileTrpcExtras {
        *  the card must say so rather than settle into "sent" (POD-770). */
       { ok: boolean; reason?: string }
     >
-    interrupt: MutationProcedure<{ sessionId: SessionId }, { ok?: boolean; reason?: string }>
+    interrupt: MutationProcedure<
+      { sessionId: SessionId; messageId?: string },
+      { ok?: boolean; reason?: string }
+    >
   }
   messages: {
     ledger: QueryProcedure<{ sessionId: SessionId; limit: number }, unknown[]>

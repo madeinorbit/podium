@@ -107,6 +107,32 @@ describe('conversation controller contract', () => {
     controller.dispose()
   })
 
+  it('restores a durable row when retraction is refused', async () => {
+    const feed = transcript()
+    const row = {
+      id: 'queued-1',
+      from: 'operator',
+      to: 'session:s1',
+      status: 'queued',
+      body: 'keep me',
+      createdAt: '2026-08-30T12:00:00.000Z',
+    }
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: vi.fn(),
+      readQueue: async () => [row],
+      retract: vi.fn(async () => {
+        throw new Error('already injected')
+      }),
+    })
+    await controller.start()
+    await expect(controller.retract('queued-1')).rejects.toThrow('already injected')
+    expect(controller.getSnapshot().queued.map((message) => message.id)).toEqual(['queued-1'])
+    controller.dispose()
+  })
+
   it('keys optimistic offer state by createdAt so a replacement remains visible', async () => {
     const feed = transcript()
     let reject!: (cause: unknown) => void
@@ -257,6 +283,75 @@ describe('conversation controller contract', () => {
     await reading
     expect(controller.getSnapshot().queued).toEqual([])
     controller.dispose()
+  })
+
+  it('removes a row returned by a poll that began while retract was committing', async () => {
+    const feed = transcript()
+    const cancel = deferred<void>()
+    const stale = deferred<unknown>()
+    const row = {
+      id: 'queued-1',
+      from: 'operator',
+      to: 'session:s1',
+      status: 'queued',
+      body: 'later',
+      createdAt: '2026-08-30T12:00:00.000Z',
+    }
+    const readQueue = vi.fn().mockResolvedValueOnce([row]).mockReturnValueOnce(stale.promise)
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: vi.fn(),
+      readQueue,
+      retract: () => cancel.promise,
+    })
+    await controller.start()
+    const retracting = controller.retract('queued-1')
+    const reading = controller.refreshQueue()
+    stale.resolve([row])
+    await reading
+    expect(controller.getSnapshot().queued).toEqual([])
+    cancel.resolve()
+    await retracting
+    expect(controller.getSnapshot().queued).toEqual([])
+    controller.dispose()
+  })
+
+  it('pauses and resumes fast acknowledgement polling with activation', async () => {
+    vi.useFakeTimers()
+    const feed = transcript()
+    const readQueue = vi.fn(async () => [])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: async () => ({ state: 'queued' }),
+      readQueue,
+      queueRefreshMs: 5_000,
+      queuedAckRefreshMs: 1_000,
+    })
+    try {
+      await controller.start()
+      controller.setActive(false)
+      await controller.submit({ text: 'wait' })
+      await Promise.resolve()
+      const inactiveReads = readQueue.mock.calls.length
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(readQueue).toHaveBeenCalledTimes(inactiveReads)
+
+      controller.setActive(true)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(readQueue.mock.calls.length).toBeGreaterThan(inactiveReads)
+
+      controller.setActive(false)
+      const pausedReads = readQueue.mock.calls.length
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(readQueue).toHaveBeenCalledTimes(pausedReads)
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
   })
 })
 

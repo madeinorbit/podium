@@ -160,6 +160,49 @@ describe('transcript lifecycle boundaries', () => {
     controller.dispose()
   })
 
+  it('ignores a stale initial failure after reconnect succeeds', async () => {
+    const io = source()
+    let connected = false
+    let connectionListener: ((next: boolean) => void) | undefined
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      cache: { read: () => ({ items: [item('saved', 'c0')], savedAt: 42 }), write: vi.fn() },
+      connection: {
+        connected: () => connected,
+        subscribe(listener) {
+          connectionListener = listener
+          return () => {
+            connectionListener = undefined
+          }
+        },
+      },
+    })
+    const starting = controller.start()
+    connected = true
+    connectionListener?.(true)
+    io.pending[1]?.resolve({
+      items: [item('fresh', 'c2')],
+      head: 'c2',
+      tail: 'c2',
+      hasMore: true,
+    })
+    await Promise.resolve()
+    io.pending[0]?.reject(new Error('stale offline failure'))
+    await starting
+    expect(controller.getSnapshot()).toMatchObject({
+      items: [item('fresh', 'c2')],
+      hasMoreOlder: true,
+      offlineAsOf: null,
+    })
+    expect(io.port.subscribe).toHaveBeenLastCalledWith(
+      asSessionId('s1'),
+      'c2',
+      expect.any(Function),
+    )
+    controller.dispose()
+  })
+
   it('keeps a cached window and marks it saved when the read fails', async () => {
     const io = source()
     const controller = createTranscriptController({
@@ -176,6 +219,31 @@ describe('transcript lifecycle boundaries', () => {
       freshness: 'saved',
       offlineAsOf: 42,
     })
+    controller.dispose()
+  })
+
+  it('keeps an equal tail probe cheap and escalates a changed tail to refresh', async () => {
+    const io = source()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('a', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
+    await starting
+
+    const equal = controller.probe()
+    io.pending[1]?.resolve({ items: [item('a', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
+    expect(await equal).toBe(true)
+    expect(io.reads).toHaveLength(2)
+
+    const changed = controller.probe()
+    io.pending[2]?.resolve({ items: [item('b', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
+    await Promise.resolve()
+    expect(io.reads[3]).toMatchObject({ limit: 200 })
+    io.pending[3]?.resolve({ items: [item('b', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
+    expect(await changed).toBe(true)
+    expect(controller.getSnapshot().items).toEqual([item('b', 'c2')])
     controller.dispose()
   })
 
