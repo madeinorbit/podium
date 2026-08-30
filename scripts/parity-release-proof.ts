@@ -151,7 +151,7 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedPackageDescription: 'Podium_<version>_aarch64.dmg',
     covers: [
       'Apple Silicon signed, notarized, stapled DMG',
-      'fresh install, launch, native chrome, opener, file dialog, clipboard, and updater restart',
+      'fresh install, launch, native chrome, opener, file dialog, clipboard, notification, cold and warm deep-link activation, and updater restart',
       'VoiceOver and keyboard traversal on the packaged application',
     ],
   },
@@ -168,7 +168,7 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedPackageDescription: 'Podium_<version>_x64.dmg',
     covers: [
       'Intel signed, notarized, stapled DMG',
-      'fresh install, launch, native chrome, opener, file dialog, clipboard, and updater restart',
+      'fresh install, launch, native chrome, opener, file dialog, clipboard, notification, cold and warm deep-link activation, and updater restart',
       'VoiceOver and keyboard traversal on the packaged application',
     ],
   },
@@ -185,7 +185,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedPackageDescription: 'Podium_<version>_x64-setup.exe',
     covers: [
       'NSIS install and uninstall on Windows 11 x86_64',
-      'WebView2 launch, native opener and dialogs, clipboard, ConPTY, and updater restart',
+      'verified Authenticode publisher, SmartScreen behavior, and WebView2 launch',
+      'native opener and dialogs, clipboard, notification, cold and warm deep-link activation, ConPTY, and updater restart',
       'Narrator and keyboard traversal; preview remains until this check passes',
     ],
   },
@@ -202,7 +203,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedPackageDescription: 'Podium_<version>_amd64.AppImage',
     covers: [
       'AppImage launch on Ubuntu 24.04 x86_64 under an isolated X11 session',
-      'native opener and dialogs, clipboard, PTY, replacement, and updater restart',
+      'verified AppImage provenance plus native opener and dialogs',
+      'clipboard, notification, cold and warm deep-link activation, PTY, replacement, and updater restart',
       'Orca and keyboard traversal; preview remains until this check passes',
     ],
   },
@@ -219,6 +221,11 @@ export type EvidenceEntry = {
   artifacts?: string[]
   packageName?: string
   packageSha256?: string
+  packageTrust?: {
+    mechanism: string
+    identity: string
+    verified: boolean
+  }
   notes: string
 }
 
@@ -279,6 +286,24 @@ export function parseEvidence(value: unknown): EvidenceFile {
         throw new Error(`evidence.checks.${id}.artifacts must contain non-empty strings`)
       }
     }
+    let packageTrust: EvidenceEntry['packageTrust']
+    if (entry.packageTrust !== undefined) {
+      const trust = asObject(entry.packageTrust, `evidence.checks.${id}.packageTrust`)
+      if (typeof trust.mechanism !== 'string' || trust.mechanism === '') {
+        throw new Error(`evidence.checks.${id}.packageTrust.mechanism must be a non-empty string`)
+      }
+      if (typeof trust.identity !== 'string' || trust.identity === '') {
+        throw new Error(`evidence.checks.${id}.packageTrust.identity must be a non-empty string`)
+      }
+      if (typeof trust.verified !== 'boolean') {
+        throw new Error(`evidence.checks.${id}.packageTrust.verified must be a boolean`)
+      }
+      packageTrust = {
+        mechanism: trust.mechanism,
+        identity: trust.identity,
+        verified: trust.verified,
+      }
+    }
     for (const key of [
       'observedAt',
       'platform',
@@ -304,6 +329,7 @@ export function parseEvidence(value: unknown): EvidenceFile {
       ...(entry.artifacts ? { artifacts: entry.artifacts as string[] } : {}),
       ...(entry.packageName ? { packageName: entry.packageName as string } : {}),
       ...(entry.packageSha256 ? { packageSha256: entry.packageSha256 as string } : {}),
+      ...(packageTrust ? { packageTrust } : {}),
     }
   }
   return {
@@ -366,6 +392,13 @@ export function validateEvidence(
     }
     if (check.expectedPackage && !/^[a-f0-9]{64}$/i.test(entry.packageSha256 ?? '')) {
       errors.push(`${check.id}: packageSha256 must be the package's 64-character SHA-256`)
+    }
+    if (check.expectedPackage && entry.status === 'passed') {
+      if (!entry.packageTrust) {
+        errors.push(`${check.id}: passed package evidence needs packageTrust`)
+      } else if (!entry.packageTrust.verified) {
+        errors.push(`${check.id}: package trust verification did not pass`)
+      }
     }
     if (entry.status === 'passed' && (entry.artifacts?.length ?? 0) === 0) {
       errors.push(`${check.id}: passed evidence needs at least one artifact or run URL`)

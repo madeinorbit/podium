@@ -68,11 +68,12 @@ export function TopBar({
   const slotFilled = useToolbarSlotFilled()
 
   const desktopBridge = nativeDesktopBridge()
-  const dragRegion = desktopBridge ? { 'data-tauri-drag-region': true } : undefined
+  const customChrome = desktopBridge && desktopBridge.nativeDecorations !== true
+  const dragRegion = customChrome ? { 'data-tauri-drag-region': true } : undefined
 
-  // Setup keeps the bar and empties it: it is still the drag handle, and off
-  // macOS it still carries the only minimise, maximise and close buttons the
-  // window has. Everything else in it reports on work that cannot exist yet.
+  // Setup keeps the bar and empties it. In a custom-chrome shell it remains the
+  // drag handle and carries non-macOS window controls. Everything else in it
+  // reports on work that cannot exist yet.
   if (chromeless) {
     return (
       <header
@@ -82,7 +83,7 @@ export function TopBar({
         {...dragRegion}
       >
         <span className="desktop-topbar-gap" {...dragRegion} />
-        {desktopBridge && desktopBridge.platform !== 'macos' && (
+        {desktopBridge && desktopBridge.platform !== 'macos' && customChrome && (
           <NativeWindowControls bridge={desktopBridge} />
         )}
       </header>
@@ -107,13 +108,7 @@ export function TopBar({
           onSelect={setView}
           icon={LayoutPanelLeft}
         />
-        <ModeTab
-          label="Tasks"
-          target="issues"
-          view={view}
-          onSelect={setView}
-          icon={SquareKanban}
-        />
+        <ModeTab label="Tasks" target="issues" view={view} onSelect={setView} icon={SquareKanban} />
         {workflowsEnabled && (
           <ModeTab
             label="Workflows"
@@ -162,7 +157,7 @@ export function TopBar({
           icon={<Settings size={16} aria-hidden="true" />}
         />
       </div>
-      {desktopBridge && desktopBridge.platform !== 'macos' && (
+      {desktopBridge && desktopBridge.platform !== 'macos' && customChrome && (
         <NativeWindowControls bridge={desktopBridge} />
       )}
     </header>

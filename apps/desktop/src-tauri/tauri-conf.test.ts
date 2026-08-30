@@ -4,6 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const conf = JSON.parse(readFileSync(join(__dirname, 'tauri.conf.json'), 'utf8'))
+const defaultCapability = JSON.parse(
+  readFileSync(join(__dirname, 'capabilities/default.json'), 'utf8'),
+)
 const mainSource = readFileSync(join(__dirname, 'src/main.rs'), 'utf8')
 const nativeOpenSource = readFileSync(join(__dirname, 'native-open.js'), 'utf8')
 const bootstrapSource = readFileSync(join(__dirname, 'src/bootstrap.rs'), 'utf8')
@@ -66,6 +69,20 @@ describe('tauri desktop config', () => {
     expect(ready).toBeGreaterThan(listener)
     expect(webLinkHostSource).toContain('__PODIUM_NATIVE_OPEN_READY__?.(false)')
     expect(webLinkHostSource).toContain('pendingHrefs.current.push(pendingPodiumHref(detail))')
+  })
+
+  it('defines a bundled-page CSP and keeps ambient capabilities empty of plugin defaults', () => {
+    const csp = conf.app.security.csp as string
+    expect(csp).toContain("default-src 'self'")
+    expect(csp).toContain("script-src 'self'")
+    expect(csp).toContain("object-src 'none'")
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(csp).not.toContain("'unsafe-eval'")
+    expect(defaultCapability.permissions).toEqual([
+      'core:event:allow-listen',
+      'core:event:allow-unlisten',
+    ])
+    expect(JSON.stringify(defaultCapability.permissions)).not.toContain(':default')
   })
 
   it('keeps stable as the packaged fallback endpoint', () => {
@@ -473,12 +490,36 @@ describe('served-local launchMode classification (POD-2510)', () => {
     expect(mainSource).toContain('.accelerator("CmdOrCtrl+W")')
     expect(mainSource).not.toContain('MenuItemBuilder::with_id("close-window"')
     expect(mainSource).not.toContain('__PODIUM_DESKTOP__.close()')
+    expect(mainSource).toContain('#[cfg(not(target_os = "macos"))]')
+    expect(mainSource.match(/MenuItemBuilder::with_id\("close-tab", "Close Tab"\)/g)).toHaveLength(
+      2,
+    )
   })
-  it('uses native traffic lights on macOS and custom chrome elsewhere', () => {
+  it('uses native traffic lights on macOS and native window-manager chrome elsewhere', () => {
     expect(mainSource).toContain('.title_bar_style(tauri::TitleBarStyle::Overlay)')
     expect(mainSource).toContain('.hidden_title(true)')
     expect(mainSource).toContain('.traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0))')
-    expect(mainSource).toContain('let window_builder = window_builder.decorations(false);')
+    expect(mainSource).toContain('const NATIVE_DECORATIONS: bool = true;')
+    expect(mainSource).not.toContain('window_builder.decorations(false)')
+    expect(mainSource).toContain('.min_inner_size(900.0, 600.0)')
+    expect(mainSource).not.toContain('"core:window:allow-minimize"')
+    expect(mainSource).not.toContain('"core:window:allow-close"')
+    expect(mainSource).not.toContain('"core:window:allow-toggle-maximize"')
+  })
+
+  it('creates the window before waiting for a local backend and keeps close-to-hide macOS-only', () => {
+    const window = mainSource.indexOf('handle.run_on_main_thread')
+    const wait = mainSource.indexOf('bootstrap::wait_for_port', window)
+    expect(window).toBeGreaterThan(-1)
+    expect(wait).toBeGreaterThan(window)
+    expect(mainSource).toContain(
+      '#[cfg(target_os = "macos")]\n                tauri::WindowEvent::CloseRequested',
+    )
+    expect(mainSource).toContain(
+      '#[cfg(not(target_os = "macos"))]\n                tauri::WindowEvent::CloseRequested',
+    )
+    expect(mainSource).toContain('window.app_handle().exit(0);')
+    expect(mainSource).not.toContain('TrayIconBuilder')
   })
 
   /**
@@ -533,8 +574,8 @@ describe('served-local launchMode classification (POD-2510)', () => {
    * POD-2150. `install_update` reports progress by emitting
    * `podium://update-progress`, and the page subscribes with
    * `plugin:event|listen` — which is a PERMISSION, not an ambient capability.
-   * The static `default.json` grants it through `core:default`, but declares no
-   * remote block, so it stops at the local origin. In remote mode the page is
+   * The static `default.json` grants only event listen and unlisten, and declares
+   * no remote block, so it stops at the local origin. In remote mode the page is
    * served by the remote server, and a shell that lets that page start an
    * install but not hear it report gives the user a spinner that never moves:
    * the one silence the progress events exist to end.

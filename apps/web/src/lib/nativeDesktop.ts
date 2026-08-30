@@ -23,6 +23,8 @@ export interface NativeDesktopUpdateInfo {
 
 export interface NativeDesktopBridge {
   platform: NativeDesktopPlatform
+  /** True when the OS window manager owns the title bar and caption controls. */
+  nativeDecorations?: boolean
   /** Shell package version. Older shells omit it. */
   currentVersion?: string
   /** Versioned contract for methods and payloads on this injected bridge. */
@@ -153,7 +155,8 @@ function parseProgress(payload: unknown): NativeDesktopUpdateProgress | undefine
  *
  * The event plugin is reached through `__TAURI_INTERNALS__` rather than
  * `@tauri-apps/api`, because the web bundle is served to browsers too and must
- * not carry a Tauri dependency; `core:default` already grants `event:allow-listen`.
+ * not carry a Tauri dependency. The shell grants only the exact event listen
+ * and unlisten permissions this bridge needs.
  */
 export function onNativeDesktopUpdateProgress(
   handler: (progress: NativeDesktopUpdateProgress) => void,

@@ -1137,6 +1137,11 @@ describe('test lane configuration', () => {
       osVersion: 'macOS 26.6.2',
       packageName: 'Podium_1.2.3_aarch64.dmg',
       packageSha256: 'a'.repeat(64),
+      packageTrust: {
+        mechanism: 'Apple notarization and Gatekeeper',
+        identity: 'Developer ID Application: Podium',
+        verified: true,
+      },
       artifacts: ['apple-silicon-run.mp4'],
       notes: 'Apple Silicon package passed.',
     }
@@ -1162,6 +1167,26 @@ describe('test lane configuration', () => {
     }
     expect(validateEvidence(wrongDesktopPackage, { releaseReady: false })).toContain(
       'desktop-windows-package: expected package Podium_<version>_x64-setup.exe, found desktop-notes.txt',
+    )
+
+    const untrustedWindowsPackage = structuredClone(baseline)
+    untrustedWindowsPackage.checks['desktop-windows-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'Dell XPS 13 9340',
+      osVersion: 'Windows 11 24H2',
+      packageName: 'Podium_1.2.3_x64-setup.exe',
+      packageSha256: 'b'.repeat(64),
+      packageTrust: {
+        mechanism: 'Authenticode',
+        identity: 'Unknown publisher',
+        verified: false,
+      },
+      artifacts: ['windows-run.mp4'],
+      notes: 'The installer ran, but its publisher trust did not verify.',
+    }
+    expect(validateEvidence(untrustedWindowsPackage, { releaseReady: false })).toContain(
+      'desktop-windows-package: package trust verification did not pass',
     )
   })
 
