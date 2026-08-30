@@ -284,15 +284,24 @@ export class TranscriptController {
     }
   }
 
-  async probe(): Promise<boolean> {
+  async probe(options: TranscriptRefreshOptions = {}): Promise<boolean> {
     if (this.disposed) return false
     const generation = this.generation
     const serial = ++this.readSerial
-    const page = await this.options.source.read({
-      sessionId: this.options.sessionId,
-      direction: 'before',
-      limit: 1,
-    })
+    if (options.disclose && this.state.items.length > 0) this.patch({ freshness: 'checking' })
+    let page: TranscriptPage
+    try {
+      page = await this.options.source.read({
+        sessionId: this.options.sessionId,
+        direction: 'before',
+        limit: 1,
+      })
+    } catch (error) {
+      if (this.accepts(generation, serial) && this.state.items.length > 0) {
+        this.patch({ freshness: 'saved' })
+      }
+      throw error
+    }
     if (!this.accepts(generation, serial)) return false
     const remote = page.items.at(-1)
     if (!remote) {

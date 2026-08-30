@@ -34,7 +34,7 @@ import {
 import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
+import { useSession, useSessionDraft, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem, QueuedChatMessage } from './chat'
@@ -229,6 +229,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     shallowEqual,
   )
   const session = useSession(sessionId)
+  const initialDraft = useSessionDraft(sessionId)
   const sessionExitKind = useSessionExitKind(sessionId)
   const storeHandle = useStoreHandle()
   const getIssueSeq = useCallback(
@@ -460,7 +461,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     dismissOffer,
     setPanelMode,
     setSessionDraft,
-    initialDraft: storeHandle.getSnapshot().drafts[sessionId] ?? '',
+    initialDraft,
     getUserFocus,
     attachedSessionId,
     clearAttachedSession,
