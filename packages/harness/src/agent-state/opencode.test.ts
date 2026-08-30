@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentStateProviderFor } from '../registry.js'
 import {
   loadOpencodeMessageParts,
   loadOpencodeTranscriptTail,
   opencodeSessionDbPath,
 } from '../opencode/db.js'
+import { agentStateProviderFor } from '../registry.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
 import { initialAgentState, reduceAgentState } from './reducer.js'
 import type { AgentStateEvent } from './types.js'
@@ -449,25 +449,97 @@ describe('observeOpencodeState DB handle reuse + mtime gate', () => {
     expect(dbHooks.closed.length).toBe(1)
     dbHooks.mtimeMs = undefined // un-pin for any later tests
   })
+  it('keeps reading an open turn until a same-mtime step-finish closes it', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-terminal-gate-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_terminal_gate', '/repo/terminal-gate', 'previous answer')
+
+    dbHooks.openCount = 0
+    dbHooks.getCount = 0
+    dbHooks.closed = []
+    dbHooks.mtimeMs = 1_000
+    const events: AgentStateEvent[] = []
+    const obs = observeOpencodeState({
+      cwd: '/repo/terminal-gate',
+      homeDir: home,
+      resumeValue: 'ses_terminal_gate',
+      startedAtMs: 1,
+      pollMs: 10,
+      onEvents: (next) => events.push(...next),
+    })
+    try {
+      await waitFor(() => obs.sessionId === 'ses_terminal_gate')
+      await new Promise((resolve) => setTimeout(resolve, 60))
+
+      const promptDb = openDatabase(join(root, 'opencode.db'))
+      promptDb
+        .prepare(
+          'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run('msg-gate-user', 'ses_terminal_gate', 20, 20, JSON.stringify({ role: 'user' }))
+      promptDb
+        .prepare(
+          'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'prt-gate-user',
+          'msg-gate-user',
+          'ses_terminal_gate',
+          20,
+          20,
+          JSON.stringify({ type: 'text', text: 'answer once' }),
+        )
+      promptDb.close()
+      dbHooks.mtimeMs = 2_000
+      await waitFor(() => events.some((event) => event.kind === 'prompt_submitted'))
+      const readsAfterPrompt = dbHooks.getCount
+
+      const finishDb = openDatabase(join(root, 'opencode.db'))
+      finishDb
+        .prepare(
+          'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(
+          'msg-gate-assistant',
+          'ses_terminal_gate',
+          21,
+          21,
+          JSON.stringify({ role: 'assistant' }),
+        )
+      finishDb
+        .prepare(
+          'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'prt-gate-finish',
+          'msg-gate-assistant',
+          'ses_terminal_gate',
+          21,
+          21,
+          JSON.stringify({ type: 'step-finish', reason: 'stop' }),
+        )
+      finishDb.close()
+
+      // The mocked mtime deliberately stays at 2_000. Only the open-turn
+      // confirmation read can observe the provider-authored terminal row.
+      await waitFor(() => events.some((event) => event.kind === 'turn_completed'))
+      expect(dbHooks.getCount).toBeGreaterThan(readsAfterPrompt)
+    } finally {
+      obs.stop()
+      dbHooks.mtimeMs = undefined
+    }
+  })
 })
 
 /**
- * THE TRANSCRIPT READ MUST NOT EAT THE STATE READ (POD-2801).
+ * THE INITIAL TRANSCRIPT AND LIVE STATE SHARE ONE CURSOR (POD-2801).
  *
- * `emitTranscript` and `tick` both query the message parts newer than
- * `(lastPartTime, lastPartId)` and both ADVANCE that cursor, and `pollOnce` ran
- * them in that order. So on every tick the transcript read consumed the new rows
- * and the state read queried from a cursor already past all of them: zero rows,
- * no `prompt_submitted`, no `activity`, no `turn_completed`. The session's phase
- * never left the boot-seeded `idle` while the agent wrote megabytes to the
- * terminal — measured on the POD-2777 rig as 121,554 bytes of PTY output across
- * 60 polls, `idle` at every one.
- *
- * `onTranscriptItems` IS THE POINT OF THIS TEST, not scaffolding. `emitTranscript`
- * returns immediately when no transcript sink is registered, so an observer built
- * without one never starves its own state read and the bug is invisible. Every
- * pre-existing test here passes `onEvents` alone; the daemon always passes both.
- * A test that omits the sink is testing a wiring that production never uses.
+ * A freshly minted OpenCode resume id can bind before its first message exists.
+ * The first provider rows must therefore pass through the reader that drives both
+ * transcript and state; a separate initial-tail read can consume them and leave
+ * prompt/activity/completion permanently absent from the causal stream. The
+ * transcript sink is the production control that makes that starvation visible.
  */
 describe('observeOpencodeState state events (POD-2801)', () => {
   it('reports the live rows on the state plane, not only on the transcript plane', async () => {
@@ -475,6 +547,9 @@ describe('observeOpencodeState state events (POD-2801)', () => {
     const root = join(home, '.local', 'share', 'opencode')
     await mkdir(root, { recursive: true })
     await seedSessionDb(root, 'ses_phase', '/repo/phase', 'previous answer')
+    const emptyDb = openDatabase(join(root, 'opencode.db'))
+    emptyDb.exec('DELETE FROM part; DELETE FROM message')
+    emptyDb.close()
 
     dbHooks.mtimeMs = 3_000
     const events: string[] = []
@@ -482,7 +557,8 @@ describe('observeOpencodeState state events (POD-2801)', () => {
     const obs = observeOpencodeState({
       cwd: '/repo/phase',
       homeDir: home,
-      resumeValue: 'ses_phase',
+      databasePath: join(root, 'opencode.db'),
+      startedAtMs: 1,
       pollMs: 10,
       onEvents: (e) => events.push(...e.map((x) => x.kind)),
       onTranscriptItems: (i) => items.push(...i),
@@ -521,6 +597,16 @@ describe('observeOpencodeState state events (POD-2801)', () => {
         11,
         JSON.stringify({ type: 'text', text: 'one. two. three.' }),
       )
+      db.prepare(
+        'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(
+        'prt-live-finish',
+        'msg-live-a',
+        'ses_phase',
+        12,
+        12,
+        JSON.stringify({ type: 'step-finish', reason: 'stop' }),
+      )
       db.close()
       dbHooks.mtimeMs = 4_000
 
@@ -528,8 +614,8 @@ describe('observeOpencodeState state events (POD-2801)', () => {
       // whether or not the state plane is starved, so a state plane that stayed
       // empty here cannot be blamed on rows that never arrived.
       await waitFor(() => items.length >= 2)
-      await waitFor(() => events.length > before)
-      expect(events.slice(before)).toEqual(['prompt_submitted', 'activity'])
+      await waitFor(() => events.includes('turn_completed'))
+      expect(events.slice(before)).toEqual(['prompt_submitted', 'activity', 'turn_completed'])
     } finally {
       obs.stop()
       dbHooks.mtimeMs = undefined
@@ -552,6 +638,7 @@ describe('observeOpencodeState interrupted verdict', () => {
       cwd: '/repo/interrupt',
       homeDir: home,
       resumeValue: 'ses_interrupt',
+      startedAtMs: 1,
       pollMs: 10,
       onEvents: (next) => events.push(...next),
       onTranscriptItems: (next, reset) => {
@@ -733,9 +820,7 @@ describe('OpenCode abort query rows', () => {
     db.close()
 
     expect(
-      tail
-        .filter((row) => row.partId.startsWith('prt-created-'))
-        .map((row) => row.partId),
+      tail.filter((row) => row.partId.startsWith('prt-created-')).map((row) => row.partId),
     ).toEqual(['prt-created-first', 'prt-created-second'])
     const expectedAbort = expect.objectContaining({
       messageId: 'msg-zero-abort',

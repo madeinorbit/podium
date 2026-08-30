@@ -1,7 +1,7 @@
 {
-  "_source": "Emitted by the pinned binary itself: `codex app-server generate-ts --out DIR` on codex-cli 0.147.0. Not transcribed from documentation.",
+  "_source": "Method inventories re-recorded from `codex app-server generate-ts --out DIR` on codex-cli 0.151.0. Behavioural frames remain the separately labelled 0.147.0 live captures.",
   "_why": "The gate in ../version.ts refuses a codex outside the pinned range. These are the method names this driver SENDS and LISTENS FOR; a rename upstream turns into a failing pin here rather than a silent no-op at runtime.",
-  "pinnedVersion": "0.147.0",
+  "pinnedVersion": "0.151.0",
   "used": {
     "clientRequests": [
       "initialize",
@@ -15,9 +15,7 @@
       "turn/steer",
       "turn/interrupt"
     ],
-    "clientNotifications": [
-      "initialized"
-    ],
+    "clientNotifications": ["initialized"],
     "serverRequests": [
       "item/commandExecution/requestApproval",
       "item/fileChange/requestApproval",

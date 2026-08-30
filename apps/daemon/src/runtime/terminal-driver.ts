@@ -294,6 +294,7 @@ interface DriverSession {
   lease: SessionLease | null
   draft: string | undefined
   contextUsedPercent: number | undefined
+  observedStatePhase: AgentRuntimeState['phase'] | undefined
   injection: TerminalInjectionMachine
   /** Open waiters for a causal accept, keyed by the prompt text they watch. */
   hookWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
@@ -337,6 +338,8 @@ export interface TerminalHarnessProfile {
   sendProof: DriverCapabilities['send']['proof']
   /** Claude's `UserPromptSubmit` is the only causal accept in the fleet today. */
   hookAnchoredAccept: boolean
+  /** The manifest declares provider-poll agentState as the terminal lifecycle source. */
+  lifecycleFromState?: boolean
   /** Whether this harness's CLI needs the submit-verify CR nudges. */
   needsSubmitVerification: boolean
   /** Grok's fresh TUI ignores bracketed paste until its first native turn. */
@@ -902,6 +905,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         session.draft = msg.text
         return
       }
+      case 'agentState': {
+        applyStateLifecycle(session, msg.state)
+        return
+      }
       case 'agentContext': {
         session.contextUsedPercent = msg.percent
         return
@@ -924,6 +931,42 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       }
       default:
         return
+    }
+  }
+
+  const activeTurnPhase = (phase: AgentRuntimeState['phase'] | undefined): boolean =>
+    phase === 'working' || phase === 'compacting' || phase === 'needs_user'
+
+  function applyStateLifecycle(session: DriverSession, state: AgentRuntimeState): void {
+    if (!profiles.get(session.sessionId)?.lifecycleFromState || state.stateSource !== 'poll') return
+    const prior = session.observedStatePhase
+    session.observedStatePhase = state.phase
+    const at = state.since
+    if (activeTurnPhase(state.phase) && !activeTurnPhase(prior)) {
+      session.turnEpoch += 1
+      emit(
+        session,
+        { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin: 'human' } },
+        at,
+        'live',
+      )
+      return
+    }
+    if (state.phase === 'idle' && activeTurnPhase(prior)) {
+      session.fencedTurnEpoch = Math.max(session.fencedTurnEpoch, session.turnEpoch)
+      emit(
+        session,
+        {
+          t: 'turn',
+          ev: {
+            ev: 'completed',
+            turnEpoch: session.turnEpoch,
+            verdict: state.idle?.kind ?? 'done',
+          },
+        },
+        at,
+        'live',
+      )
     }
   }
 
@@ -1133,6 +1176,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       lease: null,
       draft: undefined,
       contextUsedPercent: undefined,
+      observedStatePhase: undefined,
       injection: undefined as unknown as TerminalInjectionMachine,
       hookWaiters: new Set(),
       userTurns: 0,

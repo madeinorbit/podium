@@ -47,7 +47,7 @@ describe('the supported window', () => {
     expect(supportsCodexAppServerDriver(recorded)).toBe(true)
   })
 
-  it('admits the current 0.150.1 binary that was re-proved live', () => {
+  it('admits the current 0.151.0 binary that was re-proved live', () => {
     const verified = parseCodexVersion(SUPPORTED_CODEX.verifiedThrough)
     expect(verified).not.toBeNull()
     if (!verified) return
@@ -69,7 +69,12 @@ describe('the supported window', () => {
 
   it('admits any patch inside the window', () => {
     expect(
-      supportsCodexAppServerDriver({ raw: '', major: 0, minor: SUPPORTED_CODEX.maxMinor, patch: 99 }),
+      supportsCodexAppServerDriver({
+        raw: '',
+        major: 0,
+        minor: SUPPORTED_CODEX.maxMinor,
+        patch: 99,
+      }),
     ).toBe(true)
   })
 })

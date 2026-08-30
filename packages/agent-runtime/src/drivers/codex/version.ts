@@ -49,16 +49,16 @@ export interface CodexVersion {
  * ships minors frequently, and a gate people routinely widen to get their work
  * done is not a gate. It is deliberately NARROW anyway because
  * this protocol is the one the plan says has already renamed methods once.
- * 0.150.1 was re-proved against generated bindings and the real subscription
- * live suite on 2026-08-29 (POD-3093).
+ * 0.151.0 was re-proved against its generated bindings and the real
+ * subscription live suite on 2026-08-30 (POD-3134).
  */
 export const SUPPORTED_CODEX = {
   major: 0,
   minMinor: 147,
-  maxMinor: 150,
+  maxMinor: 151,
   /** What the fixtures were recorded from, for the diagnostic's body. */
   recordedAt: '0.147.0',
-  verifiedThrough: '0.150.1',
+  verifiedThrough: '0.151.0',
 } as const
 
 /**

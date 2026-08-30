@@ -504,6 +504,21 @@ describe('the approval inversion — server asks, Podium answers, the turn conti
     w.dispose()
   })
 
+  it('round-trips Codex 0.151 permission-profile approvals with a turn-scoped grant', async () => {
+    const w = await world()
+    const askId = w.server.askPermissionsApproval()
+    await settle()
+
+    const ask = (await w.handle.interactions()).find((candidate) => candidate.id === askId)
+    expect(ask).toMatchObject({ kind: 'permission', source: 'protocol' })
+    expect(await w.handle.answer(askId, { decision: 'allow' })).toEqual({ ok: true })
+    expect(w.server.answers.get(Number(askId))).toEqual({
+      permissions: { network: { enabled: true } },
+      scope: 'turn',
+    })
+    w.dispose()
+  })
+
   it('answers the FIRST approval of a session, whose request id is zero', async () => {
     /**
      * A REGRESSION GUARD FOR A TRUTHINESS BUG. Codex numbers server→client

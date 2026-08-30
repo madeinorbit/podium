@@ -54,6 +54,7 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     // which today is Claude and only Claude, because `UserPromptSubmit` is the
     // only causal accept signal in the fleet.
     hookAnchoredAccept: terminal.sendProof.includes('hook'),
+    lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
     usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),
     // `export()` is byte-faithful only where the harness declares where its own

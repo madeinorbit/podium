@@ -1420,6 +1420,78 @@ describe('observation translation', () => {
     state: { phase: 'working', since: '2026-08-14T00:00:00.000Z', nativeSubagentCount: 0 },
   }
 
+  it('closes a manifest-authorized provider-state turn without screen heuristics', async () => {
+    const world = makeWorld()
+    const profile: TerminalHarnessProfile = { ...GROK, lifecycleFromState: true }
+    const driver = world.runtime.driverFor('opencode', profile)
+    const session = await driver.create({ ...SPEC, harness: 'opencode' })
+    const sessionId = session.binding.sessionId
+    world.runtime.observe({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'working',
+        since: '2026-08-14T00:00:00.000Z',
+        nativeSubagentCount: 0,
+        stateSource: 'classifier',
+      },
+    })
+    world.runtime.observe({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        since: '2026-08-14T00:00:00.500Z',
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+        stateSource: 'classifier',
+      },
+    })
+    expect(world.frames).toEqual([])
+
+    world.runtime.observe({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        since: '2026-08-14T00:00:00.750Z',
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+        stateSource: 'poll',
+      },
+    })
+    world.runtime.observe({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'working',
+        since: '2026-08-14T00:00:01.000Z',
+        nativeSubagentCount: 0,
+        stateSource: 'poll',
+      },
+    })
+    world.runtime.observe({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        since: '2026-08-14T00:00:02.000Z',
+        nativeSubagentCount: 0,
+        idle: { kind: 'question' },
+        stateSource: 'poll',
+      },
+    })
+
+    const turns = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event] : [],
+    )
+    expect(turns.map((event) => event.ev.ev)).toEqual(['started', 'completed'])
+    expect(turns.at(-1)).toMatchObject({
+      at: '2026-08-14T00:00:02.000Z',
+      ev: { ev: 'completed', verdict: 'question' },
+    })
+  })
+
   it('takes the completion verdict from the provider, never from a guess', () => {
     const withVerdict = turnEventForObservation({
       ...base,

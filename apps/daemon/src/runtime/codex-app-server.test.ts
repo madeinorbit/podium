@@ -17,8 +17,8 @@ import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/abduco-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   codexAppServerConfigArgs,
-  codexClientSocketPath,
   codexAppServerVersionProbe,
+  codexClientSocketPath,
   codexScopeLabel,
   resetCodexAppServerVersionProbe,
   STRIPPED_CODEX_CREDENTIALS,
@@ -230,6 +230,13 @@ describe('the version gate', () => {
   it('admits the version the fixtures were recorded from', async () => {
     resetCodexAppServerVersionProbe()
     await expect(codexAppServerVersionProbe(answered('codex-cli 0.147.0'))).resolves.toEqual({
+      drivable: true,
+    })
+  })
+
+  it('admits codex 0.151 after its generated protocol and live driver were re-proved', async () => {
+    resetCodexAppServerVersionProbe()
+    await expect(codexAppServerVersionProbe(answered('codex-cli 0.151.0'))).resolves.toEqual({
       drivable: true,
     })
   })

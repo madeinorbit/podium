@@ -158,6 +158,8 @@ export interface FakeAppServer {
   /** Raise a server→client approval request; returns the ask id the driver will
    *  use (the stringified JSON-RPC id). */
   askCommandApproval(options?: { canAlwaysAllow?: boolean; command?: string }): string
+  /** Raise Codex 0.151's profile-shaped permission approval. */
+  askPermissionsApproval(): string
   /** Raise an MCP elicitation request. */
   askElicitation(message?: string): string
   /** Answers received for server→client requests, by request id. */
@@ -317,6 +319,20 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         availableDecisions: opts?.canAlwaysAllow
           ? ['accept', 'acceptForSession', 'decline', 'cancel']
           : ['accept', 'cancel'],
+      })
+      return String(id)
+    },
+    askPermissionsApproval() {
+      const id = nextRequestId++
+      request(id, 'item/permissions/requestApproval', {
+        threadId: server.threadId ?? 'thr-0',
+        turnId: openTurn ?? 'turn-0',
+        itemId: `permissions-${id}`,
+        environmentId: null,
+        startedAtMs: 1_786_699_418_214,
+        cwd: '/tmp/conformance-codex',
+        reason: 'network access',
+        permissions: { network: { enabled: true }, fileSystem: null },
       })
       return String(id)
     },

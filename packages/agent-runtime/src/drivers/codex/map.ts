@@ -233,10 +233,7 @@ function safeJson(value: unknown): string {
  * turn epoch before its verdict was known, and fences are absorbing, so it would
  * never reopen. Same shape of bug as W5's `session.status: idle` note.
  */
-export function statusToStateEvent(
-  status: CodexThreadStatus,
-  at: string,
-): AgentStateEvent | null {
+export function statusToStateEvent(status: CodexThreadStatus, at: string): AgentStateEvent | null {
   if (status.type !== 'active') return null
   if (status.activeFlags.includes(WAITING_ON_APPROVAL_FLAG)) {
     return { kind: 'needs_user', need: 'permission', at }
@@ -268,7 +265,13 @@ export function idleToStateEvent(
  *  `provider-error`/`retryable`: a failure we cannot classify is still a failure,
  *  and guessing `fatal` would end a session a retry might save. */
 export function describeTurnError(error: unknown): {
-  reason: 'rate-limit' | 'auth-expired' | 'context-overflow' | 'provider-error' | 'timeout' | 'interrupted'
+  reason:
+    | 'rate-limit'
+    | 'auth-expired'
+    | 'context-overflow'
+    | 'provider-error'
+    | 'timeout'
+    | 'interrupted'
   disposition: 'retryable' | 'needs-human' | 'fatal'
   text?: string
 } {
@@ -479,8 +482,30 @@ export function answerAction(
    * agree.
    */
   availableDecisions: readonly unknown[] | undefined,
+  permissionProfileRequest?: { requested: unknown },
 ): CodexAnswerAction {
   if (ask.kind === 'permission') {
+    if (permissionProfileRequest) {
+      if (answer.kind !== 'permission') return mismatch(ask.kind, answer.kind)
+      if (answer.decision === 'allow-always') {
+        return {
+          call: 'refuse',
+          refusal: {
+            reason: 'unsupported',
+            detail:
+              'this permission-profile ask supports a turn-scoped grant only; reporting a session grant would be false',
+          },
+        }
+      }
+      const permissions: Record<string, unknown> = {}
+      if (answer.decision === 'allow-once' && isRecord(permissionProfileRequest.requested)) {
+        const network = permissionProfileRequest.requested.network
+        const fileSystem = permissionProfileRequest.requested.fileSystem
+        if (isRecord(network)) permissions.network = network
+        if (isRecord(fileSystem)) permissions.fileSystem = fileSystem
+      }
+      return { call: 'respond', result: { permissions, scope: 'turn' } }
+    }
     if (answer.kind !== 'permission') return mismatch(ask.kind, answer.kind)
     /**
      * EVERY DECISION IS CHECKED AGAINST THE OFFER, and the reason this matters

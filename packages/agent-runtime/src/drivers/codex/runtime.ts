@@ -70,11 +70,7 @@ import type {
   SessionHealth,
   UsageSnapshot,
 } from '../../capabilities.js'
-import {
-  type ConfigureValueChecks,
-  decideConfigure,
-  noWhitespaceCheck,
-} from '../../configure.js'
+import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import type { ProcessEvent } from '../../errors.js'
 import {
@@ -348,6 +344,9 @@ interface OpenAsk {
   /** The ask's own `availableDecisions`, kept verbatim so `answerAction` can
    *  check EVERY decision against it — not just the always-allow. */
   availableDecisions: readonly unknown[] | undefined
+  /** Present only for item/permissions/requestApproval, whose response is
+   *  a granted profile rather than a decision enum. */
+  permissionProfileRequest?: { requested: unknown }
 }
 
 /** The mutable handler box a connection is built around — see `connect()`. */
@@ -773,7 +772,8 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         request.id,
         permissionsApprovalAsk({ ...base, params: params as never }),
         at,
-        offers,
+        undefined,
+        { requested: params.permissions },
       )
       return
     }
@@ -806,8 +806,14 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     /** What the server said it would accept. Carried through so `answer()` can
      *  check every decision against it, not only the always-allow. */
     availableDecisions?: readonly unknown[],
+    permissionProfileRequest?: { requested: unknown },
   ): void {
-    session.asks.set(interaction.id, { interaction, requestId, availableDecisions })
+    session.asks.set(interaction.id, {
+      interaction,
+      requestId,
+      availableDecisions,
+      ...(permissionProfileRequest ? { permissionProfileRequest } : {}),
+    })
     const need = interaction.kind === 'permission' ? 'permission' : 'question'
     const summary = interaction.kind === 'permission' ? interaction.payload.inputSummary : undefined
     emit(session, { t: 'interaction', ev: { ev: 'asked', interaction } }, at)
@@ -1593,6 +1599,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           ask.interaction,
           normalizeAnswer(ask.interaction, answer),
           ask.availableDecisions,
+          ask.permissionProfileRequest,
         )
         if (action.call === 'refuse') {
           // A refusal here leaves the ask OPEN and the JSON-RPC request

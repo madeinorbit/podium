@@ -269,7 +269,11 @@ export const opencodeManifest: AgentManifest = {
       }),
     }),
     embedded: unsupported('opencode ships a server, not a library to host in-process'),
-    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    terminal: {
+      driverId: 'generic-pty',
+      sendProof: ['transcript-echo'],
+      lifecycleFromState: true,
+    },
     // The server is the default whenever its version probe admits this machine
     // AND inventory says the harness is logged in. The PTY owns interactive
     // login, so a logged-out default must land there instead of starting a

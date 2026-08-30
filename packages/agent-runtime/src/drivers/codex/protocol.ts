@@ -61,7 +61,7 @@ export const CodexTurnId = z.string().min(1)
 export type CodexTurnId = z.infer<typeof CodexTurnId>
 
 /**
- * THE METHOD NAMES THIS DRIVER SPEAKS, pinned against 0.147.0's own bindings.
+ * THE METHOD NAMES THIS DRIVER SPEAKS, pinned against 0.151.0's own bindings.
  *
  * Named as constants rather than written inline at each call site so that the
  * pin test can assert the whole set in one place, and so a rename upstream is a
@@ -318,9 +318,7 @@ export type CodexTurn = z.infer<typeof CodexTurn>
  * item's kind already known — so an arm nobody maps costs nothing and cannot
  * fail a parse.
  */
-export const CodexThreadItem = z
-  .object({ type: z.string(), id: z.string() })
-  .passthrough()
+export const CodexThreadItem = z.object({ type: z.string(), id: z.string() }).passthrough()
 export type CodexThreadItem = z.infer<typeof CodexThreadItem>
 
 // ---------------------------------------------------------------------------

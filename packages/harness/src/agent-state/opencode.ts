@@ -85,6 +85,7 @@ export function observeOpencodeState(opts: {
   let identityFailureReported = false
   const completedAbortedMessageIds = new Set<string>()
   const emittedInterruptMarkerIds = new Set<string>()
+  let turnAwaitingTerminal = false
 
   // A single opencode DB handle reused across every ~700ms poll tick (was opened
   // and closed per tick, per call). A `readOnly` SQLite handle re-reads the latest
@@ -130,6 +131,7 @@ export function observeOpencodeState(opts: {
     firstTranscript = true
     completedAbortedMessageIds.clear()
     emittedInterruptMarkerIds.clear()
+    turnAwaitingTerminal = false
     // Force the next poll tick to read regardless of the mtime gate, so a freshly
     // attached session isn't skipped on a coincidentally-equal mtime.
     lastPollMtimeMs = undefined
@@ -140,7 +142,6 @@ export function observeOpencodeState(opts: {
       lastObservedEffort = observed.effort
       opts.onModel?.(observed.model, observed.effort)
     }
-    void emitTranscript(true)
   }
 
   const discover = async (): Promise<void> => {
@@ -179,39 +180,6 @@ export function observeOpencodeState(opts: {
     }
   }
 
-  const emitTranscript = async (reset = false): Promise<void> => {
-    if (!attached || !opts.onTranscriptItems) return
-    const rt = await maybeLoadOpencodeRuntime()
-    if (!rt || !attached) return
-    const handle = getDb(rt)
-    if (!handle) return
-    try {
-      const rows = firstTranscript
-        ? rt.loadOpencodeTranscriptTail(handle, attached.id)
-        : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
-      if (rows.length === 0) return
-      const last = rows.at(-1)
-      if (last) {
-        lastPartTime = last.timeUpdated
-        lastPartId = last.partId
-      }
-      // Cursor-stamp via the SAME helper the on-demand read uses, so a live delta's
-      // cursors interoperate with a paged read's (dedup / subscribe-from-cursor).
-      const items = rt
-        .stampOpencodeItems(rows, attached.id)
-        .filter((item) => item.event !== 'interrupt' || !emittedInterruptMarkerIds.has(item.id))
-      for (const item of items) {
-        if (item.event === 'interrupt') emittedInterruptMarkerIds.add(item.id)
-      }
-      if (items.length > 0) {
-        opts.onTranscriptItems(items, reset || firstTranscript)
-        firstTranscript = false
-      }
-    } catch {
-      dropDb()
-    }
-  }
-
   const tick = async (): Promise<void> => {
     if (stopped || !attached) return
     const rt = await maybeLoadOpencodeRuntime()
@@ -243,7 +211,9 @@ export function observeOpencodeState(opts: {
       }
       lastCompacting = session.timeCompacting
 
-      const rows = rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
+      const rows = firstTranscript
+        ? rt.loadOpencodeTranscriptTail(handle, attached.id)
+        : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
       if (rows.length > 0) {
         let resetForAbortedMessage = false
         const last = rows.at(-1)
@@ -252,6 +222,7 @@ export function observeOpencodeState(opts: {
           lastPartId = last.partId
         }
         for (const row of rows) {
+          if (row.timeUpdated < startedAtMs) continue
           const messageInfo = parseJson(row.messageData)
           const part = parseJson(row.partData)
           const role = messageInfo ? stringField(messageInfo, 'role') : undefined
@@ -268,13 +239,16 @@ export function observeOpencodeState(opts: {
             if (partType === 'interrupt' && !completedAbortedMessageIds.has(row.messageId)) {
               completedAbortedMessageIds.add(row.messageId)
               resetForAbortedMessage = true
+              turnAwaitingTerminal = false
               rowEvents.push({ kind: 'turn_completed', verdict: { kind: 'interrupted' } })
             }
           } else if (role === 'user' && partType === 'text') {
+            turnAwaitingTerminal = true
             rowEvents.push({ kind: 'prompt_submitted' })
           } else if (partType === 'text' || partType === 'tool')
             rowEvents.push({ kind: 'activity' })
           else if (partType === 'step-finish') {
+            turnAwaitingTerminal = false
             rowEvents.push({
               kind: 'turn_completed',
               verdict: rt.classifyOpencodeIdleText(
@@ -292,20 +266,21 @@ export function observeOpencodeState(opts: {
           const transcriptRows = resetForAbortedMessage
             ? rt.loadOpencodeTranscriptTail(handle, attached.id)
             : rows
+          const transcriptReset = resetForAbortedMessage || firstTranscript
           const items = rt
             .stampOpencodeItems(transcriptRows, attached.id)
             .filter(
               (item) =>
-                resetForAbortedMessage ||
+                transcriptReset ||
                 item.event !== 'interrupt' ||
                 !emittedInterruptMarkerIds.has(item.id),
             )
           for (const item of items) {
             if (item.event === 'interrupt') emittedInterruptMarkerIds.add(item.id)
           }
-          if (items.length > 0 || resetForAbortedMessage)
-            opts.onTranscriptItems(items, resetForAbortedMessage)
+          if (items.length > 0 || transcriptReset) opts.onTranscriptItems(items, transcriptReset)
         }
+        firstTranscript = false
       }
       if (events.length > 0) opts.onEvents(events)
     } catch {
@@ -316,30 +291,24 @@ export function observeOpencodeState(opts: {
   // The hot path: run the per-tick read only when the DB (or its WAL sidecars)
   // changed since the last tick. An unknown mtime (stat failed) reads anyway.
   //
-  // ONE READER PER CURSOR (POD-2801). `emitTranscript` and `tick` BOTH query the
-  // message parts newer than `(lastPartTime, lastPartId)` and BOTH advance that
-  // cursor, so running them back to back left `tick` querying from a cursor
-  // already past every new row. It saw zero rows on every tick of every turn,
-  // built no `prompt_submitted` / `activity` / `turn_completed`, and the
-  // session's phase never moved off the boot-seeded `idle` while the agent wrote
-  // megabytes — a busy session rendering as idle on the home board for its whole
-  // turn, and everything downstream of the phase reading wrong with it.
+  // ONE READER PER CURSOR (POD-2801). The first tick reads one bounded tail;
+  // later ticks read cursor deltas. Rows older than this observation are sent
+  // only to the transcript plane, while rows at or after startedAtMs drive both
+  // transcript and state. A freshly minted resume id therefore cannot make an
+  // initial-tail reader consume the first live turn before the state reader.
   //
-  // `tick` is the reader that keeps BOTH planes: it publishes the same
-  // cursor-stamped items on `onTranscriptItems` that `emitTranscript` would.
-  // What it does not do is the INITIAL tail load — a bounded read of the history
-  // that is already there — so that one stays with `emitTranscript`, and only
-  // while it is still owed (`firstTranscript`). Replaying that history as live
-  // `activity` is deliberately not done: `bootEvents` already classifies the
-  // prior turn, and re-announcing it would restamp a finished session as busy.
+  // An open turn overrides the mtime gate. OpenCode can commit step-finish less
+  // than one filesystem timestamp tick after its text row. Equality then is not
+  // proof that the provider store is unchanged: skipping forever strands the
+  // causal turn at activity. A durable user row opens this confirmation loop;
+  // the provider step-finish or abort row closes it. Idle sessions keep the gate.
   const pollOnce = async (): Promise<void> => {
     if (stopped || !attached) return
     const rt = await maybeLoadOpencodeRuntime()
     if (!rt || stopped || !attached) return
     const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir, databasePathFor(rt))
-    if (mtimeMs !== undefined && mtimeMs === lastPollMtimeMs) return
+    if (mtimeMs !== undefined && mtimeMs === lastPollMtimeMs && !turnAwaitingTerminal) return
     lastPollMtimeMs = mtimeMs
-    if (firstTranscript) await emitTranscript(false)
     await tick()
   }
 

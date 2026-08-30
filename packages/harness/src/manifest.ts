@@ -836,6 +836,8 @@ export interface TerminalRuntimeSpec {
    * fallback and `unverified` is the honest outcome when even that times out.
    */
   sendProof: readonly ('hook' | 'transcript-echo')[]
+  /** Provider-poll state transitions are this terminal driver's lifecycle source. */
+  lifecycleFromState?: boolean
 }
 
 /**

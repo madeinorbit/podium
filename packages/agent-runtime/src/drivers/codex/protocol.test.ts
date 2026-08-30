@@ -2,11 +2,13 @@
  * THE PINS: recorded frames, parsed by the schemas the driver actually uses
  * (POD-1761 W6).
  *
- * Every fixture in `./__fixtures__` was captured from a LIVE `codex app-server`
- * on codex-cli 0.147.0 — real turns, a real command-execution approval answered
- * over the wire, a real steer into an open turn, a real interrupt. These tests
- * parse those exact bytes with these exact schemas, so the day upstream renames
- * a field this file goes red rather than the driver going quiet in production.
+ * The behavioural frame fixtures in `./__fixtures__` were captured from a LIVE
+ * `codex app-server` on codex-cli 0.147.0 — real turns, a real
+ * command-execution approval answered over the wire, a real steer into an open
+ * turn, a real interrupt. The method inventory in `protocol-pins.json` was
+ * regenerated from codex-cli 0.151.0 before that minor was admitted. These
+ * tests parse the recorded bytes with the schemas the driver ships and pin the
+ * methods it sends and listens for.
  *
  * FOUR OF THESE PIN BEHAVIOUR, NOT SHAPE, and those are the ones worth reading:
  * the missing `jsonrpc` member, the zero-based request id, the ack-before-open
@@ -34,6 +36,7 @@ import {
   offersDecision,
   parseCodexNotification,
 } from './protocol.js'
+import { SUPPORTED_CODEX } from './version.js'
 
 const frame = (raw: unknown) => CodexFrame.parse(raw)
 
@@ -139,9 +142,13 @@ describe('the recorded turn lifecycle', () => {
      * and `account/rateLimits/updated` during an ordinary turn — none of them
      * this driver's business.
      */
-    expect(parseCodexNotification(frame({ jsonrpc: '2.0', method: 'hook/started', params: {} }))).toBeNull()
     expect(
-      parseCodexNotification(frame({ jsonrpc: '2.0', method: 'account/rateLimits/updated', params: {} })),
+      parseCodexNotification(frame({ jsonrpc: '2.0', method: 'hook/started', params: {} })),
+    ).toBeNull()
+    expect(
+      parseCodexNotification(
+        frame({ jsonrpc: '2.0', method: 'account/rateLimits/updated', params: {} }),
+      ),
     ).toBeNull()
   })
 
@@ -207,7 +214,9 @@ describe('the recorded approval — the inversion', () => {
     if (resolved?.method !== 'serverRequest/resolved') return
     // The SAME id the request carried — which is why the driver uses it as the
     // interaction id rather than minting a second one.
-    expect(String(resolved.params.requestId)).toBe(String(frame(approvalFixture.approvalRequest).id))
+    expect(String(resolved.params.requestId)).toBe(
+      String(frame(approvalFixture.approvalRequest).id),
+    )
   })
 
   it('was answered with a bare decision, and that answer was accepted live', () => {
@@ -272,12 +281,12 @@ describe('the recorded steer and interrupt', () => {
 describe('the method pins', () => {
   it('names only methods the pinned binary actually declares', () => {
     /**
-     * The pin file was generated from `codex app-server generate-ts` on 0.147.0,
-     * and its `missingFromBinary` lists any method this driver speaks that the
-     * binary does not know. A rename upstream shows up as a non-empty list here
-     * — which is the check the plan asked for when it warned that "Codex has
-     * renamed approval methods before".
+     * The pin file was generated from `codex app-server generate-ts` on the
+     * exact `verifiedThrough` version. Its `missingFromBinary` lists any method
+     * this driver speaks that the binary does not know. A rename upstream shows
+     * up as a non-empty list here rather than a silent approval hang.
      */
+    expect(pinsFixture.pinnedVersion).toBe(SUPPORTED_CODEX.verifiedThrough)
     expect(pinsFixture.missingFromBinary.clientRequests).toEqual([])
     expect(pinsFixture.missingFromBinary.clientNotifications).toEqual([])
     expect(pinsFixture.missingFromBinary.serverRequests).toEqual([])

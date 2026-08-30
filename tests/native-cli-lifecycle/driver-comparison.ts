@@ -438,6 +438,18 @@ async function runSample(
         Math.min(options.timeoutMs, 120_000),
       )
       sample.wall.promptSubmittedToNextComposerReadyMs = nextReadyAt - promptSubmittedAt
+      // Human-ready is allowed to lead observer-ready: Codex rollout tails,
+      // Grok ACP logs and OpenCode's SQLite observer all poll asynchronously.
+      // Keep the visible composer as the UX clock, but do not snapshot/kill the
+      // session until its provider-grounded terminal observation has reached
+      // the runtime timing stream. Capturing immediately here was why the first
+      // report showed N/A for otherwise healthy headed completion events.
+      await waitForStage(
+        options,
+        sessionId,
+        ['turn_completed'],
+        Math.min(options.timeoutMs, 30_000),
+      )
     } else {
       const receipt = await trpc<{ outcome?: string; ok?: boolean }>(
         options.baseUrl,

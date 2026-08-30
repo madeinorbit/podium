@@ -141,9 +141,9 @@ describe('thread items → transcript items', () => {
      * the two apart afterwards. `reasoning` is skipped for the same reason the
      * rollout mapper skips it: model-internal, not chat.
      */
-    expect(threadItemToItems({ type: 'reasoning', id: 'r1', summary: [], content: [] }, AT)).toEqual(
-      [],
-    )
+    expect(
+      threadItemToItems({ type: 'reasoning', id: 'r1', summary: [], content: [] }, AT),
+    ).toEqual([])
     expect(threadItemToItems({ type: 'somethingCodexAddedLastWeek', id: 'x1' }, AT)).toEqual([])
   })
 })
@@ -315,6 +315,36 @@ describe('answers', () => {
     ).toEqual({ call: 'respond', result: { decision: 'acceptForSession' } })
   })
 
+  it('answers a permission-profile approval with the requested grant at turn scope', () => {
+    const request = {
+      requested: {
+        network: { enabled: true },
+        fileSystem: { read: ['/repo'], write: ['/repo/tmp'] },
+      },
+    }
+    expect(
+      answerAction(
+        ask(OFFERS_FULL),
+        { kind: 'permission', decision: 'allow-once' },
+        undefined,
+        request,
+      ),
+    ).toEqual({
+      call: 'respond',
+      result: { permissions: request.requested, scope: 'turn' },
+    })
+  })
+
+  it('denies a permission-profile approval by granting no additional permissions', () => {
+    expect(
+      answerAction(ask(OFFERS_FULL), { kind: 'permission', decision: 'deny' }, undefined, {
+        requested: { network: { enabled: true } },
+      }),
+    ).toEqual({
+      call: 'respond',
+      result: { permissions: {}, scope: 'turn' },
+    })
+  })
   it('REFUSES an answer whose kind does not match the ask', () => {
     // The discriminants exist so a mismatch is caught before it reaches a
     // provider, not after.

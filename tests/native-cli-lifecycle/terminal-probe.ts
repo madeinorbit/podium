@@ -13,6 +13,14 @@ interface OutputMessage {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 function setupAction(provider: Provider, screen: string): string | undefined {
+  if (
+    provider === 'codex' &&
+    /Update available!/i.test(screen) &&
+    /Press enter to continue/i.test(screen)
+  ) {
+    // Select the non-persistent Skip item; Skip-until-next-version mutates operator state.
+    return '\x1b[B\r'
+  }
   if (provider === 'claude' && screen.includes('Yes, I trust this folder')) return '\r'
   if (
     provider === 'codex' &&
