@@ -597,12 +597,23 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
     // Apply the scoped machine snapshot immediately so a SEE revocation hides
     // its repositories, then reconcile repos and machines from one authorized
-    // server snapshot. Every event is an invalidation: equal online counts can
-    // still replace a restarted daemon, so count-based refresh skips are unsafe.
+    // server snapshot when VISIBILITY OR REACHABILITY changed. Full machine
+    // broadcasts also carry inventory/build metadata; treating those as repo
+    // invalidations repeatedly supersedes an in-flight scan-backed refresh and
+    // can starve its durable fallback during daemon rebind. The id+online set
+    // still detects equal-count replacement and SEE revocation.
+    let machineScopeSignature: string | undefined
     offs.push(
       this.hub.on('machines', (m) => {
         this.apply({ machines: m })
-        void this.boot.refreshRepos().catch(() => {})
+        const nextSignature = m
+          .map((machine) => `${machine.id}:${machine.online ? 'online' : 'offline'}`)
+          .sort()
+          .join('|')
+        if (nextSignature !== machineScopeSignature) {
+          machineScopeSignature = nextSignature
+          void this.boot.refreshRepos().catch(() => {})
+        }
       }),
     )
     // An arriving composer document. It is OFFERED to the ledger rather than

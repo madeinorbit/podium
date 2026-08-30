@@ -401,6 +401,36 @@ describe('engine lifecycle', () => {
     engine.dispose()
   })
 
+  it('does not supersede repo refreshes for machine metadata-only broadcasts', async () => {
+    const api = makeApi()
+    const { engine, hub } = makeEngine({ api })
+    engine.start()
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    const machineId = asMachineId('rebound-daemon')
+    hub.emit('machines', [{ id: machineId, online: true, name: 'before inventory' }])
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    // Inventory/build reporting broadcasts the full machine projection after
+    // reattach without changing which machine is visible or reachable. It must
+    // update the machine paint without invalidating the authorized repo fetch.
+    hub.emit('machines', [
+      {
+        id: machineId,
+        online: true,
+        name: 'after inventory',
+        inventory: { agents: [] },
+      },
+    ])
+    await settle()
+
+    expect(api.discovery.refreshRepos.mutate).not.toHaveBeenCalled()
+    expect(engine.getSnapshot().machines[0]?.name).toBe('after inventory')
+    engine.dispose()
+  })
+
   it("publishes the signed-in user's superagent threads at boot (POD-330)", async () => {
     // The view used to fetch this list itself and hold it in useState. It is
     // store state now, so boot must actually load it — a store field nobody
