@@ -54,15 +54,19 @@ const target = {
 function fakeClient(
   redrawFrame?: string,
   subscribeFrame?: string,
+  attachReady = true,
 ): AgentSession & {
   emit(data: string): void
   disposed: boolean
   writes: string[]
   sizes: { cols: number; rows: number }[]
   redraws: number
+  markAttachReady(): void
 } {
   const frameCbs: ((f: AgentFrame) => void)[] = []
   let seq = 0
+  let pendingReadyRedraw = false
+
   const client = {
     pid: 4242,
     disposed: false,
@@ -94,6 +98,16 @@ function fakeClient(
       if (redrawFrame) client.emit(redrawFrame)
     },
     geometry: () => ({ cols: 120, rows: 40 }),
+    redrawWhenReady() {
+      if (attachReady) client.redraw()
+      else pendingReadyRedraw = true
+    },
+    markAttachReady() {
+      attachReady = true
+      if (!pendingReadyRedraw) return
+      pendingReadyRedraw = false
+      client.redraw()
+    },
     dispose() {
       client.disposed = true
     },
@@ -906,6 +920,8 @@ describe('warm-parking', () => {
         spawns.push(o.label)
         const client = fakeClient(
           spawns.length === 1 ? undefined : '\x1b[2Jseed marker learned while parked',
+          undefined,
+          spawns.length === 1,
         )
         clients.push(client)
         // A park leaves the master holding the label, so the NEXT spawn finds it.
@@ -922,7 +938,9 @@ describe('warm-parking', () => {
     await terminals.attach({ sessionId: SESSION, target })
     // Mutation tooth: treating every adoption as fully represented by server
     // replay suppresses this redraw and loses provider output produced in Chat.
-    expect(clients[1]?.redraws).toBe(1)
+    expect(clients[1]?.redraws).toBe(0)
+    clients[1]?.markAttachReady()
+
     expect(frames.some((frame) => Buffer.from(frame.data).includes('seed marker'))).toBe(true)
 
     const resets = frames

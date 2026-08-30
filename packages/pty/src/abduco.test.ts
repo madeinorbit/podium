@@ -93,6 +93,35 @@ describe('abduco command builders', () => {
       session.dispose()
     }
   })
+  it('queues a recovery redraw until the abduco attach client acknowledges readiness', () => {
+    let emit: ((data: Uint8Array) => void) | undefined
+    const resizes: Array<{ cols: number; rows: number }> = []
+    const proc: PtyProcess = {
+      pid: 4242,
+      onData: (cb) => {
+        emit = cb
+      },
+      onExit: () => {},
+      write: () => {},
+      resize: (cols, rows) => resizes.push({ cols, rows }),
+      kill: () => {},
+    }
+    const session = attachAbducoAgent({
+      label: 'podium-ready-redraw',
+      cols: 80,
+      rows: 24,
+      backend: { name: 'bun-terminal', spawn: () => proc },
+      repaintOnAttach: false,
+    })
+
+    session.redrawWhenReady?.()
+    expect(resizes).toEqual([])
+
+    emit?.(Buffer.from('\x1b[?1049h\x1b[H', 'latin1'))
+    expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+    session.dispose()
+  })
+
 
   it('preserves replay only for opted-in live-master adoption', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-adopt-policy-'))

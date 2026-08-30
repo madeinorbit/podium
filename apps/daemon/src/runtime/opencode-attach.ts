@@ -637,9 +637,11 @@ export function createOpencodeClientTerminals(
      * attach seam agree on whether this is continuity or a new client.
      */
     if (!session.adopted || record.replayRequired) {
+      const waitForAttach = session.adopted && record.replayRequired
       record.replayRequired = false
       record.suppressNextReplayRedraw = false
-      session.redraw()
+      if (waitForAttach && session.redrawWhenReady) session.redrawWhenReady()
+      else session.redraw()
     }
     return session
   }

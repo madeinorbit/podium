@@ -45,6 +45,11 @@ export interface AgentSession {
    * mishandle a stray ^L in their input.
    */
   redraw(opts?: { hard?: boolean }): void
+  /** Queue a repaint until the transport has acknowledged attachment. Optional:
+   * direct PTYs are ready immediately; durable multiplexers implement this when
+   * an early resize can be lost while their attach client is still connecting. */
+  redrawWhenReady?(): void
+
   geometry(): Geometry
   dispose(): void
   /**

@@ -846,14 +846,19 @@ export function createAltScreenStripper(): (data: Uint8Array) => Uint8Array {
 }
 
 /** Delegate PtyProcess whose onData passes through the one-time chrome stripper. */
-function stripAttachChrome(proc: PtyProcess): PtyProcess {
+function stripAttachChrome(proc: PtyProcess, onReady: () => void): PtyProcess {
   const strip = createAltScreenStripper()
+  let ready = false
   return {
     get pid() {
       return proc.pid
     },
     onData: (cb) =>
       proc.onData((d) => {
+        if (!ready) {
+          ready = true
+          onReady()
+        }
         const out = strip(d)
         if (out.length) cb(out)
       }),
@@ -1176,13 +1181,30 @@ export function attachAbducoAgent(opts: {
     rows: opts.rows,
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
-  const session = withHardRepaint(
-    wrapPty(stripAttachChrome(proc), { cols: opts.cols, rows: opts.rows }),
+  let ready = false
+  let repaintPending = false
+  let session: AgentSession
+  const filtered = stripAttachChrome(proc, () => {
+    ready = true
+    if (!repaintPending) return
+    repaintPending = false
+    session.redraw()
+  })
+  session = withHardRepaint(
+    wrapPty(filtered, { cols: opts.cols, rows: opts.rows }),
     opts.hardRepaint ?? false,
   )
   if (opts.repaintOnAttach ?? true) session.redraw()
   return {
     ...session,
+    redrawWhenReady() {
+      if (ready) {
+        session.redraw()
+        return
+      }
+      repaintPending = true
+    },
+
     dispose() {
       try {
         proc.kill('SIGKILL')
