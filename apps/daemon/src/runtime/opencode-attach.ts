@@ -604,12 +604,17 @@ export function createOpencodeClientTerminals(
      * `clientTerminals.redraw(sessionId)` correctly returns false: there is no
      * client PTY yet, and nothing replays the request when one appears.
      *
-     * Reissue it after the relay consumer exists. The current abduco attach also
-     * performs an idempotent resize nudge, but that is an implementation detail
-     * of one spawn port, not the ordering contract for OpenCode, Codex, Grok and
-     * adopted masters at this shared seam.
+     * Reissue it after the relay consumer exists only for a fresh generation.
+     * An adopted master already painted before this daemon existed, and the
+     * session-addressed replay log already holds those bytes. Redrawing it here
+     * clears and repaints only the current viewport, destroying older Native
+     * content while the provider conversation and Chat transcript survive.
+     *
+     * `AgentSession.adopted` is exact process truth established by the spawn
+     * port after the master create race, so both sides of this RuntimeDriver
+     * attach seam agree on whether this is continuity or a new client.
      */
-    session.redraw()
+    if (!session.adopted) session.redraw()
     return session
   }
 

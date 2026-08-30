@@ -413,23 +413,22 @@ describe('the client terminal a server-family attach produces', () => {
     // The old fixture began with an empty stream, so it could bless a reset on
     // adoption. This one carries the surviving master's prior history. A cold
     // client gets a reset before its first observable paint; an adopted
-    // master already owns a running TUI and browser history: its viewport redraw
-    // follows that history without a scrollback-clearing reset between them.
+    // master already owns a running TUI and browser history, so attach emits no
+    // destructive redraw at all.
     const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
     const resets = decoded.filter((data) => data.includes('\x1b[2J') && data.includes('\x1b[3J'))
     expect(resets).toHaveLength(adopted ? 0 : 1)
     if (adopted) {
       expect(decoded[0]).toBe('older scrollback')
-      expect(decoded).toEqual(['older scrollback', '\x1b[2Jopencode ready'])
+      expect(decoded).toEqual(['older scrollback'])
     } else {
       expect(decoded[0]).toContain('\x1b[3J')
+      expect(decoded.at(-1)).toBe(initialPaint)
     }
-    expect(state.frames.at(-1)).toEqual({
-      streamId: endpoint.streamId,
-      data: Buffer.from(initialPaint, 'latin1'),
-    })
     expect(state.frames.every((frame) => frame.streamId === endpoint.streamId)).toBe(true)
-    expect(state.clients[0]?.redraws).toBe(1)
+    // Mutation tooth: an unconditional attach-time redraw appends the TUI's
+    // viewport-clearing repaint and destroys the surviving Native content.
+    expect(state.clients[0]?.redraws).toBe(adopted ? 0 : 1)
   })
 
   /**
@@ -456,11 +455,11 @@ describe('the client terminal a server-family attach produces', () => {
     await terminals.attach({ sessionId: SESSION, target })
 
     const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
-    // A reset here is destructive, not cosmetic: `[3J` drops the surviving TUI's
-    // scrollback from the browser AND the replay log, and the reattach's resize
-    // redraw brings back only the viewport. The history must survive untouched.
+    // Any output here is destructive: the adopted TUI's redraw clears and
+    // repaints only its current viewport, losing the prior Native marker even
+    // without a scrollback-clearing generation reset.
     expect(decoded.filter((data) => data.includes('\x1b[3J'))).toEqual([])
-    expect(decoded).toEqual(['older scrollback', '\x1b[2Jcodex ready'])
+    expect(decoded).toEqual(['older scrollback'])
   })
 
   it('emits the reset when the spawn CREATED, even though a master existed a moment earlier', async () => {
