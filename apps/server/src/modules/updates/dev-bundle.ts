@@ -21,6 +21,7 @@ import { resolveInstanceId, stateDir } from '@podium/runtime/config'
 import {
   type ReleaseBuildTimingDeps,
   releaseBuildTimingEnvironment,
+  releaseBuildTimingFileName,
   timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
 import {
@@ -1228,7 +1229,7 @@ async function readExistingDevBundle(
  * The sink is keyed by version because it is opened before there is a build id to key
  * it by — it times the steps that mint one. This is where the two are joined.
  */
-function moveTimingIntoRecord(
+export function moveTimingIntoRecord(
   timing: ReleaseBuildTimingDeps | undefined,
   stateDirectory: string,
   buildId: string,
@@ -1237,7 +1238,10 @@ function moveTimingIntoRecord(
   const staging = timing?.outputDirectory
   if (!staging) return
   try {
-    renameSync(join(staging, `${version}.jsonl`), buildTimingPath(stateDirectory, buildId))
+    renameSync(
+      join(staging, releaseBuildTimingFileName(version)),
+      buildTimingPath(stateDirectory, buildId),
+    )
   } catch {
     // No lines were written, or they could not be moved. Neither is a release failure.
   }

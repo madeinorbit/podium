@@ -42,6 +42,11 @@ function safePart(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]+/g, '-')
 }
 
+/** The staging filename shared by the timing sink and the build-ledger mover. */
+export function releaseBuildTimingFileName(identity: string): string {
+  return `${safePart(identity)}.jsonl`
+}
+
 export function releaseBuildTimingEnabled(deps: ReleaseBuildTimingDeps = {}): boolean {
   return deps.enabled ?? (deps.env ?? process.env)[RELEASE_BUILD_TIMING_ENABLED_ENV] === '1'
 }
@@ -73,8 +78,8 @@ export function emitReleaseBuildTiming(
   const root = deps.outputDirectory ?? env[RELEASE_BUILD_TIMING_DIR_ENV]
   if (!root) return
   mkdirSync(root, { recursive: true })
-  const identity = safePart(record.version ?? record.sourceSha ?? 'development-release')
-  appendFileSync(join(root, `${identity}.jsonl`), `${JSON.stringify(record)}\n`)
+  const identity = record.version ?? record.sourceSha ?? 'development-release'
+  appendFileSync(join(root, releaseBuildTimingFileName(identity)), `${JSON.stringify(record)}\n`)
 }
 
 function readClock(now: () => number): number | undefined {
