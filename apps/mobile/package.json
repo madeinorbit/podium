@@ -57,8 +57,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web --port 8082",
-    "//build:web": "Same shape as apps/web's `build`, and for the same reasons. Pre-compression (POD-1991) is what keeps the LIVE server out of it: /mobile is served by the same serveFile that prefers a build-time .br/.gz sibling, so an export without them made the server brotli 6.7 MB on demand at its own interactive tier — and since the phone now rebuilds on every commit, that recurred on every commit. The stamp stays LAST (POD-1986): podium-build.json is what Update reads to decide the phone is at HEAD, so nothing may write after it.",
-    "build:web": "expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist",
+    "//build:web": "Same shape as apps/web's `build`, and for the same reasons. Metro's production graph optimization and tree shaking remove unused barrel exports such as Lucide's full icon set; keep both flags together. Pre-compression (POD-1991) keeps the LIVE server out of it: /mobile is served by the same serveFile that prefers a build-time .br/.gz sibling, so an export without them made the server brotli 6.7 MB on demand at its own interactive tier. The stamp stays LAST (POD-1986): podium-build.json is what Update reads to decide the phone is at HEAD, so nothing may write after it.",
+    "build:web": "EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH=1 EXPO_UNSTABLE_TREE_SHAKING=1 expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist",
     "typecheck": "tsc --noEmit",
     "typecheck:tsc": "tsc --noEmit",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/mobile:test -- vitest run"
