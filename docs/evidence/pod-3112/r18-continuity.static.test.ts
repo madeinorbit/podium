@@ -76,24 +76,61 @@ describe('r18 continuity selector contract', () => {
     expect(rig).toContain('[data-testid="unified-issue-row"]:has([data-issue-row="${issueId}"])')
     expect(rig).toContain('issueCount!==1')
   })
+  test('finishes first-run onboarding only through exact visible controls', () => {
+    const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
+    const activation = read('apps/web/src/features/setup/FirstTaskActivation.tsx')
+    const helperStart = rig.indexOf('const finishOnboarding=async()=>')
+    const helperEnd = rig.indexOf('const settingsControl=async()=>', helperStart)
+    const helper = rig.slice(helperStart, helperEnd)
+    const finishCall = rig.indexOf('out.onboarding=await finishOnboarding()')
+    const settingsCall = rig.indexOf('await enableRuntimeDrivers()', finishCall)
+
+    expect(helperStart).toBeGreaterThan(-1)
+    expect(helperEnd).toBeGreaterThan(helperStart)
+    expect(helper).toContain("getByRole('heading',{name:'Set up your agents.',exact:true})")
+    expect(helper).toContain("getByRole('button',{name:'Continue',exact:true})")
+    expect(helper).toContain('REFUSED agent Continue control count')
+    expect(helper).toContain("getByRole('heading',{name:'Podium is good to go.',exact:true})")
+    expect(helper).toContain("getByRole('button',{name:'Finish setup',exact:true})")
+    expect(helper).toContain('REFUSED Finish setup control count')
+    expect(helper).toContain("setup.waitFor({state:'hidden'")
+    expect(helper).not.toContain('localStorage')
+    expect(helper).not.toContain('sessionStorage')
+    expect(helper).not.toContain("m('")
+    expect(helper).not.toContain("q('")
+    expect(helper).not.toContain('page.evaluate')
+    expect(finishCall).toBeGreaterThan(helperEnd)
+    expect(settingsCall).toBeGreaterThan(finishCall)
+    expect(activation).toContain('<span>Finish setup</span>')
+    expect(activation).toContain("onRouteChange('first-task')")
+  })
   test('enables and selects the headless driver through visible product controls', () => {
     const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
     const topBar = read('apps/web/src/app/TopBar.tsx')
     const window = new Window()
     const settingsControl = (markup: string): Element | null => {
       window.document.body.innerHTML = markup
-      return window.document.querySelector(
-        '[data-testid="desktop-topbar"] button[aria-label="Settings"]',
-      )
+      const topbars = window.document.querySelectorAll('[data-testid="desktop-topbar"]')
+      const settings = window.document.querySelectorAll('button[aria-label="Settings"]')
+      if (
+        topbars.length !== 1 ||
+        topbars[0]?.tagName !== 'HEADER' ||
+        topbars[0]?.hasAttribute('data-chromeless') ||
+        settings.length !== 1 ||
+        !topbars[0]?.contains(settings[0] ?? null)
+      ) {
+        return null
+      }
+      return settings[0] ?? null
     }
 
     expect(topBar).toContain('data-testid="desktop-topbar"')
     expect(topBar).toContain('<UtilityNavItem')
     expect(topBar).toContain('label="Settings"')
-    expect(rig).toContain(
-      "getByTestId('desktop-topbar').getByRole('button',{name:'Settings',exact:true})",
-    )
-    expect(rig).toContain('REFUSED Settings topbar control count')
+    expect(rig).toContain("page.getByTestId('desktop-topbar')")
+    expect(rig).toContain("getAttribute('data-chromeless')!==null")
+    expect(rig).toContain("page.getByRole('button',{name:'Settings',exact:true})")
+    expect(rig).toContain('REFUSED Settings control count')
     expect(rig).toContain("getByRole('button',{name:'Experimental',exact:true})")
     expect(rig).toContain("getByText('Headless session drivers',{exact:true})")
     expect(rig).toContain("getByRole('button',{name:'Driver',exact:true})")
@@ -104,10 +141,17 @@ describe('r18 continuity selector contract', () => {
         <header data-testid="desktop-topbar">
           <button aria-label="Settings"></button>
         </header>
-        <button aria-label="Settings"></button>
       `),
     ).not.toBeNull()
     expect(settingsControl('<header data-testid="desktop-topbar"></header>')).toBeNull()
+    expect(
+      settingsControl(
+        '<header data-testid="desktop-topbar" data-chromeless="true"><button aria-label="Settings"></button></header>',
+      ),
+    ).toBeNull()
+    expect(
+      settingsControl('<header data-testid="desktop-topbar"><button aria-label="Settings"></button></header><button aria-label="Settings"></button>'),
+    ).toBeNull()
     expect(
       settingsControl('<button data-testid="desktop-topbar" aria-label="Settings"></button>'),
     ).toBeNull()
