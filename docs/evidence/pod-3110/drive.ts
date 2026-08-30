@@ -367,6 +367,7 @@ function a1aVerdict(
   sent: boolean,
 ): Verdict {
   if (liveUser.count < 1 || reloadedUser.count < 1) return 'BLOCKED'
+  if (liveUser.count !== 1 || reloadedUser.count !== 1) return 'FAIL'
   if (liveAssistant.count !== 1 || reloadedAssistant.count !== 1) return 'FAIL'
   return sent ? 'PASS' : 'PARTIAL'
 }
@@ -1423,16 +1424,21 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
   if (!blockedFired.startsWith('yes —') || !blockedMissing.startsWith('no —')) throw new Error('BLOCKED control fidelity failed')
   const token = 'P3110_UNIQUE_REPLY'
   const userItems: LiteItem[] = [{ id: 'user-1', role: 'user', text: `Reply exactly ${token}` }]
+  const duplicateUser: LiteItem[] = [
+    ...userItems, { id: 'user-2', role: 'user', text: `Reply exactly ${token}` },
+  ]
   const oneAssistant: LiteItem[] = [{ id: 'assistant-1', role: 'assistant', text: token }]
   const duplicateAssistant: LiteItem[] = [
     { id: 'assistant-1', role: 'assistant', text: token },
     { id: 'assistant-2', role: 'assistant', text: token },
   ]
   const userCount = transcriptTokenCount(userItems, 'user', token)
+  const duplicateUserCount = transcriptTokenCount(duplicateUser, 'user', token)
   const singleCount = transcriptTokenCount(oneAssistant, 'assistant', token)
   const duplicateCount = transcriptTokenCount(duplicateAssistant, 'assistant', token)
   if (a1aVerdict(userCount, userCount, singleCount, singleCount, true) !== 'PASS') throw new Error('A1a single assistant token did not pass')
   if (a1aVerdict(userCount, userCount, duplicateCount, duplicateCount, true) !== 'FAIL') throw new Error('A1a duplicate assistant token did not fail')
+  if (a1aVerdict(duplicateUserCount, duplicateUserCount, singleCount, singleCount, true) !== 'FAIL') throw new Error('A1a duplicate user token did not fail')
   if (a1aVerdict({ count: 0, itemIdentities: [] }, userCount, singleCount, singleCount, true) !== 'BLOCKED') throw new Error('A1a missing user control did not block')
   const owned = [LEDGER, JSON_PATH, ROWS, join(EVIDENCE_DIR, 'reading'), join(EVIDENCE_DIR, 'pin')]
   const exact = owned.map((path) => path.slice(REPO.length + 1))
@@ -1449,7 +1455,7 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     if (!String(error).includes('STOP-FIRST')) throw error
   }
   if (rows !== 1 || later !== 0) throw new Error(`stop-first self-test failed rows=${rows} later=${later}`)
-  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingle=${singleCount.count} a1aDuplicate=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
+  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
   process.exit(0)
 }
 
