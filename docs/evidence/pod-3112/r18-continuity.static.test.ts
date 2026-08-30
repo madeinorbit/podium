@@ -165,6 +165,27 @@ describe('r18 continuity selector contract', () => {
     expect(rig).toContain("existsSync(base+'/a7a-continue')")
   })
 
+  test('keeps the runner detached across the A7a commit checkpoint', () => {
+    const orchestration = read('docs/evidence/pod-3112/r18-orchestrate.sh')
+    const launch = orchestration.indexOf('nohup setsid env')
+    const absoluteBun = orchestration.indexOf('/home/mgw/.bun/bin/bun', launch)
+    const pidWrite = orchestration.indexOf('> "$PIDFILE"', absoluteBun)
+    const checkpoint = orchestration.indexOf('[ -f "$BASE/a7a-ready" ]', pidWrite)
+    const continuation = orchestration.indexOf('if [ "$MODE" = continue-a7b ]')
+    const livenessFence = orchestration.indexOf('runner_alive ||', continuation)
+    const release = orchestration.indexOf('touch "$BASE/a7a-continue"', livenessFence)
+
+    expect(launch).toBeGreaterThan(-1)
+    expect(absoluteBun).toBeGreaterThan(launch)
+    expect(orchestration.slice(launch, pidWrite)).toContain('> "$BASE/r18-run.log" 2>&1 < /dev/null &')
+    expect(pidWrite).toBeGreaterThan(absoluteBun)
+    expect(checkpoint).toBeGreaterThan(pidWrite)
+    expect(continuation).toBeGreaterThan(-1)
+    expect(livenessFence).toBeGreaterThan(continuation)
+    expect(release).toBeGreaterThan(livenessFence)
+    expect(orchestration).toContain('refusing: detached r18 runner absent')
+  })
+
   test('releases the Native viewer before hibernation and resurrection', () => {
     const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
     const leaveNative = rig.indexOf("const chatBeforeHibernate=page.locator('[data-testid=\"mode-chat\"]')")
