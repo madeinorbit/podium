@@ -183,22 +183,33 @@ export function loadOpencodeMessageParts(
 ): OpencodeMessagePartRow[] {
   const cursorClause =
     sincePartId === undefined
-      ? 'p.time_updated > ?'
-      : '(p.time_updated > ? OR (p.time_updated = ? AND p.id > ?))'
+      ? 'timeUpdated > ?'
+      : '(timeUpdated > ? OR (timeUpdated = ? AND partId > ?))'
   const params =
     sincePartId === undefined
-      ? [sessionId, sinceTimeUpdated]
-      : [sessionId, sinceTimeUpdated, sinceTimeUpdated, sincePartId]
+      ? [sessionId, sessionId, sinceTimeUpdated]
+      : [sessionId, sessionId, sinceTimeUpdated, sinceTimeUpdated, sincePartId]
   return db
     .prepare(
-      `SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
-              p.time_created AS timeCreated, p.time_updated AS timeUpdated,
-              m.data AS messageData, p.data AS partData
-       FROM part p
-       JOIN message m ON m.id = p.message_id
-       WHERE p.session_id = ?
-         AND ${cursorClause}
-       ORDER BY p.time_updated ASC, p.id ASC`,
+      `SELECT messageId, partId, sessionId, timeCreated, timeUpdated, messageData, partData
+       FROM (
+         SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
+                p.time_created AS timeCreated, p.time_updated AS timeUpdated,
+                m.data AS messageData, p.data AS partData
+         FROM part p
+         JOIN message m ON m.id = p.message_id
+         WHERE p.session_id = ?
+         UNION ALL
+         SELECT m.id AS messageId, 'interrupt:' || m.id AS partId, m.session_id AS sessionId,
+                m.time_updated AS timeCreated, m.time_updated AS timeUpdated,
+                m.data AS messageData, '{"type":"interrupt"}' AS partData
+         FROM message m
+         WHERE m.session_id = ?
+           AND json_valid(m.data)
+           AND json_extract(m.data, '$.error.name') IN ('MessageAborted', 'MessageAbortedError')
+       )
+       WHERE ${cursorClause}
+       ORDER BY timeUpdated ASC, partId ASC`,
     )
     .all(...params) as OpencodeMessagePartRow[]
 }
@@ -211,15 +222,26 @@ export function loadOpencodeTranscriptTail(
 ): OpencodeMessagePartRow[] {
   const rows = db
     .prepare(
-      `SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
-              p.time_created AS timeCreated, p.time_updated AS timeUpdated,
-              m.data AS messageData, p.data AS partData
-       FROM part p
-       JOIN message m ON m.id = p.message_id
-       WHERE p.session_id = ?
-       ORDER BY p.time_created DESC, p.id DESC
+      `SELECT messageId, partId, sessionId, timeCreated, timeUpdated, messageData, partData
+       FROM (
+         SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
+                p.time_created AS timeCreated, p.time_updated AS timeUpdated,
+                m.data AS messageData, p.data AS partData
+         FROM part p
+         JOIN message m ON m.id = p.message_id
+         WHERE p.session_id = ?
+         UNION ALL
+         SELECT m.id AS messageId, 'interrupt:' || m.id AS partId, m.session_id AS sessionId,
+                m.time_updated AS timeCreated, m.time_updated AS timeUpdated,
+                m.data AS messageData, '{"type":"interrupt"}' AS partData
+         FROM message m
+         WHERE m.session_id = ?
+           AND json_valid(m.data)
+           AND json_extract(m.data, '$.error.name') IN ('MessageAborted', 'MessageAbortedError')
+       )
+       ORDER BY timeCreated DESC, partId DESC
        LIMIT ?`,
     )
-    .all(sessionId, maxParts) as OpencodeMessagePartRow[]
+    .all(sessionId, sessionId, maxParts) as OpencodeMessagePartRow[]
   return rows.reverse()
 }

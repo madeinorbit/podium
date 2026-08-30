@@ -83,6 +83,8 @@ export function observeOpencodeState(opts: {
   let lastObservedEffort: string | undefined
   let firstTranscript = true
   let identityFailureReported = false
+  const completedAbortedMessageIds = new Set<string>()
+  const emittedInterruptMarkerIds = new Set<string>()
 
   // A single opencode DB handle reused across every ~700ms poll tick (was opened
   // and closed per tick, per call). A `readOnly` SQLite handle re-reads the latest
@@ -126,6 +128,8 @@ export function observeOpencodeState(opts: {
     lastObservedModel = undefined
     lastObservedEffort = undefined
     firstTranscript = true
+    completedAbortedMessageIds.clear()
+    emittedInterruptMarkerIds.clear()
     // Force the next poll tick to read regardless of the mtime gate, so a freshly
     // attached session isn't skipped on a coincidentally-equal mtime.
     lastPollMtimeMs = undefined
@@ -193,7 +197,12 @@ export function observeOpencodeState(opts: {
       }
       // Cursor-stamp via the SAME helper the on-demand read uses, so a live delta's
       // cursors interoperate with a paged read's (dedup / subscribe-from-cursor).
-      const items = rt.stampOpencodeItems(rows, attached.id)
+      const items = rt
+        .stampOpencodeItems(rows, attached.id)
+        .filter((item) => item.event !== 'interrupt' || !emittedInterruptMarkerIds.has(item.id))
+      for (const item of items) {
+        if (item.event === 'interrupt') emittedInterruptMarkerIds.add(item.id)
+      }
       if (items.length > 0) {
         opts.onTranscriptItems(items, reset || firstTranscript)
         firstTranscript = false
@@ -251,8 +260,18 @@ export function observeOpencodeState(opts: {
           // replay from restamping recency to "now".
           const at = isoFromMs(row.timeUpdated)
           const rowEvents: AgentStateEvent[] = []
-          if (role === 'user' && partType === 'text') rowEvents.push({ kind: 'prompt_submitted' })
-          else if (partType === 'text' || partType === 'tool') rowEvents.push({ kind: 'activity' })
+          const aborted = messageInfo ? rt.isOpencodeMessageAborted(messageInfo) : false
+          if (aborted) {
+            // The synthetic row confirms the verdict. Every ordinary row still repeats
+            // the aborted envelope and must remain silent even when it arrives later.
+            if (partType === 'interrupt' && !completedAbortedMessageIds.has(row.messageId)) {
+              completedAbortedMessageIds.add(row.messageId)
+              rowEvents.push({ kind: 'turn_completed', verdict: { kind: 'interrupted' } })
+            }
+          } else if (role === 'user' && partType === 'text') {
+            rowEvents.push({ kind: 'prompt_submitted' })
+          } else if (partType === 'text' || partType === 'tool')
+            rowEvents.push({ kind: 'activity' })
           else if (partType === 'step-finish') {
             rowEvents.push({
               kind: 'turn_completed',
@@ -264,7 +283,12 @@ export function observeOpencodeState(opts: {
           events.push(...withEventTime(rowEvents, at))
         }
         if (opts.onTranscriptItems) {
-          const items = rt.stampOpencodeItems(rows, attached.id)
+          const items = rt
+            .stampOpencodeItems(rows, attached.id)
+            .filter((item) => item.event !== 'interrupt' || !emittedInterruptMarkerIds.has(item.id))
+          for (const item of items) {
+            if (item.event === 'interrupt') emittedInterruptMarkerIds.add(item.id)
+          }
           if (items.length > 0) opts.onTranscriptItems(items, false)
         }
       }
@@ -366,7 +390,7 @@ async function opencodeBootEvents(opts: {
   try {
     const sessionId = opts.resumeValue
     if (!sessionId) return [{ kind: 'session_started' }]
-    const last = lastAssistantText(rt, db, sessionId)
+    const last = lastAssistantCompletion(rt, db, sessionId)
     if (last) {
       // Stamp the assistant row's time_updated so re-seeding this idle session on
       // reattach restores its real last-active time, not the reattach moment.
@@ -374,7 +398,9 @@ async function opencodeBootEvents(opts: {
       return [
         {
           kind: 'turn_completed',
-          verdict: rt.classifyOpencodeIdleText(last.text),
+          verdict: last.interrupted
+            ? { kind: 'interrupted' }
+            : rt.classifyOpencodeIdleText(last.text),
           ...(at ? { at } : {}),
         },
       ]
@@ -383,6 +409,35 @@ async function opencodeBootEvents(opts: {
   } finally {
     db.close()
   }
+}
+
+function lastAssistantCompletion(
+  rt: OpencodeRuntime,
+  db: OpencodeDb,
+  sessionId: string,
+): { text?: string; timeUpdated: number; interrupted: boolean } | undefined {
+  if (!db) return undefined
+  const rows = rt.loadOpencodeTranscriptTail(db, sessionId, 200)
+  let latestMessageId: string | undefined
+  let latestTimeUpdated = 0
+  let latestInterrupted = false
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i]
+    if (!row) continue
+    const messageInfo = parseJson(row.messageData)
+    if (stringField(messageInfo ?? {}, 'role') !== 'assistant') continue
+    latestMessageId ??= row.messageId
+    if (row.messageId !== latestMessageId) break
+    latestTimeUpdated = Math.max(latestTimeUpdated, row.timeUpdated)
+    latestInterrupted ||= messageInfo ? rt.isOpencodeMessageAborted(messageInfo) : false
+    const part = parseJson(row.partData)
+    if (stringField(part ?? {}, 'type') !== 'text') continue
+    const text = stringField(part ?? {}, 'text')
+    if (text) return { text, timeUpdated: latestTimeUpdated, interrupted: latestInterrupted }
+  }
+  return latestMessageId
+    ? { timeUpdated: latestTimeUpdated, interrupted: latestInterrupted }
+    : undefined
 }
 
 function lastAssistantText(

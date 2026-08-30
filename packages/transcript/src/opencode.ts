@@ -28,6 +28,17 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
   const role = stringField(messageInfo, 'role')
   const partType = stringField(part, 'type')
   const ts = epochToIso(row.timeUpdated ?? row.timeCreated)
+  if (partType === 'interrupt' && isOpencodeMessageAborted(messageInfo)) {
+    return [
+      {
+        id: 'opencode-interrupt-' + row.messageId,
+        role: 'user',
+        ...(ts ? { ts } : {}),
+        text: '[Request interrupted by user]',
+        event: 'interrupt',
+      },
+    ]
+  }
 
   switch (partType) {
     case 'text': {
@@ -90,6 +101,12 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
     default:
       return []
   }
+}
+
+export function isOpencodeMessageAborted(message: Record<string, unknown>): boolean {
+  const error = recordField(message, 'error')
+  const name = error ? stringField(error, 'name') : undefined
+  return name === 'MessageAborted' || name === 'MessageAbortedError'
 }
 
 export function opencodeRowsToItems(rows: OpencodeMessagePartRow[]): TranscriptItem[] {

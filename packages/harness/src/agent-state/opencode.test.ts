@@ -4,8 +4,14 @@ import { dirname, join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentStateProviderFor } from '../registry.js'
-import { loadOpencodeMessageParts, opencodeSessionDbPath } from '../opencode/db.js'
+import {
+  loadOpencodeMessageParts,
+  loadOpencodeTranscriptTail,
+  opencodeSessionDbPath,
+} from '../opencode/db.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
+import { initialAgentState, reduceAgentState } from './reducer.js'
+import type { AgentStateEvent } from './types.js'
 
 // Mock the opencode DB module so the gate test can (a) count handle opens and the
 // per-tick session query and (b) drive the mtime gate deterministically. The
@@ -528,5 +534,205 @@ describe('observeOpencodeState state events (POD-2801)', () => {
       obs.stop()
       dbHooks.mtimeMs = undefined
     }
+  })
+})
+
+describe('observeOpencodeState interrupted verdict', () => {
+  it('confirms one interrupted terminal verdict from a durable aborted message', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-interrupt-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_interrupt', '/repo/interrupt', 'previous answer')
+
+    dbHooks.mtimeMs = 7_000
+    const events: AgentStateEvent[] = []
+    const transcriptItems: Array<{ id: string; event?: string }> = []
+    const obs = observeOpencodeState({
+      cwd: '/repo/interrupt',
+      homeDir: home,
+      resumeValue: 'ses_interrupt',
+      pollMs: 10,
+      onEvents: (next) => events.push(...next),
+      onTranscriptItems: (next) => transcriptItems.push(...next),
+    })
+    try {
+      await waitFor(() => obs.sessionId === 'ses_interrupt')
+      await new Promise((resolve) => setTimeout(resolve, 60))
+
+      const db = openDatabase(join(root, 'opencode.db'))
+      db.prepare(
+        'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+      ).run('msg-abort', 'ses_interrupt', 20, 20, JSON.stringify({ role: 'assistant' }))
+      db.prepare(
+        'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(
+        'prt-abort',
+        'msg-abort',
+        'ses_interrupt',
+        20,
+        20,
+        JSON.stringify({ type: 'text', text: 'partial' }),
+      )
+      db.close()
+      dbHooks.mtimeMs = 8_000
+      await waitFor(() => events.some((event) => event.kind === 'activity'))
+
+      const abortDb = openDatabase(join(root, 'opencode.db'))
+      abortDb
+        .prepare('UPDATE message SET time_updated = ?, data = ? WHERE id = ?')
+        .run(
+          21,
+          JSON.stringify({ role: 'assistant', error: { name: 'MessageAbortedError' } }),
+          'msg-abort',
+        )
+      abortDb.close()
+      dbHooks.mtimeMs = 9_000
+
+      await waitFor(() =>
+        events.some(
+          (event) => event.kind === 'turn_completed' && event.verdict.kind === 'interrupted',
+        ),
+      )
+
+      const afterInterrupt = events.length
+      const laterDb = openDatabase(join(root, 'opencode.db'))
+      const insertPart = laterDb.prepare(
+        'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      insertPart.run(
+        'prt-later-text',
+        'msg-abort',
+        'ses_interrupt',
+        22,
+        22,
+        JSON.stringify({ type: 'text', text: 'late text' }),
+      )
+      insertPart.run(
+        'prt-later-tool',
+        'msg-abort',
+        'ses_interrupt',
+        23,
+        23,
+        JSON.stringify({ type: 'tool', tool: 'bash', state: { status: 'completed' } }),
+      )
+      insertPart.run(
+        'prt-later-finish',
+        'msg-abort',
+        'ses_interrupt',
+        24,
+        24,
+        JSON.stringify({ type: 'step-finish', reason: 'stop' }),
+      )
+      laterDb.close()
+      dbHooks.mtimeMs = 10_000
+      await new Promise((resolve) => setTimeout(resolve, 60))
+
+      expect(events.slice(afterInterrupt)).toEqual([])
+      expect(
+        events.filter(
+          (event) => event.kind === 'turn_completed' && event.verdict.kind === 'interrupted',
+        ),
+      ).toHaveLength(1)
+      let state = initialAgentState('2026-08-30T00:00:00.000Z')
+      for (const event of events)
+        state = reduceAgentState(state, event, event.at ?? state.updatedAt)
+      expect(state).toMatchObject({ phase: 'idle', idle: { kind: 'interrupted' } })
+
+      expect(transcriptItems.filter((item) => item.event === 'interrupt')).toEqual([
+        expect.objectContaining({ id: 'opencode-interrupt-msg-abort' }),
+      ])
+      const bootEvents = await opencodeStateProvider.bootEvents({
+        cwd: '/repo/interrupt',
+        homeDir: home,
+        resumeValue: 'ses_interrupt',
+      })
+      expect(bootEvents).toEqual([
+        expect.objectContaining({
+          kind: 'turn_completed',
+          verdict: { kind: 'interrupted' },
+        }),
+      ])
+
+      obs.stop()
+      const reloadItems: Array<{ id: string; event?: string }> = []
+      const reloaded = observeOpencodeState({
+        cwd: '/repo/interrupt',
+        homeDir: home,
+        resumeValue: 'ses_interrupt',
+        pollMs: 10,
+        onEvents: () => {},
+        onTranscriptItems: (next) => reloadItems.push(...next),
+      })
+      try {
+        await waitFor(() => reloadItems.some((item) => item.event === 'interrupt'))
+        expect(reloadItems.filter((item) => item.event === 'interrupt')).toEqual([
+          expect.objectContaining({ id: 'opencode-interrupt-msg-abort' }),
+        ])
+      } finally {
+        reloaded.stop()
+      }
+    } finally {
+      obs.stop()
+      dbHooks.mtimeMs = undefined
+    }
+  })
+})
+
+describe('OpenCode abort query rows', () => {
+  it('keeps normal tail order and observes a zero-part abort once past its cursor', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-abort-query-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_abort_query', '/repo/abort-query', 'initial')
+    const db = openDatabase(join(root, 'opencode.db'))
+    const insertPart = db.prepare(
+      'INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    insertPart.run(
+      'prt-created-second',
+      'msg-a',
+      'ses_abort_query',
+      40,
+      10,
+      JSON.stringify({ type: 'text', text: 'created second' }),
+    )
+    insertPart.run(
+      'prt-created-first',
+      'msg-a',
+      'ses_abort_query',
+      30,
+      50,
+      JSON.stringify({ type: 'text', text: 'created first' }),
+    )
+    db.prepare(
+      'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+    ).run(
+      'msg-zero-abort',
+      'ses_abort_query',
+      60,
+      61,
+      JSON.stringify({ role: 'assistant', error: { name: 'MessageAbortedError' } }),
+    )
+
+    const delta = loadOpencodeMessageParts(db, 'ses_abort_query', 60)
+    const after = loadOpencodeMessageParts(db, 'ses_abort_query', 61, 'interrupt:msg-zero-abort')
+    const tail = loadOpencodeTranscriptTail(db, 'ses_abort_query')
+    db.close()
+
+    expect(
+      tail
+        .filter((row) => row.partId.startsWith('prt-created-'))
+        .map((row) => row.partId),
+    ).toEqual(['prt-created-first', 'prt-created-second'])
+    const expectedAbort = expect.objectContaining({
+      messageId: 'msg-zero-abort',
+      partId: 'interrupt:msg-zero-abort',
+      timeCreated: 61,
+      timeUpdated: 61,
+      partData: '{"type":"interrupt"}',
+    })
+    expect(delta).toContainEqual(expectedAbort)
+    expect(tail).toContainEqual(expectedAbort)
+    expect(after).toEqual([])
   })
 })

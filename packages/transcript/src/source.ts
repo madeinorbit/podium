@@ -110,7 +110,9 @@ export function stampOpencodeItems(
       if (!item) continue
       out.push({
         ...item,
-        cursor: encodeCursor({ fileId, offset: row.timeCreated, uuid: row.partId, sub }),
+        ...(item.event === 'interrupt'
+          ? {}
+          : { cursor: encodeCursor({ fileId, offset: row.timeCreated, uuid: row.partId, sub }) }),
       })
     }
   }
