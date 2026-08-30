@@ -73,12 +73,13 @@ const arm = (process.argv[2] ?? 'headless') as Arm
 if (arm !== 'headless' && arm !== 'terminal') throw new Error('usage: grok-drive.ts headless|terminal')
 
 const INSTANCE = 'p3110-grok-paired-final-tip-2af0'
+const PRODUCT_PIN = '2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd'
 const RUN_TOKEN = process.env.P3110_RUN_TOKEN ?? (() => { throw new Error('P3110_RUN_TOKEN is required') })()
 const EVIDENCE_DIR = process.env.PODIUM_EVIDENCE_DIR ?? (() => { throw new Error('PODIUM_EVIDENCE_DIR is required') })()
 const CELL_ROOT = join(DRIVE_BASE, 'runs', RUN_TOKEN, 'cells')
 const RIG = join(import.meta.dir, 'rig.sh')
-const JSON_PATH = join(EVIDENCE_DIR, `grok.${arm}.json`)
-const ROWS = join(EVIDENCE_DIR, `grok.${arm}.candidate.tsv`)
+const JSON_PATH = join(EVIDENCE_DIR, `grok.${PRODUCT_PIN}.${RUN_TOKEN}.${arm}.json`)
+const ROWS = join(EVIDENCE_DIR, `grok.${PRODUCT_PIN}.${RUN_TOKEN}.${arm}.candidate.tsv`)
 const REPLY_MS = 120_000
 const BIND_MS = 90_000
 const LONG_PROMPT =
@@ -180,7 +181,7 @@ function appendCandidateRow(cell: Cell): void {
   const driver = arm === 'headless' ? 'grok-acp' : 'generic-pty'
   const fields = [
     `[single] ${cell.id} Grok paired final tip`, driver,
-    `${cell.verdict} ${cell.summary}`, '2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd',
+    `${cell.verdict} ${cell.summary}`, PRODUCT_PIN,
     `${cell.control.fired ? 'yes' : 'no'} — ${cell.control.what}: ${cell.control.detail}`,
     `yes — named ${INSTANCE}; sequential ${arm} arm; unique cwd ${cell.cwd}; no runtime override`,
     new Date(cell.at).toISOString().replace('T', ' ').replace('Z', ' UTC'), 'POD-3110',
