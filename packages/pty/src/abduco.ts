@@ -885,6 +885,14 @@ export interface AbducoSpawnOptions {
    * abduco itself and reads none of this.
    */
   stripEnv?: readonly string[]
+  /**
+   * Preserve replay already owned by a browser when adopting a live master.
+   * Such an adoption must not trigger the attach client's initial repaint,
+   * because that repaint clears retained scrollback. Defaults false so
+   * ordinary/headed reattach keeps its blank-screen recovery repaint.
+   */
+  preserveReplayOnAdopt?: boolean
+
   backend?: PtyBackend
   /**
    * What this master is, for the scope budget (POD-2413). `'attach'` is a
@@ -1012,7 +1020,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   // every later spawn/reattach readdir pays for them. Sweep first so the
   // lookups below see live sockets, not thousands of leftover `.abduco-<pid>`.
   reapStaleAbducoBindTemps(childEnv)
-  const attachTo = (socketPath: string): AgentSession =>
+  const attachTo = (socketPath: string, repaintOnAttach = true): AgentSession =>
     attachAbducoAgent({
       label: opts.label,
       socketPath,
@@ -1020,6 +1028,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       rows: opts.rows,
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.backend ? { backend: opts.backend } : {}),
+      repaintOnAttach,
     })
   const attachCreated = async (): Promise<AgentSession> =>
     attachTo(await waitForAbducoSocket(opts.label, childEnv))
@@ -1036,7 +1045,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       label: opts.label,
       socketPath,
     })
-    return { ...attachTo(socketPath), adopted: true }
+    return { ...attachTo(socketPath, !opts.preserveReplayOnAdopt), adopted: true }
   }
   const live = abducoSocketPath(opts.label, childEnv)
   if (live) return adopt(live)
@@ -1148,6 +1157,11 @@ export function attachAbducoAgent(opts: {
   env?: Record<string, string>
   /** Reattaching a shell: nudge with Ctrl-L too, since it won't repaint on SIGWINCH while idle. */
   hardRepaint?: boolean
+  /**
+   * False only after `spawnAbducoAgent` proved this is a live-master adoption.
+   * Fresh attaches default true; explicit redraw remains available afterward.
+   */
+  repaintOnAttach?: boolean
   backend?: PtyBackend
 }): AgentSession {
   const [cmd, ...args] = abducoAttachArgv(
@@ -1166,7 +1180,7 @@ export function attachAbducoAgent(opts: {
     wrapPty(stripAttachChrome(proc), { cols: opts.cols, rows: opts.rows }),
     opts.hardRepaint ?? false,
   )
-  session.redraw()
+  if (opts.repaintOnAttach ?? true) session.redraw()
   return {
     ...session,
     dispose() {

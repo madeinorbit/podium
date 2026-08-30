@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -91,6 +91,61 @@ describe('abduco command builders', () => {
       expect(calls[0]?.args[2]).toBe(socketPath)
     } finally {
       session.dispose()
+    }
+  })
+
+  it('preserves replay only for opted-in live-master adoption', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-adopt-policy-'))
+    const label = 'podium-adopt-policy'
+    const socketPath = join(dir, `${label}@${hostname()}`)
+    writeFileSync(socketPath, '')
+    chmodSync(socketPath, 0o600)
+
+    const resizes: Array<{ cols: number; rows: number }> = []
+    const proc: PtyProcess = {
+      pid: 4242,
+      onData: () => {},
+      onExit: () => {},
+      write: () => {},
+      resize: (cols: number, rows: number) => resizes.push({ cols, rows }),
+      kill: () => {},
+    }
+    const backend: PtyBackend = {
+      spawn: () => proc,
+    }
+
+    try {
+      const replaying = await spawnAbducoAgent({
+        label,
+        cmd: 'unused-for-live-master',
+        cols: 80,
+        rows: 24,
+        env: { ABDUCO_SOCKET_DIR: dir },
+        backend,
+        preserveReplayOnAdopt: true,
+      })
+      expect(replaying.adopted).toBe(true)
+      expect(resizes).toEqual([])
+
+      // Suppression is attach-time only; a later explicit redraw stays real.
+      replaying.redraw()
+      expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+      replaying.dispose()
+
+      resizes.length = 0
+      const ordinary = await spawnAbducoAgent({
+        label,
+        cmd: 'unused-for-live-master',
+        cols: 80,
+        rows: 24,
+        env: { ABDUCO_SOCKET_DIR: dir },
+        backend,
+      })
+      expect(ordinary.adopted).toBe(true)
+      expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+      ordinary.dispose()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 

@@ -126,6 +126,7 @@ interface Harness {
     args: string[]
     env?: Record<string, string>
     stripEnv?: readonly string[]
+    preserveReplayOnAdopt?: boolean
   }[]
   reclaimed: string[]
   released: string[]
@@ -157,6 +158,7 @@ function harness(opts: HarnessOptions = {}) {
         args: o.args ?? [],
         ...(o.env ? { env: o.env } : {}),
         ...(o.stripEnv ? { stripEnv: o.stripEnv } : {}),
+        ...(o.preserveReplayOnAdopt ? { preserveReplayOnAdopt: true } : {}),
       })
       if (opts.spawnError) throw opts.spawnError
       const client = fakeClient(opts.redrawFrame, opts.subscribeFrame)
@@ -452,6 +454,10 @@ describe('the client terminal a server-family attach produces', () => {
 
     terminals.adopt(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
+    // Production PTY adoption suppresses its pre-adoption repaint only when
+    // this server-family capability crosses the injected spawn seam.
+    expect(state.spawns[0]?.preserveReplayOnAdopt).toBe(true)
+
     // SessionTerminal performs this nudge after replaying retained bytes to a
     // newly attached browser. Adoption must ACK it without a TUI repaint.
     expect(terminals.redraw(SESSION)).toBe(true)
