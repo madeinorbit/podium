@@ -16,6 +16,7 @@ import {
 import {
   type PromotedTargetMetadata,
   SERVER_TRANSFER_CONFIRMATION,
+  type ServerEndpointHandoff,
   type ServerTransferAuthorization,
   type ServerTransferInput,
   type ServerTransferManifest,
@@ -55,6 +56,8 @@ export interface ServerTransferDeps {
   sourceWireSchemaDigest: string
   sourceCapable?(): boolean
   rpc: ServerTransferRpc
+  /** Direct endpoint control; absent only in narrow legacy unit seams. */
+  endpointHandoff?: ServerEndpointHandoff
   targetState(machineId: MachineId): ServerTransferTargetState
   localPromotedTransfer():
     | PromotedTargetMetadata
@@ -149,16 +152,6 @@ export function normalizedPublicUrl(input: ServerTransferInput): string {
   }
   const checked = validatePublicUrl(input.publicUrl.trim())
   if (!checked.ok) throw fail(TRANSFER_FAILURE_CODES.INVALID_URL, checked.error)
-  const parsed = new URL(checked.normalized)
-  if (input.port !== undefined) {
-    const effectivePort = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
-    if (effectivePort !== input.port) {
-      throw fail(
-        TRANSFER_FAILURE_CODES.INVALID_URL,
-        'the selected target port does not match the public URL',
-      )
-    }
-  }
   return checked.normalized
 }
 
@@ -379,6 +372,10 @@ export class ServerTransferService {
         idempotencyKey: probeTransferId,
         targetProof: false,
         sourceConnected: false,
+        reachabilityToken: this.uuid() + this.uuid(),
+        quiescedMachineIds: [],
+        endpointCommittedMachineIds: [],
+        offlineMachineIds: [],
       }
       if (!resumable) this.journal.begin(record)
       hooks.onPhase?.('preflight', 'done', record)
@@ -427,7 +424,9 @@ export class ServerTransferService {
             initialPackageDir,
             input.targetMachineId,
             publicUrl,
+            bindHost,
             port,
+            record.reachabilityToken ?? probeTransferId + probeTransferId,
             persistProgress,
           )
           if (hooks.canceled?.()) {
@@ -451,6 +450,10 @@ export class ServerTransferService {
         if (hooks.canceled?.()) {
           throw fail(TRANSFER_FAILURE_CODES.INTERNAL, 'server move canceled')
         }
+        record = await this.prepareEndpointHandoff(record, initialManifest)
+        // The final snapshot must carry a claim hash for every browser connected
+        // to the old origin. Mint while the source store is still writable.
+        this.deps.endpointHandoff?.prepareClientRelocations(record.operationId)
         await authorization.reauthorize('fence')
         await hooks.beforeFence?.(record)
         await hooks.crash?.('after-seal')
@@ -513,7 +516,9 @@ export class ServerTransferService {
             finalPackageDir,
             input.targetMachineId,
             publicUrl,
+            bindHost,
             port,
+            record.reachabilityToken ?? finalTransferId + finalTransferId,
             persistProgress,
           )
           record = { ...record, phase: 'validating' }
@@ -525,6 +530,8 @@ export class ServerTransferService {
 
         record = { ...record, manifest: finalManifest, phase: 'switching', targetProof: true }
         this.journal.updateRecord(record)
+
+        record = await this.prepareEndpointHandoff(record, finalManifest)
 
         await authorization.reauthorize('commit')
         this.assertTarget(input.targetMachineId)
@@ -561,6 +568,7 @@ export class ServerTransferService {
         }
 
         await hooks.crash?.('after-promote')
+        record = await this.commitEndpointHandoff(record)
         await this.deps.demoteSource({
           transferId: finalManifest.transferId,
           targetMachineId: input.targetMachineId,
@@ -591,6 +599,8 @@ export class ServerTransferService {
           })
         }
 
+        await this.resumeEndpointHandoff(record)
+        this.deps.endpointHandoff?.cancelClientRelocations(record.operationId)
         let cleanup: { result: 'cleaned' | 'pending'; detail?: string } = { result: 'cleaned' }
         if (prepared) {
           try {
@@ -638,7 +648,9 @@ export class ServerTransferService {
     packageDir: string,
     targetMachineId: MachineId,
     publicUrl: string,
+    bindHost: '127.0.0.1' | '0.0.0.0',
     port: number,
+    reachabilityToken: string,
     onProgress: (bytesCopied: number, totalBytes: number) => void,
   ): Promise<void> {
     const result = await this.deps.rpc.serverTransferPrepare(
@@ -647,7 +659,9 @@ export class ServerTransferService {
         sourceMachineId: this.deps.sourceMachineId,
         manifest,
         publicUrl,
+        bindHost,
         port,
+        reachabilityToken,
         packageLimits: { totalBytes: manifest.packageBytes, maxChunkBytes: CHUNK_BYTES },
       },
       targetMachineId,
@@ -799,6 +813,106 @@ export class ServerTransferService {
     }
   }
 
+  private async prepareEndpointHandoff(
+    record: TransferRecord,
+    manifest: ServerTransferManifest,
+  ): Promise<TransferRecord> {
+    const endpoint = this.deps.endpointHandoff
+    if (!endpoint) return record
+    const reachabilityToken = record.reachabilityToken
+    if (!reachabilityToken)
+      throw fail(TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE, 'target reachability token is missing')
+    const request = {
+      transferId: manifest.transferId,
+      manifestDigest: manifest.digest,
+      publicUrl: record.publicUrl,
+      reachabilityToken,
+      targetMachineId: record.targetMachineId,
+    }
+    try {
+      await endpoint.probeCandidate(request)
+    } catch (error) {
+      throw fail(
+        TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE,
+        `the proposed target URL is not reachable from the server: ${classified(error).message}`,
+      )
+    }
+    const registered = endpoint
+      .registeredMachineIds()
+      .filter((id) => id !== record.sourceMachineId && id !== record.targetMachineId)
+    const online = new Set(endpoint.onlineMachineIds())
+    const offlineMachineIds = registered.filter((id) => !online.has(id))
+    const required = registered.filter((id) => online.has(id))
+    const quiesced = new Set(record.quiescedMachineIds ?? [])
+    record = { ...record, offlineMachineIds }
+    this.journal.updateRecord(record)
+    for (const machineId of required) {
+      let result: { ok: boolean; error?: string }
+      try {
+        result = await endpoint.probeMachine(request, machineId)
+      } catch (error) {
+        await this.resumeEndpointHandoff({ ...record, quiescedMachineIds: [...quiesced] })
+        throw fail(
+          TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE,
+          `machine ${machineId} cannot reach the proposed target: ${classified(error).message}`,
+        )
+      }
+      if (!result.ok) {
+        await this.resumeEndpointHandoff({ ...record, quiescedMachineIds: [...quiesced] })
+        throw fail(
+          TRANSFER_FAILURE_CODES.TARGET_UNREACHABLE,
+          `machine ${machineId} cannot reach the proposed target: ${result.error ?? 'probe failed'}`,
+        )
+      }
+      quiesced.add(machineId)
+      record = { ...record, quiescedMachineIds: [...quiesced] }
+      this.journal.updateRecord(record)
+    }
+    return record
+  }
+
+  private async resumeEndpointHandoff(record: TransferRecord): Promise<void> {
+    const endpoint = this.deps.endpointHandoff
+    if (!endpoint) return
+    await Promise.allSettled(
+      (record.quiescedMachineIds ?? []).map((machineId) =>
+        endpoint.resumeMachine(record.transferId, machineId),
+      ),
+    )
+  }
+
+  private async commitEndpointHandoff(record: TransferRecord): Promise<TransferRecord> {
+    const endpoint = this.deps.endpointHandoff
+    if (!endpoint) return record
+    const committed = new Set(record.endpointCommittedMachineIds ?? [])
+    for (const machineId of record.quiescedMachineIds ?? []) {
+      if (committed.has(machineId)) continue
+      const result = await endpoint.commitMachine(
+        {
+          transferId: record.transferId,
+          publicUrl: record.publicUrl,
+          targetMachineId: record.targetMachineId,
+        },
+        machineId,
+      )
+      if (!result.ok) {
+        throw fail(
+          TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
+          `machine ${machineId} did not confirm the endpoint switch: ${result.error ?? 'commit failed'}`,
+        )
+      }
+      committed.add(machineId)
+      record = { ...record, endpointCommittedMachineIds: [...committed] }
+      this.journal.updateRecord(record)
+    }
+    endpoint.relocateClients({
+      transferId: record.transferId,
+      publicUrl: record.publicUrl,
+      operationId: record.operationId,
+    })
+    return record
+  }
+
   private async preflight(input: ServerTransferInput): Promise<void> {
     if (this.deps.sourceCapable?.() === false) {
       throw fail(
@@ -922,13 +1036,14 @@ export class ServerTransferService {
     if (!record.manifest) {
       throw fail(TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN, 'manifest proof is missing')
     }
+    const endpointRecord = await this.commitEndpointHandoff(record)
     await this.deps.demoteSource({
       transferId: record.transferId,
       targetMachineId: record.targetMachineId,
       publicUrl: record.publicUrl,
     })
     const committed = {
-      ...record,
+      ...endpointRecord,
       phase: 'switching' as const,
       targetProof: true,
       sourceConnected: false,

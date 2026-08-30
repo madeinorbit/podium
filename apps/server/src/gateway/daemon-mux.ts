@@ -213,6 +213,7 @@ const DISPATCH: Dispatcher = {
   credentialInstallResult: toRpc,
 
   serverTransferResult: toRpc,
+  serverEndpointResult: toRpc,
   shippingJobResult: toRpc,
   shippingEvidenceResult: toRpc,
   shippingRepairApplyResult: toRpc,

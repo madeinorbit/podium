@@ -1318,7 +1318,9 @@ export const WIRE_FIXTURES: WireFixture[] = [
       },
       manifestDigest: 'b'.repeat(64),
       publicUrl: 'https://podium.example.com',
+      bindHost: '0.0.0.0',
       port: 24_444,
+      reachabilityToken: 'r'.repeat(64),
     },
   },
   {
@@ -1379,6 +1381,60 @@ export const WIRE_FIXTURES: WireFixture[] = [
       requestId: 'st-status-1',
       transferId: '00000000-0000-4000-8000-000000000001',
       manifestDigest: 'b'.repeat(64),
+    },
+  },
+  {
+    name: 'frame.serverEndpointProbeRequest',
+    schema: ControlMessage,
+    value: {
+      type: 'serverEndpointProbeRequest',
+      requestId: 'endpoint-probe-1',
+      transferId: '00000000-0000-4000-8000-000000000001',
+      manifestDigest: 'b'.repeat(64),
+      publicUrl: 'https://podium.example.com',
+      reachabilityToken: 'r'.repeat(64),
+      targetMachineId: 'target-machine',
+    },
+  },
+  {
+    name: 'frame.serverEndpointCommitRequest',
+    schema: ControlMessage,
+    value: {
+      type: 'serverEndpointCommitRequest',
+      requestId: 'endpoint-commit-1',
+      transferId: '00000000-0000-4000-8000-000000000001',
+      publicUrl: 'https://podium.example.com',
+      targetMachineId: 'target-machine',
+    },
+  },
+  {
+    name: 'frame.serverEndpointResumeRequest',
+    schema: ControlMessage,
+    value: {
+      type: 'serverEndpointResumeRequest',
+      requestId: 'endpoint-resume-1',
+      transferId: '00000000-0000-4000-8000-000000000001',
+    },
+  },
+  {
+    name: 'frame.serverEndpointResult',
+    schema: DaemonMessage,
+    value: {
+      type: 'serverEndpointResult',
+      requestId: 'endpoint-probe-1',
+      transferId: '00000000-0000-4000-8000-000000000001',
+      operation: 'probe',
+      ok: true,
+      publicUrl: 'https://podium.example.com',
+    },
+  },
+  {
+    name: 'frame.serverRelocation',
+    schema: ServerMessage,
+    value: {
+      type: 'serverRelocation',
+      transferId: '00000000-0000-4000-8000-000000000001',
+      publicUrl: 'https://podium.example.com',
     },
   },
   {

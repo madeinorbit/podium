@@ -39,14 +39,16 @@ import type {
   PortableCredentialBundle,
   PortableCredentialKind,
   RepoOp,
+  ServerBindHost,
+  ServerEndpointResultMessage,
   ServerTransferManifest,
   ServerTransferManifestEntry,
-  ServerBindHost,
   ServerTransferResultMessage,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
+import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -55,7 +57,6 @@ import type {
   ShippingJobResult,
   ShippingRepairApplyResultMessage,
 } from '@podium/protocol/daemon'
-import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
 import {
@@ -200,6 +201,7 @@ const WORKSPACE_CLEAN = daemonRequestKind<Payload<WorkspaceCleanResultMessage>>(
 const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessage>>('ce')
 const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
+const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>('sm')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
 const SHIPPING_EVIDENCE = daemonRequestKind<Payload<ShippingEvidenceResultMessage>>('se')
 const SHIPPING_REPAIR_APPLY = daemonRequestKind<Payload<ShippingRepairApplyResultMessage>>('sr')
@@ -309,6 +311,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(CREDENTIAL_EXPORT, msg.requestId, machineId, payloadOf(msg)),
   serverTransferResult: (broker, machineId, msg) =>
     void broker.settle(SERVER_TRANSFER, msg.requestId, machineId, payloadOf(msg)),
+  serverEndpointResult: (broker, machineId, msg) =>
+    void broker.settle(SERVER_ENDPOINT, msg.requestId, machineId, payloadOf(msg)),
   shippingJobResult: (broker, machineId, msg) =>
     void broker.settle(SHIPPING_JOB, msg.requestId, machineId, payloadOf(msg)),
   shippingEvidenceResult: (broker, machineId, msg) =>
@@ -1217,6 +1221,61 @@ export class DaemonRpcService {
     )
   }
 
+  serverEndpointProbe(
+    input: {
+      transferId: string
+      manifestDigest: string
+      publicUrl: string
+      reachabilityToken: string
+      targetMachineId: MachineId
+    },
+    machineId: MachineId,
+  ): Promise<Payload<ServerEndpointResultMessage>> {
+    return this.request(
+      SERVER_ENDPOINT,
+      20_000,
+      () => ({
+        transferId: input.transferId,
+        operation: 'probe',
+        ok: false,
+        error: 'target endpoint probe timed out',
+      }),
+      (requestId) => ({ type: 'serverEndpointProbeRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  serverEndpointCommit(
+    input: { transferId: string; publicUrl: string; targetMachineId: MachineId },
+    machineId: MachineId,
+  ): Promise<Payload<ServerEndpointResultMessage>> {
+    return this.request(
+      SERVER_ENDPOINT,
+      20_000,
+      () => ({
+        transferId: input.transferId,
+        operation: 'commit',
+        ok: false,
+        error: 'endpoint commit timed out',
+      }),
+      (requestId) => ({ type: 'serverEndpointCommitRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  serverEndpointResume(
+    transferId: string,
+    machineId: MachineId,
+  ): Promise<Payload<ServerEndpointResultMessage>> {
+    return this.request(
+      SERVER_ENDPOINT,
+      10_000,
+      () => ({ transferId, operation: 'resume', ok: false, error: 'endpoint resume timed out' }),
+      (requestId) => ({ type: 'serverEndpointResumeRequest', requestId, transferId }),
+      machineId,
+    )
+  }
+
   /** Stage a portable server snapshot on a named target daemon. */
   serverTransferPrepare(
     input:
@@ -1225,7 +1284,9 @@ export class DaemonRpcService {
           manifest: ServerTransferManifest
           manifestDigest: string
           publicUrl: string
+          bindHost: ServerBindHost
           port: number
+          reachabilityToken: string
         }
       | {
           transferId: string
@@ -1280,7 +1341,9 @@ export class DaemonRpcService {
         manifest,
         manifestDigest: input.manifestDigest,
         publicUrl: input.publicUrl,
+        bindHost: input.bindHost,
         port: input.port,
+        reachabilityToken: input.reachabilityToken,
       }),
       machineId,
     )

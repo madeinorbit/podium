@@ -15,7 +15,9 @@ interface WireOwnedRpc {
       manifest: ServerTransferManifest
       manifestDigest: string
       publicUrl: string
+      bindHost: ServerBindHost
       port: number
+      reachabilityToken: string
     },
     machineId: MachineId,
   ): Promise<WireReply>
@@ -89,7 +91,9 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
           manifest,
           manifestDigest: digest,
           publicUrl: input.publicUrl,
+          bindHost: input.bindHost,
           port: input.port,
+          reachabilityToken: input.reachabilityToken,
         },
         targetMachineId,
       )

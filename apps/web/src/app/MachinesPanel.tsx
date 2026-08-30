@@ -31,20 +31,20 @@ import {
 import { useMachinePairing } from '@/features/machines/machine-pairing'
 import {
   SERVER_MOVE_CONFIRMATION,
-  settleServerMoveRecovery,
   serverMoveErrorCopy,
+  settleServerMoveRecovery,
   startServerMove,
   useServerMoveOperations,
 } from '@/features/machines/server-move'
-import { errorMessage } from '@/features/updates/operations-client'
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
+import { errorMessage } from '@/features/updates/operations-client'
+import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
 import { useServerAppVersion } from '@/lib/version-skew'
 
 export function ServerMoveProgress({
@@ -408,6 +408,12 @@ export function MachinesPanel({
           machine={serverMoveTarget}
           sourceName={sourceMachine?.name ?? 'the current server'}
           operation={serverMoves.active}
+          offlineMachines={machines.filter(
+            (candidate) =>
+              !candidate.online &&
+              candidate.id !== serverMoveTarget.id &&
+              candidate.id !== sourceMachine?.id,
+          )}
           trpc={trpc}
           onChanged={serverMoves.refresh}
           open
@@ -751,6 +757,7 @@ function ServerMoveDialog({
   machine,
   sourceName,
   operation,
+  offlineMachines,
   trpc,
   onChanged,
   open,
@@ -759,6 +766,7 @@ function ServerMoveDialog({
   machine: MachineWire
   sourceName: string
   operation: Operation | null
+  offlineMachines: MachineWire[]
   trpc: Store['trpc']
   onChanged: () => void
   open?: boolean
@@ -767,6 +775,7 @@ function ServerMoveDialog({
   const [internalOpen, setInternalOpen] = useState(false)
   const [publicUrl, setPublicUrl] = useState('')
   const [bindHost, setBindHost] = useState<'0.0.0.0' | '127.0.0.1'>('0.0.0.0')
+  const [listenPort, setListenPort] = useState('18787')
   const [confirmation, setConfirmation] = useState('')
   const [starting, setStarting] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -780,6 +789,9 @@ function ServerMoveDialog({
     const parsed = new URL(publicUrl)
     urlValid = parsed.protocol === 'http:' || parsed.protocol === 'https:'
   } catch {}
+  const parsedListenPort = Number(listenPort)
+  const listenPortValid =
+    Number.isInteger(parsedListenPort) && parsedListenPort > 0 && parsedListenPort <= 65_535
 
   const setDialogOpen = (next: boolean): void => {
     if (onOpenChange) onOpenChange(next)
@@ -794,6 +806,7 @@ function ServerMoveDialog({
         targetMachineId: machine.id,
         publicUrl,
         bindHost,
+        port: parsedListenPort,
         confirmation: SERVER_MOVE_CONFIRMATION,
       })
       if (!result.supported) {
@@ -837,6 +850,18 @@ function ServerMoveDialog({
           <ServerMoveProgress operation={operation} targetName={machine.name} />
         ) : (
           <div className="flex flex-col gap-3 text-[13px]">
+            {offlineMachines.length > 0 && (
+              <p
+                className="settings-prose rounded border border-warning/30 bg-warning/5 p-2"
+                role="status"
+              >
+                {offlineMachines.length} paired{' '}
+                {offlineMachines.length === 1 ? 'machine is' : 'machines are'} offline. The move can
+                continue, but {offlineMachines.length === 1 ? 'it' : 'they'} will keep the old
+                address until you run <code>podium set-server &lt;new-url&gt;</code> there;
+                reenrollment is not required.
+              </p>
+            )}
             <label htmlFor="server-move-url" className="flex flex-col gap-1">
               <span className="text-muted-foreground">New public URL</span>
               <Input
@@ -846,6 +871,22 @@ function ServerMoveDialog({
                 placeholder="https://podium.example.com"
                 autoComplete="url"
               />
+            </label>
+            <label htmlFor="server-move-port" className="flex flex-col gap-1">
+              <span className="text-muted-foreground">Target listen port</span>
+              <Input
+                id="server-move-port"
+                type="number"
+                min={1}
+                max={65_535}
+                value={listenPort}
+                onChange={(event) => setListenPort(event.currentTarget.value)}
+                inputMode="numeric"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                The public URL may use a different port when a tunnel, NAT, or reverse proxy
+                forwards here.
+              </span>
             </label>
             <label htmlFor="server-move-bind" className="flex flex-col gap-1">
               <span className="text-muted-foreground">Server reachability</span>
@@ -887,7 +928,12 @@ function ServerMoveDialog({
             <Button
               type="button"
               size="sm"
-              disabled={starting || !urlValid || confirmation !== SERVER_MOVE_CONFIRMATION}
+              disabled={
+                starting ||
+                !urlValid ||
+                !listenPortValid ||
+                confirmation !== SERVER_MOVE_CONFIRMATION
+              }
               onClick={() => void start()}
             >
               {starting ? 'Starting…' : 'Move server'}
@@ -1197,7 +1243,6 @@ function MachineRow({
                 </>
               )}
               {serverMoveUnsupported && (
-
                 <>
                   <span aria-hidden="true">·</span>
                   <span className="text-warning">Same version required</span>

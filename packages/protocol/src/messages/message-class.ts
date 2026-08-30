@@ -132,6 +132,8 @@ export const SERVER_PLANE_CLASS = {
   // client that reconnected an hour later, it is precisely the "stuck at debug
   // with nobody watching" state the TTL exists to prevent.
   setLogLevel: 'stream.live',
+  // One-shot, connection-scoped endpoint handoff. Durable URL state lives at the peer.
+  serverRelocation: 'stream.live',
 } as const satisfies Record<ServerMessage['type'], 'control.entity' | 'stream.live'>
 
 /**
@@ -240,6 +242,9 @@ export const CONTROL_PLANE_CLASS = {
   serverTransferPromoteRequest: 'control.command',
   serverTransferAbortRequest: 'control.command',
   serverTransferInspectRequest: 'control.command',
+  serverEndpointProbeRequest: 'control.command',
+  serverEndpointCommitRequest: 'control.command',
+  serverEndpointResumeRequest: 'control.command',
   serverTransferAcknowledgeRequest: 'control.command',
   shippingJobRequest: 'control.command',
   shippingEvidenceRequest: 'control.command',
@@ -325,6 +330,7 @@ export const DAEMON_PLANE_CLASS = {
   sessionOpenUrl: 'stream.live',
   sessionOpenUrlResult: 'stream.live',
   serverTransferResult: 'control.command',
+  serverEndpointResult: 'control.command',
   shippingJobResult: 'control.command',
   shippingEvidenceResult: 'control.command',
   shippingRepairApplyResult: 'control.command',

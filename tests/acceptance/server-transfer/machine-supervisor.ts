@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import {
   existsSync,
   mkdirSync,
@@ -9,9 +10,8 @@ import {
 import { join } from 'node:path'
 import { saveConfig } from '@podium/runtime/config'
 import { applyMode } from '@podium/runtime/setup'
-import { Database } from 'bun:sqlite'
 
-type Role = 'source' | 'target'
+type Role = 'source' | 'target' | 'observer'
 
 interface ProcessEvidence {
   role: Role
@@ -35,8 +35,8 @@ interface ProcessEvidence {
 }
 
 const role = process.argv[2] as Role | undefined
-if (role !== 'source' && role !== 'target')
-  throw new Error('usage: machine-supervisor.ts source|target')
+if (role !== 'source' && role !== 'target' && role !== 'observer')
+  throw new Error('usage: machine-supervisor.ts source|target|observer')
 
 const stateRoot = process.env.PODIUM_STATE_DIR
 if (!stateRoot || stateRoot === '/' || stateRoot.includes('.podium')) {
@@ -146,7 +146,7 @@ async function writeEvidence(): Promise<void> {
 }
 
 async function waitForPairCode(): Promise<string> {
-  const path = join(coordRoot, 'pair-code')
+  const path = join(coordRoot, role === 'observer' ? 'observer-pair-code' : 'pair-code')
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
     if (existsSync(path)) {
@@ -158,10 +158,13 @@ async function waitForPairCode(): Promise<string> {
   throw new Error('target timed out waiting for the source pairing code')
 }
 
-if (role === 'target') {
+if (role === 'target' || role === 'observer') {
   saveConfig({
     mode: 'daemon',
-    serverUrl: 'ws://control-proxy:18789',
+    serverUrl:
+      role === 'target'
+        ? (process.env.PODIUM_TRANSFER_SOURCE_URL ?? 'ws://control-proxy:18789')
+        : 'ws://source:18787',
     pairCode: await waitForPairCode(),
   })
 }

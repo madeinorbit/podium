@@ -41,8 +41,8 @@ import {
   MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
   releaseCarriesNewMigrations,
-  restartAfterGrant,
   resolveOnBoot,
+  restartAfterGrant,
   shouldClearPendingGrantOnBoot,
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
@@ -106,6 +106,14 @@ export async function createDaemonHostRuntime(args: {
   build: PeerBuild
   installDir: string | undefined
   send: (message: DaemonMessage) => void
+  endpointHandoff: Pick<
+    DaemonContext,
+    | 'probeServerTransferCandidate'
+    | 'quiesceServerEndpoint'
+    | 'resumeServerEndpoint'
+    | 'prepareServerEndpointCommit'
+    | 'activateServerEndpoint'
+  >
 }): Promise<DaemonHostRuntime> {
   const { options: opts, instance, build, installDir, send } = args
   const config = loadConfig()
@@ -556,6 +564,7 @@ export async function createDaemonHostRuntime(args: {
         return expected
       }),
     retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
+    ...args.endpointHandoff,
     applyUpdateGrant,
   }
   const frameGuard = createFrameGuard(ctx)

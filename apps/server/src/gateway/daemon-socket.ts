@@ -24,11 +24,7 @@
  * socket confers exactly what a remote pairing confers and nothing more.
  */
 
-import {
-  type DaemonHandshakeReply,
-  type MachinePrincipal,
-  type PeerHelloReply,
-} from '@podium/protocol'
+import type { DaemonHandshakeReply, MachinePrincipal, PeerHelloReply } from '@podium/protocol'
 import {
   type ControlMessage,
   encodeDaemonMessage,
@@ -192,7 +188,12 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       // is no such field today, and an injected one is inert) can never become
       // the routing identity.
       const message = parseDaemonMessage(raw.toString())
-      if (registry.recoveryOnly && message.type !== 'serverTransferResult') return
+      if (
+        registry.recoveryOnly &&
+        message.type !== 'serverTransferResult' &&
+        message.type !== 'serverEndpointResult'
+      )
+        return
       registry.gateway.routeDaemonFrame(principal, message)
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but

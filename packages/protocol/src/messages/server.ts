@@ -9,7 +9,6 @@ import { ApprovalsChangedMessage } from './approvals'
 import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './automations'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { ConversationsChangedMessage } from './discovery'
-import { SetLogLevelMessage } from './logs'
 import {
   FeedBootstrapMessage,
   FeedDeltaMessage,
@@ -25,11 +24,13 @@ import {
   WorktreesChangedMessage,
 } from './host'
 import { IssuesChangedMessage, IssueUpdatedMessage } from './issues'
+import { SetLogLevelMessage } from './logs'
 import {
   SessionAgentStateChangedMessage,
   SessionsChangedMessage,
   SessionViewDeltaMessage,
 } from './runtime-state'
+import { ServerRelocationMessage } from './server-transfer'
 import { MetadataDeltaMessage } from './sync'
 import {
   AgentExitMessage,
@@ -105,5 +106,6 @@ export const ServerMessage = z.discriminatedUnion('type', [
   PresenceRoomDeltaMessage,
   PresenceRoomClosedMessage,
   SetLogLevelMessage,
+  ServerRelocationMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>

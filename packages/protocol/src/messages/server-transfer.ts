@@ -110,7 +110,10 @@ export const ServerTransferPrepareRequestMessage = z.object({
   manifest: ServerTransferManifest,
   manifestDigest: digest,
   publicUrl: z.string().min(1).max(2048),
+  bindHost: ServerBindHost,
   port: z.number().int().positive().max(65_535),
+  /** Opaque bearer used only by the target's ping-only candidate listener. */
+  reachabilityToken: z.string().min(32).max(512),
 })
 export type ServerTransferPrepareRequestMessage = z.infer<
   typeof ServerTransferPrepareRequestMessage
@@ -184,6 +187,61 @@ export const ServerTransferAcknowledgeRequestMessage = z.object({
 export type ServerTransferAcknowledgeRequestMessage = z.infer<
   typeof ServerTransferAcknowledgeRequestMessage
 >
+
+/** Source server -> connected daemon: prove the ping-only target is reachable, then buffer. */
+export const ServerEndpointProbeRequestMessage = z.object({
+  type: z.literal('serverEndpointProbeRequest'),
+  requestId,
+  transferId,
+  manifestDigest: digest,
+  publicUrl: z.string().min(1).max(2048),
+  reachabilityToken: z.string().min(32).max(512),
+  targetMachineId: machineId,
+})
+export type ServerEndpointProbeRequestMessage = z.infer<typeof ServerEndpointProbeRequestMessage>
+
+/** Source server -> quiesced daemon: authenticate the promoted server and durably switch to it. */
+export const ServerEndpointCommitRequestMessage = z.object({
+  type: z.literal('serverEndpointCommitRequest'),
+  requestId,
+  transferId,
+  publicUrl: z.string().min(1).max(2048),
+  targetMachineId: machineId,
+})
+export type ServerEndpointCommitRequestMessage = z.infer<typeof ServerEndpointCommitRequestMessage>
+
+/** Source server -> quiesced daemon: the pre-promotion move aborted; resume the old link. */
+export const ServerEndpointResumeRequestMessage = z.object({
+  type: z.literal('serverEndpointResumeRequest'),
+  requestId,
+  transferId,
+})
+export type ServerEndpointResumeRequestMessage = z.infer<typeof ServerEndpointResumeRequestMessage>
+
+export const ServerEndpointOperation = z.enum(['probe', 'commit', 'resume'])
+export type ServerEndpointOperation = z.infer<typeof ServerEndpointOperation>
+
+/** Connected daemon -> source server acknowledgement for endpoint handoff. */
+export const ServerEndpointResultMessage = z.object({
+  type: z.literal('serverEndpointResult'),
+  requestId,
+  transferId,
+  operation: ServerEndpointOperation,
+  ok: z.boolean(),
+  publicUrl: z.string().min(1).max(2048).optional(),
+  error: z.string().max(2_000).optional(),
+})
+export type ServerEndpointResultMessage = z.infer<typeof ServerEndpointResultMessage>
+
+/** Source server -> browser/native client: continue this exact client at the promoted origin. */
+export const ServerRelocationMessage = z.object({
+  type: z.literal('serverRelocation'),
+  transferId,
+  publicUrl: z.string().min(1).max(2048),
+  /** Short-lived one-shot browser claim. Sent only on the authenticated old socket. */
+  claimToken: z.string().min(32).max(512).optional(),
+})
+export type ServerRelocationMessage = z.infer<typeof ServerRelocationMessage>
 
 export const ServerTransferOperation = z.enum([
   'prepare',

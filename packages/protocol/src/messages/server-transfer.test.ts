@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { ControlMessage, DaemonMessage } from '../daemon'
 import {
-  SERVER_TRANSFER_MAX_CHUNK_BYTES,
   canonicalServerTransferManifest,
+  SERVER_TRANSFER_MAX_CHUNK_BYTES,
   ServerTransferChunkRequestMessage,
   ServerTransferErrorCode,
   ServerTransferResultMessage,
 } from './index'
-import { ControlMessage, DaemonMessage } from '../daemon'
 import { CONTROL_PLANE_CLASS, DAEMON_PLANE_CLASS } from './message-class'
 
 const transferId = '00000000-0000-4000-8000-000000000001'
@@ -72,6 +72,8 @@ describe('server transfer protocol', () => {
         ...common,
         manifest: { ...manifest, packageBytes: 3 },
         publicUrl: 'https://podium.example.com',
+        bindHost: '0.0.0.0',
+        reachabilityToken: 'r'.repeat(64),
         port: 24_444,
       },
       {
@@ -94,6 +96,21 @@ describe('server transfer protocol', () => {
       },
       { type: 'serverTransferAbortRequest', ...common, reason: 'cleanup' },
       { type: 'serverTransferInspectRequest', ...common },
+      {
+        type: 'serverEndpointProbeRequest',
+        ...common,
+        publicUrl: 'https://podium.example.com',
+        reachabilityToken: 'r'.repeat(64),
+        targetMachineId: 'target-machine',
+      },
+      {
+        type: 'serverEndpointCommitRequest',
+        requestId: common.requestId,
+        transferId,
+        publicUrl: 'https://podium.example.com',
+        targetMachineId: 'target-machine',
+      },
+      { type: 'serverEndpointResumeRequest', requestId: common.requestId, transferId },
     ]
 
     for (const request of requests) {
@@ -109,8 +126,12 @@ describe('server transfer protocol', () => {
       'serverTransferPromoteRequest',
       'serverTransferAbortRequest',
       'serverTransferInspectRequest',
+      'serverEndpointProbeRequest',
+      'serverEndpointCommitRequest',
+      'serverEndpointResumeRequest',
     ])
     expect(DAEMON_PLANE_CLASS.serverTransferResult).toBe('control.command')
+    expect(DAEMON_PLANE_CLASS.serverEndpointResult).toBe('control.command')
   })
 
   it('pins strong promoted proof and stable recovery metadata on the single result family', () => {

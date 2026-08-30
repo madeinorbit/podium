@@ -25,6 +25,8 @@ export const SERVER_MOVE_ERROR_COPY: Readonly<Record<string, string>> = {
   'reauthorization-denied': 'Your permission to move the server was revoked.',
   'target-rejected': 'The selected machine rejected the server state.',
   'target-proof-missing': 'The selected machine could not prove the copied state.',
+  'target-unreachable': 'The proposed target address is not reachable from every required machine.',
+  'fleet-handoff-failed': 'At least one connected machine could not switch to the new server.',
   'source-config-failed': 'Podium could not safely retire the old server.',
   'commit-uncertain': 'The switch may have completed; check the new server.',
   'handoff-orphaned': 'The new server proof does not match this move.',

@@ -333,6 +333,7 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
       manifestDigest: record.manifest?.digest,
       bytesCopied: record.bytesCopied,
       totalBytes: record.totalBytes,
+      offlineMachineIds: record.offlineMachineIds ?? [],
     })
   }
   run.promise = context.service.transfer(context.input, context.authorization, {

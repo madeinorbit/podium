@@ -41,12 +41,15 @@ import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
 import {
+  ServerEndpointCommitRequestMessage,
+  ServerEndpointProbeRequestMessage,
+  ServerEndpointResumeRequestMessage,
   ServerTransferAbortRequestMessage,
   ServerTransferAcknowledgeRequestMessage,
   ServerTransferChunkRequestMessage,
+  ServerTransferInspectRequestMessage,
   ServerTransferPrepareRequestMessage,
   ServerTransferPromoteRequestMessage,
-  ServerTransferInspectRequestMessage,
   ServerTransferValidateRequestMessage,
 } from './server-transfer'
 import {
@@ -137,6 +140,9 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ServerTransferAbortRequestMessage,
   ServerTransferAcknowledgeRequestMessage,
   ServerTransferInspectRequestMessage,
+  ServerEndpointProbeRequestMessage,
+  ServerEndpointCommitRequestMessage,
+  ServerEndpointResumeRequestMessage,
   ShippingJobRequestMessage,
   ShippingEvidenceRequestMessage,
   ShippingRepairApplyRequestMessage,

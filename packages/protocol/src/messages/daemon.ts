@@ -48,7 +48,7 @@ import {
   AgentObserverLiveConfirmationMessage,
   AgentStateMessage,
 } from './runtime-state'
-import { ServerTransferResultMessage } from './server-transfer'
+import { ServerEndpointResultMessage, ServerTransferResultMessage } from './server-transfer'
 import {
   ShippingEvidenceResultMessage,
   ShippingJobResultMessage,
@@ -217,6 +217,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   SessionOpenUrlMessage,
   SessionOpenUrlResultMessage,
   ServerTransferResultMessage,
+  ServerEndpointResultMessage,
   ShippingJobResultMessage,
   ShippingEvidenceResultMessage,
   ShippingRepairApplyResultMessage,

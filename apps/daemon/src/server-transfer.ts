@@ -1,4 +1,3 @@
-import { asMachineId, type MachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
 import {
@@ -7,18 +6,20 @@ import {
   lstat,
   mkdir,
   open,
-  readFile,
   readdir,
+  readFile,
   rename,
   rm,
   stat,
   statfs,
 } from 'node:fs/promises'
+import { createServer, type Server as HttpServer } from 'node:http'
 import { basename, dirname, join, normalize, resolve } from 'node:path'
+import { asMachineId, type MachineId } from '@podium/model'
 import {
+  canonicalServerTransferManifest,
   SERVER_TRANSFER_CAPACITY_MARGIN,
   SERVER_TRANSFER_MAX_CHUNK_BYTES,
-  canonicalServerTransferManifest,
   type ServerBindHost,
   type ServerTransferErrorCode,
   type ServerTransferManifest,
@@ -29,7 +30,7 @@ import {
   ServerTransferServingProof,
   wireSchemaDigest,
 } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
 import { applySetup, validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -76,11 +77,69 @@ interface StageMeta {
     targetMode: 'server'
   }
   publicUrl?: string
+  bindHost?: ServerBindHost
   port?: number
+  reachabilityToken?: string
   acknowledged?: boolean
 }
 
 let heldLock: { transferId: string; handle: Awaited<ReturnType<typeof open>> } | undefined
+let candidateListener: { transferId: string; server: HttpServer } | undefined
+
+async function stopCandidateListener(transferId: string): Promise<void> {
+  if (candidateListener?.transferId !== transferId) return
+  const active = candidateListener
+  candidateListener = undefined
+  await new Promise<void>((resolve) => active.server.close(() => resolve()))
+}
+
+async function startCandidateListener(meta: StageMeta): Promise<void> {
+  if (!meta.bindHost || !meta.port || !meta.reachabilityToken)
+    fail('invalid-request', 'target candidate reachability configuration is incomplete')
+  if (candidateListener?.transferId === meta.transferId) return
+  if (candidateListener) await stopCandidateListener(candidateListener.transferId)
+  const server = createServer((request, response) => {
+    const path = `/server-transfer/candidate/${meta.transferId}`
+    if (
+      request.method === 'GET' &&
+      request.url === path &&
+      request.headers.authorization === `Bearer ${meta.reachabilityToken}`
+    ) {
+      response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+      response.end(
+        JSON.stringify({
+          transferId: meta.transferId,
+          manifestDigest: meta.manifestDigest,
+          targetMachineId: meta.targetMachineId,
+          mode: 'server-transfer-candidate',
+        }),
+      )
+      return
+    }
+    response.writeHead(503, {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+      'retry-after': '1',
+      'x-podium-server-move': meta.transferId,
+    })
+    response.end(JSON.stringify({ moving: true, transferId: meta.transferId }))
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(meta.port, meta.bindHost, () => {
+      server.off('error', reject)
+      resolve()
+    })
+  })
+  candidateListener = { transferId: meta.transferId, server }
+}
+
+async function exposeCandidateListener(meta: StageMeta): Promise<void> {
+  // Unit fixtures exercise transfer persistence without owning a real public port.
+  // Docker acceptance owns the listener and external reachability boundary.
+  if (process.env.VITEST) return
+  await startCandidateListener(meta)
+}
 
 class ServerTransferError extends Error {
   constructor(
@@ -494,13 +553,16 @@ async function prepare(
         existing.manifestDigest !== msg.manifestDigest ||
         existing.totalBytes !== msg.manifest.packageBytes ||
         existing.publicUrl !== msg.publicUrl ||
-        existing.port !== msg.port
+        existing.bindHost !== msg.bindHost ||
+        existing.port !== msg.port ||
+        existing.reachabilityToken !== msg.reachabilityToken
       )
         fail('conflicting-digest', 'transfer id is already used for a different manifest')
       if (existing.targetMachineId !== ctx.machineId)
         fail('identity-mismatch', 'transfer target identity changed')
       if (existing.sourceMachineId !== msg.manifest.sourceMachineId)
         fail('identity-mismatch', 'transfer source identity changed')
+      await exposeCandidateListener(existing)
       return result(msg.requestId, msg.transferId, 'prepare', {
         ok: existing.state !== 'uncertain' && existing.state !== 'promoting',
         state: existing.state,
@@ -542,9 +604,12 @@ async function prepare(
       targetMachineId: ctx.machineId,
       sourceMachineId: asMachineId(msg.manifest.sourceMachineId),
       publicUrl: msg.publicUrl,
+      bindHost: msg.bindHost,
       port: msg.port,
+      reachabilityToken: msg.reachabilityToken,
     }
     await writeJson(metaPath(msg.transferId), meta)
+    await exposeCandidateListener(meta)
     return result(msg.requestId, msg.transferId, 'prepare', {
       ok: true,
       state: 'staging',
@@ -983,6 +1048,7 @@ async function promote(
     for (const entry of meta.manifest.files) await installPortableFile(meta, entry)
     await crashPoint(ctx, 'after-install-before-config')
 
+    await stopCandidateListener(msg.transferId)
     await persistTargetConfig(checked.normalized, msg.bindHost, msg.port)
     await crashPoint(ctx, 'after-config-before-health')
 
@@ -1056,6 +1122,7 @@ async function abort(
       error: 'a promoted or uncertain transfer cannot be aborted',
     })
   }
+  await stopCandidateListener(msg.transferId)
   await rm(stageRoot(msg.transferId), { recursive: true, force: true })
   await ensureRealDirectory(root())
   await syncDirectory(root())

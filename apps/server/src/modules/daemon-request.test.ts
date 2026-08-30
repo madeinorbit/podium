@@ -13,8 +13,8 @@
  */
 
 import { asMachineId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
 import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import { DaemonRequestBroker, daemonRequestKind } from './daemon-request'
@@ -259,6 +259,8 @@ describe('server transfer RPC', () => {
         },
         manifestDigest: 'a'.repeat(64),
         publicUrl: 'https://target.example.test',
+        bindHost: '0.0.0.0',
+        reachabilityToken: 'r'.repeat(64),
         port: 443,
       },
       asMachineId('target-machine'),
@@ -360,6 +362,8 @@ describe('server transfer RPC', () => {
           },
           manifestDigest: 'b'.repeat(64),
           publicUrl: 'https://target.example.test',
+          bindHost: '0.0.0.0',
+          reachabilityToken: 'r'.repeat(64),
           port: 443,
         },
         asMachineId('next-target'),
@@ -399,6 +403,8 @@ describe('server transfer RPC', () => {
           },
           manifestDigest: 'c'.repeat(64),
           publicUrl: 'https://target.example.test',
+          bindHost: '0.0.0.0',
+          reachabilityToken: 'r'.repeat(64),
           port: 443,
         },
         asMachineId('next-target'),

@@ -9,8 +9,8 @@ import type { AgentRelayHub } from '../agent-relay'
 import type { BindingStore } from '../binding-store'
 import type { BrowserOpenManager } from '../browser-open'
 import type { ComposerSyncEngine } from '../composer-sync'
-import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
+import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
 import type { SessionBinding } from '../session-binding'
@@ -124,6 +124,19 @@ export interface DaemonContext {
   serverTransferCrashPoint?: (
     point: import('../server-transfer').ServerTransferCrashPoint,
   ) => void | Promise<void>
+
+  /** Server-move endpoint handoff is owned by the reconnecting transport. */
+  probeServerTransferCandidate(input: {
+    transferId: string
+    manifestDigest: string
+    publicUrl: string
+    reachabilityToken: string
+    targetMachineId: MachineId
+  }): Promise<void>
+  quiesceServerEndpoint(transferId: string): void
+  resumeServerEndpoint(transferId: string): void
+  prepareServerEndpointCommit(transferId: string, publicUrl: string): Promise<string>
+  activateServerEndpoint(transferId: string): void
 
   /** Server-granted convergence is wired by the production composition root. */
   applyUpdateGrant: (

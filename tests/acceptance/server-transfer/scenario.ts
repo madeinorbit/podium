@@ -34,7 +34,6 @@ if (
 
 const sourceUrl = 'http://source:18787'
 const targetUrl = 'http://target:18787'
-const edgeUrl = 'http://edge:18787'
 const repoPath = '/fixture-repo'
 
 // A dropped promote reply is classified only after the production RPC's intentional 120s bound.
@@ -76,7 +75,7 @@ async function health(baseUrl: string): Promise<boolean> {
   }
 }
 
-function evidence(role: 'source' | 'target'): MachineEvidence {
+function evidence(role: 'source' | 'target' | 'observer'): MachineEvidence {
   return JSON.parse(readFileSync(`/coord/${role}-evidence.json`, 'utf8')) as MachineEvidence
 }
 
@@ -91,18 +90,24 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 
-async function pairTarget(source: ReturnType<typeof api>) {
-  const pairing = await source.machines.pairingCode.mutate()
-  writeCoord('pair-code', `${pairing.code}\n`)
-  return eventually(
+async function pairFleet(source: ReturnType<typeof api>) {
+  const targetPairing = await source.machines.pairingCode.mutate()
+  writeCoord('pair-code', `${targetPairing.code}\n`)
+  const targetMachines = await eventually(
     () => source.machines.list.query(),
     (machines) => machines.some((machine) => machine.hostname === 'target' && machine.online),
     'paired target daemon',
-  ).then((machines) => {
-    const target = machines.find((machine) => machine.hostname === 'target')
-    if (!target) throw new Error('paired target disappeared')
-    return target
-  })
+  )
+  const target = targetMachines.find((machine) => machine.hostname === 'target' && machine.online)
+  assert(target, 'paired target daemon disappeared')
+  const observerPairing = await source.machines.pairingCode.mutate()
+  writeCoord('observer-pair-code', `${observerPairing.code}\n`)
+  await eventually(
+    () => source.machines.list.query(),
+    (machines) => machines.some((machine) => machine.hostname === 'observer' && machine.online),
+    'paired unrelated daemon',
+  )
+  return target
 }
 
 async function createLiveFixture(source: ReturnType<typeof api>) {
@@ -144,13 +149,13 @@ async function createLiveFixture(source: ReturnType<typeof api>) {
 
 async function successCase(
   source: ReturnType<typeof api>,
-  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+  targetMachine: Awaited<ReturnType<typeof pairFleet>>,
 ): Promise<Record<string, unknown>> {
   const { agentSessionId, sessionId, sourceMachine } = await createLiveFixture(source)
   let output = ''
   let attaches = 0
   const hub = new SocketHub({
-    url: 'ws://edge:18787/client',
+    url: 'ws://source:18787/client',
     viewport: { cols: 80, rows: 24, dpr: 1 },
     onError: (message) => console.error(`[transfer-fixture:native-client] ${message}`),
   })
@@ -170,7 +175,7 @@ async function successCase(
   )
   const transfer = source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -242,6 +247,14 @@ async function successCase(
     const record = sourceEvidence.sourceJournal?.record as Record<string, unknown> | undefined
     assert(record?.probe, 'concurrent pre-copy write did not force a final restage')
   }
+  const observerEvidence = await eventually(
+    () => evidence('observer'),
+    (value) =>
+      value.config?.mode === 'daemon' &&
+      value.config?.serverUrl === 'ws://target:18787' &&
+      value.connectivity?.state === 'connected',
+    'unrelated daemon direct endpoint handoff',
+  )
   const targetApi = api(targetUrl)
   const importedSessions = await targetApi.sessions.list.query()
   assert(
@@ -294,18 +307,19 @@ async function successCase(
     importedConcurrentWrite: preCopyIssueTitle,
     activeDuringCopy,
     sourceEvidence,
+    observerEvidence,
     targetEvidence,
   }
 }
 
 async function lostReplyCase(
   source: ReturnType<typeof api>,
-  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+  targetMachine: Awaited<ReturnType<typeof pairFleet>>,
 ): Promise<Record<string, unknown>> {
   const { agentSessionId, sessionId } = await createLiveFixture(source)
   const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -439,12 +453,12 @@ async function waitForSourceDaemon() {
 
 async function fenceWriteCase(
   source: ReturnType<typeof api>,
-  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+  targetMachine: Awaited<ReturnType<typeof pairFleet>>,
 ): Promise<Record<string, unknown>> {
   await createLiveFixture(source)
   const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -496,12 +510,12 @@ async function fenceWriteCase(
 
 async function cancelCase(
   source: ReturnType<typeof api>,
-  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+  targetMachine: Awaited<ReturnType<typeof pairFleet>>,
 ): Promise<Record<string, unknown>> {
   const { sessionId } = await createLiveFixture(source)
   const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -546,12 +560,12 @@ async function cancelCase(
 
 async function retryCase(
   source: ReturnType<typeof api>,
-  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+  targetMachine: Awaited<ReturnType<typeof pairFleet>>,
 ): Promise<Record<string, unknown>> {
   await createLiveFixture(source)
   const first = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -563,7 +577,7 @@ async function retryCase(
   )
   const second = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -575,12 +589,12 @@ async function retryCase(
 
 async function restartResumeCase(
   source: ReturnType<typeof api>,
-  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+  targetMachine: Awaited<ReturnType<typeof pairFleet>>,
 ): Promise<Record<string, unknown>> {
   await createLiveFixture(source)
   const started = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -613,12 +627,12 @@ async function restartResumeCase(
 
 async function reclaimCase(
   source: ReturnType<typeof api>,
-  targetMachine: Awaited<ReturnType<typeof pairTarget>>,
+  targetMachine: Awaited<ReturnType<typeof pairFleet>>,
 ): Promise<Record<string, unknown>> {
   await createLiveFixture(source)
   const first = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -641,7 +655,7 @@ async function reclaimCase(
   )
   const second = await source.machines.moveServer.mutate({
     targetMachineId: targetMachine.id,
-    publicUrl: edgeUrl,
+    publicUrl: targetUrl,
     bindHost: '0.0.0.0',
     confirmation: 'TRANSFER SERVER',
   })
@@ -652,9 +666,8 @@ async function reclaimCase(
 }
 
 await eventually(() => health(sourceUrl), Boolean, 'source all-in-one health')
-await eventually(() => health(edgeUrl), Boolean, 'stable edge health')
 const source = api(sourceUrl)
-const targetMachine = await pairTarget(source)
+const targetMachine = await pairFleet(source)
 const result = await (async () => {
   if (scenario === 'g1' || scenario === 'g2' || scenario === 'g9')
     return successCase(source, targetMachine)

@@ -17,10 +17,10 @@ import type {
   ServerTransferManifestEntry,
   ServerTransferServingProof,
 } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
 import { canonicalServerTransferManifest } from '@podium/protocol'
-import { openDatabase } from '@podium/runtime/sqlite'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
 
@@ -129,7 +129,13 @@ async function invoke(
     handlers[type](
       ctx,
       (type === 'serverTransferPrepareRequest'
-        ? { publicUrl: 'https://podium.example.com', port: 24_444, ...message }
+        ? {
+            publicUrl: 'https://podium.example.com',
+            bindHost: '0.0.0.0',
+            port: 24_444,
+            reachabilityToken: 'r'.repeat(64),
+            ...message,
+          }
         : message) as never,
     )
   })
@@ -687,10 +693,7 @@ describe('server transfer target daemon', () => {
     ],
   ] as const)('requires an active target enrollment in a %s candidate', async (_, suffix, ok) => {
     const files = await candidateFiles()
-    files['enrollment.ledger'] = Buffer.concat([
-      files['enrollment.ledger']!,
-      Buffer.from(suffix),
-    ])
+    files['enrollment.ledger'] = Buffer.concat([files['enrollment.ledger']!, Buffer.from(suffix)])
     const manifest = Object.entries(files)
       .map(([path, content]) => fileEntry(path, content))
       .sort((a, b) => a.path.localeCompare(b.path))

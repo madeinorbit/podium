@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
+import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
   createHandshakeDialer,
@@ -8,21 +9,20 @@ import {
   type PeerCredential,
   type PeerHelloRejected,
 } from '@podium/protocol'
-import { type DaemonMessage } from '@podium/protocol/daemon'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
-import { consumePairCode } from '@podium/runtime/setup'
+import { applyServerUrl, consumePairCode, wssFrom } from '@podium/runtime/setup'
 import {
   acceptsUpdateKeyRotation,
-  updateKeyFingerprint,
   type UpdateKeyRotation,
+  updateKeyFingerprint,
 } from '@podium/runtime/update-key-trust'
 import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
-import { createLogger } from '@podium/logger'
 
 const log = createLogger('daemon:connection')
 
@@ -94,6 +94,10 @@ export interface DaemonConnection {
   readonly state: DaemonConnectionState
   start(): Promise<void>
   send(msg: DaemonMessage): void
+  quiesceEndpoint(transferId: string): void
+  resumeEndpoint(transferId: string): void
+  prepareEndpointCommit(transferId: string, publicUrl: string): Promise<string>
+  activateEndpoint(transferId: string): void
   close(): Promise<void>
 }
 
@@ -129,6 +133,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let pairFallbackTried = false
   let lastSocketError: string | undefined
   let convergedVersion: string | undefined
+  let activeServerUrl = options.serverUrl
+  let quiescedTransferId: string | undefined
+  let endpointActivationPending = false
+  let endpointTargetUrl: string | undefined
+  const quiescedFrames: DaemonMessage[] = []
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
   // per code/version until an authenticated machine transport exists; ordinary
   // runtime frames retain the historical drop-while-offline behavior.
@@ -149,7 +158,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     try {
       writeConnectivity(
         {
-          serverUrl: options.serverUrl,
+          serverUrl: activeServerUrl,
           processId: process.pid,
           appVersion: deps.build.appVersion ?? 'dev',
           ...(convergedVersion ? { convergedVersion } : {}),
@@ -304,6 +313,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       state: 'connected',
       lastHelloOkAt: new Date().toISOString(),
     })
+    if (quiescedTransferId && endpointTargetUrl === activeServerUrl) {
+      quiescedTransferId = undefined
+      endpointTargetUrl = undefined
+      for (const frame of quiescedFrames.splice(0)) sendConnected(frame)
+    }
     for (const diagnostic of pendingDiagnostics.values()) {
       if (localAttachment) localAttachment.deliver(diagnostic)
       else deps.sendApplicationFrame(socket, diagnostic)
@@ -464,10 +478,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (closing) return
     state = 'connecting'
     report({ state: 'connecting' })
-    const active = openSocket(`${options.serverUrl}/daemon`)
+    const active = openSocket(`${activeServerUrl}/daemon`)
     const generation = ++socketGeneration
     socket = active
-    const isCurrent = (): boolean => !closing && socket === active && socketGeneration === generation
+    const isCurrent = (): boolean =>
+      !closing && socket === active && socketGeneration === generation
     let dialer: ReturnType<typeof createHandshakeDialer> | undefined
     openDeadline = {
       generation,
@@ -526,8 +541,94 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       socket = undefined
       clearHandshakeDeadlines(generation)
       if (closing) return
-      scheduleReconnect()
+      if (endpointActivationPending) {
+        endpointActivationPending = false
+        reconnectBackoffMs = RECONNECT_MIN_MS
+        connectSocket()
+      } else {
+        scheduleReconnect()
+      }
     })
+  }
+
+  const sendConnected = (msg: DaemonMessage): void => {
+    if (localAttachment) {
+      localAttachment.deliver(msg)
+      return
+    }
+    deps.sendApplicationFrame(socket, msg)
+  }
+
+  const probeAuthenticatedEndpointOnce = (publicUrl: string): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const candidate = openSocket(`${wssFrom(publicUrl)}/daemon`)
+      let settled = false
+      let dialer: ReturnType<typeof createHandshakeDialer> | undefined
+      const timer = setTimeout(
+        () => finish(new Error('promoted server authentication timed out')),
+        3_000,
+      )
+      timer.unref?.()
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        try {
+          candidate.close()
+        } catch {}
+        if (error) reject(error)
+        else resolve()
+      }
+      const socketError = (error: unknown): Error => {
+        if (error instanceof Error) return error
+        if (typeof error === 'object' && error !== null && 'message' in error)
+          return new Error(String((error as { message?: unknown }).message))
+        return new Error(String(error))
+      }
+      candidate.once('open', () => {
+        try {
+          dialer = makeDialer()
+          candidate.send(JSON.stringify(dialer.hello()))
+        } catch (error) {
+          finish(socketError(error))
+        }
+      })
+      candidate.on('message', (raw) => {
+        if (!dialer || settled) return
+        const step = dialer.receive(raw.toString())
+        if (step.action === 'established') finish()
+        else if (step.action === 'protocol-error') finish(new Error(step.error))
+        else if (step.action === 'rejected')
+          finish(new Error(step.reply.message ?? step.reply.reason))
+      })
+      candidate.on('unexpected-response', (_request, response) =>
+        finish(
+          new Error(
+            `promoted server rejected the daemon upgrade with HTTP ${
+              response.statusCode ?? 'unknown'
+            }`,
+          ),
+        ),
+      )
+      candidate.on('error', (error) => finish(socketError(error)))
+      candidate.on('close', () => {
+        if (!settled) finish(new Error('promoted server closed the authentication probe'))
+      })
+    })
+
+  const probeAuthenticatedEndpoint = async (publicUrl: string): Promise<void> => {
+    const deadline = Date.now() + 15_000
+    let lastError = new Error('promoted server was not ready')
+    while (Date.now() < deadline) {
+      try {
+        await probeAuthenticatedEndpointOnce(publicUrl)
+        return
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 250))
+    }
+    throw lastError
   }
 
   return {
@@ -549,17 +650,49 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return ready
     },
     send(msg) {
+      if (quiescedTransferId && msg.type !== 'serverEndpointResult') {
+        quiescedFrames.push(msg)
+        return
+      }
       if (state !== 'connected') {
         if (msg.type === 'machineDiagnostic') {
           pendingDiagnostics.set(`${msg.code}\0${msg.observedVersion ?? ''}`, msg)
         }
         return
       }
-      if (localAttachment) {
-        localAttachment.deliver(msg)
-        return
+      sendConnected(msg)
+    },
+    quiesceEndpoint(transferId) {
+      // A final snapshot may replace the target stage (and therefore transfer id)
+      // while this same move remains quiesced. Re-key the hold without flushing it.
+      quiescedTransferId = transferId
+    },
+    resumeEndpoint(_transferId) {
+      // A failed final restage can leave this daemon holding the preceding stage id.
+      // The command arrives on the authenticated old-authority socket, so resuming
+      // that authority must release whichever stage of this move currently owns it.
+      if (!quiescedTransferId) return
+      quiescedTransferId = undefined
+      if (state === 'connected') for (const frame of quiescedFrames.splice(0)) sendConnected(frame)
+    },
+    async prepareEndpointCommit(transferId, publicUrl) {
+      if (quiescedTransferId !== transferId)
+        throw new Error('endpoint commit does not own this daemon quiesce')
+      await probeAuthenticatedEndpoint(publicUrl)
+      const applied = applyServerUrl(publicUrl)
+      activeServerUrl = applied.serverUrl
+      endpointTargetUrl = applied.serverUrl
+      return applied.serverUrl
+    },
+    activateEndpoint(transferId) {
+      if (quiescedTransferId !== transferId) return
+      endpointActivationPending = true
+      const active = socket
+      if (active) active.close()
+      else {
+        endpointActivationPending = false
+        connectSocket()
       }
-      deps.sendApplicationFrame(socket, msg)
     },
     async close() {
       closing = true

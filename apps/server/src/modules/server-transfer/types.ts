@@ -1,8 +1,8 @@
 import type { MachineId } from '@podium/model'
 import type {
-  ServerBindHost,
   ServerTransferManifest as ProtocolServerTransferManifest,
   ServerTransferManifestEntry as ProtocolServerTransferManifestEntry,
+  ServerBindHost,
   ServerTransferProof,
   ServerTransferServingProof,
 } from '@podium/protocol'
@@ -53,6 +53,10 @@ export interface TransferRecord {
   idempotencyKey: string
   targetProof: boolean
   sourceConnected: boolean
+  reachabilityToken?: string
+  quiescedMachineIds?: MachineId[]
+  endpointCommittedMachineIds?: MachineId[]
+  offlineMachineIds?: MachineId[]
   probe?: { transferId: string; manifestDigest: string }
 }
 
@@ -138,7 +142,9 @@ export interface ServerTransferRpc {
       sourceMachineId: MachineId
       manifest: ServerTransferManifest
       publicUrl: string
+      bindHost: ServerBindHost
       port: number
+      reachabilityToken: string
       packageLimits: { totalBytes: number; maxChunkBytes: number }
     },
     targetMachineId: MachineId,
@@ -232,6 +238,41 @@ export interface ServerTransferRpc {
   >
 }
 
+export interface ServerEndpointHandoff {
+  registeredMachineIds(): MachineId[]
+  onlineMachineIds(): MachineId[]
+  probeCandidate(input: {
+    transferId: string
+    manifestDigest: string
+    publicUrl: string
+    reachabilityToken: string
+    targetMachineId: MachineId
+  }): Promise<void>
+  probeMachine(
+    input: {
+      transferId: string
+      manifestDigest: string
+      publicUrl: string
+      reachabilityToken: string
+      targetMachineId: MachineId
+    },
+    machineId: MachineId,
+  ): Promise<{ ok: boolean; error?: string }>
+  commitMachine(
+    input: {
+      transferId: string
+      publicUrl: string
+      targetMachineId: MachineId
+    },
+    machineId: MachineId,
+  ): Promise<{ ok: boolean; error?: string }>
+  resumeMachine(transferId: string, machineId: MachineId): Promise<{ ok: boolean; error?: string }>
+  /** Mint short-lived browser claims while their hashes can still enter the final snapshot. */
+  prepareClientRelocations(operationId: string): void
+  cancelClientRelocations(operationId: string): void
+  relocateClients(input: { transferId: string; publicUrl: string; operationId: string }): void
+}
+
 export const TRANSFER_FAILURE_CODES = {
   ACTIVE_TRANSFER: 'active-transfer',
   INVALID_CONFIRMATION: 'invalid-confirmation',
@@ -250,6 +291,8 @@ export const TRANSFER_FAILURE_CODES = {
   REAUTHORIZATION_DENIED: 'reauthorization-denied',
   TARGET_REJECTED: 'target-rejected',
   TARGET_PROOF_MISSING: 'target-proof-missing',
+  TARGET_UNREACHABLE: 'target-unreachable',
+  FLEET_HANDOFF_FAILED: 'fleet-handoff-failed',
   SOURCE_CONFIG_FAILED: 'source-config-failed',
   COMMIT_UNCERTAIN: 'commit-uncertain',
   HANDOFF_ORPHANED: 'handoff-orphaned',

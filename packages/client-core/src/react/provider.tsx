@@ -167,6 +167,8 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   onlineEvents?: OnlineEvents
   isOnline?: () => boolean
   heartbeatIntervalMs?: number
+  /** Platform-owned persistence/navigation for a promoted server endpoint. */
+  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Test seam: runtime timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
@@ -192,6 +194,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   onlineEvents,
   isOnline,
   heartbeatIntervalMs,
+  onServerRelocation,
   routerWindow,
   engineOverrides,
   unauthenticated = null,
@@ -256,6 +259,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         onlineEvents,
         isOnline,
         heartbeatIntervalMs,
+        onServerRelocation,
         routerWindow,
         ...engineOverrides,
       }),

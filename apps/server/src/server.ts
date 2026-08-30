@@ -53,7 +53,7 @@ import {
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
-import { openEnrollmentLedger, hasEnrollmentHistory } from './enrollment-ledger'
+import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
@@ -73,27 +73,27 @@ import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
+import { serverMoveAuthorization } from './modules/server-transfer/authorization'
 import {
   assertWritableServerBoot,
   legacyTransferInProgress,
   reconcileSafeServerTransferBoot,
   serverTransferBootMode,
 } from './modules/server-transfer/journal'
-import { serverMoveAuthorization } from './modules/server-transfer/authorization'
 import { serverMoveFaultHook } from './modules/server-transfer/operation'
+import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import {
   readNewestTargetPromotionMetadata,
   readPromotedTargetMetadata,
 } from './modules/server-transfer/target-status'
-import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
-import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import {
-  selectRemoteUpdateConsumers,
   isRemoteUpdateConsumer,
+  selectRemoteUpdateConsumers,
   wireDevBundlePublisher,
 } from './modules/updates/dev-publisher-wiring'
+import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import {
   createInstalledCoordinatorRestart,
   createInstalledCoordinatorUpdate,
@@ -784,8 +784,8 @@ export async function startServer(
       : recoveryOnly
         ? 'the coordinator is fenced in recovery-only mode'
         : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
-        ? 'the local participant is disabled for this run'
-        : 'no supervising parent is discoverable in the run registry'
+          ? 'the local participant is disabled for this run'
+          : 'no supervising parent is discoverable in the run registry'
     const note = `this machine will not report its build or appear online in its own fleet: ${why}`
     if (developmentRuntime.runningFromSource) log.debug(note)
     else log.warn(note)
@@ -861,9 +861,7 @@ export async function startServer(
         if (row.kind === 'server-move') {
           const details = row.operation?.details
           const targetMachineId =
-            details &&
-            typeof details === 'object' &&
-            typeof details.targetMachineId === 'string'
+            details && typeof details === 'object' && typeof details.targetMachineId === 'string'
               ? details.targetMachineId
               : undefined
           return {
@@ -939,13 +937,9 @@ export async function startServer(
   const deferredSourceJournal = registry.modules.serverTransfer.status()
   const deferredSourceMove =
     deferredSourceJournal &&
-    ['preparing', 'staged', 'validated', 'fence-pending'].includes(
-      deferredSourceJournal.state,
-    ) &&
+    ['preparing', 'staged', 'validated', 'fence-pending'].includes(deferredSourceJournal.state) &&
     deferredSourceJournal.record.sourceMachineId === hostMachineId &&
-    registry.modules.operations.engine.isAdoptionDeferred(
-      deferredSourceJournal.record.operationId,
-    )
+    registry.modules.operations.engine.isAdoptionDeferred(deferredSourceJournal.record.operationId)
       ? {
           operationId: deferredSourceJournal.record.operationId,
           transferId: deferredSourceJournal.record.transferId,
@@ -1010,17 +1004,11 @@ export async function startServer(
     let stopped = false
     const settle = async (): Promise<void> => {
       if (settling || stopped) return
-      if (
-        !registry.modules.operations.engine.isAdoptionDeferred(
-          deferredSourceMove.operationId,
-        )
-      ) {
+      if (!registry.modules.operations.engine.isAdoptionDeferred(deferredSourceMove.operationId)) {
         stopDeferredSourceMovePoll()
         return
       }
-      const targetOnline = registry.modules.machines.hasDaemon(
-        deferredSourceMove.targetMachineId,
-      )
+      const targetOnline = registry.modules.machines.hasDaemon(deferredSourceMove.targetMachineId)
       if (!targetOnline) return
       settling = true
       try {
@@ -1033,11 +1021,7 @@ export async function startServer(
             now: Date.now(),
           },
         )
-        if (
-          !registry.modules.operations.engine.isAdoptionDeferred(
-            deferredSourceMove.operationId,
-          )
-        )
+        if (!registry.modules.operations.engine.isAdoptionDeferred(deferredSourceMove.operationId))
           stopDeferredSourceMovePoll()
       } catch (error) {
         log.warn('deferred source server move adoption retry failed', {
@@ -1674,7 +1658,12 @@ export async function startServer(
           // sites; it is a row in the gateway's routing table now, so this
           // link routes the WHOLE daemon union through one seam.
           deliver: (msg) => {
-            if (registry.recoveryOnly && msg.type !== 'serverTransferResult') return
+            if (
+              registry.recoveryOnly &&
+              msg.type !== 'serverTransferResult' &&
+              msg.type !== 'serverEndpointResult'
+            )
+              return
             queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg))
           },
           close: () => {
@@ -1684,11 +1673,12 @@ export async function startServer(
         }
       },
     }
-    void (recoveryOnly
-      ? Promise.resolve()
-      : refreshTargetsOnBoot({
-          refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-        })
+    void (
+      recoveryOnly
+        ? Promise.resolve()
+        : refreshTargetsOnBoot({
+            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+          })
     ).then(() => {
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
@@ -1758,8 +1748,6 @@ export async function startServer(
               ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
               ['registry.dispose', () => registry.dispose()],
               ['store.close', () => store.close()],
-
-
             ],
           }),
       })

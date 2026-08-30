@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
@@ -55,6 +55,7 @@ import {
   NoDelegationsGranted,
 } from '@podium/sync'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
+import { hashToken } from './auth-route'
 import {
   type CommandPrincipal,
   onBehalfOfUser,
@@ -118,15 +119,16 @@ import {
   type SessionNoticeInfo,
 } from './modules/notify/service'
 import { createOperations, type OperationsModule } from './modules/operations'
+import { LIFECYCLE_EXCLUSION_GROUP } from './modules/operations/lifecycle'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { ReadPositionService } from './modules/read-position/service'
 import {
   restartSourceAfterRecovery,
   retireSourceAfterTransfer,
 } from './modules/server-transfer/lifecycle'
+import { serverMoveOperationKind } from './modules/server-transfer/operation'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
-import { serverMoveOperationKind } from './modules/server-transfer/operation'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
@@ -148,7 +150,6 @@ import {
   ShipwrightService,
   shipwrightApplyPatchThroughRelay,
 } from './modules/shipping/shipwright'
-import { LIFECYCLE_EXCLUSION_GROUP } from './modules/operations/lifecycle'
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
@@ -469,6 +470,9 @@ export class SessionRegistry {
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
     // the gateway owns it (POD-390), and the mux below is what mutates it.
     const clientRegistry = new ClientRegistry()
+    // Plaintext claims live only until this source tells its already-authenticated
+    // browser sockets to leave. Their hashes enter the final portable snapshot.
+    const clientRelocationClaims = new Map<string, Map<string, string>>()
     // The operator's log-level valve over that same connection set (POD-1920).
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
@@ -902,8 +906,91 @@ export class SessionRegistry {
           // POD-2700. `undefined` components mean NOT RECORDED, so only an
           // evaluated row that lacks the daemon component is refused.
           hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
-
         }
+      },
+      endpointHandoff: {
+        registeredMachineIds: () =>
+          machines
+            .listMachines()
+            .filter(
+              (machine) =>
+                machine.components === undefined || machine.components.includes('daemon'),
+            )
+            .map((machine) => machine.id),
+        onlineMachineIds: () => machines.onlineMachineIds(),
+        probeCandidate: async (input) => {
+          const endpoint = new URL(
+            `/server-transfer/candidate/${input.transferId}`,
+            input.publicUrl,
+          )
+          const response = await fetch(endpoint, {
+            headers: { authorization: `Bearer ${input.reachabilityToken}` },
+            signal: AbortSignal.timeout(10_000),
+          })
+          if (!response.ok) throw new Error(`target candidate returned HTTP ${response.status}`)
+          const proof = (await response.json()) as Record<string, unknown>
+          if (
+            proof.transferId !== input.transferId ||
+            proof.manifestDigest !== input.manifestDigest ||
+            proof.targetMachineId !== input.targetMachineId
+          ) {
+            throw new Error('target candidate reachability proof does not match the move')
+          }
+        },
+        probeMachine: async (input, machineId) => {
+          const result = await rpc.serverEndpointProbe(input, machineId)
+          return result.ok && result.operation === 'probe' && result.transferId === input.transferId
+            ? { ok: true }
+            : { ok: false, error: result.error ?? 'endpoint probe was refused' }
+        },
+        commitMachine: async (input, machineId) => {
+          const result = await rpc.serverEndpointCommit(input, machineId)
+          return result.ok &&
+            result.operation === 'commit' &&
+            result.transferId === input.transferId
+            ? { ok: true }
+            : { ok: false, error: result.error ?? 'endpoint commit was refused' }
+        },
+        resumeMachine: async (transferId, machineId) => {
+          const result = await rpc.serverEndpointResume(transferId, machineId)
+          return result.ok && result.operation === 'resume' && result.transferId === transferId
+            ? { ok: true }
+            : { ok: false, error: result.error ?? 'endpoint resume was refused' }
+        },
+        prepareClientRelocations: (operationId) => {
+          const claims = clientRelocationClaims.get(operationId) ?? new Map<string, string>()
+          const expiresAt = new Date(this.now() + 10 * 60_000).toISOString()
+          for (const client of clientRegistry.values()) {
+            if (claims.has(client.id)) continue
+            const token = randomBytes(32).toString('base64url')
+            this.store.auth.createClientSession(
+              hashToken(token),
+              client.principal.user,
+              expiresAt,
+              'server-transfer-claim',
+            )
+            claims.set(client.id, token)
+          }
+          clientRelocationClaims.set(operationId, claims)
+        },
+        cancelClientRelocations: (operationId) => {
+          const claims = clientRelocationClaims.get(operationId)
+          if (!claims) return
+          for (const token of claims.values()) this.store.auth.deleteClientSession(hashToken(token))
+          clientRelocationClaims.delete(operationId)
+        },
+        relocateClients: (input) => {
+          const claims = clientRelocationClaims.get(input.operationId)
+          for (const client of clientRegistry.values()) {
+            clientRegistry.deliver(client, {
+              type: 'serverRelocation',
+              transferId: input.transferId,
+              publicUrl: input.publicUrl,
+              ...(claims?.get(client.id) ? { claimToken: claims.get(client.id) } : {}),
+            })
+          }
+          clientRelocationClaims.delete(input.operationId)
+        },
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
