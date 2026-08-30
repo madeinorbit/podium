@@ -65,7 +65,7 @@ const realRepo = {
 
 const fakeTrpc = {
   discovery: {
-    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [realRepo], diagnostics: [] })) },
+    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [realRepo], diagnostics: [], machines: [] })) },
   },
   pins: { list: { query: vi.fn(async () => ({ panels: [], repos: [], worktrees: [] })) } },
   tabs: { listOrders: { query: vi.fn(async () => ({})) } },

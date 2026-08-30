@@ -30,7 +30,7 @@ type MemoryStorage = ReturnType<typeof memoryStorage>
 const makeApi = (): PodiumClientApi =>
   ({
     sync: { changesSince: { query: () => new Promise(() => {}) } },
-    discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [] }) } },
+    discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) } },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
     tabs: { listOrders: { query: async () => ({}) } },
     settings: {

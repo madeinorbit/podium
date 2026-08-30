@@ -91,7 +91,7 @@ vi.mock('@podium/client-core/socket-transport', () => ({
 
 const fakeTrpc = {
   discovery: {
-    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [], diagnostics: [] })) },
+    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [], diagnostics: [], machines: [] })) },
   },
   pins: { list: { query: vi.fn(async () => ({ panels: [], repos: [], worktrees: [] })) } },
   tabs: { listOrders: { query: vi.fn(async () => ({})) } },

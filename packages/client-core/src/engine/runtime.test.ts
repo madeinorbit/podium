@@ -144,7 +144,7 @@ function makeApi(): any {
     },
     discovery: {
       refreshRepos: {
-        mutate: vi.fn(async () => ({ repositories: [KNOWN_REPO], diagnostics: [] })),
+        mutate: vi.fn(async () => ({ repositories: [KNOWN_REPO], diagnostics: [], machines: [] })),
       },
     },
     pins: {
@@ -503,7 +503,7 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
 
   it('settles when there are no known worktrees at all', async () => {
     const api = makeApi()
-    api.discovery.refreshRepos.mutate = vi.fn(async () => ({ repositories: [], diagnostics: [] }))
+    api.discovery.refreshRepos.mutate = vi.fn(async () => ({ repositories: [], diagnostics: [], machines: [] }))
     const { engine, fatals } = makeEngine({ url: '/workspace?wt=%2Fgone&pane=dead', api })
     let notifications = 0
     engine.subscribe(() => {

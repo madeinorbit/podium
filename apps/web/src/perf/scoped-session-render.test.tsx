@@ -36,7 +36,7 @@ const recordCommit = vi.hoisted(() => (id: string): void => {
 
 const fakeTrpc = {
   sync: { changesSince: { query: () => new Promise(() => {}) } },
-  discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [] }) } },
+  discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) } },
   pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
   tabs: { listOrders: { query: async () => ({}) } },
   settings: {

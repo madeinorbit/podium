@@ -79,7 +79,7 @@ function stubApi(fixture: MobileStoreFixture): MobileTrpc {
   return {
     discovery: {
       refreshRepos: {
-        mutate: async () => ({ repositories: fixture.repos ?? [], diagnostics: [] }),
+        mutate: async () => ({ repositories: fixture.repos ?? [], diagnostics: [], machines: [] }),
       },
     },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
