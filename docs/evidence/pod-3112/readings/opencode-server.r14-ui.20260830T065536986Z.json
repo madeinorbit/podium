@@ -1,0 +1,81 @@
+{
+  "at": "2026-08-30T06:55:36.986Z",
+  "issue": "POD-3112",
+  "kind": "r14-ui-lifecycle-verification",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "52390cfaa0aea6e346647caed1f27104deccef4c",
+  "instance": "p3112-oc-ui-lifecycle-r14",
+  "ports": [
+    20324,
+    47336,
+    47337
+  ],
+  "providerPrompts": 2,
+  "proposal": {
+    "indicatorVisible": true,
+    "label": "Development release awaits approval",
+    "cardCount": 0,
+    "untoggled": true
+  },
+  "launch": {
+    "createRequests": [
+      {
+        "at": "2026-08-30T06:55:37.834Z",
+        "body": "{\"0\":{\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3112-oc-ui-lifecycle-r14/dummy-repo/.worktrees/issue-1-r14-lifecycle-ui-boundary\",\"machineId\":\"878b80f4-2eb3-4232-8738-bcb3bb0e6807\",\"issueId\":\"iss_a126cbc6-7453-4231-96ca-b9f8b54bfc97\",\"runtimeContract\":true}}"
+      }
+    ],
+    "identity": {
+      "sessionId": "960ce6b9-d72e-40bd-8263-fce8f38e7d2e",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server"
+    },
+    "nativeFirst": true,
+    "authenticatedVisibleCli": true
+  },
+  "first": {
+    "sentAt": "2026-08-30T06:55:45.752Z",
+    "inputDispatch": true,
+    "workingMs": 3205.1099090000007,
+    "terminalGrowthMs": 3205.1099090000007,
+    "providerReplyMs": 6059.849117000002,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2
+  },
+  "stop": {
+    "promptAt": "2026-08-30T06:55:53.342Z",
+    "promptToWorkingMs": 4132.398364000001,
+    "terminalGrowthMs": 3864.0448749999996,
+    "stopAt": "2026-08-30T06:55:58.214Z",
+    "stopToIdleMs": 527.158195,
+    "interruptRequests": [
+      {
+        "at": "2026-08-30T06:55:58.337Z",
+        "body": "{\"0\":{\"sessionId\":\"960ce6b9-d72e-40bd-8263-fce8f38e7d2e\"}}"
+      }
+    ],
+    "finalPhase": "idle",
+    "finalStatus": "live",
+    "processSurvived": true,
+    "durableInterruptCount": 2,
+    "naturalFinalSeen": true,
+    "nativeAfter": "true",
+    "chatAfter": "true"
+  },
+  "verdict": "FAIL",
+  "pins": {
+    "server": "52390cfaa0aea6e346647caed1f27104deccef4c",
+    "daemon": "52390cfaa0aea6e346647caed1f27104deccef4c",
+    "web": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "appVersion": "dev+03632de",
+      "sourceSha": "03632de",
+      "bundleVersion": "bundle+CeIq078a"
+    },
+    "opencodeVersion": "1.18.25",
+    "opencodeSha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "finishedAt": "2026-08-30T06:55:59.253Z"
+}
