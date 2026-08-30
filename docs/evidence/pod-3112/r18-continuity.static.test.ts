@@ -78,13 +78,39 @@ describe('r18 continuity selector contract', () => {
   })
   test('enables and selects the headless driver through visible product controls', () => {
     const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
+    const topBar = read('apps/web/src/app/TopBar.tsx')
+    const window = new Window()
+    const settingsControl = (markup: string): Element | null => {
+      window.document.body.innerHTML = markup
+      return window.document.querySelector(
+        '[data-testid="desktop-topbar"] button[aria-label="Settings"]',
+      )
+    }
 
-    expect(rig).toContain("getByRole('button',{name:'Settings',exact:true})")
+    expect(topBar).toContain('data-testid="desktop-topbar"')
+    expect(topBar).toContain('<UtilityNavItem')
+    expect(topBar).toContain('label="Settings"')
+    expect(rig).toContain(
+      "getByTestId('desktop-topbar').getByRole('button',{name:'Settings',exact:true})",
+    )
+    expect(rig).toContain('REFUSED Settings topbar control count')
     expect(rig).toContain("getByRole('button',{name:'Experimental',exact:true})")
     expect(rig).toContain("getByText('Headless session drivers',{exact:true})")
     expect(rig).toContain("getByRole('button',{name:'Driver',exact:true})")
     expect(rig).toContain("getByRole('menuitem',{name:exact('opencode-server')})")
     expect(rig).toContain("exact('opencode-server').test((await driver.innerText()).trim())")
+    expect(
+      settingsControl(`
+        <header data-testid="desktop-topbar">
+          <button aria-label="Settings"></button>
+        </header>
+        <button aria-label="Settings"></button>
+      `),
+    ).not.toBeNull()
+    expect(settingsControl('<header data-testid="desktop-topbar"></header>')).toBeNull()
+    expect(
+      settingsControl('<button data-testid="desktop-topbar" aria-label="Settings"></button>'),
+    ).toBeNull()
     expect(rig).not.toContain('PODIUM_RUNTIME_DRIVER=')
     expect(rig).not.toContain("m('sessions.create'")
     expect(rig).toContain("writeFileSync(base+'/a7a-ready'")
