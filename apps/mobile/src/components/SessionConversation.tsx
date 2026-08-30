@@ -19,6 +19,7 @@ import { Platform, StyleSheet, View } from 'react-native'
 import { useHub, useIssues, useMobileStore, useSessionDraft, useSessions } from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
+import { interruptSession } from '../lib/interrupt-session'
 import { sendOfferAction } from '../lib/send-offer-action'
 import { color } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
@@ -153,14 +154,7 @@ export function SessionConversation({
         readQueue: () => trpc.messages.ledger.query({ sessionId, limit: 100 }),
         retract: (id) => trpc.messages.cancel.mutate({ id }).then(() => {}),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
-        interrupt: async (messageId) => {
-          const result = await trpc.sessions.interrupt.mutate({
-            sessionId,
-            ...(messageId ? { messageId } : {}),
-          })
-          if (result?.ok === false)
-            throw new Error(result.reason ?? 'the agent refused the interrupt')
-        },
+        interrupt: (messageId) => interruptSession(trpc.sessions, sessionId, messageId),
         optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
       }),
     [

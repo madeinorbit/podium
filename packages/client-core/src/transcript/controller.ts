@@ -226,10 +226,13 @@ export class TranscriptController {
         if (reconnected) void this.refresh({ disclose: true }).catch(() => {})
       })
     }
+    const generation = this.generation
+    const initialRefresh = this.refresh()
+    const serial = this.readSerial
     try {
-      await this.refresh()
+      await initialRefresh
     } catch {
-      if (this.disposed) return
+      if (!this.accepts(generation, serial)) return
       const fallback = this.options.cache?.read(this.options.sessionId)
       this.patch({
         ...(this.state.items.length === 0 && fallback ? { items: fallback.items } : {}),
