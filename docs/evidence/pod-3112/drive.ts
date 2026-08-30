@@ -83,7 +83,7 @@ const PIN_DIR = join(ROOT, 'docs/evidence/pod-3112/pins')
 const AGENT_HOME =
   process.env.P3112_STATE_ROOT
     ? join(process.env.P3112_STATE_ROOT, 'agent-home')
-    : join(process.env.HOME ?? '', '.local/state/podium/p3112-oc-paired-r3/agent-home')
+    : join(process.env.HOME ?? '', '.local/state/podium/p3112-oc-paired-r4/agent-home')
 const REPLY_MS = Number(process.env.P3112_REPLY_MS ?? 180_000)
 const BUSY_MS = Number(process.env.P3112_BUSY_MS ?? 90_000)
 const STEP_MS = 500
@@ -169,7 +169,7 @@ function daemonTos(): boolean {
 
 async function pinFor(label: string): Promise<Pin> {
   const checkoutSha = outputOf('git', ['-C', ROOT, 'rev-parse', 'HEAD'])
-  const pinSha = process.env.P3112_PIN_SHA ?? 'd35c7ef7b630730f727365f25323427c67614386'
+  const pinSha = process.env.P3112_PIN_SHA ?? '2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd'
   const server = pidInfo(join(BASE, 'server.pid'))
   const daemon = pidInfo(join(BASE, 'daemon.pid'))
   const serverSha = existsSync(join(BASE, 'server.sha')) ? readFileSync(join(BASE, 'server.sha'), 'utf8').trim() : ''
@@ -408,7 +408,7 @@ function sessionProcesses(target: string): ProcessRow[] {
 }
 
 function instanceProcesses(): ProcessRow[] {
-  const inst = process.env.PODIUM_INSTANCE ?? 'p3112-oc-paired-r3'
+  const inst = process.env.PODIUM_INSTANCE ?? 'p3112-oc-paired-r4'
   const rows: ProcessRow[] = []
   for (const name of readdirSync('/proc')) {
     if (!/^\d+$/.test(name)) continue
@@ -529,27 +529,40 @@ async function runA1b() {
     const payloadObject = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
     const positionFrames = [...chat.positionFrames, ...reloaded.positionFrames]
     const framePosition = positionFrames.find((frame) => typeof frame.position === 'number' || typeof frame.queuePosition === 'number')
-    const text = JSON.stringify(payload)
-    const queuedFlag = /queued/i.test(text) && !/queued[^a-z]+false/i.test(text)
     const position =
       payloadObject?.position ?? payloadObject?.queuePosition ?? framePosition?.position ?? framePosition?.queuePosition ?? null
-    const hasPositionField = typeof position === 'number' || positionFrames.length > 0
-    const pass = queuedFlag && hasPositionField && secondAssistant.ok
+    const payloadHasPositionField = Boolean(
+      payloadObject && (Object.hasOwn(payloadObject, 'position') || Object.hasOwn(payloadObject, 'queuePosition')),
+    )
+    const frameHasPositionField = positionFrames.some(
+      (frame) => Object.hasOwn(frame, 'position') || Object.hasOwn(frame, 'queuePosition'),
+    )
+    const hasPositionField = payloadHasPositionField || frameHasPositionField
+    const queuedValue = payloadObject?.queued
+    const disposition = payloadObject?.disposition
+    const stillQueued = queuedValue === true && disposition === 'queued' && hasPositionField
+    const blockingDelivered = queuedValue !== true && disposition === 'delivered' && !hasPositionField
+    const finalStateConsistent = stillQueued || blockingDelivered
+    const survivedReload = secondUser.ok && secondAssistant.ok
+    const pass = finalStateConsistent && survivedReload
     const out = result(
       pass ? 'PASS' : 'FAIL',
       pass
-        ? 'busy send queued with a durable position, survived reload, and answered idle'
-        : 'busy send did not show a durable queue position or did not answer after reload',
+        ? stillQueued
+          ? 'busy send remained queued with a truthful position and survived reload'
+          : 'busy send upgraded to blocking delivery without a stale position and survived reload'
+        : 'busy send final state was contradictory or the user/reply did not survive reload',
       control,
       [
         'FIRST SEND        ' + short(firstSent),
         'SECOND SEND       ' + short(payload),
+        'FINAL STATE       ' + (stillQueued ? 'still-queued' : blockingDelivered ? 'blocking-delivered' : 'contradictory'),
         'QUEUE POSITION    ' + String(position),
         'POSITION FIELD    ' + hasPositionField,
         'RELOADED USER     ' + secondUser.ok + ' in ' + secondUser.ms + 'ms',
         'RELOADED REPLY    ' + secondAssistant.ok + ' in ' + secondAssistant.ms + 'ms',
       ],
-      { sid, first, queued, firstUser: firstUser.ok, working: working.samples, second: payload, secondUser: secondUser.ok, secondAssistant: secondAssistant.ok, position, hasPositionField },
+      { sid, first, queued, firstUser: firstUser.ok, working: working.samples, second: payload, secondUser: secondUser.ok, secondAssistant: secondAssistant.ok, position, hasPositionField, queuedValue, disposition, stillQueued, blockingDelivered, finalStateConsistent, survivedReload },
     )
     await reloaded.close()
     return out

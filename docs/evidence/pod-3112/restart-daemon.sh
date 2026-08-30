@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restart only the p3112-oc-paired-r3 daemon, keeping the same spawn SHA.
+# Restart only the p3112-oc-paired-r4 daemon, keeping the same spawn SHA.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=drive-env.sh
