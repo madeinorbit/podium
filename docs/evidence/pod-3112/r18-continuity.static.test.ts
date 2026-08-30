@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { Window } from 'happy-dom'
 
 const root = resolve(import.meta.dir, '../../..')
 const read = (path: string): string => readFileSync(resolve(root, path), 'utf8')
@@ -35,6 +36,45 @@ describe('r18 continuity selector contract', () => {
     expect(rig).not.toContain('redactedNormalizedTail:normalized')
 
     expect(composer).toContain('data-testid="cold-start-launch"')
+  })
+  test('selects only the exact populated issue-backed restored session', () => {
+    const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
+    const window = new Window()
+    window.document.body.innerHTML = `
+      <section data-testid="project-group" data-repository="DUM-1-A">
+        <button data-testid="project-group-label" aria-expanded="true"><span>DUM-1-A</span></button>
+        <div data-testid="unified-issue-row" data-issue-row="issue-dum"><button>DUM task</button></div>
+      </section>
+      <section data-testid="project-group" data-repository="FOREIGN">
+        <button data-testid="project-group-label" aria-expanded="true"><span>FOREIGN</span></button>
+        <div data-testid="unified-issue-row" data-issue-row="issue-foreign"><button>Foreign task</button></div>
+      </section>
+    `
+    const sessions = [
+      { sessionId: 'restored-dum', cwd: '/tmp/pod-3112-dum/DUM-1-A', issueId: 'issue-dum' },
+      { sessionId: 'foreign', cwd: '/tmp/pod-3112-dum/FOREIGN', issueId: 'issue-foreign' },
+    ]
+    const restoredIssueRow = (sessionId: string, cwd: string, repository: string) => {
+      const restored = sessions.filter((row) => row.sessionId === sessionId && row.cwd === cwd)
+      if (restored.length !== 1 || !restored[0]?.issueId) return null
+      const group = window.document.querySelector(
+        `[data-testid="project-group"][data-repository="${repository}"]`,
+      )
+      const rows = group?.querySelectorAll(
+        `[data-testid="unified-issue-row"][data-issue-row="${restored[0].issueId}"]`,
+      )
+      return rows?.length === 1 ? rows[0] : null
+    }
+
+    expect(restoredIssueRow('restored-dum', '/tmp/pod-3112-dum/DUM-1-A', 'DUM-1-A')).not.toBeNull()
+    expect(restoredIssueRow('absent', '/tmp/pod-3112-dum/DUM-1-A', 'DUM-1-A')).toBeNull()
+    expect(restoredIssueRow('foreign', '/tmp/pod-3112-dum/FOREIGN', 'DUM-1-A')).toBeNull()
+
+    expect(rig).toContain("row.sessionId===sid&&row.cwd===C")
+    expect(rig).toContain("restored.length!==1")
+    expect(rig).toContain('restored[0].issueId')
+    expect(rig).toContain('[data-testid="unified-issue-row"][data-issue-row="${issueId}"]')
+    expect(rig).toContain('issueCount!==1')
   })
   test('enables and selects the headless driver through visible product controls', () => {
     const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
