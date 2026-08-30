@@ -78,9 +78,9 @@ for owner in owners:
 required = (repo / 'scripts/node_modules/@podium/runtime', repo / 'apps/server/node_modules/@podium/runtime', repo / 'apps/daemon/node_modules/@podium/runtime')
 if any(not path.is_symlink() for path in required):
     raise SystemExit('refusing: required @podium/runtime workspace link is absent')
-env PODIUM_DRIVE_REPO="$PODIUM_DRIVE_REPO" PODIUM_INSTANCE="$PODIUM_INSTANCE" \
 print(f'checkout-local dependency graph ok: {len(workspace_links)} @podium links across scripts/server/daemon')
 PY
+env PODIUM_DRIVE_REPO="$PODIUM_DRIVE_REPO" PODIUM_INSTANCE="$PODIUM_INSTANCE" \
   bash "$PODIUM_DRIVE_REPO/docs/evidence/claim-instance.sh"
 ( cd "$PODIUM_DRIVE_REPO" && \
   env PODIUM_RIG_STATE_ROOT="$P3112_STATE_ROOT" PODIUM_INSTANCE="$PODIUM_INSTANCE" \
