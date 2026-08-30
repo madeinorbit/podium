@@ -1,0 +1,54 @@
+{
+  "recordedAt": "2026-08-30T17:54:25.506Z",
+  "issue": "POD-3112",
+  "kind": "r18-exact-tip-settings-control-refusal",
+  "verdict": "REFUSED",
+  "scored": false,
+  "reason": "The corrected r18 harness required exactly one visible Settings button under desktop-topbar and observed count 0 before session creation.",
+  "pins": {
+    "head": "b60c18c6060070311949dbdde9061573384ab624",
+    "localEpicTip": "b60c18c6060070311949dbdde9061573384ab624",
+    "serverBoot": "b60c18c6060070311949dbdde9061573384ab624",
+    "daemonBoot": "b60c18c6060070311949dbdde9061573384ab624",
+    "servedWebSourceSha": "252c8c4",
+    "servedWebReuseControl": "apps/web had no changed paths from 252c8c4 through b60c18c6060070311949dbdde9061573384ab624",
+    "opencodeVersion": "1.18.25",
+    "opencodeSha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "isolation": {
+    "instance": "p3112-final-b60-x9",
+    "productDerivedStateRoot": "/home/mgw/.local/state/podium/p3112-final-b60-x9",
+    "base": "/tmp/pod-3112-b60-final-x9",
+    "cwd": "/tmp/pod-3112-b60-final-x9/dummy-repo",
+    "ports": [21671, 48671, 48672],
+    "credentialPosture": "symlink",
+    "forbiddenTargetsUntouched": ["default", "operator", "instance.json", 19797, 32090]
+  },
+  "controls": {
+    "exactHeadAndEpicTip": "FIRED",
+    "cleanWorktreeBeforeLaunch": "FIRED",
+    "freshNamedInstanceStateAndPorts": "FIRED",
+    "checkoutLocalDependencies": "FIRED",
+    "serverHealth": "FIRED",
+    "daemonConnection": "FIRED",
+    "providerBinaryHash": "FIRED",
+    "freshRepositoryRegistration": "FIRED",
+    "settingsTopbarLocator": "MISSING",
+    "sessionCreated": false,
+    "providerPrompts": 0,
+    "a7a": "UNSCORED",
+    "a7b": "NOT ATTEMPTED"
+  },
+  "rawEvidenceSha256": {
+    "r18-reading.json": "39a9f48f6b46ffe6ba255a0f43bcc805f7aa29a2434d38d5a354ddde8af18132",
+    "server.log": "3e95ef163f8ac942392dbc473afe830c54c8f176edbc942748b1ac022ddc2dd4",
+    "daemon.log": "0fa9bc4fe2a95f01b0d38c6ab7c46ac58742d2e54c1fce397c7601baafcdb985"
+  },
+  "cleanup": {
+    "completedAt": "2026-08-30T17:54:54+02:00",
+    "ownedProcesses": "none",
+    "ownedListeners": "none",
+    "credentialSymlinkExists": false
+  },
+  "ledger": "No eight-field row appended because the independent UI control did not fire."
+}
