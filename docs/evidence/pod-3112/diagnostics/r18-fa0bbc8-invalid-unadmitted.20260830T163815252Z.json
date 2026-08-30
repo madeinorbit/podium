@@ -1,0 +1,92 @@
+{
+  "issue": "POD-3112",
+  "kind": "r18-a7b-invalid-unadmitted",
+  "verdict": "INVALID",
+  "scored": false,
+  "invalidReason": "unleased heavy web build",
+  "artifactReused": false,
+  "invalidatedAt": "2026-08-30T16:41:00Z",
+  "integrationPin": "fa0bbc8ac752c32a2de13d6835938b2633638f31",
+  "headAndMergeBaseExact": true,
+  "hostHealth": {
+    "memAvailableGiB": 14,
+    "blockedTasks": 0,
+    "vmstatSwapOutDuringSampleKiB": 0,
+    "classification": "not thrashing"
+  },
+  "web": {
+    "sourceSha": "fa0bbc8",
+    "appVersion": "dev+fa0bbc8",
+    "bundleVersion": "bundle+Bj8FJqxA",
+    "wireSchemaDigest": "325e219a891fc6c8"
+  },
+  "bootPins": {
+    "server": "fa0bbc8ac752c32a2de13d6835938b2633638f31",
+    "daemon": "fa0bbc8ac752c32a2de13d6835938b2633638f31",
+    "web": "fa0bbc8"
+  },
+  "providerBinary": {
+    "path": "/home/mgw/.opencode/bin/opencode",
+    "version": "1.18.25",
+    "sha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "instance": {
+    "name": "p3112-a7b-fa0bbc-r1",
+    "base": "/tmp/pod-3112-a7b-fa0bbc-r1",
+    "derivedStateRoot": "/home/mgw/.local/state/podium/p3112-a7b-fa0bbc-r1",
+    "ports": [23171, 50171, 50172],
+    "machineId": "9b7713f7-0377-4077-b124-5eb99606f5f9",
+    "updateChannel": "edge",
+    "dummyCommit": "d17e35c69fe66239a8fb5b4c7c35b74c85387e9e",
+    "credentialPosture": "approved symlink; credential bytes not read or copied"
+  },
+  "launch": {
+    "sessionId": "f8689c49-e286-4640-864b-65bb07166e8c",
+    "createdAt": "2026-08-30T16:36:05.534Z",
+    "driverId": "opencode-server",
+    "requestedDriverId": "opencode-server",
+    "driverFamily": "server",
+    "accountId": "native:opencode",
+    "resumeKind": "opencode-session",
+    "cwd": "/tmp/pod-3112-a7b-fa0bbc-r1/dummy-repo",
+    "nativeFirst": true,
+    "nativeScreenLength": 3200,
+    "providerPrompts": 1
+  },
+  "unscoredObservation": {
+    "reason": "Error: Unable to connect. Is the computer able to access the url?",
+    "boundary": "initial provider seed positive control",
+    "providerRequestStarted": true,
+    "providerLogRequestAt": "2026-08-30T16:36:21.143Z",
+    "providerLogLoopExitedAt": "2026-08-30T16:36:22.351Z",
+    "seedControlFired": false,
+    "daemonRestartAttempted": false,
+    "a7aAttempted": false,
+    "a7bAttempted": false,
+    "classification": "diagnostic only; the underlying artifact was inadmissible and this observation cannot be classified or scored"
+  },
+  "rawEvidenceSha256": {
+    "r18Reading": "c7afc92f9d6ac3cfaf8b3c08a9d853db4ea7c01e8d678667dc031dfe66b0dca5",
+    "serverLog": "75d74db364863347cd94c28e01a777727d8c35ba683840628aeb1b5e2080982f",
+    "daemonLog": "6e870b7c3d632307a6046544d2ae78b29d7804df3c6dc7ffd2f13e2a4b721baa",
+    "opencodeLog": "3838ff3e918f8abc7243de1417780524db938a7b4175489daa00a4b780ba103f"
+  },
+  "fences": {
+    "restartReadyCreated": false,
+    "a7aReadyCreated": false,
+    "a7aContinueCreated": false,
+    "acceptanceRowsWritten": 0,
+    "blindRetry": false,
+    "artifactRetainedForScoring": false
+  },
+  "teardown": {
+    "driveDownCompleted": true,
+    "manualExactOwnedPids": [1072336, 1072093],
+    "manualPidOwnershipVerifiedByInstanceAndAgentHome": true,
+    "ownedProcessesRemaining": 0,
+    "portsClear": true,
+    "exactClearedPorts": [23171, 50171, 50172, 36019],
+    "credentialSymlinkRemoved": true,
+    "outsideNamedInstanceTouched": false
+  }
+}
