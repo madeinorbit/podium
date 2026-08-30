@@ -90,12 +90,15 @@ interface WorldOptions {
    */
   hostsClientTerminals?: boolean | 'spectators-only'
   stageAttachment?: OpencodeRuntimeHost['stageAttachment']
+  makeClient?: (config: Parameters<typeof createOpencodeClient>[0]) => OpencodeClient
 }
 
 function makeWorld(options: WorldOptions = {}): {
   target: ConformanceTarget
   prompt(sessionId: SessionId): ReturnType<FakeOpencodeServer['lastPrompt']>
   failTurn(sessionId: SessionId): void
+  goBusy(sessionId: SessionId): void
+  goIdle(sessionId: SessionId): void
   observed: Array<{ sessionId: SessionId; model: string; effort?: string }>
   /** The same channel with the error the caller names — `MessageAborted` is the
    *  one opencode sends for a cancelled turn (POD-2792). */
@@ -226,7 +229,7 @@ function makeWorld(options: WorldOptions = {}): {
     now: () => Date.UTC(2026, 7, 14) + seq * 1000,
     randomSecret: () => `fake-secret-${++seq}`,
     mintSessionId: () => `oc-session-${++seq}` as SessionId,
-    makeClient: (config) => createOpencodeClient(config) satisfies OpencodeClient,
+    makeClient: options.makeClient ?? ((config) => createOpencodeClient(config)),
   }
 
   const serverFor = (sessionId: SessionId): FakeOpencodeServer => {
@@ -466,6 +469,8 @@ function makeWorld(options: WorldOptions = {}): {
   return {
     observed,
     prompt: (sessionId) => serverFor(sessionId).lastPrompt(opencodeIdFor(sessionId)),
+    goBusy: (sessionId) => serverFor(sessionId).goBusy(opencodeIdFor(sessionId)),
+    goIdle: (sessionId) => serverFor(sessionId).goIdle(opencodeIdFor(sessionId)),
     failTurn: (sessionId) =>
       serverFor(sessionId).emit('session.error', {
         sessionID: opencodeIdFor(sessionId),
@@ -637,6 +642,128 @@ describe('opencode provider failure detail', () => {
     }
   })
 })
+describe('OpenCode provider-started turns', () => {
+  it('projects working when an attached TUI starts a turn', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      world.goBusy(handle.binding.sessionId)
+      await vi.waitFor(async () => expect((await handle.state()).phase).toBe('working'))
+      world.goIdle(handle.binding.sessionId)
+      await vi.waitFor(async () => expect((await handle.state()).phase).toBe('idle'))
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+describe('OpenCode interrupt request truthfulness', () => {
+  const interruptMarks = (events: RuntimeEvent[]) =>
+    events.filter(
+      (event) =>
+        event.t === 'item' &&
+        event.item.kind === 'complete' &&
+        event.item.item.event === 'interrupt',
+    )
+
+  const collect = (
+    handle: { events(provenance: 'bootstrap'): AsyncIterable<RuntimeEvent> },
+    events: RuntimeEvent[],
+  ) => {
+    void (async () => {
+      try {
+        for await (const event of handle.events('bootstrap')) events.push(event)
+      } catch {}
+    })()
+  }
+
+  const rejectingWorld = () =>
+    makeWorld({
+      makeClient: (config) => {
+        const client = createOpencodeClient(config)
+        return {
+          ...client,
+          abort: async () => {
+            throw new Error('abort delivery rejected')
+          },
+        }
+      },
+    })
+
+  it('clears a rejected direct interrupt before an unrelated idle', async () => {
+    const world = rejectingWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const events: RuntimeEvent[] = []
+      collect(handle, events)
+      await handle.send({ text: 'long task' }, { origin: 'human', delivery: 'when-ready' })
+      await expect(handle.interrupt()).rejects.toThrow('abort delivery rejected')
+      world.goIdle(handle.binding.sessionId)
+      await vi.waitFor(async () => expect((await handle.state()).phase).toBe('idle'))
+      expect(interruptMarks(events)).toEqual([])
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('returns a typed refusal for rejected interrupt delivery without a stale mark', async () => {
+    const world = rejectingWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const events: RuntimeEvent[] = []
+      collect(handle, events)
+      await handle.send({ text: 'long task' }, { origin: 'human', delivery: 'when-ready' })
+      await expect(
+        handle.send({ text: 'replacement' }, { origin: 'human', delivery: 'interrupt' }),
+      ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'not_running' } })
+      world.goIdle(handle.binding.sessionId)
+      await vi.waitFor(async () => expect((await handle.state()).phase).toBe('idle'))
+      expect(interruptMarks(events)).toEqual([])
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('shares overlapping abort callers so one success owns one confirmed mark', async () => {
+    let release: (() => void) | undefined
+    const accepted = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let abortCalls = 0
+    const world = makeWorld({
+      makeClient: (config) => {
+        const client = createOpencodeClient(config)
+        return {
+          ...client,
+          abort: async () => {
+            abortCalls += 1
+            await accepted
+          },
+        }
+      },
+    })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const events: RuntimeEvent[] = []
+      collect(handle, events)
+      await handle.send({ text: 'long task' }, { origin: 'human', delivery: 'when-ready' })
+      const first = handle.interrupt()
+      const second = handle.interrupt()
+      release?.()
+      await Promise.all([first, second])
+      expect(abortCalls).toBe(1)
+      world.goIdle(handle.binding.sessionId)
+      await vi.waitFor(() => expect(interruptMarks(events)).toHaveLength(1))
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
 /**
  * AN ABORTED TURN IS INTERRUPTED, NOT BROKEN (POD-2792).
  *

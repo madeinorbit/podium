@@ -313,6 +313,8 @@ interface DriverSession {
   /** An abort was requested and no terminal event has landed yet. The fence's
    *  verdict reads this so an interrupted turn is reported as interrupted. */
   interruptPending: boolean
+  /** The one abort POST currently in flight. Concurrent callers share it. */
+  interruptRequest: Promise<void> | undefined
   interactions: Map<string, PendingInteraction>
   /** Asks this driver saw CLOSE, so a second answer is `already-answered`
    *  rather than `unknown-interaction`. The distinction is the whole of the
@@ -575,6 +577,9 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         if (opened) {
           session.turnEpoch = Math.max(session.turnEpoch, session.fencedTurnEpoch) + 1
           persist(session)
+          if (session.interactions.size === 0) {
+            session.state = { phase: 'working', since: at, nativeSubagentCount: 0 }
+          }
         }
         const change = statusToStateEvent(event.properties.status, at)
         if (change) emit(session, { t: 'state', change }, at)
@@ -860,6 +865,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     const interrupted = session.interruptPending
     session.busy = false
     session.interruptPending = false
+    session.interruptRequest = undefined
     const completedConfiguration = session.observedConfiguration
     session.observedConfiguration = undefined
     persist(session)
@@ -1097,6 +1103,22 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       if (attempt < DEATH_PROBES - 1) await sleep(DEATH_PROBE_GAP_MS)
     }
     return !session.disposed
+  }
+
+  async function requestInterrupt(session: DriverSession): Promise<void> {
+    if (session.interruptPending && !session.interruptRequest) return
+    if (session.interruptRequest) return session.interruptRequest
+    session.interruptPending = true
+    const request = Promise.resolve().then(() => session.client.abort(session.opencodeSessionId))
+    session.interruptRequest = request
+    try {
+      await request
+    } catch (error) {
+      if (session.interruptRequest === request) session.interruptPending = false
+      throw error
+    } finally {
+      if (session.interruptRequest === request) session.interruptRequest = undefined
+    }
   }
 
   // -- sending --------------------------------------------------------------
@@ -1525,9 +1547,8 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         }
 
         if (wanted === 'interrupt' && session.busy) {
-          session.interruptPending = true
           try {
-            await session.client.abort(session.opencodeSessionId)
+            await requestInterrupt(session)
           } catch (err) {
             return refuse('not_running', String(err))
           }
@@ -1591,10 +1612,9 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
       async interrupt(): Promise<void> {
         if (session.disposed || !session.busy) return
-        session.interruptPending = true
         // REQUESTS the stop. The fence arrives on `session.idle` like every other
         // turn end, which is why nothing is returned to await.
-        await session.client.abort(session.opencodeSessionId).catch(() => {})
+        await requestInterrupt(session)
       },
 
       async answer(
@@ -1998,6 +2018,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       observedConfiguration: undefined,
       fencedTurnEpoch: Math.max(carried?.fencedTurnEpoch ?? 0, journalled?.fencedTurnEpoch ?? 0),
       interruptPending: false,
+      interruptRequest: undefined,
       interactions: new Map(),
       answered: new Set(),
       messages: new Map(),
