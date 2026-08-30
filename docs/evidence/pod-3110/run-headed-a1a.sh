@@ -95,7 +95,7 @@ test_invocation() {
 }
 
 static_self_test() {
-  local root marker rig fail_drive mutate_drive rc original_marker mutate_stderr expected_protected
+  local root marker rig fail_drive mutate_drive rc original_marker mutate_stderr expected_protected old_instance new_instance old_state new_state ports
   root="$(mktemp -d)"
   trap 'rm -rf -- "$root"' RETURN
   marker="$root/instance.json"
@@ -106,6 +106,14 @@ static_self_test() {
   expected_protected="${HOME:?HOME must be inherited}/.podium/instance.json"
   [ "$PROTECTED_MARKER" = "$expected_protected" ] || { printf '%s\n' "STATIC SELF TEST protected path mismatch: $PROTECTED_MARKER" >&2; return 1; }
   [ -f "$PROTECTED_MARKER" ] || { printf '%s\n' "STATIC SELF TEST live protected marker missing: $PROTECTED_MARKER" >&2; return 1; }
+  old_instance=p3110-grok-paired-057755c
+  new_instance=p3110-grok-paired-057755c-r2
+  [ "$old_instance" != "$new_instance" ] || { printf '%s\n' 'STATIC SELF TEST instance ids collide' >&2; return 1; }
+  old_state="$(env -u PODIUM_STATE_DIR -u XDG_STATE_HOME PODIUM_INSTANCE="$old_instance" "$BUN" --conditions=@podium/source -e 'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())')"
+  new_state="$(env -u PODIUM_STATE_DIR -u XDG_STATE_HOME PODIUM_INSTANCE="$new_instance" "$BUN" --conditions=@podium/source -e 'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())')"
+  [ "$old_state" != "$new_state" ] || { printf '%s\n' 'STATIC SELF TEST state roots collide' >&2; return 1; }
+  [ ! -e "$new_state/instance.json" ] || { printf '%s\n' "STATIC SELF TEST new marker exists: $new_state/instance.json" >&2; return 1; }
+  ports="$(env -u PODIUM_STATE_DIR PODIUM_INSTANCE="$new_instance" "$BUN" --conditions=@podium/source -e 'import { defaultInstancePorts } from "@podium/runtime/instance"; const p=defaultInstancePorts(process.env.PODIUM_INSTANCE); console.log(`${p.server},${p.hook},${p.agentRelay}`)')"
   printf '%s\n' '{"protected":true}' >"$marker"
   original_marker="$(sha256sum "$marker" | awk '{print $1}')"
   printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$1" >>"$P3110_TEST_EVENTS"' >"$rig"
@@ -132,7 +140,7 @@ static_self_test() {
   [ "$(sha256sum "$marker" | awk '{print $1}')" != "$original_marker" ] || { printf '%s\n' 'STATIC SELF TEST marker bytes did not change' >&2; return 1; }
   grep -Fx 'drive-succeeded' "$root/events" >/dev/null || { printf '%s\n' 'STATIC SELF TEST mutate child did not succeed' >&2; return 1; }
   [ "$(sed -n '$p' "$root/events")" = down ] || { printf '%s\n' 'STATIC SELF TEST marker change skipped down' >&2; return 1; }
-  printf '%s\n' 'ATOMIC_STATIC_SELF_TEST_OK protected-path=exact live-marker=exists early-drive-rc=23 down=invoked mutate-child=succeeded marker-bytes=changed exact-refusal=matched'
+  printf '%s\n' "ATOMIC_STATIC_SELF_TEST_OK protected-path=exact live-marker=exists old-new-instance=distinct old-new-state=distinct new-marker=absent ports=$ports early-drive-rc=23 down=invoked mutate-child=succeeded marker-bytes=changed exact-refusal=matched"
 }
 
 case "${1:-}" in

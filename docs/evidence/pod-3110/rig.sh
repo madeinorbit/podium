@@ -11,14 +11,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-INSTANCE="p3110-grok-paired-057755c"
-DRIVE_BASE="/tmp/pod-3110-grok-paired-057755c"
+INSTANCE="p3110-grok-paired-057755c-r2"
+DRIVE_BASE="/tmp/pod-3110-grok-paired-057755c-r2"
 RUN_TOKEN="${P3110_RUN_TOKEN:?source rig-env.sh to set an immutable UTC run token}"
 RUN_DIR="$DRIVE_BASE/runs/$RUN_TOKEN"
 LOGS="$RUN_DIR/logs"
 WEB="$REPO/apps/web/dist"
 BUN="/home/mgw/.bun/bin/bun"
-PASSWORD="p3110-grok-paired-057755c-proof"
+PASSWORD="p3110-grok-paired-057755c-r2-proof"
 NORMAL_HOME="${HOME:?HOME must be inherited from the operator environment}"
 
 export PATH="/home/mgw/.bun/bin:/home/mgw/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
@@ -227,6 +227,13 @@ remove_isolated_credential() {
   [ ! -L "$saved" ] || rm -f -- "$saved"
 }
 
+require_ports_free() {
+  local derived
+  for derived in "$PORT" "$HOOK_PORT" "$RELAY_PORT"; do
+    ! ss -ltn | awk -v port=":$derived" '$1 == "LISTEN" && index($4, port) == length($4)-length(port)+1 { found=1 } END { exit !found }' || { log "PREFLIGHT FAIL derived port already listening: $derived" >&2; return 1; }
+  done
+}
+
 
 up() {
   local arm="${1:-headless}"
@@ -237,6 +244,7 @@ up() {
     log "PREFLIGHT FAIL named instance marker already exists; refusing non-fresh drive" >&2
     return 1
   fi
+  require_ports_free
   validate_immutable_inputs
 
   trap cleanup_on_failure EXIT
