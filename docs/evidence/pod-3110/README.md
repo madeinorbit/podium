@@ -3,7 +3,7 @@
 Static preflight instrument for journey `grok-paired-final-tip`. It is pinned to product/server/daemon/web source `057755c77a6bdfdf01aa526d968562b0316e78df` and Grok `0.2.118 (1e1687c1cf) [stable]`, binary SHA-256 `c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6`.
 Product dependency provenance: `bun.lock` SHA-256 `a1acc741d62d99b4146d5989a06a50ce494a9e93219b59e49af3ac4307430791`; launch refuses unless root `node_modules` is a real directory and `@podium/runtime` plus `@podium/model` resolve inside this checkout. The exact `057755c` web bundle is not currently present and must be built later under an explicitly granted `test:heavy` lease.
 
-This commit contains no live readings. Do not run it until POD-1761 explicitly releases a live slot. OpenCode owns that sole future provider drive.
+This commit contains no live readings. Do not run it until POD-1761 explicitly releases a live slot. Grok is the sole provider column; Claude refused before launch because its credential was expired.
 
 ## Isolation and arm contract
 
