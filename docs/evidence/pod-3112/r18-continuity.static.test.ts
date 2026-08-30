@@ -39,7 +39,8 @@ describe('r18 continuity selector contract', () => {
     expect(rig).toContain("exact('opencode-server').test((await driver.innerText()).trim())")
     expect(rig).not.toContain('PODIUM_RUNTIME_DRIVER=')
     expect(rig).not.toContain("m('sessions.create'")
-    expect(rig).not.toContain('a7b={')
+    expect(rig).toContain("writeFileSync(base+'/a7a-ready'")
+    expect(rig).toContain("existsSync(base+'/a7a-continue')")
   })
 
   test("compiles without executing the runtime proof", async () => {
