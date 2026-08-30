@@ -49,6 +49,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
+import { driverTiming } from './driver-timing'
 import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:opencode-driver')
@@ -161,6 +162,8 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
   }
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
+    const timingHandle = runtime.handleFor(sessionId)
+    if (timingHandle) driverTiming.runtimeEvent(timingHandle.binding, event)
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract (W4's migrated callers) reads this; the legacy frames below are
     // for the surfaces that do not, and both describe the same fact.
@@ -309,6 +312,7 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
        * field is required by the frame. It is the size an `opencode attach`
        * client would open at.
        */
+      driverTiming.sessionReady(handle.binding)
       deps.send({
         type: 'bind',
         sessionId: input.sessionId,

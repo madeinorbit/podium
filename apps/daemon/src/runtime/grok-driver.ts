@@ -15,6 +15,7 @@ import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { grokAcpProcessKey } from './grok-acp-server.js'
+import { driverTiming } from './driver-timing'
 import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:grok-driver')
@@ -46,6 +47,8 @@ export function createDaemonGrokRuntime(deps: {
   })
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
+    const timingHandle = runtime.handleFor(sessionId)
+    if (timingHandle) driverTiming.runtimeEvent(timingHandle.binding, event)
     if (isRuntimeFineEvent(event)) {
       deps.send({ type: 'runtimeFineEvent', sessionId, event })
     } else {
@@ -177,6 +180,7 @@ export function createDaemonGrokRuntime(deps: {
       })
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
+      driverTiming.sessionReady(handle.binding)
       deps.send({
         type: 'bind',
         sessionId: input.sessionId,

@@ -45,6 +45,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
+import { driverTiming } from './driver-timing'
 import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:codex-driver')
@@ -142,6 +143,8 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
   }
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
+    const timingHandle = runtime.handleFor(sessionId)
+    if (timingHandle) driverTiming.runtimeEvent(timingHandle.binding, event)
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract reads this; the legacy frames below are for the surfaces that do
     // not, and both describe the same fact.
@@ -303,6 +306,7 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
        * The geometry is nominal: nothing renders frames for this family, and the
        * field is required by the frame.
        */
+      driverTiming.sessionReady(handle.binding)
       deps.send({
         type: 'bind',
         sessionId: input.sessionId,

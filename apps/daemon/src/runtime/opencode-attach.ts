@@ -129,6 +129,7 @@ import {
   harnessInstanceEnv,
   spawnEnv,
 } from '../control/session-env'
+import { driverTiming } from './driver-timing'
 
 const log = createLogger('daemon:opencode-attach')
 
@@ -525,6 +526,9 @@ export function createOpencodeClientTerminals(
       ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
       ...harnessInstanceEnv(kind, ports.homeDir),
     }
+    driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_spawn_requested', {
+      command: launch.cmd,
+    })
     const session = await spawn({
       label: record.label,
       cmd: launch.cmd,
@@ -574,6 +578,9 @@ export function createOpencodeClientTerminals(
       // serve half (POD-2247).
       env: spawnEnv({ podiumEnv }),
     })
+    driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_process_started', {
+      adopted: session.adopted,
+    })
     /**
      * ASK THE SPAWN WHICH CASE THIS WAS — do not sample the socket directory
      * beforehand (POD-2761).
@@ -606,7 +613,12 @@ export function createOpencodeClientTerminals(
      * reset test, so the replay log re-anchors with the browser.
      */
     if (!session.adopted) ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
-    session.onFrame((frame) => ports.frames(record.streamId, frame.data))
+    session.onFrame((frame) => {
+      driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_first_output', {
+        bytes: frame.data.byteLength,
+      })
+      ports.frames(record.streamId, frame.data)
+    })
     session.onExit(() => {
       // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. abduco's master (and the
       // TUI inside it) survives a client that was disposed, crashed or was killed
@@ -806,6 +818,7 @@ export function createOpencodeClientTerminals(
         generation.pendingBytes = 0
         for (const data of buffered) started.writeBytes(data)
       }
+      driverTiming.nativeCliStage(sessionId, target.kind, 'native_cli_input_ready')
       return { streamId: record.streamId, warmTtlMs }
     },
 

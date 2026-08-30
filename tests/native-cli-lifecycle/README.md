@@ -53,6 +53,24 @@ show the workspace-trust gate. The harness accepts that one gate, records the
 time and action count, and continues probing; it never auto-accepts trust for a
 caller-supplied `--workdir`.
 
+## Compare Podium drivers
+
+`driver-comparison.ts` drives an already-running isolated Podium source host through its public tRPC and client WebSocket doors. It reads `daemon:agent-runtime-timing` records from that host’s NDJSON log, uses visible punctuation probes for headed and attached native composers, and compares the resulting medians with a standalone baseline JSON.
+
+Start a source host with a dedicated state directory, ports, info logging, and the same provider executable PATH used by the standalone run. Unset an inherited `NOTIFY_SOCKET` when selecting the detached file sink. Then run:
+
+```bash
+bun --cwd tests/native-cli-lifecycle compare-drivers \
+  --base-url http://127.0.0.1:18828 \
+  --log /tmp/podium-driver-timing/logs/host.ndjson \
+  --runs 3 \
+  --baseline results/native-cli-lifecycle.json \
+  --output results/driver-comparison.json \
+  --markdown results/driver-comparison.md
+```
+
+Use `--providers`, `--modes`, and `--timeout-ms` for focused live shards. `--merge-results headed.json,headless.json` combines completed shards and renders a report without starting new sessions. The driver run spends provider quota; a named driver that fails admission remains a failed sample rather than silently degrading.
+
 ## Run
 
 From the repository root:

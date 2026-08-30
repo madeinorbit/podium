@@ -109,6 +109,7 @@ import { asSessionId } from '@podium/model'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import type { SpawnControl } from '../session-observers'
+import { driverTiming } from './driver-timing'
 
 const log = createLogger('daemon:terminal-driver')
 
@@ -612,6 +613,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       turnEpoch: session.turnEpoch,
     })
     session.log.push({ seq: session.seq, event })
+    const timingBinding = handles.get(session.sessionId)?.binding
+    if (timingBinding) driverTiming.runtimeEvent(timingBinding, event)
     // BOUNDED, and the bound is a promise about what `events(after)` can serve
     // rather than a memory tweak. `log` exists so a consumer can resume from a
     // cursor; keeping it forever would grow with every transcript item, state

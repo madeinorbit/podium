@@ -6,6 +6,7 @@
   "description": "Podium-independent live timing harness for native agent CLI start, drive, and attach paths.",
   "scripts": {
     "bench": "bun benchmark.ts",
+    "compare-drivers": "bun driver-comparison.ts",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit"
   },

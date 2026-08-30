@@ -15,6 +15,7 @@ import type { AccountId, AgentRuntimeState, Geometry, ResumeRef, SessionId } fro
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { runClaudeSdkChildTurn } from '../claude-sdk-client'
 import type { HeadlessTurnSpec } from '../headless-drivers'
+import { driverTiming } from './driver-timing'
 import { reportQueueAbandonment } from './queue-abandonment'
 import type { TerminalRuntimeHost } from './terminal-driver'
 
@@ -224,6 +225,8 @@ export function createDaemonClaudeSdkRuntime(deps: {
   }
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
+    const timingHandle = runtime.handleFor(sessionId)
+    if (timingHandle) driverTiming.runtimeEvent(timingHandle.binding, event)
     deps.send(
       isRuntimeFineEvent(event)
         ? { type: 'runtimeFineEvent', sessionId, event }
@@ -294,6 +297,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
         ? await contractRuntime.resumeWithId(input.sessionId, input.resume, spec)
         : await contractRuntime.createWithId(input.sessionId, spec)
       pump(input.sessionId)
+      driverTiming.sessionReady(handle.binding)
       await emitClaudeBinding(
         deps.send,
         {

@@ -41,6 +41,7 @@ import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { emitClaudeBinding } from '../runtime/claude-sdk-driver'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
+import { driverTiming } from '../runtime/driver-timing'
 import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
@@ -240,10 +241,12 @@ export function reconcileNativeClientTerminal(
       const handle = handleFor(ctx, sessionId)
       if (!handle || handle.binding.family !== 'server') return
       if (wanted) {
+        driverTiming.attachRequested(handle.binding)
         const result = await handle.attach({
           mode: 'takeover',
           holder: nativeClientHolder(sessionId),
         })
+        driverTiming.attachResult(handle.binding, result)
         if ('reason' in result) {
           const retries = (ctx.nativeClientRetries ??= new Map<SessionId, number>())
           const held = retries.get(sessionId) ?? 0
@@ -440,6 +443,9 @@ export function wireBridge(
     ctx.observers.onResize?.(sessionId, pending.cols, pending.rows)
   }
   session.onFrame((frame) => {
+    driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
+      bytes: frame.data.byteLength,
+    })
     countFrame(frame.data.byteLength)
     ctx.observers.onFrame?.(sessionId, frame.data)
     ctx.outputScheduler.enqueue(sessionId, frame.data)
@@ -648,6 +654,9 @@ export async function launchSpawn(
         : ctx.backend === 'tmux'
           ? await spawnTmuxAgent(spawnOpts)
           : spawnAgent(spawnOpts)
+    driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
+      adopted: session.adopted,
+    })
     const geometry = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label, msg.geometry)
     // Stand up the agent-state tracker, harness observer, resume transcript tail
     // and seeded phase. The frame tap buffers the bounded gap between bridge
@@ -700,6 +709,8 @@ export async function launchSpawn(
         ? { requestedDriverId: runtimeSelection.requestedDriverId }
         : {}),
     })
+    const handle = handleFor(ctx, msg.sessionId)
+    if (handle) driverTiming.sessionReady(handle.binding)
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
     // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
@@ -710,6 +721,7 @@ export async function launchSpawn(
       sessionId: msg.sessionId,
       message: err instanceof Error ? err.message : String(err),
     })
+    driverTiming.sessionFailed(msg.sessionId, err instanceof Error ? err.message : String(err))
   }
 }
 export const MISSING_SESSION_BINDING_MESSAGE =
@@ -776,6 +788,13 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     })
     return
   }
+  const requestedDriverId = spawnNamedServerDriver(msg.runtimeContract)
+  driverTiming.sessionRequested({
+    sessionId: msg.sessionId,
+    harness: msg.agentKind,
+    ...(requestedDriverId ? { requestedDriverId } : {}),
+    ...(msg.initialPrompt ? { initialPrompt: true } : {}),
+  })
   const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
   if (msg.adoptedBinding) {
     const outcome = await ctx.sessionBinding.transition({
@@ -1179,6 +1198,7 @@ function announceDriverSelection(
   sessionId: SpawnControl['sessionId'],
   driverId: string,
 ): void {
+  driverTiming.driverSelected(sessionId, driverId)
   ctx.send({ type: 'driverSelected', sessionId, driverId })
 }
 
@@ -1296,6 +1316,10 @@ export async function launchServerDriverSession(
       sessionId: msg.sessionId,
       message: `${namedProbe.diagnostic.title}: ${namedProbe.diagnostic.body}`,
     })
+    driverTiming.sessionFailed(
+      msg.sessionId,
+      `${namedProbe.diagnostic.title}: ${namedProbe.diagnostic.body}`,
+    )
     return { handled: true }
   }
   const runtime = ctx.agentRuntime
@@ -1305,6 +1329,7 @@ export async function launchServerDriverSession(
       sessionId: msg.sessionId,
       message: 'machine runtime is not composed',
     })
+    driverTiming.sessionFailed(msg.sessionId, 'machine runtime is not composed')
     return { handled: true }
   }
   const resolution = runtime.resolveDriver({
@@ -1324,6 +1349,7 @@ export async function launchServerDriverSession(
   })
   if (!resolution.ok) {
     ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
+    driverTiming.sessionFailed(msg.sessionId, resolution.reason)
     return { handled: true }
   }
   if (
@@ -1336,6 +1362,10 @@ export async function launchServerDriverSession(
       sessionId: msg.sessionId,
       message: `runtime driver '${resolution.driverId}' does not provide dedicated server placement`,
     })
+    driverTiming.sessionFailed(
+      msg.sessionId,
+      `runtime driver '${resolution.driverId}' does not provide dedicated server placement`,
+    )
     return { handled: true }
   }
 
@@ -1381,6 +1411,10 @@ export async function launchServerDriverSession(
       sessionId: msg.sessionId,
       message: `this spawn asked for runtime driver '${unhonoured}' and it cannot be honoured here — ${why}`,
     })
+    driverTiming.sessionFailed(
+      msg.sessionId,
+      `this spawn asked for runtime driver '${unhonoured}' and it cannot be honoured here — ${why}`,
+    )
     return { handled: true }
   }
   /**
@@ -1511,6 +1545,7 @@ export async function launchServerDriverSession(
       sessionId: msg.sessionId,
       message: err instanceof Error ? err.message : String(err),
     })
+    driverTiming.sessionFailed(msg.sessionId, err instanceof Error ? err.message : String(err))
   }
   return { handled: true }
 }
@@ -2102,6 +2137,13 @@ export function dispatchInputBytes(
       sessionId: metadata.sessionId,
       bytes: bytes.byteLength,
     })
+  }
+  if (
+    bridge &&
+    metadata.inputOrigin === 'human' &&
+    (bytes.includes(0x0d) || bytes.includes(0x0a))
+  ) {
+    driverTiming.nativePromptSubmitted(metadata.sessionId)
   }
   bridge?.writeBytes(bytes)
   // Input-byte tap (POD-859 §3): a client typing into the PTY means the native

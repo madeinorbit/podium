@@ -27,6 +27,7 @@ import type {
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { runtimeAttachmentBelongsToSession } from './attachment-staging'
+import { driverTiming } from './driver-timing'
 import type { ControlHandlers, DaemonContext } from '../control/context'
 
 /**
@@ -159,8 +160,7 @@ export const runtimeHandlers: Pick<
       return
     }
     const invalidAttachment = msg.attachments?.find(
-      (attachment) =>
-        !runtimeAttachmentBelongsToSession(stateDir(), msg.sessionId, attachment),
+      (attachment) => !runtimeAttachmentBelongsToSession(stateDir(), msg.sessionId, attachment),
     )
     if (invalidAttachment) {
       ctx.send({
@@ -177,12 +177,14 @@ export const runtimeHandlers: Pick<
       })
       return
     }
+    driverTiming.promptRequested(handle.binding, msg.turnId)
     void handle
       .send(
         { id: msg.turnId, text: msg.text, attachments: msg.attachments },
         { origin: msg.origin, delivery: msg.delivery },
       )
       .then((receipt) => {
+        driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
         ctx.send({
           type: 'runtimeSendResult',
           requestId: msg.requestId,
@@ -195,6 +197,10 @@ export const runtimeHandlers: Pick<
         // honesty commitment, so an unexpected failure is reported as the one
         // that is true — we could not prove the send did anything — rather than
         // as a silence the caller has to time out on.
+        driverTiming.promptReceipt(handle.binding, msg.turnId, {
+          outcome: 'refused',
+          refusal: { reason: 'not_running', detail: String(err) },
+        })
         ctx.send({
           type: 'runtimeSendResult',
           requestId: msg.requestId,
