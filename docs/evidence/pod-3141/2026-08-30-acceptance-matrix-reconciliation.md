@@ -9,11 +9,15 @@ did not change any scored row or release document.
 | fact | value |
 |---|---|
 | required base | local `issue/1761-agent-runtime` |
-| epic tip reconciled | `cf51240509326cf6910e9cb13f4d65ad20d59abd` |
-| epic tip commit time | `2026-08-30 21:10:59 +0200` |
+| epic tip reconciled | `6f5511427c2133550dcdf624e6ac9bd1b086f482` |
+| epic tip commit time | `2026-08-30 21:27:07 +0200` |
 | worktree `HEAD` before edits | `cf51240509326cf6910e9cb13f4d65ad20d59abd` |
 | ancestry proof | `git merge-base --is-ancestor issue/1761-agent-runtime HEAD` exited 0 |
 | source | `docs/plans/pod-1761-results.tsv` at that tip |
+
+The epic advanced once during the guarded landing. The intervening commit
+`6f5511427` changes only `apps/daemon/src/runtime/opencode-driver.test.ts` and
+`apps/server/src/relay.test.ts`; it changes no production or evidence row.
 
 ## Row shape and selection
 
@@ -85,9 +89,11 @@ means no qualifying row; it is not a pass.
 The only current scored cell is OpenCode H A7a: `PASS` at
 `d6df08c41af3883685c3f18fad0fd0fef78bfec7`. The exact command
 `git diff --name-only d6df08c41..issue/1761-agent-runtime` excluding `docs/`
-returned zero paths. The same is true for the later refusal pin
+returned the two test paths named in provenance and zero production paths after
+the blast-radius narrowing. The same is true for the later refusal pin
 `1dbac781be27161162661053dded82f633dc615e`; those refusals are current evidence
-that no new A7 score was produced.
+that no new A7 score was produced. The report commit itself is documentation
+and is likewise excluded.
 
 OpenCode H A7b is different: its latest scored outcome is the `FAIL` at
 `fa0bbc8ac752c32a2de13d6835938b2633638f31`, followed by a current unscored
