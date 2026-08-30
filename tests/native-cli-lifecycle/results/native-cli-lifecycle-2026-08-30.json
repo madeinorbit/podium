@@ -1,25 +1,17 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "benchmark": "native-cli-lifecycle",
-  "generatedAt": "2026-08-30T09:32:09.096Z",
-  "runOrder": [
-    "claude",
-    "codex",
-    "grok",
-    "opencode"
-  ],
+  "generatedAt": "2026-08-30T15:56:09.265Z",
+  "runOrder": ["claude", "codex", "grok", "opencode"],
   "prompt": "Reply with exactly BENCH_OK and nothing else. Do not use tools.",
   "config": {
-    "providers": [
-      "claude",
-      "codex",
-      "grok",
-      "opencode"
-    ],
+    "providers": ["claude", "codex", "grok", "opencode"],
     "runs": 3,
     "timeoutMs": 300000,
-    "attachTimeoutMs": 30000,
+    "attachTimeoutMs": 45000,
     "attachQuietMs": 500,
+    "native": true,
+    "machine": true,
     "attach": true,
     "workdir": "<fresh temporary directory per sample>"
   },
@@ -31,215 +23,381 @@
     "cpu": "AMD EPYC Processor (with IBPB)",
     "cpuCount": 8,
     "memoryBytes": 25193791488,
-    "loadAverage": [
-      3.2,
-      2.8,
-      3.5
-    ]
+    "loadAverage": [4.2, 6, 7]
   },
   "providers": {
     "claude": {
       "executable": "/home/mgw/.local/bin/claude",
       "version": "2.1.236 (Claude Code)",
-      "mechanism": "process-per-turn Agent SDK worker; native resume TUI",
-      "samples": [
+      "nativeMechanism": "stock claude TUI creates and drives a new session",
+      "machineMechanism": "process-per-turn Agent SDK query",
+      "attachMechanism": "claude --resume <session>",
+      "nativeSamples": [
         {
           "run": 1,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/claude-1",
-          "startedAt": "2026-08-30T09:29:59.101Z",
-          "start": {
-            "sessionReadyMs": 1060.9,
-            "milestones": {
-              "sdkSessionReadyMs": 1060.9
-            },
-            "evidence": "fresh Bun worker + Agent SDK query; SDK system/init with native session id"
-          },
-          "drive": {
-            "evidence": "provider turn failed before a verified BENCH_OK response"
-          },
-          "sessionId": "7313e392-4c03-4445-9891-288945a06b4a",
-          "attach": {
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/claude-native-1",
+          "startedAt": "2026-08-30T15:52:30.140Z",
+          "timing": {
             "firstProbeAccepted": false,
             "inputProbeAttempts": 2,
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
             "setupActions": 1,
-            "outputBytes": 4867,
-            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 1071.6,
-            "firstProbeSentMs": 1072,
-            "initialPaintLastByteMs": 1191.1,
-            "setupGateMs": 1161.3,
-            "initialPaintSettledMs": 1691.8,
-            "inputReadyMs": 2121.8
-          },
-          "error": "Claude completed without the expected BENCH_OK response"
+            "outputBytes": 6712,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 523.4,
+            "firstProbeSentMs": 524,
+            "initialPaintLastByteMs": 605.5,
+            "setupGateMs": 551.2,
+            "initialPaintSettledMs": 1107.7,
+            "inputReadyMs": 1537.9,
+            "promptSubmittedMs": 1704.9,
+            "responseVisibleMs": 1779.1,
+            "nextInputReadyMs": 1873.5
+          }
         },
         {
           "run": 2,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/claude-2",
-          "startedAt": "2026-08-30T09:30:05.811Z",
-          "start": {
-            "sessionReadyMs": 1084.9,
-            "milestones": {
-              "sdkSessionReadyMs": 1084.9
-            },
-            "evidence": "fresh Bun worker + Agent SDK query; SDK system/init with native session id"
-          },
-          "drive": {
-            "evidence": "provider turn failed before a verified BENCH_OK response"
-          },
-          "sessionId": "4541e275-5af8-4892-a688-08c40f5a7cb3",
-          "attach": {
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/claude-native-2",
+          "startedAt": "2026-08-30T15:52:36.476Z",
+          "timing": {
             "firstProbeAccepted": false,
             "inputProbeAttempts": 2,
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
             "setupActions": 1,
-            "outputBytes": 4873,
-            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 657.4,
-            "firstProbeSentMs": 657.7,
-            "initialPaintLastByteMs": 1161.6,
-            "setupGateMs": 701,
-            "initialPaintSettledMs": 1662.8,
-            "inputReadyMs": 1680.5
-          },
-          "error": "Claude completed without the expected BENCH_OK response"
+            "outputBytes": 6778,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 515.8,
+            "firstProbeSentMs": 516.1,
+            "initialPaintLastByteMs": 586.2,
+            "setupGateMs": 543.8,
+            "initialPaintSettledMs": 1086.6,
+            "inputReadyMs": 1544.5,
+            "promptSubmittedMs": 1710.7,
+            "responseVisibleMs": 1865.1,
+            "nextInputReadyMs": 1959.5
+          }
         },
         {
           "run": 3,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/claude-3",
-          "startedAt": "2026-08-30T09:30:11.901Z",
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/claude-native-3",
+          "startedAt": "2026-08-30T15:52:42.961Z",
+          "timing": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 2,
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
+            "setupActions": 1,
+            "outputBytes": 6691,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 579.4,
+            "firstProbeSentMs": 580,
+            "initialPaintLastByteMs": 662.4,
+            "setupGateMs": 610.4,
+            "initialPaintSettledMs": 1163.8,
+            "inputReadyMs": 1593.5,
+            "promptSubmittedMs": 1761.4,
+            "responseVisibleMs": 1900.4,
+            "nextInputReadyMs": 1995.2
+          }
+        }
+      ],
+      "samples": [
+        {
+          "run": 1,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/claude-machine-1",
+          "startedAt": "2026-08-30T15:52:49.474Z",
           "start": {
-            "sessionReadyMs": 1113,
+            "sessionReadyMs": 3250.2,
             "milestones": {
-              "sdkSessionReadyMs": 1113
+              "sdkSessionReadyMs": 3250.2
             },
             "evidence": "fresh Bun worker + Agent SDK query; SDK system/init with native session id"
           },
           "drive": {
-            "evidence": "provider turn failed before a verified BENCH_OK response"
+            "promptAcceptedMs": 3250.2,
+            "firstResponseMs": 6102.6,
+            "completeMs": 6277.1,
+            "evidence": "system/init; first assistant stream event; SDK success result (all relative to worker spawn)"
           },
-          "sessionId": "3ba0e014-9583-4027-bbb9-83b27e201a68",
+          "sessionId": "7750a36a-9efd-4966-910a-03ab43849e7a",
           "attach": {
             "firstProbeAccepted": false,
             "inputProbeAttempts": 2,
             "setupActions": 1,
-            "outputBytes": 4867,
+            "outputBytes": 5105,
             "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 675.2,
-            "firstProbeSentMs": 675.6,
-            "initialPaintLastByteMs": 1698.6,
-            "setupGateMs": 708,
-            "inputReadyMs": 1700.6,
-            "initialPaintSettledMs": 2198.9
+            "firstByteMs": 607,
+            "firstProbeSentMs": 607.3,
+            "initialPaintLastByteMs": 703.8,
+            "setupGateMs": 640.7,
+            "initialPaintSettledMs": 1206.4,
+            "inputReadyMs": 1644.7,
+            "invokedAfterSessionReadyMs": 3027.4,
+            "sequence": "after-machine-turn",
+            "sessionReadyToInputReadyMs": 4672.1
+          }
+        },
+        {
+          "run": 2,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/claude-machine-2",
+          "startedAt": "2026-08-30T15:53:00.163Z",
+          "start": {
+            "sessionReadyMs": 3234.7,
+            "milestones": {
+              "sdkSessionReadyMs": 3234.7
+            },
+            "evidence": "fresh Bun worker + Agent SDK query; SDK system/init with native session id"
           },
-          "error": "Claude completed without the expected BENCH_OK response"
+          "drive": {
+            "promptAcceptedMs": 3234.7,
+            "firstResponseMs": 4164.7,
+            "completeMs": 4833.1,
+            "evidence": "system/init; first assistant stream event; SDK success result (all relative to worker spawn)"
+          },
+          "sessionId": "0a0880fd-8679-440f-a0bc-0725de091ee8",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 2,
+            "setupActions": 1,
+            "outputBytes": 5105,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 586.8,
+            "firstProbeSentMs": 587.4,
+            "initialPaintLastByteMs": 668,
+            "setupGateMs": 616.1,
+            "initialPaintSettledMs": 1168.3,
+            "inputReadyMs": 1607.8,
+            "invokedAfterSessionReadyMs": 1598.5,
+            "sequence": "after-machine-turn",
+            "sessionReadyToInputReadyMs": 3206.3
+          }
+        },
+        {
+          "run": 3,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/claude-machine-3",
+          "startedAt": "2026-08-30T15:53:09.358Z",
+          "start": {
+            "sessionReadyMs": 3368.5,
+            "milestones": {
+              "sdkSessionReadyMs": 3368.5
+            },
+            "evidence": "fresh Bun worker + Agent SDK query; SDK system/init with native session id"
+          },
+          "drive": {
+            "promptAcceptedMs": 3368.5,
+            "firstResponseMs": 8066.9,
+            "completeMs": 8244.3,
+            "evidence": "system/init; first assistant stream event; SDK success result (all relative to worker spawn)"
+          },
+          "sessionId": "f663a068-ad6f-4bf6-a80d-104d256676c5",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 2,
+            "setupActions": 1,
+            "outputBytes": 5373,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 626.3,
+            "firstProbeSentMs": 626.7,
+            "initialPaintLastByteMs": 700.3,
+            "setupGateMs": 654.1,
+            "initialPaintSettledMs": 1200.8,
+            "inputReadyMs": 1641.7,
+            "invokedAfterSessionReadyMs": 4875.8,
+            "sequence": "after-machine-turn",
+            "sessionReadyToInputReadyMs": 6517.5
+          }
         }
       ]
     },
     "codex": {
       "executable": "/home/mgw/.local/bin/codex",
       "version": "codex-cli 0.151.0",
-      "mechanism": "Unix WebSocket app-server JSON-RPC; remote resume TUI",
-      "samples": [
+      "nativeMechanism": "stock codex TUI creates and drives a new session",
+      "machineMechanism": "Unix WebSocket app-server JSON-RPC",
+      "attachMechanism": "codex resume <thread> --remote unix://<socket>",
+      "nativeSamples": [
         {
           "run": 1,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/codex-1",
-          "startedAt": "2026-08-30T09:30:18.477Z",
-          "start": {
-            "sessionReadyMs": 1702.2,
-            "milestones": {
-              "unixWebSocketReadyMs": 687.8,
-              "initializeReadyMs": 841.8,
-              "threadReadyMs": 1702.2
-            },
-            "evidence": "Unix WebSocket open; initialize response + initialized; thread/start response"
-          },
-          "drive": {
-            "promptAcceptedMs": 41,
-            "firstResponseMs": 3513.6,
-            "completeMs": 4185,
-            "evidence": "turn/start response; first item/agentMessage/delta; turn/completed notification"
-          },
-          "sessionId": "01a05201-6b8a-7141-b4ce-651510615d80",
-          "attach": {
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/codex-native-1",
+          "startedAt": "2026-08-30T15:53:22.011Z",
+          "timing": {
             "firstProbeAccepted": true,
             "inputProbeAttempts": 1,
-            "setupActions": 0,
-            "outputBytes": 3355,
-            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 26,
-            "firstProbeSentMs": 26.7,
-            "initialPaintLastByteMs": 629,
-            "inputReadyMs": 232.5,
-            "firstProbeEchoMs": 232.5,
-            "initialPaintSettledMs": 1131.1
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
+            "setupActions": 1,
+            "outputBytes": 23110,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 23.7,
+            "firstProbeSentMs": 23.9,
+            "initialPaintLastByteMs": 1953.9,
+            "inputReadyMs": 187.9,
+            "setupGateMs": 520.7,
+            "initialPaintSettledMs": 2456.8,
+            "promptSubmittedMs": 2624.8,
+            "responseVisibleMs": 4810.3,
+            "nextInputReadyMs": 4912.6
           }
         },
         {
           "run": 2,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/codex-2",
-          "startedAt": "2026-08-30T09:30:27.951Z",
-          "start": {
-            "sessionReadyMs": 1392.5,
-            "milestones": {
-              "unixWebSocketReadyMs": 343.6,
-              "initializeReadyMs": 579.4,
-              "threadReadyMs": 1392.5
-            },
-            "evidence": "Unix WebSocket open; initialize response + initialized; thread/start response"
-          },
-          "drive": {
-            "promptAcceptedMs": 30.1,
-            "firstResponseMs": 3250.1,
-            "completeMs": 3449.6,
-            "evidence": "turn/start response; first item/agentMessage/delta; turn/completed notification"
-          },
-          "sessionId": "01a05201-8f5c-7382-be35-9d6cfac2fa4f",
-          "attach": {
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/codex-native-2",
+          "startedAt": "2026-08-30T15:53:32.309Z",
+          "timing": {
             "firstProbeAccepted": true,
             "inputProbeAttempts": 1,
-            "setupActions": 0,
-            "outputBytes": 6216,
-            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 22.8,
-            "firstProbeSentMs": 22.9,
-            "initialPaintLastByteMs": 1640.8,
-            "inputReadyMs": 294.8,
-            "firstProbeEchoMs": 294.8,
-            "initialPaintSettledMs": 2143.9
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
+            "setupActions": 1,
+            "outputBytes": 17774,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 23.1,
+            "firstProbeSentMs": 23.2,
+            "initialPaintLastByteMs": 2227.5,
+            "inputReadyMs": 177,
+            "setupGateMs": 529.6,
+            "initialPaintSettledMs": 2730.4,
+            "promptSubmittedMs": 2898.7,
+            "responseVisibleMs": 2355.2,
+            "nextInputReadyMs": 2467.8
           }
         },
         {
           "run": 3,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/codex-3",
-          "startedAt": "2026-08-30T09:30:36.414Z",
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/codex-native-3",
+          "startedAt": "2026-08-30T15:53:38.439Z",
+          "timing": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
+            "setupActions": 1,
+            "outputBytes": 16467,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 45.2,
+            "firstProbeSentMs": 45.4,
+            "initialPaintLastByteMs": 2187.3,
+            "inputReadyMs": 212.4,
+            "setupGateMs": 576,
+            "initialPaintSettledMs": 2688.6,
+            "promptSubmittedMs": 2856.8,
+            "responseVisibleMs": 2300,
+            "nextInputReadyMs": 2402.6
+          }
+        }
+      ],
+      "samples": [
+        {
+          "run": 1,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/codex-machine-1",
+          "startedAt": "2026-08-30T15:53:44.280Z",
           "start": {
-            "sessionReadyMs": 539.4,
+            "sessionReadyMs": 547.6,
             "milestones": {
-              "unixWebSocketReadyMs": 203.4,
-              "initializeReadyMs": 293.5,
-              "threadReadyMs": 539.4
+              "unixWebSocketReadyMs": 157.8,
+              "initializeReadyMs": 246.1,
+              "threadReadyMs": 547.6
             },
             "evidence": "Unix WebSocket open; initialize response + initialized; thread/start response"
           },
           "drive": {
-            "promptAcceptedMs": 19.9,
-            "firstResponseMs": 4302.6,
-            "completeMs": 4535.4,
+            "promptAcceptedMs": 31.1,
+            "firstResponseMs": 3927.5,
+            "completeMs": 4184.2,
             "evidence": "turn/start response; first item/agentMessage/delta; turn/completed notification"
           },
-          "sessionId": "01a05201-ad57-73f3-ac0d-f9fd51bb79b0",
+          "sessionId": "01a05360-71b1-7460-a0b9-b92f195412f6",
           "attach": {
             "firstProbeAccepted": true,
             "inputProbeAttempts": 1,
             "setupActions": 0,
-            "outputBytes": 6102,
+            "outputBytes": 5963,
             "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 18.7,
-            "firstProbeSentMs": 18.8,
-            "initialPaintLastByteMs": 1396.2,
-            "inputReadyMs": 274.4,
-            "firstProbeEchoMs": 274.4,
-            "initialPaintSettledMs": 1896.9
+            "firstByteMs": 31.6,
+            "firstProbeSentMs": 32.5,
+            "initialPaintLastByteMs": 1488.4,
+            "inputReadyMs": 298.5,
+            "firstProbeEchoMs": 298.5,
+            "initialPaintSettledMs": 1991.6,
+            "invokedAfterSessionReadyMs": 4184.4,
+            "sequence": "after-machine-turn",
+            "sessionReadyToInputReadyMs": 4482.9
+          }
+        },
+        {
+          "run": 2,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/codex-machine-2",
+          "startedAt": "2026-08-30T15:53:52.458Z",
+          "start": {
+            "sessionReadyMs": 526.3,
+            "milestones": {
+              "unixWebSocketReadyMs": 194.5,
+              "initializeReadyMs": 286.2,
+              "threadReadyMs": 526.3
+            },
+            "evidence": "Unix WebSocket open; initialize response + initialized; thread/start response"
+          },
+          "drive": {
+            "promptAcceptedMs": 63.9,
+            "firstResponseMs": 4000.5,
+            "completeMs": 4986.9,
+            "evidence": "turn/start response; first item/agentMessage/delta; turn/completed notification"
+          },
+          "sessionId": "01a05360-91a9-7480-a8ed-abc071645b09",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 5916,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 25.7,
+            "firstProbeSentMs": 25.9,
+            "initialPaintLastByteMs": 1951,
+            "inputReadyMs": 229,
+            "firstProbeEchoMs": 229,
+            "initialPaintSettledMs": 2452.8,
+            "invokedAfterSessionReadyMs": 4988.9,
+            "sequence": "after-machine-turn",
+            "sessionReadyToInputReadyMs": 5217.9
+          }
+        },
+        {
+          "run": 3,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/codex-machine-3",
+          "startedAt": "2026-08-30T15:54:01.924Z",
+          "start": {
+            "sessionReadyMs": 874.4,
+            "milestones": {
+              "unixWebSocketReadyMs": 367,
+              "initializeReadyMs": 579.1,
+              "threadReadyMs": 874.4
+            },
+            "evidence": "Unix WebSocket open; initialize response + initialized; thread/start response"
+          },
+          "drive": {
+            "promptAcceptedMs": 39.1,
+            "firstResponseMs": 3999.9,
+            "completeMs": 4188.9,
+            "evidence": "turn/start response; first item/agentMessage/delta; turn/completed notification"
+          },
+          "sessionId": "01a05360-b7ec-7431-b401-d6221f8a4e4e",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 5986,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 28.3,
+            "firstProbeSentMs": 28.6,
+            "initialPaintLastByteMs": 885.2,
+            "inputReadyMs": 199.2,
+            "firstProbeEchoMs": 199.2,
+            "initialPaintSettledMs": 1385.7,
+            "invokedAfterSessionReadyMs": 4189.1,
+            "sequence": "after-machine-turn",
+            "sessionReadyToInputReadyMs": 4388.3
           }
         }
       ]
@@ -247,105 +405,187 @@
     "grok": {
       "executable": "/home/mgw/.local/bin/grok",
       "version": "grok 0.2.118 (1e1687c1cf) [stable]",
-      "mechanism": "ACP stdio JSON-RPC; native-store resume TUI",
-      "samples": [
+      "nativeMechanism": "stock grok TUI creates and drives a new session",
+      "machineMechanism": "ACP stdio JSON-RPC",
+      "attachMechanism": "grok --resume <session>",
+      "nativeSamples": [
         {
           "run": 1,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/grok-1",
-          "startedAt": "2026-08-30T09:30:44.849Z",
-          "start": {
-            "sessionReadyMs": 933.7,
-            "milestones": {
-              "initializeReadyMs": 494.6,
-              "sessionReadyMs": 933.7
-            },
-            "evidence": "ACP initialize response; session/new response; optional session/set_mode response"
-          },
-          "drive": {
-            "promptAcceptedMs": 20,
-            "firstResponseMs": 6695.5,
-            "completeMs": 33095.6,
-            "evidence": "user_message_chunk update; first non-user session update; session/prompt response"
-          },
-          "sessionId": "01a05201-cf11-7a70-9384-3d0eb1e09ac9",
-          "attach": {
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/grok-native-1",
+          "startedAt": "2026-08-30T15:54:09.841Z",
+          "timing": {
             "firstProbeAccepted": true,
             "inputProbeAttempts": 1,
-            "setupActions": 0,
-            "outputBytes": 6297,
-            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 196.3,
-            "firstProbeSentMs": 196.4,
-            "initialPaintLastByteMs": 875.4,
-            "inputReadyMs": 544.8,
-            "firstProbeEchoMs": 544.8,
-            "initialPaintSettledMs": 1377.8
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
+            "setupActions": 1,
+            "outputBytes": 15790,
+            "evidence": "fresh stock CLI with explicit --cwd; its delayed fresh-directory chooser is dismissed without persisting the dont-ask-again option in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 313.6,
+            "firstProbeSentMs": 314.7,
+            "initialPaintLastByteMs": 599.4,
+            "inputReadyMs": 524.1,
+            "initialPaintSettledMs": 1101.3,
+            "promptSubmittedMs": 1418.7,
+            "setupGateMs": 1431,
+            "responseVisibleMs": 4247.6,
+            "nextInputReadyMs": 4336.3
           }
         },
         {
           "run": 2,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/grok-2",
-          "startedAt": "2026-08-30T09:31:24.033Z",
-          "start": {
-            "sessionReadyMs": 356.7,
-            "milestones": {
-              "initializeReadyMs": 165.7,
-              "sessionReadyMs": 356.7
-            },
-            "evidence": "ACP initialize response; session/new response; optional session/set_mode response"
-          },
-          "drive": {
-            "promptAcceptedMs": 7.6,
-            "firstResponseMs": 2604.9,
-            "completeMs": 2888.1,
-            "evidence": "user_message_chunk update; first non-user session update; session/prompt response"
-          },
-          "sessionId": "01a05202-66b5-7f11-9db6-b7440c7a74e3",
-          "attach": {
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/grok-native-2",
+          "startedAt": "2026-08-30T15:54:18.349Z",
+          "timing": {
             "firstProbeAccepted": true,
             "inputProbeAttempts": 1,
-            "setupActions": 0,
-            "outputBytes": 6041,
-            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 186,
-            "firstProbeSentMs": 186.3,
-            "initialPaintLastByteMs": 813.8,
-            "inputReadyMs": 399.9,
-            "firstProbeEchoMs": 399.9,
-            "initialPaintSettledMs": 1314.4
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
+            "setupActions": 1,
+            "outputBytes": 15655,
+            "evidence": "fresh stock CLI with explicit --cwd; its delayed fresh-directory chooser is dismissed without persisting the dont-ask-again option in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 288.9,
+            "firstProbeSentMs": 289.1,
+            "initialPaintLastByteMs": 591.3,
+            "inputReadyMs": 504.7,
+            "initialPaintSettledMs": 1092.1,
+            "promptSubmittedMs": 1417.6,
+            "setupGateMs": 1428.9,
+            "responseVisibleMs": 3141.5,
+            "nextInputReadyMs": 3224.6
           }
         },
         {
           "run": 3,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/grok-3",
-          "startedAt": "2026-08-30T09:31:32.360Z",
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/grok-native-3",
+          "startedAt": "2026-08-30T15:54:25.748Z",
+          "timing": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
+            "setupActions": 1,
+            "outputBytes": 18274,
+            "evidence": "fresh stock CLI with explicit --cwd; its delayed fresh-directory chooser is dismissed without persisting the dont-ask-again option in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 159.1,
+            "firstProbeSentMs": 159.4,
+            "initialPaintLastByteMs": 419.7,
+            "inputReadyMs": 341.9,
+            "initialPaintSettledMs": 920.2,
+            "promptSubmittedMs": 1431.4,
+            "setupGateMs": 1445.1,
+            "responseVisibleMs": 8122.7,
+            "nextInputReadyMs": 8205.8
+          }
+        }
+      ],
+      "samples": [
+        {
+          "run": 1,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/grok-machine-1",
+          "startedAt": "2026-08-30T15:54:38.153Z",
           "start": {
-            "sessionReadyMs": 346.3,
+            "sessionReadyMs": 1151.3,
             "milestones": {
-              "initializeReadyMs": 179.1,
-              "sessionReadyMs": 346.3
+              "initializeReadyMs": 843.1,
+              "sessionReadyMs": 1151.3
             },
             "evidence": "ACP initialize response; session/new response; optional session/set_mode response"
           },
           "drive": {
-            "promptAcceptedMs": 7.7,
-            "firstResponseMs": 2500.3,
-            "completeMs": 3162.5,
+            "promptAcceptedMs": 13.4,
+            "firstResponseMs": 2740.7,
+            "completeMs": 3140.4,
             "evidence": "user_message_chunk update; first non-user session update; session/prompt response"
           },
-          "sessionId": "01a05202-874a-7811-bbd4-9c5ef738ba64",
+          "sessionId": "01a05361-4648-7ad2-92dd-407c3872f4d4",
           "attach": {
             "firstProbeAccepted": true,
             "inputProbeAttempts": 1,
             "setupActions": 0,
-            "outputBytes": 6189,
+            "outputBytes": 5445,
             "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 188.2,
-            "firstProbeSentMs": 188.3,
-            "initialPaintLastByteMs": 717.5,
-            "inputReadyMs": 372.1,
-            "firstProbeEchoMs": 372.1,
-            "initialPaintSettledMs": 1219.4
+            "firstByteMs": 666.5,
+            "firstProbeSentMs": 666.8,
+            "initialPaintLastByteMs": 1412,
+            "inputReadyMs": 939.2,
+            "firstProbeEchoMs": 939.2,
+            "initialPaintSettledMs": 1912.4,
+            "invokedAfterSessionReadyMs": 1.5,
+            "sequence": "before-machine-turn",
+            "sessionReadyToInputReadyMs": 940.7
+          }
+        },
+        {
+          "run": 2,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/grok-machine-2",
+          "startedAt": "2026-08-30T15:54:48.266Z",
+          "start": {
+            "sessionReadyMs": 542.2,
+            "milestones": {
+              "initializeReadyMs": 195.9,
+              "sessionReadyMs": 542.2
+            },
+            "evidence": "ACP initialize response; session/new response; optional session/set_mode response"
+          },
+          "drive": {
+            "promptAcceptedMs": 11.9,
+            "firstResponseMs": 3000.8,
+            "completeMs": 3105.4,
+            "evidence": "user_message_chunk update; first non-user session update; session/prompt response"
+          },
+          "sessionId": "01a05361-6b2c-7170-b03f-a84d2c4b9f1d",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 5062,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 174,
+            "firstProbeSentMs": 174.4,
+            "initialPaintLastByteMs": 722.7,
+            "inputReadyMs": 362.9,
+            "firstProbeEchoMs": 362.9,
+            "initialPaintSettledMs": 1225.1,
+            "invokedAfterSessionReadyMs": 0.1,
+            "sequence": "before-machine-turn",
+            "sessionReadyToInputReadyMs": 363
+          }
+        },
+        {
+          "run": 3,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/grok-machine-3",
+          "startedAt": "2026-08-30T15:54:57.038Z",
+          "start": {
+            "sessionReadyMs": 453.8,
+            "milestones": {
+              "initializeReadyMs": 213.7,
+              "sessionReadyMs": 453.8
+            },
+            "evidence": "ACP initialize response; session/new response; optional session/set_mode response"
+          },
+          "drive": {
+            "promptAcceptedMs": 14,
+            "firstResponseMs": 3212.5,
+            "completeMs": 3566.1,
+            "evidence": "user_message_chunk update; first non-user session update; session/prompt response"
+          },
+          "sessionId": "01a05361-8d7c-7eb0-b9c0-8c067a072e99",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 5145,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 200.9,
+            "firstProbeSentMs": 201.2,
+            "initialPaintLastByteMs": 803.9,
+            "inputReadyMs": 376.3,
+            "firstProbeEchoMs": 376.3,
+            "initialPaintSettledMs": 1304.4,
+            "invokedAfterSessionReadyMs": 0.1,
+            "sequence": "before-machine-turn",
+            "sessionReadyToInputReadyMs": 376.4
           }
         }
       ]
@@ -353,108 +593,187 @@
     "opencode": {
       "executable": "/home/mgw/.opencode/bin/opencode",
       "version": "1.18.25",
-      "mechanism": "Basic-auth loopback HTTP/SSE server; authenticated attach TUI",
-      "samples": [
+      "nativeMechanism": "stock opencode TUI creates and drives a new session",
+      "machineMechanism": "Basic-auth loopback HTTP/SSE server",
+      "attachMechanism": "opencode attach <url> --session <session>",
+      "nativeSamples": [
         {
           "run": 1,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/opencode-1",
-          "startedAt": "2026-08-30T09:31:41.506Z",
-          "start": {
-            "sessionReadyMs": 1467.9,
-            "milestones": {
-              "healthReadyMs": 1318.1,
-              "sessionReadyMs": 1467.9,
-              "eventStreamRequestedMs": 1467.9,
-              "eventStreamReadyMs": 1490.8
-            },
-            "evidence": "authenticated GET /global/health; POST /session; SSE request opened before prompt"
-          },
-          "drive": {
-            "promptAcceptedMs": 22.5,
-            "firstResponseMs": 2261.5,
-            "completeMs": 2692.4,
-            "evidence": "204 from prompt_async; first assistant message/part SSE event; session.idle SSE event"
-          },
-          "sessionId": "ses_fadfd500affejP4hUpX94uACuW",
-          "attach": {
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/opencode-native-1",
+          "startedAt": "2026-08-30T15:55:07.157Z",
+          "timing": {
             "firstProbeAccepted": false,
-            "inputProbeAttempts": 3,
+            "inputProbeAttempts": 5,
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
             "setupActions": 0,
-            "outputBytes": 11658,
-            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 1090.6,
-            "firstProbeSentMs": 1090.7,
-            "initialPaintLastByteMs": 1110,
-            "initialPaintSettledMs": 1611.1,
-            "inputReadyMs": 3149.7
+            "outputBytes": 31708,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 1376.5,
+            "firstProbeSentMs": 1376.7,
+            "initialPaintLastByteMs": 1390.6,
+            "initialPaintSettledMs": 1892.4,
+            "inputReadyMs": 5457.2,
+            "promptSubmittedMs": 5633,
+            "responseVisibleMs": 3540.3,
+            "nextInputReadyMs": 3702.8
           }
         },
         {
           "run": 2,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/opencode-2",
-          "startedAt": "2026-08-30T09:31:50.291Z",
-          "start": {
-            "sessionReadyMs": 1575.1,
-            "milestones": {
-              "healthReadyMs": 1402,
-              "sessionReadyMs": 1575.1,
-              "eventStreamRequestedMs": 1575.1,
-              "eventStreamReadyMs": 1593.5
-            },
-            "evidence": "authenticated GET /global/health; POST /session; SSE request opened before prompt"
-          },
-          "drive": {
-            "promptAcceptedMs": 18,
-            "firstResponseMs": 2436.1,
-            "completeMs": 2765,
-            "evidence": "204 from prompt_async; first assistant message/part SSE event; session.idle SSE event"
-          },
-          "sessionId": "ses_fadfd2d51ffe7Y4zmLQvL025Ui",
-          "attach": {
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/opencode-native-2",
+          "startedAt": "2026-08-30T15:55:16.938Z",
+          "timing": {
             "firstProbeAccepted": false,
-            "inputProbeAttempts": 3,
+            "inputProbeAttempts": 5,
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
             "setupActions": 0,
-            "outputBytes": 13148,
-            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 1221.5,
-            "firstProbeSentMs": 1221.7,
-            "initialPaintLastByteMs": 1234.9,
-            "initialPaintSettledMs": 1735.5,
-            "inputReadyMs": 3422.3
+            "outputBytes": 42214,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 1150.7,
+            "firstProbeSentMs": 1150.9,
+            "initialPaintLastByteMs": 1183.4,
+            "initialPaintSettledMs": 1687.9,
+            "inputReadyMs": 5249.4,
+            "promptSubmittedMs": 5416,
+            "responseVisibleMs": 6291.6,
+            "nextInputReadyMs": 6443.7
           }
         },
         {
           "run": 3,
-          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/opencode-3",
-          "startedAt": "2026-08-30T09:31:59.549Z",
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/opencode-native-3",
+          "startedAt": "2026-08-30T15:55:29.265Z",
+          "timing": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 4,
+            "firstPostResponseProbeAccepted": true,
+            "postResponseProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 31105,
+            "evidence": "fresh stock CLI in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed",
+            "firstByteMs": 1196.7,
+            "firstProbeSentMs": 1197.3,
+            "initialPaintLastByteMs": 1215.1,
+            "initialPaintSettledMs": 1716.7,
+            "inputReadyMs": 4493.3,
+            "promptSubmittedMs": 4661.7,
+            "responseVisibleMs": 3663.9,
+            "nextInputReadyMs": 3822.8
+          }
+        }
+      ],
+      "samples": [
+        {
+          "run": 1,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/opencode-machine-1",
+          "startedAt": "2026-08-30T15:55:38.220Z",
           "start": {
-            "sessionReadyMs": 2139.4,
+            "sessionReadyMs": 1707.9,
             "milestones": {
-              "healthReadyMs": 1825.5,
-              "sessionReadyMs": 2139.4,
-              "eventStreamRequestedMs": 2139.4,
-              "eventStreamReadyMs": 2171.5
+              "healthReadyMs": 1457.3,
+              "sessionReadyMs": 1707.9,
+              "eventStreamRequestedMs": 1708.1,
+              "eventStreamReadyMs": 6512.7
             },
             "evidence": "authenticated GET /global/health; POST /session; SSE request opened before prompt"
           },
           "drive": {
-            "promptAcceptedMs": 30,
-            "firstResponseMs": 2421.1,
-            "completeMs": 2633.2,
+            "promptAcceptedMs": 141.9,
+            "firstResponseMs": 2796.1,
+            "completeMs": 2988.5,
             "evidence": "204 from prompt_async; first assistant message/part SSE event; session.idle SSE event"
           },
-          "sessionId": "ses_fadfd06f5ffevyTuBwz1bieh4T",
+          "sessionId": "ses_fac9dcbf5ffejSCqZ84VyNuVrZ",
           "attach": {
             "firstProbeAccepted": false,
-            "inputProbeAttempts": 3,
+            "inputProbeAttempts": 4,
             "setupActions": 0,
-            "outputBytes": 11697,
+            "outputBytes": 10653,
             "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
-            "firstByteMs": 1189.1,
-            "firstProbeSentMs": 1189.3,
-            "initialPaintLastByteMs": 1203.1,
-            "initialPaintSettledMs": 1704.3,
-            "inputReadyMs": 3310
+            "firstByteMs": 1244.4,
+            "firstProbeSentMs": 1244.6,
+            "initialPaintLastByteMs": 1260.1,
+            "initialPaintSettledMs": 1760.5,
+            "inputReadyMs": 4326.6,
+            "invokedAfterSessionReadyMs": 0.5,
+            "sequence": "before-machine-turn",
+            "sessionReadyToInputReadyMs": 4327.1
+          }
+        },
+        {
+          "run": 2,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/opencode-machine-2",
+          "startedAt": "2026-08-30T15:55:48.720Z",
+          "start": {
+            "sessionReadyMs": 1750.1,
+            "milestones": {
+              "healthReadyMs": 1419.8,
+              "sessionReadyMs": 1750.1,
+              "eventStreamRequestedMs": 1751.5,
+              "eventStreamReadyMs": 6876.3
+            },
+            "evidence": "authenticated GET /global/health; POST /session; SSE request opened before prompt"
+          },
+          "drive": {
+            "promptAcceptedMs": 407.1,
+            "firstResponseMs": 2014.4,
+            "completeMs": 2234.1,
+            "evidence": "204 from prompt_async; first assistant message/part SSE event; session.idle SSE event"
+          },
+          "sessionId": "ses_fac9da2d3ffenunxeYL8uhk3KW",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 4,
+            "setupActions": 0,
+            "outputBytes": 10653,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 1283.1,
+            "firstProbeSentMs": 1283.5,
+            "initialPaintLastByteMs": 1299,
+            "initialPaintSettledMs": 1799.5,
+            "inputReadyMs": 4352.2,
+            "invokedAfterSessionReadyMs": 2.3,
+            "sequence": "before-machine-turn",
+            "sessionReadyToInputReadyMs": 4354.5
+          }
+        },
+        {
+          "run": 3,
+          "workdir": "/tmp/native-cli-lifecycle-JYMYsC/opencode-machine-3",
+          "startedAt": "2026-08-30T15:55:58.544Z",
+          "start": {
+            "sessionReadyMs": 1683.7,
+            "milestones": {
+              "healthReadyMs": 1419.1,
+              "sessionReadyMs": 1683.7,
+              "eventStreamRequestedMs": 1683.8,
+              "eventStreamReadyMs": 7228
+            },
+            "evidence": "authenticated GET /global/health; POST /session; SSE request opened before prompt"
+          },
+          "drive": {
+            "promptAcceptedMs": 592.1,
+            "firstResponseMs": 2774.1,
+            "completeMs": 2949.9,
+            "evidence": "204 from prompt_async; first assistant message/part SSE event; session.idle SSE event"
+          },
+          "sessionId": "ses_fac9d7cb3ffea5fHFzH41nTsVx",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 4,
+            "setupActions": 0,
+            "outputBytes": 10653,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 1501.7,
+            "firstProbeSentMs": 1502,
+            "initialPaintLastByteMs": 1517.8,
+            "initialPaintSettledMs": 2018.2,
+            "inputReadyMs": 4605.6,
+            "invokedAfterSessionReadyMs": 0.6,
+            "sequence": "before-machine-turn",
+            "sessionReadyToInputReadyMs": 4606.2
           }
         }
       ]

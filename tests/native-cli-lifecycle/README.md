@@ -5,25 +5,40 @@ the Claude, Codex, Grok, and OpenCode headless runtimes. It imports no Podium
 packages and starts no Podium server, daemon, relay, database, browser, abduco
 master, or systemd scope.
 
-Each sample creates a fresh native conversation in an otherwise empty temporary
-working directory and measures three user-visible phases:
+The report deliberately separates three independent lanes:
 
-1. **Start** — process/API invocation to an addressable native conversation.
-2. **Drive** — prompt submission to native acceptance evidence, first assistant
-   output, and the provider's completion fence.
-3. **Attach** — a fresh stock TUI in a real pseudo-terminal, including first
-   output, initial-paint quiescence, and input readiness. Input readiness is
-   proven by typing a unique marker without Enter and observing it echo in the
-   composer's terminal output; the benchmark never submits that marker.
+1. **Native CLI used by a human** — a stock TUI starts a new session in a real
+   pseudo-terminal, accepts a typed prompt, renders a unique response, and
+   becomes ready for the next prompt. Startup values are relative to CLI spawn;
+   response values are relative to pressing Enter.
+2. **Machine interface** — the vendor SDK/app-server/ACP/HTTP interface creates
+   a session and drives one turn. It records session-ready, prompt-accepted,
+   first-response, completion, and cold aggregate clocks.
+3. **Headless session to native attach** — the machine interface creates the
+   session, then a fresh stock TUI joins that exact session. The headline
+   `sessionReadyToInputReadyMs` clock includes the gap from machine session-ready
+   through a visibly usable attached composer.
+
+Both TUI lanes prove input readiness by typing randomized punctuation without
+Enter and observing it in the visible composer. The benchmark never submits the
+probe. It also records first byte, last initial-paint byte, output quiescence,
+whether the very first probe survived startup, and raw evidence for every clock.
 
 The provider mechanisms are intentionally direct:
 
-| Provider | Engine/SDK | Drive | Fresh native client |
+| Provider | Machine interface | Drive | Native attach |
 | --- | --- | --- | --- |
 | Claude | process-per-turn Agent SDK query | SDK stream | `claude --resume <session>` |
 | Codex | `codex app-server` over a Unix WebSocket | JSON-RPC `turn/start` | `codex resume … --remote unix://…` |
 | Grok | `grok agent stdio` | ACP `session/prompt` | `grok --resume <session>` |
 | OpenCode | authenticated `opencode serve` on loopback | HTTP async prompt + SSE | `opencode attach <url> --session <session>` |
+
+Grok and OpenCode can attach immediately after machine session creation, before
+the benchmark machine turn. Claude's SDK creates the resumable session as part
+of its query, so attach follows that turn. Codex `thread/start` has no resumable
+rollout yet, so Codex attach follows its first completed machine turn. The JSON
+labels every sample `before-machine-turn` or `after-machine-turn`; the Markdown
+does not blend those sequences into an unlabeled median.
 
 The harness removes provider API-key environment variables before child launch,
 matching the native-login/subscription path instead of accidentally benchmarking
@@ -57,6 +72,8 @@ Useful options:
 --timeout-ms <model-turn-timeout>
 --attach-timeout-ms <native-client-timeout>
 --attach-quiet-ms <initial-paint-quiescence-window>
+--no-native
+--no-machine
 --no-attach
 ```
 

@@ -20,6 +20,8 @@ interface Config {
   timeoutMs: number
   attachTimeoutMs: number
   attachQuietMs: number
+  native: boolean
+  machine: boolean
   attach: boolean
   output?: string
   markdown?: string
@@ -45,6 +47,9 @@ interface AttachTiming {
   firstProbeSentMs?: number
   firstProbeEchoMs?: number
   inputReadyMs?: number
+  invokedAfterSessionReadyMs?: number
+  sessionReadyToInputReadyMs?: number
+  sequence?: 'before-machine-turn' | 'after-machine-turn'
   firstProbeAccepted: boolean
   inputProbeAttempts: number
   setupGateMs?: number
@@ -52,6 +57,33 @@ interface AttachTiming {
   outputBytes: number
   evidence: string
   error?: string
+}
+
+interface NativeTiming {
+  firstProbeAccepted: boolean
+  inputProbeAttempts: number
+  firstPostResponseProbeAccepted: boolean
+  postResponseProbeAttempts: number
+  setupActions: number
+  outputBytes: number
+  evidence: string
+  firstByteMs?: number
+  firstProbeSentMs?: number
+  initialPaintLastByteMs?: number
+  initialPaintSettledMs?: number
+  inputReadyMs?: number
+  promptSubmittedMs?: number
+  responseVisibleMs?: number
+  nextInputReadyMs?: number
+  setupGateMs?: number
+  error?: string
+}
+
+interface NativeSample {
+  run: number
+  workdir: string
+  startedAt: string
+  timing: NativeTiming
 }
 
 interface Sample {
@@ -68,13 +100,16 @@ interface Sample {
 interface ProviderResult {
   executable: string
   version: string
-  mechanism: string
+  nativeMechanism: string
+  machineMechanism: string
+  attachMechanism: string
   model?: string
+  nativeSamples: NativeSample[]
   samples: Sample[]
 }
 
 interface Report {
-  schemaVersion: 1
+  schemaVersion: 2
   benchmark: 'native-cli-lifecycle'
   generatedAt: string
   runOrder: Provider[]
@@ -349,6 +384,16 @@ class RpcPeer {
   }
 }
 
+interface AttachInput {
+  executable: string
+  args: string[]
+  cwd: string
+  env: NodeJS.ProcessEnv
+  timeoutMs: number
+  quietMs: number
+  acceptOwnedWorkspaceTrust?: boolean
+}
+
 function lineReader(stream: NodeJS.ReadableStream, onLine: (line: string) => void): void {
   let buffer = ''
   stream.on('data', (chunk: Buffer) => {
@@ -363,15 +408,7 @@ function lineReader(stream: NodeJS.ReadableStream, onLine: (line: string) => voi
   })
 }
 
-async function measureAttach(input: {
-  executable: string
-  args: string[]
-  cwd: string
-  env: NodeJS.ProcessEnv
-  timeoutMs: number
-  quietMs: number
-  acceptOwnedWorkspaceTrust?: boolean
-}): Promise<AttachTiming> {
+async function measureAttach(input: AttachInput): Promise<AttachTiming> {
   const result: AttachTiming = {
     firstProbeAccepted: false,
     inputProbeAttempts: 0,
@@ -391,6 +428,7 @@ async function measureAttach(input: {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let finished = false
+    let lastScreen = ''
     const probes: { marker: string; sentAt: number }[] = []
     let quietTimer: ReturnType<typeof setTimeout> | undefined
     let stopTimer: ReturnType<typeof setTimeout> | undefined
@@ -428,7 +466,7 @@ async function measureAttach(input: {
     const screenText = (): string => {
       const buffer = terminal.buffer.active
       let text = ''
-      for (let index = 0; index < buffer.length; index += 1) {
+      for (let index = buffer.baseY; index < buffer.baseY + terminal.rows; index += 1) {
         text += (buffer.getLine(index)?.translateToString(true) ?? '') + '\n'
       }
       return text
@@ -436,7 +474,7 @@ async function measureAttach(input: {
 
     const sendProbe = (): void => {
       if (finished || result.inputReadyMs !== undefined) return
-      const marker = 'BENCH_INPUT_' + randomBytes(5).toString('hex').toUpperCase()
+      const marker = Array.from(randomBytes(24), (byte) => (byte & 1 ? '.' : '_')).join('')
       const sentAt = performance.now()
       probes.push({ marker, sentAt })
       result.inputProbeAttempts = probes.length
@@ -449,8 +487,9 @@ async function measureAttach(input: {
       const at = performance.now()
       result.outputBytes += chunk.byteLength
       terminal.write(chunk.toString('utf8'), () => {
-        if (result.inputReadyMs !== undefined) return
         const screen = screenText()
+        lastScreen = screen
+        if (result.inputReadyMs !== undefined) return
         if (
           input.acceptOwnedWorkspaceTrust &&
           result.setupActions === 0 &&
@@ -493,7 +532,7 @@ async function measureAttach(input: {
         return
       }
       finish(
-        `native client exited before the input marker echoed (${signal ? `signal ${signal}` : `code ${code}`})`,
+        `native client exited before attach became stable (${signal ? `signal ${signal}` : `code ${code}`}): ${safeTail(lastScreen, 1_000)}`,
       )
     })
     deadline = setTimeout(() => {
@@ -503,6 +542,271 @@ async function measureAttach(input: {
           ? `native client produced no terminal output within ${input.timeoutMs}ms`
           : `native client did not echo the input marker within ${input.timeoutMs}ms`,
       )
+    }, input.timeoutMs)
+  })
+  return result
+}
+
+async function measureSessionAttach(
+  input: AttachInput & {
+    sessionReadyAt: number
+    sequence: 'before-machine-turn' | 'after-machine-turn'
+  },
+): Promise<AttachTiming> {
+  const { sessionReadyAt, sequence, ...attachInput } = input
+  const invokedAt = performance.now()
+  const timing = await measureAttach(attachInput)
+  timing.invokedAfterSessionReadyMs = round(invokedAt - sessionReadyAt)
+  timing.sequence = sequence
+  if (timing.inputReadyMs !== undefined) {
+    timing.sessionReadyToInputReadyMs = round(
+      timing.invokedAfterSessionReadyMs + timing.inputReadyMs,
+    )
+  }
+  return timing
+}
+
+function nativeSetupAction(provider: Provider, screen: string): string | undefined {
+  if (provider === 'claude' && screen.includes('Yes, I trust this folder')) return '\r'
+  if (
+    provider === 'codex' &&
+    /Do you trust the contents of this directory\?/i.test(screen) &&
+    /Yes, (?:proceed|continue)/i.test(screen)
+  ) {
+    return '1\r'
+  }
+  if (
+    provider === 'grok' &&
+    screen.includes("Don't ask me again") &&
+    screen.includes('Type your answer here')
+  )
+    return 'X'
+  return undefined
+}
+
+async function measureNativeTurn(input: {
+  provider: Provider
+  executable: string
+  cwd: string
+  env: NodeJS.ProcessEnv
+  timeoutMs: number
+  quietMs: number
+}): Promise<NativeTiming> {
+  const expectedSuffix = randomBytes(5).toString('hex').toUpperCase()
+  const expected = `NATIVE_OK_${expectedSuffix}`
+  const prompt = `Reply with exactly NATIVE, then _, then OK, then _, then ${expectedSuffix}; no spaces. Do not use tools.`
+  const result: NativeTiming = {
+    firstProbeAccepted: false,
+    inputProbeAttempts: 0,
+    firstPostResponseProbeAccepted: false,
+    postResponseProbeAttempts: 0,
+    setupActions: 0,
+    outputBytes: 0,
+    evidence: `fresh stock CLI${input.provider === 'grok' ? ' with explicit --cwd; its delayed fresh-directory chooser is dismissed without persisting the dont-ask-again option' : ''} in a util-linux script PTY; non-submitted startup marker visibly echoed; prompt pasted and submitted with a delayed Enter (raw text for Grok first turn); unique assistant token rendered; non-submitted post-response marker visibly echoed`,
+  }
+  const started = performance.now()
+  const terminal = new Terminal({ cols: 120, rows: 40, scrollback: 1_000, allowProposedApi: true })
+  const nativeArgs = input.provider === 'grok' ? ['--cwd', input.cwd] : []
+  const command = `stty rows 40 cols 120; exec ${[input.executable, ...nativeArgs]
+    .map(shellQuote)
+    .join(' ')}`
+  const env = {
+    ...input.env,
+    ...(input.provider === 'codex' ? { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' } : {}),
+  }
+
+  await new Promise<void>((resolveNative) => {
+    const child = spawn('script', ['-qefc', command, '/dev/null'], {
+      cwd: input.cwd,
+      env: { ...env, TERM: 'xterm-256color', COLUMNS: '120', LINES: '40' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const startupProbes: { marker: string; sentAt: number }[] = []
+    const postResponseProbes: { marker: string; sentAt: number }[] = []
+    let finished = false
+    let lastScreen = ''
+    let promptAt: number | undefined
+    let promptScheduled = false
+    let setupHandled = false
+    let startupProbeTimer: ReturnType<typeof setTimeout> | undefined
+    let postResponseProbeTimer: ReturnType<typeof setTimeout> | undefined
+    let quietTimer: ReturnType<typeof setTimeout> | undefined
+    let stopTimer: ReturnType<typeof setTimeout> | undefined
+    let forceTimer: ReturnType<typeof setTimeout> | undefined
+    let deadline: ReturnType<typeof setTimeout>
+
+    const finish = (error?: string): void => {
+      if (finished) return
+      finished = true
+      clearTimeout(deadline)
+      if (startupProbeTimer) clearTimeout(startupProbeTimer)
+      if (postResponseProbeTimer) clearTimeout(postResponseProbeTimer)
+      if (quietTimer) clearTimeout(quietTimer)
+      if (stopTimer) clearTimeout(stopTimer)
+      if (forceTimer) clearTimeout(forceTimer)
+      terminal.dispose()
+      if (error) result.error = error
+      resolveNative()
+    }
+
+    const stop = (): void => {
+      try {
+        child.stdin?.write('\x03')
+      } catch {
+        // The native client may already be closing.
+      }
+      stopTimer = setTimeout(() => child.stdin?.write('\x03'), 250)
+      forceTimer = setTimeout(() => child.kill('SIGTERM'), 750)
+    }
+
+    const screenText = (): string => {
+      const buffer = terminal.buffer.active
+      let text = ''
+      for (let index = buffer.baseY; index < buffer.baseY + terminal.rows; index += 1) {
+        text += (buffer.getLine(index)?.translateToString(true) ?? '') + '\n'
+      }
+      return text
+    }
+
+    const submitPrompt = (): void => {
+      if (promptScheduled || finished) return
+      promptScheduled = true
+      child.stdin?.write(input.provider === 'grok' ? '\x01\x0b' : '\x15')
+      setTimeout(() => {
+        if (finished) return
+        child.stdin?.write(input.provider === 'grok' ? prompt : `\x1b[200~${prompt}\x1b[201~`)
+        setTimeout(() => {
+          if (finished) return
+          promptAt = performance.now()
+          result.promptSubmittedMs = round(promptAt - started)
+          if (result.initialPaintSettledMs === undefined) {
+            result.initialPaintSettledMs = result.promptSubmittedMs
+          }
+          child.stdin?.write('\r')
+        }, 90)
+      }, 75)
+    }
+    const submitWhenReady = (): void => {
+      const floorRemaining = input.provider === 'grok' ? 1_250 - (performance.now() - started) : 0
+      if (floorRemaining > 0) {
+        setTimeout(submitWhenReady, floorRemaining)
+        return
+      }
+      if (result.inputReadyMs !== undefined && result.initialPaintSettledMs !== undefined) {
+        submitPrompt()
+      }
+    }
+
+    const sendStartupProbe = (): void => {
+      if (finished || result.inputReadyMs !== undefined) return
+      const marker = Array.from(randomBytes(24), (byte) => (byte & 1 ? '.' : '_')).join('')
+      const sentAt = performance.now()
+      startupProbes.push({ marker, sentAt })
+      result.inputProbeAttempts = startupProbes.length
+      if (startupProbes.length === 1) result.firstProbeSentMs = round(sentAt - started)
+      child.stdin?.write(marker)
+      startupProbeTimer = setTimeout(sendStartupProbe, 1_000)
+    }
+
+    const sendPostResponseProbe = (): void => {
+      if (finished || result.nextInputReadyMs !== undefined || promptAt === undefined) return
+      const marker = Array.from(randomBytes(24), (byte) => (byte & 1 ? '.' : '_')).join('')
+      const sentAt = performance.now()
+      postResponseProbes.push({ marker, sentAt })
+      result.postResponseProbeAttempts = postResponseProbes.length
+      child.stdin?.write(marker)
+      postResponseProbeTimer = setTimeout(sendPostResponseProbe, 1_000)
+    }
+
+    const inspectScreen = (): void => {
+      if (finished) return
+      const screen = screenText()
+      lastScreen = screen
+      if (!setupHandled) {
+        const action = nativeSetupAction(input.provider, screen)
+        if (action !== undefined) {
+          setupHandled = true
+          result.setupGateMs = elapsed(started)
+          result.setupActions += 1
+          if (action.length > 1 && action.endsWith('\r')) {
+            child.stdin?.write(action.slice(0, -1))
+            setTimeout(() => {
+              if (!finished) child.stdin?.write(action.slice(-1))
+            }, 50)
+          } else {
+            child.stdin?.write(action)
+          }
+          return
+        }
+      }
+      if (result.inputReadyMs === undefined) {
+        const acceptedIndex = startupProbes.findIndex((probe) => screen.includes(probe.marker))
+        if (acceptedIndex >= 0 && (input.provider !== 'grok' || /Enter\s*:send/i.test(screen))) {
+          result.inputReadyMs = elapsed(started)
+          result.firstProbeAccepted = acceptedIndex === 0
+          if (startupProbeTimer) clearTimeout(startupProbeTimer)
+          submitWhenReady()
+        }
+      }
+      if (
+        promptAt !== undefined &&
+        result.responseVisibleMs === undefined &&
+        screen.includes(expected)
+      ) {
+        result.responseVisibleMs = round(performance.now() - promptAt)
+        setTimeout(sendPostResponseProbe, 75)
+      }
+      if (promptAt !== undefined && result.responseVisibleMs !== undefined) {
+        const acceptedIndex = postResponseProbes.findIndex((probe) => screen.includes(probe.marker))
+        if (acceptedIndex >= 0 && (input.provider !== 'grok' || /Enter\s*:send/i.test(screen))) {
+          result.nextInputReadyMs = round(performance.now() - promptAt)
+          result.firstPostResponseProbeAccepted = acceptedIndex === 0
+          if (postResponseProbeTimer) clearTimeout(postResponseProbeTimer)
+          stop()
+        }
+      }
+    }
+
+    const observe = (chunk: Buffer): void => {
+      const at = performance.now()
+      result.outputBytes += chunk.byteLength
+      terminal.write(chunk.toString('utf8'), inspectScreen)
+      if (result.firstByteMs === undefined) {
+        result.firstByteMs = round(at - started)
+        sendStartupProbe()
+      }
+      if (promptAt === undefined && result.initialPaintSettledMs === undefined) {
+        result.initialPaintLastByteMs = round(at - started)
+        if (quietTimer) clearTimeout(quietTimer)
+        quietTimer = setTimeout(() => {
+          result.initialPaintSettledMs = elapsed(started)
+          submitWhenReady()
+        }, input.quietMs)
+      }
+    }
+
+    child.stdout?.on('data', observe)
+    child.stderr?.on('data', observe)
+    child.once('error', (error) => finish(`could not start native CLI PTY: ${error.message}`))
+    child.once('close', (code, signal) => {
+      if (finished) return
+      if (result.nextInputReadyMs !== undefined) {
+        finish()
+        return
+      }
+      finish(
+        `native CLI exited before a complete human-style turn (${signal ? `signal ${signal}` : `code ${code}`}): ${safeTail(lastScreen, 1_000)}`,
+      )
+    })
+    deadline = setTimeout(() => {
+      child.kill('SIGTERM')
+      const phase =
+        result.inputReadyMs === undefined
+          ? 'startup input readiness'
+          : result.responseVisibleMs === undefined
+            ? `the expected ${expected} response`
+            : 'post-response input readiness'
+      finish(`native CLI timed out waiting for ${phase}: ${safeTail(lastScreen, 1_000)}`)
     }, input.timeoutMs)
   })
   return result
@@ -660,7 +964,9 @@ async function benchClaude(config: Config, executable: string, sample: Sample): 
             'system/init; first assistant stream event; SDK success result (all relative to worker spawn)',
         }
     if (config.attach && sessionReadyAt) {
-      sample.attach = await measureAttach({
+      sample.attach = await measureSessionAttach({
+        sessionReadyAt,
+        sequence: 'after-machine-turn',
         executable,
         args: ['--resume', sample.sessionId ?? sessionId],
         cwd: sample.workdir,
@@ -822,7 +1128,9 @@ async function benchCodex(
       throw new Error('Codex completed without the expected BENCH_OK response')
     }
     if (config.attach) {
-      sample.attach = await measureAttach({
+      sample.attach = await measureSessionAttach({
+        sessionReadyAt,
+        sequence: 'after-machine-turn',
         executable,
         args: ['resume', '-C', sample.workdir, threadId, '--remote', `unix://${socketPath}`],
         cwd: sample.workdir,
@@ -896,6 +1204,18 @@ async function benchGrok(config: Config, executable: string, sample: Sample): Pr
       evidence: 'ACP initialize response; session/new response; optional session/set_mode response',
     }
     status(`grok run ${sample.run}: session ready in ${sample.start.sessionReadyMs}ms`)
+    if (config.attach) {
+      sample.attach = await measureSessionAttach({
+        sessionReadyAt,
+        sequence: 'before-machine-turn',
+        executable,
+        args: ['--resume', sessionId],
+        cwd: sample.workdir,
+        env,
+        timeoutMs: config.attachTimeoutMs,
+        quietMs: config.attachQuietMs,
+      })
+    }
 
     const promptAt = performance.now()
     const completedPromise = rpc.call('session/prompt', {
@@ -931,16 +1251,6 @@ async function benchGrok(config: Config, executable: string, sample: Sample): Pr
     const grokTurnFrames = rpc.frames.filter((entry) => entry.at >= promptAt)
     if (!JSON.stringify(grokTurnFrames).includes('BENCH_OK')) {
       throw new Error('Grok completed without the expected BENCH_OK response')
-    }
-    if (config.attach) {
-      sample.attach = await measureAttach({
-        executable,
-        args: ['--resume', sessionId],
-        cwd: sample.workdir,
-        env,
-        timeoutMs: config.attachTimeoutMs,
-        quietMs: config.attachQuietMs,
-      })
     }
   } catch (error) {
     const detail = safeTail(stderr)
@@ -1142,6 +1452,18 @@ async function benchOpencode(config: Config, executable: string, sample: Sample)
       evidence: 'authenticated GET /global/health; POST /session; SSE request opened before prompt',
     }
     status(`opencode run ${sample.run}: session ready in ${sample.start.sessionReadyMs}ms`)
+    if (config.attach) {
+      sample.attach = await measureSessionAttach({
+        sessionReadyAt,
+        sequence: 'before-machine-turn',
+        executable,
+        args: ['attach', baseUrl, '--session', sessionId],
+        cwd: sample.workdir,
+        env,
+        timeoutMs: config.attachTimeoutMs,
+        quietMs: config.attachQuietMs,
+      })
+    }
 
     const messageRoles = new Map<string, string>()
     const promptAt = performance.now()
@@ -1213,16 +1535,6 @@ async function benchOpencode(config: Config, executable: string, sample: Sample)
     if (!JSON.stringify(await messages.json()).includes('BENCH_OK')) {
       throw new Error('OpenCode completed without the expected BENCH_OK response')
     }
-    if (config.attach) {
-      sample.attach = await measureAttach({
-        executable,
-        args: ['attach', baseUrl, '--session', sessionId],
-        cwd: sample.workdir,
-        env,
-        timeoutMs: config.attachTimeoutMs,
-        quietMs: config.attachQuietMs,
-      })
-    }
   } catch (error) {
     const detail = safeTail(stderr)
     throw new Error(`${errorText(error)}${detail ? `: ${detail}` : ''}`)
@@ -1249,6 +1561,8 @@ function parseArgs(args: string[]): Config {
     timeoutMs: 300_000,
     attachTimeoutMs: 30_000,
     attachQuietMs: 500,
+    native: true,
+    machine: true,
     attach: true,
   }
   const take = (index: number, name: string): string => {
@@ -1289,9 +1603,13 @@ function parseArgs(args: string[]): Config {
       index += 1
     } else if (arg === '--no-attach') {
       config.attach = false
+    } else if (arg === '--no-native') {
+      config.native = false
+    } else if (arg === '--no-machine') {
+      config.machine = false
     } else if (arg === '--help' || arg === '-h') {
       process.stdout.write(
-        'Usage: bun benchmark.ts [--providers claude,codex,grok,opencode] [--runs N] [--workdir DIR] [--output FILE] [--markdown FILE] [--timeout-ms N] [--attach-timeout-ms N] [--attach-quiet-ms N] [--no-attach]\n',
+        'Usage: bun benchmark.ts [--providers claude,codex,grok,opencode] [--runs N] [--workdir DIR] [--output FILE] [--markdown FILE] [--timeout-ms N] [--attach-timeout-ms N] [--attach-quiet-ms N] [--no-native] [--no-machine] [--no-attach]\n',
       )
       process.exit(0)
     } else {
@@ -1323,7 +1641,7 @@ function median(values: number[]): number | undefined {
   return round(value ?? 0)
 }
 
-function metric(samples: Sample[], read: (sample: Sample) => number | undefined): string {
+function metric<T>(samples: T[], read: (sample: T) => number | undefined): string {
   const values = samples.map(read).filter((value): value is number => value !== undefined)
   const value = median(values)
   return value === undefined ? '—' : `${value.toFixed(1)} ms`
@@ -1331,30 +1649,86 @@ function metric(samples: Sample[], read: (sample: Sample) => number | undefined)
 
 function renderMarkdown(report: Report): string {
   const lines = [
-    '# Native CLI lifecycle baseline',
+    '# Native, machine, and attach lifecycle baseline',
     '',
     `Measured ${report.generatedAt} on ${report.host.hostname} (${report.host.platform} ${report.host.release}, ${report.host.cpuCount} × ${report.host.cpu}, ${Math.round(report.host.memoryBytes / 2 ** 30)} GiB).`,
     `Run order: ${report.runOrder.join(' → ')}. Prompt: \`${report.prompt}\``,
     '',
-    'Start values are medians over samples that reached a native session; drive values are medians over verified successful turns; attach values include any sample whose native client probe succeeded. Start is measured from native engine/SDK process invocation; drive is relative to prompt submission; attach is relative to spawning a fresh stock CLI in a PTY.',
+    'Every table is a separate lane and every value is a median. Native timings come from a stock TUI creating and driving its own new session. Machine timings come from the vendor SDK/app-server/ACP/HTTP interface with no Podium process. Attach timings come from a stock TUI joining the session created by the machine lane.',
     '',
-    '| Provider | Samples | Session ready | Prompt accepted | First response | Turn complete | Attach first byte | Attach input ready | First attach keystroke |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
+    '## 1. Native CLI used by a human',
+    '',
+    '| Provider | Samples | First byte | Paint settled | Initial input ready | Response visible | Next input ready | First startup keystroke |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
   ]
   for (const provider of report.runOrder) {
     const result = report.providers[provider]
     if (!result) continue
-    const good = result.samples.filter((sample) => !sample.error)
-    const attachGood = result.samples.filter((sample) => sample.attach && !sample.attach.error)
-    const firstAccepted = attachGood.filter((sample) => sample.attach?.firstProbeAccepted).length
+    const good = result.nativeSamples.filter((sample) => !sample.timing.error)
+    const firstAccepted = good.filter((sample) => sample.timing.firstProbeAccepted).length
     lines.push(
-      `| ${provider} | ${good.length}/${result.samples.length} | ${metric(result.samples, (sample) => sample.start.sessionReadyMs)} | ${metric(good, (sample) => sample.drive.promptAcceptedMs)} | ${metric(good, (sample) => sample.drive.firstResponseMs)} | ${metric(good, (sample) => sample.drive.completeMs)} | ${metric(attachGood, (sample) => sample.attach?.firstByteMs)} | ${metric(attachGood, (sample) => sample.attach?.inputReadyMs)} | ${firstAccepted}/${attachGood.length} echoed |`,
+      `| ${provider} | ${good.length}/${result.nativeSamples.length} | ${metric(good, (sample) => sample.timing.firstByteMs)} | ${metric(good, (sample) => sample.timing.initialPaintSettledMs)} | ${metric(good, (sample) => sample.timing.inputReadyMs)} | ${metric(good, (sample) => sample.timing.responseVisibleMs)} | ${metric(good, (sample) => sample.timing.nextInputReadyMs)} | ${firstAccepted}/${good.length} echoed |`,
     )
   }
-  lines.push('', '## Raw samples', '')
   lines.push(
-    '| Provider | Run | Session ready | Prompt accepted | First response | Complete | Attach first byte | Paint settled | Input ready | Result |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
+    '',
+    'Native `Response visible` and `Next input ready` are relative to pressing Enter. Startup columns are relative to spawning the stock CLI.',
+    '',
+    '## 2. Machine interface',
+    '',
+    '| Provider | Samples | Session ready | Prompt accepted | First response | Turn complete | Cold → first response | Cold → complete |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+  )
+  for (const provider of report.runOrder) {
+    const result = report.providers[provider]
+    if (!result) continue
+    const good = result.samples.filter((sample) => !sample.error)
+    lines.push(
+      `| ${provider} | ${good.length}/${result.samples.length} | ${metric(result.samples, (sample) => sample.start.sessionReadyMs)} | ${metric(good, (sample) => sample.drive.promptAcceptedMs)} | ${metric(good, (sample) => sample.drive.firstResponseMs)} | ${metric(good, (sample) => sample.drive.completeMs)} | ${metric(good, (sample) => (sample.start.sessionReadyMs !== undefined && sample.drive.firstResponseMs !== undefined ? (provider === 'claude' ? sample.drive.firstResponseMs : sample.start.sessionReadyMs + sample.drive.firstResponseMs) : undefined))} | ${metric(good, (sample) => (sample.start.sessionReadyMs !== undefined && sample.drive.completeMs !== undefined ? (provider === 'claude' ? sample.drive.completeMs : sample.start.sessionReadyMs + sample.drive.completeMs) : undefined))} |`,
+    )
+  }
+  lines.push(
+    '',
+    '`Cold →` values add session startup and drive intervals, except Claude where SDK query starts the session and prompt together so its drive clock is already cold-to-response. They omit small orchestration gaps.',
+    '',
+    '## 3. Headless session → native attach',
+    '',
+    '| Provider | Samples | Sequence | Session ready → input ready | Attach invoked after ready | Attach first byte | Paint settled | Attach input ready | First attach keystroke |',
+    '| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |',
+  )
+  for (const provider of report.runOrder) {
+    const result = report.providers[provider]
+    if (!result) continue
+    const good = result.samples.filter((sample) => sample.attach && !sample.attach.error)
+    const firstAccepted = good.filter((sample) => sample.attach?.firstProbeAccepted).length
+    lines.push(
+      `| ${provider} | ${good.length}/${result.samples.length} | ${good[0]?.attach?.sequence ?? '—'} | ${metric(good, (sample) => sample.attach?.sessionReadyToInputReadyMs)} | ${metric(good, (sample) => sample.attach?.invokedAfterSessionReadyMs)} | ${metric(good, (sample) => sample.attach?.firstByteMs)} | ${metric(good, (sample) => sample.attach?.initialPaintSettledMs)} | ${metric(good, (sample) => sample.attach?.inputReadyMs)} | ${firstAccepted}/${good.length} echoed |`,
+    )
+  }
+  lines.push(
+    '',
+    'Grok and OpenCode attach immediately after machine session creation and before the machine turn. Claude attaches after its process-per-turn SDK query; Codex attaches after the first machine turn because app-server thread/start does not create a resumable rollout.',
+  )
+  lines.push('', '## Raw native samples', '')
+  lines.push(
+    '| Provider | Run | First byte | Paint settled | Initial input ready | Prompt submitted at | Response visible | Next input ready | Result |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
+  )
+  for (const provider of report.runOrder) {
+    const result = report.providers[provider]
+    if (!result) continue
+    for (const sample of result.nativeSamples) {
+      const cell = (value: number | undefined): string =>
+        value === undefined ? '—' : `${value.toFixed(1)} ms`
+      lines.push(
+        `| ${provider} | ${sample.run} | ${cell(sample.timing.firstByteMs)} | ${cell(sample.timing.initialPaintSettledMs)} | ${cell(sample.timing.inputReadyMs)} | ${cell(sample.timing.promptSubmittedMs)} | ${cell(sample.timing.responseVisibleMs)} | ${cell(sample.timing.nextInputReadyMs)} | ${sample.timing.error ?? 'ok'} |`,
+      )
+    }
+  }
+  lines.push('', '## Raw machine and attach samples', '')
+  lines.push(
+    '| Provider | Run | Session ready | Prompt accepted | First response | Complete | Attach sequence | Attach invoked | Session → input | Attach first byte | Paint settled | Input ready | Result |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |',
   )
   for (const provider of report.runOrder) {
     const result = report.providers[provider]
@@ -1363,7 +1737,7 @@ function renderMarkdown(report: Report): string {
       const cell = (value: number | undefined): string =>
         value === undefined ? '—' : `${value.toFixed(1)} ms`
       lines.push(
-        `| ${provider} | ${sample.run} | ${cell(sample.start.sessionReadyMs)} | ${cell(sample.drive.promptAcceptedMs)} | ${cell(sample.drive.firstResponseMs)} | ${cell(sample.drive.completeMs)} | ${cell(sample.attach?.firstByteMs)} | ${cell(sample.attach?.initialPaintSettledMs)} | ${cell(sample.attach?.inputReadyMs)} | ${sample.error ?? sample.attach?.error ?? 'ok'} |`,
+        `| ${provider} | ${sample.run} | ${cell(sample.start.sessionReadyMs)} | ${cell(sample.drive.promptAcceptedMs)} | ${cell(sample.drive.firstResponseMs)} | ${cell(sample.drive.completeMs)} | ${sample.attach?.sequence ?? '—'} | ${cell(sample.attach?.invokedAfterSessionReadyMs)} | ${cell(sample.attach?.sessionReadyToInputReadyMs)} | ${cell(sample.attach?.firstByteMs)} | ${cell(sample.attach?.initialPaintSettledMs)} | ${cell(sample.attach?.inputReadyMs)} | ${sample.error ?? sample.attach?.error ?? 'ok'} |`,
       )
     }
   }
@@ -1371,11 +1745,13 @@ function renderMarkdown(report: Report): string {
   for (const provider of report.runOrder) {
     const result = report.providers[provider]
     if (!result) continue
-    lines.push(`- **${provider} ${result.version}:** ${result.mechanism}`)
+    lines.push(
+      `- **${provider} ${result.version}:** native = ${result.nativeMechanism}; machine = ${result.machineMechanism}; attach = \`${result.attachMechanism}\``,
+    )
   }
   lines.push(
     '',
-    'The attach input probe types a unique marker after the first terminal byte and never presses Enter. “First attach keystroke” therefore means the first attempted input survived native startup and visibly reached the composer; it is not inferred from a painted screen.',
+    'Input probes type unique markers without Enter and require those markers to appear in the rendered terminal composer. “First keystroke” therefore measures whether input sent immediately after the first terminal byte survived startup; it is not inferred from painted output.',
     '',
     'These are observations, not stable product budgets. Provider load, network conditions, model choice, account tier, local config/plugins, machine load, and OS cache state all affect them. Consult the sibling JSON for host load, exact per-stage evidence, executable paths, and partial failures.',
     '',
@@ -1407,7 +1783,7 @@ async function main(): Promise<void> {
   const runtimeDir = join(tempRoot, 'runtime')
   await mkdir(runtimeDir, { recursive: true, mode: 0o700 })
   const report: Report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     benchmark: 'native-cli-lifecycle',
     generatedAt: new Date().toISOString(),
     runOrder: [...config.providers],
@@ -1418,6 +1794,8 @@ async function main(): Promise<void> {
       timeoutMs: config.timeoutMs,
       attachTimeoutMs: config.attachTimeoutMs,
       attachQuietMs: config.attachQuietMs,
+      native: config.native,
+      machine: config.machine,
       attach: config.attach,
       workdir: config.workdir ?? '<fresh temporary directory per sample>',
     },
@@ -1446,7 +1824,26 @@ async function main(): Promise<void> {
         report.providers[provider] = {
           executable: '',
           version: 'unavailable',
-          mechanism: 'not run',
+          nativeMechanism: 'not run',
+          machineMechanism: 'not run',
+          attachMechanism: 'not run',
+          nativeSamples: [
+            {
+              run: 1,
+              workdir: config.workdir ?? '',
+              startedAt: new Date().toISOString(),
+              timing: {
+                firstProbeAccepted: false,
+                inputProbeAttempts: 0,
+                firstPostResponseProbeAccepted: false,
+                postResponseProbeAttempts: 0,
+                setupActions: 0,
+                outputBytes: 0,
+                evidence: 'not run',
+                error: errorText(error),
+              },
+            },
+          ],
           samples: [
             {
               ...defaultSample(1, config.workdir ?? ''),
@@ -1456,44 +1853,80 @@ async function main(): Promise<void> {
         }
         continue
       }
-      const mechanism = {
-        claude: 'process-per-turn Agent SDK worker; native resume TUI',
-        codex: 'Unix WebSocket app-server JSON-RPC; remote resume TUI',
-        grok: 'ACP stdio JSON-RPC; native-store resume TUI',
-        opencode: 'Basic-auth loopback HTTP/SSE server; authenticated attach TUI',
+      const machineMechanism = {
+        claude: 'process-per-turn Agent SDK query',
+        codex: 'Unix WebSocket app-server JSON-RPC',
+        grok: 'ACP stdio JSON-RPC',
+        opencode: 'Basic-auth loopback HTTP/SSE server',
+      }[provider]
+      const attachMechanism = {
+        claude: 'claude --resume <session>',
+        codex: 'codex resume <thread> --remote unix://<socket>',
+        grok: 'grok --resume <session>',
+        opencode: 'opencode attach <url> --session <session>',
       }[provider]
       const result: ProviderResult = {
         executable,
         version,
-        mechanism,
+        nativeMechanism: `stock ${provider} TUI creates and drives a new session`,
+        machineMechanism,
+        attachMechanism,
         ...(process.env[`NATIVE_CLI_BENCH_${provider.toUpperCase()}_MODEL`]
           ? { model: process.env[`NATIVE_CLI_BENCH_${provider.toUpperCase()}_MODEL`] }
           : {}),
+        nativeSamples: [],
         samples: [],
       }
       report.providers[provider] = result
       status(`${provider}: ${version} (${executable})`)
-      for (let run = 1; run <= config.runs; run += 1) {
-        const workdir = config.workdir ?? join(tempRoot, `${provider}-${run}`)
-        if (!config.workdir) await mkdir(workdir, { recursive: true })
-        const sample = defaultSample(run, workdir)
-        result.samples.push(sample)
-        status(`${provider} run ${run}/${config.runs}: starting`)
-        try {
-          if (provider === 'claude') await benchClaude(config, executable, sample)
-          else if (provider === 'codex') await benchCodex(config, executable, sample, runtimeDir)
-          else if (provider === 'grok') await benchGrok(config, executable, sample)
-          else await benchOpencode(config, executable, sample)
-          if (sample.attach?.error) failed = true
+      if (config.native) {
+        for (let run = 1; run <= config.runs; run += 1) {
+          const workdir = config.workdir ?? join(tempRoot, `${provider}-native-${run}`)
+          if (!config.workdir) await mkdir(workdir, { recursive: true })
+          const nativeSample: NativeSample = {
+            run,
+            workdir,
+            startedAt: new Date().toISOString(),
+            timing: await measureNativeTurn({
+              provider,
+              executable,
+              cwd: workdir,
+              env: process.env,
+              timeoutMs: config.timeoutMs,
+              quietMs: config.attachQuietMs,
+            }),
+          }
+          result.nativeSamples.push(nativeSample)
+          if (nativeSample.timing.error) failed = true
           status(
-            `${provider} run ${run}/${config.runs}: complete${sample.attach?.error ? `; attach: ${sample.attach.error}` : ''}`,
+            `${provider} native run ${run}/${config.runs}: ${nativeSample.timing.error ? `FAILED: ${nativeSample.timing.error}` : 'complete'}`,
           )
-        } catch (error) {
-          failed = true
-          sample.error = errorText(error)
-          status(`${provider} run ${run}/${config.runs}: FAILED: ${sample.error}`)
+          await checkpointReport(report, config)
         }
-        await checkpointReport(report, config)
+      }
+      if (config.machine) {
+        for (let run = 1; run <= config.runs; run += 1) {
+          const workdir = config.workdir ?? join(tempRoot, `${provider}-machine-${run}`)
+          if (!config.workdir) await mkdir(workdir, { recursive: true })
+          const sample = defaultSample(run, workdir)
+          result.samples.push(sample)
+          status(`${provider} machine run ${run}/${config.runs}: starting`)
+          try {
+            if (provider === 'claude') await benchClaude(config, executable, sample)
+            else if (provider === 'codex') await benchCodex(config, executable, sample, runtimeDir)
+            else if (provider === 'grok') await benchGrok(config, executable, sample)
+            else await benchOpencode(config, executable, sample)
+            if (sample.attach?.error) failed = true
+            status(
+              `${provider} machine run ${run}/${config.runs}: complete${sample.attach?.error ? `; attach: ${sample.attach.error}` : ''}`,
+            )
+          } catch (error) {
+            failed = true
+            sample.error = errorText(error)
+            status(`${provider} machine run ${run}/${config.runs}: FAILED: ${sample.error}`)
+          }
+          await checkpointReport(report, config)
+        }
       }
     }
     await checkpointReport(report, config)
