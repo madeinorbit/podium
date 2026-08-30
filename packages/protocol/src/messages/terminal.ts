@@ -568,7 +568,13 @@ export const SessionPriorityMessage = z.object({
   priority: z.number().int().min(0).max(3),
   nativeView: z.boolean().optional(),
 })
-export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: SessionIdField })
+export const RedrawMessage = z.object({
+  type: z.literal('redraw'),
+  sessionId: SessionIdField,
+  /** The server has no retained bytes for the attaching page, so the runtime
+   *  must produce a repaint even when its client terminal survived adoption. */
+  replayRequired: z.boolean().optional(),
+})
 
 // daemon -> server
 /**

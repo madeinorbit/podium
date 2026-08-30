@@ -784,7 +784,9 @@ describe('Session', () => {
       const toDaemon = vi.fn()
       const s = makeSession(toDaemon)
       s.terminal.attachClient(makeClient('a'), 99)
-      expect(redraws(toDaemon)).toHaveLength(1)
+      expect(redraws(toDaemon)).toEqual([
+        { type: 'redraw', sessionId: asSessionId('s1'), replayRequired: true },
+      ])
     })
 
     it('does NOT nudge a clean resume — the client keeps its screen and takes the delta', () => {

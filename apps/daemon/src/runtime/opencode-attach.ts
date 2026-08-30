@@ -277,7 +277,7 @@ export interface OpencodeClientTerminals {
   /** Route the browser terminal transport to the attached harness client. */
   input(sessionId: SessionId, data: Uint8Array): boolean
   resize(sessionId: SessionId, cols: number, rows: number): boolean
-  redraw(sessionId: SessionId): boolean
+  redraw(sessionId: SessionId, replayRequired?: boolean): boolean
   /**
    * What could be reclaimed right now WITHOUT touching a session (spec §5:
    * attachments are the first thing reclaimed under pressure, because they are
@@ -363,6 +363,9 @@ interface Attachment {
    * redraws remain real.
    */
   suppressNextReplayRedraw?: boolean
+  /** A fresh web page attached after the server lost its replay window. This
+   *  obligation survives the race with recreating the adopted client handle. */
+  replayRequired?: boolean
   timer?: unknown
   /** Does a client have this session open? Drives the idle clock, and keeps a
    *  watched terminal out of the reclaim inventory. */
@@ -632,7 +635,11 @@ export function createOpencodeClientTerminals(
      * port after the master create race, so both sides of this RuntimeDriver
      * attach seam agree on whether this is continuity or a new client.
      */
-    if (!session.adopted) session.redraw()
+    if (!session.adopted || record.replayRequired) {
+      record.replayRequired = false
+      record.suppressNextReplayRedraw = false
+      session.redraw()
+    }
     return session
   }
 
@@ -857,13 +864,20 @@ export function createOpencodeClientTerminals(
       return true
     },
 
-    redraw(sessionId) {
+    redraw(sessionId, replayRequired = false) {
       const record = attachments.get(sessionId)
-      if (record?.suppressNextReplayRedraw) {
+      if (!record) return false
+      if (replayRequired && !record.session) {
+        record.replayRequired = true
         record.suppressNextReplayRedraw = false
         return true
       }
-      const session = record?.session
+      if (record.suppressNextReplayRedraw && !replayRequired) {
+        record.suppressNextReplayRedraw = false
+        return true
+      }
+      record.suppressNextReplayRedraw = false
+      const session = record.session
       if (!session) return false
       session.redraw()
       return true

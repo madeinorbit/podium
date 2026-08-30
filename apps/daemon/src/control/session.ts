@@ -2193,7 +2193,8 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    if (!ctx.clientTerminals?.redraw(msg.sessionId)) ctx.bridges.get(msg.sessionId)?.redraw()
+    if (!ctx.clientTerminals?.redraw(msg.sessionId, msg.replayRequired))
+      ctx.bridges.get(msg.sessionId)?.redraw()
   },
   agentObservationAck: (ctx, msg) => {
     ctx.observers.onObservationAck(msg)

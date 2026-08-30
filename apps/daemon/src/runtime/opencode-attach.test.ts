@@ -473,6 +473,28 @@ describe('the client terminal a server-family attach produces', () => {
     expect(state.clients[0]?.redraws).toBe(1)
   })
 
+  it('repaints an adopted client when a new page has no server replay', async () => {
+    const recovered = '\x1b[2Jseed marker from surviving TUI'
+    const { terminals, state } = harness({
+      redrawFrame: recovered,
+      hasMaster: () => true,
+      adopted: true,
+    })
+
+    terminals.adopt(SESSION)
+    // Mutation tooth: the current adoption fence consumes this request and the
+    // fresh page remains blank. The request may precede RuntimeDriver.attach,
+    // so the obligation must also survive creation of the adopted client handle.
+    expect(terminals.redraw(SESSION, true)).toBe(true)
+    expect(state.clients).toHaveLength(0)
+
+    await terminals.attach({ sessionId: SESSION, target })
+    expect(state.clients[0]?.redraws).toBe(1)
+    expect(state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))).toEqual([
+      recovered,
+    ])
+  })
+
   it('emits the reset when the spawn CREATED, even though a master existed a moment earlier', async () => {
     // The TOCTOU the old ordering carried: a master alive when the probe ran and
     // gone by the time the spawn landed. The client is then a brand-new TUI

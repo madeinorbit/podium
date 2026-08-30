@@ -303,7 +303,7 @@ export class SessionTerminal {
     // the next attach too. A clean resume keeps its screen and only needs the delta —
     // including a caught-up one, whose empty delta is "nothing changed", NOT "nothing to
     // rebuild from"; only an EMPTY LOG (a restarted server) means the latter.
-    if (!resumed || this.outputLog.length === 0) this.redraw()
+    if (!resumed || this.outputLog.length === 0) this.redraw(this.outputLog.length === 0)
   }
 
   reassignController(fromId: string, toId: string): void {
@@ -663,8 +663,12 @@ export class SessionTerminal {
     if (attribution) this.lastInputAttribution = attribution
   }
 
-  redraw(): void {
-    this.init.toDaemon({ type: 'redraw', sessionId: this.init.sessionId })
+  redraw(replayRequired = false): void {
+    this.init.toDaemon({
+      type: 'redraw',
+      sessionId: this.init.sessionId,
+      ...(replayRequired ? { replayRequired: true } : {}),
+    })
   }
 
   onFrame(data: string): void {
