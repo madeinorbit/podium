@@ -57,6 +57,59 @@
     "plugins": [
       "expo-router",
       [
+        "expo-font",
+        {
+          "ios": {
+            "fonts": [
+              "@expo-google-fonts/geist/400Regular/Geist_400Regular.ttf",
+              "@expo-google-fonts/geist/600SemiBold/Geist_600SemiBold.ttf",
+              "@expo-google-fonts/geist-mono/400Regular/GeistMono_400Regular.ttf",
+              "@expo-google-fonts/geist-mono/600SemiBold/GeistMono_600SemiBold.ttf"
+            ]
+          },
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Geist_400Regular",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/geist/400Regular/Geist_400Regular.ttf",
+                    "weight": 400
+                  }
+                ]
+              },
+              {
+                "fontFamily": "Geist_600SemiBold",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/geist/600SemiBold/Geist_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              },
+              {
+                "fontFamily": "GeistMono_400Regular",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/geist-mono/400Regular/GeistMono_400Regular.ttf",
+                    "weight": 400
+                  }
+                ]
+              },
+              {
+                "fontFamily": "GeistMono_600SemiBold",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/geist-mono/600SemiBold/GeistMono_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Scan a one-time code to connect this phone to your Podium server.",

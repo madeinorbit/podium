@@ -59,9 +59,9 @@ function RootLayoutContent({
     GeistMono_600SemiBold,
   })
   const reduceMotion = useReduceMotion()
-  // A load error falls back to system fonts; the one launch boundary owns the
-  // visible transition while fonts, auth, replica and route layout overlap.
-  const fontsReady = fontsLoaded || fontsError != null
+  // Native builds embed these faces, so only web waits for runtime registration.
+  // A web load error falls back to system fonts rather than blocking launch.
+  const fontsReady = Platform.OS !== 'web' || fontsLoaded || fontsError != null
   return (
     <LaunchBoundary fontsReady={fontsReady}>
       <VisualViewportRoot>
