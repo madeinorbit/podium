@@ -28,6 +28,11 @@ describe('r18 continuity selector contract', () => {
     expect(sidebar).toContain('data-testid="project-group"')
     expect(sidebar).toContain('<StartFirstTaskRow repoPath={repo.path} />')
     expect(worktree).toContain('testId="unified-worktree-row"')
+    expect(rig).toContain('value.slice(-512)')
+    expect(rig).toContain('redactedNormalizedTail:redactedNativeTail(normalized)')
+    expect(rig).toContain("'[REDACTED_TOKEN]'")
+    expect(rig).toContain("'[REDACTED_HEX]'")
+    expect(rig).not.toContain('redactedNormalizedTail:normalized')
 
     expect(composer).toContain('data-testid="cold-start-launch"')
   })
