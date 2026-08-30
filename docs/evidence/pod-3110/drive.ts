@@ -178,13 +178,15 @@ function saveResults(): void {
 
 function field(value: unknown): string {
   return String(value ?? '').replace(/[\t\r\n]+/g, ' ').trim()
+}
 function canonicalWhatId(id: string): string {
+  if (id === 'A1A') return 'A1a'
+  if (id === 'A6B') return 'A6b'
+  if (id === 'BQUOTA') return 'Bquota'
   if (id === 'CLI-sync') return 'A6b CLI-sync'
   if (id === 'A8-post-login') return 'A8 post-login'
   if (id === 'B-provider-error') return 'A8 provider-error'
   return id
-}
-
 }
 
 function evidenceFields(cell: Cell): string[] {
@@ -206,8 +208,7 @@ function validateLedger(text: string): void {
   if (malformed.length) throw new Error(`authoritative NF==8 refusal at lines ${malformed.map(({ index }) => index).join(',')}`)
 }
 
-function appendAuthoritativeRow(cell: Cell, fields: string[]): void {
-  if (!cell.control.fired || cell.verdict === 'BLOCKED') return
+function appendAuthoritativeRow(cell: Cell, fields: string[], readingPath: string, pinPath: string): void {
   const prior = readFileSync(LEDGER, 'utf8')
   validateLedger(prior)
   const identity = `[single] ${canonicalWhatId(cell.id)} Grok paired final tip run=${RUN_TOKEN}`
@@ -223,8 +224,13 @@ function appendAuthoritativeRow(cell: Cell, fields: string[]): void {
   const applied = spawnSync('git', ['apply', '--unidiff-zero', '-'], { cwd: REPO, input: patch, encoding: 'utf8' })
   if (applied.status !== 0) throw new Error(`authoritative git apply failed: ${applied.stderr}`)
   validateLedger(readFileSync(LEDGER, 'utf8'))
-  const added = spawnSync('git', ['add', LEDGER_REL], { cwd: REPO, encoding: 'utf8' })
+  const owned = [LEDGER, JSON_PATH, ROWS, readingPath, pinPath]
+  const added = spawnSync('git', ['add', '-f', '--', ...owned], { cwd: REPO, encoding: 'utf8' })
   if (added.status !== 0) throw new Error(`authoritative git add failed: ${added.stderr}`)
+  const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: REPO, encoding: 'utf8' })
+  const expected = owned.map((path) => path.slice(REPO.length + 1)).sort()
+  const actual = staged.stdout.trim().split('\n').filter(Boolean).sort()
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`refusing staged set: actual=${actual.join(',')} expected=${expected.join(',')}`)
   const committed = spawnSync('git', ['commit', '-m', `test(evidence): record Grok ${arm} ${cell.id} ${RUN_TOKEN}`, '-m', 'Podium-Issue: POD-3110'], { cwd: REPO, encoding: 'utf8' })
   if (committed.status !== 0) throw new Error(`authoritative evidence commit failed: ${committed.stderr}`)
   const after = readFileSync(LEDGER, 'utf8')
@@ -257,9 +263,19 @@ function record(id: string, prep: ReturnType<typeof preflight>, reading: CellRea
   saveResults()
   const fields = evidenceFields(cell)
   appendCandidateRow(cell, fields)
-  appendAuthoritativeRow(cell, fields)
+  const safeCell = canonicalWhatId(cell.id).replace(/[^A-Za-z0-9-]+/g, '-')
+  const stem = `${PRODUCT_PIN}.${RUN_TOKEN}.${arm}.${safeCell}`
+  const readingPath = join(EVIDENCE_DIR, `${stem}.reading.json`)
+  const pinPath = join(EVIDENCE_DIR, `${stem}.pin.txt`)
+  writeFileSync(readingPath, `${JSON.stringify(cell, null, 2)}\n`, { flag: 'wx' })
+  writeFileSync(pinPath, `${cell.pin}\n`, { flag: 'wx' })
+  appendAuthoritativeRow(cell, fields, readingPath, pinPath)
   console.log(`${id} ${arm} ${cell.verdict} control=${cell.control.fired ? 'FIRED' : 'MISSING'} — ${cell.summary}`)
-  if (cell.verdict !== 'PASS') throw new Error(`STOP-FIRST ${id} ${cell.verdict}: ${cell.summary}`)
+}
+
+function recordAndStop(reading: CellReading, writer: () => void): void {
+  writer()
+  if (reading.verdict !== 'PASS') throw new Error(`STOP-FIRST ${reading.verdict}: ${reading.summary}`)
 }
 
 function blocked(id: string, prep: ReturnType<typeof preflight>, reason: string): void {
@@ -269,25 +285,34 @@ function blocked(id: string, prep: ReturnType<typeof preflight>, reason: string)
     control: { fired: false, what: 'the live component pin and memory gate before this cell', detail: reason },
     evidence: [`PREFLIGHT         ${reason}`, `PIN               ${prep.pin || '(none)'}`],
   })
+  throw new Error(`STOP-FIRST BLOCKED: ${reason}`)
+}
+
+function requireCleanTree(): void {
+  const status = spawnSync('git', ['status', '--porcelain'], { cwd: REPO, encoding: 'utf8' })
+  if (status.status !== 0 || status.stdout.trim()) throw new Error(`refusing dirty drive tree: ${status.stdout || status.stderr}`)
 }
 
 async function runCell(id: string, fn: () => Promise<CellReading>): Promise<void> {
   if (ONLY.size > 0 && !ONLY.has(id)) return
+  requireCleanTree()
   const prep = preflight(id)
   if (!prep.ok) {
     blocked(id, prep, prep.reason)
     return
   }
+  let reading: CellReading
   try {
-    record(id, prep, await fn())
+    reading = await fn()
   } catch (error) {
-    record(id, prep, {
+    reading = {
       verdict: 'BLOCKED',
       summary: 'probe threw before a positive control fired',
       control: { fired: false, what: 'the cell-specific positive control', detail: String(error) },
       evidence: [`EXCEPTION         ${String(error)}`, `PIN               ${prep.pin}`],
-    })
+    }
   }
+  recordAndStop(reading, () => record(id, prep, reading))
 }
 
 // ---------------------------------------------------------------------------
@@ -1314,6 +1339,24 @@ async function oomSpot(): Promise<void> {
   }))
 }
 
+if (process.env.P3110_STATIC_SELF_TEST === '1') {
+  const fake = (id: string): Cell => ({ id, arm, verdict: 'PASS', summary: 'self-test', control: { fired: true, what: 'self-test', detail: 'fired' }, evidence: [], data: {}, cwd: '/tmp/self-test', memoryMb: 1, pin: 'pin', sessionIds: [], at: '2026-08-30T00:00:00.000Z' })
+  const got = ['A1A', 'A6B', 'BQUOTA'].map((id) => evidenceFields(fake(id))[0].split(' ')[1])
+  if (got.join(',') !== 'A1a,A6b,Bquota') throw new Error(`canonical self-test failed: ${got.join(',')}`)
+  let rows = 0
+  let later = 0
+  try {
+    recordAndStop({ verdict: 'FAIL', summary: 'expected', control: { fired: true, what: 'x', detail: 'x' }, evidence: [] }, () => { rows++ })
+    later++
+  } catch (error) {
+    if (!String(error).includes('STOP-FIRST')) throw error
+  }
+  if (rows !== 1 || later !== 0) throw new Error(`stop-first self-test failed rows=${rows} later=${later}`)
+  console.log(`STATIC_SELF_TEST_OK canonical=${got.join(',')} failRows=${rows} laterCells=${later}`)
+  process.exit(0)
+}
+
+requireCleanTree()
 await login()
 console.log(`Grok acceptance drive: arm=${arm} instance=${INSTANCE} base=${BASE}`)
 console.log('Rows: A1a A1b A1c A2a A2b A3 A4a A4b A5 A6a A6b A7a A7b A8 A9 CLI-sync A11 A10')

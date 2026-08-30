@@ -28,7 +28,7 @@ mkdir -p "$LOGS"
 cleanup_on_failure() {
   local rc=$?
   [ "$rc" -eq 0 ] && return 0
-  auth on >/dev/null 2>&1 || true
+  remove_isolated_credential >/dev/null 2>&1 || true
   stop_named daemon >/dev/null 2>&1 || true
   stop_named server >/dev/null 2>&1 || true
   printf '%s\n' "failure cleanup completed for run $RUN_TOKEN (rc=$rc)" >&2
@@ -201,15 +201,27 @@ seed_grok() {
     chmod 600 "$NORMAL_HOME/.grok/auth.json"
   fi
 }
+remove_isolated_credential() {
+  local live="$AGENT_HOME/.grok/auth.json" saved="$AGENT_HOME/.grok/auth.json.acceptance-saved"
+  [ ! -L "$live" ] || rm -f -- "$live"
+  [ ! -L "$saved" ] || rm -f -- "$saved"
+}
+
 
 up() {
   local arm="${1:-headless}"
   case "$arm" in headless|terminal) ;; *) log "usage: $0 up headless|terminal" >&2; return 2 ;; esac
   stop_named daemon
   stop_named server
+  if [ ! -f "$RUN_DIR/state-owned" ] && [ -e "$STATE_DIR/instance.json" ]; then
+    log "PREFLIGHT FAIL named instance marker already exists; refusing non-fresh drive" >&2
+    return 1
+  fi
   validate_immutable_inputs
+
   trap cleanup_on_failure EXIT
   claim_state
+  : >"$RUN_DIR/state-owned"
   seed_grok
   rm -f "$RUN_DIR/daemon.sha" "$RUN_DIR/server.sha"
 

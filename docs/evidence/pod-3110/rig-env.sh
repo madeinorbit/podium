@@ -15,7 +15,7 @@ export PODIUM_INSTANCE="$P3110_INSTANCE"
 export PODIUM_PORT="$(env -u PODIUM_STATE_DIR -u PODIUM_AGENT_HOME -u PODIUM_HOME -u PODIUM_RUNTIME_DRIVER -u ABDUCO_SOCKET_DIR PODIUM_INSTANCE="$P3110_INSTANCE" PODIUM_NO_RELAY=1 /home/mgw/.bun/bin/bun --conditions=@podium/source -e 'import { defaultInstancePorts } from "@podium/runtime/instance"; console.log(defaultInstancePorts(process.env.PODIUM_INSTANCE).server)')"
 export PODIUM_PASSWORD="p3110-grok-paired-final-tip-2af0-proof"
 export PODIUM_DRIVE_BASE="$P3110_BASE"
-export PODIUM_EVIDENCE_DIR="$P3110_RUN_DIR"
+export PODIUM_EVIDENCE_DIR="$P3110_REPO/docs/evidence/pod-3110/runs/$P3110_RUN_TOKEN"
 export PODIUM_PROBE_REPO="$P3110_BASE/repo"
 export PODIUM_HOST="127.0.0.1"
 unset PODIUM_SESSION_TOKEN PODIUM_SESSION_RELAY PODIUM_AGENT_RELAY PODIUM_RUNTIME_DRIVER
