@@ -90,6 +90,16 @@ for proc in /proc/[0-9]*; do
   fi
 done
 
+LOGS="$PODIUM_DRIVE_BASE/logs"
+INITIAL_LOG_ARCHIVE="$LOGS/r3-initial"
+[ ! -e "$INITIAL_LOG_ARCHIVE" ] \
+  || refuse "initial log archive already exists: $INITIAL_LOG_ARCHIVE"
+[ -f "$LOGS/server.log" ] || refuse "accepted initial server log absent"
+[ -f "$LOGS/daemon.log" ] || refuse "accepted initial daemon log absent"
+mkdir "$INITIAL_LOG_ARCHIVE"
+mv "$LOGS/server.log" "$INITIAL_LOG_ARCHIVE/server.log"
+mv "$LOGS/daemon.log" "$INITIAL_LOG_ARCHIVE/daemon.log"
+
 AGENT_HOME="$EXPECTED_STATE_ROOT/agent-home"
 CREDENTIAL="$AGENT_HOME/.local/share/opencode/auth.json"
 SOURCE_CREDENTIAL="$HOME/.local/share/opencode/auth.json"
@@ -126,7 +136,7 @@ start() {
       PODIUM_LOG_LEVEL=debug \
       PATH="$PATH" \
       bun --conditions=@podium/source "$script" \
-      > "$PODIUM_DRIVE_BASE/logs/$name.log" 2>&1 < /dev/null &
+      > "$LOGS/$name.log" 2>&1 < /dev/null &
     pid=$!
     case "$pid" in ''|*[!0-9]*) refuse "invalid $name pid: $pid";; esac
     printf '%s\n' "$pid" > "$PODIUM_DRIVE_BASE/$name.pid"
@@ -143,10 +153,10 @@ curl -fsS "http://127.0.0.1:20313/health" >/dev/null || refuse "server never bec
 
 start daemon scripts/daemon.ts
 for _ in $(seq 1 120); do
-  grep -q 'podium daemon up: connected to' "$PODIUM_DRIVE_BASE/logs/daemon.log" 2>/dev/null && break
+  grep -q 'podium daemon up: connected to' "$LOGS/daemon.log" 2>/dev/null && break
   sleep 1
 done
-grep -q 'podium daemon up: connected to' "$PODIUM_DRIVE_BASE/logs/daemon.log" \
+grep -q 'podium daemon up: connected to' "$LOGS/daemon.log" \
   || refuse "daemon never connected"
 
 trap - EXIT
