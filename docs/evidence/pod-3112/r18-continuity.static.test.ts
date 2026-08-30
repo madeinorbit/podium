@@ -43,11 +43,11 @@ describe('r18 continuity selector contract', () => {
     window.document.body.innerHTML = `
       <section data-testid="project-group" data-repository="DUM-1-A">
         <button data-testid="project-group-label" aria-expanded="true"><span>DUM-1-A</span></button>
-        <div data-testid="unified-issue-row" data-issue-row="issue-dum"><button>DUM task</button></div>
+        <div data-testid="unified-issue-row"><div class="shell-work-row" data-issue-row="issue-dum"><button>DUM task</button></div></div>
       </section>
       <section data-testid="project-group" data-repository="FOREIGN">
         <button data-testid="project-group-label" aria-expanded="true"><span>FOREIGN</span></button>
-        <div data-testid="unified-issue-row" data-issue-row="issue-foreign"><button>Foreign task</button></div>
+        <div data-testid="unified-issue-row"><div class="shell-work-row" data-issue-row="issue-foreign"><button>Foreign task</button></div></div>
       </section>
     `
     const sessions = [
@@ -61,7 +61,7 @@ describe('r18 continuity selector contract', () => {
         `[data-testid="project-group"][data-repository="${repository}"]`,
       )
       const rows = group?.querySelectorAll(
-        `[data-testid="unified-issue-row"][data-issue-row="${restored[0].issueId}"]`,
+        `[data-testid="unified-issue-row"]:has([data-issue-row="${restored[0].issueId}"])`,
       )
       return rows?.length === 1 ? rows[0] : null
     }
@@ -73,7 +73,7 @@ describe('r18 continuity selector contract', () => {
     expect(rig).toContain("row.sessionId===sid&&row.cwd===C")
     expect(rig).toContain("restored.length!==1")
     expect(rig).toContain('restored[0].issueId')
-    expect(rig).toContain('[data-testid="unified-issue-row"][data-issue-row="${issueId}"]')
+    expect(rig).toContain('[data-testid="unified-issue-row"]:has([data-issue-row="${issueId}"])')
     expect(rig).toContain('issueCount!==1')
   })
   test('enables and selects the headless driver through visible product controls', () => {
