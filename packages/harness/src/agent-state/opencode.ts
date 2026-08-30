@@ -245,6 +245,7 @@ export function observeOpencodeState(opts: {
 
       const rows = rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
       if (rows.length > 0) {
+        let resetForAbortedMessage = false
         const last = rows.at(-1)
         if (last) {
           lastPartTime = last.timeUpdated
@@ -266,6 +267,7 @@ export function observeOpencodeState(opts: {
             // the aborted envelope and must remain silent even when it arrives later.
             if (partType === 'interrupt' && !completedAbortedMessageIds.has(row.messageId)) {
               completedAbortedMessageIds.add(row.messageId)
+              resetForAbortedMessage = true
               rowEvents.push({ kind: 'turn_completed', verdict: { kind: 'interrupted' } })
             }
           } else if (role === 'user' && partType === 'text') {
@@ -283,13 +285,26 @@ export function observeOpencodeState(opts: {
           events.push(...withEventTime(rowEvents, at))
         }
         if (opts.onTranscriptItems) {
+          // An abort changes the meaning of every row in its assistant message.
+          // Rebuild from the durable tail once so text already rendered before
+          // the error envelope arrived is removed, while the stable provider
+          // marker remains the sole visible interruption record.
+          const transcriptRows = resetForAbortedMessage
+            ? rt.loadOpencodeTranscriptTail(handle, attached.id)
+            : rows
           const items = rt
-            .stampOpencodeItems(rows, attached.id)
-            .filter((item) => item.event !== 'interrupt' || !emittedInterruptMarkerIds.has(item.id))
+            .stampOpencodeItems(transcriptRows, attached.id)
+            .filter(
+              (item) =>
+                resetForAbortedMessage ||
+                item.event !== 'interrupt' ||
+                !emittedInterruptMarkerIds.has(item.id),
+            )
           for (const item of items) {
             if (item.event === 'interrupt') emittedInterruptMarkerIds.add(item.id)
           }
-          if (items.length > 0) opts.onTranscriptItems(items, false)
+          if (items.length > 0 || resetForAbortedMessage)
+            opts.onTranscriptItems(items, resetForAbortedMessage)
         }
       }
       if (events.length > 0) opts.onEvents(events)

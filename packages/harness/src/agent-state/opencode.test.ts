@@ -546,14 +546,18 @@ describe('observeOpencodeState interrupted verdict', () => {
 
     dbHooks.mtimeMs = 7_000
     const events: AgentStateEvent[] = []
-    const transcriptItems: Array<{ id: string; event?: string }> = []
+    let transcriptItems: Array<{ id: string; event?: string; role?: string; text?: string }> = []
+    const transcriptResets: Array<Array<{ id: string; event?: string }>> = []
     const obs = observeOpencodeState({
       cwd: '/repo/interrupt',
       homeDir: home,
       resumeValue: 'ses_interrupt',
       pollMs: 10,
       onEvents: (next) => events.push(...next),
-      onTranscriptItems: (next) => transcriptItems.push(...next),
+      onTranscriptItems: (next, reset) => {
+        transcriptItems = reset ? [...next] : [...transcriptItems, ...next]
+        if (reset) transcriptResets.push(next)
+      },
     })
     try {
       await waitFor(() => obs.sessionId === 'ses_interrupt')
@@ -588,6 +592,9 @@ describe('observeOpencodeState interrupted verdict', () => {
       abortDb.close()
       dbHooks.mtimeMs = 9_000
 
+      await waitFor(() =>
+        transcriptResets.some((items) => items.some((item) => item.event === 'interrupt')),
+      )
       await waitFor(() =>
         events.some(
           (event) => event.kind === 'turn_completed' && event.verdict.kind === 'interrupted',
@@ -641,6 +648,12 @@ describe('observeOpencodeState interrupted verdict', () => {
       expect(transcriptItems.filter((item) => item.event === 'interrupt')).toEqual([
         expect.objectContaining({ id: 'opencode-interrupt-msg-abort' }),
       ])
+      expect(
+        transcriptItems.filter(
+          (item) =>
+            item.role === 'assistant' && (item.text === 'partial' || item.text === 'late text'),
+        ),
+      ).toEqual([])
       const bootEvents = await opencodeStateProvider.bootEvents({
         cwd: '/repo/interrupt',
         homeDir: home,

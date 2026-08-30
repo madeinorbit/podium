@@ -31,7 +31,7 @@
  * `../../permitted-failures.ts`.
  */
 
-import type { SessionId, TranscriptItem } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent } from '../../events.js'
 // `assertAttachHonoursOneControlLease` is the assertion, not a copy of it: the
@@ -757,7 +757,14 @@ describe('OpenCode interrupt request truthfulness', () => {
       await Promise.all([first, second])
       expect(abortCalls).toBe(1)
       world.goIdle(handle.binding.sessionId)
-      await vi.waitFor(() => expect(interruptMarks(events)).toHaveLength(1))
+      await vi.waitFor(async () => expect((await handle.state()).phase).toBe('idle'))
+      expect(interruptMarks(events)).toEqual([])
+      expect(
+        events.filter(
+          (event) =>
+            event.t === 'turn' && event.ev.ev === 'completed' && event.ev.verdict === 'interrupted',
+        ),
+      ).toHaveLength(1)
     } finally {
       world.target.reset()
     }
@@ -815,16 +822,9 @@ describe('an aborted opencode turn', () => {
     }
   })
 
-  /**
-   * THE MARK A STOPPED TURN LEAVES BEHIND (POD-3090).
-   *
-   * The verdict above is what the MACHINE reads. This is what a human reading
-   * the conversation back reads, and headless it did not exist: the turn stopped
-   * mid-sentence and the transcript said nothing, while a terminal session shows
-   * the stop rule Claude Code's own marker earns it. The fence now mints the
-   * mark from the same terminal result the verdict comes from.
-   */
-  it('leaves exactly one durable interrupt item, stable across a replay', async () => {
+  /** The provider SQLite transcript owns the durable marker. The runtime fence
+   * owns only the verdict, or one Stop becomes two differently-keyed items. */
+  it('does not synthesize a second marker when idle precedes MessageAborted', async () => {
     const world = makeWorld()
     const { driver } = world.target.createDriver()
     try {
@@ -833,48 +833,29 @@ describe('an aborted opencode turn', () => {
       void (async () => {
         try {
           for await (const event of handle.events('bootstrap')) events.push(event)
-        } catch {
-          // the stream ends with the session
-        }
+        } catch {}
       })()
       await handle.send({ text: 'a long task' }, { origin: 'human', delivery: 'when-ready' })
+      await handle.interrupt()
+      world.goIdle(handle.binding.sessionId)
       abortTurn(world, handle.binding.sessionId)
 
-      const marks = (collected: RuntimeEvent[]): TranscriptItem[] =>
-        collected.flatMap((event) =>
-          event.t === 'item' &&
-          event.item.kind === 'complete' &&
-          event.item.item.event === 'interrupt'
-            ? [event.item.item]
-            : [],
-        )
-
-      await vi.waitFor(() => expect(marks(events)).toHaveLength(1))
-      expect(marks(events)[0]).toMatchObject({
-        id: `opencode-interrupt-${handle.binding.sessionId}-1`,
-        role: 'user',
-        text: '[Request interrupted by user]',
-        event: 'interrupt',
-      })
-
-      // A SECOND terminal signal for the same turn — the duplicate a flaky SSE
-      // reconnect delivers. The epoch fence absorbs it and the id would collapse
-      // it anyway; either way the operator sees one stop.
-      abortTurn(world, handle.binding.sessionId)
-      await new Promise((resolve) => setTimeout(resolve, 20))
-      expect(marks(events)).toHaveLength(1)
-
-      // The reload seam: a fresh reader of the same stream sees the same one.
-      const replayed: RuntimeEvent[] = []
-      void (async () => {
-        try {
-          for await (const event of handle.events('bootstrap')) replayed.push(event)
-        } catch {
-          // the stream ends with the session
-        }
-      })()
-      await vi.waitFor(() => expect(marks(replayed)).toHaveLength(1))
-      expect(marks(replayed)[0]?.id).toBe(marks(events)[0]?.id)
+      await vi.waitFor(() =>
+        expect(
+          events.filter((event) => event.t === 'turn' && event.ev.ev === 'completed'),
+        ).toHaveLength(1),
+      )
+      expect(
+        events.filter(
+          (event) =>
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            event.item.item.event === 'interrupt',
+        ),
+      ).toEqual([])
+      expect(
+        events.find((event) => event.t === 'turn' && event.ev.ev === 'completed'),
+      ).toMatchObject({ ev: { verdict: 'interrupted' } })
     } finally {
       world.target.reset()
     }

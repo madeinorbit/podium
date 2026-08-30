@@ -137,8 +137,6 @@ describe('OpenCode interruption records', () => {
       messageData: synthetic.messageData,
       partData: JSON.stringify({ type: 'text', text: 'late text' }),
     })
-    expect(stampOpencodeItems([repeatedPart], 'ses-1')).toEqual([
-      expect.objectContaining({ role: 'assistant', text: 'late text' }),
-    ])
+    expect(stampOpencodeItems([repeatedPart], 'ses-1')).toEqual([])
   })
 })
