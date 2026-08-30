@@ -15,6 +15,8 @@ Credential posture is an eventual symlink from the inherited operator home into 
 ## Live sequence after release
 
 Run arms sequentially, never concurrently:
+Before any build, run `bun run setup:worktree` and require its checkout-local dependency graph. Never share, copy, symlink, or bind-mount a complete `node_modules` tree, and never use the historical `link-node-modules.sh` pattern.
+
 
 1. Source `rig-env.sh`; confirm derived ports are unique and not 19797/32090.
 2. Build once only while holding an explicitly granted heavy slot; release it immediately afterward.
