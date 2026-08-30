@@ -1337,7 +1337,7 @@ async function main(): Promise<void> {
     if (duplicate) throw new Error('duplicate authoritative epic ledger issue+run identity: POD-3112 ' + runToken)
     const identity = driver === 'default-headed' ? 'generic-pty' : 'opencode-server'
     const title = canonicalCellTitle(cell)
-    const controlFired = reading.verdict === 'BLOCKED' ? false : reading.control.fired
+    const controlFired = reading.control.fired
     const epicRow = [
       '[single] ' + title + ' (POD-3112 run ' + runToken + ')',
       identity,
