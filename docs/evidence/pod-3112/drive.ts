@@ -703,32 +703,43 @@ async function runA3() {
     const needle = 'P3112-A3-' + Date.now().toString(36).toUpperCase()
     const sent = await mutate('sessions.sendText', {
       sessionId: sid,
-      text: 'Count from 1 to 220, one sentence per line, without tools. Include ' + needle + ' in the final line.',
+      text: 'Count from 1 to 1000, one sentence per line, without tools. Include ' + needle + ' only in the final line.',
     })
     const user = await waitForNeedle(sid, chat, needle, 'user', 5_000)
     const working = await waitPhase(sid, (phase) => phase === 'working', 15_000, 250)
+    const beforeInterrupt = await status(sid)
     const control: Control = {
-      fired: user.ok || working.ok || Boolean((sent.result?.data as { ok?: boolean } | undefined)?.ok),
-      what: 'the turn send delivering and an observed working phase before interrupt',
-      detail: 'user=' + user.ok + '; working=' + working.ok,
+      fired: user.ok && working.ok && beforeInterrupt?.phase === 'working',
+      what: 'a real long turn demonstrably working immediately before sessions.interrupt',
+      detail: 'user=' + user.ok + '; observedWorking=' + working.ok + '; immediatePhase=' + beforeInterrupt?.phase,
     }
-    if (!working.ok) {
-      return result('BLOCKED', 'no in-flight turn was observed, so interrupt was not exercised', control, ['SEND              ' + short(sent.result?.data ?? sent.error ?? null)], { sid, user: user.ok, working: working.samples })
+    if (!control.fired) {
+      return result('BLOCKED', 'no in-flight long turn was proven immediately before interrupt', control, ['SEND              ' + short(sent.result?.data ?? sent.error ?? null), 'BEFORE INTERRUPT  ' + short(beforeInterrupt)], { sid, working: working.samples, beforeInterrupt })
     }
     const interrupted = await mutate('sessions.interrupt', { sessionId: sid })
-    const after = await waitPhase(sid, (phase) => phase !== 'working', 20_000, 500)
-    const items = await transcript(sid)
-    const hasMarker = items.some((x) => x.event === 'interrupt' || /interrupt|cancel|refus/i.test(textOf(x.text)))
     const payload = interrupted.result?.data ?? interrupted.error ?? null
-    const typedRefusal = Boolean(interrupted.error) || /refus|unsupported|cannot|not available/i.test(JSON.stringify(payload))
-    const pass = after.ok && (hasMarker || typedRefusal)
-    return result(
-      pass ? 'PASS' : 'FAIL',
-      pass ? 'interrupt stopped the turn and left an interrupt/refusal record' : 'interrupt returned without a stopping record',
-      control,
-      ['INTERRUPT         ' + short(payload), 'STOPPED           ' + after.ok + ' in ' + after.ms + 'ms', 'MARKER           ' + hasMarker, 'TYPED REFUSAL     ' + typedRefusal],
-      { sid, payload, after, hasMarker, typedRefusal },
-    )
+    const receiptOk = Boolean((payload as { ok?: boolean } | null)?.ok)
+    const typedRefusal = Boolean(interrupted.error) || /refus|unsupported|cannot|not available|no turn/i.test(JSON.stringify(payload))
+    const after = await waitPhase(sid, (phase) => phase !== 'working', 20_000, 250)
+    const items = await transcript(sid)
+    const hasMarker = items.some((item) => item.event === 'interrupt' || /request interrupted|turn interrupted|interrupted by (the )?(operator|user)/i.test(textOf(item.text)))
+    const naturalCompletion = items.some((item) => item.role === 'assistant' && textOf(item.text).includes(needle))
+    const attributableStop = receiptOk && !typedRefusal && after.ok && !naturalCompletion
+    const pass = attributableStop && hasMarker
+    const verdict = typedRefusal ? 'BLOCKED' : pass ? 'PASS' : 'FAIL'
+    const summary = typedRefusal
+      ? 'interrupt returned a typed refusal; it is recorded but not treated as a stop'
+      : pass
+        ? 'accepted interrupt stopped the proven long turn and left a durable marker'
+        : 'interrupt lacked an attributable stop or durable transcript marker'
+    return result(verdict, summary, control, [
+      'INTERRUPT         ' + short(payload),
+      'RECEIPT OK        ' + receiptOk,
+      'STOPPED           ' + after.ok + ' in ' + after.ms + 'ms',
+      'NATURAL COMPLETE  ' + naturalCompletion,
+      'DURABLE MARKER    ' + hasMarker,
+      'TYPED REFUSAL     ' + typedRefusal,
+    ], { sid, payload, receiptOk, beforeInterrupt, after, naturalCompletion, hasMarker, typedRefusal, attributableStop })
   } finally {
     await cleanup(sid, chat)
   }
