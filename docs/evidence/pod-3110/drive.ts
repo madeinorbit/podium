@@ -93,7 +93,47 @@ process.on('exit', () => {
   if (authRestoreRequired) spawnSync('bash', [RIG, 'auth', 'on'], { cwd: join(import.meta.dir, '../../..'), env: cleanRigEnv(), stdio: 'ignore' })
 })
 
-const ONLY = new Set((process.env.PODIUM_ONLY ?? '').split(',').map((value) => value.trim()).filter(Boolean))
+const CANONICAL_CELL_IDS = [
+  'A1a', 'A1b', 'A1c', 'A2a', 'A2b', 'A3', 'A4a', 'A4b', 'A5', 'A6a', 'A6b',
+  'A7a', 'A7b', 'A8', 'A8-post-login', 'A9', 'CLI-sync', 'A11', 'A10',
+  'B-provider-error', 'B-oom-kill',
+] as const
+type CanonicalCellId = (typeof CANONICAL_CELL_IDS)[number]
+const CANONICAL_CELL_SET = new Set<string>(CANONICAL_CELL_IDS)
+
+function parseCellSelector(raw: string | undefined): Set<CanonicalCellId> {
+  if (raw === 'ALL') return new Set(CANONICAL_CELL_IDS)
+  if (raw === undefined || raw === '') throw new Error('P3110_CELLS is required; use exact comma-separated ids or ALL')
+  const tokens = raw.split(',').map((token) => token.trim())
+  if (tokens.some((token) => token === '')) throw new Error('P3110_CELLS contains an empty token')
+  const selected = new Set<CanonicalCellId>()
+  for (const token of tokens) {
+    if (!CANONICAL_CELL_SET.has(token)) throw new Error(`P3110_CELLS unknown id: ${token}`)
+    const id = token as CanonicalCellId
+    if (selected.has(id)) throw new Error(`P3110_CELLS duplicate id: ${id}`)
+    selected.add(id)
+  }
+  return selected
+}
+
+function selectedCellIds(raw: string | undefined): CanonicalCellId[] {
+  const selected = parseCellSelector(raw)
+  return CANONICAL_CELL_IDS.filter((id) => selected.has(id))
+}
+
+async function dispatchSelected(
+  selected: Set<CanonicalCellId>,
+  cells: readonly (readonly [CanonicalCellId, () => Promise<void>])[],
+): Promise<CanonicalCellId[]> {
+  const executed: CanonicalCellId[] = []
+  for (const [id, run] of cells) {
+    if (!selected.has(id)) continue
+    await run()
+    executed.push(id)
+  }
+  return executed
+}
+const SELECTED_CELLS = parseCellSelector(process.env.P3110_CELLS)
 
 if (existsSync(JSON_PATH) || existsSync(ROWS)) throw new Error(`refusing overwrite for immutable run ${RUN_TOKEN} arm ${arm}`)
 mkdirSync(CELL_ROOT, { recursive: true })
@@ -305,7 +345,6 @@ function requireCleanTree(): void {
 }
 
 async function runCell(id: string, fn: () => Promise<CellReading>): Promise<void> {
-  if (ONLY.size > 0 && !ONLY.has(id)) return
   requireCleanTree()
   const prep = preflight(id)
   if (!prep.ok) {
@@ -1441,6 +1480,23 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
   if (a1aVerdict(duplicateUserCount, duplicateUserCount, singleCount, singleCount, true) !== 'FAIL') throw new Error('A1a duplicate user token did not fail')
   if (a1aVerdict({ count: 0, itemIdentities: [] }, userCount, singleCount, singleCount, true) !== 'BLOCKED') throw new Error('A1a missing user control did not block')
   const owned = [LEDGER, JSON_PATH, ROWS, join(EVIDENCE_DIR, 'reading'), join(EVIDENCE_DIR, 'pin')]
+  const oneSelected = selectedCellIds('A1a')
+  const twoSelected = selectedCellIds('A1a,A1b')
+  const allSelected = selectedCellIds('ALL')
+  if (JSON.stringify(oneSelected) !== JSON.stringify(['A1a'])) throw new Error(`A1a selector leaked: ${oneSelected}`)
+  if (JSON.stringify(twoSelected) !== JSON.stringify(['A1a', 'A1b'])) throw new Error(`two-cell selector failed: ${twoSelected}`)
+  if (allSelected.length !== CANONICAL_CELL_IDS.length) throw new Error(`ALL selector lost cells: ${allSelected.length}`)
+  let selectorRefusals = 0
+  for (const raw of ['A1a,A1a', 'UNKNOWN', 'A1a,,A1b', '', undefined]) {
+    try { parseCellSelector(raw) } catch { selectorRefusals++ }
+  }
+  if (selectorRefusals !== 5) throw new Error(`selector refusal coverage failed: ${selectorRefusals}`)
+  const dispatched: CanonicalCellId[] = []
+  const testCells = CANONICAL_CELL_IDS.map((id) => [id, async () => { dispatched.push(id) }] as const)
+  const executed = await dispatchSelected(parseCellSelector('A1a'), testCells)
+  if (JSON.stringify(executed) !== JSON.stringify(['A1a']) || JSON.stringify(dispatched) !== JSON.stringify(['A1a'])) {
+    throw new Error(`A1a dispatch executed later cells: executed=${executed} dispatched=${dispatched}`)
+  }
   const exact = owned.map((path) => path.slice(REPO.length + 1))
   assertExactStagedSet(owned, exact)
   let foreignRejected = false
@@ -1455,7 +1511,7 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     if (!String(error).includes('STOP-FIRST')) throw error
   }
   if (rows !== 1 || later !== 0) throw new Error(`stop-first self-test failed rows=${rows} later=${later}`)
-  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
+  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} selectorOne=${oneSelected.length} selectorTwo=${twoSelected.length} selectorAll=${allSelected.length} selectorRefusals=${selectorRefusals} dispatch=${executed.join(',')} unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
   process.exit(0)
 }
 
@@ -1464,26 +1520,13 @@ await login()
 console.log(`Grok acceptance drive: arm=${arm} instance=${INSTANCE} base=${BASE}`)
 console.log('Rows: A1a A1b A1c A2a A2b A3 A4a A4b A5 A6a A6b A7a A7b A8 A9 CLI-sync A11 A10')
 
-await a1a()
-await a1b()
-await a1c()
-await a2a()
-await a2b()
-await a3()
-await a4a()
-await a4b()
-await a5()
-await a6a()
-await a6b()
-await a7a()
-await a7b()
-await a8()
-await a8PostLogin()
-await a9()
-await cliSync()
-await a11()
-await a10()
-await providerSpot()
-await oomSpot()
+const DISPATCH: readonly (readonly [CanonicalCellId, () => Promise<void>])[] = [
+  ['A1a', a1a], ['A1b', a1b], ['A1c', a1c], ['A2a', a2a], ['A2b', a2b],
+  ['A3', a3], ['A4a', a4a], ['A4b', a4b], ['A5', a5], ['A6a', a6a],
+  ['A6b', a6b], ['A7a', a7a], ['A7b', a7b], ['A8', a8],
+  ['A8-post-login', a8PostLogin], ['A9', a9], ['CLI-sync', cliSync], ['A11', a11],
+  ['A10', a10], ['B-provider-error', providerSpot], ['B-oom-kill', oomSpot],
+]
+const executed = await dispatchSelected(SELECTED_CELLS, DISPATCH)
 
 console.log(`Completed ${results.length} Grok ${arm} readings; JSON at ${JSON_PATH}; rows at ${ROWS}`)
