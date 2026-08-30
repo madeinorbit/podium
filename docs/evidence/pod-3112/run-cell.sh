@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 # Run one cell against the live p3112-oc-paired-r4 instance.
 set -euo pipefail
+assert_same_path_set() {
+  local expected="$1" actual="$2"
+  [ "$actual" = "$expected" ] || {
+    echo "refusing staged path mismatch" >&2
+    echo "expected:" >&2
+    printf '%s\n' "$expected" >&2
+    echo "actual:" >&2
+    printf '%s\n' "$actual" >&2
+    return 1
+  }
+}
+if [ "${P3112_RECORDER_SELF_CHECK:-}" = staged-mismatch ]; then
+  if assert_same_path_set "expected/path" "foreign/path"; then
+    echo "negative staged-set check failed to reject mismatch" >&2
+    exit 1
+  fi
+  echo "negative staged-set mismatch rejected"
+  exit 0
+fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/drive-env.sh"
 CELL="${1:?cell}"
@@ -44,13 +63,6 @@ fi
 git add -f -- "${CANDIDATES[@]}"
 EXPECTED="$(printf '%s\n' "${CANDIDATES[@]}" | LC_ALL=C sort -u)"
 ACTUAL="$(git diff --cached --name-only --diff-filter=ACMRT | LC_ALL=C sort -u)"
-[ "$ACTUAL" = "$EXPECTED" ] || {
-  echo "refusing staged path mismatch" >&2
-  echo "expected:" >&2
-  printf '%s\n' "$EXPECTED" >&2
-  echo "actual:" >&2
-  printf '%s\n' "$ACTUAL" >&2
-  exit 2
-}
+assert_same_path_set "$EXPECTED" "$ACTUAL" || exit 2
 git diff --cached --check
 git commit -m "evidence(opencode): record $DRIVER $CELL" -m "Podium-Issue: POD-3112"

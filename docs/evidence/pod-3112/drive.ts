@@ -13,8 +13,9 @@ import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFile
 import { loadavg } from 'node:os'
 import { join } from 'node:path'
 import { Chat, login, mutate, primeTerminalTui, query, wait } from '../pod-2777/rig'
+import { canonicalCellTitle } from './recorder-contract'
 
-type Verdict = 'PASS' | 'FAIL' | 'BLOCKED' | 'UNDRIVEN' | 'REFUSED'
+type Verdict = 'PASS' | 'FAIL' | 'PARTIAL' | 'BLOCKED' | 'UNDRIVEN' | 'REFUSED'
 type Driver = 'opencode-server' | 'default-headed'
 type Mode = 'native' | 'chat'
 
@@ -1328,19 +1329,21 @@ async function main(): Promise<void> {
   writeFileSync(join(ROOT, readingRel), JSON.stringify(reading, null, 2) + '\n')
   const clean = (value: unknown) => textOf(value).replace(/[\t\r\n]+/g, ' ')
   appendFileSync(join(ROOT, 'docs/evidence/pod-3112/results.tsv'), [stamp(), 'POD-3112', pin?.pinSha ?? 'UNPINNED', driver, cell, reading.verdict, reading.control.fired ? 'FIRED' : 'MISSING', clean(readingRel)].join('\t') + '\n')
-  if ((reading.verdict === 'PASS' || reading.verdict === 'FAIL') && reading.control.fired) {
+  if (reading.verdict !== 'REFUSED') {
     const ledger = readFileSync(EPIC_LEDGER, 'utf8')
     const malformed = ledger.split('\n').find((line) => line && !line.startsWith('#') && line.split('\t').length !== 8)
     if (malformed) throw new Error('authoritative epic ledger has non-eight-field row: ' + malformed.slice(0, 160))
     const duplicate = ledger.split('\n').some((line) => line.split('\t')[7] === 'POD-3112' && line.includes(runToken))
     if (duplicate) throw new Error('duplicate authoritative epic ledger issue+run identity: POD-3112 ' + runToken)
     const identity = driver === 'default-headed' ? 'generic-pty' : 'opencode-server'
+    const title = canonicalCellTitle(cell)
+    const controlFired = reading.verdict === 'BLOCKED' ? false : reading.control.fired
     const epicRow = [
-      '[single] ' + cell[0] + cell.slice(1).toLowerCase() + ' status while working (POD-3112 run ' + runToken + ')',
+      '[single] ' + title + ' (POD-3112 run ' + runToken + ')',
       identity,
       reading.verdict + ' ' + clean(reading.summary) + '; reading ' + readingRel,
       pin?.pinSha ?? 'UNPINNED',
-      'yes — ' + clean(reading.control.what) + '; ' + clean(reading.control.detail),
+      (controlFired ? 'yes — ' : 'no — ') + clean(reading.control.what) + '; ' + clean(reading.control.detail),
       'yes — named ' + (process.env.PODIUM_INSTANCE ?? 'unknown') + '; cwd ' + cwd + '; port ' + PORT + '; immutable run ' + runToken,
       stamp(),
       'POD-3112',
