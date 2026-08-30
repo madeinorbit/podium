@@ -42,7 +42,7 @@ export function tabBarScrollState(y: number, state: TabBarScrollState): TabBarSc
 }
 
 /**
- * Coarse scroll hints for the floating tab capsule [POD-420]. This only
+ * Web scroll hints for the floating tab capsule [POD-420]. This only
  * publishes threshold crossings; label visibility does not animate bar layout.
  */
 export function useMinimizeTabBarOnScroll(): ScrollProps {
