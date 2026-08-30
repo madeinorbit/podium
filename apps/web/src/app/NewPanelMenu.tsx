@@ -211,6 +211,7 @@ export function NewPanelMenu({
 
   // Single-machine (or no machines yet): no Machines region to choose between.
   if (machines.length <= 1) {
+    const machine = machines[0]
     return (
       // modal={false}: this opens a pixel from the tab strip inside a shell that
       // scrolls behind it, and scroll-locking the whole window for a 248px menu
@@ -223,7 +224,6 @@ export function NewPanelMenu({
         >
           {header}
           {TAB_AGENTS.map(({ kind, label, Icon }) => {
-            const machine = machines[0]
             const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
             const reason = machine
               ? capabilityReason(
@@ -444,7 +444,7 @@ function HeadlessDriverItems({
             label={`${agent.label} — ${driver.id}`}
             icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
             status={{
-              ...(agentLoginCondition(machine, driver.harness) === 'out'
+              ...(agentLoginCondition(machine, driver.harness) === 'logged-out'
                 ? {
                     warning: `${machine.name} is logged out; this driver may refuse or fall back.`,
                   }
