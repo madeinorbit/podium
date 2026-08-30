@@ -1,8 +1,3 @@
-import { Geist_400Regular } from '@expo-google-fonts/geist/400Regular'
-import { Geist_600SemiBold } from '@expo-google-fonts/geist/600SemiBold'
-import { GeistMono_400Regular } from '@expo-google-fonts/geist-mono/400Regular'
-import { GeistMono_600SemiBold } from '@expo-google-fonts/geist-mono/600SemiBold'
-import { useFonts } from 'expo-font'
 import { StatusBar } from 'expo-status-bar'
 import type { ComponentType, ReactNode } from 'react'
 import { Platform, StyleSheet } from 'react-native'
@@ -14,6 +9,7 @@ import { useReduceMotion } from '../hooks/useReduceMotion'
 import { installBlurOnNavigate } from '../lib/blur-on-navigate'
 import { startMobileLogging } from '../lib/logging'
 import { AuthGate } from './AuthGate'
+import { useLaunchFontsReady } from './font-startup'
 import { LaunchBoundary, LaunchReadyView } from './launch'
 import { MobileClientProvider } from './MobileClientProvider'
 import { ReadinessGate } from './ReadinessGate'
@@ -50,18 +46,8 @@ function RootLayoutContent({
 }: {
   Navigation: ComponentType<RootNavigationProps>
 }) {
-  // Four retained faces (POD-143): regular + semibold per family, imported by
-  // direct subpath so the export bundles only these TTFs, not the barrels.
-  const [fontsLoaded, fontsError] = useFonts({
-    Geist_400Regular,
-    Geist_600SemiBold,
-    GeistMono_400Regular,
-    GeistMono_600SemiBold,
-  })
+  const fontsReady = useLaunchFontsReady()
   const reduceMotion = useReduceMotion()
-  // Native builds embed these faces, so only web waits for runtime registration.
-  // A web load error falls back to system fonts rather than blocking launch.
-  const fontsReady = Platform.OS !== 'web' || fontsLoaded || fontsError != null
   return (
     <LaunchBoundary fontsReady={fontsReady}>
       <VisualViewportRoot>
