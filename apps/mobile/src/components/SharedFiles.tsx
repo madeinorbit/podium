@@ -3,7 +3,11 @@ import type { TranscriptItem } from '@podium/model'
 import { FileText, X } from './icons'
 import { useEffect, useState } from 'react'
 import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { authenticatedImageSource, fetchAuthenticatedAsset } from '../client/authenticated-assets'
+import {
+  authenticatedImageSource,
+  fetchAuthenticatedAsset,
+  readAuthenticatedTextPreview,
+} from '../client/authenticated-assets'
 import { useServerProfile } from '../client/ServerProfileGate'
 import {
   pathBasename,
@@ -110,8 +114,6 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
   )
 }
 
-const FILE_TEXT_CAP = 512 * 1024
-
 function SharedFileViewer({
   name,
   url,
@@ -131,9 +133,8 @@ function SharedFileViewer({
     void fetchAuthenticatedAsset(url, bearer)
       .then(async (response) => {
         if (!response.ok) throw new Error(`Could not load (${response.status})`)
-        const data = await response.arrayBuffer()
-        const slice = data.byteLength > FILE_TEXT_CAP ? data.slice(0, FILE_TEXT_CAP) : data
-        if (alive) setBody(new TextDecoder().decode(slice))
+        const text = await readAuthenticatedTextPreview(response)
+        if (alive) setBody(text)
       })
       .catch((cause: unknown) => {
         if (alive) setError(cause instanceof Error ? cause.message : String(cause))
