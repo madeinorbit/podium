@@ -8,6 +8,7 @@
     "@expo-google-fonts/geist": "^0.4.2",
     "@expo-google-fonts/geist-mono": "^0.4.3",
     "@expo/metro-runtime": "~57.0.14",
+    "@expo/ui": "~57.0.14",
     "@podium/client-core": "workspace:*",
     "@podium/commands": "workspace:*",
     "@podium/logger": "workspace:*",

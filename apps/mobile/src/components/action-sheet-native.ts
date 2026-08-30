@@ -1,3 +1,5 @@
+import type { ReactElement } from 'react'
+import type { StyleProp, ViewStyle } from 'react-native'
 import type { SheetAction } from './ActionSheet'
 
 /**
@@ -62,8 +64,25 @@ export function nativeSheetSpec({
 export interface NativePickerOption {
   value: string
   label: string
+  group?: string | undefined
   /** Renders greyed and unpickable — the machine rows a principal lacks. */
   disabled?: boolean | undefined
+}
+
+export interface NativePickerProps {
+  label: string
+  options: readonly NativePickerOption[]
+  selected: string
+  onSelect: (value: string) => void
+  onOpenFallback: () => void
+  style?: StyleProp<ViewStyle>
+  children: (onPress: (() => void) | undefined) => ReactElement
+}
+
+/** Android and web retain the existing BottomSheet picker. iOS resolves the
+ * sibling file and supplies a trigger backed by a SwiftUI Menu. */
+export function NativePicker({ children, onOpenFallback }: NativePickerProps) {
+  return children(onOpenFallback)
 }
 
 /**

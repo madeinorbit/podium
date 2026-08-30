@@ -20,10 +20,7 @@ import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { useMemo, useState } from 'react'
-// Namespace access, not a named import: react-native-web exports no
-// ActionSheetIOS (see ActionSheet.tsx, same pattern).
-import * as ReactNative from 'react-native'
-import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useMachines, useSessions, useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
@@ -44,7 +41,7 @@ import { reposOnMachine } from '../lib/new-work'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
-import { type NativePickerOption, nativePickerSpec } from './action-sheet-native'
+import { NativePicker, type NativePickerOption } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
@@ -289,78 +286,12 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     setStep('launch')
   }
 
-  /** iOS presents each field's picker as the real UIKit sheet OVER the open
-   *  launch sheet (2026-08-28 device feedback, following the backend rail);
-   *  the JS steps stay for web/Android — and for the model list's search box,
-   *  which UIKit cannot express and iOS therefore trades away. */
-  const openField = (field: 'model' | 'effort' | 'machine' | 'repo') => {
-    if (Platform.OS !== 'ios') {
-      setStep(field)
-      return
-    }
-    const picker =
-      field === 'model'
-        ? {
-            title: 'Model',
-            groups: groupedCatalogOptions(modelOptions),
-            selected: effectiveModel,
-            onPick: applyModel,
-          }
-        : field === 'effort'
-          ? {
-              title: 'Effort',
-              groups: [{ options: effortChoices }],
-              selected: effort,
-              onPick: (value: string) => setEffortPick(value),
-            }
-          : field === 'machine'
-            ? {
-                title: 'Machine',
-                groups: [
-                  {
-                    options: machineViews.map(
-                      (view): NativePickerOption => ({
-                        value: view.machine.id,
-                        label:
-                          view.availability === 'available'
-                            ? view.machine.name
-                            : `${view.machine.name} — ${
-                                view.availability === 'unauthorized' ? 'No access' : 'Offline'
-                              }`,
-                        disabled: view.availability !== 'available',
-                      }),
-                    ),
-                  },
-                ],
-                selected: machineId ?? undefined,
-                onPick: (value: string) => pickMachine(value as MachineId),
-              }
-            : {
-                title: 'Project',
-                groups: [
-                  {
-                    options: visibleRepos.map((repo) => ({
-                      value: repo.path,
-                      label: repo.name,
-                    })),
-                  },
-                ],
-                selected: selectedRepo?.path,
-                onPick: (value: string) => setRepoPick(value),
-              }
-    const { spec, values } = nativePickerSpec(picker)
-    ReactNative.ActionSheetIOS.showActionSheetWithOptions(
-      { ...spec, tintColor: color.accent, userInterfaceStyle: 'dark' },
-      (buttonIndex) => {
-        const value = buttonIndex >= 0 ? values[buttonIndex] : undefined
-        if (value === undefined) return
-        // Deferred like every native-sheet action: a presentation during
-        // UIKit's dismissal tail is silently dropped.
-        setTimeout(() => picker.onPick(value), 0)
-      },
-    )
+  const applyEffort = (value: string) => {
+    setEffortPick(value)
+    setStep('launch')
   }
 
+  const canChooseRepo = !onlyOneRepo && visibleRepos.length > 0
   return (
     <>
       <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
@@ -397,13 +328,23 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
       >
         {step === 'launch' ? (
           <>
-            <FieldSelect label="Model" value={modelValue} onPress={() => openField('model')} />
+            <FieldSelect
+              label="Model"
+              value={modelValue}
+              onPress={() => setStep('model')}
+              picker={{
+                options: modelOptions,
+                selected: effectiveModel,
+                onSelect: applyModel,
+              }}
+            />
 
             {effortChoices.length > 0 ? (
               <FieldSelect
                 label="Effort"
                 value={effortChoices.find((option) => option.value === effort)?.label ?? 'Auto'}
-                onPress={() => openField('effort')}
+                onPress={() => setStep('effort')}
+                picker={{ options: effortChoices, selected: effort, onSelect: applyEffort }}
               />
             ) : null}
 
@@ -411,7 +352,19 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
               <FieldSelect
                 label="Machine"
                 value={selectedMachine?.machine.name ?? 'Choose a machine'}
-                onPress={() => openField('machine')}
+                onPress={() => setStep('machine')}
+                picker={{
+                  options: machineViews.map((view) => ({
+                    value: view.machine.id,
+                    label:
+                      view.availability === 'available'
+                        ? view.machine.name
+                        : `${view.machine.name} · ${view.availability === 'unauthorized' ? 'No access' : 'Offline'}`,
+                    disabled: view.availability !== 'available',
+                  })),
+                  selected: machineId ?? '',
+                  onSelect: (value) => pickMachine(value as MachineId),
+                }}
               />
             ) : null}
 
@@ -421,9 +374,22 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
             <FieldSelect
               label="Project"
               value={selectedRepo?.name ?? 'No repositories available'}
-              {...(onlyOneRepo || visibleRepos.length === 0
-                ? {}
-                : { onPress: () => openField('repo') })}
+              onPress={canChooseRepo ? () => setStep('repo') : undefined}
+              picker={
+                canChooseRepo
+                  ? {
+                      options: visibleRepos.map((repo) => ({
+                        value: repo.path,
+                        label: repo.name,
+                      })),
+                      selected: selectedRepo?.path ?? '',
+                      onSelect: (value) => {
+                        setRepoPick(value)
+                        setStep('launch')
+                      },
+                    }
+                  : undefined
+              }
             />
 
             <PressableScale
@@ -463,10 +429,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
           <OptionList
             groups={[{ options: effortChoices }]}
             selected={effort}
-            onPick={(value) => {
-              setEffortPick(value)
-              setStep('launch')
-            }}
+            onPick={applyEffort}
           />
         ) : null}
 
@@ -628,12 +591,18 @@ function FieldSelect({
   label,
   value,
   onPress,
+  picker,
 }: {
   label: string
   value: string
   /** Absent renders the field as a STATEMENT — no chevron, no press target.
    *  A control that opens a list of one is worse than no control. */
   onPress?: () => void
+  picker?: {
+    options: readonly NativePickerOption[]
+    selected: string
+    onSelect: (value: string) => void
+  }
 }) {
   const body = (
     <>
@@ -643,19 +612,31 @@ function FieldSelect({
       {onPress ? <Icon as={ChevronDown} size={16} color={color.textMicro} /> : null}
     </>
   )
+  const trigger = (triggerPress: (() => void) | undefined) => (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${value}`}
+      onPress={triggerPress}
+      scaleTo={0.99}
+      style={({ pressed }) => [styles.select, pressed && styles.selectPressed]}
+    >
+      {body}
+    </PressableScale>
+  )
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      {onPress ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`${label}, ${value}`}
-          onPress={onPress}
-          scaleTo={0.99}
-          style={({ pressed }) => [styles.select, pressed && styles.selectPressed]}
+      {onPress && picker ? (
+        <NativePicker
+          label={label}
+          options={picker.options}
+          selected={picker.selected}
+          onSelect={picker.onSelect}
+          onOpenFallback={onPress}
+          style={styles.pickerHost}
         >
-          {body}
-        </PressableScale>
+          {trigger}
+        </NativePicker>
       ) : (
         <View
           accessibilityLabel={`${label}, ${value}`}
@@ -752,6 +733,9 @@ const styles = StyleSheet.create({
     ...monoLabel(),
     color: color.textFaint,
     marginBottom: space.xs,
+  },
+  pickerHost: {
+    alignSelf: 'stretch',
   },
   select: {
     minHeight: 48,
