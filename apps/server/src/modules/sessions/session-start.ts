@@ -66,7 +66,7 @@ import type {
   SessionBindingSpawnInstruction,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { resolveRole } from '@podium/runtime'
+import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
@@ -406,14 +406,28 @@ export class SessionStart {
         ? { model: input.model, effort: input.effort }
         : undefined,
     )
-    const selectedAccountId =
+    const inheritedAccountId =
       input.agentKind === 'shell'
         ? undefined
-        : (input.accountId ??
-          resolveRole(
+        : resolveRole(
             this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
             'coding',
-          ).accountId)
+          ).accountId
+    // A native role default names the CLI whose login it represents. Since the
+    // coding default is shared across agent kinds, an omitted account must not
+    // carry a different CLI's identity into per-session driver resolution. An
+    // explicit account is user intent and remains byte-for-byte unchanged for
+    // the existing downstream compatibility/refusal behavior.
+    const inheritedNativePrefix = `native:${input.agentKind}`
+    const inheritedMatchesAgent =
+      inheritedAccountId === inheritedNativePrefix ||
+      inheritedAccountId?.startsWith(inheritedNativePrefix + ':')
+    const selectedAccountId =
+      input.accountId !== undefined
+        ? input.accountId
+        : inheritedAccountId?.startsWith('native:') && !inheritedMatchesAgent
+          ? nativeAccountId(input.agentKind)
+          : inheritedAccountId
     const accountId =
       input.agentKind === 'shell' || selectedAccountId === undefined
         ? undefined

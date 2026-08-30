@@ -150,6 +150,9 @@ describe('the new-panel menu', () => {
         }),
       ),
     )
+    expect(createSession).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ accountId: expect.anything() }),
+    )
     expect(setPanelMode).toHaveBeenCalledWith('new', 'native')
     expect(setPanelMode.mock.invocationCallOrder[0]).toBeLessThan(
       opened.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
@@ -163,6 +166,9 @@ describe('the new-panel menu', () => {
           runtimeContract: 'opencode-server',
         }),
       ),
+    )
+    expect(createSession).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ accountId: expect.anything() }),
     )
     expect(setPanelMode).toHaveBeenCalledTimes(1)
 
