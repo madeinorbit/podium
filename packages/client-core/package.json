@@ -90,6 +90,16 @@
       "types": "./src/api.ts",
       "import": "./src/api.ts"
     },
+    "./transcript": {
+      "@podium/source": "./src/transcript/index.ts",
+      "types": "./src/transcript/index.ts",
+      "import": "./src/transcript/index.ts"
+    },
+    "./conversation": {
+      "@podium/source": "./src/conversation/index.ts",
+      "types": "./src/conversation/index.ts",
+      "import": "./src/conversation/index.ts"
+    },
     "./engine": {
       "@podium/source": "./src/engine/index.ts",
       "types": "./src/engine/index.ts",

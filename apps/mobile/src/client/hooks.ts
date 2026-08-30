@@ -79,6 +79,10 @@ export function useSession(id: SessionId | undefined): SessionMeta | undefined {
   )
 }
 
+export function useSessionDraft(id: SessionId): string {
+  return useStoreSelector<string, MobileTrpc>((state) => state.drafts[id] ?? '')
+}
+
 /**
  * True while this id names a session the server has NOT confirmed yet — an
  * optimistic spawn overlay (#119) with no row behind it.

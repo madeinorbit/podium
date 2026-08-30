@@ -3,19 +3,28 @@ import {
   composerState,
   defaultChatCapable,
   latestPendingQuestion,
-  mergeTranscriptItems,
   OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
-  prependTranscriptItems,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
+import {
+  createConversationController,
+  nativeSessionCanInterrupt,
+} from '@podium/client-core/conversation'
+import { randomUUID } from '@podium/client-core/id'
+import { createTranscriptController } from '@podium/client-core/transcript'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Platform, StyleSheet, View } from 'react-native'
-import { readTranscriptPage, useHub, useIssues, useMobileStore, useSessions } from '../client/hooks'
+import {
+  useHub,
+  useIssues,
+  useMobileStore,
+  useSessionDraft,
+  useSessions,
+} from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
-import { dropEchoedPendingTurns } from '../lib/pending-turns'
 import { sendOfferAction } from '../lib/send-offer-action'
 import { color } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
@@ -84,73 +93,104 @@ export function SessionConversation({
   const issues = useIssues()
   const allSessions = useSessions()
   const sessionId = session.sessionId
+  const storedDraft = useSessionDraft(sessionId)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one seed per addressed conversation
+  const draftSeed = useMemo(() => storedDraft, [sessionId])
   const trpc = store.trpc
+  const sessionStatusRef = useRef(session.status)
+  sessionStatusRef.current = session.status
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
 
-  const [items, setItems] = useState<TranscriptItem[]>(
-    () => store.replica.transcriptWindow(sessionId)?.items ?? [],
+  const transcriptController = useMemo(
+    () =>
+      createTranscriptController({
+        sessionId,
+        initialLimit: 80,
+        pageLimit: 80,
+        source: {
+          read: (request) => trpc.sessions.transcriptRead.query(request),
+          subscribe: (sid, since, listener) => hub.subscribeTranscript(sid, since, listener),
+        },
+        cache: {
+          read: (sid) => store.replica.transcriptWindow(sid),
+          write: (sid, items) => store.replica.putTranscriptWindow(sid, [...items]),
+        },
+        connection: {
+          connected: () => hub.connectionHealth().status !== 'down',
+          subscribe: (listener) =>
+            hub.onConnectionHealth((health) => listener(health.status !== 'down')),
+        },
+      }),
+    [hub, sessionId, store.replica, trpc.sessions.transcriptRead],
   )
-  const [loaded, setLoaded] = useState(false)
-  // Turns sent from this screen, painted until the server echoes them into the
-  // transcript (POD-338). A parked session queues the message and answers
-  // minutes later — without this the composer reads as if it never sent.
-  const [pendingTurns, setPendingTurns] = useState<LocalPendingTurn[]>([])
-  const turnSeq = useRef(0)
-  /**
-   * True for a beat after ANY send from this screen — composer or offer button.
-   *
-   * The transcript's tail reads the session's own agent state, which is a
-   * server fact and arrives after the round trip. Between the press and that
-   * frame the session still says "Idle" under a message that has visibly been
-   * sent, so the app reads as having swallowed it. The desktop chat carries the
-   * same flag for the same reason (`justSent` in `use-chat-send.ts`); it is a
-   * claim about THIS client's action, not about the agent, and it expires on
-   * its own so a refused send cannot leave a permanent "working".
-   *
-   * IT MUST YIELD THE MOMENT THE SESSION ANSWERS (POD-1595). `chatActivity` now
-   * ranks this claim above everything the PREVIOUS turn left behind — an offer,
-   * a question, an error — which is right, but only for as long as the claim is
-   * still the newest thing anyone knows. A flat timer is not that: an approval
-   * raised two seconds into the turn would have sat behind "Sending" for the
-   * rest of the window and read as ignored. So the ceiling is a backstop and
-   * `agentState.since` is the real signal — any phase change moves it, and the
-   * comparison is by VALUE, never against this device's clock.
-   */
-  const [openSend, setOpenSend] = useState<{
-    seq: number
-    since: string | null
-    /** True when the send went into a turn that was ALREADY running. */
-    queuedBehindTurn: boolean
-  } | null>(null)
-  const justSent = openSend !== null
-  const sendSeq = useRef(0)
-  // The daemon observation the optimistic claim is made AGAINST — see the
-  // ceiling effect below. Written in an effect, not during render.
-  const latestSince = useRef<string | undefined>(undefined)
-  const latestPhase = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    latestSince.current = session.agentState?.since
-    latestPhase.current = session.agentState?.phase
-  }, [session.agentState?.since, session.agentState?.phase])
-  const markSent = useCallback((): number => {
-    const seq = ++sendSeq.current
-    setOpenSend({
-      seq,
-      since: latestSince.current ?? null,
-      queuedBehindTurn: latestPhase.current === 'working' || latestPhase.current === 'compacting',
-    })
-    return seq
-  }, [])
-  /**
-   * The offer hidden by an accept that has not been echoed yet, keyed by its
-   * createdAt. The server clears the offer as part of accepting it, but that
-   * clear rides the same round trip as the send — leaving the card on screen
-   * until it lands makes the press look ignored, and invites a second press on
-   * a decision already taken. Cleared again if the send is REFUSED, because
-   * then the offer really is still open.
-   */
-  const [answeredOfferAt, setAnsweredOfferAt] = useState<string | null>(null)
+  const transcript = useSyncExternalStore(
+    transcriptController.subscribe,
+    transcriptController.getSnapshot,
+  )
+  const items = transcript.items
+  const loaded = transcript.initialLoaded
+  const conversationController = useMemo(
+    () =>
+      createConversationController({
+        sessionId,
+        transcript: transcriptController,
+        initialDraft: draftSeed,
+        onDraftChange: (text) => store.setSessionDraft(sessionId, text),
+        createDeliveryId: () => `msg_${randomUUID()}`,
+        deliver: async (turn) => {
+          try {
+            if (turn.kind === 'offer') {
+              await sendOfferAction(trpc.sessions, {
+                sessionId,
+                text: turn.wire,
+                wake: sessionStatusRef.current !== 'live',
+              })
+            } else {
+              await store.resumeAndSend(sessionId, turn.wire)
+            }
+            return { state: 'queued' }
+          } catch (error) {
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+            throw error
+          }
+        },
+        readQueue: () => trpc.messages.ledger.query({ sessionId, limit: 100 }),
+        retract: (id) => trpc.messages.cancel.mutate({ id }).then(() => {}),
+        dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
+        interrupt: async () => {
+          const result = await trpc.sessions.interrupt.mutate({ sessionId })
+          if (result?.ok === false) throw new Error(result.reason ?? 'the agent refused the interrupt')
+        },
+        optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
+      }),
+    [
+      sessionId,
+      store.dismissOffer,
+      store.resumeAndSend,
+      store.setSessionDraft,
+      draftSeed,
+      transcriptController,
+      trpc.messages,
+      trpc.sessions,
+    ],
+  )
+  const conversation = useSyncExternalStore(
+    conversationController.subscribe,
+    conversationController.getSnapshot,
+  )
+  const pendingTurns = useMemo<LocalPendingTurn[]>(
+    () =>
+      conversation.projected.pending.map((turn) => ({
+        id: turn.id,
+        text: turn.text,
+        wire: turn.wire,
+        ...(turn.files ? { files: turn.files as readonly SentAttachment[] } : {}),
+        ...(turn.error ? { failed: turn.error } : {}),
+      })),
+    [conversation.projected.pending],
+  )
+  const justSent = conversation.justSent
   const attachments = useComposerAttachments(sessionId)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
@@ -159,117 +199,36 @@ export function SessionConversation({
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
   const [peekIssue, setPeekIssue] = useState<IssueWire | null>(null)
-  // Scroll-back paging state. Refs, not state: paging must not retrigger the
-  // load/subscribe effect, and onEndReached can fire in bursts.
-  const paging = useRef<{ head?: string; hasMore: boolean; loading: boolean }>({
-    hasMore: false,
-    loading: false,
-  })
+  useEffect(() => {
+    void transcriptController.start()
+    return () => transcriptController.dispose()
+  }, [transcriptController])
 
   useEffect(() => {
-    let alive = true
-    let unsubscribe: (() => void) | null = null
-    const cached = store.replica.transcriptWindow(sessionId)
-    setItems(cached?.items ?? [])
-    setLoaded(false)
-    setPendingTurns([])
-    setOpenSend(null)
-    setAnsweredOfferAt(null)
-    paging.current = { hasMore: false, loading: false }
-    const attach = (since: string | undefined) => {
-      if (!alive) return
-      unsubscribe = hub.subscribeTranscript(sessionId, since, (delta, meta) => {
-        setItems((prev) => (meta.reset ? delta : mergeTranscriptItems(prev, delta)))
-      })
+    void conversationController.start()
+    return () => conversationController.dispose()
+  }, [conversationController])
+
+  useEffect(() => {
+    conversationController.replaceDraft(storedDraft)
+  }, [conversationController, storedDraft])
+
+  const latestOperatorPrompt = useMemo(() => {
+    for (let index = items.length - 1; index >= 0; index--) {
+      const item = items[index]
+      if (item?.role === 'user' && item.text.trim()) return item.text
     }
-    readTranscriptPage(trpc, sessionId)
-      .then((page) => {
-        if (!alive) return
-        setItems(page.items)
-        if (page.items.length > 0) store.replica.putTranscriptWindow(sessionId, page.items)
-        setLoaded(true)
-        paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
-        attach(page.tail)
-      })
-      .catch(() => {
-        if (!alive) return
-        setLoaded(true)
-        attach(undefined)
-      })
-    return () => {
-      alive = false
-      unsubscribe?.()
-    }
-  }, [trpc, hub, sessionId, store.replica])
-
-  // Live deltas extend the same bounded replica window, so a later warm or
-  // offline open paints the conversation instead of an empty transcript.
+    return null
+  }, [items])
   useEffect(() => {
-    if (items.length === 0) return
-    store.replica.putTranscriptWindow(sessionId, items)
-  }, [items, sessionId, store.replica])
-
-  useEffect(() => {
-    if (pendingTurns.length === 0) return
-    const echoed = items.filter((item) => item.role === 'user')
-    setPendingTurns((prev) => {
-      const next = dropEchoedPendingTurns(prev, echoed)
-      return next.length === prev.length ? prev : next
+    conversationController.updateContext({
+      agentSince: session.agentState?.since,
+      agentPhase: session.agentState?.phase,
+      offer: session.offer,
+      canInterrupt: nativeSessionCanInterrupt(session.status),
+      latestOperatorPrompt,
     })
-  }, [items, pendingTurns.length])
-
-  // The optimistic claim is a bridge to the server's own answer, not a
-  // substitute for it: it ends when the session reports on this turn, and the
-  // ceiling only covers a session that reports nothing at all.
-  const agentSince = session.agentState?.since
-  const agentPhase = session.agentState?.phase
-  useEffect(() => {
-    if (openSend === null) return
-    if ((agentSince ?? null) !== openSend.since) {
-      // A send made into a RUNNING turn is a queued one, and the first phase
-      // change it sees is that turn ending — not the daemon saying anything
-      // about the message still waiting behind it. Spend the flag on a quiet
-      // finish only; anything else (an ask raised mid-turn, an error) is news
-      // the operator needs more than they need our receipt.
-      if (openSend.queuedBehindTurn && agentPhase === 'idle') {
-        setOpenSend({ ...openSend, since: agentSince ?? null, queuedBehindTurn: false })
-        return
-      }
-      setOpenSend(null)
-      return
-    }
-    // The ceiling is for a session saying NOTHING. One visibly working is
-    // saying plenty, just about the turn ahead of ours.
-    if (openSend.queuedBehindTurn && (agentPhase === 'working' || agentPhase === 'compacting')) {
-      return
-    }
-    const timer = setTimeout(() => setOpenSend(null), OPTIMISTIC_SEND_CEILING_MS)
-    return () => clearTimeout(timer)
-  }, [openSend, agentSince, agentPhase])
-
-  const fail = useCallback((id: string, error: unknown, seq?: number) => {
-    const message = error instanceof Error ? error.message : String(error)
-    setPendingTurns((prev) =>
-      prev.map((turn) => (turn.id === id ? { ...turn, failed: message } : turn)),
-    )
-    // A REFUSED send is not in flight. Leaving the optimistic claim open would
-    // keep "Sending" over the tail — now above the session's own error and
-    // attention lines — for the rest of the window, next to a bubble that has
-    // just gone red. Scoped to the send that failed: these resolve out of
-    // order, and a slow rejection must not close a later send's window.
-    if (seq !== undefined) setOpenSend((current) => (current?.seq === seq ? null : current))
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-  }, [])
-
-  const dispatch = useCallback(
-    (turn: LocalPendingTurn) => {
-      const mySend = markSent()
-      void store.resumeAndSend(sessionId, turn.wire).catch((error: unknown) => {
-        fail(turn.id, error, mySend)
-      })
-    },
-    [store.resumeAndSend, sessionId, fail, markSent],
-  )
+  }, [conversationController, latestOperatorPrompt, session.agentState, session.offer, session.status])
 
   /**
    * WHAT GOES ON THE WIRE IS NOT WHAT GOES IN THE BUBBLE.
@@ -290,43 +249,27 @@ export function SessionConversation({
         attached.length > 0
           ? `${attached.map((file) => file.path).join('\n')}\n${trimmed}`
           : trimmed
-      const turn: LocalPendingTurn = {
-        id: `${Date.now()}:${turnSeq.current++}`,
+      void conversationController.submit({
         text: trimmed,
         wire,
-        ...(attached.length > 0 ? { files: attached } : {}),
-      }
-      setPendingTurns((prev) => [...prev, turn])
-      dispatch(turn)
+        ...(attached.length > 0
+          ? { files: attached, toolPaths: attached.map((file) => file.path) }
+          : {}),
+      })
     },
-    [dispatch],
+    [conversationController],
   )
 
   const retry = useCallback(
     (turn: PendingTurn) => {
-      const again = { ...(turn as LocalPendingTurn) }
-      delete again.failed
-      setPendingTurns((prev) =>
-        prev.map((candidate) => (candidate.id === turn.id ? again : candidate)),
-      )
-      dispatch(again)
+      void conversationController.retry(turn.id)
     },
-    [dispatch],
+    [conversationController],
   )
 
   const loadOlder = useCallback(() => {
-    const p = paging.current
-    if (!p.hasMore || p.loading || !p.head) return
-    p.loading = true
-    readTranscriptPage(trpc, sessionId, p.head)
-      .then((page) => {
-        paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
-        setItems((prev) => prependTranscriptItems(prev, page.items))
-      })
-      .catch(() => {
-        paging.current.loading = false
-      })
-  }, [trpc, sessionId])
+    void transcriptController.loadOlder()
+  }, [transcriptController])
 
   // A peek stores the selected identity but renders the replica's live row, so a
   // todo toggle updates in the still-open sheet instead of waiting for reopen.
@@ -344,8 +287,8 @@ export function SessionConversation({
    */
   // `!= null`, not `!== undefined`: a cleared offer arrives as an explicit null,
   // and reaching for `.createdAt` through it throws.
-  const answered = session.offer != null && session.offer.createdAt === answeredOfferAt
-  const offer = answered ? undefined : session.offer
+  const answered = session.offer != null && conversation.offer === null
+  const offer = conversation.offer
   const offerArtifacts = offer
     ? resolveOfferArtifacts({
         offer,
@@ -423,26 +366,8 @@ export function SessionConversation({
    * with the reason and a Try again, and the caller sees the throw so the card
    * can say "Not sent" too.
    */
-  const acceptOffer = (prompt: string, offerCreatedAt: string): Promise<void> => {
-    const text = prompt.trim()
-    const turn: LocalPendingTurn = {
-      id: `${Date.now()}:${turnSeq.current++}`,
-      text,
-      wire: text,
-    }
-    setAnsweredOfferAt(offerCreatedAt)
-    setPendingTurns((prev) => [...prev, turn])
-    const mySend = markSent()
-    return sendOfferAction(trpc.sessions, {
-      sessionId,
-      text,
-      wake: composer.canResume,
-    }).catch((error: unknown) => {
-      setAnsweredOfferAt(null)
-      fail(turn.id, error, mySend)
-      throw error
-    })
-  }
+  const acceptOffer = (prompt: string, offerCreatedAt: string): Promise<void> =>
+    conversationController.sendOffer(prompt, offerCreatedAt).then(() => {})
 
   return (
     <KeyboardAvoidingRoot
@@ -522,7 +447,9 @@ export function SessionConversation({
                     onAction={(prompt) => acceptOffer(prompt, offer.createdAt)}
                     // The same write the web x makes: the offer leaves every
                     // surface and every viewer, not just this phone.
-                    onDismiss={(offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt)}
+                    onDismiss={(offerCreatedAt) =>
+                      conversationController.dismissOffer(offerCreatedAt)
+                    }
                     onOpenEvidence={issue ? () => setPeekIssue(issue) : undefined}
                   />
                 ) : undefined
@@ -552,6 +479,8 @@ export function SessionConversation({
           <Composer
             placeholder={composer.placeholder}
             onSend={send}
+            value={conversation.draft}
+            onChangeText={conversationController.setDraft.bind(conversationController)}
             disabled={!composer.enabled}
             draftInsertion={draftInsertion}
             attachments={attachments}
