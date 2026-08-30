@@ -93,6 +93,28 @@ describe('r18 continuity selector contract', () => {
     expect(rig).toContain("existsSync(base+'/a7a-continue')")
   })
 
+  test('releases the Native viewer before hibernation and resurrection', () => {
+    const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
+    const leaveNative = rig.indexOf("const chatBeforeHibernate=page.locator('[data-testid=\"mode-chat\"]')")
+    const releaseViewer = rig.indexOf("await page.goto('about:blank')", leaveNative)
+    const releaseProof = rig.indexOf('waitViewerReleased(sid,viewerReleaseBaseline)', releaseViewer)
+    const hibernate = rig.indexOf("m('sessions.hibernate'", releaseProof)
+    const providerGone = rig.indexOf('waitProviderGone(preParkJournal.process.pid', hibernate)
+    const resurrect = rig.indexOf("m('sessions.resurrect'", providerGone)
+
+    expect(leaveNative).toBeGreaterThan(-1)
+    expect(releaseViewer).toBeGreaterThan(leaveNative)
+    expect(releaseProof).toBeGreaterThan(releaseViewer)
+    expect(hibernate).toBeGreaterThan(releaseProof)
+    expect(providerGone).toBeGreaterThan(hibernate)
+    expect(resurrect).toBeGreaterThan(providerGone)
+    expect(rig).toContain("waitRow(sid,x=>x.status==='hibernated'")
+    expect(rig).toContain('Promise.all([waitRow')
+    expect(rig).toContain('journalB.opencodeSessionId===journal0.opencodeSessionId')
+    expect(rig).toContain('journalB.process.key===journal0.process.key')
+    expect(rig).toContain('journalB.process.pid!==preParkJournal.process.pid')
+  })
+
   test("compiles without executing the runtime proof", async () => {
     const result = await Bun.build({
       entrypoints: [resolve(root, "docs/evidence/pod-3112/r18-continuity.ts")],
