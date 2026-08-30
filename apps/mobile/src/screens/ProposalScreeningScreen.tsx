@@ -316,7 +316,7 @@ export function ProposalScreeningScreen() {
               label="Decline"
               hint={`Close ${refOf(current)} as won't fix — same as swiping left`}
               icon={X}
-              tint={color.danger}
+              tint={color.dangerText}
               onPress={() => decide(current, 'declined')}
             />
             <ActionButton
@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
   },
   failureTitle: {
     ...sans(600),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
   },
   failureBody: {

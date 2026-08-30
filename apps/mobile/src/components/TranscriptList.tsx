@@ -1431,7 +1431,7 @@ const styles = StyleSheet.create({
   pendingError: {
     ...mono(400),
     marginTop: space.sm,
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny),
   },
@@ -1449,7 +1449,7 @@ const styles = StyleSheet.create({
   },
   retryText: {
     ...sans(700),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
   },
   userMetaOutside: {
@@ -1460,7 +1460,7 @@ const styles = StyleSheet.create({
   },
   userTimeFailed: {
     ...mono(700),
-    color: color.danger,
+    color: color.dangerText,
   },
   userText: {
     ...sans(500),
@@ -1500,7 +1500,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   workDisclosureFailed: {
-    color: color.danger,
+    color: color.dangerText,
   },
   workTitle: {
     ...mono(500),
@@ -1527,10 +1527,10 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   toolGlyphOk: {
-    color: color.success,
+    color: color.successText,
   },
   toolGlyphErr: {
-    color: color.danger,
+    color: color.dangerText,
   },
   toolName: {
     ...mono(500),

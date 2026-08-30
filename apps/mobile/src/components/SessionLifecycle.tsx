@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
   },
   error: {
     ...sans(500),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.micro,
     lineHeight: leading(font.micro, 'prose'),
     paddingTop: space.xs,

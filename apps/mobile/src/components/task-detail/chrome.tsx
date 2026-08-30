@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
   },
   error: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny),
   },

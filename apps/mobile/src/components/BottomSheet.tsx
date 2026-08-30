@@ -312,6 +312,9 @@ export function BottomSheet({
       style={styles.fitScroll(screenH)}
       contentContainerStyle={contentStyle}
       showsVerticalScrollIndicator={false}
+      automaticallyAdjustKeyboardInsets
+      contentInsetAdjustmentBehavior="automatic"
+      keyboardDismissMode="interactive"
     >
       {children}
     </ScrollView>
@@ -333,6 +336,9 @@ export function BottomSheet({
           style={styles.flex}
           scrollEnabled={atLarge}
           contentContainerStyle={[{ paddingBottom: space.xl }, contentStyle]}
+          automaticallyAdjustKeyboardInsets
+          contentInsetAdjustmentBehavior="automatic"
+          keyboardDismissMode="interactive"
         >
           {children}
         </ScrollView>

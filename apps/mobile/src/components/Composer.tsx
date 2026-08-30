@@ -458,7 +458,7 @@ function VoiceButton({
       <Icon
         as={listening ? Square : failed ? MicOff : Mic}
         size={listening ? 14 : GLYPH}
-        color={listening ? color.bg : failed ? color.danger : color.textDim}
+        color={listening ? color.bg : failed ? color.dangerText : color.textDim}
       />
     </PressableScale>
   )
@@ -607,7 +607,7 @@ const styles = StyleSheet.create({
   },
   caption: {
     ...sans(500),
-    color: color.working,
+    color: color.workingText,
     fontSize: font.micro,
     lineHeight: leading(font.micro),
     paddingBottom: space.xs + 1,
@@ -625,7 +625,7 @@ const styles = StyleSheet.create({
     marginHorizontal: TEXT_INSET,
   },
   voiceStatusError: {
-    color: color.danger,
+    color: color.dangerText,
   },
   voiceStatusEmpty: {
     position: 'absolute',

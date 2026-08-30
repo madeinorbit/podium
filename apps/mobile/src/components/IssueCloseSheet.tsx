@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
   },
   destructive: {
     ...sans(600),
-    color: color.danger,
+    color: color.dangerText,
   },
   cancel: {
     paddingVertical: 15,

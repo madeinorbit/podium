@@ -29,7 +29,7 @@ import {
   issueReturnedFromDefer,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useRouter } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import {
   AlarmClock,
   ArrowDownToLine,
@@ -62,6 +62,8 @@ import { sessionHref } from '../lib/session-route'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+
+const usesNativeHeader = process.env.EXPO_OS !== 'web'
 
 /**
  * Work — the desktop sidebar, on the phone [POD-338, POD-724].
@@ -317,24 +319,31 @@ export function WorkScreen() {
       }
       right={
         <>
-          <HeaderButton
-            label={searchOpen ? 'Close search' : 'Search work'}
-            size={34}
-            onPress={() => {
-              setSearchOpen((open) => !open)
-              if (searchOpen) setQuery('')
-            }}
-          >
-            <Icon as={searchOpen ? X : Search} size={17} color={color.textDim} />
-          </HeaderButton>
+          {usesNativeHeader ? null : (
+            <HeaderButton
+              label={searchOpen ? 'Close search' : 'Search work'}
+              size={34}
+              onPress={() => {
+                setSearchOpen((open) => !open)
+                if (searchOpen) setQuery('')
+              }}
+            >
+              <Icon as={searchOpen ? X : Search} size={17} color={color.textDim} />
+            </HeaderButton>
+          )}
           <NewWorkButton size={34} />
         </>
       }
     >
-      {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
-          a log line. Outside the crossfade so the skeleton cannot hide it. */}
-      <StorageNoticeAlert />
-      {searchOpen ? (
+      {usesNativeHeader ? (
+        <Stack.SearchBar
+          placeholder="Search tasks"
+          hideWhenScrolling
+          onChangeText={(event) => setQuery(event.nativeEvent.text)}
+          onCancelButtonPress={() => setQuery('')}
+        />
+      ) : null}
+      {!usesNativeHeader && searchOpen ? (
         <View style={styles.searchBand}>
           <Icon as={Search} size={15} color={color.textFaint} />
           <TextInput
@@ -360,7 +369,11 @@ export function WorkScreen() {
             sections={visibleSections}
             keyExtractor={(row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)}
             refreshControl={refreshControl}
+            contentInsetAdjustmentBehavior="automatic"
+            automaticallyAdjustKeyboardInsets
+            keyboardDismissMode="interactive"
             contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+            ListHeaderComponent={<StorageNoticeAlert />}
             {...refreshAccessibilityProps}
             {...minimizeOnScroll}
             stickySectionHeadersEnabled={false}
@@ -953,7 +966,7 @@ const styles = StyleSheet.create({
     color: color.needsYouText,
   },
   statusWorking: {
-    color: color.working,
+    color: color.workingText,
   },
   statusDone: {
     color: color.textMicro,

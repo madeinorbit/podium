@@ -8,11 +8,12 @@ import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { Eraser } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
+import { Platform, StyleSheet, Text, View } from 'react-native'
 import { readTranscriptPage, useBooting, useHub, useMobileStore } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { BootstrapCrossfade, TranscriptSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
@@ -441,9 +442,10 @@ export function SuperagentScreen() {
       }
     >
       <View style={styles.column}>
-        <KeyboardAvoidingView
+        <KeyboardAvoidingRoot
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          automaticOffset
         >
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <BootstrapCrossfade resolved={resolved} placeholder={<TranscriptSkeleton />}>
@@ -522,7 +524,7 @@ export function SuperagentScreen() {
               />
             }
           />
-        </KeyboardAvoidingView>
+        </KeyboardAvoidingRoot>
       </View>
     </Screen>
   )
@@ -540,12 +542,12 @@ const styles = StyleSheet.create({
   },
   stop: {
     ...sans(700),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
   },
   error: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingBottom: space.xs,

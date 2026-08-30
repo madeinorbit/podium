@@ -151,7 +151,13 @@ export function SettingsScreen() {
 
   return (
     <Screen title="Settings" onBack={() => router.back()} backAs="text" backLabel="Done">
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustKeyboardInsets
+      >
         {Platform.OS === 'web' ? (
           <PressableScale
             style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
@@ -404,7 +410,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoutText: {
-    color: color.danger,
+    color: color.dangerText,
     ...sans(700),
     fontSize: font.body,
   },

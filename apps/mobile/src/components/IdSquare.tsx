@@ -159,13 +159,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#0c1f18',
     borderWidth: 1,
-    borderColor: color.working,
+    borderColor: color.workingText,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 1,
   },
   doneGlyph: {
-    color: color.success,
+    color: color.successText,
     fontSize: 7,
   },
 })

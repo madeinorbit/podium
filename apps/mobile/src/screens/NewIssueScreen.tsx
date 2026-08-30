@@ -58,7 +58,13 @@ export function NewIssueScreen() {
 
   return (
     <Screen title="New task" onBack={() => router.back()} backAs="text">
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustKeyboardInsets
+      >
         <SectionHeader label="Repository" />
         <View style={styles.chipWrap}>
           {repos.map((repo) => {
@@ -235,7 +241,7 @@ const styles = StyleSheet.create({
     fontSize: font.small,
   },
   error: {
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingTop: space.md,

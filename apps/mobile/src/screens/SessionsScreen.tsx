@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     color: color.needsYouText,
   },
   workingLabel: {
-    color: color.working,
+    color: color.workingText,
   },
   sectionCount: {
     ...mono(600),

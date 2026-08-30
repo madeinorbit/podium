@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 4,
     textAlign: 'center',
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.micro,
   },
   remove: {

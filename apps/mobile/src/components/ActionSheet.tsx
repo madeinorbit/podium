@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
     fontSize: font.small,
   },
   destructive: {
-    color: color.danger,
+    color: color.dangerText,
   },
   cancel: {
     paddingVertical: 15,

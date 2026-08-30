@@ -71,6 +71,6 @@ const styles = StyleSheet.create({
   fill: {
     height: '100%',
     borderRadius: radius.full,
-    backgroundColor: color.working,
+    backgroundColor: color.workingText,
   },
 })

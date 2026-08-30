@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.dangerSoft,
   },
   chipBlockedText: {
-    color: color.danger,
+    color: color.dangerText,
   },
   caret: {
     ...mono(400),

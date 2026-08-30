@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
   },
   error: {
     marginLeft: 'auto',
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
   },
   question: {

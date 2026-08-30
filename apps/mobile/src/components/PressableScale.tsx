@@ -4,6 +4,7 @@ import {
   Animated,
   Platform,
   Pressable,
+  StyleSheet,
   type PressableProps,
   type StyleProp,
   type ViewStyle,
@@ -21,9 +22,8 @@ type StyleArg = StyleProp<ViewStyle> | ((state: { pressed: boolean }) => StylePr
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
 /**
- * The app's one press affordance: a quick spring scale-down + light haptic.
- * Use for every card/button — consistent physical feedback is most of what
- * makes a UI feel native.
+ * The app's shared press affordance. Visual feedback is universal; haptics are
+ * opt-in for a physical commit and never inherited by routine navigation.
  *
  * A drop-in for `Pressable` [POD-366]: it accepts the same
  * `style={({ pressed }) => …}` callback form, so swapping a call site never
@@ -34,7 +34,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 export function PressableScale({
   children,
   style,
-  haptic = true,
+  haptic = false,
   hapticStyle = Haptics.ImpactFeedbackStyle.Light,
   scaleTo = 0.97,
   disabled,
@@ -63,7 +63,12 @@ export function PressableScale({
     <AnimatedPressable
       {...rest}
       disabled={disabled}
-      style={[typeof style === 'function' ? style({ pressed }) : style, { transform: [{ scale }] }]}
+      pressRetentionOffset={rest.pressRetentionOffset ?? 12}
+      style={[
+        styles.target,
+        typeof style === 'function' ? style({ pressed }) : style,
+        { transform: [{ scale }] },
+      ]}
       onPressIn={(e) => {
         setPressed(true)
         runSpring(scaleTo)
@@ -85,3 +90,11 @@ export function PressableScale({
     </AnimatedPressable>
   )
 }
+
+const styles = StyleSheet.create({
+  target: Platform.select({
+    ios: { minWidth: 44, minHeight: 44 },
+    android: { minWidth: 48, minHeight: 48 },
+    default: {},
+  })!,
+})

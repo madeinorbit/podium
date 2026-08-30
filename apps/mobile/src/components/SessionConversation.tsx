@@ -11,7 +11,7 @@ import {
 import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
+import { Platform, StyleSheet, View } from 'react-native'
 import { readTranscriptPage, useHub, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { resolveOfferArtifacts } from '../lib/offer-artifacts'
@@ -20,6 +20,7 @@ import { sendOfferAction } from '../lib/send-offer-action'
 import { color } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
+import { KeyboardAvoidingRoot } from './KeyboardAvoidingRoot'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
 import { SessionActionCard } from './SessionActionCard'
@@ -444,9 +445,10 @@ export function SessionConversation({
   }
 
   return (
-    <KeyboardAvoidingView
+    <KeyboardAvoidingRoot
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      automaticOffset
     >
       <MobileSessionLifecycle
         session={session}
@@ -564,7 +566,7 @@ export function SessionConversation({
         onClose={() => setPeekIssue(null)}
         onOpenSession={() => setPeekIssue(null)}
       />
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingRoot>
   )
 }
 

@@ -24,6 +24,7 @@ import {
 } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
+import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
@@ -89,7 +90,7 @@ import { color, space } from '../theme/theme'
  * events puts the reply box thousands of pixels down the scroll, so replying
  * would mean first travelling past everything you were replying to.
  */
-export function IssueScreen() {
+export function IssueScreen({ dismiss = false }: { dismiss?: boolean } = {}) {
   const params = useLocalSearchParams<{ issueId: IssueId | string[] }>()
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
@@ -123,9 +124,14 @@ export function IssueScreen() {
   return (
     <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
       {issue ? (
-        <IssueContent issue={issue} onBack={goBack} />
+        <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
       ) : (
-        <Screen title="Task" onBack={goBack}>
+        <Screen
+          title="Task"
+          onBack={goBack}
+          backAs={dismiss ? 'text' : 'chevron'}
+          backLabel={dismiss ? 'Done' : undefined}
+        >
           {certainAbsence ? <EmptyState title="Task not found." fill /> : <DetailSkeleton />}
         </Screen>
       )}
@@ -160,7 +166,15 @@ type OpenSheet =
  *  fact be stated two ways. */
 const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
 
-function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void }) {
+function IssueContent({
+  issue,
+  onBack,
+  dismiss,
+}: {
+  issue: IssueWire
+  onBack: () => void
+  dismiss: boolean
+}) {
   const router = useRouter()
   const store = useMobileStore()
   const issues = useIssues()
@@ -271,6 +285,8 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
       // the board's nesting exists to remove.
       subtitle={breadcrumb}
       onBack={onBack}
+      backAs={dismiss ? 'text' : 'chevron'}
+      backLabel={dismiss ? 'Done' : undefined}
       {...(hex ? { accent: hex } : {})}
       leading={
         <PressableScale
@@ -332,82 +348,87 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         </>
       }
     >
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-      >
-        <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
+      <KeyboardAvoidingRoot style={styles.keyboardOwner} behavior="padding" automaticOffset>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          contentInsetAdjustmentBehavior="automatic"
+        >
+          <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
 
-        {issue.needsHuman ? (
-          <View style={styles.question}>
-            <IssueQuestionCard
-              issue={issue}
-              onAnswer={
-                askingSession
-                  ? (answer) => store.resumeAndSend(askingSession.sessionId, answer)
-                  : undefined
-              }
-              onOpenSession={askingSession ? () => openSession(askingSession.sessionId) : undefined}
-              // The card awaits its resolver; the command is fire-and-forget
-              // through the page's runner, which already owns the busy/error pair.
-              onResolve={async () => commands.resolveNeedsHuman()}
-            />
-          </View>
-        ) : null}
+          {issue.needsHuman ? (
+            <View style={styles.question}>
+              <IssueQuestionCard
+                issue={issue}
+                onAnswer={
+                  askingSession
+                    ? (answer) => store.resumeAndSend(askingSession.sessionId, answer)
+                    : undefined
+                }
+                onOpenSession={
+                  askingSession ? () => openSession(askingSession.sessionId) : undefined
+                }
+                // The card awaits its resolver; the command is fire-and-forget
+                // through the page's runner, which already owns the busy/error pair.
+                onResolve={async () => commands.resolveNeedsHuman()}
+              />
+            </View>
+          ) : null}
 
-        <IssueTitle issue={issue} busy={busy} commands={commands} />
-        <StatusStrip issue={issue} />
-        <PropertyBar
-          issue={issue}
-          onStage={() => setSheet({ kind: 'stage' })}
-          onPriority={() => setSheet({ kind: 'priority' })}
-          onType={() => setSheet({ kind: 'type' })}
-        />
+          <IssueTitle issue={issue} busy={busy} commands={commands} />
+          <StatusStrip issue={issue} />
+          <PropertyBar
+            issue={issue}
+            onStage={() => setSheet({ kind: 'stage' })}
+            onPriority={() => setSheet({ kind: 'priority' })}
+            onType={() => setSheet({ kind: 'type' })}
+          />
 
-        <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
-        <IssueDescription issue={issue} busy={busy} commands={commands} />
-        <IssueBrief issue={issue} />
-        <LongFormFields issue={issue} busy={busy} commands={commands} />
-        <IssueAgentPanel issue={issue} />
-        <IssueSubIssues
-          issue={issue}
-          subIssues={children}
-          busy={busy}
-          commands={commands}
-          onOpen={openIssue}
-        />
-        <MailSection mail={mail} />
-        <IssueProperties
-          issue={issue}
-          sessions={sessions}
-          parent={parent}
-          busy={busy}
-          commands={commands}
-          open={detailsOpen}
-          onToggle={detailsCollapsed}
-          onOpenSession={openSession}
-          onOpenIssue={openIssue}
-          onPickParent={() => setSheet({ kind: 'parent' })}
-          onAddRelation={() => setSheet({ kind: 'relation-type' })}
-        />
-        <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
-      </ScrollView>
+          <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
+          <IssueDescription issue={issue} busy={busy} commands={commands} />
+          <IssueBrief issue={issue} />
+          <LongFormFields issue={issue} busy={busy} commands={commands} />
+          <IssueAgentPanel issue={issue} />
+          <IssueSubIssues
+            issue={issue}
+            subIssues={children}
+            busy={busy}
+            commands={commands}
+            onOpen={openIssue}
+          />
+          <MailSection mail={mail} />
+          <IssueProperties
+            issue={issue}
+            sessions={sessions}
+            parent={parent}
+            busy={busy}
+            commands={commands}
+            open={detailsOpen}
+            onToggle={detailsCollapsed}
+            onOpenSession={openSession}
+            onOpenIssue={openIssue}
+            onPickParent={() => setSheet({ kind: 'parent' })}
+            onAddRelation={() => setSheet({ kind: 'relation-type' })}
+          />
+          <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
+        </ScrollView>
 
-      {/* Pinned with the composer, not placed where the failing control was. A
+        {/* Pinned with the composer, not placed where the failing control was. A
           rebase fired from the Details fold at the bottom of a long page would
           otherwise report its error a full screen above the thumb that asked
           for it. */}
-      {error ? (
-        <View style={styles.errorBand}>
-          <ErrorNote message={error} />
-        </View>
-      ) : null}
+        {error ? (
+          <View style={styles.errorBand}>
+            <ErrorNote message={error} />
+          </View>
+        ) : null}
 
-      <Composer
-        placeholder="Comment, or @mention an agent on this task…"
-        onSend={(text) => commands.postComment(text, appendLocalComment)}
-      />
+        <Composer
+          placeholder="Comment, or @mention an agent on this task…"
+          onSend={(text) => commands.postComment(text, appendLocalComment)}
+        />
+      </KeyboardAvoidingRoot>
 
       <ActionSheet
         visible={sheet?.kind === 'stage'}
@@ -612,6 +633,7 @@ function useDetailsFold(): [boolean, () => void] {
 }
 
 const styles = StyleSheet.create({
+  keyboardOwner: { flex: 1, minHeight: 0 },
   content: {
     paddingHorizontal: space.lg,
     paddingTop: space.lg,

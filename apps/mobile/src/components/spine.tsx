@@ -191,7 +191,7 @@ export const seatFor = (note: PresenceNote | null): PresenceNote | null =>
  * me" on the exact surface built to tell those apart.
  */
 /** The theme's own ink at 5% — one step of texture, and no hue. */
-const HATCH_INK = alpha(color.text, 0.05)
+const HATCH_INK = color.quaternaryFill
 const HATCH_STEP = 8
 /** Enough rules to cross the widest strip at any depth; the strip clips them. */
 const HATCH_RULES = Array.from({ length: 60 }, (_, i) => i * HATCH_STEP)
@@ -456,7 +456,7 @@ export function TaskStrip({
                 state is already carried on the left by the stage glyph, the
                 hatch, or the issue note naming the blocker. */}
             {!context && state.state === 'working' && liveWord === undefined ? (
-              <WorkingMark size={11} tint={color.working} />
+              <WorkingMark size={11} tint={color.workingText} />
             ) : null}
             {!context ? (
               <Text numberOfLines={1} style={[styles.state, stateStyle(state)]}>
@@ -517,8 +517,8 @@ function stripLabel({
 }
 
 function stateStyle(state: DeckIssueState) {
-  if (state.state === 'working') return { color: color.working }
-  if (state.state === 'blocked') return { color: color.danger }
+  if (state.state === 'working') return { color: color.workingText }
+  if (state.state === 'blocked') return { color: color.dangerText }
   if (state.state === 'done' || state.state === 'cancelled') return { color: color.textMicro }
   return null
 }
@@ -684,7 +684,7 @@ export function SessionBand({
           ) : null}
         </View>
         <View style={styles.bandRight}>
-          {working ? <WorkingMark size={13} tint={color.working} /> : null}
+          {working ? <WorkingMark size={13} tint={color.workingText} /> : null}
           {asking ? (
             <View style={styles.askDisc}>
               <Text style={styles.askDiscCh}>!</Text>
@@ -694,7 +694,7 @@ export function SessionBand({
           {right ? (
             <Text
               numberOfLines={1}
-              style={[styles.bandStamp, working ? { color: color.working } : null]}
+              style={[styles.bandStamp, working ? { color: color.workingText } : null]}
             >
               {right}
             </Text>

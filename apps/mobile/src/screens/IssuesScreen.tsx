@@ -76,9 +76,6 @@ export function IssuesScreen() {
         </>
       }
     >
-      {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
-          a log line. Outside the crossfade so the skeleton cannot hide it. */}
-      <StorageNoticeAlert />
       <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <StageSections
@@ -188,26 +185,29 @@ function StageSections({
       {...refreshAccessibilityProps}
       {...minimizeOnScroll}
       ListHeaderComponent={
-        proposals === 0 ? null : (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Screen proposed"
-            accessibilityHint={`Decide on ${proposals} proposal${proposals === 1 ? '' : 's'} one at a time`}
-            onPress={onScreenProposals}
-            style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
-          >
-            <View style={styles.screenIcon}>
-              <Icon as={Layers} size={16} color={color.accentTint} />
-            </View>
-            <View style={styles.screenText}>
-              <Text style={styles.screenTitle}>Screen proposed</Text>
-              <Text style={styles.screenSub}>
-                {`${proposals} proposal${proposals === 1 ? '' : 's'} waiting on your call`}
-              </Text>
-            </View>
-            <Icon as={ChevronRight} size={16} color={color.textFaint} />
-          </PressableScale>
-        )
+        <>
+          <StorageNoticeAlert />
+          {proposals === 0 ? null : (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Screen proposed"
+              accessibilityHint={`Decide on ${proposals} proposal${proposals === 1 ? '' : 's'} one at a time`}
+              onPress={onScreenProposals}
+              style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
+            >
+              <View style={styles.screenIcon}>
+                <Icon as={Layers} size={16} color={color.accentTint} />
+              </View>
+              <View style={styles.screenText}>
+                <Text style={styles.screenTitle}>Screen proposed</Text>
+                <Text style={styles.screenSub}>
+                  {`${proposals} proposal${proposals === 1 ? '' : 's'} waiting on your call`}
+                </Text>
+              </View>
+              <Icon as={ChevronRight} size={16} color={color.textFaint} />
+            </PressableScale>
+          )}
+        </>
       }
       renderSectionHeader={({ section }) => (
         <StageHeader

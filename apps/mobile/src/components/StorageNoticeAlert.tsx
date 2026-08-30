@@ -16,7 +16,7 @@ export function StorageNoticeAlert() {
 
   return (
     <View accessibilityRole="alert" style={styles.alert} testID="storage-notice-alert">
-      <Icon as={AlertTriangle} size={17} color={color.danger} />
+      <Icon as={AlertTriangle} size={17} color={color.dangerText} />
       <Text style={styles.message}>{notice.message}</Text>
       <PressableScale
         accessibilityRole="button"
