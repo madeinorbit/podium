@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one cell against the live p3112-oc-final instance.
+# Run one cell against the live p3112-oc-paired-r2 instance.
 #   bash docs/evidence/pod-3112/run-cell.sh A1a opencode-server
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/drive-env.sh"
 CELL="${1:?cell}"
 DRIVER="${2:?opencode-server|default-headed}"
-export PODIUM_PASSWORD="${PODIUM_PASSWORD:-p3112-oc-final}"
+export PODIUM_PASSWORD="${PODIUM_PASSWORD:-p3112-oc-paired-r2}"
 export PODIUM_PORT="$PODIUM_PORT"
 export PODIUM_HOST="$PODIUM_HOST"
 export PODIUM_DRIVE_BASE="$PODIUM_DRIVE_BASE"
