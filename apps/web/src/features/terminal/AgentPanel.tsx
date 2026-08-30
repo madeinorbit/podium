@@ -68,6 +68,7 @@ import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
+import type { AgentPanelProps } from './agent-panel-props'
 import { applyInitialTerminalAppearance, paneTintedBackground, withBackground } from './appearance'
 import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
@@ -77,17 +78,13 @@ import { ExitedBanner, ExitedPane, HibernatedBanner, HibernatedPane } from './Se
 import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
+import { prettyCwd } from './pretty-cwd'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
 // session (screenText/sendInput/simulateKeyboard/…) for the Playwright harness under
 // tests/e2e/browser. Off by default, so normal sessions never expose the input API.
 const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')
-
-/** Collapse the user's home directory to `~` for a compact cwd display. */
-export function prettyCwd(path: string): string {
-  return path.replace(/^\/(?:home|Users)\/[^/]+/, '~')
-}
 
 /** Effort tiers, compacted to header width. Unknown spellings pass through. */
 const EFFORT_SHORT: Record<string, string> = {
@@ -167,19 +164,7 @@ export function AgentPanel({
   active = true,
   focused = active,
   showHeader = true,
-}: {
-  sessionId: SessionId
-  /** False when this panel is mounted but hidden (an inactive tab kept warm so
-   *  switching back catches up instead of wiping). Gates focus, nothing else. */
-  active?: boolean
-  /** True only for the active tab in the workspace's focused pane. A split
-   *  workspace can have several visible/active terminals, but desktop shortcut
-   *  commands must have exactly one recipient. */
-  focused?: boolean
-  /** Setup embeds the native terminal inside a dialog that already owns its title and close
-   *  action. Hide the ordinary workspace controls there so sign-in stays a single-purpose flow. */
-  showHeader?: boolean
-}): JSX.Element {
+}: AgentPanelProps): JSX.Element {
   const {
     hub,
     machines,
