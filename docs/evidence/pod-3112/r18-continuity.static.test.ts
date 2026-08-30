@@ -9,6 +9,7 @@ describe('r18 continuity selector contract', () => {
   test('tracks the registered-project cold and live workspace surfaces', () => {
     const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
     const sidebar = read('apps/web/src/features/worklist/SidebarUnified.tsx')
+    const folds = read('apps/web/src/features/worklist/work-folds.tsx')
     const worktree = read('apps/web/src/features/worklist/UnifiedWorktreeRow.tsx')
     const composer = read('apps/web/src/features/setup/ColdStartComposer.tsx')
 
@@ -22,6 +23,8 @@ describe('r18 continuity selector contract', () => {
     ]) {
       expect(rig).toContain(contract)
     }
+    expect(rig).toContain('project-group-label"] > span:not([data-testid="project-group-count"])')
+    expect(folds).toContain('countTestId="project-group-count"')
     expect(sidebar).toContain('data-testid="project-group"')
     expect(sidebar).toContain('<StartFirstTaskRow repoPath={repo.path} />')
     expect(worktree).toContain('testId="unified-worktree-row"')
