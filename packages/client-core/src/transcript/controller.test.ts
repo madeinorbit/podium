@@ -270,6 +270,7 @@ describe('transcript lifecycle boundaries', () => {
     io.pending[1]?.resolve({ items: [item('a', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
     expect(await equal).toBe(true)
     expect(io.reads).toHaveLength(2)
+    expect(io.port.subscribe).toHaveBeenCalledTimes(1)
 
     const changed = controller.probe({ disclose: true })
     expect(controller.getSnapshot().freshness).toBe('checking')
@@ -279,6 +280,7 @@ describe('transcript lifecycle boundaries', () => {
     io.pending[3]?.resolve({ items: [item('b', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
     expect(await changed).toBe(true)
     expect(controller.getSnapshot().items).toEqual([item('b', 'c2')])
+    expect(io.port.subscribe).toHaveBeenCalledTimes(1)
     controller.dispose()
   })
 

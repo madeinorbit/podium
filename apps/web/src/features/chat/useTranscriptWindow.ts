@@ -279,12 +279,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   }, [deferInitialRead, transcriptController])
 
   useEffect(() => {
-    if (
-      !initialLoaded ||
-      items.length === 0 ||
-      offlineAsOf !== null ||
-      transcriptFreshness === 'checking'
-    ) {
+    if (!initialLoaded || items.length === 0 || offlineAsOf !== null) {
       windowHealthy.current = false
       return
     }
