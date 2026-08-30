@@ -4,11 +4,11 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-export P3112_INSTANCE="${P3112_INSTANCE:-p3112-oc-paired-r2}"
-export P3112_BASE="${P3112_BASE:-/tmp/pod-3112-paired-r2}"
-export P3112_PORT="${P3112_PORT:-20312}"
-export P3112_HOOK_PORT="${P3112_HOOK_PORT:-47312}"
-export P3112_RELAY_PORT="${P3112_RELAY_PORT:-47313}"
+export P3112_INSTANCE="${P3112_INSTANCE:-p3112-oc-paired-r3}"
+export P3112_BASE="${P3112_BASE:-/tmp/pod-3112-paired-r3}"
+export P3112_PORT="${P3112_PORT:-20313}"
+export P3112_HOOK_PORT="${P3112_HOOK_PORT:-47314}"
+export P3112_RELAY_PORT="${P3112_RELAY_PORT:-47315}"
 export P3112_REPO="$REPO"
 export P3112_PIN_SHA="${P3112_PIN_SHA:-d35c7ef7b630730f727365f25323427c67614386}"
 export P3112_OPENCODE_BIN="${P3112_OPENCODE_BIN:-/home/mgw/.opencode/bin/opencode}"
@@ -24,7 +24,7 @@ export PODIUM_NO_RELAY=1
 export PODIUM_RUNTIME_CONTRACT=1
 export PODIUM_CHAT_STREAMING=1
 export PODIUM_LOG_LEVEL=debug
-export PODIUM_PASSWORD="${PODIUM_PASSWORD:-p3112-oc-paired-r2}"
+export PODIUM_PASSWORD="${PODIUM_PASSWORD:-p3112-oc-paired-r3}"
 for key in PODIUM_STATE_DIR ABDUCO_SOCKET_DIR PODIUM_RUNTIME_DRIVER; do
   [ -z "${!key-}" ] || { echo "refusing: inherited $key must be absent" >&2; return 2 2>/dev/null || exit 2; }
 done
