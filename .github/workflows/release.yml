@@ -28,6 +28,8 @@ jobs:
   headless:
     name: cross-build all headless platforms
     runs-on: blacksmith-4vcpu-ubuntu-2204
+    env:
+      TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -48,13 +50,29 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: headless-cross-${{ hashFiles('bun.lock') }}
+      # The client build cache (POD-3053). `release:prepare` builds web and mobile ONCE
+      # for the whole platform set through scripts/build-clients.ts; with this restored,
+      # a re-run for a commit CI has already built restores both instead. Same key shape
+      # as the ci.yml typecheck lane, with its own task suffix so the two never evict
+      # each other, and the same fall-back ladder: this SHA, then any build entry on
+      # this ref, then any entry for this lockfile.
+      - uses: actions/cache@v4
+        with:
+          path: /tmp/podium-cache/podium/turbo
+          key: turbo-${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-
+            turbo-${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}-
       # --ignore-scripts: the compiled headless runtime uses Bun.Terminal and never
       # loads node-pty. esbuild ships a platform package.
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Build four signed headless bundles
         env:
           PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
-        run: bun scripts/release.ts --channel "$PODIUM_RELEASE_CHANNEL" --prepare-cross
+        # --record: the build ledger's client half, uploaded with the assets so a
+        # release page's provenance -- which client build, restored or rebuilt, under
+        # which Turbo hashes -- survives the runner it was produced on.
+        run: bun run release:prepare -- --channel "$PODIUM_RELEASE_CHANNEL" --record dist-bun/release/record
       # Interrogate what will actually be uploaded, not the build tree it came from.
       # A wrong-architecture helper, a lost Darwin signature or a stub binary fails HERE,
       # before anything reaches a release page.

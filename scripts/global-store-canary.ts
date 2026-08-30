@@ -750,7 +750,7 @@ async function main(): Promise<void> {
       env,
     )
     probes.expoWeb = await runCommand(
-      [options.bun, 'run', '--cwd=apps/mobile', 'build:web'],
+      [options.bun, 'run', '--cwd=apps/mobile', 'build'],
       candidateRoot,
       env,
       30 * 60_000,

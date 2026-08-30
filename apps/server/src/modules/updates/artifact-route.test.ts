@@ -55,6 +55,7 @@ const desktopManifest = {
 writeFileSync(desktopManifestPath, JSON.stringify(desktopManifest) + '\n')
 
 const built: BuiltDevBundle = {
+  buildId: '20260812T182015Z-abc1234',
   version: 'dev+abc1234',
   path: artifact,
   size: bytes.length,

@@ -23,7 +23,7 @@ import {
   updateOperationDetails,
 } from './operation'
 import { ReleaseApprovalRefusal } from './release-approval'
-import { legacyInstanceTrustMessage, type ChannelCheckRecord, type UpdatesService } from './service'
+import { type ChannelCheckRecord, legacyInstanceTrustMessage, type UpdatesService } from './service'
 import {
   isPackagedRolloutTarget,
   machineCanTakeTargetPlatform,
@@ -291,6 +291,7 @@ export function updateOperationContext(input: {
   servedMobileWeb?: () => MobileWebIdentity
   prepareCoordinatorUpdate?: (target: UpdateTarget) => Promise<void>
   createDatabaseSnapshot: (fromVersion: string, targetVersion: string) => string | undefined
+  prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
@@ -320,6 +321,9 @@ export function updateOperationContext(input: {
       ? { prepareCoordinatorUpdate: input.prepareCoordinatorUpdate }
       : {}),
     createDatabaseSnapshot: input.createDatabaseSnapshot,
+    ...(input.prepareVerifiedDatabaseSnapshot
+      ? { prepareVerifiedDatabaseSnapshot: input.prepareVerifiedDatabaseSnapshot }
+      : {}),
     ...(input.latestDatabaseSnapshot
       ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
       : {}),
@@ -367,9 +371,13 @@ function contextFor(
     ...(ctx.desktopSupervised ? { desktopSupervised: true } : {}),
     ...extra,
     createDatabaseSnapshot: (from, target) => state.store.snapshotBeforeUpdate(from, target),
-    // Snapshot discovery integrity-checks the retained database files. It is
-    // recovery work for a confirmed operation, never work for `updates.fleet`'s
-    // polled startability preview.
+    // The server step waits on THIS one; it stages behind the database fence and
+    // proves the result in a child process (POD-3068).
+    prepareVerifiedDatabaseSnapshot: (from, target) =>
+      state.store.verifiedSnapshotBeforeUpdate(from, target),
+    // Snapshot DISCOVERY is now metadata + `stat` (POD-3068), so it is cheap
+    // enough for a request; it is still gated to the confirmed-operation path
+    // because a polled startability preview has no use for restore guidance.
     ...(options.includeDatabaseSnapshot
       ? { latestDatabaseSnapshot: () => state.store.latestDatabaseSnapshot() }
       : {}),

@@ -26,6 +26,52 @@ The live service executes an installed, orderable build. `PODIUM_DEV_SOURCE_ROOT
 checkout only as publisher/build input. Move that checkout forward, approve the dev release, then
 accept the ordinary update offer. The installed parent owns swap, handover, health gate, and rollback.
 
+## Build records
+
+Every development release attempt leaves a record in the instance state directory, and the files it
+published live with that record rather than in the checkout:
+
+    <stateDir>/builds/<buildId>/
+      manifest.json   what was approved, checked, signed and published
+      client.json     the coordinator child's own client evidence
+      bundles/        podium-headless-<version>-<platform>.tar.gz, plus .sig and .meta.json
+      timing.jsonl    how long each step of this attempt took
+
+`<buildId>` is `<stamp>-<sha>` — `20260828T131500Z-2595a90` — so a directory listing is in release
+order. `manifest.json` names:
+
+- `approvedSha`, `version`, `platforms` — what the attempt was for.
+- `client` — the client root digest, the source commit, and each Turbo task's hash with `HIT` or
+  `MISS`. That is the durable answer to "did this release rebuild the clients, or restore them?".
+- `artifacts` — per platform, the file name inside `bundles/`, its size, its SHA-256 digest and its
+  signature.
+- `signingKeyFingerprint` — the update identity that signed it. A record signed under a rotated key
+  is never restored, because the fleet could not verify it.
+- `outcome` — `validated`, `signed`, `published`, or `failed:<step>` (`failed:verify`,
+  `failed:package`, `failed:sign`). An outcome only moves forward, and a failure is terminal: a
+  failed attempt is forensics, never something a later step resumes.
+
+To see what this host last published:
+
+    cat ~/.podium/builds/$(ls ~/.podium/builds | tail -1)/manifest.json
+
+Retention keeps the newest two releases plus the one the served feed still names, whatever its age,
+and reclaims a whole record — bytes and evidence together — when it goes. A file a retained release
+still references is never deleted, which is the property the fleet depends on mid-rollout.
+
+Failed attempts are retained on a window of their own, so a run of failures cannot age out the last
+release that worked.
+
+**One-time cleanup on a publisher upgraded to the ledger.** Releases published before this change
+are in the checkout's `dist-bun/`, outside the ledger, and nothing sweeps them any more. After the
+first successful record appears under `<stateDir>/builds/`, delete them by hand:
+
+    rm -f dist-bun/podium-headless-*.tar.gz dist-bun/podium-headless-*.tar.gz.sig \
+          dist-bun/podium-headless-*.tar.gz.meta.json
+
+The feed manifests (`dist-bun/podium-update.json`, `dist-bun/latest.json`) stay where they are:
+they are what the checkout's own web server hands out.
+
 ## Repair an installed machine stranded before channel-keyed trust
 
 Before POD-2932 there was **no supported out-of-band repair** for this case. `podium update
@@ -50,10 +96,11 @@ Nothing about recovery may depend on the control plane being available after the
 ### 1. Select and copy the published artifact out of band
 
 On the development publisher host, select the retained artifact for the stranded machine's exact
-platform. It must be the artifact from an approved, orderable development publish such as
-`0.1.1-dev.3+2595a90`, not a source package stamped `dev+2595a90`.
+platform from the build record that published it (see **Build records** above). It must be the
+artifact from an approved, orderable development publish such as `0.1.1-dev.3+2595a90`, not a source
+package stamped `dev+2595a90`. `manifest.json` in that record names the file and its digest.
 
-    PODIUM_REPAIR_ARTIFACT=/absolute/path/to/dist-bun/podium-headless-0.1.1-dev.3+2595a90-linux-x86_64-20260827T000000Z.tar.gz
+    PODIUM_REPAIR_ARTIFACT=~/.podium/builds/20260827T000000Z-2595a90/bundles/podium-headless-0.1.1-dev.3+2595a90-linux-x86_64-20260827T000000Z.tar.gz
     test -r "$PODIUM_REPAIR_ARTIFACT"
     test -r "$PODIUM_REPAIR_ARTIFACT.sig"
     test -r "$PODIUM_REPAIR_ARTIFACT.meta.json"
@@ -385,7 +432,7 @@ The isolated rehearsal started from missing persistence and proved the dangerous
 installed `0.1.1-edge.2` authority in 3.63 seconds through stop-write-start. Ludovico's current
 systemd-persistence shape removes the persistence change, but not the required stop or mode change.
 
-## Three things that stop later updates
+## Four things that stop later updates
 
 **A dirty checkout publishes nothing.** Untracked files count; check `git status`.
 
@@ -393,3 +440,18 @@ systemd-persistence shape removes the persistence change, but not the required s
 
 **Going backwards is refused.** After newer migrations run, recover from a database backup or roll
 forward; see [Data and upgrades](data-and-upgrades.md).
+
+**An installed binary older than the checkout cannot build it.** The installed process spawns the
+client build by *script name*, so once a release renames one, a binary from before that rename asks
+for a name the checkout no longer has and `bun` exits 1 immediately. It surfaces as
+`development bundle unavailable: … the web build finished but apps/web/dist is not stamped at
+<sha>`, with `apps/web: bun exited with status 1` and the same for `apps/mobile`.
+
+The tell is that both client steps fail *at once*, the log carries no compiler output at all, and
+running `bun run --filter @podium/web build` by hand in the checkout succeeds. Do not chase it as a
+build failure — the build is fine, only the caller is stale. Rebuild and reinstall the binary from
+that same checkout so the two match ([Boundary 1](#boundary-1-stage-the-installed-build-while-source-remains-ready)),
+then restart.
+
+Expect this on any release that renames a client build script: the upgrade path is, by definition,
+an old binary building a new tree.

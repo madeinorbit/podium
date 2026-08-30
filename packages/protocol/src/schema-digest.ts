@@ -182,7 +182,12 @@ export interface BuildStamp {
   wireSchemaDigest?: string
   /** WIRE_VERSION at build time — informational; negotiation is elsewhere. */
   wireVersion?: number
-  /** ISO timestamp, for the human reading the warning. */
+  /**
+   * ISO timestamp. No build writes this any more — the stamp is a pure function
+   * of its inputs so it can be cached (spec
+   * 2026-08-28-cached-release-build-design §4.3) — but a dist built before that
+   * change still carries one, and this parser reads stamps off disk.
+   */
   builtAt?: string
   /**
    * Product version operators see: `PODIUM_APP_VERSION` on a channel build,

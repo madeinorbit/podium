@@ -169,6 +169,19 @@ describe('operationView — the seven states', () => {
     expect(result.primary).toBeUndefined()
     expect(result.indicator).toBe('none')
   })
+  it('shows a local stale interface while the operation read is still pending', () => {
+    const result = operationView({
+      operation: undefined,
+      offer: { state: 'local-stale', version: '0.4.3' },
+      local: { ...NOT_BEHIND, behind: true, canReload: true },
+      surface: 'web',
+      now: NOW,
+    })
+
+    expect(result.state).toBe('waiting-you')
+    expect(result.primary).toMatchObject({ kind: 'reload', label: 'Reload' })
+    expect(result.indicatorLabel).toBe('Reload to finish')
+  })
 
   it('offers a reload when only this page is stale and no operation exists', () => {
     const result = operationView({

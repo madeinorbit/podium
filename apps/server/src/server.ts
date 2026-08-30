@@ -83,7 +83,10 @@ import {
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
-import { isRemoteUpdateConsumer, wireDevBundlePublisher } from './modules/updates/dev-publisher-wiring'
+import {
+  isRemoteUpdateConsumer,
+  wireDevBundlePublisher,
+} from './modules/updates/dev-publisher-wiring'
 import { resolveDevelopmentRuntime } from './modules/updates/development-runtime'
 import {
   createInstalledCoordinatorRestart,
@@ -808,6 +811,8 @@ export async function startServer(
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
       createDatabaseSnapshot: (from, target) =>
         registry.sessionStore.snapshotBeforeUpdate(from, target),
+      prepareVerifiedDatabaseSnapshot: (from, target) =>
+        registry.sessionStore.verifiedSnapshotBeforeUpdate(from, target),
       latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
       ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
@@ -848,6 +853,14 @@ export async function startServer(
     updateOperationBoot,
   )
   if (parentReport) clearParentOutcome()
+
+  // Reconcile the recovery-snapshot catalogue with what is actually on disk and,
+  // if anything is unproved, queue ONE background verifier (POD-3068). Not
+  // awaited and not on the readiness path: proving a snapshot reads a whole
+  // database, and boot may not wait for that any more than a request may.
+  // This is also where a 0.1.0 install's existing `<db>.backup-v*` files and the
+  // boot migration's own snapshots first enter the catalogue.
+  registry.sessionStore.discoverDatabaseSnapshots()
 
   const requestPeerAddresses = new WeakMap<Request, string>()
   const readiness = createServerReadiness({

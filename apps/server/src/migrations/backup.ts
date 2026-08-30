@@ -2,9 +2,14 @@
  * Durable database snapshots shared by boot migrations and update operations.
  *
  * A snapshot is copied to a temporary sibling, fsynced, and renamed only when
- * complete. Retention considers only SQLite files that pass quick_check, so a
- * crash residue or corrupt file is preserved for inspection and can never evict
- * a usable restore point.
+ * complete.
+ *
+ * NOTHING HERE OPENS A RETAINED SNAPSHOT (POD-3068). Retention used to decide
+ * what to evict by running `PRAGMA quick_check` over every retained file, and
+ * the read path used to do the same before answering "what can I restore to?" —
+ * ~80 seconds of blocked event loop on three ~747 MiB files. Proving a snapshot
+ * is now the child process's job (`snapshot-verifier.ts`) and its answer is read
+ * from the published catalogue; this module stats, copies, renames and unlinks.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -23,7 +28,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 const log = createLogger('server:migrations')
 
@@ -49,36 +54,6 @@ function isBackupMain(name: string, dbFile: string): boolean {
 function isPartialBackup(name: string, dbFile: string): boolean {
   return name.startsWith(`${dbFile}.backup-v`) && name.includes('.partial-')
 }
-
-function usableBackup(path: string): boolean {
-  let db: SqlDatabase | undefined
-  try {
-    if (statSync(path).size === 0) return false
-    db = openDatabase(path, { readOnly: true })
-    const row = db.prepare('PRAGMA quick_check').get() as Record<string, unknown> | undefined
-    return row !== undefined && Object.values(row)[0] === 'ok'
-  } catch {
-    return false
-  } finally {
-    db?.close()
-  }
-}
-
-type LatestBackupCacheEntry = {
-  signature: string
-  path: string | undefined
-}
-
-/**
- * `usableBackup` runs SQLite `quick_check`, which reads the snapshot rather than
- * merely inspecting its directory entry. Update's idle read model asks for the
- * latest recovery point every 30 seconds, so repeating that proof turned a
- * harmless status poll into a synchronous full-database scan. Cache only the
- * verified answer, keyed by every candidate snapshot set's main, WAL, and SHM
- * metadata; a published, removed, or replaced member changes the signature and
- * is verified before it can become the answer.
- */
-const latestBackupCache = new Map<string, LatestBackupCacheEntry>()
 
 /**
  * Free bytes available to this process on the filesystem holding `dir`.
@@ -115,7 +90,8 @@ export function backupDatabase(
   dbPath: string,
   label: string,
   freeBytes: (dir: string) => number = freeDiskBytes,
-  prune: (dbPath: string) => void = pruneBackups,
+  prune: (dbPath: string, activeFallback?: string) => void = pruneBackups,
+  activeFallback: () => string | undefined = () => undefined,
 ): string | undefined {
   if (!existsSync(dbPath)) return undefined
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
@@ -183,7 +159,7 @@ export function backupDatabase(
   try {
     // Normal-operation cleanup: every successful snapshot, including the
     // update server step, reaches retention immediately.
-    prune(dbPath)
+    prune(dbPath, activeFallback())
   } catch (err) {
     // Cleanup must not turn an already durable recovery point into an update
     // failure. The next successful snapshot retries retention.
@@ -192,8 +168,50 @@ export function backupDatabase(
   return backupPath
 }
 
-/** Keeps the newest valid backup sets; suspicious files are preserved for inspection. */
-export function pruneBackups(dbPath: string): void {
+/**
+ * Every published snapshot main file for `dbPath`, newest first. Stat-only.
+ *
+ * This is the naming convention's one reader outside retention, and the reason
+ * it exists is 0.1.0 compatibility: an installation that upgrades into the
+ * verifier has `<db>.backup-v*` files and no catalogue, and the migration path
+ * (`migrations/index.ts`) still stages snapshots without publishing a record.
+ * Discovery has to start from the DIRECTORY, not from the catalogue, or those
+ * files stay invisible forever.
+ */
+export function retainedSnapshotPaths(dbPath: string): string[] {
+  const dir = dirname(dbPath)
+  const dbFile = basename(dbPath)
+  try {
+    return readdirSync(dir)
+      .filter((name) => isBackupMain(name, dbFile))
+      .flatMap((name) => {
+        const path = join(dir, name)
+        try {
+          return [{ path, mtimeMs: statSync(path).mtimeMs }]
+        } catch {
+          return []
+        }
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs || b.path.localeCompare(a.path))
+      .map(({ path }) => path)
+  } catch (err) {
+    log.warn('database snapshot history could not be listed', { path: dbPath, err })
+    return []
+  }
+}
+
+/**
+ * Keeps the newest snapshot sets by mtime, stat-only.
+ *
+ * `activeFallback` is the path the verifier currently advertises as the usable
+ * restore point. It is never evicted merely because newer targets were prepared:
+ * a newer file is only a CANDIDATE until a verifier proves it, and dropping the
+ * proven one in the meantime would leave the instance with no restore point at
+ * the exact moment an update is being planned.
+ *
+ * Incomplete `.partial-` residue is left alone for forensics and never advertised.
+ */
+export function pruneBackups(dbPath: string, activeFallback?: string): void {
   const dir = dirname(dbPath)
   const dbFile = basename(dbPath)
   const names = readdirSync(dir)
@@ -205,88 +223,23 @@ export function pruneBackups(dbPath: string): void {
     .filter((name) => isBackupMain(name, dbFile))
     .flatMap((name) => {
       const path = join(dir, name)
-      if (!usableBackup(path)) {
-        log.warn('leaving an unreadable database snapshot untouched', { path })
+      try {
+        return [{ name, path, mtimeMs: statSync(path).mtimeMs }]
+      } catch {
         return []
       }
-      return [{ name, mtimeMs: statSync(path).mtimeMs }]
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name))
 
   for (const stale of mains.slice(MIGRATION_BACKUPS_TO_KEEP)) {
+    if (activeFallback && stale.path === activeFallback) {
+      log.info('keeping the verified recovery point beyond ordinary retention', {
+        path: stale.path,
+      })
+      continue
+    }
     for (const suffix of ['', '-wal', '-shm']) {
       rmSync(join(dir, `${stale.name}${suffix}`), { force: true })
     }
-  }
-}
-
-/** Newest valid snapshot available for an operation's restore guidance. */
-export function latestDatabaseBackup(dbPath: string): string | undefined {
-  try {
-    const dir = dirname(dbPath)
-    const dbFile = basename(dbPath)
-    const candidates = readdirSync(dir)
-      .filter((name) => isBackupMain(name, dbFile))
-      .map((name) => {
-        const path = join(dir, name)
-        const stats = statSync(path)
-        const sidecars = ['-wal', '-shm'].map((suffix) => {
-          const sidecarPath = `${path}${suffix}`
-          if (!existsSync(sidecarPath)) return `${suffix}\0missing`
-          const sidecarStats = statSync(sidecarPath)
-          return `${suffix}\0${sidecarStats.size}\0${sidecarStats.mtimeMs}\0${sidecarStats.ctimeMs}`
-        })
-        return {
-          name,
-          path,
-          mtimeMs: stats.mtimeMs,
-          signature: `${name}\0${stats.size}\0${stats.mtimeMs}\0${stats.ctimeMs}\0${sidecars.join('\0')}`,
-        }
-      })
-    const signature = candidates.map(({ signature }) => signature).sort().join('\n')
-    const cached = latestBackupCache.get(dbPath)
-    if (cached?.signature === signature) return cached.path
-
-    const latest = candidates
-      .filter(({ path }) => usableBackup(path))
-      .sort((a, b) => b.mtimeMs - a.mtimeMs || b.path.localeCompare(a.path))[0]?.path
-    latestBackupCache.set(dbPath, { signature, path: latest })
-    return latest
-  } catch (err) {
-    log.warn('database snapshot history could not be read', { path: dbPath, err })
-    return undefined
-  }
-}
-
-/**
- * Process-lifetime view of the newest verified snapshot.
- *
- * `latestDatabaseBackup` opens and quick-checks every retained snapshot. On a
- * production database those files are hundreds of megabytes, so that is a
- * recovery-boundary operation, not something a polled read model may repeat.
- * A snapshot created by this process replaces the cached answer immediately;
- * otherwise the on-disk catalogue is inspected once after boot.
- */
-export function createLatestDatabaseBackupCache(
-  dbPath: string,
-  inspect: (path: string) => string | undefined = latestDatabaseBackup,
-): {
-  latest(): string | undefined
-  record(path: string | undefined): void
-} {
-  let inspected = false
-  let latest: string | undefined
-  return {
-    latest: () => {
-      if (!inspected) {
-        latest = inspect(dbPath)
-        inspected = true
-      }
-      return latest
-    },
-    record: (path) => {
-      latest = path
-      inspected = true
-    },
   }
 }

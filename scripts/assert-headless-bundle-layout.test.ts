@@ -30,7 +30,6 @@ import {
   clientBuildRootDigest,
 } from './client-build-root-digest'
 import {
-  assertClientBuildInvocation,
   beginFreshClientPackagingSession,
   packageHeadlessForFreshClients,
   type FreshClientPackagingSession,
@@ -82,7 +81,6 @@ function productionStamp(hash: string): Record<string, string | number> {
   return {
     wireSchemaDigest: '0123456789abcdef',
     wireVersion: 1,
-    builtAt: '2026-08-21T00:00:00.000Z',
     appVersion: TEST_VERSION,
     sourceSha: TEST_SOURCE_SHA,
     bundleVersion: `bundle+${hash}`,
@@ -107,9 +105,10 @@ function writeBuildManifest(siteDir: string, stamp: Record<string, string | numb
     join(siteDir, 'podium-build-manifest.json'),
     `${JSON.stringify(
       {
-        manifestVersion: 1,
+        manifestVersion: 2,
         sourceCommit: TEST_SOURCE_SHA,
         buildStamp: stamp,
+        fileCount: Object.keys(files).length,
         files,
       },
       null,
@@ -212,7 +211,7 @@ describe('assert-headless-bundle production layout', () => {
         '{"manifestVersion":1,"files":{}}\n',
       )
     }
-    expect(() => clientBuildRootDigest(clients)).toThrow(/has no v1 file inventory/)
+    expect(() => clientBuildRootDigest(clients)).toThrow(/has no v2 file inventory/)
   })
 
   it('refuses a bundle with systemd/ removed', () => {
@@ -268,11 +267,11 @@ describe('assert-headless-bundle production layout', () => {
       version: TEST_VERSION,
     }) as FreshClientPackagingSession
     expect(() => packageHeadlessForFreshClients(attackerSession, [])).toThrow(
-      /requires a fresh-client session minted by this invocation/,
+      /requires client build evidence minted by this invocation/,
     )
   })
 
-  it('refuses to mint a session when PATH replaces the running Bun with a no-op', () => {
+  it('refuses to mint a session when PATH replaces the running Bun with a no-op', async () => {
     const fakeBin = scratch()
     const fakeBun = join(fakeBin, process.platform === 'win32' ? 'bun.exe' : 'bun')
     writeFileSync(fakeBun, '#!/bin/sh\nexit 0\n')
@@ -280,7 +279,11 @@ describe('assert-headless-bundle production layout', () => {
     const originalPath = process.env.PATH
     process.env.PATH = `${fakeBin}${delimiter}${originalPath ?? ''}`
     try {
-      expect(() => beginFreshClientPackagingSession([])).toThrow(
+      // REJECTS, not throws: the session became async when the client build moved
+      // behind the Turbo lane (POD-3053). A `.toThrow()` on an async function passes
+      // for the wrong reason — nothing is thrown synchronously — so this guard would
+      // have gone green against a build that had stopped refusing entirely.
+      await expect(beginFreshClientPackagingSession([])).rejects.toThrow(
         /PATH resolves bun to .* not the running interpreter/,
       )
     } finally {
@@ -289,27 +292,27 @@ describe('assert-headless-bundle production layout', () => {
     }
   })
 
-  it('refuses the reviewer attack that passes a no-op PATH as a second argument', () => {
-    expect(() =>
+  it('refuses the reviewer attack that passes a no-op PATH as a second argument', async () => {
+    await expect(
       (
         beginFreshClientPackagingSession as unknown as (
           argv: readonly string[],
           env: NodeJS.ProcessEnv,
-        ) => FreshClientPackagingSession
+        ) => Promise<FreshClientPackagingSession>
       )([], { ...process.env, PATH: '/tmp/pod2540-noop-bun' }),
-    ).toThrow(/caller-supplied environment is forbidden for client freshness/)
+    ).rejects.toThrow(/caller-supplied environment is forbidden for client freshness/)
   })
 
-  it('requires a manifest nonce written by this packaging invocation', () => {
-    const site = scratch()
-    const manifest = join(site, 'podium-build-manifest.json')
-    expect(() => assertClientBuildInvocation(site, 'current')).toThrow(/no readable build manifest/)
-    writeFileSync(manifest, '{"buildInvocation":"stale"}\n')
-    expect(() => assertClientBuildInvocation(site, 'current')).toThrow(
-      /was not freshly produced by this packaging invocation/,
+  it('packaging accepts only evidence minted by verifyClientBuild', () => {
+    const forged = {
+      clientRootDigest: 'a'.repeat(64),
+      version: TEST_VERSION,
+      sourceCommit: TEST_SOURCE_SHA,
+      sites: { web: '/x', mobile: '/y' },
+    }
+    expect(() => packageHeadlessForFreshClients(forged as never, [])).toThrow(
+      /requires client build evidence minted by this invocation/,
     )
-    writeFileSync(manifest, '{"buildInvocation":"current"}\n')
-    expect(() => assertClientBuildInvocation(site, 'current')).not.toThrow()
   })
 
   it('refuses an attacker-computed digest supplied through the old shell interface', () => {
@@ -526,24 +529,42 @@ describe('the gate and the signing step name the same JIT keys', () => {
     const packageHeadless = readFileSync(join(repoRoot, 'scripts/package-headless.ts'), 'utf8')
     const packageJson = readFileSync(join(repoRoot, 'package.json'), 'utf8')
     const windowsSmoke = readFileSync(join(repoRoot, '.github/workflows/windows-smoke.yml'), 'utf8')
-    expect(release).toContain('const session = beginFreshClientPackagingSession([])')
+    expect(release).toContain('const session = await beginFreshClientPackagingSession([])')
     expect(release).toContain('packageHeadlessForFreshClients(')
-    expect(buildBun).toContain('freshClientPackagingSessions.has(session)')
-    expect(buildBun).toContain("execFileSync(process.execPath, ['run', packageClients]")
-    expect(buildBun).toContain('const packageClients = releaseBuildTimingEnabled()')
-    expect(buildBun).toContain('PODIUM_CLIENT_BUILD_INVOCATION: buildInvocation')
-    expect(buildBun).toContain('assertClientBuildInvocation(web, buildInvocation)')
-    expect(buildBun).toContain('assertClientBuildInvocation(mobile, buildInvocation)')
+    expect(buildBun).toContain('isClientBuildEvidence(session)')
+    expect(buildBun).toContain('await buildClients(root')
+    expect(buildBun).not.toContain('package:clients')
+    expect(buildBun).toContain('verifyClientBuild({')
+    expect(buildBun).not.toContain('PODIUM_CLIENT_BUILD_INVOCATION')
     expect(buildBun).toContain('direct headless packaging is forbidden')
     expect(buildBun).toContain('continuity, not correctness')
     expect(packageHeadless).toContain('beginFreshClientPackagingSession(argv)')
     expect(packageHeadless).toContain('packageHeadlessForFreshClients(session, argv)')
     expect(packageJson).toContain('"package:headless": "bun scripts/package-headless.ts"')
-    expect(windowsSmoke).toContain('run: bun run package:headless')
-    expect(packageJson).toContain(
-      '"package:clients": "bun run --filter @podium/web build && bun run --filter @podium/mobile build:web"',
+    // Each client has exactly one production build script, and it is a Turbo task
+    // (spec §4.1). No root script chains them; `package:clients` is gone.
+    const web = JSON.parse(readFileSync(join(repoRoot, 'apps/web/package.json'), 'utf8')) as {
+      scripts: Record<string, string | undefined>
+    }
+    const mobile = JSON.parse(readFileSync(join(repoRoot, 'apps/mobile/package.json'), 'utf8')) as {
+      scripts: Record<string, string | undefined>
+    }
+    expect(web.scripts.build).toBe(
+      'vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-budget.ts dist --check',
     )
-    expect(packageJson).toContain('"package:clients:timed"')
+    expect(web.scripts['build:dist']).toBeUndefined()
+    expect(mobile.scripts.build).toBe(
+      'expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
+    )
+    expect(mobile.scripts['build:web']).toBeUndefined()
+    expect(packageJson).not.toContain('package:clients')
+    expect(packageJson).toContain('"build": "bun scripts/build-clients.ts --workspace"')
+    expect(packageJson).toContain('"build:clients": "bun scripts/build-clients.ts"')
     expect(windowsSmoke).not.toContain('bun scripts/build-bun.ts')
+    // LAST on purpose (POD-3058): this expectation is red — windows-smoke.yml has no
+    // such step — and an early failure in a single `it` makes every assertion after it
+    // unreachable, so a red here silently stopped guarding everything below. Fixing it
+    // belongs to POD-3058; keeping it at the end is what stops it hiding the rest.
+    expect(windowsSmoke).toContain('run: bun run package:headless')
   })
 })

@@ -35,6 +35,7 @@ import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements
 import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
+import { CLIENT_DIST_DIRS } from './build-clients'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 import { runWithHeavyTestLease } from './test-heavy'
 import {
@@ -1103,17 +1104,22 @@ describe('test lane configuration', () => {
     const lane = readFileSync(new URL('./browser-lane.ts', import.meta.url), 'utf8')
     expect(lane, 'lane must run the workspace build').toMatch(/run\('bun', \['run', 'build'\]/)
     expect(lane, 'lane must export mobile web for phone projects').toMatch(
-      /@podium\/mobile['"],\s*['"]build:web['"]/,
+      /@podium\/mobile['"],\s*['"]build['"]/,
     )
-    // Root `bun run build` is packages/* then @podium/web; packages/* includes
-    // model before protocol alphabetically only by workspace graph — the
-    // historical order guarantee was model-before-protocol in one shell string.
-    // The root build script is the order of record for the lane.
+    // Root `bun run build` used to be a hand-written `--filter` chain, and its order
+    // was the order of record for this lane. It is a Turbo task graph now (POD-3053):
+    // the ordering guarantee moved from a shell string into `dependsOn`, where it is
+    // derived rather than remembered, and the lane gets it by delegating. What this
+    // still has to pin is that the root script IS that delegation — a chain creeping
+    // back would be a second order of record, and the one this lane does not read.
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    expect(pkg.scripts.build).toMatch(/packages\/\*/)
-    expect(pkg.scripts.build).toMatch(/@podium\/web/)
+    expect(pkg.scripts.build).toBe('bun scripts/build-clients.ts --workspace')
+    const buildClients = readFileSync(new URL('./build-clients.ts', import.meta.url), 'utf8')
+    expect(buildClients, 'the lane must run turbo run build, never a bare turbo build').toContain(
+      "'run',\n    'build',",
+    )
 
     for (const playwright of [browserConfig, phase3BrowserConfig]) {
       const command = webServerCommand(playwright)
@@ -1131,6 +1137,39 @@ describe('test lane configuration', () => {
     expect(lane).toMatch(/buildOnly|BUILD_ONLY/)
     expect(lane, 'lane must expose --suite selection').toContain('--suite')
     expect(lane).toMatch(/resolveSelectedSuites|suiteSelectors/)
+  })
+
+  it('stamps both client dists after turbo, with no cache-state branch [POD-3072][POD-3082]', () => {
+    // WHAT RESTS ON THIS. Since POD-3082 the phone's build task no longer names
+    // PODIUM_APP_VERSION in its cache key, so a release whose clients did not change
+    // RESTORES apps/mobile/dist — stamped with whichever version and commit first built
+    // those inputs. The only thing that makes the released dist name THIS release is
+    // stampClients running after the turbo call, for every run, HIT and MISS alike.
+    //
+    // That is why the shape is asserted and not just the behaviour: an `if (cache ===
+    // 'MISS')` slipped in between the build and the stamp would leave every cold-build
+    // test green and only a restored release wrong — the exact failure POD-3072 was.
+    expect(CLIENT_DIST_DIRS, 'both client dists must be stamped').toEqual([
+      'apps/web/dist',
+      'apps/mobile/dist',
+    ])
+
+    const source = readFileSync(new URL('./build-clients.ts', import.meta.url), 'utf8')
+    for (const name of ['buildClients', 'buildWorkspace']) {
+      const start = source.indexOf(`export async function ${name}(`)
+      expect(start, `${name} is not exported from build-clients.ts`).toBeGreaterThan(-1)
+      const end = source.indexOf('\n}\n', start)
+      const body = source.slice(start, end)
+
+      const built = body.indexOf('runTurboBuild(')
+      const stamped = body.indexOf('stampClients(')
+      expect(built, `${name} no longer runs the turbo build`).toBeGreaterThan(-1)
+      expect(stamped, `${name} must stamp AFTER turbo returns`).toBeGreaterThan(built)
+      expect(
+        body.slice(built, stamped),
+        `${name} decides whether to stamp; the stamp must be unconditional`,
+      ).not.toMatch(/\b(if|switch|cache|HIT|MISS)\b|\?/)
+    }
   })
 
   it('keeps webServer budget for harness boot only [POD-535]', () => {

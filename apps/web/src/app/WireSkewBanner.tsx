@@ -5,6 +5,7 @@ import {
   openUpdatePanel,
   subscribeUpdatePanel,
 } from '@/features/updates/open-panel'
+import { forceReload } from '@/lib/force-reload'
 import { currentSkew, type SkewNotice, subscribeSkew } from './skew-notice'
 
 /**
@@ -98,6 +99,12 @@ export function WireSkewBanner(): JSX.Element | null {
 
   if (!notice) return null
 
+  // `assets-replaced` means this page is controlled by a service worker/cache
+  // for bytes the server has already replaced. Prefer the update panel, where
+  // the browser can prove takeover before navigating; cache eviction is only
+  // the explicit fallback when no visible panel is available.
+  const staleAssets = notice.source === 'assets-replaced'
+
   return (
     <div
       ref={measure}
@@ -127,10 +134,16 @@ export function WireSkewBanner(): JSX.Element | null {
         // button anywhere, even in a banner that styles itself.
         data-pressable
         onClick={() => {
+          if (staleAssets) {
+            const opened = openUpdatePanel()
+            if (!opened) void forceReload()
+            return
+          }
           /**
-           * ONE REMEDY, IN ONE PLACE (POD-2102, spec §6.1). This button used to
-           * prescribe its own fix — a plain reload — while the update panel, a
-           * few hundred pixels away, was recommending a different one. The
+           * For wire skew, the banner delegates to the panel's remedy (POD-2102,
+           * spec §6.1). This button used to prescribe its own fix — a plain reload —
+           * while the update panel, a few hundred pixels away, was recommending a
+           * different one. The
            * banner stays as the last-resort backstop it was built to be, but
            * the remedy it points at is now the panel's, because the panel is
            * the thing that knows what state the update is actually in.

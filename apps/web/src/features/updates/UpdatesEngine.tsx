@@ -30,10 +30,11 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useRegisterSW } from '@/app/pwa-register'
 import { serverConfig } from '@/app/trpc'
+import { forceReload } from '@/lib/force-reload'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
-import { startReloadHandshake } from './reload-handshake'
+import { startReloadHandshake, type ReloadHandshakeStatus } from './reload-handshake'
 import { UpdatePanel } from './UpdatePanel'
 import { publishUpdates, resetUpdates, type UpdatesContextValue } from './updates-panel-context'
 import { type PanelActionKind, useUpdateState } from './use-update-state'
@@ -46,6 +47,7 @@ export interface UpdatesEngineProps {
 
 export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element | null {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
+  const [reloadStatus, setReloadStatus] = useState<ReloadHandshakeStatus | null>(null)
   const {
     needRefresh: [needRefresh, setNeedRefresh],
   } = useRegisterSW({
@@ -74,17 +76,22 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
    * Reloading is a STEP THE USER TAKES (§6.2.3), so it is the panel's primary
    * action rather than something that happens to them. Take over the new worker
    * first, then reload only once the replacement is safe to navigate through.
-   * A page with no waiting worker is an ordinary refresh and reloads directly.
+   * A registration with no waiting worker is checked for a replacement first.
    *
-   * The handshake logs whether takeover completed or exceeded its diagnostic
-   * budget, preserving the path instrumentation introduced for POD-2762.
+   * The handshake owns the browser lifecycle: it checks the registration,
+   * observes updatefound/statechange/controllerchange, and reports the exact
+   * state to the panel. Its diagnostic budget never navigates through an old
+   * worker. Cache eviction is deliberately separate, behind the explicit reset
+   * action below.
    */
   const reload = useCallback(async () => {
     const serviceWorker = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker
-    const currentRegistration = registration ?? (await serviceWorker?.getRegistration())
-    startReloadHandshake({
+    const currentRegistration = registration
+    await startReloadHandshake({
       serviceWorker,
+      registration: currentRegistration,
       waitingWorker: currentRegistration?.waiting,
+      onStatus: setReloadStatus,
       reload: () => window.location.reload(),
     })
   }, [registration])
@@ -146,7 +153,8 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     return () => window.clearTimeout(timer)
   }, [acknowledge, doneKey])
 
-  const open = (view.state !== 'none' || showingProposal) && !collapsed
+  const hasPanelContent = view.state !== 'none' || showingProposal
+  const open = hasPanelContent && !collapsed
 
   const hide = useCallback(() => {
     setCollapsed(true)
@@ -159,11 +167,28 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }, [acknowledge, setNeedRefresh, view.state])
 
   const toggle = useCallback(() => setCollapsed((current) => !current), [])
-  const show = useCallback(() => setCollapsed(false), [])
+  const show = useCallback((): boolean => {
+    if (!hasPanelContent) return false
+    setCollapsed(false)
+    return true
+  }, [hasPanelContent])
+  const resetCachedInterface = useCallback(() => {
+    setReloadStatus((status) =>
+      status
+        ? {
+            ...status,
+            phase: 'resetting',
+            message: 'Resetting the cached interface…',
+            canReset: false,
+          }
+        : status,
+    )
+    void forceReload()
+  }, [])
 
   // The skew banner and anything else outside this tree open the panel through
   // the module-level channel, because they are mounted where context is not.
-  useEffect(() => registerUpdatePanelOpener(show), [show])
+  useEffect(() => registerUpdatePanelOpener(show, () => hasPanelContent), [hasPanelContent, show])
 
   const onCheckNow = useCallback(() => {
     setCollapsed(false)
@@ -245,5 +270,14 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       />
     )
   }
-  return <UpdatePanel view={view} pending={pending} onAction={onAction} onHide={hide} />
+  return (
+    <UpdatePanel
+      view={view}
+      pending={pending}
+      onAction={onAction}
+      onHide={hide}
+      {...(reloadStatus ? { reloadStatus } : {})}
+      onResetCachedInterface={resetCachedInterface}
+    />
+  )
 }

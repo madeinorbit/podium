@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 /**
  * Tripwire on the shipped export [POD-402].
  *
- * `bun run build:web` exports and then patches; `expo export -p web` on its own
+ * `bun run build` exports and then patches; `expo export -p web` on its own
  * exports and stops. The second produces a dist that looks completely fine in a
  * browser and is broken in the one way nobody checks in a browser: Add to Home
  * Screen falls back to a Safari bookmark named after app.json's `name`, with a

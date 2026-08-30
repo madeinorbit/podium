@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
-import { createReadStream, existsSync, readFileSync } from 'node:fs'
-import { readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
+import { createReadStream, existsSync, readFileSync, renameSync } from 'node:fs'
+import { mkdir, readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -20,10 +20,25 @@ import {
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
 import { instanceBuildSliceName } from '@podium/runtime/instance'
 import {
+  type ReleaseBuildTimingDeps,
   releaseBuildTimingEnvironment,
   timeReleaseBuildTask,
-  type ReleaseBuildTimingDeps,
 } from '@podium/runtime/release-build-timing'
+import {
+  advanceOutcome,
+  type BuildOutcome,
+  type BuildRecord,
+  type BuildRecordClient,
+  buildBundlesDir,
+  buildClientEvidencePath,
+  buildRecordDir,
+  buildTimingPath,
+  listBuildRecords,
+  mintBuildId,
+  prepareBuildRecordDir,
+  sweepBuildRecords,
+  writeBuildRecord,
+} from './build-record'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 import { type DevBuildSnapshot, withDevBuildSnapshot } from './dev-build-snapshot'
 import {
@@ -462,6 +477,12 @@ export interface DevBundleArtifact {
  * published target enumerates.
  */
 export interface BuiltDevBundle {
+  /**
+   * The ledger record this build wrote (POD-3055). Every artifact below lives under
+   * `<stateDir>/builds/<buildId>/bundles/`, and it is what the publish step advances to
+   * `published` and what the retention sweep protects.
+   */
+  buildId: string
   version: string
   path: string
   size: number
@@ -613,73 +634,6 @@ export function listDevBundles(names: readonly string[]): DevBundleFile[] {
 }
 
 /**
- * WHAT A SWEEP DELETES, decided without touching the filesystem.
- *
- * Prefer `referenced`: every recognised development artifact whose basename is
- * not in that set (nor in `protect`) may go, along with present sidecars. That
- * is the manifest-reference rule — a file a retained publish still names is
- * never deleted, regardless of stamp order.
- *
- * `keep` remains as a fallback when no referenced set is supplied (tests / an
- * older call site): keep the newest N by stamp, matching the historical window.
- */
-export function selectDevBundleSweep(
-  names: readonly string[],
-  options: {
-    keep?: number
-    protect?: readonly string[]
-    /** Artifact basenames retained publishes still reference. */
-    referenced?: readonly string[]
-    /** Which platform an unlabelled legacy name belongs to; defaults to this host's. */
-    hostPlatform?: string
-  } = {},
-): string[] {
-  const present = new Set(names)
-  const protectedNames = new Set(options.protect ?? [])
-  // A name with no platform in it predates multi-platform builds, and the only bundle
-  // such a build ever produced was this host's. Counting it in the host's group is what
-  // lets the backlog DRAIN: give it a group of its own and its two survivors are
-  // retained forever, because nothing new is ever added to push them out.
-  const hostPlatform = options.hostPlatform ?? developmentPlatformTarget()
-  const doomed: string[] = []
-
-  const pushDoomed = (entryName: string) => {
-    doomed.push(entryName)
-    for (const suffix of [DEV_BUNDLE_SIGNATURE_SUFFIX, DEV_BUNDLE_METADATA_SUFFIX]) {
-      if (present.has(entryName + suffix)) doomed.push(entryName + suffix)
-    }
-  }
-
-  // An explicit allowlist of what publishes still reference (POD-2502) answers the
-  // question outright, for every platform at once — a referenced artifact is kept
-  // whatever its platform, and an unreferenced one goes. No counting is involved, so
-  // the per-platform grouping below does not apply to it.
-  if (options.referenced !== undefined) {
-    const referenced = new Set(options.referenced)
-    for (const entry of listDevBundles(names)) {
-      if (referenced.has(entry.name) || protectedNames.has(entry.name)) continue
-      pushDoomed(entry.name)
-    }
-    return doomed
-  }
-
-  // The counting fallback, PER PLATFORM. `keep` means "the last N builds", and a build
-  // is now up to four files. Counting them in one list would keep two and delete the
-  // rest of the build just published — a Mac in the fleet would be offered a target
-  // whose tarball the sweep had already removed.
-  const keep = options.keep ?? DEV_BUNDLE_RETAINED
-  const seenPerPlatform = new Map<string, number>()
-  for (const entry of listDevBundles(names)) {
-    const group = entry.platform || hostPlatform
-    const seen = seenPerPlatform.get(group) ?? 0
-    seenPerPlatform.set(group, seen + 1)
-    if (seen < keep || protectedNames.has(entry.name)) continue
-    pushDoomed(entry.name)
-  }
-  return doomed
-}
-
-/**
  * The filesystem this module needs, as a seam.
  *
  * Every operation is either on a small sidecar or a STREAM over the tarball;
@@ -710,7 +664,18 @@ export const nodeDevBundleFs: DevBundleFs = {
       stream.once('end', () => resolve({ digest: `sha256-${hash.digest('base64')}`, size }))
     }),
   readText: (path) => readFileAsync(path, 'utf8'),
-  writeText: (path, contents) => writeFile(path, contents),
+  // ENSURE THE PARENT, because nothing else does any more.
+  //
+  // `dist-bun/` used to be created as a side effect of the build writing its tarballs
+  // there. The tarballs live in the ledger now, so on a checkout that has never built,
+  // the first thing to want that directory is the feed manifest — and a publish that
+  // fails with ENOENT on `latest.json` is a release nobody can pull, reported as a disk
+  // fault. The seam owns this rather than the manifest writers: they take a
+  // `DevBundleFs`, and only this implementation is on a real filesystem.
+  writeText: async (path, contents) => {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, contents)
+  },
   remove: (path) => rm(path, { force: true }),
 }
 
@@ -733,8 +698,13 @@ export interface DevBundleMetadata {
   keyFingerprint: string
   /**
    * Which platform's bundle this describes. Optional because a sidecar written before
-   * a build minted more than one platform has no such field, and `readMetadata` must
-   * keep reading those rather than treating them as corrupt.
+   * a build minted more than one platform has no such field.
+   *
+   * The server no longer READS this file: the build record says everything it used to
+   * be consulted for, and says it about the whole publish rather than one file at a
+   * time. It is still written because it travels WITH the tarball, and the
+   * out-of-band repair path (`scripts/repair-stranded-update.sh`) has nothing but the
+   * three copied files to verify against.
    */
   platform?: string
 }
@@ -765,14 +735,9 @@ export interface DevBundleLock {
 /** The transient unit role for the headless compile; see `build-scope.ts`. */
 export const DEV_BUNDLE_BUILD_ROLE = 'dev-bundle-build'
 
-export interface DevBuildSpawnContext {
-  root: string
-  version: string
-  /** Where the build must write the tarball. Carries the build-time stamp. */
-  artifactPath: string
-  signingKey?: string
-  /** Names the transient build unit, so two instances cannot share one. */
-  instanceId?: string
+/** One platform's slot in a publish: what to compile, and where its tarball goes. */
+export interface DevBuildArtifactRequest {
+  platform: string
   /**
    * Which platform this bundle is for, as a `bun build --compile` target.
    *
@@ -783,24 +748,65 @@ export interface DevBuildSpawnContext {
    * path nothing tests until release day.
    */
   bunTarget: string
-  /** Opt-in evidence context inherited by the detached build command. */
-  timingEnv?: NodeJS.ProcessEnv
+  /** Where the build must write the tarball. Carries the build-time stamp. */
+  artifactPath: string
 }
 
+export interface DevBuildSpawnContext {
+  root: string
+  version: string
+  /**
+   * EVERY platform of this publish, in build order, host first.
+   *
+   * One context, not one per platform, because one publish is now ONE build. The
+   * clients are built (or restored) once by the coordinator and every platform is
+   * packaged from that single output — which is what makes the bundles of one publish
+   * share a web digest, and what makes an approval whose clients did not change build
+   * nothing at all. Handing the spawn one platform at a time is how the publisher used
+   * to pay for the client build N times over.
+   */
+  artifacts: readonly DevBuildArtifactRequest[]
+  signingKey?: string
+  /** Names the transient build unit, so two instances cannot share one. */
+  instanceId?: string
+  /** Opt-in evidence context inherited by the detached build command. */
+  timingEnv?: NodeJS.ProcessEnv
+  /**
+   * This attempt's ledger directory, `<stateDir>/builds/<buildId>/`.
+   *
+   * The child writes its client evidence here (`client.json`) before it packages
+   * anything, and the artifact paths it is handed are inside this directory's
+   * `bundles/`. The publisher folds both into the record when the attempt settles.
+   */
+  recordDir: string
+}
+
+/**
+ * What the spawn reports back, if anything.
+ *
+ * `undefined` is the production answer: the coordinator wrote each tarball to the path
+ * this side named, and this side reads the signature from disk beside it. The array
+ * form lets a seam name a different path or hand the signature back in memory.
+ */
 export type DevBuildSpawnResult =
   | undefined
-  | string
-  | {
+  | ReadonlyArray<{
+      platform: string
       path?: string
       signature?: string
-    }
+    }>
 
 export interface DevBundleBuildDeps {
   lock: DevBundleLock
-  /** Immutable build source. Artifacts may be written back to `artifactRoot`. */
+  /**
+   * Immutable build source — a detached snapshot for an approved build.
+   *
+   * There is no longer an `artifactRoot` beside it. Artifacts used to be written back
+   * into the LIVE checkout while the build ran from a snapshot of it; they now go into
+   * the build record under the state directory, which no snapshot owns and no checkout
+   * can take with it.
+   */
   root?: string
-  /** Persistent checkout root that owns `dist-bun`; defaults to `root`. */
-  artifactRoot?: string
   headSha?: string
   spawnBuild?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
   build?: (ctx: DevBuildSpawnContext) => Promise<DevBuildSpawnResult> | DevBuildSpawnResult
@@ -887,7 +893,7 @@ function resolveCheckoutReleaseBase(
  * Assign the next publisher-owned version and persist the counter immediately
  * so a crash mid-compile cannot reuse N. Reuses the prior allocation when the
  * same HEAD is advertised again (identity target → later build). Call
- * {@link rememberDevArtifact} once the stamped basename is known so the sweep
+ * {@link rememberDevBuild} once the build id is known so the sweep
  * allowlist includes it.
  *
  * READ-MODIFY-WRITE, AND NOT SERIALISED against a concurrent build. `target()`
@@ -936,117 +942,54 @@ export function allocateDevPublishVersion(input: {
 }
 
 /**
- * Record a freshly published artifact basename in the retained set and return
- * the full allowlist the sweep must honour.
+ * Point the publisher's persisted state at the build the ledger is about to record.
+ *
+ * This is all that is left of `rememberDevArtifact`, and the shrinkage is the point.
+ * The old function kept an allowlist of artifact BASENAMES in the state file, because
+ * the sweep worked on a flat directory of tarballs and had no other way to know which
+ * files a publish still needed. The records are that knowledge now, held next to the
+ * bytes they describe, so a second list here would only be a copy that can disagree
+ * with them.
+ *
+ * It still refuses before a mint, for the reason it always did: an artifact remembered
+ * against no version state is one nothing can order.
  */
-export function rememberDevArtifact(input: {
-  stateDir: string
-  /**
-   * EVERY artifact of ONE publish — one per platform.
-   *
-   * This took a list rather than a name because a publish is now up to four files
-   * (POD-2504). Remembering only one of them would leave the other three out of the
-   * allowlist, and the very next sweep would delete the bundles a Mac in the fleet had
-   * just been offered.
-   */
-  artifactNames: readonly string[]
-  retain?: number
-}): string[] {
+export function rememberDevBuild(input: { stateDir: string; buildId: string }): void {
   const existing = readDevPublisherState(input.stateDir)
   if (!existing) {
-    throw new Error('cannot remember a development artifact before a version has been minted')
+    throw new Error('cannot remember a development build before a version has been minted')
   }
-  const retain = input.retain ?? DEV_BUNDLE_RETAINED
-  const fresh = [...input.artifactNames]
-  // `retain` counts PUBLISHES, not files. Slicing a flat list of names would cap at two
-  // FILES and drop most of a four-platform build, so artifacts are grouped by the build
-  // that produced them (its version and stamp) and whole builds are what age out.
-  const buildOf = (name: string): string => {
-    const parsed = parseDevBundleName(name)
-    return parsed ? `${parsed.version}@${parsed.stamp}` : name
-  }
-  const keptBuilds = new Set(fresh.map(buildOf))
-  const referenced = [...fresh]
-  for (const name of existing.retainedArtifacts) {
-    if (referenced.includes(name)) continue
-    const build = buildOf(name)
-    if (!keptBuilds.has(build)) {
-      if (keptBuilds.size >= retain) continue
-      keptBuilds.add(build)
-    }
-    referenced.push(name)
-  }
-  writeDevPublisherState(
-    {
-      ...existing,
-      retainedArtifacts: referenced,
-    },
-    input.stateDir,
-  )
-  return referenced
+  writeDevPublisherState({ ...existing, lastBuildId: input.buildId }, input.stateDir)
 }
 
 /**
- * Recover publisher state from an on-disk artifact when the state file is gone.
+ * Recover publisher state from a build record when the state file is gone.
  *
- * The allowlist is the restored artifact plus the newest other recognised
- * publisher artifacts in `knownNames` (up to the retention window) — so a
- * state-file loss does not delete the previous bundle the human still wants
- * on disk for comparison.
+ * The record names the version, and a publisher version parses back into the base and
+ * counter that minted it — so a lost state file cannot rewind the counter under a fleet
+ * that has already seen those versions.
  */
-export function seedPublisherStateFromArtifact(input: {
+export function seedPublisherStateFromRecord(input: {
   stateDir: string
-  version: string
-  /** Every artifact of the restored publish — one per platform (POD-2504). */
-  artifactNames: readonly string[]
-  retain?: number
-  /** Directory listing (basenames) used to keep the previous retained bundle. */
-  knownNames?: readonly string[]
-}): string[] {
-  const retain = input.retain ?? DEV_BUNDLE_RETAINED
-  const restored = [...input.artifactNames]
-  // Grouped by the build that produced them, for the same reason as
-  // {@link rememberDevArtifact}: `retain` counts publishes, and a flat slice would
-  // drop most of a four-platform build.
-  const buildOf = (name: string): string => {
-    const parsed = parseDevBundleName(name)
-    return parsed ? `${parsed.version}@${parsed.stamp}` : name
+  record: BuildRecord
+}): void {
+  const parsed = parsePublisherDevVersion(input.record.version)
+  if (!parsed) {
+    // A legacy `dev+<sha>` identity on disk carries no counter to restore. There is
+    // nothing to seed and nothing to rewind; the next mint starts from the checkout.
+    return
   }
-  const keptBuilds = new Set(restored.map(buildOf))
-  const referenced = [...restored]
-  for (const entry of listDevBundles(input.knownNames ?? [])) {
-    if (referenced.includes(entry.name)) continue
-    const build = buildOf(entry.name)
-    if (!keptBuilds.has(build)) {
-      if (keptBuilds.size >= retain) continue
-      keptBuilds.add(build)
-    }
-    referenced.push(entry.name)
-  }
-  const parsed = parsePublisherDevVersion(input.version)
-  if (parsed) {
-    writeDevPublisherState(
-      {
-        base: parsed.base,
-        counter: parsed.counter,
-        retainedArtifacts: referenced,
-        lastSha: parsed.sha,
-        lastVersion: input.version,
-      },
-      input.stateDir,
-    )
-    return referenced
-  }
-  // Legacy identity on disk, no mint yet — allowlist only, no counter.
-  const existing = readDevPublisherState(input.stateDir)
-  if (existing) {
-    return rememberDevArtifact({
-      stateDir: input.stateDir,
-      artifactNames: restored,
-      retain,
-    })
-  }
-  return referenced
+  writeDevPublisherState(
+    {
+      base: parsed.base,
+      counter: parsed.counter,
+      retainedArtifacts: [],
+      lastSha: parsed.sha,
+      lastVersion: input.record.version,
+      lastBuildId: input.record.buildId,
+    },
+    input.stateDir,
+  )
 }
 
 function developmentSigningKey(root: string): string {
@@ -1068,32 +1011,64 @@ function developmentSigningKey(root: string): string {
  * and falls back to exactly the spawn above wherever systemd-run cannot create
  * one (macOS, Windows, a container without a user manager). See `build-scope.ts`.
  */
-async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<void> {
+/**
+ * The command line ONE release child is given for a whole publish.
+ *
+ * `scripts/release.ts --prepare-cross` is the coordinator both this publisher and the
+ * CI release job run. It builds (or restores) the clients once through the Turbo lane
+ * and then packages every platform named here from that one output, in process.
+ * Spawning it per platform is what used to make an approval pay for the client build
+ * once per platform — and calling build-bun directly refuses, so this path cannot
+ * package an old approved-SHA dist by accident.
+ *
+ * `--platform` for EVERY platform, this host's own included, so the dev host exercises
+ * the exact path that produces what ships rather than a nearby one — including the
+ * cross-compiled abduco helper, which is the part of a bundle a native build would have
+ * got from somewhere else. `--artifact` because this side owns the artifacts' lifecycle:
+ * the build stamp in each name is what retention later sorts on, and the paths must be
+ * absolute because the coordinator runs in the snapshot worktree, which is deleted
+ * afterwards.
+ *
+ * Exported so a test can read the ACTUAL argument vector rather than grep the source
+ * for a string that no longer has to mean anything.
+ */
+export function devReleaseBuildArgs(
+  artifacts: readonly DevBuildArtifactRequest[],
+  recordDir?: string,
+): string[] {
+  return [
+    'scripts/release.ts',
+    '--prepare-cross',
+    ...(recordDir ? ['--record', recordDir] : []),
+    ...artifacts.flatMap((artifact) => [
+      '--platform',
+      artifact.platform,
+      '--artifact',
+      `${artifact.platform}=${artifact.artifactPath}`,
+    ]),
+  ]
+}
+
+async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<undefined> {
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
   const instanceId = ctx.instanceId ?? resolveInstanceId()
+  const platforms = ctx.artifacts.map((artifact) => artifact.platform)
   await runLowTierBuild({
     unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, instanceId),
     slice: instanceBuildSliceName(instanceId),
-    description: `Podium development bundle build (${ctx.version}, ${ctx.bunTarget})`,
+    description: `Podium development release build (${ctx.version}, ${platforms.join(', ')})`,
     command: devBuildCommand(process.env),
-    // `--target` on EVERY build, this host's own included. The release job passes it
-    // too, so the dev host exercises the exact path that produces what ships rather
-    // than a nearby one — including the cross-compiled abduco helper, which is the part
-    // of a bundle a native build would have got from somewhere else.
-    // package-headless owns the fresh-build session. Calling build-bun directly
-    // refuses, so this path cannot accidentally package an old approved-SHA dist.
-    args: ['scripts/package-headless.ts', `--target=${ctx.bunTarget}`],
+    // ONE child for the whole publish; see devReleaseBuildArgs.
+    args: devReleaseBuildArgs(ctx.artifacts, ctx.recordDir),
     cwd: ctx.root,
     env: {
       ...process.env,
       ...ctx.timingEnv,
       PODIUM_APP_VERSION: ctx.version,
-      // The caller names the artifact, because the caller owns its lifecycle:
-      // the stamp in the name is what retention later sorts on.
-      PODIUM_BUNDLE_ARTIFACT: ctx.artifactPath,
       PODIUM_UPDATE_SIGNING_KEY: signingKey,
     },
   })
+  return undefined
 }
 
 /**
@@ -1111,8 +1086,45 @@ export function bunTargetForPlatform(platform: string): string {
   return `bun-${os}-${arch}`
 }
 
+/**
+ * The checkout directory that holds the SERVED FEED MANIFESTS.
+ *
+ * It is no longer the artifact root: the published tarballs moved into the ledger under
+ * the state directory (POD-3055). The two manifests stay here because they are what the
+ * checkout's own web server hands out, addressed by path from the source root.
+ */
 export function devBundleDirectory(root: string): string {
   return join(root, 'dist-bun')
+}
+
+/**
+ * The client evidence the coordinator child wrote, or `null` if it never got that far.
+ *
+ * Read defensively: this file crosses a process boundary from a child that may have
+ * died halfway through writing it, and a record with a null client is a truthful record
+ * of an attempt whose clients cannot be described — not a reason to lose the rest.
+ */
+function readClientBuildRecord(stateDirectory: string, buildId: string): BuildRecordClient | null {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(buildClientEvidencePath(stateDirectory, buildId), 'utf8'))
+  } catch {
+    return null
+  }
+  const candidate = raw as Partial<BuildRecordClient>
+  if (
+    typeof candidate.rootDigest !== 'string' ||
+    typeof candidate.sourceCommit !== 'string' ||
+    typeof candidate.version !== 'string'
+  ) {
+    return null
+  }
+  return {
+    rootDigest: candidate.rootDigest,
+    sourceCommit: candidate.sourceCommit,
+    version: candidate.version,
+    tasks: typeof candidate.tasks === 'object' && candidate.tasks !== null ? candidate.tasks : {},
+  }
 }
 
 async function readOptionalText(fs: DevBundleFs, path: string): Promise<string | undefined> {
@@ -1123,74 +1135,23 @@ async function readOptionalText(fs: DevBundleFs, path: string): Promise<string |
   }
 }
 
-async function readMetadata(fs: DevBundleFs, path: string): Promise<DevBundleMetadata | null> {
-  const raw = await readOptionalText(fs, path + DEV_BUNDLE_METADATA_SUFFIX)
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw) as Partial<DevBundleMetadata>
-    if (
-      typeof parsed.version !== 'string' ||
-      typeof parsed.digest !== 'string' ||
-      typeof parsed.size !== 'number' ||
-      typeof parsed.keyFingerprint !== 'string'
-    ) {
-      return null
-    }
-    return parsed as DevBundleMetadata
-  } catch {
-    return null
-  }
-}
-
 /**
- * Reclaim every development bundle outside the retention window.
+ * Recover the release already produced for this checkout's HEAD, FROM THE LEDGER.
  *
- * Never fatal, per file and as a whole: a bundle that could not be deleted is
- * disk to reclaim next time, not a reason to fail a build or refuse to publish
- * one. The next sweep sees it again.
- */
-export async function sweepDevBundles(
-  fs: DevBundleFs,
-  dir: string,
-  options: {
-    keep?: number
-    protect?: readonly string[]
-    referenced?: readonly string[]
-  } = {},
-): Promise<string[]> {
-  const removed: string[] = []
-  try {
-    const doomed = selectDevBundleSweep(await fs.list(dir), options)
-    for (const name of doomed) {
-      try {
-        await fs.remove(join(dir, name))
-        removed.push(name)
-      } catch (error) {
-        log.warn('could not remove a stale development bundle', {
-          name,
-          err: error,
-        })
-      }
-    }
-    if (removed.length > 0) log.info('reclaimed stale development bundles', { removed })
-  } catch (error) {
-    log.warn('development bundle sweep failed', { dir, err: error })
-  }
-  return removed
-}
-
-/**
- * Recover the bundle already produced for this checkout's HEAD.
+ * The publisher itself is process-local while the signed bytes are deliberately durable
+ * across restarts, so a restart must be able to find what it already published. It used
+ * to do that by parsing filenames in `dist-bun/` and cross-checking a sidecar; now it
+ * reads records, which say the same things outright and say them about a whole publish
+ * rather than one file at a time.
  *
- * The publisher itself is process-local, while the tarball is intentionally
- * durable across source-server restarts. The newest artifact stamped for HEAD
- * is a candidate; it becomes the current target only if its recorded metadata
- * says it was published by this server's signing identity AND the file still
- * hashes to what was signed. Anything else — no metadata, a rotated key, a
- * short or corrupt file — is treated as absent and rebuilt.
+ * What is NOT relaxed is the verification. A record is a claim; the bytes have to still
+ * match it. Every artifact is re-hashed and its signature re-read, the record has to
+ * have been signed by THIS server's identity, and the whole publish is taken or none of
+ * it is — a mixture of two mints of one commit would publish a manifest whose platforms
+ * disagreed about their own version.
  */
 async function readExistingDevBundle(
-  deps: Pick<DevBundleBuildDeps, 'root' | 'signingKey'> & {
+  deps: Pick<DevBundleBuildDeps, 'root' | 'signingKey' | 'publisherStateDir'> & {
     headSha: string
     fs: DevBundleFs
     /**
@@ -1202,77 +1163,86 @@ async function readExistingDevBundle(
     platforms?: readonly string[]
   },
 ): Promise<BuiltDevBundle | null> {
-  const root = deps.root ?? SOURCE_ROOT
   const sha = shortSha(deps.headSha)
-  const dir = devBundleDirectory(root)
+  const stateDirectory = deps.publisherStateDir ?? stateDir()
+  const fingerprint = devBundleKeyFingerprint(deps.signingKey)
   const hostPlatform = developmentPlatformTarget()
+  const required = new Set([hostPlatform, ...(deps.platforms ?? [])])
 
-  /** One candidate file, or nothing if it cannot prove it is what it claims to be. */
-  const recover = async (entry: DevBundleFile): Promise<DevBundleArtifact | null> => {
-    const path = join(dir, entry.name)
-    const metadata = await readMetadata(deps.fs, path)
-    if (!metadata) return null
-    // Publisher mints carry the sha in build metadata; legacy names carried `dev+<sha>`.
-    // Either way the artifact has to claim THIS commit.
-    if (commitShaFromDevVersion(metadata.version) !== sha) return null
-    if (metadata.keyFingerprint !== devBundleKeyFingerprint(deps.signingKey)) return null
-    const signature = (await readOptionalText(deps.fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
-    if (!signature) return null
-    let actual: { digest: string; size: number }
-    try {
-      actual = await deps.fs.digest(path)
-    } catch {
-      return null
+  for (const record of listBuildRecords(stateDirectory)) {
+    if (record.approvedSha !== sha) continue
+    // A failed attempt is forensics. Nothing recovers from one.
+    if (record.outcome !== 'signed' && record.outcome !== 'published') continue
+    // A rotated update key makes every earlier signature unverifiable to the fleet;
+    // rebuilding is the only honest answer.
+    if (record.signingKeyFingerprint !== fingerprint) continue
+    if ([...required].some((platform) => !record.artifacts.some((a) => a.platform === platform))) {
+      continue
     }
-    if (actual.digest !== metadata.digest || actual.size !== metadata.size) return null
-    // An artifact from before multi-platform builds carries no platform in either its
-    // name or its sidecar; it can only be this host's, because that is the only one a
-    // build of that vintage produced.
-    const platform = entry.platform || metadata.platform || hostPlatform
+
+    const dir = buildBundlesDir(stateDirectory, record.buildId)
+    const artifacts: DevBundleArtifact[] = []
+    for (const entry of record.artifacts) {
+      const path = join(dir, entry.file)
+      const signature = (
+        await readOptionalText(deps.fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX)
+      )?.trim()
+      if (!signature || signature !== entry.signature) break
+      let actual: { digest: string; size: number }
+      try {
+        actual = await deps.fs.digest(path)
+      } catch {
+        break
+      }
+      if (actual.digest !== entry.digest || actual.size !== entry.size) break
+      artifacts.push({
+        platform: entry.platform,
+        path,
+        size: actual.size,
+        digest: actual.digest,
+        signature,
+        version: record.version,
+      })
+    }
+    // ALL OF IT OR NONE OF IT: a short read means a file went missing or changed under
+    // the record, and half a publish is not a publish.
+    if (artifacts.length !== record.artifacts.length) continue
+
+    // THE HOST'S OWN BUNDLE DECIDES its position: without it there is nothing for this
+    // machine to converge on, which the `required` check above has already made certain.
+    const hostIndex = artifacts.findIndex((artifact) => artifact.platform === hostPlatform)
+    const [host] = artifacts.splice(hostIndex, 1) as [DevBundleArtifact]
     return {
-      platform,
-      path,
-      size: actual.size,
-      digest: actual.digest,
-      signature,
-      version: metadata.version,
+      buildId: record.buildId,
+      version: record.version,
+      path: host.path,
+      size: host.size,
+      digest: host.digest,
+      signature: host.signature,
+      artifacts: [host, ...artifacts],
     }
   }
+  return null
+}
 
-  // Newest first per platform, so a rebuilt platform recovers its latest file.
-  const seen = new Set<string>()
-  const artifacts: DevBundleArtifact[] = []
-  let version: string | undefined
-  for (const entry of listDevBundles(await deps.fs.list(dir))) {
-    if (entry.sha !== sha) continue
-    const platform = entry.platform || hostPlatform
-    if (seen.has(platform)) continue
-    seen.add(platform)
-    const artifact = await recover(entry)
-    if (!artifact) continue
-    version ??= artifact.version
-    // One recovered BUILD, not an assortment: mixing two mints of the same commit
-    // would publish a manifest whose platforms disagree about which version they are.
-    if (artifact.version !== version) continue
-    artifacts.push(artifact)
-  }
-
-  // THE HOST'S OWN BUNDLE DECIDES. Without it there is nothing for this machine to
-  // converge on, and recovering only a Mac's bundle would publish a target the
-  // publisher's own host could not take — so this reads as "nothing recovered", and the
-  // build runs.
-  const hostIndex = artifacts.findIndex((artifact) => artifact.platform === hostPlatform)
-  if (hostIndex < 0 || version === undefined) return null
-  const recovered = new Set(artifacts.map((artifact) => artifact.platform))
-  if ((deps.platforms ?? []).some((platform) => !recovered.has(platform))) return null
-  const [host] = artifacts.splice(hostIndex, 1) as [DevBundleArtifact]
-  return {
-    version,
-    path: host.path,
-    size: host.size,
-    digest: host.digest,
-    signature: host.signature,
-    artifacts: [host, ...artifacts],
+/**
+ * Move this release's staged timing lines into its record.
+ *
+ * The sink is keyed by version because it is opened before there is a build id to key
+ * it by — it times the steps that mint one. This is where the two are joined.
+ */
+function moveTimingIntoRecord(
+  timing: ReleaseBuildTimingDeps | undefined,
+  stateDirectory: string,
+  buildId: string,
+  version: string,
+): void {
+  const staging = timing?.outputDirectory
+  if (!staging) return
+  try {
+    renameSync(join(staging, `${version}.jsonl`), buildTimingPath(stateDirectory, buildId))
+  } catch {
+    // No lines were written, or they could not be moved. Neither is a release failure.
   }
 }
 
@@ -1338,99 +1308,191 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       sourceSha: sha,
     })
 
-    // Host first, then whatever else the fleet needs. Host first matters: if a later
-    // platform's compile fails, the host has already produced the bundle this machine
-    // itself converges on, and the error names the platform that failed.
     const platforms = devBuildPlatforms(deps.platforms)
     const artifactNames = platforms.map((platform) => devBundleFileName(version, stamp, platform))
-    // Remember the WHOLE publish before building it. The allowlist is what stops the
-    // sweep reclaiming these files, and it has to name all of them.
-    const referenced = rememberDevArtifact({
-      stateDir: publisherStateDir,
-      artifactNames,
-      ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
-    })
+    // THE LEDGER ENTRY THIS ATTEMPT WRITES INTO.
+    //
+    // The directory is made before the build runs, because the build has to put its
+    // tarballs somewhere; the RECORD inside it is written only once the attempt has
+    // signed bytes to describe, or a named step to blame. §6 of the design had the
+    // coordinator mint the id after verification and rename a `.pending-` directory
+    // into place, which buys nothing here: the id is `<stamp>-<sha>`, both known before
+    // the build starts, and it is `manifest.json` — not the directory — that readers
+    // treat as the record. Neither the id nor this path enters any Turbo-cached key or
+    // output; the lane's inputs are the client sources, and the tarballs are packaged
+    // downstream of it.
+    const buildId = mintBuildId(stamp, sha)
+    const recordDir = prepareBuildRecordDir(publisherStateDir, buildId)
+    const bundlesDir = buildBundlesDir(publisherStateDir, buildId)
+    rememberDevBuild({ stateDir: publisherStateDir, buildId })
+    const startedAt = new Date((deps.now ?? Date.now)()).toISOString()
+    const state = readDevPublisherState(publisherStateDir)
+    // The one build a sweep must never touch besides this one: the release the served
+    // feed still names. A fleet mid-rollout is fetching those bytes.
+    const referencedBuilds = [
+      buildId,
+      ...(state?.lastPublishedBuildId ? [state.lastPublishedBuildId] : []),
+    ]
 
-    const artifacts: DevBundleArtifact[] = []
-    for (const [index, platform] of platforms.entries()) {
-      const requestedPath = join(
-        devBundleDirectory(deps.artifactRoot ?? root),
-        artifactNames[index] as string,
-      )
-      const result = await spawnBuild({
+    /** State the attempt's outcome, whatever it was. A failure records itself too. */
+    const record = (
+      outcome: BuildOutcome,
+      artifacts: readonly DevBundleArtifact[],
+    ): BuildRecord => {
+      const entry: BuildRecord = {
+        recordVersion: 1,
+        buildId,
+        approvedSha: sha,
+        version,
+        platforms: [...platforms],
+        client: readClientBuildRecord(publisherStateDir, buildId),
+        artifacts: artifacts.map((artifact) => ({
+          platform: artifact.platform,
+          file: basename(artifact.path),
+          size: artifact.size,
+          digest: artifact.digest,
+          signature: artifact.signature,
+        })),
+        signingKeyFingerprint: devBundleKeyFingerprint(deps.signingKey),
+        startedAt,
+        outcome,
+        outcomeAt: new Date((deps.now ?? Date.now)()).toISOString(),
+      }
+      writeBuildRecord(publisherStateDir, entry)
+      return entry
+    }
+
+    // Host first, then whatever else the fleet needs. Host first matters: if a later
+    // platform's compile fails, the host has already produced the bundle this machine
+    // itself converges on, and the error names the platform that failed. The
+    // coordinator packages in the order it is given them.
+    const requests: DevBuildArtifactRequest[] = platforms.map((platform, index) => ({
+      platform,
+      bunTarget: bunTargetForPlatform(platform),
+      // Into the record, not into the checkout's `dist-bun/`. The published bytes now
+      // live beside the evidence that describes them, on the instance's own state
+      // volume, so a checkout that is cleaned, rebased or thrown away does not take a
+      // release the fleet is still installing with it.
+      artifactPath: join(bundlesDir, artifactNames[index] as string),
+    }))
+
+    // ONE build for the whole publish. The clients are built or restored once inside it
+    // and every platform is packaged from that single output.
+    let result: DevBuildSpawnResult
+    try {
+      result = await spawnBuild({
         root,
         version,
-        artifactPath: requestedPath,
-        bunTarget: bunTargetForPlatform(platform),
+        artifacts: requests,
+        recordDir,
         ...(Object.keys(timingEnv).length > 0 ? { timingEnv } : {}),
         ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
         ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
       })
-      await renewal
-      if (renewalError) throw renewalError
-
-      await timeReleaseBuildTask(
-        {
-          phase: 'artifact-publication',
-          task: 'describe-artifact',
-          channel: 'dev',
-          version,
-          sourceSha: sha,
-          target: platform,
-        },
-        async () => {
-          const resultObject = typeof result === 'object' && result !== null ? result : undefined
-          const artifactPath =
-            (typeof result === 'string' ? result : resultObject?.path) ?? requestedPath
-          const signature =
-            resultObject?.signature ??
-            (await readOptionalText(fs, artifactPath + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
-          // Unsigned is not "publish it anyway with a warning": a daemon verifies before it
-          // swaps, so an unsigned bundle is one every machine would refuse after
-          // downloading it. Refuse here, where the reason is still legible.
-          if (!signature) {
-            throw new Error(
-              `development bundle for ${platform} is unsigned; refusing to publish it`,
-            )
-          }
-
-          const { digest, size } = await fs.digest(artifactPath)
-          const metadata: DevBundleMetadata = {
-            version,
-            platform,
-            digest,
-            size,
-            keyFingerprint: devBundleKeyFingerprint(deps.signingKey),
-          }
-          await fs.writeText(
-            artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
-            `${JSON.stringify(metadata, null, 2)}\n`,
-          )
-          artifacts.push({
-            platform,
-            path: artifactPath,
-            size,
-            digest,
-            signature,
-            version,
-          })
-        },
-        deps.timing,
+    } catch (error) {
+      // WHICH STEP REFUSED, from what the child left behind. A `client.json` means the
+      // clients verified and the failure is downstream of them; its absence means the
+      // attempt never got past verification. That distinction is the whole reason a
+      // failed attempt is worth recording: "the release failed" is in the log already.
+      record(
+        existsSync(buildClientEvidencePath(publisherStateDir, buildId))
+          ? 'failed:package'
+          : 'failed:verify',
+        [],
       )
+      throw error
+    }
+    await renewal
+    if (renewalError) throw renewalError
+
+    const artifacts: DevBundleArtifact[] = []
+    try {
+      for (const request of requests) {
+        const platform = request.platform
+        const requestedPath = request.artifactPath
+        await timeReleaseBuildTask(
+          {
+            phase: 'artifact-publication',
+            task: 'describe-artifact',
+            channel: 'dev',
+            version,
+            sourceSha: sha,
+            target: platform,
+          },
+          async () => {
+            const reported = result?.find((entry) => entry.platform === platform)
+            const artifactPath = reported?.path ?? requestedPath
+            const signature =
+              reported?.signature ??
+              (await readOptionalText(fs, artifactPath + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
+            // Unsigned is not "publish it anyway with a warning": a daemon verifies before it
+            // swaps, so an unsigned bundle is one every machine would refuse after
+            // downloading it. Refuse here, where the reason is still legible.
+            if (!signature) {
+              throw new Error(
+                `development bundle for ${platform} is unsigned; refusing to publish it`,
+              )
+            }
+
+            const { digest, size } = await fs.digest(artifactPath)
+            const metadata: DevBundleMetadata = {
+              version,
+              platform,
+              digest,
+              size,
+              keyFingerprint: devBundleKeyFingerprint(deps.signingKey),
+            }
+            await fs.writeText(
+              artifactPath + DEV_BUNDLE_METADATA_SUFFIX,
+              `${JSON.stringify(metadata, null, 2)}\n`,
+            )
+            artifacts.push({
+              platform,
+              path: artifactPath,
+              size,
+              digest,
+              signature,
+              version,
+            })
+          },
+          deps.timing,
+        )
+      }
+    } catch (error) {
+      // Refusing to publish an unsigned or unhashable bundle is a real outcome, and the
+      // ledger says so rather than leaving a directory of tarballs nobody can explain.
+      record('failed:sign', artifacts)
+      throw error
     }
 
-    // ONE sweep, after every platform is on disk and with all of them protected.
+    // The timing lines this attempt produced, moved next to what it produced. Fail-open
+    // for the same reason the sink itself is: timing observes the build and must never
+    // change its result.
+    moveTimingIntoRecord(deps.timing, publisherStateDir, buildId, version)
+
+    // THE RECORD, once every platform has a signed tarball this host has hashed. The
+    // child signs in-process, so the first outcome the server can honestly state is
+    // already `signed`; `validated` is the state between the two, which only the child
+    // is ever inside.
+    record('signed', artifacts)
+
+    // ONE sweep, after the record exists — so this build is a record the sweep counts
+    // rather than a directory it might mistake for abandoned — and by RECORD, so a
+    // release the fleet is still being served keeps every byte it names.
     const host = artifacts[0] as DevBundleArtifact
     await timeReleaseBuildTask(
       { phase: 'artifact-publication', task: 'retention', channel: 'dev', version, sourceSha: sha },
-      () =>
-        sweepDevBundles(fs, dirname(host.path), {
-          referenced,
-          protect: artifacts.map((artifact) => basename(artifact.path)),
+      async () =>
+        sweepBuildRecords(publisherStateDir, {
+          retain: deps.retain ?? DEV_BUNDLE_RETAINED,
+          referenced: referencedBuilds,
+          protect: [buildId],
+          now: (deps.now ?? Date.now)(),
         }),
       deps.timing,
     )
     return {
+      buildId,
       version,
       path: host.path,
       size: host.size,
@@ -1820,30 +1882,6 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * the length of a compile has to be told, and this is the telling.
    */
   onAdmitted?: () => void
-  /**
-   * Settle `apps/web/dist` before anything expensive happens — and REFUSE
-   * rather than rebuild it when this request is not explicit.
-   *
-   * That asymmetry is the whole point, and it was learned the hard way. The
-   * compile needs the dist stamped at this commit, so the obvious move is
-   * "build it whenever it is stale". But this server SERVES that dist to
-   * browsers, and `/version` used to ask for a build on every read — so
-   * building on that path rebuilt the website every time main moved, while the
-   * server itself stayed on the commit it booted with. The page then ran AHEAD
-   * of the server, their wire schema digests disagreed, and every open tab got the
-   * out-of-sync banner. Observed live: one server on dev+e10795a rebuilt the
-   * website six times for five commits it was not running.
-   *
-   * So the dist may only move during an operator-driven update, which restarts
-   * the server straight after. Polling and start-up leave it alone: an unpacked
-   * identity target costs nothing, a broken page costs every open tab.
-   */
-  prepareWebDist?: (
-    headSha: string,
-    explicit: boolean,
-    buildRoot: string,
-    releaseVersion?: string,
-  ) => Promise<void>
   /** Approved builds use a detached worktree; tests may supply an equivalent snapshot. */
   snapshotBuild?: DevBuildSnapshot
   /** Git proposal facts seam; production reads the checkout relative to the running server. */
@@ -2027,8 +2065,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
 
       lastAttemptAt = now()
       // Fail closed BEFORE restoring or compiling: a dirty checkout cannot
-      // produce a dev+<sha> build of that commit, and an artifact left in
-      // dist-bun must not be restored under a tree that has since diverged.
+      // produce a dev+<sha> build of that commit, and a recorded build must not be
+      // restored under a tree that has since diverged.
       await assertSourceMatchesHead(
         deps.root ?? SOURCE_ROOT,
         headSha,
@@ -2036,40 +2074,29 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         deps.readIgnoredSourceInputs,
       )
       // A restart loses only the in-memory descriptor, not the signed bytes.
-      // Restore an exact-HEAD artifact first; compile only when it is absent
-      // or no longer verifies under this server's persisted update key.
-      //
-      // A restore sweeps too. Retention that only ran on a successful build
-      // would leave whatever a crash, a failed compile or a plain shutdown
-      // left behind — and residue that only accumulates when something went
-      // wrong is exactly the kind that grows unnoticed for months.
+      // Restore an exact-HEAD build from the ledger first; compile only when it
+      // is absent or no longer verifies under this server's persisted update key.
       //
       // Read fresh, per build: a Mac that enrolled since the last one must be served by
       // the NEXT build, not by the next restart.
       const platforms = devBuildPlatforms(deps.fleetPlatforms?.())
       const liveRoot = deps.root ?? SOURCE_ROOT
       const buildFrom = async (buildRoot: string): Promise<BuiltDevBundle> => {
-        // The website is built INSIDE the same immutable snapshot the platform
-        // compiles read. Nothing in an approved release reads the live checkout
-        // after admission.
-        await timeReleaseBuildTask(
-          {
-            phase: 'web-packaging',
-            task: 'prepare-web-dist',
-            channel: 'dev',
-            ...(approved?.version ? { version: approved.version } : {}),
-            sourceSha: headSha,
-          },
-          () =>
-            deps.prepareWebDist?.(headSha, explicit, buildRoot, approved?.version) ??
-            Promise.resolve(),
-          deps.timing,
-        )
+        // The clients are no longer built here. The release child owns them: it builds
+        // or RESTORES web and mobile through the Turbo lane inside the snapshot, once
+        // for the whole publish, and packages every platform from that one output.
+        //
+        // That also retires the refuse/rebuild asymmetry this used to need. The old
+        // step wrote the LIVE `apps/web/dist`, which this server serves to browsers, so
+        // a `/version` poll asking for a build marched the page ahead of the server it
+        // was talking to — one server on dev+e10795a rebuilt the website six times for
+        // five commits it was not running. The release build touches the live dist not
+        // at all, so a poll has nothing to refuse. The Update panel's explicit "rebuild
+        // the website" still owns live-dist rebuilds, through `createDevWebBuilder`.
         const build = () =>
           buildDevBundle({
             ...deps,
             root: buildRoot,
-            artifactRoot: liveRoot,
             headSha,
             platforms,
             ...(approved ? { releaseVersion: approved.version } : {}),
@@ -2077,32 +2104,29 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         return current === null
           ? readExistingDevBundle({ ...deps, fs, headSha, platforms }).then(async (existing) => {
               if (!existing || (approved && existing.version !== approved.version)) return build()
-              // The WHOLE publish, not just this host's file: the allowlist is what
-              // stops the sweep reclaiming the other platforms' bundles.
-              const artifactNames = existing.artifacts.map((artifact) => basename(artifact.path))
               const statePath = deps.publisherStateDir ?? stateDir()
-              // Restoring still counts as publishing those basenames. Seed from
-              // the artifacts when state was lost so the counter cannot rewind.
-              let referenced: string[]
+              // Restoring still counts as publishing that build. Seed from the record
+              // when state was lost, so the counter cannot rewind under a fleet that
+              // has already seen these versions.
               try {
-                referenced = rememberDevArtifact({
-                  stateDir: statePath,
-                  artifactNames,
-                  ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
-                })
+                rememberDevBuild({ stateDir: statePath, buildId: existing.buildId })
               } catch {
-                const knownNames = await fs.list(dirname(existing.path))
-                referenced = seedPublisherStateFromArtifact({
-                  stateDir: statePath,
-                  version: existing.version,
-                  artifactNames,
-                  knownNames,
-                  ...(deps.retain !== undefined ? { retain: deps.retain } : {}),
-                })
+                const record = listBuildRecords(statePath).find(
+                  (entry) => entry.buildId === existing.buildId,
+                )
+                if (record) seedPublisherStateFromRecord({ stateDir: statePath, record })
               }
-              await sweepDevBundles(fs, dirname(existing.path), {
-                referenced,
-                protect: artifactNames,
+              // A restore sweeps too. Retention that only ran on a successful build
+              // would leave whatever a crash, a failed compile or a plain shutdown
+              // left behind — and residue that only accumulates when something went
+              // wrong is exactly the kind that grows unnoticed for months.
+              const state = readDevPublisherState(statePath)
+              sweepBuildRecords(statePath, {
+                retain: deps.retain ?? DEV_BUNDLE_RETAINED,
+                referenced: [
+                  existing.buildId,
+                  ...(state?.lastPublishedBuildId ? [state.lastPublishedBuildId] : []),
+                ],
               })
               return existing
             })
@@ -2154,6 +2178,21 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
                 fs.remove(artifact.path + DEV_BUNDLE_METADATA_SUFFIX),
               ]),
             )
+            // And the ledger stops calling it signed. A record naming bytes that have
+            // just been deleted is worse than no record: the next restart would read it,
+            // fail to verify, and have no idea why the files were missing.
+            try {
+              advanceOutcome(
+                deps.publisherStateDir ?? stateDir(),
+                approvedBuilt.buildId,
+                'failed:identity',
+              )
+            } catch (recordError) {
+              log.warn('could not record the identity refusal for a development build', {
+                buildId: approvedBuilt.buildId,
+                err: recordError,
+              })
+            }
           }
           throw error
         })
@@ -2376,29 +2415,36 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     if (cached && matchesPublication(cached)) return cached
 
     try {
-      const dir = devBundleDirectory(root)
-      const hostPlatform = deps.platform ?? developmentPlatformTarget()
-      const candidates = listDevBundles(await fs.list(dir)).filter(
-        (entry) =>
-          entry.version === requestedVersion && (entry.platform || hostPlatform) === platform,
+      const stateDirectory = deps.publisherStateDir ?? stateDir()
+      // FROM THE LEDGER, not from a directory listing. The record already answers
+      // every question the sidecar scan used to ask — which version, which platform,
+      // which signing identity, which digest — so what is left here is the one thing a
+      // record cannot promise: that the bytes on disk are still those bytes.
+      const candidates = listBuildRecords(stateDirectory).filter(
+        (record) =>
+          record.version === requestedVersion &&
+          (record.outcome === 'signed' || record.outcome === 'published') &&
+          record.signingKeyFingerprint === devBundleKeyFingerprint(deps.signingKey),
       )
       let storedBytesFailedIntegrity = false
-      for (const entry of candidates) {
-        const path = join(dir, entry.name)
-        const metadata = await readMetadata(fs, path)
-        if (
-          !metadata ||
-          metadata.version !== requestedVersion ||
-          (metadata.platform !== undefined && metadata.platform !== platform) ||
-          metadata.digest !== named.digest ||
-          metadata.keyFingerprint !== devBundleKeyFingerprint(deps.signingKey)
-        ) {
-          continue
-        }
+      for (const record of candidates) {
+        const entry = record.artifacts.find((artifact) => artifact.platform === platform)
+        if (!entry) continue
+        // The SERVED manifest decides what this address means. A record whose digest or
+        // signature differs from the published one describes a different release that
+        // happens to share a version label, and handing its bytes back would answer a
+        // published address with something nobody published.
+        if (entry.digest !== named.digest || entry.signature !== named.signature) continue
+        const path = join(buildBundlesDir(stateDirectory, record.buildId), entry.file)
         const signature = (await readOptionalText(fs, path + DEV_BUNDLE_SIGNATURE_SUFFIX))?.trim()
         if (!signature || signature !== named.signature) continue
-        const actual = await fs.digest(path)
-        if (actual.digest !== metadata.digest || actual.size !== metadata.size) {
+        let actual: { digest: string; size: number }
+        try {
+          actual = await fs.digest(path)
+        } catch {
+          continue
+        }
+        if (actual.digest !== entry.digest || actual.size !== entry.size) {
           storedBytesFailedIntegrity = true
           continue
         }
@@ -2533,7 +2579,30 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
                 'cannot record a published development release before a version is minted',
               )
             }
-            writeDevPublisherState({ ...publisherState, lastPublishedSha: publishedSha }, statePath)
+            const publishedBuildId = current?.buildId
+            writeDevPublisherState(
+              {
+                ...publisherState,
+                lastPublishedSha: publishedSha,
+                ...(publishedBuildId ? { lastPublishedBuildId: publishedBuildId } : {}),
+              },
+              statePath,
+            )
+            // THE LEDGER LEARNS IT WAS PUBLISHED, after the manifests are on disk and
+            // not before: publication IS writing them, so a record that said
+            // `published` first would be claiming something that had not happened yet.
+            // Never fatal — the feed is written and the fleet can pull it; a record
+            // stuck at `signed` is a wrong sentence in the ledger, not a broken release.
+            if (publishedBuildId) {
+              try {
+                advanceOutcome(statePath, publishedBuildId, 'published')
+              } catch (error) {
+                log.warn('could not record the published outcome for a development build', {
+                  buildId: publishedBuildId,
+                  err: error,
+                })
+              }
+            }
             desktopManifestSource = source
             log.info('published development feed manifests', {
               version: manifest.version,

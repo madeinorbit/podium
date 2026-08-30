@@ -675,14 +675,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    */
   const described = describeUpdate(offerInput)
   const offer: UpdateView | null =
-    operation === undefined || (operation === null && fleetFact === undefined)
-      ? null
-      : pending === 'check'
-        ? { state: 'checking' }
-        : checkedAt !== undefined && described.state === 'none'
-          ? { state: 'current', version: localVersion }
-          : described
-
+    pending === 'check'
+      ? { state: 'checking' }
+      : described.state === 'local-stale'
+        ? described
+        : operation === undefined || (operation === null && fleetFact === undefined)
+          ? null
+          : checkedAt !== undefined && described.state === 'none'
+            ? { state: 'current', version: localVersion }
+            : described
   /**
    * THE ONE LOCAL FACT (§3.5). Deliberately about the build running THIS PAGE —
    * `pageBuildVersion()` reads the page's own meta tag — and not about the

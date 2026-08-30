@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { compareVersions } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { allocateDevPublishVersion, rememberDevArtifact } from './dev-bundle'
+import { allocateDevPublishVersion, rememberDevBuild } from './dev-bundle'
 import { readDevPublisherState, writeDevPublisherState } from './dev-publisher-state'
 
 const dirs: string[] = []
@@ -104,14 +104,9 @@ describe('dev publisher state', () => {
       sha: '1111111',
     })
     expect(first.version).toBe('0.1.0-dev.1+1111111')
-    const referenced = rememberDevArtifact({
-      stateDir: dir,
-      // One publish is one artifact PER PLATFORM (POD-2504); the ledger remembers them
-      // together so a sweep cannot reclaim part of a build it just published.
-      artifactNames: [
-        'podium-headless-0.1.0-dev.1+1111111-linux-x86_64-20260812T182015Z.tar.gz',
-      ],
-    })
+    // What a publish retains is the build RECORD (POD-3055); the state file keeps only
+    // the pointer to it, so the counter and the ledger cannot disagree about a publish.
+    rememberDevBuild({ stateDir: dir, buildId: '20260812T182015Z-1111111' })
     const second = allocateDevPublishVersion({
       stateDir: dir,
       checkoutBase: '0.1.0-edge.18', // older checkout — publisher base wins
@@ -119,7 +114,7 @@ describe('dev publisher state', () => {
     })
     expect(second.version).toBe('0.1.0-dev.2+2222222')
     expect(readDevPublisherState(dir)?.counter).toBe(2)
-    expect(referenced[0]).toContain('dev.1+1111111')
+    expect(readDevPublisherState(dir)?.lastBuildId).toBe('20260812T182015Z-1111111')
     // File on disk is valid JSON after the atomic rename.
     expect(JSON.parse(readFileSync(join(dir, 'dev-publisher-version.json'), 'utf8')).base).toBe(
       '0.1.0',

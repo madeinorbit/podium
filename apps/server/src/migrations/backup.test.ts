@@ -13,20 +13,13 @@ import {
   renameSync,
   rmSync,
   statSync,
-  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  backupDatabase,
-  createLatestDatabaseBackupCache,
-  freeDiskBytes,
-  latestDatabaseBackup,
-  MIGRATION_BACKUPS_TO_KEEP,
-} from './backup'
+import { backupDatabase, freeDiskBytes, MIGRATION_BACKUPS_TO_KEEP } from './backup'
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
@@ -75,21 +68,6 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
-})
-
-describe('latest database backup cache', () => {
-  it('quick-checks snapshot history once and records a new process-owned snapshot', () => {
-    const inspect = vi.fn(() => '/state/podium.db.backup-vold')
-    const cache = createLatestDatabaseBackupCache('/state/podium.db', inspect)
-
-    expect(cache.latest()).toBe('/state/podium.db.backup-vold')
-    expect(cache.latest()).toBe('/state/podium.db.backup-vold')
-    expect(inspect).toHaveBeenCalledTimes(1)
-
-    cache.record('/state/podium.db.backup-vnew')
-    expect(cache.latest()).toBe('/state/podium.db.backup-vnew')
-    expect(inspect).toHaveBeenCalledTimes(1)
-  })
 })
 
 describe('backupDatabase preflight', () => {
@@ -173,21 +151,37 @@ describe('backupDatabase retention', () => {
     db.close()
   })
 
-  it('does not count or delete corrupt and partial snapshots as keepers', () => {
+  it('leaves partial residue alone and never evicts the verified fallback', () => {
+    // Retention is stat-only now (POD-3068): it does not open a retained file to
+    // decide what to keep. Two things still hold — incomplete `.partial-` residue
+    // is forensic and untouched, and the snapshot the verifier currently
+    // advertises survives even when four newer candidates have been staged.
     const { db, dbPath, dir } = tmpDb()
-    const corrupt = `${dbPath}.backup-vcorrupt-2026-08-17T00-00-00-000Z`
     const partial = `${dbPath}.backup-vpartial-2026-08-17T00-00-00-000Z.partial-deadbeef`
-    writeFileSync(corrupt, 'not sqlite')
     writeFileSync(partial, 'half a database')
 
-    for (const label of ['a', 'b', 'c', 'd']) backupDatabase(db, dbPath, label, PLENTY)
+    const fallback = backupDatabase(db, dbPath, 'proven', PLENTY) as string
+    for (const label of ['a', 'b', 'c', 'd']) {
+      backupDatabase(db, dbPath, label, PLENTY, undefined, () => fallback)
+    }
 
     const present = readdirSync(dir)
-    expect(present).toContain(basename(corrupt))
     expect(present).toContain(basename(partial))
+    expect(present).toContain(basename(fallback))
     expect(present.filter((name) => /\.backup-v[bcd]-/.test(name))).toHaveLength(3)
     expect(present.some((name) => name.includes('.backup-va-'))).toBe(false)
-    expect(latestDatabaseBackup(dbPath)).toContain('.backup-vd-')
+    db.close()
+  })
+
+  it('evicts the oldest set once it is no longer the verified fallback', () => {
+    const { db, dbPath, dir } = tmpDb()
+    const oldest = backupDatabase(db, dbPath, 'oldest', PLENTY) as string
+
+    // No fallback is advertised, so ordinary retention applies to every set.
+    for (const label of ['a', 'b', 'c', 'd']) backupDatabase(db, dbPath, label, PLENTY)
+
+    expect(readdirSync(dir)).not.toContain(basename(oldest))
+    expect(backupMains(dir)).toHaveLength(3)
     db.close()
   })
 
@@ -199,58 +193,9 @@ describe('backupDatabase retention', () => {
 
     const backupPath = backupDatabase(db, dbPath, 'kept', PLENTY, prune)
 
-    expect(prune).toHaveBeenCalledWith(dbPath)
+    expect(prune).toHaveBeenCalledWith(dbPath, undefined)
     expect(backupPath).toBeDefined()
     expect(existsSync(backupPath as string)).toBe(true)
-    db.close()
-  })
-
-  it('does not quick-check unchanged snapshots on every latest-path read', () => {
-    const { db, dbPath } = tmpDb()
-    const backupPath = backupDatabase(db, dbPath, 'cached', PLENTY)
-    vi.mocked(openDatabase).mockClear()
-
-    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
-    const verificationOpens = vi.mocked(openDatabase).mock.calls.length
-    expect(verificationOpens).toBeGreaterThan(0)
-
-    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
-    expect(vi.mocked(openDatabase)).toHaveBeenCalledTimes(verificationOpens)
-
-    // A new candidate changes the directory signature and re-runs verification;
-    // the corrupt arrival cannot replace the last verified answer.
-    writeFileSync(`${dbPath}.backup-vcorrupt-2026-08-19T00-00-00-000Z`, 'not sqlite')
-    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
-    const opensAfterChange = vi.mocked(openDatabase).mock.calls.length
-    expect(opensAfterChange).toBeGreaterThan(verificationOpens)
-    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
-    expect(vi.mocked(openDatabase)).toHaveBeenCalledTimes(opensAfterChange)
-    db.close()
-  })
-
-  it('revalidates a cached backup when a WAL sidecar appears, changes, or disappears', () => {
-    const { db, dbPath } = tmpDb()
-    const backupPath = backupDatabase(db, dbPath, 'sidecar', PLENTY) as string
-    vi.mocked(openDatabase).mockClear()
-
-    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
-    let verificationOpens = vi.mocked(openDatabase).mock.calls.length
-
-    const walPath = `${backupPath}-wal`
-    writeFileSync(walPath, '')
-    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
-    expect(vi.mocked(openDatabase).mock.calls.length).toBeGreaterThan(verificationOpens)
-    verificationOpens = vi.mocked(openDatabase).mock.calls.length
-
-    const touched = new Date('2026-08-19T12:00:00.000Z')
-    utimesSync(walPath, touched, touched)
-    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
-    expect(vi.mocked(openDatabase).mock.calls.length).toBeGreaterThan(verificationOpens)
-    verificationOpens = vi.mocked(openDatabase).mock.calls.length
-
-    rmSync(walPath)
-    expect(latestDatabaseBackup(dbPath)).toBe(backupPath)
-    expect(vi.mocked(openDatabase).mock.calls.length).toBeGreaterThan(verificationOpens)
     db.close()
   })
 })

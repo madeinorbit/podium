@@ -96,10 +96,27 @@ minimal: every key is a hardened-runtime protection given up.
 ## Building
 
 ```sh
+bun run release:prepare                                       # all four, staged for publish
+bun run release:prepare -- --platform linux-x86_64            # a subset
+bun run release:prepare -- --platform linux-x86_64 --artifact linux-x86_64=/abs/out.tar.gz
+
 bun run package:headless                                      # this machine's platform
 bun scripts/package-headless.ts --target=bun-darwin-arm64     # cross, from Linux
-bun scripts/release.ts --prepare-cross              # all four, staged for publish
 ```
+
+`release:prepare` is THE release entry, and the CI release job and the
+development publisher both run it — the publisher spawns `scripts/release.ts
+--prepare-cross` directly with one `--platform`/`--artifact` pair per fleet
+platform, because it names where each tarball goes. `--artifact` takes an
+ABSOLUTE path and says only where the file lands; provenance still comes from
+the packaging session alone. It refuses an unknown platform, a relative path, or
+a platform named twice.
+
+`package-headless.ts` stays as the NATIVE single-platform entry, for the callers
+that run on macOS and Windows runners where `--prepare-cross` refuses (the
+desktop `stage-sidecar`, `windows-smoke`, `verify-headless-update.sh`, and a
+human building for this machine). It shares `beginFreshClientPackagingSession`
+with the coordinator, so it restores the clients from the same Turbo cache.
 
 `--target` writes to `dist-bun/targets/<platform>/`, so all four survive one
 run and can be inspected side by side. A plain host build still writes to
@@ -126,11 +143,14 @@ Three scripts, deliberately separate:
 
 Everything `assert-headless-bundle.sh` checks, it checks against bytes extracted
 **from the tarball** — never a loose sibling in a build directory, because a
-build tree can be right while the archive is wrong. Client continuity is checked
-by the packaging entry point itself: the same process resolves its own Bun executable,
-generates a random invocation nonce, and requires both completed client manifests to echo
-that nonce before it brands the session in memory. It then packages, extracts the resulting
-tarball, and compares the packaged entry set to that process-local value. Direct
+build tree can be right while the archive is wrong. Client provenance is checked by
+`scripts/verify-client-build.ts`: the exact inventory and per-file SHA-256 in each site's
+manifest, the manifest's source commit and version against the packaging invocation's, and
+a file-count floor. The result is a module-branded evidence object; packaging refuses
+anything else. Under the snapshot updater freshness comes from the detached worktree, not
+from a per-run nonce (spec 2026-08-28-cached-release-build-design §5). The same process
+still resolves its own Bun executable, then packages, extracts the resulting tarball, and
+compares the packaged entry set to that process-local digest. Direct
 `build-bun.ts` invocation refuses, caller-supplied build environments refuse, and no
 expected digest is accepted from a flag, environment variable, sidecar, or the archive
 itself. This catches

@@ -85,7 +85,7 @@ function mobileEntryRedirectPlugin(): Plugin {
   }
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   /**
    * A DEVELOPMENT BUILD (`bun run build:dev`, i.e. `vite build --mode development`)
    * is the built bundle made readable. It exists because the BUILT bundle — not the
@@ -191,6 +191,17 @@ export default defineConfig(({ mode }) => {
            * that lands and an update that half-lands.
            */
           clientsClaim: true,
+          // NO SOURCEMAP FOR THE GENERATED WORKER. workbox builds sw.js in a
+          // randomly-named temp directory and writes that path into sw.js.map's
+          // `sources`, so the map differed between two builds of one commit — the
+          // only per-run byte left in the dist, and the one thing standing between
+          // this build and being cacheable (spec
+          // 2026-08-28-cached-release-build-design §4.3). Nothing was lost with it:
+          // the path it named is deleted when the build ends, and the code it maps
+          // is workbox's own glue, not ours. App-code maps are unaffected — they
+          // come from vite's `sourcemap: 'hidden'` below and are archived by
+          // scripts/archive-web-sourcemaps.ts.
+          sourcemap: false,
           // Precache the built shell so an installed app cold-starts instantly.
           globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
           // The main app chunk has grown past workbox's 2 MiB default; without a
@@ -449,13 +460,34 @@ export default defineConfig(({ mode }) => {
      */
     define: {
       'process.env.NODE_ENV': JSON.stringify(isDevBuild ? 'development' : 'production'),
-      // Product version for dest-server logs and About. A built dist prefers
-      // the <meta name="podium-version"> the stamp writer injects, so a
-      // packaged restamp can change the string without rebuilding JS.
-      'import.meta.env.PODIUM_APP_VERSION': JSON.stringify(productVersion),
-      'import.meta.env.PODIUM_SOURCE_SHA': sourceDigest
-        ? JSON.stringify(sourceDigest)
-        : 'undefined',
+      /**
+       * PRODUCT IDENTITY IS A DEV-SERVER FALLBACK ONLY (POD-3083, POD-3084).
+       *
+       * A BUILT dist never reads these. `pageBuildVersion()` and `pageBuildDigest()`
+       * (src/lib/logging/build-version.ts) prefer the `podium-version` and
+       * `podium-source-digest` metas that scripts/write-web-build-stamp.ts injects into
+       * index.html, and every built page carries them — the defines only ever answered
+       * on the vite dev server, which has no metas because nothing stamps it.
+       *
+       * Emitting them for a BUILD was therefore dead code that cost the whole client
+       * cache: the version and the commit reached the JS, so every chunk hash moved on
+       * every release and `@podium/web#build` MISSed for a value the output does not
+       * depend on (41.7s cold vs 0.2s warm, of a ~73s release). The source digest was
+       * worse than useless — it is read from git at config load, so it is in the OUTPUT
+       * but in no part of turbo's key, and a restore could hand back a dist whose baked
+       * sha named a different commit than the one being released.
+       *
+       * The version still reaches a built dist, through the stamp, on a cache HIT as
+       * well as a MISS (scripts/build-clients.ts `stampClients`, POD-3072).
+       */
+      ...(command === 'serve'
+        ? {
+            'import.meta.env.PODIUM_APP_VERSION': JSON.stringify(productVersion),
+            'import.meta.env.PODIUM_SOURCE_SHA': sourceDigest
+              ? JSON.stringify(sourceDigest)
+              : 'undefined',
+          }
+        : {}),
       /**
        * ITERATION MODE (POD-2513, scripts/iterate.ts). Only `bun run iterate`
        * exports this, and it only ever runs the DEV server — so every built

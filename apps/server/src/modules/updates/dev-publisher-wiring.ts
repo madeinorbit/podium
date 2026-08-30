@@ -22,12 +22,14 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
+import { stateDir } from '@podium/runtime/config'
 import {
-  timeReleaseBuildTask,
   type ReleaseBuildTimingDeps,
+  timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
 import type { Hono } from 'hono'
 import { registerDevFeedRoutes } from './artifact-route'
+import { releaseTimingStagingDir } from './build-record'
 import {
   type BuiltDevBundle,
   createDevBundlePublisher,
@@ -37,7 +39,7 @@ import {
   developmentHeadSha,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
-import { createDevWebBuilder, type DevWebBuildState, decideWebDist } from './dev-web-build'
+import { createDevWebBuilder, type DevWebBuildState } from './dev-web-build'
 import { createGitHeadShaCache } from './head-sha-cache'
 import {
   createReleaseApprovalFlow,
@@ -235,7 +237,11 @@ export function wireDevBundlePublisher(deps: {
     sourceRoot && deps.releaseTiming !== false
       ? (deps.releaseTiming ?? {
           enabled: true,
-          outputDirectory: join(sourceRoot, 'dist-bun', 'release-timing'),
+          // Beside the ledger, not in the checkout. Each release's lines land in a
+          // `<version>.jsonl` here and are moved into `builds/<buildId>/timing.jsonl`
+          // when that attempt's record is written, so how long a release took ends up
+          // next to what it produced instead of in a directory a clean wipes.
+          outputDirectory: releaseTimingStagingDir(stateDir()),
         })
       : undefined
   /**
@@ -280,53 +286,6 @@ export function wireDevBundlePublisher(deps: {
         // caller cannot infer it from `requestBuild` having returned.
         onAdmitted: () => {
           void observeBundleReadiness()
-        },
-        prepareWebDist: async (headSha, explicit, buildRoot, releaseVersion) => {
-          if (!webBuilder) return undefined
-          const buildWeb =
-            buildRoot === sourceRoot
-              ? webBuilder
-              : createDevWebBuilder({
-                  root: buildRoot,
-                  instanceId,
-                  headSha: () => headSha,
-                })
-          const decision = decideWebDist({
-            current: buildWeb.isCurrent(headSha, releaseVersion),
-            explicit,
-          })
-          if (decision === 'ready') {
-            return
-          }
-          // `refuse` is the `/version` poll. The browser is served
-          // `apps/web/dist` by THIS process, which is still running the commit
-          // it booted with, so rebuilding the dist here would put the page
-          // ahead of the server and desynchronise every open tab. No tarball
-          // for this commit exists until a confirmed update prepares it.
-          if (decision === 'refuse') {
-            return Promise.reject(
-              new DevBundleUnavailableError(
-                `development bundle unavailable: apps/web/dist is not the website for ${headSha}, and ` +
-                  'rebuilding it before a confirmed update would leave open browser tabs ahead of this server. ' +
-                  'It is rebuilt when you update Podium.',
-                `The website has not been built for HEAD (${headSha}) yet. The confirmed ` +
-                  'update operation prepares it.',
-              ),
-            )
-          }
-          // A web-build failure must arrive as a REFUSAL with its own words, not
-          // as a nameless compile error: the operator's next move (look at the
-          // vite output) is different from the one a failed compile calls for.
-          try {
-            await buildWeb.ensure(headSha, releaseVersion)
-            return
-          } catch (error) {
-            throw new DevBundleUnavailableError(
-              `development bundle unavailable: the web bundles could not be rebuilt for dev+${headSha}: ` +
-                (error instanceof Error ? error.message : String(error)),
-              `The website could not be rebuilt for HEAD (${headSha}), so dev+${headSha} cannot be packed.`,
-            )
-          }
         },
         artifactUrl: (version, platform) =>
           developmentArtifactUrl(

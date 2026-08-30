@@ -50,4 +50,18 @@ export async function main(runtime: CliRuntimeOptions = {}): Promise<void> {
   return cliMain(loadHost, { localSetupDefault: SOURCE_CHECKOUT, ...runtime })
 }
 
-if (import.meta.main) void main()
+/**
+ * The recovery-snapshot verifier re-invokes this entry with
+ * `PODIUM_VERIFY_SNAPSHOT` set (POD-3068). It is answered BEFORE the CLI so a
+ * verification never boots a server, and it adds no public subcommand: the
+ * request arrives in the environment and the verdict leaves on stdout.
+ */
+async function runEntry(): Promise<void> {
+  const { runSnapshotVerifierChildIfRequested } = await import(
+    '../apps/server/src/migrations/snapshot-verifier-child'
+  )
+  if (await runSnapshotVerifierChildIfRequested()) return
+  await main()
+}
+
+if (import.meta.main) void runEntry()

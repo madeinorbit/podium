@@ -111,7 +111,7 @@ if (checkOnly) {
   throw new Error(
     `patch-web-html --check: ${file} was exported without the install metadata.\n` +
       'Add to Home Screen would produce a Safari bookmark named "Podium Mobile" with a\n' +
-      'screenshot instead of the icon. Run `bun run build:web`, or patch this export in\n' +
+      'screenshot instead of the icon. Run `bun run build`, or patch this export in\n' +
       'place with `bun scripts/patch-web-html.ts <dir>`.',
   )
 }

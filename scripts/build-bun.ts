@@ -26,7 +26,7 @@
  * once per platform, in sequence.
  */
 import { execFileSync } from 'node:child_process'
-import { randomBytes, sign as cryptoSign } from 'node:crypto'
+import { sign as cryptoSign } from 'node:crypto'
 import {
   chmodSync,
   cpSync,
@@ -61,15 +61,19 @@ import {
   hasBunTerminal,
   minTerminalBunVersion,
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
+import { developmentSourceSha } from '../packages/runtime/src/source-version'
 import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
+import { buildClients } from './build-clients'
 import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigestFromSites,
 } from './client-build-root-digest'
 import {
-  releaseBuildTimingEnabled,
-  timeReleaseBuildSync,
-} from '@podium/runtime/release-build-timing'
+  type ClientBuildEvidence,
+  isClientBuildEvidence,
+  verifyClientBuild,
+} from './verify-client-build'
+import { timeReleaseBuildSync } from '@podium/runtime/release-build-timing'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -177,18 +181,14 @@ export function parseBuildTarget(argv: readonly string[]): BunTarget | undefined
   return value
 }
 
-export type FreshClientPackagingSession = Readonly<{
-  clientRootDigest: string
-  version: string
-}>
+/** Kept as the name the release path already uses; the evidence IS the session now. */
+export type FreshClientPackagingSession = ClientBuildEvidence
 
 export type PackagedHeadlessBundle = Readonly<{
   bundleRoot: string
   clientRootDigest: string
   tarball: string
 }>
-
-const freshClientPackagingSessions = new WeakSet<object>()
 
 function packageVersion(root: string): string {
   const pkgVersion = (() => {
@@ -212,34 +212,17 @@ function packageVersion(root: string): string {
   return version
 }
 
-export function assertClientBuildInvocation(site: string, expectedInvocation: string): void {
-  const manifestPath = join(site, 'podium-build-manifest.json')
-  let actualInvocation: unknown
-  try {
-    actualInvocation = (
-      JSON.parse(readFileSync(manifestPath, 'utf8')) as { buildInvocation?: unknown }
-    ).buildInvocation
-  } catch {
-    throw new Error(
-      `build-bun: ${site} has no readable build manifest from this packaging invocation`,
-    )
-  }
-  if (actualInvocation !== expectedInvocation) {
-    throw new Error(
-      `build-bun: ${site} manifest was not freshly produced by this packaging invocation`,
-    )
-  }
-}
-
 /**
- * Run the client build with this process's own Bun and retain its identity as a
- * module-branded object. Both manifests must echo a random nonce generated here;
- * exit zero alone cannot mint the brand. Packaging accepts only an object minted
- * here, so stale output or a caller-computed digest is not provenance evidence.
+ * Run the client build with this process's own Bun, then verify what it produced by
+ * checksum: exact inventory + per-file hash + source commit + app version + file-count
+ * floor (scripts/verify-client-build.ts). That is the successor to the POD-2540 nonce,
+ * which proved only that the stamp step ran in this process. Packaging accepts only
+ * evidence minted by that verification, so stale output or a caller-computed digest is
+ * not provenance (spec 2026-08-28-cached-release-build-design §5).
  */
-export function beginFreshClientPackagingSession(
+export async function beginFreshClientPackagingSession(
   argv: readonly string[] = [],
-): FreshClientPackagingSession {
+): Promise<FreshClientPackagingSession> {
   if (arguments.length > 1) {
     throw new Error('build-bun: caller-supplied environment is forbidden for client freshness')
   }
@@ -252,30 +235,23 @@ export function beginFreshClientPackagingSession(
     )
   }
   const version = packageVersion(root)
-  const buildInvocation = randomBytes(32).toString('hex')
-  const packageClients = releaseBuildTimingEnabled() ? 'package:clients:timed' : 'package:clients'
-  execFileSync(process.execPath, ['run', packageClients], {
-    cwd: root,
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      PODIUM_APP_VERSION: version,
-      PODIUM_CLIENT_BUILD_INVOCATION: buildInvocation,
-    },
-  })
-  const web = `${root}apps/web/dist`
-  const mobile = `${root}apps/mobile/dist`
-  assertClientBuildInvocation(web, buildInvocation)
-  assertClientBuildInvocation(mobile, buildInvocation)
-  const session = Object.freeze({
-    clientRootDigest: clientBuildRootDigestFromSites({
-      web,
-      mobile,
-    }),
+  // Through the Turbo lane (POD-3053), so a client this host has already built for
+  // this commit and version is RESTORED rather than rebuilt — the same three
+  // per-platform client builds a cross-compiled release used to pay for in full.
+  // Freshness does not weaken by restoring: what packaging accepts is the checksum
+  // evidence below, which reads the dist that is actually on disk.
+  const run = await buildClients(root, [], { ...process.env, PODIUM_APP_VERSION: version })
+  const sourceCommit = developmentSourceSha(root)
+  if (!sourceCommit) {
+    throw new Error('build-bun: cannot name HEAD, so the client build cannot be verified')
+  }
+  return verifyClientBuild({
+    web: `${root}apps/web/dist`,
+    mobile: `${root}apps/mobile/dist`,
+    sourceCommit,
     version,
+    run,
   })
-  freshClientPackagingSessions.add(session)
-  return session
 }
 
 /**
@@ -377,10 +353,21 @@ export function compiledSourceMapArgs(version: string): string[] {
 export function updateArtifactPath(
   out: string,
   version: string,
+  argv: readonly string[] = [],
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const requested = env.PODIUM_BUNDLE_ARTIFACT?.trim()
-  return requested ? requested : `${out}/podium-headless-${version}.tar.gz`
+  // `--artifact=<path>` is the in-process form of the same "the caller owns the
+  // artifact's lifecycle" rule the env variable states. The coordinator packages
+  // several platforms inside ONE process, so it cannot name them by mutating a
+  // process-wide variable between calls — it names each one on the call itself,
+  // and the flag therefore wins over an env value inherited from a parent.
+  //
+  // A path only: it says WHERE the tarball goes, never anything about what is in
+  // it. Provenance stays with the packaging session (`clientRootDigest`), which is
+  // why `assertNoCallerSuppliedClientRootDigest` refuses the other direction.
+  const flagged = argv.find((arg) => arg.startsWith('--artifact='))?.slice('--artifact='.length)
+  const named = flagged?.trim() || env.PODIUM_BUNDLE_ARTIFACT?.trim()
+  return named ? named : `${out}/podium-headless-${version}.tar.gz`
 }
 
 /**
@@ -432,9 +419,9 @@ export function packageHeadlessForFreshClients(
     throw new Error('build-bun: caller-supplied environment is forbidden for packaging')
   }
   assertNoCallerSuppliedClientRootDigest(argv)
-  if (!freshClientPackagingSessions.has(session)) {
+  if (!isClientBuildEvidence(session)) {
     throw new Error(
-      'build-bun: headless packaging requires a fresh-client session minted by this invocation',
+      'build-bun: headless packaging requires client build evidence minted by this invocation',
     )
   }
   const env = process.env
@@ -511,7 +498,7 @@ export function packageHeadlessForFreshClients(
   const mobileDist = `${root}apps/mobile/dist`
   if (!existsSync(`${mobileDist}/index.html`)) {
     throw new Error(
-      'build-bun: apps/mobile/dist not built - run `bun run --filter @podium/mobile build:web` first',
+      'build-bun: apps/mobile/dist not built - run `bun run --filter @podium/mobile build` first',
     )
   }
   let mobileStamp: { sourceSha?: string; appVersion?: string } | null = null
@@ -771,7 +758,7 @@ export function packageHeadlessForFreshClients(
 
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
-  const tarball = updateArtifactPath(bundleRoot, version, env)
+  const tarball = updateArtifactPath(bundleRoot, version, argv, env)
   timeReleaseBuildSync(
     { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
     () =>

@@ -174,6 +174,32 @@ The task output must be a pure function of the declared inputs.
   unfixable, excluded from `outputs` and from the manifest. The result of that check is recorded in
   the implementation report; without it the cache is not trusted.
 
+### 4.4 The commit is in the output, not the key (POD-3072)
+
+The two halves above meet in one place, and the first release after M2 landed found it. §5's
+provenance check refuses a dist whose stamped `sourceCommit` is not the commit being released.
+The task key is the declared inputs plus `PODIUM_APP_VERSION` and nothing else — no SHA, on
+purpose, because a SHA in the key makes every commit a MISS and there is nothing left to cache.
+So a commit that touches no client input restores the previous commit's dist, still stamped with
+that commit, and the release stops on:
+
+    verify-client-build: web was built from <old>, not <new>
+
+That is exactly the case this design exists to make fast.
+
+The resolution is to re-state the commit AFTER the restore. `scripts/build-clients.ts` runs
+`write-web-build-stamp.ts` over both dists once Turbo returns, on a HIT and a MISS alike, with
+this checkout's HEAD. It weakens nothing in §5: the manifest's per-file inventory skips the two
+stamp files (§4.3), so rewriting them invalidates no hashed file, and the inventory is recomputed
+from the bytes on disk rather than carried over. `verifyClientBuild` is unchanged. On a MISS the
+re-stamp writes identical bytes, which is what §4.3's determinism gives it.
+
+The stamp stays the last writing step of each client's own `build` script as well. Three callers
+run those scripts directly and never see Turbo — the development publisher (which reads
+`podium-build.json` to decide the website is at HEAD), the browser lane, and
+`scripts/prove-client-build-deterministic.sh` — and a `build` that leaves an unstamped dist makes
+the publisher rebuild on every `/version` poll.
+
 ## 5. Freshness and provenance (replaces POD-2540's nonce)
 
 POD-2540 ended on the question "did **our** build write these bytes, **now**?" and answered it
@@ -244,15 +270,30 @@ count below floor, summary naming a task that did not run.
 
 | caller | today | after |
 |---|---|---|
-| dev publisher approve | `prepareWebDist` + N × `package-headless.ts` | one `release:prepare --platforms <list>` child |
-| `scripts/release.ts --prepare-cross` (CI release) | one session, four platforms | same entry, `--platforms all` |
-| `apps/desktop/scripts/stage-sidecar.ts` | `bun run package:headless` | `release:prepare --platforms host --no-sign`, copies from the record |
-| `windows-smoke.yml`, `verify-headless-update.sh` | `package:headless` | `release:prepare --platforms host` |
-| `bun run package:headless` (human) | `package-headless.ts` | alias of the above |
+| dev publisher approve | `prepareWebDist` + N × `package-headless.ts` | one `scripts/release.ts --prepare-cross` child with a `--platform`/`--artifact` pair per fleet platform |
+| `scripts/release.ts --prepare-cross` (CI release) | one session, four platforms | `bun run release:prepare -- --channel …` (all four) |
+| `apps/desktop/scripts/stage-sidecar.ts` | `bun run package:headless` | unchanged: `package-headless.ts` (native host; shares `buildClients`) |
+| `windows-smoke.yml`, `verify-headless-update.sh` | `package:headless` | unchanged: `package-headless.ts` (native host; shares `buildClients`) |
+| `bun run package:headless` (human) | `package-headless.ts` | unchanged: the native single-platform entry |
 | `test:integration` / `test:e2e` `bun run build` | manual chain | `turbo run build` |
 
 `package-headless.ts` and `build-bun.ts` keep their compile/tar/sign responsibilities and lose the
 client build; direct invocation without evidence still refuses.
+
+**Correction to this table, made in M3 (POD-3054).** It originally said the three native callers
+would switch to `release:prepare` too. They cannot: `prepareHeadlessCross` refuses a non-Linux host
+because the zig/rcodesign evidence trail is Linux-only, and `stage-sidecar`, `windows-smoke` and
+`verify-headless-update.sh` run on macOS and Windows runners. They stay on `package-headless.ts`,
+which shares `beginFreshClientPackagingSession` → `buildClients` with the coordinator — so they
+already restore the clients from the same Turbo cache, which is what switching them was for. The
+"one entry" claim is therefore about the two callers that produce a RELEASE (the development
+publisher and CI), not about every caller that packages a bundle.
+
+**A consequence worth stating, also M3.** Because the release build now runs entirely inside the
+approved commit's snapshot and never writes the live `apps/web/dist`, preparing no longer makes the
+served website current as a side effect. The update operation's `web` step does that work instead
+of usually finding it already done. It is not a second client build: `prepare` filled the Turbo
+cache for this commit's clients, so the step restores.
 
 ## 8. Error handling
 
