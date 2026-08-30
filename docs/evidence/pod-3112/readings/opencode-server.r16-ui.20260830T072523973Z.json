@@ -1,0 +1,49 @@
+{
+  "at": "2026-08-30T07:25:23.973Z",
+  "issue": "POD-3112",
+  "kind": "r16-ui-lifecycle-verification",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "501efaa8604364c3c0cc985fff2dee2ae0b7ed2d",
+  "instance": "p3112-oc-ui-lifecycle-r16",
+  "ports": [
+    20326,
+    47340,
+    47341
+  ],
+  "providerPrompts": 2,
+  "proposal": {
+    "indicatorVisible": true,
+    "label": "Development release awaits approval",
+    "cardCount": 0,
+    "untoggled": true
+  },
+  "launch": {
+    "createRequests": [
+      {
+        "at": "2026-08-30T07:25:24.978Z",
+        "body": "{\"0\":{\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3112-oc-ui-lifecycle-r16/dummy-repo/.worktrees/issue-1-r16-lifecycle-ui-boundary\",\"machineId\":\"dfa8ed35-2b24-4324-b6f5-8e51eca2a620\",\"issueId\":\"iss_44427574-3cfa-4b54-80a9-b85ca74de252\",\"runtimeContract\":true}}"
+      }
+    ],
+    "identity": {
+      "sessionId": "09fbc55d-cd9f-4bd8-9569-3602b8b8e5b7",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server"
+    },
+    "nativeFirst": true,
+    "authenticatedVisibleCli": true
+  },
+  "first": {
+    "sentAt": "2026-08-30T07:25:33.262Z",
+    "inputDispatch": true,
+    "workingMs": 4580.3429049999995,
+    "terminalGrowthMs": 4188.860291999999,
+    "providerReplyMs": 7512.128251,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2
+  },
+  "verdict": "REFUSED",
+  "reason": "TimeoutError: click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"mode-native\"]')\u001b[22m\n",
+  "finishedAt": "2026-08-30T07:26:49.643Z"
+}
