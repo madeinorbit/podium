@@ -3,7 +3,11 @@ import { X } from './icons'
 import { createElement, useEffect, useState } from 'react'
 import { Image, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useServerProfile } from '../client/ServerProfileGate'
-import { authenticatedImageSource, fetchAuthenticatedAsset } from '../client/authenticated-assets'
+import {
+  authenticatedImageSource,
+  fetchAuthenticatedAsset,
+  readAuthenticatedTextPreview,
+} from '../client/authenticated-assets'
 import {
   type IssueArtifactPreview,
   issueArtifactLabel,
@@ -13,8 +17,6 @@ import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
-
-const TEXT_CAP = 512 * 1024
 
 /**
  * In-app issue artifact viewer. Images and video stay in a lightbox; HTML
@@ -134,9 +136,7 @@ function FetchedText({
     void fetchAuthenticatedAsset(url, bearer)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Could not load (${res.status})`)
-        const buf = await res.arrayBuffer()
-        const slice = buf.byteLength > TEXT_CAP ? buf.slice(0, TEXT_CAP) : buf
-        const decoded = new TextDecoder().decode(slice)
+        const decoded = await readAuthenticatedTextPreview(res)
         if (alive) setText(decoded)
       })
       .catch((e: unknown) => {
