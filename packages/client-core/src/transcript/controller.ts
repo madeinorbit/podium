@@ -349,14 +349,22 @@ export class TranscriptController {
     if (this.state.freshness === 'rendering') this.patch({ freshness: null })
   }
 
-  dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+  /** Release live resources while keeping the controller restartable by an adapter effect. */
+  stop(): void {
+    if (!this.started) return
+    this.started = false
     this.generation += 1
+    this.readSerial += 1
     this.unsubscribeTranscript?.()
     this.unsubscribeConnection?.()
     this.unsubscribeTranscript = null
     this.unsubscribeConnection = null
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.stop()
+    this.disposed = true
     this.listeners.clear()
   }
 

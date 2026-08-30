@@ -16,6 +16,7 @@
  */
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act, renderHook } from '@testing-library/react'
+import { createElement, type PropsWithChildren, StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
 import { type UseChatSendOptions, useChatSend } from './use-chat-send'
@@ -23,6 +24,10 @@ import { type UseChatSendOptions, useChatSend } from './use-chat-send'
 const sendText = vi.fn(async () => ({ ok: true, disposition: 'accepted' }) as never)
 const REFUSED = new Error('offline')
 const ledger = vi.fn(async () => [] as never)
+
+function StrictModeBoundary({ children }: PropsWithChildren) {
+  return createElement(StrictMode, null, children)
+}
 
 /** The one field these tests vary; everything else is inert scaffolding. */
 function opts(
@@ -77,6 +82,33 @@ afterEach(() => {
 })
 
 describe('useChatSend optimistic window', () => {
+  it('keeps the conversation live after root StrictMode rehearses its effect', async () => {
+    ledger.mockResolvedValue([
+      {
+        id: 'msg_strict',
+        from: 'operator',
+        to: 'session:s-1',
+        status: 'queued',
+        body: 'still live',
+        createdAt: '2026-08-24T10:00:01.000Z',
+        injectedAt: null,
+      },
+    ] as never)
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+      wrapper: StrictModeBoundary,
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(ledger).toHaveBeenCalledTimes(2)
+    expect(result.current.queuedMessages.map((message) => message.id)).toEqual(['msg_strict'])
+    act(() => result.current.setDraft('after rehearsal'))
+    expect(result.current.draft).toBe('after rehearsal')
+  })
+
   it('seeds a fresh task with its first prompt and the moving send marker', () => {
     const seeded: UseChatSendOptions = {
       ...opts(undefined),

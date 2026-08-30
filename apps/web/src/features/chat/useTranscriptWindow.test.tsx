@@ -12,7 +12,7 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import type { JSX } from 'react'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -191,6 +191,32 @@ function lastTraceMarks(): string[] {
 }
 
 describe('useTranscriptWindow optimistic session boundary', () => {
+  it('keeps the transcript live after root StrictMode rehearses its effect', async () => {
+    act(() =>
+      root.render(
+        <StrictMode>
+          <Probe active />
+        </StrictMode>,
+      ),
+    )
+    expect(reads).toHaveLength(2)
+
+    await act(async () => {
+      reads[0]?.resolve({ items: [item('stale', 'c1', 'stale')], hasMore: false })
+      reads[1]?.resolve({
+        items: [item('mounted', 'c2', 'mounted')],
+        head: 'c2',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+
+    expect(captured?.initialLoaded).toBe(true)
+    expect(captured?.blocks.map((block) => block.item.id)).toEqual(['mounted'])
+    expect(fakeHub.subscribes).toHaveLength(1)
+  })
+
   it('waits for server truth before spending the initial read and subscription', async () => {
     act(() => root.render(<Probe active deferInitialRead />))
     expect(reads).toHaveLength(0)
