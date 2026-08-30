@@ -242,6 +242,9 @@ export interface OpencodeClientTerminals {
   /** The session is going away, or the idle window closed. Attachments are
    *  strictly subordinate: stop/hibernate/kill the session and its client dies. */
   close(sessionId: SessionId, kind?: ClientTerminalKind): Promise<void>
+  /** Retire a client whose engine died while keeping its session-addressed
+   * replay for the replacement client. Ordinary close must still drop it. */
+  relaunch(sessionId: SessionId, kind: ClientTerminalKind): Promise<void>
   /**
    * THE VIEWER WENT BACK TO CHAT — which is not the session going away, and
    * that difference is the whole of POD-3045.
@@ -368,6 +371,9 @@ interface Attachment {
    *  restarted empty, or the parked master evolved while no attach client was
    *  relaying frames. Survives the race with recreating the adopted handle. */
   replayRequired?: boolean
+  /** The next client is a new process continuing the same Native surface. Its
+   * first paint must not clear retained scrollback. */
+  preserveReplayOnRelaunch?: boolean
   timer?: unknown
   /** Does a client have this session open? Drives the idle clock, and keeps a
    *  watched terminal out of the reclaim inventory. */
@@ -612,7 +618,10 @@ export function createOpencodeClientTerminals(
      * new generation follows its anchor. The pair also matches the server's
      * reset test, so the replay log re-anchors with the browser.
      */
-    if (!session.adopted) ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
+    if (!session.adopted && !record.preserveReplayOnRelaunch) {
+      ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
+    }
+    record.preserveReplayOnRelaunch = false
     session.onFrame((frame) => {
       driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_first_output', {
         bytes: frame.data.byteLength,
@@ -693,6 +702,45 @@ export function createOpencodeClientTerminals(
       // the client is already gone; the master below is the reclaim that matters
     }
     for (const label of labels) await reclaim(label)
+  }
+
+  /**
+   * REPLACE THE CLIENT PROCESS, NOT ITS NATIVE SURFACE.
+   *
+   * A daemon restart adopts a surviving engine and client, so neither replay
+   * nor process is replaced. Hibernate/resurrection is different: the old
+   * client still targets the dead engine and must be reaped, but its output is
+   * the only byte-faithful copy of Native scrollback. `close()` used here erased
+   * that replay, after which the new TUI could reconstruct Chat history but only
+   * its current clipped viewport. Keep the attachment record and stream while
+   * retiring exactly the obsolete process; the next cold client paints without
+   * the cold-generation clear-scrollback anchor.
+   */
+  async function relaunch(sessionId: SessionId, kind: ClientTerminalKind): Promise<void> {
+    let record = attachments.get(sessionId)
+    if (!record) {
+      const label = clientTerminalLabel(sessionId, kind)
+      if (label !== undefined && hasMaster(label)) await reclaim(label)
+      return
+    }
+    if (record.generation) {
+      record.generation.acceptingInput = false
+      record.generation.pendingInput = []
+      record.generation.pendingBytes = 0
+      record.generation = undefined
+    }
+    disarm(record)
+    try {
+      record.session?.dispose()
+    } catch {
+      // The master reclaim below is authoritative.
+    }
+    record.session = undefined
+    record.preserveReplayOnRelaunch = true
+    record.suppressNextReplayRedraw = false
+    record.replayRequired = false
+    if (hasMaster(record.label)) await reclaim(record.label)
+    arm(sessionId, record)
   }
 
   /**
@@ -841,6 +889,8 @@ export function createOpencodeClientTerminals(
     },
 
     close,
+
+    relaunch,
 
     release,
 

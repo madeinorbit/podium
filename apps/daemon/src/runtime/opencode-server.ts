@@ -614,7 +614,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
        * there is nothing there — it asks `hasMaster` before spending a signal.
        */
       const abandon = async (): Promise<undefined> => {
-        await deps.clientTerminals?.close(binding.sessionId, 'opencode')
+        await deps.clientTerminals?.relaunch(binding.sessionId, 'opencode')
         return undefined
       }
       const entry = journal.read(binding.sessionId)

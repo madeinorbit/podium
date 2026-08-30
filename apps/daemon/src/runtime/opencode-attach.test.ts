@@ -202,7 +202,7 @@ describe('the client terminal a server-family attach produces', () => {
 
     expect(state.spawns).toHaveLength(1)
     const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
-    expect(spawn.cmd).toBe('opencode')
+    expect(spawn.cmd.split('/').at(-1)).toBe('opencode')
     // `--session` is what makes this an ATTACH: without it the TUI opens a
     // different conversation on the same server.
     expect(spawn.args).toEqual(['attach', URL, '--session', 'ses_abc123'])
@@ -507,6 +507,48 @@ describe('the client terminal a server-family attach produces', () => {
     expect(state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))).toEqual([
       recovered,
     ])
+  })
+
+  it('keeps Native replay when hibernate replaces the engine and client', async () => {
+    const priorHistory = 'exact pre-park Native marker'
+    const replacementPaint = '\x1b[2Jreplacement opencode ready'
+    const { terminals, state } = harness({
+      redrawFrame: replacementPaint,
+      hasMaster: () => true,
+      adopted: false,
+    })
+    await terminals.attach({ sessionId: SESSION, target })
+    const retiredClient = state.clients[0] as NonNullable<(typeof state.clients)[number]>
+    state.frames.length = 0
+    state.frames.push({ streamId: SESSION, data: Buffer.from(priorHistory, 'latin1') })
+
+    // Unlike daemon restart adoption, resurrection must reap the client that
+    // still targets the dead engine. Unlike ordinary close, it must retain the
+    // session-addressed replay that contains exact Native-only scrollback.
+    await terminals.relaunch(SESSION, 'opencode')
+    expect(state.reclaimed).toHaveLength(1)
+    expect(state.released).toEqual([])
+    expect(retiredClient.disposed).toBe(true)
+    expect(terminals.input(SESSION, Buffer.from('during resurrection'))).toBe(false)
+
+    await terminals.attach({ sessionId: SESSION, target })
+    const replacementClient = state.clients[1] as NonNullable<(typeof state.clients)[number]>
+    const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
+    expect(decoded[0]).toBe(priorHistory)
+    expect(decoded.at(-1)).toBe(replacementPaint)
+    expect(decoded.some((data) => data.includes('\x1b[3J'))).toBe(false)
+
+    // The same relaunch seam owns post-resurrection Native turns: input is
+    // refused while no generation exists, then reaches only the replacement.
+    // Keeping the old generation accepting, or writing to both clients, fails.
+    expect(terminals.input(SESSION, Buffer.from('post-resurrection prompt\r'))).toBe(true)
+    expect(retiredClient.writes).toEqual([])
+    expect(replacementClient.writes).toEqual(['post-resurrection prompt\r'])
+
+    // Mutation teeth in the other direction: ordinary close still owns replay
+    // deletion, so broadening resurrection continuity into every teardown fails.
+    await terminals.close(SESSION)
+    expect(state.released).toEqual([SESSION])
   })
 
   it('emits the reset when the spawn CREATED, even though a master existed a moment earlier', async () => {
