@@ -11,7 +11,7 @@ import {
   usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
-import { asMachineId } from '@podium/model/browser'
+import { agentLoginCondition, asMachineId } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
@@ -35,6 +35,8 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
+import { headlessRuntimeDrivers } from '@/lib/runtime-driver-options'
+import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
 import {
@@ -239,6 +241,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    */
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
+  const runtimeDriversEnabled = useFeature('runtime-drivers')
+  const [driverChoice, setDriverChoice] = useState('headed')
   // Durable launch failures belong to the draft, not component lifetime. The
   // recovery composer can mount one microtask before the outcome writes its
   // error; reading the subscribed draft lets that late value appear. Local
@@ -393,6 +397,18 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     agent,
   )
   const ready = activationAgentIsReady(readiness)
+  const availableHeadlessDrivers = headlessRuntimeDrivers(selectedMachine, agent).filter(
+    (driver) =>
+      selectedMachine !== undefined &&
+      agentLoginCondition(selectedMachine, driver.harness) !== 'logged-out',
+  )
+  const selectedHeadlessDriver =
+    runtimeDriversEnabled && driverChoice !== 'headed'
+      ? availableHeadlessDrivers.find((driver) => driver.id === driverChoice)
+      : undefined
+  const driverUnavailable =
+    runtimeDriversEnabled && driverChoice !== 'headed' && selectedHeadlessDriver === undefined
+  const runtimeContract = selectedHeadlessDriver?.id
   /**
    * THE SAME REFUSAL VOCABULARY AS EVERY OTHER SPAWN MENU (POD-1201).
    *
@@ -635,6 +651,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       agentKind: agent,
       ...(draft.model !== AUTO ? { model: draft.model } : {}),
       ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
+      ...(runtimeContract !== undefined ? { runtimeContract } : {}),
     })
     // The prompt was never written, so nothing is left to restore — but the
     // instruments were chosen and stay chosen for the next one.
@@ -792,6 +809,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     !selectedMachine ||
     machineDenied ||
     !ready ||
+    driverUnavailable ||
     !launchable
 
   /** What Launch and ⌘↵ do, which is the one thing the two modes disagree about. */
@@ -1039,6 +1057,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   selectedValue={agent}
                   onSelect={(nextAgent) => {
                     const kind = issueAgentKind(nextAgent) ?? agent
+                    if (kind !== agent) setDriverChoice('headed')
                     setDraft(
                       withoutCreateReservation({
                         ...draft,
@@ -1095,6 +1114,36 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 placeholder="Choose a machine…"
                 onSelect={selectMachine}
               />
+              {runtimeDriversEnabled && availableHeadlessDrivers.length > 0 ? (
+                <PropertyMenu
+                  trigger={
+                    <button
+                      type="button"
+                      data-pressable
+                      aria-label="Driver"
+                      className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
+                    >
+                      {driverChoice === 'headed' ? 'Headed' : driverChoice}
+                      <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
+                    </button>
+                  }
+                  options={[
+                    { value: 'headed', label: 'Headed (default)' },
+                    ...availableHeadlessDrivers.map((driver) => ({
+                      value: driver.id,
+                      label: driver.id,
+                      group: 'Headless drivers',
+                    })),
+                  ]}
+                  selectedValue={driverChoice}
+                  placeholder="Choose a driver…"
+                  onSelect={setDriverChoice}
+                />
+              ) : driverUnavailable ? (
+                <span role="status" className="text-[11px] text-danger">
+                  {driverChoice} unavailable
+                </span>
+              ) : null}
               {/* The clip sits with the machine picker rather than beside Launch:
                   both name WHAT the mission is given, and the auto-margined group
                   to its right is reserved for the act of launching it. */}

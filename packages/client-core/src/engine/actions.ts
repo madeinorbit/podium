@@ -20,7 +20,7 @@ import type {
   WorkState,
 } from '@podium/model'
 import { asThreadId } from '@podium/model'
-import { resolveSessionIdentifier } from '@podium/protocol'
+import { resolveSessionIdentifier, type RuntimeContractRequest } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
@@ -250,6 +250,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     firstPrompt?: string
     model?: string
     effort?: string
+    runtimeContract?: RuntimeContractRequest
   }): {
     sessionId: SessionId
     issueId: IssueId

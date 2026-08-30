@@ -57,6 +57,7 @@ import type {
   SessionId,
 } from '@podium/model'
 import { asUserId } from '@podium/model'
+import type { RuntimeContractRequest } from '@podium/protocol'
 import type { PodiumClientApi } from '../api'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
@@ -1276,6 +1277,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         target: SpawnTarget
         agentKind: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]['agentKind']
         firstPrompt?: string
+        model?: string
+        effort?: string
+        runtimeContract?: RuntimeContractRequest
       }) => this.optimism.spawnDraftAgent(args),
       spawnIssueAgent: (args: Parameters<OptimismLedger<TApi>['spawnIssueAgent']>[0]) =>
         this.optimism.spawnIssueAgent(args),

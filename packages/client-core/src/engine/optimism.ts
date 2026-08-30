@@ -40,6 +40,7 @@ import type {
   SessionMeta,
 } from '@podium/model'
 import { asIssueId, asMutationId, asSessionId, dedupeSessionsByResume } from '@podium/model'
+import type { RuntimeContractRequest } from '@podium/protocol'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { OutboxEntry } from '../outbox'
@@ -682,6 +683,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     firstPrompt?: string
     model?: string
     effort?: string
+    runtimeContract?: RuntimeContractRequest
   }): { sessionId: SessionId; issueId: IssueId; settled: Promise<boolean> } {
     assertSpawnPlacement(args.target)
     const sessionId = asSessionId(randomUUID())
@@ -723,6 +725,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
           firstPrompt: args.firstPrompt,
           ...(args.model ? { model: args.model } : {}),
           ...(args.effort ? { effort: args.effort } : {}),
+          ...(args.runtimeContract !== undefined
+            ? { runtimeContract: args.runtimeContract }
+            : {}),
         }),
     })
   }
