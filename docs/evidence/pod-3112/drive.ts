@@ -83,7 +83,7 @@ const PIN_DIR = join(ROOT, 'docs/evidence/pod-3112/pins')
 const AGENT_HOME =
   process.env.P3112_STATE_ROOT
     ? join(process.env.P3112_STATE_ROOT, 'agent-home')
-    : join(process.env.HOME ?? '', '.local/state/podium/p3112-oc-paired-r2/agent-home')
+    : join(process.env.HOME ?? '', '.local/state/podium/p3112-oc-final/agent-home')
 const REPLY_MS = Number(process.env.P3112_REPLY_MS ?? 180_000)
 const BUSY_MS = Number(process.env.P3112_BUSY_MS ?? 90_000)
 const STEP_MS = 500
