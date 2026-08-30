@@ -180,13 +180,25 @@ function field(value: unknown): string {
   return String(value ?? '').replace(/[\t\r\n]+/g, ' ').trim()
 }
 function canonicalWhatId(id: string): string {
-  if (id === 'A1A') return 'A1a'
-  if (id === 'A6B') return 'A6b'
-  if (id === 'BQUOTA') return 'Bquota'
-  if (id === 'CLI-sync') return 'A6b CLI-sync'
-  if (id === 'A8-post-login') return 'A8 post-login'
-  if (id === 'B-provider-error') return 'A8 provider-error'
-  return id
+  const ids: Record<string, string> = {
+    A1a: 'A1a', A1b: 'A1b', A1c: 'A1c', A2a: 'A2a', A2b: 'A2b', A3: 'A3',
+    A4a: 'A4a', A4b: 'A4b', A5: 'A5', A6a: 'A6a', A6b: 'A6b', A7a: 'A7a',
+    A7b: 'A7b', A8: 'A8', A9: 'A9', A10: 'A10', A11: 'A11',
+    A1A: 'A1a', A1B: 'A1b', A1C: 'A1c', A2A: 'A2a', A2B: 'A2b',
+    A4A: 'A4a', A4B: 'A4b', A6A: 'A6a', A6B: 'A6b', A7A: 'A7a', A7B: 'A7b',
+    'CLI-sync': 'A6b CLI-sync', 'A8-post-login': 'Bauth post-login',
+    'B-provider-error': 'Bquota provider-error', BQUOTA: 'Bquota', BAUTH: 'Bauth',
+    'B-oom-kill': 'non-matrix B-oom-kill spot-check',
+  }
+  const canonical = ids[id]
+  if (!canonical) throw new Error(`unknown driven id: ${id}`)
+  return canonical
+}
+
+function assertExactStagedSet(owned: string[], actual: string[]): void {
+  const expected = owned.map((path) => path.slice(REPO.length + 1)).sort()
+  const sortedActual = [...actual].sort()
+  if (JSON.stringify(sortedActual) !== JSON.stringify(expected)) throw new Error(`refusing staged set: actual=${sortedActual.join(',')} expected=${expected.join(',')}`)
 }
 
 function evidenceFields(cell: Cell): string[] {
@@ -228,9 +240,8 @@ function appendAuthoritativeRow(cell: Cell, fields: string[], readingPath: strin
   const added = spawnSync('git', ['add', '-f', '--', ...owned], { cwd: REPO, encoding: 'utf8' })
   if (added.status !== 0) throw new Error(`authoritative git add failed: ${added.stderr}`)
   const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: REPO, encoding: 'utf8' })
-  const expected = owned.map((path) => path.slice(REPO.length + 1)).sort()
   const actual = staged.stdout.trim().split('\n').filter(Boolean).sort()
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`refusing staged set: actual=${actual.join(',')} expected=${expected.join(',')}`)
+  assertExactStagedSet(owned, actual)
   const committed = spawnSync('git', ['commit', '-m', `test(evidence): record Grok ${arm} ${cell.id} ${RUN_TOKEN}`, '-m', 'Podium-Issue: POD-3110'], { cwd: REPO, encoding: 'utf8' })
   if (committed.status !== 0) throw new Error(`authoritative evidence commit failed: ${committed.stderr}`)
   const after = readFileSync(LEDGER, 'utf8')
@@ -1340,9 +1351,24 @@ async function oomSpot(): Promise<void> {
 }
 
 if (process.env.P3110_STATIC_SELF_TEST === '1') {
-  const fake = (id: string): Cell => ({ id, arm, verdict: 'PASS', summary: 'self-test', control: { fired: true, what: 'self-test', detail: 'fired' }, evidence: [], data: {}, cwd: '/tmp/self-test', memoryMb: 1, pin: 'pin', sessionIds: [], at: '2026-08-30T00:00:00.000Z' })
-  const got = ['A1A', 'A6B', 'BQUOTA'].map((id) => evidenceFields(fake(id))[0].split(' ')[1])
-  if (got.join(',') !== 'A1a,A6b,Bquota') throw new Error(`canonical self-test failed: ${got.join(',')}`)
+  const fake = (id: string, verdict: Verdict = 'PASS', fired = true): Cell => ({ id, arm, verdict, summary: 'self-test', control: { fired, what: 'self-test', detail: 'fired' }, evidence: [], data: {}, cwd: '/tmp/self-test', memoryMb: 1, pin: 'pin', sessionIds: [], at: '2026-08-30T00:00:00.000Z' })
+  const cases: [string, string][] = [['A1a','A1a'],['A1b','A1b'],['A1c','A1c'],['A2a','A2a'],['A2b','A2b'],['A3','A3'],['A4a','A4a'],['A4b','A4b'],['A5','A5'],['A6a','A6a'],['A6b','A6b'],['A7a','A7a'],['A7b','A7b'],['A8','A8'],['A9','A9'],['A10','A10'],['A11','A11'],['CLI-sync','A6b'],['A8-post-login','Bauth'],['B-provider-error','Bquota'],['B-oom-kill','non-matrix']]
+  for (const [id, expected] of cases) {
+    const got = evidenceFields(fake(id))[0].split(' ')[1]
+    if (got !== expected) throw new Error(`canonical self-test failed ${id}: ${got}`)
+  }
+  let unknownRejected = false
+  try { evidenceFields(fake('UNKNOWN')) } catch { unknownRejected = true }
+  if (!unknownRejected) throw new Error('unknown id was not rejected')
+  const blockedFired = evidenceFields(fake('A3', 'BLOCKED', true))[4]
+  const blockedMissing = evidenceFields(fake('A3', 'BLOCKED', false))[4]
+  if (!blockedFired.startsWith('yes —') || !blockedMissing.startsWith('no —')) throw new Error('BLOCKED control fidelity failed')
+  const owned = [LEDGER, JSON_PATH, ROWS, join(EVIDENCE_DIR, 'reading'), join(EVIDENCE_DIR, 'pin')]
+  const exact = owned.map((path) => path.slice(REPO.length + 1))
+  assertExactStagedSet(owned, exact)
+  let foreignRejected = false
+  try { assertExactStagedSet(owned, [...exact, 'foreign.file']) } catch { foreignRejected = true }
+  if (!foreignRejected) throw new Error('foreign staged file was not rejected')
   let rows = 0
   let later = 0
   try {
@@ -1352,7 +1378,7 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     if (!String(error).includes('STOP-FIRST')) throw error
   }
   if (rows !== 1 || later !== 0) throw new Error(`stop-first self-test failed rows=${rows} later=${later}`)
-  console.log(`STATIC_SELF_TEST_OK canonical=${got.join(',')} failRows=${rows} laterCells=${later}`)
+  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
   process.exit(0)
 }
 

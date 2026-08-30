@@ -329,6 +329,7 @@ auth() {
 down() {
   stop_named daemon
   stop_named server
+  remove_isolated_credential
   log "instance=$INSTANCE stopped; derived state retained at $STATE_DIR for evidence/recovery"
 }
 
