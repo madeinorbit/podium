@@ -36,6 +36,7 @@ import {
   ChevronRight,
   Pin,
   Search,
+  Settings,
   X,
 } from '../components/icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -61,6 +62,7 @@ import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu, type WorkIssueMenuTarget } from '../components/WorkIssueMenu'
 import { WorkingMark } from '../components/WorkingMark'
+import { WorkspaceContinuityNotice } from '../components/WorkspaceContinuityNotice'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useCollapsedSet } from '../hooks/useCollapsedSet'
@@ -358,6 +360,9 @@ export function WorkScreen() {
             </HeaderButton>
           )}
           <NewWorkButton size={34} />
+          <HeaderButton label="Settings" size={34} onPress={() => router.push('/settings')}>
+            <Icon as={Settings} size={17} color={color.textDim} />
+          </HeaderButton>
         </>
       }
     >
@@ -397,12 +402,16 @@ export function WorkScreen() {
             // when a pinned ask renders in both Pinned and Needs you.
             keyExtractor={workRowListKey}
             refreshControl={refreshControl}
-            contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
             contentInsetAdjustmentBehavior="automatic"
             automaticallyAdjustKeyboardInsets
             keyboardDismissMode="interactive"
             contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
-            ListHeaderComponent={<StorageNoticeAlert />}
+            ListHeaderComponent={
+              <View style={styles.listNotices}>
+                <StorageNoticeAlert />
+                <WorkspaceContinuityNotice />
+              </View>
+            }
             {...refreshAccessibilityProps}
             {...minimizeOnScroll}
             // STICKY, and the header style must stay margin-free for it: native
@@ -897,6 +906,10 @@ const styles = StyleSheet.create({
     backgroundColor: color.engraved,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
+  },
+  listNotices: {
+    gap: space.sm,
+    paddingVertical: space.sm,
   },
   // A sticky FOLD CONTROL now, not a passive label: 44pt for the thumb, opaque
   // `color.bar` so rows travel BEHIND it, and — the sticky geometry rule — no

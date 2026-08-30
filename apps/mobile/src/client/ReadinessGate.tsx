@@ -25,6 +25,13 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the manual-Retry trigger — bumping it re-runs the probe
   useEffect(() => {
     if (demo) return
+    if (serverProfile?.activation === 'offline-cache') {
+      // Readiness is server-owned and cannot be inferred offline. A profile
+      // admitted by ServerProfileGate is allowed only to read its already-bound
+      // local replica, so do not turn missing diagnostics into a false block.
+      setState({ state: 'ready', reason: null, dataPlane: 'available' })
+      return
+    }
     let alive = true
     setState('checking')
     setAcceptedDegraded(false)
@@ -39,7 +46,7 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [attempt, config.httpOrigin, demo])
+  }, [attempt, config.httpOrigin, demo, serverProfile?.activation])
 
   /**
    * AUTO-RECHECK WHILE PARKED ON `agent_unavailable` [perf/fluidity round].

@@ -10,6 +10,20 @@ export interface AuthStatus {
   userId: UserId | null
 }
 
+export class MobileAuthExpiredError extends Error {
+  readonly kind = 'auth-expired' as const
+
+  constructor() {
+    super('This phone session has expired.')
+    this.name = 'MobileAuthExpiredError'
+  }
+}
+
+export type LiveAuthCheck =
+  | { kind: 'valid'; status: AuthStatus }
+  | { kind: 'expired'; status: AuthStatus }
+  | { kind: 'unreachable'; cause: unknown }
+
 /**
  * How long the status probe may hang before it counts as a failure (POD-712).
  *
@@ -62,6 +76,25 @@ export async function fetchAuthStatus(
     authed: body.authed,
     userId:
       typeof body.userId === 'string' && body.userId.length > 0 ? UserId.parse(body.userId) : null,
+  }
+}
+
+/**
+ * Resolve a dropped live transport without guessing from a socket error. The
+ * unauthenticated status endpoint is the authority for credential expiry; a
+ * failed probe stays a network failure and leaves the local replica mounted.
+ */
+export async function checkLiveAuth(
+  httpOrigin: string,
+  bearer: string | null,
+): Promise<LiveAuthCheck> {
+  try {
+    const status = await fetchAuthStatus(httpOrigin, bearer)
+    return status.needsAuth && !status.authed
+      ? { kind: 'expired', status }
+      : { kind: 'valid', status }
+  } catch (cause) {
+    return { kind: 'unreachable', cause }
   }
 }
 

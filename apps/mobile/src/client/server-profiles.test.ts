@@ -10,6 +10,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }))
 
 import {
+  canOpenProfileOffline,
   classifyServerTransport,
   completePendingProfileCleanup,
   enqueuePendingProfileCleanup,
@@ -30,6 +31,32 @@ beforeEach(() => {
 })
 
 describe('native server profiles', () => {
+  it('opens offline only from a previously verified profile with a bound user', () => {
+    const verified = {
+      id: 'server-a',
+      name: 'Alice',
+      httpOrigin: 'https://alice.example',
+      instanceId: 'instance-a',
+      userId: 'user:alice',
+      mode: 'protected' as const,
+      transport: 'trusted-https' as const,
+      createdAt: '2026-08-13T12:00:00.000Z',
+      updatedAt: '2026-08-13T12:00:00.000Z',
+    }
+
+    expect(canOpenProfileOffline(verified, 'unreachable')).toBe(true)
+    expect(canOpenProfileOffline({ ...verified, instanceId: undefined }, 'unreachable')).toBe(false)
+    expect(canOpenProfileOffline({ ...verified, userId: undefined }, 'unreachable')).toBe(false)
+    expect(canOpenProfileOffline(verified, 'tls-untrusted')).toBe(false)
+    expect(canOpenProfileOffline(verified, 'version-mismatch')).toBe(false)
+    expect(
+      canOpenProfileOffline(
+        { ...verified, httpOrigin: 'http://192.168.1.8', transport: 'insecure-lan' },
+        'unreachable',
+      ),
+    ).toBe(false)
+  })
+
   it('classifies every transport policy before credentials can be sent', () => {
     expect(classifyServerTransport('https://podium.example')).toBe('trusted-https')
     expect(classifyServerTransport('https://host.tailnet-name.ts.net')).toBe('tailscale-serve')

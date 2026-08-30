@@ -198,6 +198,14 @@ export function useUiState(): RoutedUiState {
   return useStoreSelector<RoutedUiState, MobileTrpc>((s) => s.uiState)
 }
 
+function hubIsConnected(hub: SocketHub): boolean {
+  return typeof hub.connected === 'boolean'
+    ? hub.connected
+    : // Compatibility for narrow test/platform hubs that predate the exact
+      // connection bit. Production SocketHub always takes the first arm.
+      hub.connectionHealth().status !== 'down'
+}
+
 /**
  * Transport liveness, as six mobile surfaces ask for it.
  *
@@ -212,8 +220,8 @@ export function useUiState(): RoutedUiState {
  */
 export function useConnected(): boolean {
   const hub = useHub()
-  const [connected, setConnected] = useState(() => hub.connectionHealth().status !== 'down')
-  useEffect(() => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')), [hub])
+  const [connected, setConnected] = useState(() => hubIsConnected(hub))
+  useEffect(() => hub.onConnectionHealth(() => setConnected(hubIsConnected(hub))), [hub])
   return demoEnabled() ? true : connected
 }
 

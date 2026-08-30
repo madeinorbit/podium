@@ -17,6 +17,7 @@ import type {
 } from '@podium/model'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { Platform } from 'react-native'
+import { MobileAuthExpiredError } from './auth'
 
 interface QueryProcedure<I, O> {
   query(input: I): Promise<O>
@@ -242,17 +243,33 @@ export function bearerHeaders(bearer: string | null, headers?: HeadersInit): Hea
   return result
 }
 
-export function makeMobileTrpc(httpOrigin: string, bearer: string | null = null): MobileTrpc {
+export async function fetchMobileTransport(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  bearer: string | null,
+  onAuthExpired?: (error: MobileAuthExpiredError) => void,
+): Promise<Response> {
+  const response = await fetch(input, {
+    ...init,
+    credentials: Platform.OS === 'web' ? 'include' : 'omit',
+    headers: bearerHeaders(bearer, init?.headers),
+  })
+  if (bearer && response.status === 401) {
+    onAuthExpired?.(new MobileAuthExpiredError())
+  }
+  return response
+}
+
+export function makeMobileTrpc(
+  httpOrigin: string,
+  bearer: string | null = null,
+  onAuthExpired?: (error: MobileAuthExpiredError) => void,
+): MobileTrpc {
   return createTRPCClient<any>({
     links: [
       httpBatchLink({
         url: httpOrigin + '/trpc',
-        fetch: (url, opts) =>
-          fetch(url, {
-            ...opts,
-            credentials: Platform.OS === 'web' ? 'include' : 'omit',
-            headers: bearerHeaders(bearer, opts?.headers),
-          }),
+        fetch: (url, opts) => fetchMobileTransport(url, opts, bearer, onAuthExpired),
       }),
     ],
   }) as unknown as MobileTrpc
