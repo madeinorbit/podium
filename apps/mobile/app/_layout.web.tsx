@@ -16,6 +16,7 @@ const reducedMotionTransition = {
 function WebNavigation({ reduceMotion }: RootNavigationProps) {
   return (
     <Stack
+      initialRouteName="(tabs)"
       screenOptions={{
         headerShown: false,
         animation: 'fade',

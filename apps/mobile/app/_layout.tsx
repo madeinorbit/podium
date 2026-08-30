@@ -31,6 +31,7 @@ LogBox.ignoreLogs([/Reduced motion setting is overwritten/])
 function NativeNavigation({ reduceMotion }: RootNavigationProps) {
   return (
     <Stack
+      initialRouteName="(tabs)"
       screenOptions={{
         headerShown: false,
         animation: reduceMotion ? 'fade' : 'default',
