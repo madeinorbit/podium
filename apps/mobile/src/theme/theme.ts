@@ -1,4 +1,5 @@
 import { Platform } from 'react-native'
+import { fontFaces } from './font-family'
 
 /**
  * Podium mobile design language — "Dark Ink". [POD-784, mirrors
@@ -243,29 +244,29 @@ export const spring = {
 } as const
 
 /**
- * Geist / Geist Mono, with regular and semibold static faces loaded in
- * app/_layout (POD-143). Medium and bold requests intentionally use semibold
- * so the app keeps its emphasis hierarchy without shipping near-identical
- * extra files. Use these instead of fontWeight — mixing a weight-specific
- * family with fontWeight makes Android synthesize fake bolds.
+ * Geist / Geist Mono, with regular and semibold static faces embedded on native
+ * and loaded by the web launch root. Medium and bold requests intentionally use
+ * semibold so the app keeps its emphasis hierarchy without shipping near-identical
+ * extra files. Use these instead of fontWeight — mixing a weight-specific family
+ * with fontWeight makes Android synthesize fake bolds.
  */
 export const sans = (weight: 400 | 500 | 600 | 700 = 400) =>
   ({
     fontFamily: {
-      400: 'Geist_400Regular',
-      500: 'Geist_600SemiBold',
-      600: 'Geist_600SemiBold',
-      700: 'Geist_600SemiBold',
+      400: fontFaces.sansRegular,
+      500: fontFaces.sansSemiBold,
+      600: fontFaces.sansSemiBold,
+      700: fontFaces.sansSemiBold,
     }[weight],
   }) as const
 
 export const mono = (weight: 400 | 500 | 600 | 700 = 400) =>
   ({
     fontFamily: {
-      400: 'GeistMono_400Regular',
-      500: 'GeistMono_600SemiBold',
-      600: 'GeistMono_600SemiBold',
-      700: 'GeistMono_600SemiBold',
+      400: fontFaces.monoRegular,
+      500: fontFaces.monoSemiBold,
+      600: fontFaces.monoSemiBold,
+      700: fontFaces.monoSemiBold,
     }[weight],
   }) as const
 
