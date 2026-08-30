@@ -67,3 +67,5 @@
   "reason": "the required working plus output-growth positive control did not fire, so Stop, durable interrupt, and continuity cannot be scored",
   "acceptanceTsvRowsWritten": 0,
   "providerDrives": 1,
+  "providerPrompts": 1
+}
