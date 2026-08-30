@@ -1,6 +1,7 @@
 import { chromium } from 'playwright'
 import { existsSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
-import { isAbsolute, relative } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
+import { instanceStateDir } from '@podium/runtime/instance'
 const required=(name:string)=>{const value=process.env[name];if(!value)throw Error(`${name} is required`);return value}
 for(const key of ['R18_HOME','PODIUM_STATE_DIR','ABDUCO_SOCKET_DIR','PODIUM_RUNTIME_DRIVER'])if(process.env[key]!==undefined)throw Error(`REFUSED rig-authored ${key} override`)
 const parentHome=readFileSync(`/proc/${process.ppid}/environ`,'utf8').split('\0').find(value=>value.startsWith('HOME='))?.slice(5)
@@ -20,7 +21,7 @@ const cwdRelative=relative(base,C)
 if(!cwdRelative||cwdRelative.startsWith('..')||isAbsolute(cwdRelative))throw Error(`REFUSED R18_CWD must be strictly beneath R18_BASE: ${C}`)
 const O=`http://127.0.0.1:${port}`,epic=required('R18_EPIC_PIN'),workspace=required('R18_WORKSPACE')
 const mono=()=>performance.now(),wall=()=>new Date().toISOString(),sleep=(n:number)=>new Promise(r=>setTimeout(r,n))
-const journalPath=(sid:string)=>`${process.env.HOME}/.local/state/podium/${P}/opencode-servers/${encodeURIComponent(sid)}.json`,journalSafe=(sid:string)=>{if(!existsSync(journalPath(sid)))return null;const raw=JSON.parse(readFileSync(journalPath(sid),'utf8')),safe={opencodeSessionId:raw.opencodeSessionId,process:{key:raw.process?.key,pid:raw.process?.pid},workdir:raw.workdir,seq:raw.seq,turnEpoch:raw.turnEpoch,bindingVersion:raw.bindingVersion};if(!safe.opencodeSessionId||!safe.process.key||!Number.isInteger(safe.process.pid)||safe.process.pid<=0||!safe.workdir||!Number.isInteger(safe.seq)||safe.seq<0||!Number.isInteger(safe.turnEpoch)||safe.turnEpoch<0||!Number.isInteger(safe.bindingVersion)||safe.bindingVersion<=0)throw Error('REFUSED incomplete safe journal fields');return safe}
+const journalPath=(sid:string)=>join(instanceStateDir(P),'opencode-servers',`${encodeURIComponent(sid)}.json`),journalSafe=(sid:string)=>{if(!existsSync(journalPath(sid)))return null;const raw=JSON.parse(readFileSync(journalPath(sid),'utf8')),safe={opencodeSessionId:raw.opencodeSessionId,process:{key:raw.process?.key,pid:raw.process?.pid},workdir:raw.workdir,seq:raw.seq,turnEpoch:raw.turnEpoch,bindingVersion:raw.bindingVersion};if(!safe.opencodeSessionId||!safe.process.key||!Number.isInteger(safe.process.pid)||safe.process.pid<=0||!safe.workdir||!Number.isInteger(safe.seq)||safe.seq<0||!Number.isInteger(safe.turnEpoch)||safe.turnEpoch<0||!Number.isInteger(safe.bindingVersion)||safe.bindingVersion<=0)throw Error('REFUSED incomplete safe journal fields');return safe}
 const processProof=(pid:number)=>{let live=false,cwd:string|null=null,instance=false;try{process.kill(pid,0);live=true;cwd=readlinkSync(`/proc/${pid}/cwd`);instance=readFileSync(`/proc/${pid}/environ`,'utf8').split('\0').includes(`PODIUM_INSTANCE=${P}`)}catch{}return {pid,live,cwd,instance,exact:live&&cwd===C&&instance}}
 const lr=await fetch(O+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:P})}),ck=(lr.headers.get('set-cookie')||'').split(';')[0],[cn,cv]=ck.split('=')
 if(!ck)throw Error('no auth cookie')
