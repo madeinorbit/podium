@@ -106,6 +106,13 @@ describe('FEATURES registry', () => {
           visibility: 'edge',
         },
         {
+          id: 'runtime-drivers',
+          name: 'Headless session drivers',
+          description:
+            'Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.',
+          visibility: 'stable',
+        },
+        {
           id: 'shell-density',
           name: 'Shell density',
           description: 'Choose between balanced and compact shell styling in Appearance.',

@@ -35,7 +35,7 @@ export const FEATURES = [
     name: 'Headless session drivers',
     description:
       'Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.',
-    visibility: 'edge',
+    visibility: 'stable',
   },
   {
     id: 'settings-search',
