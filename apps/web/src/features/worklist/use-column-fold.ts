@@ -107,9 +107,9 @@
  * Reduced motion takes none of it: the state simply flips, which is what a
  * folded column looks like to someone who asked not to be moved.
  */
-import { useReducedMotion } from 'motion/react'
 import { type RefObject, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { COLUMN_FOLD_EASE, COLUMN_FOLD_MS } from './sidebar-common'
 
 /** The shortest leg worth animating. Below this a correction reads as a stutter

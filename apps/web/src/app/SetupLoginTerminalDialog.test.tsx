@@ -6,8 +6,8 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 
 // The real panel opens a terminal against the live store; this dialog's contract
 // is about what happens AROUND it, so a marker stands in for the whole thing.
-vi.mock('@/features/terminal/AgentPanel', () => ({
-  AgentPanel: () => <div data-testid="agent-panel" />,
+vi.mock('@/features/terminal/AgentPanelBoundary', () => ({
+  AgentPanelBoundary: () => <div data-testid="agent-panel" />,
 }))
 
 const { SetupLoginTerminalDialog } = await import('./SetupLoginTerminalDialog')

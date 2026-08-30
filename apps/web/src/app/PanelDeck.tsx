@@ -8,7 +8,7 @@ import {
   Suspense,
   useCallback,
 } from 'react'
-import { AgentPanel } from '@/features/terminal/AgentPanel'
+import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { cn } from '@/lib/utils'
 import { type DeckItem, type PaneRect, panelBoxStyle } from './panel-deck'
 import { PanelVisible } from './panel-visible'
@@ -157,7 +157,7 @@ export function PanelDeck({
                 clock is never painted at the value it stopped at. */}
             <PanelVisible visible={visible}>
               {item.kind === 'session' ? (
-                <AgentPanel
+                <AgentPanelBoundary
                   sessionId={asSessionId(item.id)}
                   active={visible}
                   focused={visible && item.id === focusedTabId}

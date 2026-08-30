@@ -9,9 +9,9 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
-import { prettyCwd } from './AgentPanel'
 import { TERMINAL_DEFAULTS } from './appearance'
 import { dockShellIsDead } from './dock-shell-lifecycle'
+import { prettyCwd } from './pretty-cwd'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 /**

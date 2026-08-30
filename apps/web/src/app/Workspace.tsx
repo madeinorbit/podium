@@ -40,7 +40,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
-import { AgentPanel } from '@/features/terminal/AgentPanel'
+import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
@@ -968,7 +968,7 @@ export function Workspace({
     if (orphan)
       return (
         <div className="flex min-w-0 flex-1">
-          <AgentPanel sessionId={orphan.sessionId} active />
+          <AgentPanelBoundary sessionId={orphan.sessionId} active />
         </div>
       )
     return (
