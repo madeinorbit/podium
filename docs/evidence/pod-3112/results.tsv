@@ -10,3 +10,4 @@
 2026-08-30T02:38:40.990Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	default-headed	A2A	PASS	FIRED	docs/evidence/pod-3112/readings/default-headed.a2a.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T023825527Z.json
 2026-08-30T02:42:07.829Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	opencode-server	A2A	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.a2a.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T024157265Z.json
 2026-08-30T02:43:53.838Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	default-headed	A3	FAIL	FIRED	docs/evidence/pod-3112/readings/default-headed.a3.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T024321319Z.json
+2026-08-30T07:56:04.182Z	POD-3112	bc0263ccf49d499f60988c297c60554b4217a6b6	opencode-server	A3	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.r17-ui.20260830T075539635Z.json
