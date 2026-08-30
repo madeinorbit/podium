@@ -47,7 +47,7 @@ validate_dependencies() {
 validate_immutable_inputs() {
   local want=2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd short stamp version hash
   git -C "$REPO" merge-base --is-ancestor "$want" HEAD || { log "PREFLIGHT FAIL product pin is not an ancestor" >&2; return 1; }
-  git -C "$REPO" diff --quiet "$want" HEAD -- . ':(exclude)docs/evidence/pod-3110' || { log "PREFLIGHT FAIL product bytes differ from exact pin" >&2; return 1; }
+  git -C "$REPO" diff --quiet "$want" HEAD -- . ':(exclude)docs/**' || { log "PREFLIGHT FAIL product bytes differ from exact pin" >&2; return 1; }
   [ -f "$WEB/podium-build.json" ] || { log "PREFLIGHT FAIL web bundle missing" >&2; return 1; }
   short="${want:0:7}"
   stamp="$(sed -n 's/.*"sourceSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$WEB/podium-build.json")"
@@ -253,7 +253,7 @@ verify() {
   local want_sha want_short stamp web_sha server_pid daemon_pid
   want_sha=2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd
   git -C "$REPO" merge-base --is-ancestor "$want_sha" HEAD || { log "PIN FAIL ancestry"; return 1; }
-  git -C "$REPO" diff --quiet "$want_sha" HEAD -- . ':(exclude)docs/evidence/pod-3110' || { log "PIN FAIL product bytes"; return 1; }
+  git -C "$REPO" diff --quiet "$want_sha" HEAD -- . ':(exclude)docs/**' || { log "PIN FAIL product bytes"; return 1; }
   [ "$(sha256sum /home/mgw/.grok/downloads/grok-linux-x86_64 | awk '{print $1}')" = c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 ] || { log "PIN FAIL grok binary"; return 1; }
   want_short="${want_sha:0:7}"
   server_pid="$(pid_of server)"
@@ -264,8 +264,9 @@ verify() {
   [ "$(readlink -f "/proc/$daemon_pid/cwd")" = "$REPO" ] || { log "PIN FAIL daemon cwd"; return 1; }
   [ "$(cat "$RUN_DIR/server.sha")" = "$want_sha" ] || { log "PIN FAIL server spawn SHA"; return 1; }
   [ "$(cat "$RUN_DIR/daemon.sha")" = "$want_sha" ] || { log "PIN FAIL daemon spawn SHA"; return 1; }
-  [ "$(cat "$RUN_DIR/server.harness-sha")" = "$(git -C "$REPO" rev-parse HEAD)" ] || { log "PIN FAIL server harness SHA"; return 1; }
-  [ "$(cat "$RUN_DIR/daemon.harness-sha")" = "$(git -C "$REPO" rev-parse HEAD)" ] || { log "PIN FAIL daemon harness SHA"; return 1; }
+  git -C "$REPO" merge-base --is-ancestor "$(cat "$RUN_DIR/server.harness-sha")" HEAD || { log "PIN FAIL server harness ancestry"; return 1; }
+  git -C "$REPO" merge-base --is-ancestor "$(cat "$RUN_DIR/daemon.harness-sha")" HEAD || { log "PIN FAIL daemon harness ancestry"; return 1; }
+  git -C "$REPO" diff --quiet "$(cat "$RUN_DIR/server.harness-sha")" HEAD -- . ':(exclude)docs/**' || { log "PIN FAIL post-spawn product drift"; return 1; }
 
   stamp="$(curl -fsS "http://127.0.0.1:$PORT/podium-build.json")"
   web_sha="$(printf '%s' "$stamp" | sed -n 's/.*"sourceSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"

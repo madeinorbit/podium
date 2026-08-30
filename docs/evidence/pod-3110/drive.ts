@@ -80,6 +80,9 @@ const CELL_ROOT = join(DRIVE_BASE, 'runs', RUN_TOKEN, 'cells')
 const RIG = join(import.meta.dir, 'rig.sh')
 const JSON_PATH = join(EVIDENCE_DIR, `grok.${PRODUCT_PIN}.${RUN_TOKEN}.${arm}.json`)
 const ROWS = join(EVIDENCE_DIR, `grok.${PRODUCT_PIN}.${RUN_TOKEN}.${arm}.candidate.tsv`)
+const REPO = join(import.meta.dir, '../../..')
+const LEDGER_REL = 'docs/plans/pod-1761-results.tsv'
+const LEDGER = join(REPO, LEDGER_REL)
 const REPLY_MS = 120_000
 const BIND_MS = 90_000
 const LONG_PROMPT =
@@ -175,18 +178,60 @@ function saveResults(): void {
 
 function field(value: unknown): string {
   return String(value ?? '').replace(/[\t\r\n]+/g, ' ').trim()
+function canonicalWhatId(id: string): string {
+  if (id === 'CLI-sync') return 'A6b CLI-sync'
+  if (id === 'A8-post-login') return 'A8 post-login'
+  if (id === 'B-provider-error') return 'A8 provider-error'
+  return id
 }
 
-function appendCandidateRow(cell: Cell): void {
+}
+
+function evidenceFields(cell: Cell): string[] {
   const driver = arm === 'headless' ? 'grok-acp' : 'generic-pty'
   const fields = [
-    `[single] ${cell.id} Grok paired final tip`, driver,
+    `[single] ${canonicalWhatId(cell.id)} Grok paired final tip run=${RUN_TOKEN}`, driver,
     `${cell.verdict} ${cell.summary}`, PRODUCT_PIN,
     `${cell.control.fired ? 'yes' : 'no'} — ${cell.control.what}: ${cell.control.detail}`,
     `yes — named ${INSTANCE}; sequential ${arm} arm; unique cwd ${cell.cwd}; no runtime override`,
     new Date(cell.at).toISOString().replace('T', ' ').replace('Z', ' UTC'), 'POD-3110',
   ].map(field)
   if (fields.length !== 8 || fields.some((value) => !value)) throw new Error(`refusing malformed evidence row for ${cell.id}`)
+  return fields
+}
+
+function validateLedger(text: string): void {
+  const malformed = text.split('\n').map((line, index) => ({ line, index: index + 1 }))
+    .filter(({ line }) => line && !line.startsWith('#') && line.split('\t').length !== 8)
+  if (malformed.length) throw new Error(`authoritative NF==8 refusal at lines ${malformed.map(({ index }) => index).join(',')}`)
+}
+
+function appendAuthoritativeRow(cell: Cell, fields: string[]): void {
+  if (!cell.control.fired || cell.verdict === 'BLOCKED') return
+  const prior = readFileSync(LEDGER, 'utf8')
+  validateLedger(prior)
+  const identity = `[single] ${canonicalWhatId(cell.id)} Grok paired final tip run=${RUN_TOKEN}`
+  if (prior.split('\n').some((line) => line.startsWith(`${identity}\t`) && line.endsWith('\tPOD-3110'))) {
+    throw new Error(`refusing duplicate POD-3110 run identity: ${identity}`)
+  }
+  const line = fields.join('\t')
+  validateLedger(`${prior}${prior.endsWith('\n') ? '' : '\n'}${line}\n`)
+  const cleanIndex = spawnSync('git', ['diff', '--cached', '--quiet'], { cwd: REPO })
+  if (cleanIndex.status !== 0) throw new Error('refusing authoritative append with a non-empty git index')
+  const lineCount = prior.endsWith('\n') ? prior.split('\n').length - 1 : prior.split('\n').length
+  const patch = `diff --git a/${LEDGER_REL} b/${LEDGER_REL}\n--- a/${LEDGER_REL}\n+++ b/${LEDGER_REL}\n@@ -${lineCount},0 +${lineCount + 1},1 @@\n+${line}\n`
+  const applied = spawnSync('git', ['apply', '--unidiff-zero', '-'], { cwd: REPO, input: patch, encoding: 'utf8' })
+  if (applied.status !== 0) throw new Error(`authoritative git apply failed: ${applied.stderr}`)
+  validateLedger(readFileSync(LEDGER, 'utf8'))
+  const added = spawnSync('git', ['add', LEDGER_REL], { cwd: REPO, encoding: 'utf8' })
+  if (added.status !== 0) throw new Error(`authoritative git add failed: ${added.stderr}`)
+  const committed = spawnSync('git', ['commit', '-m', `test(evidence): record Grok ${arm} ${cell.id} ${RUN_TOKEN}`, '-m', 'Podium-Issue: POD-3110'], { cwd: REPO, encoding: 'utf8' })
+  if (committed.status !== 0) throw new Error(`authoritative evidence commit failed: ${committed.stderr}`)
+  const after = readFileSync(LEDGER, 'utf8')
+  validateLedger(after)
+}
+
+function appendCandidateRow(cell: Cell, fields: string[]): void {
   const line = `${fields.join('\t')}\n`
   const prior = (() => { try { return readFileSync(ROWS, 'utf8') } catch { return '' } })()
   if (prior.includes(line)) throw new Error(`refusing duplicate evidence row for ${cell.id}`)
@@ -210,7 +255,9 @@ function record(id: string, prep: ReturnType<typeof preflight>, reading: CellRea
   }
   results.push(cell)
   saveResults()
-  appendCandidateRow(cell)
+  const fields = evidenceFields(cell)
+  appendCandidateRow(cell, fields)
+  appendAuthoritativeRow(cell, fields)
   console.log(`${id} ${arm} ${cell.verdict} control=${cell.control.fired ? 'FIRED' : 'MISSING'} — ${cell.summary}`)
   if (cell.verdict !== 'PASS') throw new Error(`STOP-FIRST ${id} ${cell.verdict}: ${cell.summary}`)
 }
