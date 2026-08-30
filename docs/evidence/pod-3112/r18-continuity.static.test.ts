@@ -174,6 +174,8 @@ describe('r18 continuity selector contract', () => {
     const continuation = orchestration.indexOf('if [ "$MODE" = continue-a7b ]')
     const livenessFence = orchestration.indexOf('runner_alive ||', continuation)
     const release = orchestration.indexOf('touch "$BASE/a7a-continue"', livenessFence)
+    const completion = orchestration.indexOf('runner_alive || { verify_a7b; exit $?; }', release)
+    const passSentinel = orchestration.indexOf('A7B_PASS_CONTROLLED', completion)
 
     expect(launch).toBeGreaterThan(-1)
     expect(absoluteBun).toBeGreaterThan(launch)
@@ -183,7 +185,15 @@ describe('r18 continuity selector contract', () => {
     expect(continuation).toBeGreaterThan(-1)
     expect(livenessFence).toBeGreaterThan(continuation)
     expect(release).toBeGreaterThan(livenessFence)
+    expect(completion).toBeGreaterThan(release)
+    expect(passSentinel).toBeGreaterThan(completion)
     expect(orchestration).toContain('refusing: detached r18 runner absent')
+    expect(orchestration).toContain('refusing: A7b reading absent after runner exit')
+    expect(orchestration).toContain('x.get("verdict")=="PASS"')
+    expect(orchestration).toContain('a.get("verdict")=="PASS"')
+    expect(orchestration).toContain('views.get("native") is True')
+    expect(orchestration).toContain('recall.get("remembered") is True')
+    expect(orchestration).not.toContain('runner_alive || { cat "$BASE/r18-run.log"; exit 0; }')
   })
 
   test('releases the Native viewer before hibernation and resurrection', () => {
