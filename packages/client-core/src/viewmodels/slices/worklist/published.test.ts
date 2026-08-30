@@ -83,6 +83,33 @@ function orderOf(store: Store): string[] {
   return (repo?.worktrees[0]?.sessions ?? []).map((s) => String(s.sessionId))
 }
 
+describe('POD-3120 published repositories survive daemon rebind ordering', () => {
+  it('keeps a server-authorized repository when a stale machine event omits its daemon', () => {
+    const store = {
+      repos: [
+        {
+          path: '/dummy-repo',
+          kind: 'repository',
+          branch: 'main',
+          machineId: 'restarted-daemon',
+          worktrees: [],
+        },
+      ],
+      // machinesChanged is an independent stream from the refresh response. It
+      // may temporarily carry an older non-empty snapshot after daemon rebind.
+      machines: [{ id: 'coordinator', name: 'coordinator', online: true, use: 'granted' }],
+      sessions: [],
+      pins: { panels: [], worktrees: [], repos: [] },
+      issues: [],
+      coarseNow: NOON,
+    } as unknown as Store
+
+    expect(worklistSlice.derive(store).sections.repos.map((repo) => repo.path)).toEqual([
+      '/dummy-repo',
+    ])
+  })
+})
+
 describe('POD-331 published worklist slice — the clock is an INPUT, not an ambient read', () => {
   // `snoozed` is de-emphasised below `awake` while the snooze holds, and sorts
   // back above it once the deadline passes. Recency is identical between the
