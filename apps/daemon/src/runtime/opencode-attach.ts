@@ -147,6 +147,9 @@ export const WARM_TTL_MS = 30 * 60_000
  */
 const DEFAULT_GEOMETRY: Geometry = { cols: 120, rows: 40 }
 
+export const CLIENT_TERMINAL_INPUT_MAX_MESSAGES = 64
+export const CLIENT_TERMINAL_INPUT_MAX_BYTES = 256 * 1024
+
 /** Cursor home, clear screen, clear scrollback: the anchor a cold-started client
  *  terminal draws onto. Matches the server's `SCREEN_RESET`, so it also truncates
  *  the replay log the next attach rebuilds from. */
@@ -332,6 +335,12 @@ export interface OpencodeClientTerminalPorts {
   clearTimer?(handle: unknown): void
 }
 
+interface ClientTerminalGeneration {
+  acceptingInput: boolean
+  pendingInput: Uint8Array[]
+  pendingBytes: number
+}
+
 interface Attachment {
   streamId: string
   label: string
@@ -344,6 +353,8 @@ interface Attachment {
   session?: AgentSession
   /** In-flight start, so two concurrent attaches produce ONE client. */
   starting?: Promise<AgentSession>
+  /** The one Native generation allowed to accept input. Replaced on every start. */
+  generation?: ClientTerminalGeneration
   timer?: unknown
   /** Does a client have this session open? Drives the idle clock, and keeps a
    *  watched terminal out of the reclaim inventory. */
@@ -575,16 +586,14 @@ export function createOpencodeClientTerminals(
      * new generation follows its anchor. The pair also matches the server's
      * reset test, so the replay log re-anchors with the browser.
      */
-    if (!session.adopted)
-      ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
+    if (!session.adopted) ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
     session.onFrame((frame) => ports.frames(record.streamId, frame.data))
-    record.session = session
     session.onExit(() => {
       // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. abduco's master (and the
       // TUI inside it) survives a client that was disposed, crashed or was killed
       // by a redeploy — that survival is what "warm" means. Drop the handle and
       // let the next attach reconnect; the reaper still owns the deadline.
-      record.session = undefined
+      if (record.session === session) record.session = undefined
     })
     /**
      * SUBSCRIBE, THEN REPLAY THE ATTACH-TIME REDRAW.
@@ -606,6 +615,11 @@ export function createOpencodeClientTerminals(
 
   async function close(sessionId: SessionId, kind?: ClientTerminalKind): Promise<void> {
     const record = attachments.get(sessionId)
+    if (record?.generation) {
+      record.generation.acceptingInput = false
+      record.generation.pendingInput = []
+      record.generation.pendingBytes = 0
+    }
     attachments.delete(sessionId)
     if (record) {
       disarm(record)
@@ -642,6 +656,12 @@ export function createOpencodeClientTerminals(
    */
   async function release(sessionId: SessionId): Promise<void> {
     const record = attachments.get(sessionId)
+    if (record?.generation) {
+      // Revoke BEFORE awaiting a start: input racing this release must refuse.
+      record.generation.acceptingInput = false
+      record.generation.pendingInput = []
+      record.generation.pendingBytes = 0
+    }
     if (!record || clientTerminalFor(record.kind)?.parkOnRelease !== true) {
       await close(sessionId)
       return
@@ -661,6 +681,9 @@ export function createOpencodeClientTerminals(
         // the client never started: there is nothing attached to park
       }
     }
+    // A rejected start may have removed this exact generation while release was awaiting it.
+    // Never park or arm a record that no longer owns the session id.
+    if (attachments.get(sessionId) !== record) return
     const client = record.session
     // Cleared BEFORE the dispose, so no input, resize or redraw can find a
     // handle that is on its way out.
@@ -698,38 +721,51 @@ export function createOpencodeClientTerminals(
       // master behind if the caller gives up on it.
       arm(sessionId, record)
       if (!record.session) {
-        const pending = record.starting ?? start(record, target)
-        record.starting = pending
+        let generation = record.generation
+        let pending = record.starting
+        if (!pending) {
+          generation = { acceptingInput: true, pendingInput: [], pendingBytes: 0 }
+          record.generation = generation
+          pending = start(record, target)
+          record.starting = pending
+        }
+        if (!generation) throw new Error('client terminal start lost its generation')
         let started: AgentSession
         try {
           started = await pending
         } catch (err) {
-          // A client that never started is not an attachment. Drop the record so
-          // the next attach retries rather than handing back a stream that
-          // carries nothing, and let the caller turn this into the refusal.
-          if (attachments.get(sessionId) === record) {
+          if (attachments.get(sessionId) === record && record.generation === generation) {
+            generation.acceptingInput = false
+            generation.pendingInput = []
+            generation.pendingBytes = 0
+            record.generation = undefined
             disarm(record)
             attachments.delete(sessionId)
           }
           throw err
         } finally {
-          record.starting = undefined
+          if (record.starting === pending) record.starting = undefined
         }
-        /**
-         * EVICTED WHILE STARTING — the rare case that would otherwise leak.
-         *
-         * `close()` (the reaper, or the session going away) can land between the
-         * spawn being issued and its client coming back. The record it deleted
-         * cannot be resurrected: its reclaim already SIGTERMed the master this
-         * spawn was about to hand back. So take the process down rather than
-         * return a stream to a client nothing is tracking, and let the caller
-         * ask again.
-         */
-        if (attachments.get(sessionId) !== record) {
+        const current =
+          attachments.get(sessionId) === record &&
+          record.generation === generation &&
+          generation.acceptingInput
+        if (!current) {
           started.dispose()
-          await reclaim(record.label)
-          throw new Error('the client terminal was closed while it was starting')
+          const replacement = attachments.get(sessionId)
+          const replaced = replacement !== record
+          if (replacement === undefined) await reclaim(record.label)
+          throw new Error(
+            replaced
+              ? 'the client terminal was closed while it was starting'
+              : 'the client terminal generation was revoked while it was starting',
+          )
         }
+        record.session = started
+        const buffered = generation.pendingInput
+        generation.pendingInput = []
+        generation.pendingBytes = 0
+        for (const data of buffered) started.writeBytes(data)
       }
       return { streamId: record.streamId, warmTtlMs }
     },
@@ -771,9 +807,22 @@ export function createOpencodeClientTerminals(
     },
 
     input(sessionId, data) {
-      const session = attachments.get(sessionId)?.session
-      if (!session) return false
-      session.writeBytes(data)
+      const record = attachments.get(sessionId)
+      const generation = record?.generation
+      if (!record || !generation?.acceptingInput) return false
+      if (record.session) {
+        record.session.writeBytes(data)
+        return true
+      }
+      if (!record.starting) return false
+      if (
+        generation.pendingInput.length >= CLIENT_TERMINAL_INPUT_MAX_MESSAGES ||
+        generation.pendingBytes + data.byteLength > CLIENT_TERMINAL_INPUT_MAX_BYTES
+      )
+        return false
+      const copy = Uint8Array.from(data)
+      generation.pendingInput.push(copy)
+      generation.pendingBytes += copy.byteLength
       return true
     },
 

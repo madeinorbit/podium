@@ -29,6 +29,8 @@ import {
   clientTerminalLabel,
   codexAttachLabel,
   createOpencodeClientTerminals,
+  CLIENT_TERMINAL_INPUT_MAX_BYTES,
+  CLIENT_TERMINAL_INPUT_MAX_MESSAGES,
   grokAttachLabel,
   opencodeAttachLabel,
   WARM_TTL_MS,
@@ -283,9 +285,7 @@ describe('the client terminal a server-family attach produces', () => {
     const paint = 'paint'
     const { terminals, state } = harness({ subscribeFrame: paint })
     await terminals.attach({ sessionId: SESSION, target })
-    const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data).toString('latin1'),
-    )
+    const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
     expect(decoded[0]).toContain('\x1b[2J')
     expect(decoded[0]).toContain('\x1b[3J')
     expect(decoded.indexOf('paint')).toBeGreaterThan(0)
@@ -299,6 +299,27 @@ describe('the client terminal a server-family attach produces', () => {
     expect(state.frames).toEqual([])
   })
 
+  it('clears buffered input when client launch fails', async () => {
+    let failSpawn: ((error: Error) => void) | undefined
+    const spawned = new Promise<AgentSession>((_resolve, reject) => {
+      failSpawn = reject
+    })
+    const terminals = createOpencodeClientTerminals({
+      frames: () => {},
+      spawn: async () => spawned,
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+    const attaching = terminals.attach({ sessionId: SESSION, target })
+
+    expect(terminals.input(SESSION, Buffer.from('do not replay'))).toBe(true)
+    failSpawn?.(new Error('launch failed'))
+    await expect(attaching).rejects.toThrow('launch failed')
+    expect(terminals.input(SESSION, Buffer.from('after failure'))).toBe(false)
+  })
+
   it('re-anchors on EVERY generation, which is the one the duplicate came from', async () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
@@ -306,9 +327,7 @@ describe('the client terminal a server-family attach produces', () => {
     await terminals.close(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
     state.clients[1]?.emit('second')
-    const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data).toString('latin1'),
-    )
+    const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
     const resets = decoded.filter((data) => data.includes('\x1b[2J') && data.includes('\x1b[3J'))
     expect(resets).toHaveLength(2)
     // The second client's paint follows the second reset, so nothing of the first
@@ -375,7 +394,9 @@ describe('the client terminal a server-family attach produces', () => {
       // is decided on.
       hasMaster: () => adopted,
       adopted,
-      priorFrames: adopted ? [{ streamId: SESSION, data: Buffer.from(priorHistory, 'latin1') }] : [],
+      priorFrames: adopted
+        ? [{ streamId: SESSION, data: Buffer.from(priorHistory, 'latin1') }]
+        : [],
     })
 
     if (adopted) {
@@ -394,9 +415,7 @@ describe('the client terminal a server-family attach produces', () => {
     // client gets a reset before its first observable paint; an adopted
     // master already owns a running TUI and browser history: its viewport redraw
     // follows that history without a scrollback-clearing reset between them.
-    const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data).toString('latin1'),
-    )
+    const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
     const resets = decoded.filter((data) => data.includes('\x1b[2J') && data.includes('\x1b[3J'))
     expect(resets).toHaveLength(adopted ? 0 : 1)
     if (adopted) {
@@ -436,9 +455,7 @@ describe('the client terminal a server-family attach produces', () => {
 
     await terminals.attach({ sessionId: SESSION, target })
 
-    const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data).toString('latin1'),
-    )
+    const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
     // A reset here is destructive, not cosmetic: `[3J` drops the surviving TUI's
     // scrollback from the browser AND the replay log, and the reattach's resize
     // redraw brings back only the viewport. The history must survive untouched.
@@ -459,9 +476,7 @@ describe('the client terminal a server-family attach produces', () => {
 
     await terminals.attach({ sessionId: SESSION, target })
 
-    const decoded = state.frames.map((frame) =>
-      Buffer.from(frame.data).toString('latin1'),
-    )
+    const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
     expect(decoded.filter((data) => data.includes('\x1b[3J'))).toHaveLength(1)
     expect(decoded[0]).toContain('\x1b[3J')
   })
@@ -476,6 +491,113 @@ describe('the client terminal a server-family attach produces', () => {
     expect(state.clients[0]?.sizes).toEqual([{ cols: 101, rows: 37 }])
     expect(state.clients[0]?.redraws).toBe(2)
     expect(terminals.input(asSessionId('not-attached'), Buffer.from('x'))).toBe(false)
+  })
+
+  it('preserves first input that arrives while the visible client is still attaching', async () => {
+    let finishSpawn: ((client: AgentSession) => void) | undefined
+    const spawned = new Promise<AgentSession>((resolve) => {
+      finishSpawn = resolve
+    })
+    const client = fakeClient()
+    const terminals = createOpencodeClientTerminals({
+      frames: () => {},
+      spawn: async () => spawned,
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+
+    const attaching = terminals.attach({ sessionId: SESSION, target })
+    // The native request exists and its client is starting, but no writable
+    // handle exists yet. This was false, so dispatchInputBytes silently lost
+    // the first prompt even though startup output could already be visible.
+    expect(terminals.input(SESSION, Buffer.from('first prompt\r'))).toBe(true)
+    expect(client.writes).toEqual([])
+
+    finishSpawn?.(client)
+    await attaching
+
+    expect(client.writes).toEqual(['first prompt\r'])
+  })
+
+  it('drains multiple attaching chunks once in exact order', async () => {
+    let finishSpawn: ((client: AgentSession) => void) | undefined
+    const spawned = new Promise<AgentSession>((resolve) => {
+      finishSpawn = resolve
+    })
+    const client = fakeClient()
+    const terminals = createOpencodeClientTerminals({
+      frames: () => {},
+      spawn: async () => spawned,
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+    const attaching = terminals.attach({ sessionId: SESSION, target })
+
+    expect(terminals.input(SESSION, Buffer.from('one'))).toBe(true)
+    expect(terminals.input(SESSION, Buffer.from('two'))).toBe(true)
+    finishSpawn?.(client)
+    await attaching
+    expect(terminals.input(SESSION, Buffer.from('three'))).toBe(true)
+
+    expect(client.writes).toEqual(['one', 'two', 'three'])
+  })
+
+  it('refuses attaching input atomically at the byte bound', async () => {
+    let finishSpawn: ((client: AgentSession) => void) | undefined
+    const spawned = new Promise<AgentSession>((resolve) => {
+      finishSpawn = resolve
+    })
+    const client = fakeClient()
+    const terminals = createOpencodeClientTerminals({
+      frames: () => {},
+      spawn: async () => spawned,
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+    const attaching = terminals.attach({ sessionId: SESSION, target })
+    const accepted = Buffer.alloc(CLIENT_TERMINAL_INPUT_MAX_BYTES, 7)
+
+    expect(terminals.input(SESSION, accepted)).toBe(true)
+    accepted.fill(9)
+    expect(terminals.input(SESSION, Buffer.from('overflow'))).toBe(false)
+    finishSpawn?.(client)
+    await attaching
+
+    expect(client.writes).toEqual([Buffer.alloc(CLIENT_TERMINAL_INPUT_MAX_BYTES, 7).toString()])
+  })
+
+  it('refuses attaching input atomically at the message bound', async () => {
+    let finishSpawn: ((client: AgentSession) => void) | undefined
+    const spawned = new Promise<AgentSession>((resolve) => {
+      finishSpawn = resolve
+    })
+    const client = fakeClient()
+    const terminals = createOpencodeClientTerminals({
+      frames: () => {},
+      spawn: async () => spawned,
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+    const attaching = terminals.attach({ sessionId: SESSION, target })
+
+    for (let index = 0; index < CLIENT_TERMINAL_INPUT_MAX_MESSAGES; index += 1) {
+      expect(terminals.input(SESSION, Buffer.from(String(index)))).toBe(true)
+    }
+    expect(terminals.input(SESSION, Buffer.from('overflow'))).toBe(false)
+    finishSpawn?.(client)
+    await attaching
+
+    expect(client.writes).toEqual(
+      Array.from({ length: CLIENT_TERMINAL_INPUT_MAX_MESSAGES }, (_, index) => String(index)),
+    )
   })
 
   /**
@@ -647,11 +769,46 @@ describe('warm-parking', () => {
       clearTimer: () => {},
     })
     const attaching = terminals.attach({ sessionId: SESSION, target })
+    expect(terminals.input(SESSION, Buffer.from('stale close input'))).toBe(true)
     await terminals.close(SESSION)
+    expect(terminals.input(SESSION, Buffer.from('after close'))).toBe(false)
     release?.()
     await expect(attaching).rejects.toThrow(/closed while it was starting/)
     expect(clients[0]?.disposed).toBe(true)
+    expect(clients[0]?.writes).toEqual([])
     expect(reclaimed).toEqual([opencodeAttachLabel(SESSION), opencodeAttachLabel(SESSION)])
+  })
+
+  it('never drains a stale completion into a replacement generation', async () => {
+    const resolvers: Array<(client: AgentSession) => void> = []
+    const clients = [fakeClient(), fakeClient()]
+    const terminals = createOpencodeClientTerminals({
+      frames: () => {},
+      spawn: async () =>
+        new Promise<AgentSession>((resolve) => {
+          resolvers.push(resolve)
+        }),
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+
+    const staleAttach = terminals.attach({ sessionId: SESSION, target })
+    await vi.waitFor(() => expect(resolvers).toHaveLength(1))
+    expect(terminals.input(SESSION, Buffer.from('stale'))).toBe(true)
+    await terminals.close(SESSION)
+
+    const currentAttach = terminals.attach({ sessionId: SESSION, target })
+    await vi.waitFor(() => expect(resolvers).toHaveLength(2))
+    expect(terminals.input(SESSION, Buffer.from('current'))).toBe(true)
+    resolvers[0]?.(clients[0] as AgentSession)
+    await expect(staleAttach).rejects.toThrow(/closed while it was starting/)
+    resolvers[1]?.(clients[1] as AgentSession)
+    await currentAttach
+
+    expect(clients[0]?.writes).toEqual([])
+    expect(clients[1]?.writes).toEqual(['current'])
   })
 
   /**
@@ -789,13 +946,63 @@ describe('warm-parking', () => {
     })
 
     const attaching = terminals.attach({ sessionId: SESSION, target })
+    expect(terminals.input(SESSION, Buffer.from('stale first prompt'))).toBe(true)
     const parking = terminals.release(SESSION)
+    expect(terminals.input(SESSION, Buffer.from('after release began'))).toBe(false)
     release?.()
-    await attaching
+    await expect(attaching).rejects.toThrow(/generation was revoked/)
     await parking
 
     expect(clients[0]?.disposed).toBe(true)
+    expect(clients[0]?.writes).toEqual([])
     expect(terminals.input(SESSION, Buffer.from('hello'))).toBe(false)
+  })
+
+  it('does not arm a deleted generation when a pending start rejects during release', async () => {
+    let rejectStart: ((reason: Error) => void) | undefined
+    const firstStart = new Promise<never>((_resolve, reject) => {
+      rejectStart = reject
+    })
+    const clients: ReturnType<typeof fakeClient>[] = []
+    const frames: { streamId: string; data: Uint8Array }[] = []
+    let spawnCount = 0
+    let armed = 0
+    let cleared = 0
+    const terminals = createOpencodeClientTerminals({
+      frames: (streamId, data) => frames.push({ streamId, data }),
+      spawn: async () => {
+        spawnCount += 1
+        if (spawnCount === 1) return await firstStart
+        const client = fakeClient()
+        clients.push(client)
+        return client
+      },
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => ++armed,
+      clearTimer: () => {
+        cleared += 1
+      },
+    })
+
+    const attaching = terminals.attach({ sessionId: SESSION, target })
+    expect(terminals.input(SESSION, Buffer.from('before release'))).toBe(true)
+    const parking = terminals.release(SESSION)
+    expect(terminals.input(SESSION, Buffer.from('after release began'))).toBe(false)
+    rejectStart?.(new Error('start rejected'))
+
+    await expect(attaching).rejects.toThrow('start rejected')
+    await parking
+    expect(terminals.reclaimable()).toBe(0)
+    expect(terminals.input(SESSION, Buffer.from('after rejection'))).toBe(false)
+    expect(armed).toBe(1)
+    expect(cleared).toBe(1)
+    expect(frames).toEqual([])
+
+    await terminals.attach({ sessionId: SESSION, target })
+    expect(spawnCount).toBe(2)
+    expect(terminals.input(SESSION, Buffer.from('clean generation'))).toBe(true)
+    expect(clients[0]?.writes).toEqual(['clean generation'])
   })
 
   it('reaps the client when the warm window closes', async () => {
