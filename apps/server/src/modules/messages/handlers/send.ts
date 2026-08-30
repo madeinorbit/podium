@@ -79,14 +79,17 @@ export async function sendHandler(
         })
   // Keep the legacy `queued` boolean consistent with the FINAL (post-blocking)
   // disposition [POD-854]: blocking upgraded a busy-held `queued` sync send to
-  // `delivered`, so it must not still report `queued: true` alongside it.
+  // `delivered`, so it must not still report `queued: true` alongside it. The
+  // enqueue-time position is the same stale claim in numeric form: once the
+  // blocking boundary confirms delivery, reload projects no queued position.
   const queued = r.queued === true && r.disposition === 'delivered' ? false : r.queued
+  const position = r.disposition === 'delivered' ? undefined : r.position
   return {
     id: r.message.id,
     ok: r.ok,
     ...(queued !== undefined ? { queued } : {}),
     ...(r.reason !== undefined ? { reason: r.reason } : {}),
-    ...(r.position !== undefined ? { position: r.position } : {}),
+    ...(position !== undefined ? { position } : {}),
     // The honest, sender-facing outcome [POD-834]: held / dead_letter are never
     // hidden behind a bare "queued" success.
     disposition: r.disposition,

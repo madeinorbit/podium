@@ -979,7 +979,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
     expect(t).toBeGreaterThanOrEqual(26_000)
   })
 
-  it('clears the stale queued flag when blocking upgrades a busy send to delivered', async () => {
+  it('clears stale queue metadata when blocking upgrades a busy send to delivered', async () => {
     const sessions = [
       target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } }),
     ]
@@ -998,9 +998,14 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
       to: 's1',
       body: 'x',
       urgency: 'next-turn',
-    })) as { disposition: string; queued?: boolean }
+    })) as { id: string; disposition: string; queued?: boolean; position?: number }
     expect(r.disposition).toBe('delivered')
     expect(r.queued).not.toBe(true)
+    expect(r).not.toHaveProperty('position')
+    // The durable row is the reload projection's source of truth. Once the
+    // boundary confirms it, a fresh lookup agrees that no queued position remains.
+    expect(svc.message(r.id)).toMatchObject({ status: 'delivered' })
+    expect(svc.message(r.id)).not.toHaveProperty('queuePosition')
   })
 
   it('an fyi send returns at queued without blocking', async () => {
