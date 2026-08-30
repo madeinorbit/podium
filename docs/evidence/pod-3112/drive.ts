@@ -539,7 +539,7 @@ async function runA1b() {
     )
     const queuedValue = payloadObject?.queued
     const disposition = payloadObject?.disposition
-    const stillQueued = queuedValue === true && disposition === 'queued' && (finalPayloadHasPosition || historicalPositionObserved)
+    const stillQueued = queuedValue === true && disposition === 'queued' && finalPayloadHasPosition
     const blockingDelivered = queuedValue !== true && disposition === 'delivered' && !finalPayloadHasPosition
     const finalStateConsistent = stillQueued || blockingDelivered
     const survivedReload = secondUser.ok && secondAssistant.ok
