@@ -355,6 +355,14 @@ interface Attachment {
   starting?: Promise<AgentSession>
   /** The one Native generation allowed to accept input. Replaced on every start. */
   generation?: ClientTerminalGeneration
+  /**
+   * The browser's full-replay attach asks for one redraw after receiving the
+   * retained byte log. An adopted master must acknowledge that request without
+   * forwarding it: its viewport-clearing repaint would replace the replay that
+   * still contains older Native content. Consumed once, so later explicit
+   * redraws remain real.
+   */
+  suppressNextReplayRedraw?: boolean
   timer?: unknown
   /** Does a client have this session open? Drives the idle clock, and keeps a
    *  watched terminal out of the reclaim inventory. */
@@ -593,7 +601,10 @@ export function createOpencodeClientTerminals(
       // TUI inside it) survives a client that was disposed, crashed or was killed
       // by a redeploy — that survival is what "warm" means. Drop the handle and
       // let the next attach reconnect; the reaper still owns the deadline.
-      if (record.session === session) record.session = undefined
+      if (record.session === session) {
+        record.session = undefined
+        if (session.adopted) record.suppressNextReplayRedraw = true
+      }
     })
     /**
      * SUBSCRIBE, THEN REPLAY THE ATTACH-TIME REDRAW.
@@ -786,6 +797,7 @@ export function createOpencodeClientTerminals(
         label,
         kind,
         watched: watchedSessions.has(sessionId),
+        suppressNextReplayRedraw: true,
       }
       attachments.set(sessionId, record)
       arm(sessionId, record)
@@ -839,7 +851,12 @@ export function createOpencodeClientTerminals(
     },
 
     redraw(sessionId) {
-      const session = attachments.get(sessionId)?.session
+      const record = attachments.get(sessionId)
+      if (record?.suppressNextReplayRedraw) {
+        record.suppressNextReplayRedraw = false
+        return true
+      }
+      const session = record?.session
       if (!session) return false
       session.redraw()
       return true

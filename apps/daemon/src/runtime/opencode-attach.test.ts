@@ -441,25 +441,30 @@ describe('the client terminal a server-family attach produces', () => {
    * written while the fixture drove the same port the discriminator read: the
    * fake was always self-consistent, so the divergence had nowhere to appear.
    */
-  it('withholds the reset when the SPAWN adopted, even where a label probe is blind', async () => {
+  it('acknowledges one browser replay redraw after daemon adoption without repainting', async () => {
     const priorHistory = 'older scrollback'
     const { terminals, state } = harness({
       redrawFrame: '\x1b[2Jcodex ready',
-      // The live master is invisible to a probe reading the wrong socket root —
-      // exactly what the default `hasMaster` did to an agent home.
-      hasMaster: () => false,
+      hasMaster: () => true,
       adopted: true,
       priorFrames: [{ streamId: SESSION, data: Buffer.from(priorHistory, 'latin1') }],
     })
 
+    terminals.adopt(SESSION)
     await terminals.attach({ sessionId: SESSION, target })
+    // SessionTerminal performs this nudge after replaying retained bytes to a
+    // newly attached browser. Adoption must ACK it without a TUI repaint.
+    expect(terminals.redraw(SESSION)).toBe(true)
+    expect(state.clients[0]?.redraws).toBe(0)
 
     const decoded = state.frames.map((frame) => Buffer.from(frame.data).toString('latin1'))
-    // Any output here is destructive: the adopted TUI's redraw clears and
-    // repaints only its current viewport, losing the prior Native marker even
-    // without a scrollback-clearing generation reset.
     expect(decoded.filter((data) => data.includes('\x1b[3J'))).toEqual([])
     expect(decoded).toEqual(['older scrollback'])
+
+    // Deleting the fence fails above; leaving it armed forever fails this later
+    // explicit redraw.
+    expect(terminals.redraw(SESSION)).toBe(true)
+    expect(state.clients[0]?.redraws).toBe(1)
   })
 
   it('emits the reset when the spawn CREATED, even though a master existed a moment earlier', async () => {
