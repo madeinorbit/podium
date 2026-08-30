@@ -88,6 +88,13 @@ export interface SideCache {
   dispose(): void
 }
 
+/** Hot transcript shards may be coalesced by async storage adapters. The index
+ * is deliberately excluded: it is the commit record for shard membership and
+ * must keep its order relative to shard writes and evictions. */
+export function isTranscriptWindowStorageKey(key: string): boolean {
+  return key.includes('.transcript-window.v2.')
+}
+
 /** Never throws: a poisoned or foreign blob reads as empty, like the legacy
  *  replica's loader (spec invariant 2). */
 function readJson<T>(storage: StorageApi, key: string, fallback: T): T {
@@ -273,7 +280,10 @@ export function createSideCache(init: SideCacheInit): SideCache {
   const prefix = init.keyPrefix ?? 'podium.kernel-replica'
   const now = init.now ?? (() => Date.now())
   const uiKey = `${prefix}.uistate.v1`
-  const transcriptKey = `${prefix}.transcripts.v1`
+  const legacyTranscriptKey = `${prefix}.transcripts.v1`
+  const transcriptIndexKey = `${prefix}.transcripts-index.v2`
+  const transcriptWindowKey = (conversationKey: string) =>
+    `${prefix}.transcript-window.v2.${encodeURIComponent(conversationKey)}`
   const outboxKey = `${prefix}.outbox.v1`
   const awaitingKey = `${prefix}.outbox-awaiting.v1`
   // POD-316: parked entries. A THIRD key old builds never read, for the same
@@ -367,7 +377,47 @@ export function createSideCache(init: SideCacheInit): SideCache {
   }
 
   // ---- transcript windows (bounded, LRU) ---------------------------------
-  const transcripts = readJson<Record<string, TranscriptWindow>>(storage, transcriptKey, {})
+  //
+  // v1 rewrote one blob containing as many as 10,000 transcript items for each
+  // live delta. v2 keeps the same cache and caps, but stores one bounded window
+  // per conversation. The small index is oldest-to-newest LRU order.
+  //
+  // Migration is lazy and loss-tolerant. Until v2's index exists, the v1 blob
+  // is the source. Once the index exists, an indexed conversation without a v2
+  // shard falls back to its v1 window. This lets the first v2 write establish
+  // membership without rewriting all 50 windows, and leaves the old recovery
+  // copy intact if a best-effort shard write fails.
+  const legacyTranscripts = readJson<Record<string, TranscriptWindow>>(
+    storage,
+    legacyTranscriptKey,
+    {},
+  )
+  const storedTranscriptIndex = readJson<unknown>(storage, transcriptIndexKey, null)
+  const hasTranscriptIndex =
+    Array.isArray(storedTranscriptIndex) &&
+    storedTranscriptIndex.every((key) => typeof key === 'string')
+  let transcriptIndexPersisted = hasTranscriptIndex
+  const initialTranscriptKeys = hasTranscriptIndex
+    ? (storedTranscriptIndex as string[])
+    : Object.keys(legacyTranscripts).sort(
+        (a, b) => (legacyTranscripts[a]?.savedAt ?? 0) - (legacyTranscripts[b]?.savedAt ?? 0),
+      )
+  const transcriptLru = initialTranscriptKeys.slice(-REPLICA_TRANSCRIPT_CONVERSATION_CAP)
+  const transcripts: Record<string, TranscriptWindow> = {}
+  for (const conversationKey of transcriptLru) {
+    const window = readJson<TranscriptWindow | null>(
+      storage,
+      transcriptWindowKey(conversationKey),
+      null,
+    )
+    const recovered = window ?? legacyTranscripts[conversationKey]
+    if (recovered !== undefined) transcripts[conversationKey] = recovered
+  }
+
+  const writeTranscriptIndex = (): void => {
+    writeJson(storage, transcriptIndexKey, transcriptLru)
+    transcriptIndexPersisted = true
+  }
 
   // ---- outbox storage ----------------------------------------------------
   //
@@ -431,18 +481,26 @@ export function createSideCache(init: SideCacheInit): SideCache {
         items: items.slice(-REPLICA_TRANSCRIPT_ITEM_CAP),
         savedAt: now(),
       }
-      // LRU by write time — the same cap and the same eviction order as the
-      // legacy path, so a flag flip does not change how much is cached.
-      const keys = Object.keys(transcripts)
-      if (keys.length > REPLICA_TRANSCRIPT_CONVERSATION_CAP) {
-        const byAge = keys.sort(
-          (a, b) => (transcripts[a]?.savedAt ?? 0) - (transcripts[b]?.savedAt ?? 0),
-        )
-        for (const stale of byAge.slice(0, keys.length - REPLICA_TRANSCRIPT_CONVERSATION_CAP)) {
-          delete transcripts[stale]
+      writeJson(storage, transcriptWindowKey(conversationKey), transcripts[conversationKey])
+
+      // Move a touched conversation to the newest end. Repeated live updates
+      // for the already-newest conversation do not rewrite even the small
+      // index, so the async bridge sees one hot shard key to debounce.
+      const previousPosition = transcriptLru.indexOf(conversationKey)
+      const orderChanged = previousPosition !== transcriptLru.length - 1
+      if (previousPosition >= 0) transcriptLru.splice(previousPosition, 1)
+      transcriptLru.push(conversationKey)
+      while (transcriptLru.length > REPLICA_TRANSCRIPT_CONVERSATION_CAP) {
+        const stale = transcriptLru.shift()
+        if (stale === undefined) break
+        delete transcripts[stale]
+        try {
+          storage.removeItem(transcriptWindowKey(stale))
+        } catch {
+          // best-effort; the index makes an unremoved stale shard unreachable
         }
       }
-      writeJson(storage, transcriptKey, transcripts)
+      if (!transcriptIndexPersisted || orderChanged) writeTranscriptIndex()
     },
     outboxStorage: () => outboxAt(outboxKey),
     outboxAwaitingStorage: () => outboxAt(awaitingKey),
