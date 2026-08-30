@@ -15,18 +15,22 @@
  * instant the daemon speaks — whatever the daemon says.
  */
 import { asSessionId, type TranscriptItem } from '@podium/model'
-import { act, renderHook } from '@testing-library/react'
-import { createElement, type PropsWithChildren, StrictMode } from 'react'
+import { renderHook } from '@testing-library/react'
+import { act, createElement, StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
-import { type UseChatSendOptions, useChatSend } from './use-chat-send'
+import { type UseChatSendOptions, type UseChatSendResult, useChatSend } from './use-chat-send'
 
 const sendText = vi.fn(async () => ({ ok: true, disposition: 'accepted' }) as never)
 const REFUSED = new Error('offline')
 const ledger = vi.fn(async () => [] as never)
 
-function StrictModeBoundary({ children }: PropsWithChildren) {
-  return createElement(StrictMode, null, children)
+let strictModeResult: UseChatSendResult | null = null
+
+function StrictModeProbe({ options }: { options: UseChatSendOptions }) {
+  strictModeResult = useChatSend(options)
+  return null
 }
 
 /** The one field these tests vary; everything else is inert scaffolding. */
@@ -76,6 +80,7 @@ beforeEach(() => {
   sendText.mockClear()
   ledger.mockClear()
   ledger.mockResolvedValue([] as never)
+  strictModeResult = null
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -94,19 +99,34 @@ describe('useChatSend optimistic window', () => {
         injectedAt: null,
       },
     ] as never)
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
-      initialProps: opts(IDLE_SINCE),
-      wrapper: StrictModeBoundary,
-    })
-    await act(async () => {
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    try {
+      act(() => {
+        root.render(
+          createElement(
+            StrictMode,
+            null,
+            createElement(StrictModeProbe, { options: opts(IDLE_SINCE) }),
+          ),
+        )
+      })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
 
-    expect(ledger).toHaveBeenCalledTimes(2)
-    expect(result.current.queuedMessages.map((message) => message.id)).toEqual(['msg_strict'])
-    act(() => result.current.setDraft('after rehearsal'))
-    expect(result.current.draft).toBe('after rehearsal')
+      expect(ledger).toHaveBeenCalledTimes(2)
+      expect(strictModeResult?.queuedMessages.map((message) => message.id)).toEqual(['msg_strict'])
+      act(() => {
+        strictModeResult?.setDraft('after rehearsal')
+      })
+      expect(strictModeResult?.draft).toBe('after rehearsal')
+    } finally {
+      act(() => root.unmount())
+      container.remove()
+    }
   })
 
   it('seeds a fresh task with its first prompt and the moving send marker', () => {
@@ -217,9 +237,9 @@ describe('useChatSend optimistic window', () => {
     })
 
     expect(result.current.pending).toEqual([
-      expect.objectContaining({ text: 'keep this prompt', state: 'sending' }),
+      expect.objectContaining({ text: 'keep this prompt', state: 'queued' }),
       expect.objectContaining({ text: 'cancel this prompt', state: 'interrupted' }),
-      expect.objectContaining({ text: 'sent after the interrupt', state: 'sending' }),
+      expect.objectContaining({ text: 'sent after the interrupt', state: 'queued' }),
     ])
   })
 
