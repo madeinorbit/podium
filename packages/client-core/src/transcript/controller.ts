@@ -383,7 +383,10 @@ export class TranscriptController {
 
   private attachSubscription(since: string | undefined): void {
     if (this.disposed) return
-    this.unsubscribeTranscript?.()
+    // A refresh reconciles the held window but does not replace an intact live
+    // stream. Keeping one subscription avoids duplicate listeners on warm
+    // activation; stop/reset ownership still invalidates reads independently.
+    if (this.unsubscribeTranscript) return
     this.unsubscribeTranscript = this.options.source.subscribe(
       this.options.sessionId,
       since,
