@@ -34,15 +34,34 @@ cleanup_on_failure() {
   printf '%s\n' "failure cleanup completed for run $RUN_TOKEN (rc=$rc)" >&2
 }
 
+validate_dependency_link() {
+  local link="$1" target
+  [ -e "$link" ] || { log "PREFLIGHT FAIL missing workspace link $link" >&2; return 1; }
+  target="$(readlink -f "$link")"
+  case "$target" in
+    "$REPO"/*) ;;
+    *) log "PREFLIGHT FAIL workspace link escapes checkout: $link -> $target" >&2; return 1 ;;
+  esac
+}
+
 validate_dependencies() {
   [ "$(sha256sum "$REPO/bun.lock" | awk '{print $1}')" = a1acc741d62d99b4146d5989a06a50ce494a9e93219b59e49af3ac4307430791 ] || { log "PREFLIGHT FAIL bun.lock hash" >&2; return 1; }
   [ -d "$REPO/node_modules" ] && [ ! -L "$REPO/node_modules" ] || { log "PREFLIGHT FAIL root node_modules must be a real checkout-local directory" >&2; return 1; }
-  local link target
-  for link in "$REPO/node_modules/@podium/runtime" "$REPO/node_modules/@podium/model"; do
-    [ -e "$link" ] || { log "PREFLIGHT FAIL missing workspace link $link; run setup:worktree before launch" >&2; return 1; }
-    target="$(readlink -f "$link")"
-    case "$target" in "$REPO"/*) ;; *) log "PREFLIGHT FAIL workspace link escapes checkout: $link -> $target" >&2; return 1 ;; esac
+  local link
+  for link in "$REPO/apps/server/node_modules/@podium/runtime" "$REPO/apps/server/node_modules/@podium/model" "$REPO/apps/daemon/node_modules/@podium/runtime" "$REPO/apps/daemon/node_modules/@podium/model" "$REPO/apps/daemon/node_modules/@podium/agent-runtime"; do
+    validate_dependency_link "$link"
   done
+}
+
+static_self_test() {
+  local missing="$RUN_DIR/static-missing-link" escaping="$RUN_DIR/static-escaping-link"
+  [ ! -e "$missing" ] || { log "STATIC SELF TEST fixture collision: $missing" >&2; return 1; }
+  validate_dependency_link "$missing" >/dev/null 2>&1 && { log "STATIC SELF TEST missing link was accepted" >&2; return 1; }
+  [ ! -e "$escaping" ] || { log "STATIC SELF TEST fixture collision: $escaping" >&2; return 1; }
+  ln -s /tmp "$escaping"
+  if validate_dependency_link "$escaping" >/dev/null 2>&1; then rm -f "$escaping"; log "STATIC SELF TEST escaping link was accepted" >&2; return 1; fi
+  rm -f "$escaping"
+  log "RIG_STATIC_SELF_TEST_OK missing=refused escaping=refused"
 }
 
 validate_immutable_inputs() {
@@ -56,7 +75,7 @@ validate_immutable_inputs() {
   hash="$(sha256sum /home/mgw/.grok/downloads/grok-linux-x86_64 | awk '{print $1}')"
   [ "$hash" = c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 ] || { log "PREFLIGHT FAIL Grok hash" >&2; return 1; }
   version="$(/home/mgw/.grok/downloads/grok-linux-x86_64 --version 2>&1 | head -1 | tr -d '\r')"
-  [ "$version" = '0.2.118 (1e1687c1cf) [stable]' ] || { log "PREFLIGHT FAIL Grok version=$version" >&2; return 1; }
+  [ "$version" = 'grok 0.2.118 (1e1687c1cf) [stable]' ] || { log "PREFLIGHT FAIL Grok version=$version" >&2; return 1; }
   local isolated_auth="$AGENT_HOME/.grok/auth.json" operator_auth="$NORMAL_HOME/.grok/auth.json"
   if [ -L "$isolated_auth" ]; then
     [ "$(readlink -f "$isolated_auth")" = "$(readlink -f "$operator_auth")" ] || { log "PREFLIGHT FAIL credential symlink target" >&2; return 1; }
@@ -299,7 +318,7 @@ verify() {
   local actual_driver
   actual_driver="$(printf '%s\n' "$daemon_env_text" | sed -n 's/^PODIUM_RUNTIME_DRIVER=//p' | tail -1)"
   [ -z "$actual_driver" ] || { log "PIN FAIL runtime override=$actual_driver"; return 1; }
-  log "PIN OK row=$row arm=$arm instance=$INSTANCE serverPid=$server_pid daemonPid=$daemon_pid serverSha=$want_sha webSourceSha=$web_sha driver=no-runtime-override grokBinSha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 state=$STATE_DIR home=$NORMAL_HOME"
+  log "PIN OK row=$row arm=$arm instance=$INSTANCE serverPid=$server_pid daemonPid=$daemon_pid serverSha=$want_sha webSourceSha=$web_sha driver=no-runtime-override grokVersion='grok 0.2.118 (1e1687c1cf) [stable]' grokBinSha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 state=$STATE_DIR home=$NORMAL_HOME"
   log "PIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
 }
 
@@ -339,6 +358,7 @@ case "${1:-}" in
   restart-daemon) restart_daemon "${2:-headless}" ;;
   verify) verify "${2:-}" "${3:-}" ;;
   check-memory) check_memory ;;
+  static-self-test) static_self_test ;;
   auth) auth "${2:-}" ;;
   down) down ;;
   info) log "instance=$INSTANCE port=$PORT state=$STATE_DIR agentHome=$AGENT_HOME web=$WEB home=$NORMAL_HOME" ;;

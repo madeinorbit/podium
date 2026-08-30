@@ -241,13 +241,17 @@ function assertExactStagedSet(owned: string[], actual: string[]): void {
   if (JSON.stringify(sortedActual) !== JSON.stringify(expected)) throw new Error(`refusing staged set: actual=${sortedActual.join(',')} expected=${expected.join(',')}`)
 }
 
+function evidenceArmLabel(cellArm: Arm): '[headed]' | '[headless]' {
+  return cellArm === 'terminal' ? '[headed]' : '[headless]'
+}
+
 function evidenceFields(cell: Cell): string[] {
-  const driver = arm === 'headless' ? 'grok-acp' : 'generic-pty'
+  const driver = cell.arm === 'headless' ? 'grok-acp' : 'generic-pty'
   const fields = [
-    `[single] ${canonicalWhatId(cell.id)} Grok paired final tip run=${RUN_TOKEN}`, driver,
+    `${evidenceArmLabel(cell.arm)} ${canonicalWhatId(cell.id)} Grok paired final tip run=${RUN_TOKEN}`, driver,
     `${cell.verdict} ${cell.summary}`, PRODUCT_PIN,
     `${cell.control.fired ? 'yes' : 'no'} — ${cell.control.what}: ${cell.control.detail}`,
-    `yes — named ${INSTANCE}; sequential ${arm} arm; unique cwd ${cell.cwd}; no runtime override`,
+    `yes — named ${INSTANCE}; sequential ${cell.arm} arm; unique cwd ${cell.cwd}; no runtime override`,
     new Date(cell.at).toISOString().replace('T', ' ').replace('Z', ' UTC'), 'POD-3110',
   ].map(field)
   if (fields.length !== 8 || fields.some((value) => !value)) throw new Error(`refusing malformed evidence row for ${cell.id}`)
@@ -263,7 +267,7 @@ function validateLedger(text: string): void {
 function appendAuthoritativeRow(cell: Cell, fields: string[], readingPath: string, pinPath: string): void {
   const prior = readFileSync(LEDGER, 'utf8')
   validateLedger(prior)
-  const identity = `[single] ${canonicalWhatId(cell.id)} Grok paired final tip run=${RUN_TOKEN}`
+  const identity = `${evidenceArmLabel(cell.arm)} ${canonicalWhatId(cell.id)} Grok paired final tip run=${RUN_TOKEN}`
   if (prior.split('\n').some((line) => line.startsWith(`${identity}\t`) && line.endsWith('\tPOD-3110'))) {
     throw new Error(`refusing duplicate POD-3110 run identity: ${identity}`)
   }
@@ -1449,7 +1453,7 @@ async function oomSpot(): Promise<void> {
 }
 
 if (process.env.P3110_STATIC_SELF_TEST === '1') {
-  const fake = (id: string, verdict: Verdict = 'PASS', fired = true): Cell => ({ id, arm, verdict, summary: 'self-test', control: { fired, what: 'self-test', detail: 'fired' }, evidence: [], data: {}, cwd: '/tmp/self-test', memoryMb: 1, pin: 'pin', sessionIds: [], at: '2026-08-30T00:00:00.000Z' })
+  const fake = (id: string, verdict: Verdict = 'PASS', fired = true, fakeArm: Arm = arm): Cell => ({ id, arm: fakeArm, verdict, summary: 'self-test', control: { fired, what: 'self-test', detail: 'fired' }, evidence: [], data: {}, cwd: '/tmp/self-test', memoryMb: 1, pin: 'pin', sessionIds: [], at: '2026-08-30T00:00:00.000Z' })
   const cases: [string, string][] = [['A1a','A1a'],['A1b','A1b'],['A1c','A1c'],['A2a','A2a'],['A2b','A2b'],['A3','A3'],['A4a','A4a'],['A4b','A4b'],['A5','A5'],['A6a','A6a'],['A6b','A6b'],['A7a','A7a'],['A7b','A7b'],['A8','A8'],['A9','A9'],['A10','A10'],['A11','A11'],['CLI-sync','A6b'],['A8-post-login','Bauth'],['B-provider-error','Bquota'],['B-oom-kill','non-matrix']]
   for (const [id, expected] of cases) {
     const got = evidenceFields(fake(id))[0].split(' ')[1]
@@ -1461,6 +1465,14 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
   const blockedFired = evidenceFields(fake('A3', 'BLOCKED', true))[4]
   const blockedMissing = evidenceFields(fake('A3', 'BLOCKED', false))[4]
   if (!blockedFired.startsWith('yes —') || !blockedMissing.startsWith('no —')) throw new Error('BLOCKED control fidelity failed')
+  const headedFields = evidenceFields(fake('A1a', 'PASS', true, 'terminal'))
+  const headlessFields = evidenceFields(fake('A1a', 'PASS', true, 'headless'))
+  if (headedFields.length !== 8 || !headedFields[0].startsWith('[headed] A1a ')) throw new Error(`headed row identity failed: ${headedFields.join('|')}`)
+  if (headlessFields.length !== 8 || !headlessFields[0].startsWith('[headless] A1a ')) throw new Error(`headless row identity failed: ${headlessFields.join('|')}`)
+  const rigStatic = rig('static-self-test')
+  if (rigStatic.code !== 0 || !rigStatic.output.includes('RIG_STATIC_SELF_TEST_OK missing=refused escaping=refused')) {
+    throw new Error(`rig static self-test failed: ${rigStatic.output}`)
+  }
   const token = 'P3110_UNIQUE_REPLY'
   const userItems: LiteItem[] = [{ id: 'user-1', role: 'user', text: `Reply exactly ${token}` }]
   const duplicateUser: LiteItem[] = [
@@ -1511,7 +1523,7 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     if (!String(error).includes('STOP-FIRST')) throw error
   }
   if (rows !== 1 || later !== 0) throw new Error(`stop-first self-test failed rows=${rows} later=${later}`)
-  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} selectorOne=${oneSelected.length} selectorTwo=${twoSelected.length} selectorAll=${allSelected.length} selectorRefusals=${selectorRefusals} dispatch=${executed.join(',')} unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
+  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} selectorOne=${oneSelected.length} selectorTwo=${twoSelected.length} selectorAll=${allSelected.length} selectorRefusals=${selectorRefusals} dispatch=${executed.join(',')} headedFields=${headedFields.length} headlessFields=${headlessFields.length} rigLinks=missing+escaping-refused unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
   process.exit(0)
 }
 
