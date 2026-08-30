@@ -1,4 +1,5 @@
 import { fetch as expoFetch } from 'expo/fetch'
+import type { VideoSource } from 'expo-video'
 import { Platform, type ImageSourcePropType } from 'react-native'
 
 export const AUTHENTICATED_TEXT_PREVIEW_CAP = 512 * 1024
@@ -87,6 +88,15 @@ export function authenticatedAssetHeaders(
 }
 
 export function authenticatedImageSource(url: string, bearer: string | null): ImageSourcePropType {
+  const headers = authenticatedAssetHeaders(bearer)
+  return headers ? { uri: url, headers } : { uri: url }
+}
+
+/** `expo-video` performs its own native range requests, so its source must carry
+ * the bearer rather than relying on a fetch that only authenticates the first
+ * response. Web keeps using the ambient session cookie and never sees the
+ * native credential. */
+export function authenticatedVideoSource(url: string, bearer: string | null): VideoSource {
   const headers = authenticatedAssetHeaders(bearer)
   return headers ? { uri: url, headers } : { uri: url }
 }

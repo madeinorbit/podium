@@ -27,6 +27,7 @@ import {
   issueArtifactPreview,
 } from '../lib/issue-artifacts'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
+import { ArtifactVideo } from './ArtifactVideo'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
@@ -126,15 +127,7 @@ function ArtifactBody({
     )
   }
   if (preview === 'video') {
-    if (Platform.OS === 'web') {
-      return createElement('video', {
-        src: url,
-        controls: true,
-        autoPlay: true,
-        style: { width: '100%', height: '100%', backgroundColor: '#000' },
-      })
-    }
-    return <Text style={styles.note}>Video preview needs the web app.</Text>
+    return <ArtifactVideo url={url} bearer={bearer} label={label} />
   }
   if (preview === 'html') {
     if (Platform.OS === 'web') {

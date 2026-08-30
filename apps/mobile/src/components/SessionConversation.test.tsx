@@ -10,7 +10,7 @@
 
 import type { SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { act, type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import type { PendingTurn } from './TranscriptList'
@@ -200,5 +200,65 @@ describe('empty transcript mood', () => {
 
     await waitFor(() => expect(screen.getByTestId('transcript-empty')).toBeTruthy())
     expect(screen.getByText('The agent is on it')).toBeTruthy()
+  })
+})
+
+describe('spawn prompt optimism', () => {
+  it('keeps the first prompt through confirmation and retires it on transcript echo', async () => {
+    let resolveRead: ((page: { items: unknown[]; hasMore: boolean }) => void) | undefined
+    const transcriptRead = vi.fn(
+      () =>
+        new Promise<{ items: unknown[]; hasMore: boolean }>((resolve) => {
+          resolveRead = resolve
+        }),
+    )
+    const settled = vi.fn()
+    const plainSession = { ...session, offer: undefined }
+
+    function SpawnHost() {
+      const [spawnPending, setSpawnPending] = useState(true)
+      return (
+        <>
+          <button type="button" onClick={() => setSpawnPending(false)}>
+            Confirm session
+          </button>
+          <SessionConversation
+            session={plainSession}
+            issue={undefined}
+            initialPendingText={spawnPending ? 'Plan the release' : undefined}
+            deferInitialTranscript={spawnPending}
+            onInitialPendingSettled={settled}
+          />
+        </>
+      )
+    }
+
+    await renderWithMobileStore(<SpawnHost />, {
+      sessions: [plainSession],
+      api: {
+        sessions: {
+          transcriptRead: { query: transcriptRead },
+          answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+        },
+      },
+    })
+
+    expect(screen.getByTestId('pending').textContent).toBe('Plan the release')
+    expect(transcriptRead).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Confirm session'))
+    expect(screen.getByTestId('pending').textContent).toBe('Plan the release')
+    await waitFor(() => expect(transcriptRead).toHaveBeenCalledOnce())
+
+    await act(async () => {
+      resolveRead?.({
+        items: [{ id: 'echo-1', role: 'user', text: 'Plan the release' }],
+        hasMore: false,
+      })
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(screen.queryByTestId('pending')).toBeNull())
+    expect(settled).toHaveBeenCalledOnce()
   })
 })

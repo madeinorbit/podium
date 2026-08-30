@@ -94,6 +94,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   const { sections } = useSlice(worklistSlice)
   const [step, setStep] = useState<PickerStep>(null)
   const [query, setQuery] = useState('')
+  const [prompt, setPrompt] = useState('')
   const [modelPick, setModelPick] = usePersistedUiState<string | null>(
     NEW_WORK_MODEL_KEY,
     readString,
@@ -210,13 +211,16 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     if (targetMachine === null) return
     const { worktree } = spawnTargetForRepo(repo, targetMachine)
     const selection = isShell ? {} : spawnSelection(effectiveModel, effort)
+    const firstPrompt = prompt.trim()
     setRepoPick(repo.path)
     const { sessionId } = spawnDraftAgent({
       target: worktree,
       agentKind: harness,
+      ...(!isShell && firstPrompt ? { firstPrompt } : {}),
       ...(selection.model ? { model: selection.model } : {}),
       ...(selection.effort ? { effort: selection.effort } : {}),
     })
+    setPrompt('')
     close()
     router.push(sessionHref(sessionId, pathname))
   }
@@ -332,6 +336,22 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
       >
         {step === 'launch' ? (
           <>
+            {!isShell ? (
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>First prompt · optional</Text>
+                <TextInput
+                  accessibilityLabel="First prompt, optional"
+                  value={prompt}
+                  onChangeText={setPrompt}
+                  placeholder="Fix the login race"
+                  placeholderTextColor={color.textMicro}
+                  multiline
+                  textAlignVertical="top"
+                  style={styles.promptInput}
+                />
+              </View>
+            ) : null}
+
             <FieldSelect
               label="Model"
               value={modelValue}
@@ -748,6 +768,18 @@ const styles = StyleSheet.create({
   },
   pickerHost: {
     alignSelf: 'stretch',
+  },
+  promptInput: {
+    ...sans(400),
+    minHeight: 88,
+    color: color.text,
+    fontSize: font.body,
+    backgroundColor: color.bgSunken,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.borderStrong,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm + 2,
   },
   select: {
     minHeight: 48,

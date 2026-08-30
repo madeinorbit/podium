@@ -38,6 +38,7 @@
     "expo-sqlite": "~57.0.2",
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.0",
+    "expo-video": "~57.0.3",
     "marked": "^18.0.5",
     "react": "19.2.3",
     "react-dom": "19.2.3",

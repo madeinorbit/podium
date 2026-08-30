@@ -5,7 +5,7 @@ import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/mode
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from '../components/icons'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   useBooting,
   useIssue,
@@ -13,6 +13,7 @@ import {
   useSession,
   useSessions,
   useSpawnPending,
+  useSpawnPrompt,
   useStoreActions,
 } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
@@ -66,11 +67,31 @@ export function SessionScreen() {
   const allSessions = useSessions()
   const session = useSession(sessionId)
   const spawnPending = useSpawnPending(sessionId)
+  const observedSpawnPrompt = useSpawnPrompt(sessionId)
   const issue = useIssue(session?.issueId)
   const booting = useBooting()
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
+  const [findRequest, setFindRequest] = useState(0)
+  // Replica confirmation retires the engine-owned prompt in the same update
+  // that replaces the provisional session. Keep the text until the transcript
+  // itself proves the first turn landed.
+  const [heldSpawnPrompt, setHeldSpawnPrompt] = useState<{
+    sessionId: SessionId
+    text: string
+  } | null>(sessionId && observedSpawnPrompt ? { sessionId, text: observedSpawnPrompt } : null)
+  useEffect(() => {
+    if (sessionId && observedSpawnPrompt) {
+      setHeldSpawnPrompt({ sessionId, text: observedSpawnPrompt })
+    }
+  }, [observedSpawnPrompt, sessionId])
+  const optimisticFirstPrompt =
+    observedSpawnPrompt ??
+    (heldSpawnPrompt && heldSpawnPrompt.sessionId === sessionId ? heldSpawnPrompt.text : undefined)
+  const settleOptimisticFirstPrompt = useCallback(() => {
+    setHeldSpawnPrompt((current) => (current?.sessionId === sessionId ? null : current))
+  }, [sessionId])
 
   const goBack = useCallback(() => {
     if (hasBackTarget) {
@@ -116,6 +137,10 @@ export function SessionScreen() {
       ]
     }
     const actions: SheetAction[] = [
+      {
+        label: 'Find in transcript',
+        onPress: () => setFindRequest((request) => request + 1),
+      },
       ...(issue
         ? [
             {
@@ -228,7 +253,14 @@ export function SessionScreen() {
         </>
       }
     >
-      <SessionConversation session={session} issue={issue} />
+      <SessionConversation
+        session={session}
+        issue={issue}
+        findRequest={findRequest}
+        initialPendingText={optimisticFirstPrompt}
+        onInitialPendingSettled={settleOptimisticFirstPrompt}
+        deferInitialTranscript={spawnPending}
+      />
       <ActionSheet
         visible={menuOpen}
         title={sessionTitle(session)}

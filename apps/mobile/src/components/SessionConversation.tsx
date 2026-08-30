@@ -7,6 +7,7 @@ import {
   pendingAskFromState,
 } from '@podium/client-core/viewmodels'
 import {
+  type ConversationPendingTurn,
   createConversationController,
   nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
@@ -78,6 +79,9 @@ export function SessionConversation({
   issue,
   onOpenTerminalRef,
   findRequest = 0,
+  initialPendingText,
+  onInitialPendingSettled,
+  deferInitialTranscript = false,
 }: {
   session: SessionMeta
   /** The task this session belongs to; drives task context and the plan bridge. */
@@ -87,6 +91,12 @@ export function SessionConversation({
   onOpenTerminalRef?: (issue: IssueWire) => void
   /** Incremented by screen chrome to open transcript search. */
   findRequest?: number
+  /** First turn supplied by the shared spawn optimism engine. */
+  initialPendingText?: string
+  /** Called once the transcript carries the engine-seeded first turn. */
+  onInitialPendingSettled?: () => void
+  /** Wait until the authority recognizes a client-minted session id. */
+  deferInitialTranscript?: boolean
 }) {
   const store = useMobileStore()
   const hub = useHub()
@@ -131,12 +141,32 @@ export function SessionConversation({
   )
   const items = transcript.items
   const loaded = transcript.initialLoaded
+  // The controller owns this seed after construction. The engine may retire its
+  // copy when the provisional session settles, but only a transcript echo may
+  // retire the pending turn shown here.
+  const initialPending: ConversationPendingTurn[] = initialPendingText
+    ? [
+        {
+          id: 'pending-first-turn',
+          deliveryId: 'pending-first-turn',
+          text: initialPendingText,
+          wire: initialPendingText,
+          at: Date.now(),
+          state: 'sent',
+          kind: 'message',
+          acceptsAppendedBrief: true,
+        },
+      ]
+    : []
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the spawn seed belongs to this session's controller lifetime
   const conversationController = useMemo(
     () =>
       createConversationController({
         sessionId,
         transcript: transcriptController,
         initialDraft: draftSeed,
+        initialPending,
+        initialJustSent: initialPendingText !== undefined,
         onDraftChange: (text) => store.setSessionDraft(sessionId, text),
         createDeliveryId: () => `msg_${randomUUID()}`,
         deliver: async (turn) => {
@@ -211,6 +241,9 @@ export function SessionConversation({
       .map((entry) => entry.value)
   }, [conversation.projected])
   const justSent = conversation.justSent
+  const pendingSeedSession = useRef<SessionMeta['sessionId'] | null>(
+    initialPendingText ? sessionId : null,
+  )
   const attachments = useComposerAttachments(sessionId)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
@@ -220,9 +253,10 @@ export function SessionConversation({
   const [askHeight, setAskHeight] = useState(0)
   const [peekIssue, setPeekIssue] = useState<IssueWire | null>(null)
   useEffect(() => {
+    if (deferInitialTranscript) return
     void transcriptController.start()
     return () => transcriptController.stop()
-  }, [transcriptController])
+  }, [deferInitialTranscript, transcriptController])
 
   useEffect(() => {
     transcriptController.markRendered()
@@ -236,6 +270,14 @@ export function SessionConversation({
   useEffect(() => {
     conversationController.replaceDraft(storedDraft)
   }, [conversationController, storedDraft])
+
+  useEffect(() => {
+    if (initialPendingText) pendingSeedSession.current = sessionId
+    if (pendingSeedSession.current !== sessionId) return
+    if (conversation.pending.some((turn) => turn.id === 'pending-first-turn')) return
+    pendingSeedSession.current = null
+    onInitialPendingSettled?.()
+  }, [conversation.pending, initialPendingText, onInitialPendingSettled, sessionId])
 
   const latestOperatorPrompt = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index--) {

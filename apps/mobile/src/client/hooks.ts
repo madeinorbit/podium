@@ -192,6 +192,15 @@ export function useSpawnPending(id: SessionId | undefined): boolean {
   )
 }
 
+/** The first turn painted by the shared spawn optimism engine. The engine owns
+ * it until the authoritative session row arrives; the conversation host then
+ * keeps it through any settle-time remount until the transcript echoes it. */
+export function useSpawnPrompt(id: SessionId | undefined): string | undefined {
+  return useStoreSelector<string | undefined, MobileTrpc>((s) =>
+    id === undefined ? undefined : s.pendingSpawnPrompts.get(id),
+  )
+}
+
 /** ONE UI persistence mechanism: the replica's per-principal ui-state
  *  collection. No screen writes raw AsyncStorage (doc §3.3 / POD-329). */
 export function useUiState(): RoutedUiState {

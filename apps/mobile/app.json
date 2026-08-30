@@ -129,7 +129,8 @@
         }
       ],
       "expo-secure-store",
-      "./plugins/with-sqlite-header-link"
+      "./plugins/with-sqlite-header-link",
+      "expo-video"
     ]
   }
 }
