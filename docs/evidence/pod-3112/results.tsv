@@ -16,3 +16,4 @@
 2026-08-30T18:40:47.141Z	POD-3112	d6df08c41af3883685c3f18fad0fd0fef78bfec7	opencode-server	A7A	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.r18-d6df08c-a7a-pass.20260830T184047141Z.json
 2026-08-30T18:44:00.573Z	POD-3112	d6df08c41af3883685c3f18fad0fd0fef78bfec7	opencode-server	A7B	REFUSED	MISSING	docs/evidence/pod-3112/diagnostics/r18-d6df08c-a7b-runner-exit-refusal-20260830T204400+0200.json
 2026-08-30T21:02:05+02:00	POD-3112	1dbac781be27161162661053dded82f633dc615e	opencode-server	A7A/A7B	REFUSED	MISSING	docs/evidence/pod-3112/diagnostics/r18-1dbac78-a7a-startup-refusal-20260830T210205+0200.json
+2026-08-30T21:09:29+02:00	POD-3112	1dbac781be27161162661053dded82f633dc615e	opencode-server	A7A/A7B	REFUSED	MISSING	docs/evidence/pod-3112/diagnostics/r18-1dbac78-login-contract-refusal-20260830T210929+0200.json
