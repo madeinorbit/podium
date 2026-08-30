@@ -22,5 +22,5 @@ ISOLATED="$P3112_STATE_ROOT/agent-home/.local/share/opencode/auth.json"
 [ -L "$ISOLATED" ] || { echo "refusing: isolated OpenCode credential is not a symlink" >&2; exit 2; }
 echo "isolated_credential=symlink"
 bun --conditions=@podium/source "$HERE/drive.ts" "$CELL" "$DRIVER"
-git -C "$PODIUM_DRIVE_REPO" add -f "docs/evidence/pod-3112/readings/$DRIVER.${CELL,,}.json" docs/evidence/pod-3112/results.tsv "docs/evidence/pod-3112/pins/$DRIVER-${CELL,,}.json"
+git -C "$PODIUM_DRIVE_REPO" add -f docs/evidence/pod-3112/readings docs/evidence/pod-3112/pins docs/evidence/pod-3112/results.tsv
 git -C "$PODIUM_DRIVE_REPO" commit -m "evidence(opencode): record $DRIVER $CELL" -m "Podium-Issue: POD-3112"

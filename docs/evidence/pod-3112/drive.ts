@@ -167,7 +167,7 @@ function daemonTos(): boolean {
   }
 }
 
-async function pinFor(label: string): Promise<Pin> {
+async function pinFor(label: string, runToken: string): Promise<Pin> {
   const checkoutSha = outputOf('git', ['-C', ROOT, 'rev-parse', 'HEAD'])
   const pinSha = process.env.P3112_PIN_SHA ?? '2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd'
   const server = pidInfo(join(BASE, 'server.pid'))
@@ -218,7 +218,7 @@ async function pinFor(label: string): Promise<Pin> {
     forbiddenOverrides,
   }
   mkdirSync(PIN_DIR, { recursive: true })
-  writeFileSync(join(PIN_DIR, driver + '-' + label.toLowerCase() + '.json'), JSON.stringify(pin, null, 2) + '\n')
+  writeFileSync(join(PIN_DIR, driver + '-' + label.toLowerCase() + '-' + runToken + '.json'), JSON.stringify(pin, null, 2) + '\n')
   const overrides = Object.entries(forbiddenOverrides).filter(([, value]) => value !== null)
   const webOk = webMatchesHead || reuse.status === 0
   if (!existsSync(isolatedCred) || !lstatSync(isolatedCred).isSymbolicLink()) {
@@ -1231,10 +1231,11 @@ async function main(): Promise<void> {
   mkdirSync(READING_DIR, { recursive: true })
   mkdirSync(cwd, { recursive: true })
   const at = stamp()
+  const runToken = (process.env.P3112_PIN_SHA ?? 'UNPINNED') + '-' + at.replace(/[-:.]/g, '')
   let pin: Pin | undefined
   let out: ReturnType<typeof result>
   try {
-    pin = await pinFor(cell)
+    pin = await pinFor(cell, runToken)
     switch (cell) {
       case 'A1A':
         out = await runA1a()
@@ -1307,7 +1308,7 @@ async function main(): Promise<void> {
   const reading = { cell, driver, cwd, at, pin, ...out }
   mkdirSync(READING_DIR, { recursive: true })
   mkdirSync(PIN_DIR, { recursive: true })
-  const readingRel = 'docs/evidence/pod-3112/readings/' + driver + '.' + cell.toLowerCase() + '.json'
+  const readingRel = 'docs/evidence/pod-3112/readings/' + driver + '.' + cell.toLowerCase() + '.' + runToken + '.json'
   writeFileSync(join(ROOT, readingRel), JSON.stringify(reading, null, 2) + '\n')
   const clean = (value: unknown) => textOf(value).replace(/[\t\r\n]+/g, ' ')
   appendFileSync(join(ROOT, 'docs/evidence/pod-3112/results.tsv'), [stamp(), 'POD-3112', pin?.pinSha ?? 'UNPINNED', driver, cell, reading.verdict, reading.control.fired ? 'FIRED' : 'MISSING', clean(readingRel)].join('\t') + '\n')
