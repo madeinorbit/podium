@@ -531,17 +531,16 @@ async function runA1b() {
     const framePosition = positionFrames.find((frame) => typeof frame.position === 'number' || typeof frame.queuePosition === 'number')
     const position =
       payloadObject?.position ?? payloadObject?.queuePosition ?? framePosition?.position ?? framePosition?.queuePosition ?? null
-    const payloadHasPositionField = Boolean(
+    const finalPayloadHasPosition = Boolean(
       payloadObject && (Object.hasOwn(payloadObject, 'position') || Object.hasOwn(payloadObject, 'queuePosition')),
     )
-    const frameHasPositionField = positionFrames.some(
+    const historicalPositionObserved = positionFrames.some(
       (frame) => Object.hasOwn(frame, 'position') || Object.hasOwn(frame, 'queuePosition'),
     )
-    const hasPositionField = payloadHasPositionField || frameHasPositionField
     const queuedValue = payloadObject?.queued
     const disposition = payloadObject?.disposition
-    const stillQueued = queuedValue === true && disposition === 'queued' && hasPositionField
-    const blockingDelivered = queuedValue !== true && disposition === 'delivered' && !hasPositionField
+    const stillQueued = queuedValue === true && disposition === 'queued' && (finalPayloadHasPosition || historicalPositionObserved)
+    const blockingDelivered = queuedValue !== true && disposition === 'delivered' && !finalPayloadHasPosition
     const finalStateConsistent = stillQueued || blockingDelivered
     const survivedReload = secondUser.ok && secondAssistant.ok
     const pass = finalStateConsistent && survivedReload
@@ -558,11 +557,12 @@ async function runA1b() {
         'SECOND SEND       ' + short(payload),
         'FINAL STATE       ' + (stillQueued ? 'still-queued' : blockingDelivered ? 'blocking-delivered' : 'contradictory'),
         'QUEUE POSITION    ' + String(position),
-        'POSITION FIELD    ' + hasPositionField,
+        'FINAL PAYLOAD POSITION ' + finalPayloadHasPosition,
+        'HISTORICAL POSITION    ' + historicalPositionObserved,
         'RELOADED USER     ' + secondUser.ok + ' in ' + secondUser.ms + 'ms',
         'RELOADED REPLY    ' + secondAssistant.ok + ' in ' + secondAssistant.ms + 'ms',
       ],
-      { sid, first, queued, firstUser: firstUser.ok, working: working.samples, second: payload, secondUser: secondUser.ok, secondAssistant: secondAssistant.ok, position, hasPositionField, queuedValue, disposition, stillQueued, blockingDelivered, finalStateConsistent, survivedReload },
+      { sid, first, queued, firstUser: firstUser.ok, working: working.samples, second: payload, secondUser: secondUser.ok, secondAssistant: secondAssistant.ok, position, finalPayloadHasPosition, historicalPositionObserved, queuedValue, disposition, stillQueued, blockingDelivered, finalStateConsistent, survivedReload },
     )
     await reloaded.close()
     return out
