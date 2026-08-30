@@ -27,6 +27,11 @@ export function scoreStoppedTurn(items: Item[], finalNonce: string) {
       role,
       event,
       classification,
+      source: field(item, 'source') ?? field(item, 'projection'),
+      projection: field(item, 'projection'),
+      turnId: field(item, 'turnId') ?? field(item, 'turn_id'),
+      messageId: field(item, 'messageId') ?? field(item, 'message_id'),
+      sessionItemType: field(item, 'type'),
       projectionDuplicate,
       textClassification: text.length === 0 ? 'empty' : 'present-not-preserved',
     }]
