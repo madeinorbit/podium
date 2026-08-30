@@ -184,7 +184,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
             }
           : {}),
       }),
-    [hub, replica, sessionId, trpc.sessions.transcriptRead],
+    [hub, replica, sessionId, trpc],
   )
   const transcript = useSyncExternalStore(
     transcriptController.subscribe,
@@ -243,10 +243,10 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     [transcriptController],
   )
 
-  const probeNewest = useCallback((): Promise<boolean> => {
+  const probeNewest = useCallback((disclose = false): Promise<boolean> => {
     if (refreshInFlightRef.current) return refreshInFlightRef.current
     if (probeInFlightRef.current) return probeInFlightRef.current
-    const promise = transcriptController.probe().then((accepted) => {
+    const promise = transcriptController.probe({ disclose }).then((accepted) => {
       if (accepted) reconciledSignalRef.current = activitySignalRef.current
       return accepted
     })
@@ -350,7 +350,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       // same signal with the very read the probe exists to avoid; a probe that
       // finds a difference re-stamps correctly through `readNewest`.
       reconciledSignalRef.current = signal
-      void probeNewest().catch(() => {
+      void probeNewest(true).catch(() => {
         // A STAMP IS A CLAIM, AND A FAILED PROBE PROVED NOTHING. Leaving it
         // standing would re-create this very bug on the failure path: the next
         // reveal would compare equal and skip outright, while both fallbacks

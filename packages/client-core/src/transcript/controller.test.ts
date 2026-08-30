@@ -271,7 +271,8 @@ describe('transcript lifecycle boundaries', () => {
     expect(await equal).toBe(true)
     expect(io.reads).toHaveLength(2)
 
-    const changed = controller.probe()
+    const changed = controller.probe({ disclose: true })
+    expect(controller.getSnapshot().freshness).toBe('checking')
     io.pending[2]?.resolve({ items: [item('b', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
     await Promise.resolve()
     expect(io.reads[3]).toMatchObject({ limit: 200 })
