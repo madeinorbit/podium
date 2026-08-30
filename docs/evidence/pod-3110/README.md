@@ -1,7 +1,9 @@
 # POD-3110 Grok paired final-tip instrument
 
 Static preflight instrument for journey `grok-paired-final-tip`. It is pinned to product/server/daemon/web source `057755c77a6bdfdf01aa526d968562b0316e78df` and Grok `0.2.118 (1e1687c1cf) [stable]`, binary SHA-256 `c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6`.
-Product dependency provenance: `bun.lock` SHA-256 `a1acc741d62d99b4146d5989a06a50ce494a9e93219b59e49af3ac4307430791`; launch refuses unless root `node_modules` is a real directory and `@podium/runtime` plus `@podium/model` resolve inside this checkout. The exact `057755c` web bundle is not currently present and must be built later under an explicitly granted `test:heavy` lease.
+Product dependency provenance: `bun.lock` SHA-256 `a1acc741d62d99b4146d5989a06a50ce494a9e93219b59e49af3ac4307430791`; launch refuses unless root `node_modules` is a real directory and `@podium/runtime` plus `@podium/model` resolve inside this checkout.
+
+The web artifact was prepared at `2026-08-31T01:06:47+02:00` from detached immutable checkout `057755c77a6bdfdf01aa526d968562b0316e78df`. The build stamp and manifest both name `057755c`; all 659 manifested payload hashes passed, and the complete 660-file, 38,601,248-byte copied tree matched the source tree byte-for-byte. The sorted complete-tree SHA-256 inventory digest is `7295f6c213957bf76c9fcc2dc2429a2e715c92d2c6a5c43434ceba02c059b952`. The initially inspected integration/32090 source was rejected without modification because its existing stamp named stale source `70fa13c`. The exact build held `test:heavy` only while installing checkout-local dependencies and building; its EXIT trap released the lease, which was confirmed free afterward.
 
 This commit contains no live readings. Do not run it until POD-1761 explicitly releases a live slot. Grok is the sole provider column; Claude refused before launch because its credential was expired.
 
@@ -15,12 +17,11 @@ Credential posture is an eventual symlink from the inherited operator home into 
 
 ## Live sequence after release
 
-Run arms sequentially, never concurrently:
-Before any build, run `bun run setup:worktree` and require its checkout-local dependency graph. Never share, copy, symlink, or bind-mount a complete `node_modules` tree, and never use the historical `link-node-modules.sh` pattern.
+Run arms sequentially, never concurrently. Before launch, run `bun run setup:worktree` in this checkout and require its checkout-local dependency graph. Never share, copy, symlink, or bind-mount a complete `node_modules` tree, and never use the historical `link-node-modules.sh` pattern.
 
 
 1. Source `rig-env.sh`; confirm derived ports are unique and not 19797/32090.
-2. Build once only while holding an explicitly granted heavy slot; release it immediately afterward.
+2. Revalidate the prepared child's exact web stamp and manifest; do not rebuild during launch.
 3. `rig.sh up terminal`, then `drive.ts terminal`, then `rig.sh down`.
 4. `rig.sh up headless`, then `drive.ts headless`, then `rig.sh down`.
 5. Validate candidate rows with `awk -F'\t' 'NF != 8 { print NR ":" NF; bad=1 } END { exit bad }'` before appending them once to the epic ledger.
