@@ -31,6 +31,8 @@ done
 [ -n "${HOME-}" ] || { echo "refusing: ambient HOME absent" >&2; return 2 2>/dev/null || exit 2; }
 P3112_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/podium/$PODIUM_INSTANCE"
 export P3112_STATE_ROOT
+PODIUM_RIG_STATE_ROOT="$P3112_STATE_ROOT"
+export PODIUM_RIG_STATE_ROOT
 export PATH="$(dirname "$P3112_OPENCODE_BIN"):$HOME/.local/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin"
 case "$PODIUM_INSTANCE:$PODIUM_PORT:$PODIUM_DRIVE_BASE" in
  default:*|operator:*|*:19797:*|*:32090:*|*:/home/mgw/.podium*) echo "refusing operator/default target" >&2; return 2 2>/dev/null || exit 2;;

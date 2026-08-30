@@ -21,8 +21,8 @@ HEAD_SHA="$PIN_SHA"
 mkdir -p "$LOGS"
 chmod 700 "$PODIUM_DRIVE_BASE"
 
-if [ -e "$PODIUM_RIG_STATE_ROOT/instance.json" ]; then
-  echo "refusing reused state root: $PODIUM_RIG_STATE_ROOT" >&2
+if [ -e "$P3112_STATE_ROOT/instance.json" ]; then
+  echo "refusing reused state root: $P3112_STATE_ROOT" >&2
   exit 2
 fi
 
@@ -44,8 +44,11 @@ if mem < int(1.5 * 1024**3):
 PY
 
 bash "$PODIUM_DRIVE_REPO/docs/evidence/pod-2777/link-node-modules.sh" >/dev/null
-bash "$PODIUM_DRIVE_REPO/docs/evidence/claim-instance.sh"
-( cd "$PODIUM_DRIVE_REPO" && bun --conditions=@podium/source "$PODIUM_DRIVE_REPO/docs/evidence/state-root-check.ts" )
+env PODIUM_DRIVE_REPO="$PODIUM_DRIVE_REPO" PODIUM_INSTANCE="$PODIUM_INSTANCE" \
+  bash "$PODIUM_DRIVE_REPO/docs/evidence/claim-instance.sh"
+( cd "$PODIUM_DRIVE_REPO" && \
+  env PODIUM_RIG_STATE_ROOT="$P3112_STATE_ROOT" PODIUM_INSTANCE="$PODIUM_INSTANCE" \
+    bun --conditions=@podium/source "$PODIUM_DRIVE_REPO/docs/evidence/state-root-check.ts" )
 
 STAMP="$PODIUM_DRIVE_REPO/apps/web/dist/podium-build.json"
 if [ ! -f "$STAMP" ]; then
