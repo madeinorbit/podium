@@ -51,6 +51,11 @@ import {
 import { clearLocalCredentialSurfaces, preflightNativeOverride } from './override-lifecycle'
 import { envServer, setActiveServerRuntime } from './trpc'
 import { logout } from './auth'
+import {
+  CredentialWriteQueue,
+  StaleCredentialOwnerError,
+  replaceCredentialForOwner,
+} from './credential-ownership'
 import { LaunchReadyView } from './launch-ready'
 import { ServerProfileContext, type ServerProfileContextValue } from './server-profile-context'
 
@@ -143,6 +148,7 @@ function profileReplacementFailure(profile: ServerProfile): ActivationFailure {
 
 export function ServerProfileGate({ children }: { children: ReactNode }) {
   const router = useRouter()
+  const credentialWrites = useMemo(() => new CredentialWriteQueue(), [])
   const consumedInitialPairing = initialWebPairing
   const initialWeb = Platform.OS === 'web' ? webProfile() : null
   const [profileState, setProfileState] = useState<ServerProfileState>(() =>
@@ -168,8 +174,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const switchOperation = useRef(0)
   const switchInFlight = useRef(false)
   const revalidationInFlight = useRef(false)
+  const activeProfileIdRef = useRef(profileState.activeProfileId)
   const bearerRef = useRef<string | null>(null)
   const nativeOverrideActiveRef = useRef(false)
+  activeProfileIdRef.current = profileState.activeProfileId
 
   useEffect(() => {
     bearerRef.current = bearer
@@ -415,19 +423,27 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           ? profileState.profiles.map((row) => (row.id === existing.id ? nextProfile : row))
           : [...profileState.profiles, nextProfile],
       }
-      const priorCredential = existing ? await getProfileCredential(existing.id) : null
+      const priorCredential = existing
+        ? await credentialWrites.run(() => getProfileCredential(existing.id))
+        : null
       try {
         // Metadata first, then the secure value. If either store refuses the
         // issuance, restore the prior state and revoke the just-minted session.
         await saveServerProfiles(next)
-        if (token) await setProfileCredential(nextProfile.id, token)
+        if (token) {
+          await credentialWrites.run(() => setProfileCredential(nextProfile.id, token))
+        }
       } catch (cause) {
         await saveServerProfiles(profileState).catch(() => {})
         if (token) {
           if (priorCredential && existing) {
-            await setProfileCredential(existing.id, priorCredential).catch(() => {})
+            await credentialWrites
+              .run(() => setProfileCredential(existing.id, priorCredential))
+              .catch(() => {})
           } else {
-            await deleteProfileCredential(nextProfile.id).catch(() => {})
+            await credentialWrites
+              .run(() => deleteProfileCredential(nextProfile.id))
+              .catch(() => {})
           }
           const revoked = await logout(result.httpOrigin, token)
             .then(() => true)
@@ -457,7 +473,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       setActivationFailure(null)
       setRevision((value) => value + 1)
     },
-    [profileState],
+    [credentialWrites, profileState],
   )
 
   const saveOfflineProfile = useCallback(
@@ -504,6 +520,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
 
   const context = useMemo<ServerProfileContextValue | null>(() => {
     if (!profile || !config) return null
+    const credentialOwnerOperation = switchOperation.current
     return {
       profile,
       profiles: profileState.profiles,
@@ -549,7 +566,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             const failure = profileReplacementFailure(selected)
             throw new Error(`${failure.title}: ${failure.detail}`)
           }
-          const credential = await getProfileCredential(selected.id)
+          const credential = await credentialWrites.run(() => getProfileCredential(selected.id))
           if (operation !== switchOperation.current) return
           const validated: ServerProfile = {
             ...selected,
@@ -596,7 +613,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       removeProfile: async (profileId) => {
         if (config.override) return
         switchOperation.current += 1
-        await deleteProfileCredential(profileId)
+        await credentialWrites.run(() => deleteProfileCredential(profileId))
         const profiles = profileState.profiles.filter((row) => row.id !== profileId)
         const nextId =
           profileState.activeProfileId === profileId
@@ -637,7 +654,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             setActivationFailure(profileReplacementFailure(selected))
             return
           }
-          nextCredential = await getProfileCredential(selected.id)
+          nextCredential = await credentialWrites.run(() => getProfileCredential(selected.id))
           const validated: ServerProfile = {
             ...selected,
             httpOrigin: result.httpOrigin,
@@ -661,10 +678,27 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setRevision((value) => value + 1)
       },
       updateCredential: async (token) => {
-        switchOperation.current += 1
+        if (
+          switchOperation.current !== credentialOwnerOperation ||
+          activeProfileIdRef.current !== profile.id
+        ) {
+          throw new StaleCredentialOwnerError()
+        }
+        const operation = ++switchOperation.current
         if (Platform.OS !== 'web' && !config.override) {
-          if (token) await setProfileCredential(profile.id, token)
-          else await deleteProfileCredential(profile.id)
+          await credentialWrites.run(() =>
+            replaceCredentialForOwner({
+              token,
+              isCurrent: () =>
+                switchOperation.current === operation && activeProfileIdRef.current === profile.id,
+              read: () => getProfileCredential(profile.id),
+              write: (next) => setProfileCredential(profile.id, next),
+              remove: () => deleteProfileCredential(profile.id),
+            }),
+          )
+        }
+        if (switchOperation.current !== operation || activeProfileIdRef.current !== profile.id) {
+          throw new StaleCredentialOwnerError()
         }
         setBearer(token)
         setActivation('verified')
@@ -707,7 +741,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             transport: result.transport,
             updatedAt: new Date().toISOString(),
           }
-          const credential = await getProfileCredential(profile.id)
+          const credential = await credentialWrites.run(() => getProfileCredential(profile.id))
           if (operation !== switchOperation.current) return
           setProfileState((current) => ({
             ...current,
@@ -722,7 +756,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         }
       },
     }
-  }, [activation, bearer, config, persistState, profile, profileState, revision])
+  }, [activation, bearer, config, credentialWrites, persistState, profile, profileState, revision])
 
   if (!ready) return null
   if (activationFailure && !setupOpen) {
@@ -741,6 +775,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           }}
           onForget={async () => {
             if (!profile) return
+            switchOperation.current += 1
             const profiles = config?.override
               ? []
               : profileState.profiles.filter((row) => row.id !== profile.id)
@@ -770,7 +805,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             if (!config?.override) {
               // Metadata is already durable. If SecureStore refuses here,
               // startup's orphan purge retries without making the bearer live.
-              await deleteProfileCredential(profile.id).catch(() => {})
+              await credentialWrites.run(() => deleteProfileCredential(profile.id)).catch(() => {})
             }
             if (next.activeProfileId) {
               setReady(false)
