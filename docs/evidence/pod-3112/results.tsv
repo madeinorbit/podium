@@ -1,1 +1,2 @@
 # timestamp	issue	pin	driver	cell	verdict	control	reading
+2026-08-30T01:17:46.470Z	POD-3112	d35c7ef7b630730f727365f25323427c67614386	default-headed	A1A	PASS	FIRED	docs/evidence/pod-3112/readings/default-headed.a1a.json
