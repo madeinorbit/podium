@@ -147,6 +147,56 @@ describe('RepoRegistry.scanReposAll()', () => {
     })
   })
 
+  it('keeps the registered workspace across daemon disconnect, rebind, and a fresh reload scan', async () => {
+    const { reg, repos, store, m1Out } = regWithTwoDaemons()
+    const machineId = asMachineId('m1')
+    store.repos.addRepo('/dummy-repo', machineId, 'https://github.com/acme/dummy-repo.git')
+    const registered = store.repos.listRepos(machineId)[0]
+
+    reg.gateway.detachDaemon(machineId)
+    reg.gateway.detachDaemon(asMachineId('m2'))
+
+    // A page reload during the daemon restart asks for a brand-new snapshot.
+    // The durable repository identity must survive even though metadata cannot
+    // be enriched until the daemon comes back.
+    await expect(repos.scanReposAll()).resolves.toMatchObject({
+      repositories: [
+        {
+          path: '/dummy-repo',
+          kind: 'repository',
+          machineId,
+          originUrl: 'https://github.com/acme/dummy-repo.git',
+          repoId: registered?.repoId,
+          worktrees: [],
+        },
+      ],
+    })
+
+    // Rebinding and returning zero scan rows is the other half of the restart
+    // race: it must enrich/fallback onto the same registered identity.
+    reg.gateway.attachDaemon(machineId, (msg) => m1Out.push(msg))
+    const rebound = repos.scanReposAll()
+    const req = m1Out.findLast((m) => m.type === 'scanReposRequest')
+    expect(req?.type).toBe('scanReposRequest')
+    if (req?.type !== 'scanReposRequest') throw new Error('no rebound scan request')
+    reg.gateway.routeDaemonFrame(machineId, {
+      type: 'scanReposResult',
+      requestId: req.requestId,
+      repositories: [],
+      diagnostics: [],
+    })
+
+    await expect(rebound).resolves.toMatchObject({
+      repositories: [
+        {
+          path: '/dummy-repo',
+          machineId,
+          repoId: registered?.repoId,
+        },
+      ],
+    })
+  })
+
   it('single-machine invariant: with one daemon scanReposAll equals scanRepos for that machine', async () => {
     // Single machine setup
     const store = new SessionStore(':memory:')

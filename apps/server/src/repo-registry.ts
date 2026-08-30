@@ -196,12 +196,28 @@ export class RepoRegistry {
    * supplies it, and `audit:machine-grants` checks that.
    */
   async scanReposAll(mayUse?: (machineId: MachineId) => boolean): Promise<ScanReposResult> {
+    const registeredRows = this.store.repos
+      .listRepos()
+      .filter((row) => mayUse?.(row.machineId) ?? true)
+    const fallbackFor = (rows: typeof registeredRows) =>
+      rows.map((row) => ({
+        path: normalizeRepoPath(row.path),
+        kind: 'repository' as const,
+        ...(row.originUrl ? { originUrl: row.originUrl } : {}),
+        worktrees: [],
+        machineId: row.machineId,
+        ...(row.repoId ? { repoId: row.repoId } : {}),
+      }))
     const machineIds = this.sessionReg.modules.machines
       .onlineMachineIds()
       .filter((id) => mayUse?.(id) ?? true)
     if (machineIds.length === 0) {
       return {
-        repositories: [],
+        // A daemon restart does not unregister its repositories. A page reload
+        // inside that gap must therefore render the durable roots rather than
+        // replace the workspace snapshot with an authoritative-looking empty
+        // list. As with a timed-out scan below, empty worktrees means unknown.
+        repositories: fallbackFor(registeredRows),
         diagnostics: [{ severity: 'error', path: '', message: 'no daemons online' }],
       }
     }
@@ -219,7 +235,7 @@ export class RepoRegistry {
         for (const r of result.repositories) {
           if (r.originUrl) this.store.repos.updateRepoOrigin(machineId, r.path, r.originUrl)
         }
-        const storedRows = this.store.repos.listRepos(machineId)
+        const storedRows = registeredRows.filter((row) => row.machineId === machineId)
         const repoIdByPath = new Map(
           storedRows.map((row) => [normalizeRepoPath(row.path), row.repoId]),
         )
@@ -243,16 +259,9 @@ export class RepoRegistry {
         // sound for POSITIVE answers ("here is a worktree you can use") and unsound
         // for negative ones. To ask whether a path really exists, ask the daemon that
         // owns it — `IssueWorkflow.ensureWorktree` does, and rebuilds from the branch.
-        const registeredFallbacks = storedRows
-          .filter((row) => !seenPaths.has(normalizeRepoPath(row.path)))
-          .map((row) => ({
-            path: normalizeRepoPath(row.path),
-            kind: 'repository' as const,
-            ...(row.originUrl ? { originUrl: row.originUrl } : {}),
-            worktrees: [],
-            machineId,
-            ...(row.repoId ? { repoId: row.repoId } : {}),
-          }))
+        const registeredFallbacks = fallbackFor(
+          storedRows.filter((row) => !seenPaths.has(normalizeRepoPath(row.path))),
+        )
         return {
           repositories: [...scanned, ...registeredFallbacks],
           diagnostics: result.diagnostics,
@@ -260,8 +269,12 @@ export class RepoRegistry {
       }),
     )
 
+    const online = new Set(machineIds)
     return {
-      repositories: perMachine.flatMap((r) => r.repositories),
+      repositories: [
+        ...perMachine.flatMap((r) => r.repositories),
+        ...fallbackFor(registeredRows.filter((row) => !online.has(row.machineId))),
+      ],
       diagnostics: perMachine.flatMap((r) => r.diagnostics),
     }
   }
