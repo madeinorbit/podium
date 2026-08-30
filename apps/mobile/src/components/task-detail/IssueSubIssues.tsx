@@ -1,6 +1,6 @@
 import type { IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { Plus } from 'lucide-react-native'
+import { Plus } from '../icons'
 import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'

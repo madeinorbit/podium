@@ -11,7 +11,7 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react-native'
+import { ChevronDown, ChevronUp, MoreHorizontal } from '../components/icons'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import {

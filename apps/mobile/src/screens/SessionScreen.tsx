@@ -4,7 +4,7 @@ import type { WorkState, SessionId } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { issueDisplayRef } from '@podium/protocol'
-import { MoreVertical, SquareTerminal } from 'lucide-react-native'
+import { MoreVertical, SquareTerminal } from '../components/icons'
 import { useCallback, useMemo, useState } from 'react'
 import {
   useBooting,

@@ -31,7 +31,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionId, SessionMeta, IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from 'lucide-react-native'
+import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from './icons'
 import { useCallback, useMemo } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { applyFolds } from '../lib/deck-rows'

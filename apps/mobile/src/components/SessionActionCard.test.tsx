@@ -9,10 +9,6 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(async () => {}),
 }))
-// Ships untranspiled Flow, which this environment cannot parse — the same stub
-// Composer.test.tsx uses. The dismiss control is found by its label, not its glyph.
-vi.mock('lucide-react-native', () => ({ X: () => null, Lightbulb: () => null }))
-
 const { composeOfferPrompt, SessionActionCard } = await import('./SessionActionCard')
 
 const offer = {

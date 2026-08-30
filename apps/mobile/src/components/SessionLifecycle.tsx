@@ -1,7 +1,7 @@
 import type { SessionResurrectionResult } from '@podium/client-core/engine'
 import { type ExitedAction, exitedRecovery } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
-import { Moon, RotateCcw } from 'lucide-react-native'
+import { Moon, RotateCcw } from './icons'
 import { type JSX, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'

@@ -1,6 +1,6 @@
 import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { SessionOffer } from '@podium/model'
-import { Lightbulb, X } from 'lucide-react-native'
+import { Lightbulb, X } from './icons'
 import { useState } from 'react'
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'

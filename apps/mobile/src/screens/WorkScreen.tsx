@@ -38,7 +38,7 @@ import {
   Pin,
   Search,
   X,
-} from 'lucide-react-native'
+} from '../components/icons'
 import { useCallback, useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'

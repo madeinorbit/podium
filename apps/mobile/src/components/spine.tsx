@@ -7,7 +7,7 @@ import {
   sessionSettled,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, IssueStage, SessionId, SessionMeta } from '@podium/model'
-import { ChevronDown } from 'lucide-react-native'
+import { ChevronDown } from './icons'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import Svg, { Line } from 'react-native-svg'
 import { alpha } from '../theme/mix'

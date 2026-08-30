@@ -1,4 +1,4 @@
-import { ChevronLeft, Cpu, Gauge } from 'lucide-react-native'
+import { ChevronLeft, Cpu, Gauge } from './icons'
 import type { ModelCatalog } from '@podium/client-core/react'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'

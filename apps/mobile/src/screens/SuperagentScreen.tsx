@@ -6,7 +6,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { Eraser } from 'lucide-react-native'
+import { Eraser } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
 import { readTranscriptPage, useBooting, useHub, useMobileStore } from '../client/hooks'
@@ -412,7 +412,11 @@ export function SuperagentScreen() {
     : threadsLoaded
   const resolved = !booting && transcriptResolved
   const empty =
-    resolved && settled.length === 0 && liveItem === undefined && pendingTurns.length === 0 && !working
+    resolved &&
+    settled.length === 0 &&
+    liveItem === undefined &&
+    pendingTurns.length === 0 &&
+    !working
 
   return (
     <Screen

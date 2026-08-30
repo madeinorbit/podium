@@ -1,5 +1,5 @@
 import type { IssuePanelArtifact } from '@podium/model'
-import { X } from 'lucide-react-native'
+import { X } from './icons'
 import { createElement, useEffect, useState } from 'react'
 import { Image, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useServerProfile } from '../client/ServerProfileGate'

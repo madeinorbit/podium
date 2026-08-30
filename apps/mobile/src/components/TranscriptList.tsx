@@ -12,7 +12,7 @@ import {
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react-native'
+import { ChevronDown, ChevronRight, ChevronUp, X } from './icons'
 import {
   type ReactElement,
   type ReactNode,

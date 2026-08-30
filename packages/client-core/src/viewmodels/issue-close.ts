@@ -20,8 +20,8 @@ import { isSessionWorking } from './session-status'
  * is worse than no guard, because it teaches that the list is advisory.
  *
  * Platform-neutral: no DOM, no React, no icon components — `icon` is a NAME the
- * caller maps to its own icon set (`lucide-react` on the web,
- * `lucide-react-native` on the phone).
+ * caller maps to its own icon set (`lucide-react` on the web, platform symbols
+ * through `expo-symbols` on the phone).
  */
 
 export interface IssueCloseConcern {
