@@ -532,7 +532,11 @@ describe('opencode completed-turn configuration observation', () => {
         variant: 'high',
       })
 
-      await control.streamAssistantText(handle.binding.sessionId, ['done'])
+      const streamAssistantText = control.streamAssistantText
+      if (!streamAssistantText) {
+        throw new Error('the OpenCode conformance fixture must stream assistant text')
+      }
+      await streamAssistantText(handle.binding.sessionId, ['done'])
       expect(world.observed).toEqual([])
 
       await control.completeTurn(handle.binding.sessionId)
