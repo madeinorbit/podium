@@ -32,7 +32,6 @@ if [ "$MODE" = continue-a7b ]; then
   echo "refusing: A7b runner timeout" >&2
   exit 3
 fi
-# Successful continuation is emitted only by verify_a7b: A7B_PASS_CONTROLLED.
 
 [ "$MODE" = start ] || { echo "usage: $0 [start|continue-a7b]" >&2; exit 2; }
 [ ! -e "$PIDFILE" ] || { echo "refusing: r18 pidfile already exists" >&2; exit 2; }
