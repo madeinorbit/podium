@@ -1,0 +1,39 @@
+{
+  "recordedAt": "2026-08-30T18:40:47.141Z",
+  "issue": "POD-3112",
+  "pin": "d6df08c41af3883685c3f18fad0fd0fef78bfec7",
+  "driver": "opencode-server",
+  "cell": "A7A",
+  "verdict": "PASS",
+  "control": "FIRED",
+  "instance": "p3112-a7-final-d6d-r1",
+  "ports": [22142, 49142, 49143],
+  "sessionId": "4d71ed6b-1d7c-4bba-81b9-4de038d909be",
+  "requestedDriverId": "opencode-server",
+  "observedDriverId": "opencode-server",
+  "driverFamily": "server",
+  "accountId": "native:opencode",
+  "providerPrompts": 2,
+  "seed": {
+    "workingMs": 4824.518454000001,
+    "growthMs": 4441.919646000002,
+    "replyMs": 3220.702634999998,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2
+  },
+  "restart": {"oldDaemonPid": 1515434, "newDaemonPid": 1518971, "adoptMs": 1423.6133610000034},
+  "continuity": {
+    "sameProviderSession": true,
+    "sameProcessKey": true,
+    "sameSession": true,
+    "sameCreatedAt": true,
+    "sameResume": true,
+    "nativeMarkerOccurrences": 2,
+    "chatMarkerOccurrences": 2,
+    "recallMs": 1767.5992749999969,
+    "remembered": true,
+    "providerExact": true
+  },
+  "rawA7aSha256": "03e0e2b776505271ffe858760de94c25c59de05b69885d4e7290d70830e0bee0"
+}
