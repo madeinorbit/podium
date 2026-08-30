@@ -78,6 +78,11 @@ interface MobileTrpcExtras {
        *  the card must say so rather than settle into "sent" (POD-770). */
       { ok: boolean; reason?: string }
     >
+    interrupt: MutationProcedure<{ sessionId: SessionId }, { ok?: boolean; reason?: string }>
+  }
+  messages: {
+    ledger: QueryProcedure<{ sessionId: SessionId; limit: number }, unknown[]>
+    cancel: MutationProcedure<{ id: string }>
   }
   superagent: {
     // THE SHADOW TYPES ARE GONE (POD-332, audit item `superagent-shadow-types`).

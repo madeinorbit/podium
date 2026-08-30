@@ -1,4 +1,8 @@
 import { useStoreHandle } from '@podium/client-core/react'
+import {
+  headlessConversationCanInterrupt,
+  nativeSessionCanInterrupt,
+} from '@podium/client-core/conversation'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   type AskAnswerChoice,
@@ -577,8 +581,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
    * here as {@link interruptError} instead of being swallowed.
    */
   const canInterrupt = headless
-    ? superThread !== undefined && headlessTurn.turnRunning
-    : session !== undefined && (session.status === 'live' || session.status === 'starting')
+    ? headlessConversationCanInterrupt(superThread !== undefined, headlessTurn.turnRunning)
+    : nativeSessionCanInterrupt(session?.status)
   const [interruptError, setInterruptError] = useState<string | null>(null)
   // A refusal belongs to the session it came from — the mobile panel reuses one
   // composer across switches, and a stale "Not stopped" under another session's

@@ -110,6 +110,8 @@ export function composerVoiceStatus(
 export function Composer({
   placeholder,
   onSend,
+  value: controlledValue,
+  onChangeText: onDraftChange,
   disabled,
   caption,
   captionTone = 'working',
@@ -128,6 +130,9 @@ export function Composer({
    * composed prompt to recover the paths is how the two copies drift.
    */
   onSend: (text: string, files?: readonly SentAttachment[]) => void
+  /** Shared conversation draft. Omit both fields for a component-local draft. */
+  value?: string
+  onChangeText?: (text: string) => void
   disabled?: boolean
   /** Compact agent activity inside the composer chrome; absent takes no space. */
   caption?: string | null
@@ -169,7 +174,12 @@ export function Composer({
    */
   onRestingHeight?: (height: number) => void
 }) {
-  const [text, setText] = useState('')
+  const [localText, setLocalText] = useState('')
+  const text = controlledValue ?? localText
+  const writeText = (next: string): void => {
+    if (controlledValue === undefined) setLocalText(next)
+    onDraftChange?.(next)
+  }
   const [focused, setFocused] = useState(false)
   const [measured, setMeasured] = useState<number | null>(null)
   const [line, setLine] = useState(COMPOSER_LINE)
@@ -237,7 +247,7 @@ export function Composer({
     if (!draftInsertion) return
     clearVoiceRef.current()
     const current = committedTextRef.current
-    setText(`${current}${current && !current.endsWith('\n') ? '\n' : ''}${draftInsertion.text}`)
+    writeText(`${current}${current && !current.endsWith('\n') ? '\n' : ''}${draftInsertion.text}`)
     inputRef.current?.focus()
   }, [draftInsertion])
 
@@ -253,7 +263,7 @@ export function Composer({
     voice.clear()
     onSend(trimmed, files.length > 0 ? files : undefined)
     attachments?.clear()
-    setText('')
+    writeText('')
     setMeasured(null)
   }
 
@@ -289,13 +299,13 @@ export function Composer({
 
   const changeText = (next: string) => {
     if (voice.session || voice.starting || voice.listening || voice.error) voice.clear()
-    setText(next)
+    writeText(next)
   }
 
   const startVoice = () => {
     // A completed session remains visible until the next draft boundary. Move
     // its finalized text into the typed base before starting the new session.
-    setText(committedText)
+    writeText(committedText)
     voice.start()
   }
 
