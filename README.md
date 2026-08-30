@@ -18,7 +18,7 @@
 
 [![Download Podium ADE for Mac](https://img.shields.io/badge/%E2%AC%87%20Download%20for%20Mac-Apple%20Silicon%20%C2%B7%200.1.0-d97706?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/madeinorbit/podium/releases/download/v0.1.0/Podium_0.1.0_aarch64.dmg)
 
-Other platforms (Windows, Linux desktop, Intel Mac) are on the [releases page](https://github.com/madeinorbit/podium/releases/latest).
+Intel Mac builds are also supported. Windows and Linux builds are previews until their packaged acceptance checks pass. Download them from the [releases page](https://github.com/madeinorbit/podium/releases/latest).
 
 **Headless server**
 
@@ -43,8 +43,8 @@ Then run `podium` and finish setup in the browser at the printed URL.
   off work, ask each other questions, and interrupt each other, and you read the whole thread.
 - **Real terminals, remotely.** Every agent runs in a persistent PTY on your machine, tmux-style,
   with no `-p` flag abstractions. Attach from any browser; nothing dies when you close the tab.
-- **Mobile first-class.** The web UI is a PWA built to run agents from a phone: check on a long
-  task, answer an agent's question, kick off the next one.
+- **Mobile first-class.** The iPhone app lets you check on a long task, answer an agent's
+  question, and kick off the next one. The phone web app remains available as a compatibility path.
 - **Agents that track their own work.** A built-in issue tracker with a CLI and MCP surface the
   agents drive themselves. They claim issues, file discovered work, and report progress while
   you watch the board.

@@ -18,8 +18,9 @@
     },
     "ios": {
       "bundleIdentifier": "dev.podium.mobile",
-      "supportsTablet": true,
+      "supportsTablet": false,
       "infoPlist": {
+        "MinimumOSVersion": "16.4",
         "NSCameraUsageDescription": "Scan a one-time code to connect this phone to your Podium server.",
         "NSMicrophoneUsageDescription": "Dictate prompts privately using Apple's on-device speech model.",
         "NSLocalNetworkUsageDescription": "Connect to a Podium server you run on your local network.",
@@ -55,6 +56,7 @@
       "name": "Podium"
     },
     "plugins": [
+      "./plugins/with-ios-release-contract",
       "expo-router",
       [
         "expo-font",

@@ -8,7 +8,7 @@ product
 
 adaptive
 
-(One Expo/React Native codebase. Today it ships as the phone web app served at `/mobile` (PWA focus); native iOS/Android store builds are expected later. It renders one Podium design language on both platforms while honoring each OS's guarantees: safe areas, system back, 44/48pt touch targets, reduced motion.)
+(One Expo/React Native codebase. The first supported native release is iPhone-only on iOS 16.4 or later, distributed through TestFlight before App Store review. The `/mobile` web app remains an unsupported compatibility path, and Android is not in the first release contract. The app keeps one Podium design language while honoring iOS safe areas, system navigation, 44pt touch targets, accessibility settings, and reduced motion.)
 
 ## Users
 

@@ -35,6 +35,12 @@ import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
+import {
+  inspectProofContract,
+  parseEvidence,
+  PROOF_CHECKS,
+  validateEvidence,
+} from './parity-release-proof'
 import { runWithHeavyTestLease } from './test-heavy'
 import scriptsConfig from './vitest.config'
 import rearchConfig from './vitest.rearch.config'
@@ -741,6 +747,45 @@ describe('test lane configuration', () => {
     )
     const tests = rustSources.reduce((n, src) => n + (src.match(/#\[test\]/g)?.length ?? 0), 0)
     expect(tests, 'the rust lane would run no tests').toBeGreaterThan(10)
+  })
+
+  it('keeps parity release evidence fail-closed across native and packaged boundaries', () => {
+    expect(inspectProofContract(fileURLToPath(repoRoot))).toEqual([])
+
+    const baseline = parseEvidence(
+      JSON.parse(
+        readFileSync(new URL('./parity-release-proof-baseline.json', import.meta.url), 'utf8'),
+      ),
+    )
+    expect(Object.keys(baseline.checks).sort()).toEqual(
+      PROOF_CHECKS.map((check) => check.id).sort(),
+    )
+    expect(validateEvidence(baseline, { releaseReady: false })).toEqual([])
+    expect(validateEvidence(baseline, { releaseReady: true })).toHaveLength(PROOF_CHECKS.length)
+
+    const native = structuredClone(baseline)
+    native.checks['ios-minimum-simulator-smoke'] = {
+      status: 'passed',
+      source: 'automated',
+      artifacts: ['run://browser-emulation'],
+      notes: 'A browser device preset ran.',
+    }
+    expect(validateEvidence(native, { releaseReady: false })).toContain(
+      'ios-minimum-simulator-smoke: expected simulator evidence, found automated',
+    )
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'ios-minimum-simulator-smoke': {
+            status: 'passed',
+            source: 'browser-emulation',
+            notes: 'A browser device preset ran.',
+          },
+        },
+      }),
+    ).toThrow('browser emulation is never native proof')
   })
 
   it('keeps the oracle lane set, its runner, and CI in sync [POD-295]', () => {
