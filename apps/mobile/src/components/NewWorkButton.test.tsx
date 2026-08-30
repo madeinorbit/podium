@@ -110,4 +110,33 @@ describe('the phone launch sheet', () => {
       ),
     )
   })
+
+  it('keeps the first prompt until the optimistic spawn settles', async () => {
+    let confirmSpawn: ((value: { sessionId: string }) => void) | undefined
+    const create = vi.fn(
+      () =>
+        new Promise<{ sessionId: string }>((resolve) => {
+          confirmSpawn = resolve
+        }),
+    )
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium')],
+      api: { sessions: { create: { mutate: create } } },
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    fireEvent.change(screen.getByLabelText('First prompt, optional'), {
+      target: { value: 'Keep this through settle' },
+    })
+    fireEvent.click(screen.getByLabelText('Start in podium'))
+
+    fireEvent.click(screen.getByLabelText('New work'))
+    expect((screen.getByLabelText('First prompt, optional') as HTMLInputElement).value).toBe(
+      'Keep this through settle',
+    )
+
+    confirmSpawn?.({ sessionId: 'created' })
+    await waitFor(() =>
+      expect((screen.getByLabelText('First prompt, optional') as HTMLInputElement).value).toBe(''),
+    )
+  })
 })

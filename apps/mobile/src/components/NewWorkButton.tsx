@@ -213,16 +213,19 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     const selection = isShell ? {} : spawnSelection(effectiveModel, effort)
     const firstPrompt = prompt.trim()
     setRepoPick(repo.path)
-    const { sessionId } = spawnDraftAgent({
+    const launch = spawnDraftAgent({
       target: worktree,
       agentKind: harness,
       ...(!isShell && firstPrompt ? { firstPrompt } : {}),
       ...(selection.model ? { model: selection.model } : {}),
       ...(selection.effort ? { effort: selection.effort } : {}),
     })
-    setPrompt('')
+    void launch.settled.then((confirmed) => {
+      if (!confirmed) return
+      setPrompt((current) => (current.trim() === firstPrompt ? '' : current))
+    })
     close()
-    router.push(sessionHref(sessionId, pathname))
+    router.push(sessionHref(launch.sessionId, pathname))
   }
 
   const applyModel = (value: string) => {
