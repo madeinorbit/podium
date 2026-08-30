@@ -1138,7 +1138,7 @@ describe('test lane configuration', () => {
       packageName: 'Podium_1.2.3_aarch64.dmg',
       packageSha256: 'a'.repeat(64),
       packageTrust: {
-        mechanism: 'Apple notarization and Gatekeeper',
+        mechanism: 'apple-notarized-developer-id',
         identity: 'Developer ID Application: Podium',
         verified: true,
       },
@@ -1183,7 +1183,7 @@ describe('test lane configuration', () => {
       packageName: 'Podium_1.2.3_x64-setup.exe',
       packageSha256: 'b'.repeat(64),
       packageTrust: {
-        mechanism: 'Authenticode',
+        mechanism: 'windows-authenticode',
         identity: 'Unknown publisher',
         verified: false,
       },
@@ -1194,17 +1194,52 @@ describe('test lane configuration', () => {
       'desktop-windows-package: package trust verification did not pass',
     )
 
-    const mislabeledWindowsTrust = structuredClone(untrustedWindowsPackage)
-    mislabeledWindowsTrust.checks['desktop-windows-package']!.packageTrust = {
-      mechanism: 'checksum only',
-      identity: 'Unknown publisher',
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'desktop-windows-package': {
+            ...untrustedWindowsPackage.checks['desktop-windows-package'],
+            packageTrust: {
+              mechanism: 'Authenticode check failed',
+              identity: 'Acme Corp',
+              verified: true,
+            },
+          },
+        },
+      }),
+    ).toThrow(
+      'desktop-windows-package.packageTrust.mechanism must be one of apple-notarized-developer-id, windows-authenticode, tauri-minisign-signature',
+    )
+
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'desktop-linux-package': {
+            ...baseline.checks['desktop-linux-package'],
+            packageTrust: {
+              mechanism: 'sha256',
+              identity: 'release digest',
+              verified: true,
+            },
+          },
+        },
+      }),
+    ).toThrow(
+      'desktop-linux-package.packageTrust.mechanism must be one of apple-notarized-developer-id, windows-authenticode, tauri-minisign-signature',
+    )
+
+    const wrongPlatformTrust = structuredClone(untrustedWindowsPackage)
+    wrongPlatformTrust.checks['desktop-windows-package']!.packageTrust = {
+      mechanism: 'tauri-minisign-signature',
+      identity: 'Podium release key',
       verified: true,
     }
-    expect(validateEvidence(mislabeledWindowsTrust, { releaseReady: false })).toContain(
-      'desktop-windows-package: expected Authenticode verification, found checksum only',
-    )
-    expect(validateEvidence(mislabeledWindowsTrust, { releaseReady: false })).toContain(
-      'desktop-windows-package: package trust identity is not verified',
+    expect(validateEvidence(wrongPlatformTrust, { releaseReady: false })).toContain(
+      'desktop-windows-package: expected windows-authenticode, found tauri-minisign-signature',
     )
 
     const missingDesktopBoundaries = structuredClone(oneMacArchitecture)

@@ -22,6 +22,20 @@ export type EvidenceSource =
 
 export type EvidenceStatus = 'passed' | 'failed' | 'unavailable'
 
+export const PACKAGE_TRUST_MECHANISMS = [
+  'apple-notarized-developer-id',
+  'windows-authenticode',
+  'tauri-minisign-signature',
+] as const
+
+export type PackageTrustMechanism = (typeof PACKAGE_TRUST_MECHANISMS)[number]
+
+const validPackageTrustMechanisms = new Set<string>(PACKAGE_TRUST_MECHANISMS)
+
+function isPackageTrustMechanism(value: unknown): value is PackageTrustMechanism {
+  return typeof value === 'string' && validPackageTrustMechanisms.has(value)
+}
+
 export type ProofCheck = {
   id: string
   title: string
@@ -34,7 +48,7 @@ export type ProofCheck = {
   expectedOsVersion?: string
   expectedPackage?: RegExp
   expectedPackageDescription?: string
-  expectedTrustMechanism?: RegExp
+  expectedTrustMechanisms?: readonly PackageTrustMechanism[]
   expectedTrustDescription?: string
   covers: string[]
 }
@@ -151,8 +165,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: CURRENT_MACOS_VERSION,
     expectedPackage: /^Podium_.+_aarch64\.dmg$/,
     expectedPackageDescription: 'Podium_<version>_aarch64.dmg',
-    expectedTrustMechanism: /developer id|gatekeeper|notari/i,
-    expectedTrustDescription: 'Apple Developer ID, Gatekeeper, or notarization verification',
+    expectedTrustMechanisms: ['apple-notarized-developer-id'],
+    expectedTrustDescription: 'apple-notarized-developer-id',
     covers: [
       'Apple Silicon signed, notarized, stapled DMG',
       'fresh install, launch, native chrome, opener, file dialog, clipboard, notification, cold and warm deep-link activation, and updater restart',
@@ -170,8 +184,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: CURRENT_MACOS_VERSION,
     expectedPackage: /^Podium_.+_x64\.dmg$/,
     expectedPackageDescription: 'Podium_<version>_x64.dmg',
-    expectedTrustMechanism: /developer id|gatekeeper|notari/i,
-    expectedTrustDescription: 'Apple Developer ID, Gatekeeper, or notarization verification',
+    expectedTrustMechanisms: ['apple-notarized-developer-id'],
+    expectedTrustDescription: 'apple-notarized-developer-id',
     covers: [
       'Intel signed, notarized, stapled DMG',
       'fresh install, launch, native chrome, opener, file dialog, clipboard, notification, cold and warm deep-link activation, and updater restart',
@@ -189,8 +203,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: 'Windows 11 24H2',
     expectedPackage: /^Podium_.+_x64-setup\.exe$/,
     expectedPackageDescription: 'Podium_<version>_x64-setup.exe',
-    expectedTrustMechanism: /authenticode/i,
-    expectedTrustDescription: 'Authenticode verification',
+    expectedTrustMechanisms: ['windows-authenticode'],
+    expectedTrustDescription: 'windows-authenticode',
     covers: [
       'NSIS install and uninstall on Windows 11 x86_64',
       'verified Authenticode publisher, SmartScreen behavior, and WebView2 launch',
@@ -209,8 +223,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: 'Ubuntu 24.04.3 LTS',
     expectedPackage: /^Podium_.+_amd64\.AppImage$/,
     expectedPackageDescription: 'Podium_<version>_amd64.AppImage',
-    expectedTrustMechanism: /signature|provenance|attestation|gpg|sha-?256/i,
-    expectedTrustDescription: 'signed or attestable AppImage provenance',
+    expectedTrustMechanisms: ['tauri-minisign-signature'],
+    expectedTrustDescription: 'tauri-minisign-signature',
     covers: [
       'AppImage launch on Ubuntu 24.04 x86_64 under an isolated X11 session',
       'verified AppImage provenance plus native opener and dialogs',
@@ -232,7 +246,7 @@ export type EvidenceEntry = {
   packageName?: string
   packageSha256?: string
   packageTrust?: {
-    mechanism: string
+    mechanism: PackageTrustMechanism
     identity: string
     verified: boolean
   }
@@ -304,8 +318,10 @@ export function parseEvidence(value: unknown): EvidenceFile {
     let packageTrust: EvidenceEntry['packageTrust']
     if (entry.packageTrust !== undefined) {
       const trust = asObject(entry.packageTrust, `evidence.checks.${id}.packageTrust`)
-      if (typeof trust.mechanism !== 'string' || trust.mechanism === '') {
-        throw new Error(`evidence.checks.${id}.packageTrust.mechanism must be a non-empty string`)
+      if (!isPackageTrustMechanism(trust.mechanism)) {
+        throw new Error(
+          `evidence.checks.${id}.packageTrust.mechanism must be one of ${PACKAGE_TRUST_MECHANISMS.join(', ')}`,
+        )
       }
       if (typeof trust.identity !== 'string' || trust.identity === '') {
         throw new Error(`evidence.checks.${id}.packageTrust.identity must be a non-empty string`)
@@ -435,8 +451,9 @@ export function validateEvidence(
         errors.push(`${check.id}: package trust verification did not pass`)
       } else {
         if (
-          check.expectedTrustMechanism &&
-          !check.expectedTrustMechanism.test(entry.packageTrust.mechanism)
+          !isPackageTrustMechanism(entry.packageTrust.mechanism) ||
+          (check.expectedTrustMechanisms &&
+            !check.expectedTrustMechanisms.includes(entry.packageTrust.mechanism))
         ) {
           errors.push(
             `${check.id}: expected ${check.expectedTrustDescription}, found ${entry.packageTrust.mechanism}`,
