@@ -275,7 +275,8 @@ export const AttachedMessage = z.object({
 export const TerminalOutcomeMessage = z.object({
   type: z.literal('terminalOutcome'),
   sessionId: SessionIdField,
-  outcome: z.enum(['unauthorized', 'unreachable']),
+  outcome: z.enum(['unauthorized', 'unreachable', 'unsupported']),
+  detail: z.string().min(1).optional(),
 })
 export type TerminalOutcomeMessage = z.infer<typeof TerminalOutcomeMessage>
 

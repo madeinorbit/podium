@@ -113,7 +113,7 @@ export interface ConnectionViewport {
   dpr: number
 }
 
-export type TerminalOutcome = 'unauthorized' | 'unreachable'
+export type TerminalOutcome = 'unauthorized' | 'unreachable' | 'unsupported'
 
 export interface ConnectionState {
   connected: boolean

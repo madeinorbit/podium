@@ -21,6 +21,7 @@ import type { TerminalRuntimeHost } from './terminal-driver'
 
 const log = createLogger('daemon:claude-sdk-runtime')
 const ZERO_DIGEST = '0'.repeat(64)
+const publishedClaudeBindings = new WeakSet<AgentSessionHandle>()
 
 export interface ClaudeSdkSessionLaunch {
   sessionId: SessionId
@@ -42,6 +43,7 @@ export async function emitClaudeBinding(
   },
   handle: AgentSessionHandle,
 ): Promise<void> {
+  publishedClaudeBindings.add(handle)
   send({
     type: 'bind',
     sessionId: input.sessionId,
@@ -65,6 +67,16 @@ export async function emitClaudeBinding(
       confidence: 'exact',
     })
   }
+}
+
+/** Publish a newly resumed handle only when its adapter did not already do so. */
+export async function ensureClaudeBindingPublished(
+  send: (message: DaemonMessage) => void,
+  input: Parameters<typeof emitClaudeBinding>[1],
+  handle: AgentSessionHandle,
+): Promise<void> {
+  if (publishedClaudeBindings.has(handle)) return
+  await emitClaudeBinding(send, input, handle)
 }
 
 export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {

@@ -190,6 +190,29 @@ describe('POD-1081 attach + take-control policy', () => {
     expect(session.terminal.clientCount).toBe(0)
   })
 
+  it('returns a typed reason instead of attaching a Claude SDK Native view', () => {
+    const session = makeSession()
+    session.driverId = 'claude-sdk'
+    session.attachKinds = []
+    const ctl = control({
+      session,
+      owner: { owner: OWNER, grants: [] },
+      machineUse: 'granted',
+    })
+    const owner = makeClient('c-owner-native-gap', OWNER, 'admin')
+
+    ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
+
+    expect(owner.sent).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId: SESSION,
+      outcome: 'unsupported',
+      detail: "Runtime driver 'claude-sdk' does not support a Native view",
+    })
+    expect(owner.attached).not.toContain(SESSION)
+    expect(session.terminal.clientCount).toBe(0)
+  })
+
   it('allows attach for a grantee with machine use and stamps controller identity', () => {
     const session = makeSession()
     const ctl = control({

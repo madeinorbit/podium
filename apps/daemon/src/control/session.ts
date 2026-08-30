@@ -39,7 +39,10 @@ import {
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
-import { emitClaudeBinding } from '../runtime/claude-sdk-driver'
+import {
+  emitClaudeBinding,
+  ensureClaudeBindingPublished,
+} from '../runtime/claude-sdk-driver'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { driverTiming } from '../runtime/driver-timing'
 import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
@@ -1664,10 +1667,20 @@ async function adoptOrResumeEmbeddedClaudeSession(
       ) {
         throw new Error('Claude SDK resume did not preserve the exact session identity or ref')
       }
-      // The production machine source routes this resume to
-      // embeddedSource.resumeWithId -> claude.launch, whose shared publisher
-      // has emitted bind, agentState and the exact resume ref before this
-      // promise resolves. Publishing here as well would duplicate the bind.
+      await ensureClaudeBindingPublished(
+        ctx.send,
+        {
+          sessionId: msg.sessionId,
+          cwd: msg.cwd,
+          agentKind: 'claude-code',
+          geometry: msg.geometry,
+        },
+        handle,
+      )
+      // The production machine source publishes from claude.launch before
+      // resume resolves. The ensure seam is deliberately weaker than emit:
+      // alternate adapters still publish, while a later reattach may emit the
+      // same surviving handle again to refresh its live capabilities.
       log.info('resumed Claude SDK session after process loss', {
         sessionId: msg.sessionId,
         mode: 'process-gone',

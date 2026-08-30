@@ -3,7 +3,6 @@ import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { configureFieldsForDriver } from '@podium/agent-runtime'
-import { emitClaudeBinding } from '../runtime/claude-sdk-driver'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './session'
 
@@ -54,26 +53,10 @@ function world(input: {
   existing?: AgentSessionHandle
   adopt: (binding: unknown) => Promise<AgentSessionHandle>
   resume: (ref: ResumeRef, spec: unknown, sessionId?: SessionId) => Promise<AgentSessionHandle>
-  publishResume?: boolean
 }) {
   const sent: DaemonMessage[] = []
   const adopt = vi.fn(input.adopt)
-  const resume = vi.fn(async (ref: ResumeRef, spec: unknown, sessionId?: SessionId) => {
-    const resumed = await input.resume(ref, spec, sessionId)
-    if (input.publishResume) {
-      await emitClaudeBinding(
-        (message) => sent.push(message),
-        {
-          sessionId: resumed.binding.sessionId,
-          cwd: resumed.binding.workdir,
-          agentKind: 'claude-code',
-          geometry: { cols: 80, rows: 24 },
-        },
-        resumed,
-      )
-    }
-    return resumed
-  })
+  const resume = vi.fn(input.resume)
   const ctx = {
     send: (message: DaemonMessage) => sent.push(message),
     machineId: 'claude-test-machine',
@@ -140,7 +123,6 @@ describe('Claude SDK reattach control', () => {
         expect(sessionId).toBe(SESSION_ID)
         return resumed
       },
-      publishResume: true,
     })
 
     sessionHandlers.reattach(w.ctx, reattachMessage(SESSION_ID, RESUME))
@@ -171,6 +153,7 @@ describe('Claude SDK reattach control', () => {
       // frame's shape is pinned, so a field silently appearing or vanishing on a
       // reattach bind has to be noticed here.
       configureFields: [...configureFieldsForDriver('claude-sdk')],
+      attachKinds: [],
     })
     expect(w.sent).toContainEqual({
       type: 'agentState',
