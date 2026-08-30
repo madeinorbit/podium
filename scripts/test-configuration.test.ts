@@ -786,6 +786,67 @@ describe('test lane configuration', () => {
         },
       }),
     ).toThrow('browser emulation is never native proof')
+
+    const staleIos = structuredClone(baseline)
+    staleIos.checks['ios-current-device'] = {
+      status: 'passed',
+      source: 'physical-device',
+      device: 'iPhone 16 Pro',
+      osVersion: '26.6',
+      artifacts: ['device-run.mp4'],
+      notes: 'Ran on a stale current-device image.',
+    }
+    expect(validateEvidence(staleIos, { releaseReady: false })).toContain(
+      'ios-current-device: expected OS 26.6.1, found 26.6',
+    )
+
+    const wrongDevice = structuredClone(baseline)
+    wrongDevice.checks['ios-minimum-device'] = {
+      status: 'passed',
+      source: 'physical-device',
+      device: 'iPhone 8',
+      osVersion: '16.4',
+      artifacts: ['device-run.mp4'],
+      notes: 'Ran on the wrong minimum device.',
+    }
+    expect(validateEvidence(wrongDevice, { releaseReady: false })).toContain(
+      'ios-minimum-device: expected device iPhone SE (2nd generation), found iPhone 8',
+    )
+
+    const oneMacArchitecture = structuredClone(baseline)
+    oneMacArchitecture.checks['desktop-macos-apple-silicon-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'MacBook Pro (14-inch, M4 Pro, 2024)',
+      osVersion: 'macOS 26.6.2',
+      packageName: 'Podium_1.2.3_aarch64.dmg',
+      packageSha256: 'a'.repeat(64),
+      artifacts: ['apple-silicon-run.mp4'],
+      notes: 'Apple Silicon package passed.',
+    }
+    expect(
+      validateEvidence(oneMacArchitecture, { releaseReady: false }).filter((error) =>
+        error.startsWith('desktop-macos-apple-silicon-package:'),
+      ),
+    ).toEqual([])
+    expect(validateEvidence(oneMacArchitecture, { releaseReady: true })).toContain(
+      'desktop-macos-intel-package: unavailable evidence blocks release',
+    )
+
+    const wrongDesktopPackage = structuredClone(baseline)
+    wrongDesktopPackage.checks['desktop-windows-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'Dell XPS 13 9340',
+      osVersion: 'Windows 11 24H2',
+      packageName: 'desktop-notes.txt',
+      packageSha256: 'b'.repeat(64),
+      artifacts: ['windows-run.mp4'],
+      notes: 'The package label is not an NSIS installer.',
+    }
+    expect(validateEvidence(wrongDesktopPackage, { releaseReady: false })).toContain(
+      'desktop-windows-package: expected package Podium_<version>_x64-setup.exe, found desktop-notes.txt',
+    )
   })
 
   it('keeps the oracle lane set, its runner, and CI in sync [POD-295]', () => {

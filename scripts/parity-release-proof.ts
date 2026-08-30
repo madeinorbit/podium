@@ -10,6 +10,8 @@ import { dirname, relative, resolve } from 'node:path'
 
 export const PROOF_SCHEMA_VERSION = 1
 export const IOS_DEPLOYMENT_TARGET = '16.4'
+export const CURRENT_IOS_VERSION = '26.6.1'
+export const CURRENT_MACOS_VERSION = 'macOS 26.6.2'
 
 export type EvidenceSource =
   | 'automated'
@@ -30,6 +32,8 @@ export type ProofCheck = {
   deviceRequired?: boolean
   expectedDevice?: string
   expectedOsVersion?: string
+  expectedPackage?: RegExp
+  expectedPackageDescription?: string
   covers: string[]
 }
 
@@ -70,6 +74,7 @@ export const PROOF_CHECKS: ProofCheck[] = [
     owner: 'parity-release-proof',
     deviceRequired: true,
     expectedDevice: 'iPhone 16 Pro',
+    expectedOsVersion: CURRENT_IOS_VERSION,
     covers: [
       'current stable iOS navigation and system chrome',
       'current permission, keyboard, accessibility, and lifecycle behavior',
@@ -98,6 +103,7 @@ export const PROOF_CHECKS: ProofCheck[] = [
     owner: 'parity-release-proof',
     deviceRequired: true,
     expectedDevice: 'iPhone 16 Pro',
+    expectedOsVersion: CURRENT_IOS_VERSION,
     covers: [
       'iPhone 16 Pro on the current stable iOS release',
       'TestFlight install, safe areas, microphone, speech, haptics, and VoiceOver',
@@ -105,26 +111,63 @@ export const PROOF_CHECKS: ProofCheck[] = [
     ],
   },
   {
-    id: 'ios-native-performance',
-    title: 'Native iOS performance evidence',
+    id: 'ios-native-performance-floor',
+    title: 'Native iOS performance floor',
     source: 'physical-device',
     platform: 'ios',
     owner: 'POD-1767',
     deviceRequired: true,
+    expectedDevice: 'iPhone SE (2nd generation)',
+    expectedOsVersion: '16.4',
     covers: [
-      'the named-device release-build launch, transcript, scroll, resume, and memory baseline',
+      'the minimum-device release-build launch, transcript, scroll, resume, and memory baseline',
       'imported evidence only; this program does not run a competing native benchmark',
     ],
   },
   {
-    id: 'desktop-macos-package',
-    title: 'Packaged macOS acceptance',
+    id: 'ios-native-performance-promotion',
+    title: 'Native iOS ProMotion performance',
+    source: 'physical-device',
+    platform: 'ios',
+    owner: 'POD-1767',
+    deviceRequired: true,
+    expectedDevice: 'iPhone 16 Pro',
+    expectedOsVersion: CURRENT_IOS_VERSION,
+    covers: [
+      'the current ProMotion-device release-build frame pacing and interaction baseline',
+      'imported evidence only; this program does not run a competing native benchmark',
+    ],
+  },
+  {
+    id: 'desktop-macos-apple-silicon-package',
+    title: 'Apple Silicon macOS acceptance',
     source: 'packaged-desktop',
     platform: 'macos',
     owner: 'parity-release-proof',
     deviceRequired: true,
+    expectedDevice: 'MacBook Pro (14-inch, M4 Pro, 2024)',
+    expectedOsVersion: CURRENT_MACOS_VERSION,
+    expectedPackage: /^Podium_.+_aarch64\.dmg$/,
+    expectedPackageDescription: 'Podium_<version>_aarch64.dmg',
     covers: [
-      'Apple Silicon and Intel signed, notarized, stapled DMGs',
+      'Apple Silicon signed, notarized, stapled DMG',
+      'fresh install, launch, native chrome, opener, file dialog, clipboard, and updater restart',
+      'VoiceOver and keyboard traversal on the packaged application',
+    ],
+  },
+  {
+    id: 'desktop-macos-intel-package',
+    title: 'Intel macOS acceptance',
+    source: 'packaged-desktop',
+    platform: 'macos',
+    owner: 'parity-release-proof',
+    deviceRequired: true,
+    expectedDevice: 'MacBook Pro (16-inch, 2019, Intel)',
+    expectedOsVersion: CURRENT_MACOS_VERSION,
+    expectedPackage: /^Podium_.+_x64\.dmg$/,
+    expectedPackageDescription: 'Podium_<version>_x64.dmg',
+    covers: [
+      'Intel signed, notarized, stapled DMG',
       'fresh install, launch, native chrome, opener, file dialog, clipboard, and updater restart',
       'VoiceOver and keyboard traversal on the packaged application',
     ],
@@ -136,6 +179,10 @@ export const PROOF_CHECKS: ProofCheck[] = [
     platform: 'windows',
     owner: 'parity-release-proof',
     deviceRequired: true,
+    expectedDevice: 'Dell XPS 13 9340',
+    expectedOsVersion: 'Windows 11 24H2',
+    expectedPackage: /^Podium_.+_x64-setup\.exe$/,
+    expectedPackageDescription: 'Podium_<version>_x64-setup.exe',
     covers: [
       'NSIS install and uninstall on Windows 11 x86_64',
       'WebView2 launch, native opener and dialogs, clipboard, ConPTY, and updater restart',
@@ -149,6 +196,10 @@ export const PROOF_CHECKS: ProofCheck[] = [
     platform: 'linux',
     owner: 'parity-release-proof',
     deviceRequired: true,
+    expectedDevice: 'ThinkPad T14 Gen 4 AMD',
+    expectedOsVersion: 'Ubuntu 24.04.3 LTS',
+    expectedPackage: /^Podium_.+_amd64\.AppImage$/,
+    expectedPackageDescription: 'Podium_<version>_amd64.AppImage',
     covers: [
       'AppImage launch on Ubuntu 24.04 x86_64 under an isolated X11 session',
       'native opener and dialogs, clipboard, PTY, replacement, and updater restart',
@@ -166,6 +217,8 @@ export type EvidenceEntry = {
   osVersion?: string
   commit?: string
   artifacts?: string[]
+  packageName?: string
+  packageSha256?: string
   notes: string
 }
 
@@ -226,7 +279,15 @@ export function parseEvidence(value: unknown): EvidenceFile {
         throw new Error(`evidence.checks.${id}.artifacts must contain non-empty strings`)
       }
     }
-    for (const key of ['observedAt', 'platform', 'device', 'osVersion', 'commit']) {
+    for (const key of [
+      'observedAt',
+      'platform',
+      'device',
+      'osVersion',
+      'commit',
+      'packageName',
+      'packageSha256',
+    ]) {
       if (entry[key] !== undefined && typeof entry[key] !== 'string') {
         throw new Error(`evidence.checks.${id}.${key} must be a string`)
       }
@@ -241,6 +302,8 @@ export function parseEvidence(value: unknown): EvidenceFile {
       ...(entry.osVersion ? { osVersion: entry.osVersion as string } : {}),
       ...(entry.commit ? { commit: entry.commit as string } : {}),
       ...(entry.artifacts ? { artifacts: entry.artifacts as string[] } : {}),
+      ...(entry.packageName ? { packageName: entry.packageName as string } : {}),
+      ...(entry.packageSha256 ? { packageSha256: entry.packageSha256 as string } : {}),
     }
   }
   return {
@@ -292,6 +355,17 @@ export function validateEvidence(
     }
     if (check.expectedOsVersion && entry.osVersion !== check.expectedOsVersion) {
       errors.push(`${check.id}: expected OS ${check.expectedOsVersion}, found ${entry.osVersion}`)
+    }
+    if (
+      check.expectedPackage &&
+      (!entry.packageName || !check.expectedPackage.test(entry.packageName))
+    ) {
+      errors.push(
+        `${check.id}: expected package ${check.expectedPackageDescription}, found ${entry.packageName}`,
+      )
+    }
+    if (check.expectedPackage && !/^[a-f0-9]{64}$/i.test(entry.packageSha256 ?? '')) {
+      errors.push(`${check.id}: packageSha256 must be the package's 64-character SHA-256`)
     }
     if (entry.status === 'passed' && (entry.artifacts?.length ?? 0) === 0) {
       errors.push(`${check.id}: passed evidence needs at least one artifact or run URL`)

@@ -43,8 +43,8 @@ Then run `podium` and finish setup in the browser at the printed URL.
   off work, ask each other questions, and interrupt each other, and you read the whole thread.
 - **Real terminals, remotely.** Every agent runs in a persistent PTY on your machine, tmux-style,
   with no `-p` flag abstractions. Attach from any browser; nothing dies when you close the tab.
-- **Mobile first-class.** The iPhone app lets you check on a long task, answer an agent's
-  question, and kick off the next one. The phone web app remains available as a compatibility path.
+- **Mobile control.** The phone web app lets you check on a long task, answer an agent's
+  question, and kick off the next one. The planned first native release is iPhone-only.
 - **Agents that track their own work.** A built-in issue tracker with a CLI and MCP surface the
   agents drive themselves. They claim issues, file discovered work, and report progress while
   you watch the board.

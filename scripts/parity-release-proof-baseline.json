@@ -31,15 +31,25 @@
       "source": "unavailable",
       "notes": "No iPhone 16 Pro on the current stable iOS evidence has been attached."
     },
-    "ios-native-performance": {
+    "ios-native-performance-floor": {
       "status": "unavailable",
       "source": "unavailable",
-      "notes": "POD-1767 owns the native performance run. Import its candidate-matched evidence here when available."
+      "notes": "POD-1767 owns the minimum-device native performance run. Import its candidate-matched evidence here when available."
     },
-    "desktop-macos-package": {
+    "ios-native-performance-promotion": {
       "status": "unavailable",
       "source": "unavailable",
-      "notes": "No signed and notarized macOS package has completed the acceptance checklist for this candidate."
+      "notes": "POD-1767 owns the ProMotion native performance run. Import its candidate-matched evidence here when available."
+    },
+    "desktop-macos-apple-silicon-package": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "No signed and notarized Apple Silicon macOS package has completed the acceptance checklist for this candidate."
+    },
+    "desktop-macos-intel-package": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "No signed and notarized Intel macOS package has completed the acceptance checklist for this candidate."
     },
     "desktop-windows-package": {
       "status": "unavailable",

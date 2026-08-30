@@ -4,6 +4,8 @@ This is the release contract for the shared web and Expo clients, native iOS, an
 
 The first native release is iPhone-only and requires iOS 16.4 or later. EAS Build produces the signed archive and EAS Submit sends the approved candidate to TestFlight. Internal TestFlight comes first, then external TestFlight, then App Store review. macOS is supported. Windows and Linux remain preview until their packaged acceptance rows pass on a release candidate.
 
+The current-system rows are pinned as of 2026-08-30 to iOS 26.6.1 and macOS 26.6.2, the versions listed by [Apple security releases](https://support.apple.com/100100). Update both the constants in `scripts/parity-release-proof.ts` and this sentence when Apple ships a later stable version. The verifier rejects stale evidence after that update.
+
 Browser emulation never counts as native proof. Chromium phone viewports, WebKit device presets, React Native Web, Expo web exports, and mocked native modules can prove browser compatibility or shared semantics only. They cannot approve UIKit behavior, Hermes, SecureStore, SQLite, app lifecycle, microphone access, speech, haptics, the iOS accessibility tree, signing, installation, or native performance.
 
 Do not run an EAS build, start an EAS Simulator session, submit to TestFlight, publish a desktop package, push a release tag, or take another paid or external release action without coordinator approval. Read-only EAS account and availability checks are allowed when the coordinator asks for them.
@@ -65,7 +67,7 @@ Inspect the generated project before the smoke:
 rg 'IPHONEOS_DEPLOYMENT_TARGET = 16.4|TARGETED_DEVICE_FAMILY = 1' ios
 ```
 
-Use an iOS 16.4 runtime on an iPhone SE class simulator and the current stable runtime on an iPhone 16 Pro simulator. Record the exact simulator model, runtime, candidate commit, screen recording or screenshots, and console log. The smoke covers cold launch, foreground resume, process termination, navigation, keyboard show and interactive dismissal, sheet and back gestures, camera and microphone permission states, SQLite persistence, SecureStore-backed profiles, offline replay, Dynamic Type, Reduce Motion, and the native accessibility tree.
+Use an iOS 16.4 runtime on an iPhone SE (3rd generation) simulator and iOS 26.6.1 on an iPhone 16 Pro simulator. Record the exact simulator model, runtime, candidate commit, screen recording or screenshots, and console log. The smoke covers cold launch, foreground resume, process termination, navigation, keyboard show and interactive dismissal, sheet and back gestures, camera and microphone permission states, SQLite persistence, SecureStore-backed profiles, offline replay, Dynamic Type, Reduce Motion, and the native accessibility tree.
 
 This repository can use EAS Simulator from a non-Mac host, but it is paid and limited-access. After coordinator approval, first run the read-only availability check from `apps/mobile`:
 
@@ -82,7 +84,7 @@ Both rows are required. Record the real model identifier and exact iOS patch ver
 | Named device | Release role | Required checks |
 | --- | --- | --- |
 | iPhone SE, 2nd generation, iOS 16.4 | Minimum OS, compact display, older-device floor | Signed install, cold launch, persisted relaunch, background reclaim, software and hardware keyboard, smallest layout, 44 point targets, VoiceOver order and rotor, disabled haptics fallback, and the clear unsupported speech state. |
-| iPhone 16 Pro, current stable iOS | Current system chrome and ProMotion class | TestFlight install, Dynamic Island safe areas, microphone and on-device speech, Bluetooth interruption, haptic timing, VoiceOver touch exploration, Wi-Fi and cellular handoff, notification entry from background and terminated states, and updater build identity. |
+| iPhone 16 Pro, iOS 26.6.1 | Current system chrome and ProMotion class | TestFlight install, Dynamic Island safe areas, microphone and on-device speech, Bluetooth interruption, haptic timing, VoiceOver touch exploration, Wi-Fi and cellular handoff, notification entry from background and terminated states, and updater build identity. |
 
 Use the `device` profile only after coordinator approval when direct internal distribution is needed:
 
@@ -101,7 +103,7 @@ npx --yes eas-cli@latest submit --platform ios --profile production --id <approv
 
 Do not use an automatic build-and-submit command for the first release. TestFlight installation on both named devices is the signing and install proof. App Store production remains blocked until internal TestFlight passes, external TestFlight feedback is resolved, and the coordinator approves submission.
 
-POD-1767 owns native performance measurement. Import its candidate-matched, named-device release-build evidence into `ios-native-performance`. Do not rerun browser timing, simulator timing, or a second native benchmark and call it equivalent. The imported evidence must cover launch, first transcript paint, scroll frame pacing, foreground resume, and memory on its stated hardware.
+POD-1767 owns native performance measurement. Import its candidate-matched release-build evidence into `ios-native-performance-floor` for the iPhone SE on iOS 16.4 and `ios-native-performance-promotion` for the iPhone 16 Pro on iOS 26.6.1. Do not rerun browser timing, simulator timing, or a second native benchmark and call it equivalent. The imported evidence must cover launch, first transcript paint, scroll frame pacing, foreground resume, and memory on both named devices.
 
 ## Packaged desktop matrix
 
@@ -111,11 +113,12 @@ Use an isolated state directory, agent home, XDG directories where applicable, i
 
 | Package and named host | Status contract | Packaged acceptance |
 | --- | --- | --- |
-| Signed and notarized DMG on Apple Silicon macOS, plus Intel packaging verification | Supported | Download through a browser, mount, drag to Applications, verify Gatekeeper and stapling, launch the installed app, check native title bar and menus, file open and save, external link dispatch, clipboard, notification, keyboard traversal, VoiceOver, idle memory, startup time, signed update replacement, and restart into the promoted version. |
-| NSIS installer on Windows 11 x86_64 | Preview until passed | Fresh install and uninstall, WebView2 launch, native menus and dialogs, external link dispatch, clipboard, notification, ConPTY terminal, keyboard traversal, Narrator, idle memory, startup time, signed updater replacement, and restart into the promoted version. Record any Authenticode or SmartScreen limitation. |
-| AppImage on Ubuntu 24.04 x86_64 under isolated X11 | Preview until passed | Download and execute the real AppImage, native dialogs and opener, clipboard, notification, PTY, keyboard traversal, Orca, idle memory, startup time, byte-for-byte updater replacement, and restart into the promoted version. Do not set `APPIMAGE` while running a bare executable. |
+| `Podium_<version>_aarch64.dmg` on MacBook Pro (14-inch, M4 Pro, 2024), macOS 26.6.2 | Supported | Download through a browser, mount, drag to Applications, verify Gatekeeper and stapling, launch the installed app, check native title bar and menus, file open and save, external link dispatch, clipboard, notification, keyboard traversal, VoiceOver, idle memory, startup time, signed update replacement, and restart into the promoted version. |
+| `Podium_<version>_x64.dmg` on MacBook Pro (16-inch, 2019, Intel), macOS 26.6.2 | Supported | Repeat the complete signed, notarized, installed application check on Intel. An Apple Silicon result or artifact inspection alone cannot satisfy this row. |
+| `Podium_<version>_x64-setup.exe` on Dell XPS 13 9340, Windows 11 24H2 | Preview until passed | Fresh install and uninstall, WebView2 launch, native menus and dialogs, external link dispatch, clipboard, notification, ConPTY terminal, keyboard traversal, Narrator, idle memory, startup time, signed updater replacement, and restart into the promoted version. Record any Authenticode or SmartScreen limitation. |
+| `Podium_<version>_amd64.AppImage` on ThinkPad T14 Gen 4 AMD, Ubuntu 24.04.3 LTS under isolated X11 | Preview until passed | Download and execute the real AppImage, native dialogs and opener, clipboard, notification, PTY, keyboard traversal, Orca, idle memory, startup time, byte-for-byte updater replacement, and restart into the promoted version. Do not set `APPIMAGE` while running a bare executable. |
 
-Each desktop row records the host hardware, exact OS, package filename and digest, candidate commit, install result, launch-to-ready time, idle resident memory after five minutes, interaction log, accessibility notes, updater before and after versions, and screenshots or recording. The first accepted measurements become the desktop baseline. Later candidates compare like-for-like hardware and may tighten a limit only from measured data.
+Each desktop row records the exact host and OS above, package filename and SHA-256 digest, candidate commit, install result, launch-to-ready time, idle resident memory after five minutes, interaction log, accessibility notes, updater before and after versions, and screenshots or recording. The verifier rejects a package name that does not match the row and any digest that is not 64 hexadecimal characters. The first accepted measurements become the desktop baseline. Later candidates compare like-for-like hardware and may tighten a limit only from measured data.
 
 After coordinator approval, start each packaged run by recording the artifact digest and checking the platform signature. These commands do not replace the interaction checklist:
 
