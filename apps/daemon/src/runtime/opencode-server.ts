@@ -377,6 +377,12 @@ export interface OpencodeHostDeps {
   clientTerminals?: OpencodeClientTerminals
   /** Exact OpenCode executable resolved by this daemon generation. */
   executablePath?: string
+  /** Hermetic effect seams for proving the launch boundary without a child. */
+  versionProbe?: VersionProbe
+  spawnProcess?: typeof spawn
+  canScope?: typeof canScopeMaster
+  runSystemctl?: (args: readonly string[]) => Promise<void>
+  freePort?: () => Promise<number>
   /**
    * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
    * same way the PTY path does (POD-2247). Absent = default instance, daemon
@@ -400,6 +406,8 @@ export function opencodeServeArgv(executablePath: string, port: number): string[
 
 export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost {
   const journal = deps.journal ?? createOpencodeJournal()
+  const spawnProcess = deps.spawnProcess ?? spawn
+  const scopeAvailable = deps.canScope ?? canScopeMaster
   const children = new Map<SessionId, ReturnType<typeof spawn>>()
 
   const endpointFor = (input: {
@@ -454,7 +462,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     // grandchild the agent spawned — behind, which is exactly the state that
     // squats the deterministic unit name and pushes the NEXT spawn into the
     // daemon's own cgroup.
-    if (!(await canScopeMaster())) return
+    if (!(await scopeAvailable())) return
     const unit = scopeUnitName(opencodeScopeLabel(sessionId))
     for (const args of scopeReclaimArgvs(unit)) {
       await runSystemctl(args)
@@ -462,8 +470,9 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
   }
 
   async function runSystemctl(args: readonly string[]): Promise<void> {
+    if (deps.runSystemctl) return deps.runSystemctl(args)
     await new Promise<void>((resolve) => {
-      const child = spawn('systemctl', [...args], { stdio: 'ignore' })
+      const child = spawnProcess('systemctl', [...args], { stdio: 'ignore' })
       const done = (): void => resolve()
       child.once('exit', done)
       child.once('error', done)
@@ -483,8 +492,8 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
 
     async launch(input) {
       const executablePath = deps.executablePath ?? 'opencode'
-      const diagnostic = await opencodeVersionDiagnostic(() =>
-        execVersionProbe(executablePath, VERSION_PROBE_TIMEOUT_MS),
+      const diagnostic = await opencodeVersionDiagnostic(
+        deps.versionProbe ?? (() => execVersionProbe(executablePath, VERSION_PROBE_TIMEOUT_MS)),
       )
       if (diagnostic) {
         // REFUSED, NOT DEGRADED. A driver written against shapes this binary may
@@ -499,10 +508,10 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // rather than at its TTL.
       await deps.clientTerminals?.close(input.sessionId, 'opencode')
 
-      const port = await freeLoopbackPort()
+      const port = await (deps.freePort ?? freeLoopbackPort)()
       const baseUrl = `http://127.0.0.1:${port}`
       const label = opencodeScopeLabel(input.sessionId)
-      const scoped = await canScopeMaster()
+      const scoped = await scopeAvailable()
       const unit = scopeUnitName(label)
 
       if (scoped) {
@@ -540,7 +549,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // a feature that exists only in the type system.
       env.OPENCODE_ENABLE_QUESTION_TOOL = env.OPENCODE_ENABLE_QUESTION_TOOL ?? '1'
 
-      const child = spawn(command ?? 'opencode', args, {
+      const child = spawnProcess(command ?? 'opencode', args, {
         cwd: input.workdir,
         env,
         /**

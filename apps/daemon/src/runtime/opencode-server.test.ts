@@ -19,12 +19,14 @@ import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   admissionProbeDriver,
+  launchServerDriverSession,
   reportDriverPreferenceDegrade,
   resolvedAdmissionExecutable,
 } from '../control/session'
 import { runtimeContractEnabledFor, runtimeDriverFor } from './flag'
 import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import {
+  createOpencodeHost,
   createOpencodeJournal,
   opencodeScopeLabel,
   opencodeServeArgv,
@@ -486,6 +488,96 @@ describe('the version gate, as the daemon reads it', () => {
     )
     expect(resolvedAdmissionExecutable('codex-app-server', executables)).toBeUndefined()
     expect(resolvedAdmissionExecutable('opencode-server', undefined)).toBeUndefined()
+  })
+
+  it('passes the generation-resolved executable through the real session admission boundary', async () => {
+    const executable = '/home/rig/.opencode/bin/opencode'
+    let probedExecutable: string | undefined
+    const sent: unknown[] = []
+    const ctx = {
+      send: (message: unknown) => sent.push(message),
+      harnessLoginState: () => 'in',
+      harnessRuntime: {
+        current: async () => ({
+          executables: new Map([['opencode', { path: executable }]]),
+        }),
+      },
+    } as never
+
+    await expect(
+      launchServerDriverSession(
+        ctx,
+        {
+          type: 'spawn',
+          sessionId: SESSION,
+          agentKind: 'opencode',
+          cwd: '/tmp',
+          geometry: { cols: 80, rows: 24 },
+          runtimeContract: 'opencode-server',
+        } as never,
+        async (_driverId, _policy, executablePath) => {
+          probedExecutable = executablePath
+          return {
+            drivable: false,
+            reason: 'unprobeable',
+            diagnostic: { title: 'probe refused', body: 'no answer' },
+          }
+        },
+      ),
+    ).resolves.toEqual({ handled: true })
+
+    expect(probedExecutable).toBe(executable)
+    expect(sent.at(-1)).toMatchObject({ type: 'spawnError', sessionId: SESSION })
+  })
+
+  it.each([
+    { label: 'directly', scoped: false },
+    { label: 'through systemd-run', scoped: true },
+  ])('spawns the resolved executable $label', async ({ scoped }) => {
+    const executable = '/home/rig/.opencode/bin/opencode'
+    const launched: Array<{ command: string; args: string[] }> = []
+    const stopped = new Error('stop after argv capture')
+    const host = createOpencodeHost({
+      resources: () => undefined,
+      executablePath: executable,
+      versionProbe: async () => ({ output: '1.18.16', ok: true }),
+      freePort: async () => 41234,
+      canScope: async () => scoped,
+      runSystemctl: async () => {},
+      journal: { read: () => undefined, write: () => {}, clear: () => {} },
+      spawnProcess: ((command: string, args: string[]) => {
+        launched.push({ command, args })
+        throw stopped
+      }) as never,
+    })
+
+    await expect(
+      host.launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        secret: 'secret',
+      }),
+    ).rejects.toBe(stopped)
+
+    expect(launched).toHaveLength(1)
+    if (scoped) {
+      expect(launched[0]?.command).toBe('systemd-run')
+      const separator = launched[0]?.args.indexOf('--') ?? -1
+      expect(launched[0]?.args.slice(separator)).toEqual([
+        '--',
+        executable,
+        'serve',
+        '--port',
+        '41234',
+        '--hostname',
+        '127.0.0.1',
+      ])
+    } else {
+      expect(launched[0]).toMatchObject({
+        command: executable,
+        args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
+      })
+    }
   })
 
   it('builds serve argv from the resolved executable without changing PATH installs', () => {
