@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     ...sans(400),
     flex: 1,
     color: color.textDim,
-    fontSize: font.caption,
+    fontSize: font.micro,
   },
   monoContext: { ...mono(500), color: color.label },
   headerButton: {
