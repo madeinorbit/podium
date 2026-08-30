@@ -1,0 +1,463 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "native-cli-lifecycle",
+  "generatedAt": "2026-08-30T09:32:09.096Z",
+  "runOrder": [
+    "claude",
+    "codex",
+    "grok",
+    "opencode"
+  ],
+  "prompt": "Reply with exactly BENCH_OK and nothing else. Do not use tools.",
+  "config": {
+    "providers": [
+      "claude",
+      "codex",
+      "grok",
+      "opencode"
+    ],
+    "runs": 3,
+    "timeoutMs": 300000,
+    "attachTimeoutMs": 30000,
+    "attachQuietMs": 500,
+    "attach": true,
+    "workdir": "<fresh temporary directory per sample>"
+  },
+  "host": {
+    "hostname": "flatblock",
+    "platform": "linux",
+    "release": "7.0.0-30-generic",
+    "runtime": "Bun 1.3.14",
+    "cpu": "AMD EPYC Processor (with IBPB)",
+    "cpuCount": 8,
+    "memoryBytes": 25193791488,
+    "loadAverage": [
+      3.2,
+      2.8,
+      3.5
+    ]
+  },
+  "providers": {
+    "claude": {
+      "executable": "/home/mgw/.local/bin/claude",
+      "version": "2.1.236 (Claude Code)",
+      "mechanism": "process-per-turn Agent SDK worker; native resume TUI",
+      "samples": [
+        {
+          "run": 1,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/claude-1",
+          "startedAt": "2026-08-30T09:29:59.101Z",
+          "start": {
+            "sessionReadyMs": 1060.9,
+            "milestones": {
+              "sdkSessionReadyMs": 1060.9
+            },
+            "evidence": "fresh Bun worker + Agent SDK query; SDK system/init with native session id"
+          },
+          "drive": {
+            "evidence": "provider turn failed before a verified BENCH_OK response"
+          },
+          "sessionId": "7313e392-4c03-4445-9891-288945a06b4a",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 2,
+            "setupActions": 1,
+            "outputBytes": 4867,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 1071.6,
+            "firstProbeSentMs": 1072,
+            "initialPaintLastByteMs": 1191.1,
+            "setupGateMs": 1161.3,
+            "initialPaintSettledMs": 1691.8,
+            "inputReadyMs": 2121.8
+          },
+          "error": "Claude completed without the expected BENCH_OK response"
+        },
+        {
+          "run": 2,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/claude-2",
+          "startedAt": "2026-08-30T09:30:05.811Z",
+          "start": {
+            "sessionReadyMs": 1084.9,
+            "milestones": {
+              "sdkSessionReadyMs": 1084.9
+            },
+            "evidence": "fresh Bun worker + Agent SDK query; SDK system/init with native session id"
+          },
+          "drive": {
+            "evidence": "provider turn failed before a verified BENCH_OK response"
+          },
+          "sessionId": "4541e275-5af8-4892-a688-08c40f5a7cb3",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 2,
+            "setupActions": 1,
+            "outputBytes": 4873,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 657.4,
+            "firstProbeSentMs": 657.7,
+            "initialPaintLastByteMs": 1161.6,
+            "setupGateMs": 701,
+            "initialPaintSettledMs": 1662.8,
+            "inputReadyMs": 1680.5
+          },
+          "error": "Claude completed without the expected BENCH_OK response"
+        },
+        {
+          "run": 3,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/claude-3",
+          "startedAt": "2026-08-30T09:30:11.901Z",
+          "start": {
+            "sessionReadyMs": 1113,
+            "milestones": {
+              "sdkSessionReadyMs": 1113
+            },
+            "evidence": "fresh Bun worker + Agent SDK query; SDK system/init with native session id"
+          },
+          "drive": {
+            "evidence": "provider turn failed before a verified BENCH_OK response"
+          },
+          "sessionId": "3ba0e014-9583-4027-bbb9-83b27e201a68",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 2,
+            "setupActions": 1,
+            "outputBytes": 4867,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 675.2,
+            "firstProbeSentMs": 675.6,
+            "initialPaintLastByteMs": 1698.6,
+            "setupGateMs": 708,
+            "inputReadyMs": 1700.6,
+            "initialPaintSettledMs": 2198.9
+          },
+          "error": "Claude completed without the expected BENCH_OK response"
+        }
+      ]
+    },
+    "codex": {
+      "executable": "/home/mgw/.local/bin/codex",
+      "version": "codex-cli 0.151.0",
+      "mechanism": "Unix WebSocket app-server JSON-RPC; remote resume TUI",
+      "samples": [
+        {
+          "run": 1,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/codex-1",
+          "startedAt": "2026-08-30T09:30:18.477Z",
+          "start": {
+            "sessionReadyMs": 1702.2,
+            "milestones": {
+              "unixWebSocketReadyMs": 687.8,
+              "initializeReadyMs": 841.8,
+              "threadReadyMs": 1702.2
+            },
+            "evidence": "Unix WebSocket open; initialize response + initialized; thread/start response"
+          },
+          "drive": {
+            "promptAcceptedMs": 41,
+            "firstResponseMs": 3513.6,
+            "completeMs": 4185,
+            "evidence": "turn/start response; first item/agentMessage/delta; turn/completed notification"
+          },
+          "sessionId": "01a05201-6b8a-7141-b4ce-651510615d80",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 3355,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 26,
+            "firstProbeSentMs": 26.7,
+            "initialPaintLastByteMs": 629,
+            "inputReadyMs": 232.5,
+            "firstProbeEchoMs": 232.5,
+            "initialPaintSettledMs": 1131.1
+          }
+        },
+        {
+          "run": 2,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/codex-2",
+          "startedAt": "2026-08-30T09:30:27.951Z",
+          "start": {
+            "sessionReadyMs": 1392.5,
+            "milestones": {
+              "unixWebSocketReadyMs": 343.6,
+              "initializeReadyMs": 579.4,
+              "threadReadyMs": 1392.5
+            },
+            "evidence": "Unix WebSocket open; initialize response + initialized; thread/start response"
+          },
+          "drive": {
+            "promptAcceptedMs": 30.1,
+            "firstResponseMs": 3250.1,
+            "completeMs": 3449.6,
+            "evidence": "turn/start response; first item/agentMessage/delta; turn/completed notification"
+          },
+          "sessionId": "01a05201-8f5c-7382-be35-9d6cfac2fa4f",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 6216,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 22.8,
+            "firstProbeSentMs": 22.9,
+            "initialPaintLastByteMs": 1640.8,
+            "inputReadyMs": 294.8,
+            "firstProbeEchoMs": 294.8,
+            "initialPaintSettledMs": 2143.9
+          }
+        },
+        {
+          "run": 3,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/codex-3",
+          "startedAt": "2026-08-30T09:30:36.414Z",
+          "start": {
+            "sessionReadyMs": 539.4,
+            "milestones": {
+              "unixWebSocketReadyMs": 203.4,
+              "initializeReadyMs": 293.5,
+              "threadReadyMs": 539.4
+            },
+            "evidence": "Unix WebSocket open; initialize response + initialized; thread/start response"
+          },
+          "drive": {
+            "promptAcceptedMs": 19.9,
+            "firstResponseMs": 4302.6,
+            "completeMs": 4535.4,
+            "evidence": "turn/start response; first item/agentMessage/delta; turn/completed notification"
+          },
+          "sessionId": "01a05201-ad57-73f3-ac0d-f9fd51bb79b0",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 6102,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 18.7,
+            "firstProbeSentMs": 18.8,
+            "initialPaintLastByteMs": 1396.2,
+            "inputReadyMs": 274.4,
+            "firstProbeEchoMs": 274.4,
+            "initialPaintSettledMs": 1896.9
+          }
+        }
+      ]
+    },
+    "grok": {
+      "executable": "/home/mgw/.local/bin/grok",
+      "version": "grok 0.2.118 (1e1687c1cf) [stable]",
+      "mechanism": "ACP stdio JSON-RPC; native-store resume TUI",
+      "samples": [
+        {
+          "run": 1,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/grok-1",
+          "startedAt": "2026-08-30T09:30:44.849Z",
+          "start": {
+            "sessionReadyMs": 933.7,
+            "milestones": {
+              "initializeReadyMs": 494.6,
+              "sessionReadyMs": 933.7
+            },
+            "evidence": "ACP initialize response; session/new response; optional session/set_mode response"
+          },
+          "drive": {
+            "promptAcceptedMs": 20,
+            "firstResponseMs": 6695.5,
+            "completeMs": 33095.6,
+            "evidence": "user_message_chunk update; first non-user session update; session/prompt response"
+          },
+          "sessionId": "01a05201-cf11-7a70-9384-3d0eb1e09ac9",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 6297,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 196.3,
+            "firstProbeSentMs": 196.4,
+            "initialPaintLastByteMs": 875.4,
+            "inputReadyMs": 544.8,
+            "firstProbeEchoMs": 544.8,
+            "initialPaintSettledMs": 1377.8
+          }
+        },
+        {
+          "run": 2,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/grok-2",
+          "startedAt": "2026-08-30T09:31:24.033Z",
+          "start": {
+            "sessionReadyMs": 356.7,
+            "milestones": {
+              "initializeReadyMs": 165.7,
+              "sessionReadyMs": 356.7
+            },
+            "evidence": "ACP initialize response; session/new response; optional session/set_mode response"
+          },
+          "drive": {
+            "promptAcceptedMs": 7.6,
+            "firstResponseMs": 2604.9,
+            "completeMs": 2888.1,
+            "evidence": "user_message_chunk update; first non-user session update; session/prompt response"
+          },
+          "sessionId": "01a05202-66b5-7f11-9db6-b7440c7a74e3",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 6041,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 186,
+            "firstProbeSentMs": 186.3,
+            "initialPaintLastByteMs": 813.8,
+            "inputReadyMs": 399.9,
+            "firstProbeEchoMs": 399.9,
+            "initialPaintSettledMs": 1314.4
+          }
+        },
+        {
+          "run": 3,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/grok-3",
+          "startedAt": "2026-08-30T09:31:32.360Z",
+          "start": {
+            "sessionReadyMs": 346.3,
+            "milestones": {
+              "initializeReadyMs": 179.1,
+              "sessionReadyMs": 346.3
+            },
+            "evidence": "ACP initialize response; session/new response; optional session/set_mode response"
+          },
+          "drive": {
+            "promptAcceptedMs": 7.7,
+            "firstResponseMs": 2500.3,
+            "completeMs": 3162.5,
+            "evidence": "user_message_chunk update; first non-user session update; session/prompt response"
+          },
+          "sessionId": "01a05202-874a-7811-bbd4-9c5ef738ba64",
+          "attach": {
+            "firstProbeAccepted": true,
+            "inputProbeAttempts": 1,
+            "setupActions": 0,
+            "outputBytes": 6189,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 188.2,
+            "firstProbeSentMs": 188.3,
+            "initialPaintLastByteMs": 717.5,
+            "inputReadyMs": 372.1,
+            "firstProbeEchoMs": 372.1,
+            "initialPaintSettledMs": 1219.4
+          }
+        }
+      ]
+    },
+    "opencode": {
+      "executable": "/home/mgw/.opencode/bin/opencode",
+      "version": "1.18.25",
+      "mechanism": "Basic-auth loopback HTTP/SSE server; authenticated attach TUI",
+      "samples": [
+        {
+          "run": 1,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/opencode-1",
+          "startedAt": "2026-08-30T09:31:41.506Z",
+          "start": {
+            "sessionReadyMs": 1467.9,
+            "milestones": {
+              "healthReadyMs": 1318.1,
+              "sessionReadyMs": 1467.9,
+              "eventStreamRequestedMs": 1467.9,
+              "eventStreamReadyMs": 1490.8
+            },
+            "evidence": "authenticated GET /global/health; POST /session; SSE request opened before prompt"
+          },
+          "drive": {
+            "promptAcceptedMs": 22.5,
+            "firstResponseMs": 2261.5,
+            "completeMs": 2692.4,
+            "evidence": "204 from prompt_async; first assistant message/part SSE event; session.idle SSE event"
+          },
+          "sessionId": "ses_fadfd500affejP4hUpX94uACuW",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 3,
+            "setupActions": 0,
+            "outputBytes": 11658,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 1090.6,
+            "firstProbeSentMs": 1090.7,
+            "initialPaintLastByteMs": 1110,
+            "initialPaintSettledMs": 1611.1,
+            "inputReadyMs": 3149.7
+          }
+        },
+        {
+          "run": 2,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/opencode-2",
+          "startedAt": "2026-08-30T09:31:50.291Z",
+          "start": {
+            "sessionReadyMs": 1575.1,
+            "milestones": {
+              "healthReadyMs": 1402,
+              "sessionReadyMs": 1575.1,
+              "eventStreamRequestedMs": 1575.1,
+              "eventStreamReadyMs": 1593.5
+            },
+            "evidence": "authenticated GET /global/health; POST /session; SSE request opened before prompt"
+          },
+          "drive": {
+            "promptAcceptedMs": 18,
+            "firstResponseMs": 2436.1,
+            "completeMs": 2765,
+            "evidence": "204 from prompt_async; first assistant message/part SSE event; session.idle SSE event"
+          },
+          "sessionId": "ses_fadfd2d51ffe7Y4zmLQvL025Ui",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 3,
+            "setupActions": 0,
+            "outputBytes": 13148,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 1221.5,
+            "firstProbeSentMs": 1221.7,
+            "initialPaintLastByteMs": 1234.9,
+            "initialPaintSettledMs": 1735.5,
+            "inputReadyMs": 3422.3
+          }
+        },
+        {
+          "run": 3,
+          "workdir": "/tmp/native-cli-lifecycle-iqy6i7/opencode-3",
+          "startedAt": "2026-08-30T09:31:59.549Z",
+          "start": {
+            "sessionReadyMs": 2139.4,
+            "milestones": {
+              "healthReadyMs": 1825.5,
+              "sessionReadyMs": 2139.4,
+              "eventStreamRequestedMs": 2139.4,
+              "eventStreamReadyMs": 2171.5
+            },
+            "evidence": "authenticated GET /global/health; POST /session; SSE request opened before prompt"
+          },
+          "drive": {
+            "promptAcceptedMs": 30,
+            "firstResponseMs": 2421.1,
+            "completeMs": 2633.2,
+            "evidence": "204 from prompt_async; first assistant message/part SSE event; session.idle SSE event"
+          },
+          "sessionId": "ses_fadfd06f5ffevyTuBwz1bieh4T",
+          "attach": {
+            "firstProbeAccepted": false,
+            "inputProbeAttempts": 3,
+            "setupActions": 0,
+            "outputBytes": 11697,
+            "evidence": "util-linux script PTY; first byte; initial paint followed by configured output quiescence; non-submitted marker visibly echoed by the native composer",
+            "firstByteMs": 1189.1,
+            "firstProbeSentMs": 1189.3,
+            "initialPaintLastByteMs": 1203.1,
+            "initialPaintSettledMs": 1704.3,
+            "inputReadyMs": 3310
+          }
+        }
+      ]
+    }
+  }
+}
