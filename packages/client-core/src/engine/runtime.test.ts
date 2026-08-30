@@ -431,6 +431,31 @@ describe('engine lifecycle', () => {
     engine.dispose()
   })
 
+  it('refreshes repos when use is revoked without changing machine identity or liveness', async () => {
+    const api = makeApi()
+    const { engine, hub } = makeEngine({ api })
+    engine.start()
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    const machineId = asMachineId('shared-daemon')
+    hub.emit('machines', [
+      { id: machineId, online: true, name: 'shared daemon', use: 'granted' },
+    ])
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    // The machine remains visible and online, but filesystem scan authority is
+    // gone. The authorized repo snapshot must be recomputed under that denial.
+    hub.emit('machines', [
+      { id: machineId, online: true, name: 'shared daemon', use: 'denied' },
+    ])
+    await settle()
+
+    expect(api.discovery.refreshRepos.mutate).toHaveBeenCalledTimes(1)
+    engine.dispose()
+  })
+
   it("publishes the signed-in user's superagent threads at boot (POD-330)", async () => {
     // The view used to fetch this list itself and hold it in useState. It is
     // store state now, so boot must actually load it — a store field nobody

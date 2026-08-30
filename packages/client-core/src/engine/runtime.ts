@@ -597,17 +597,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
     // Apply the scoped machine snapshot immediately so a SEE revocation hides
     // its repositories, then reconcile repos and machines from one authorized
-    // server snapshot when VISIBILITY OR REACHABILITY changed. Full machine
-    // broadcasts also carry inventory/build metadata; treating those as repo
-    // invalidations repeatedly supersedes an in-flight scan-backed refresh and
-    // can starve its durable fallback during daemon rebind. The id+online set
-    // still detects equal-count replacement and SEE revocation.
+    // server snapshot when visibility, reachability, or USE changed. Full
+    // machine broadcasts also carry inventory/build metadata; treating those as
+    // repo invalidations repeatedly supersedes an in-flight scan-backed refresh
+    // and can starve its durable fallback during daemon rebind. The id+online+use
+    // set detects equal-count replacement, SEE revocation, and scan-authority
+    // changes without including unrelated metadata.
     let machineScopeSignature: string | undefined
     offs.push(
       this.hub.on('machines', (m) => {
         this.apply({ machines: m })
         const nextSignature = m
-          .map((machine) => `${machine.id}:${machine.online ? 'online' : 'offline'}`)
+          .map(
+            (machine) =>
+              `${machine.id}:${machine.online ? 'online' : 'offline'}:${machine.use ?? 'unknown'}`,
+          )
           .sort()
           .join('|')
         if (nextSignature !== machineScopeSignature) {
