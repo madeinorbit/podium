@@ -150,10 +150,9 @@ export function WorkScreen() {
   const [menuTarget, setMenuTarget] = useState<WorkIssueMenuTarget | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const titleSessions = useMemo(() => [...sessionsAll], [sessionsAll])
   const displayTitleFor = useCallback(
-    (issue: IssueNavigationModel) => issueDisplayTitle(issue, titleSessions, allWorktreePaths),
-    [allWorktreePaths, titleSessions],
+    (issue: IssueNavigationModel) => issueDisplayTitle(issue, sessionsAll, allWorktreePaths),
+    [allWorktreePaths, sessionsAll],
   )
 
   const { sections, orderingSections, issueCount, pinnedCount, attentionCount } = useMemo(() => {
@@ -618,14 +617,14 @@ function WorkRow({
   // deck's derivation, imported rather than restated — the two must never
   // disagree about how far a mission is.
   const progress = useMemo(
-    () => (issue ? missionProgress([...issues], [...allSessions], issue.id) : null),
+    () => (issue ? missionProgress(issues, allSessions, issue.id) : null),
     [allSessions, issue, issues],
   )
   // A draft vessel's only content is its agents — its row IS the agent, so it
   // clicks straight into the session (desktop POD-282).
   const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
   const label = issue
-    ? issueDisplayTitle(issue, [...allSessions], allWorktreePaths)
+    ? issueDisplayTitle(issue, allSessions, allWorktreePaths)
     : `${worktree?.repoName ?? ''}${worktree?.branch ? ` · ${worktree.branch}` : ''}`
   const stamp = timeStamp(row, now)
   const statusLine =

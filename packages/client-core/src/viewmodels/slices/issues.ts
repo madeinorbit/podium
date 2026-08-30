@@ -212,8 +212,8 @@ export function filterIssueNav(list: IssueNavView[], query: string): IssueNavVie
  *  advertise work the user never started here. Wait for the real name instead. */
 export function draftIssueLabel(
   issue: IssueNavigationModel,
-  sessions: SessionMeta[],
-  allWorktreePaths: string[],
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: readonly string[],
 ): string {
   const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
   if (!first) return 'New agent'
@@ -235,8 +235,8 @@ export function draftIssueLabel(
  *  untouched: their title IS their name. */
 export function issueDisplayTitle(
   issue: IssueNavigationModel,
-  sessions: SessionMeta[],
-  allWorktreePaths: string[],
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: readonly string[],
 ): string {
   return isUnnamedDraft(issue) ? draftIssueLabel(issue, sessions, allWorktreePaths) : issue.title
 }

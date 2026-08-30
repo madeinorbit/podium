@@ -58,7 +58,6 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import { actorUser, asUserId, type SessionId } from '@podium/model'
 import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
-import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   decideLegacyAdoption,
   LEGACY_STANDALONE_OUTBOX_KEY,
@@ -66,7 +65,6 @@ import {
   type LegacyMigrationOutcome,
   migrateLegacyReplica,
 } from '@podium/sync/adapters/legacy-replica'
-import { fromExpoSqlite, SqliteSyncStore } from '@podium/sync/adapters/mobile-sqlite'
 import type { OutboxAttribution, OutboxCommand, OutboxStorePort } from '@podium/sync/outbox'
 import {
   type Cursor,
@@ -76,7 +74,6 @@ import {
   type SyncUnitOfWork,
 } from '@podium/sync/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import * as SQLite from 'expo-sqlite'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
@@ -95,6 +92,7 @@ import {
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import { openMobileEntityStore } from './mobile-entity-store'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
@@ -814,28 +812,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // and the async open/delete plumbing in SqliteSyncStore are merged but
           // NOT wired here — ADR 6 D2's reversal condition asks for a spike that
           // passes, and this one has not been run against the current tree.
-          // Flipping web back to SQLite is the `Platform.OS === 'web'` branch
-          // below plus openDatabaseAsync/deleteDatabaseAsync; nothing else.
-          openStore: async () => {
-            if (Platform.OS === 'web') {
-              return IndexedDbSyncStore.open({
-                factory: globalThis.indexedDB as unknown as IdbFactoryLike,
-                databaseName: MOBILE_REPLICA_DB,
-                onDegraded: (degradation) =>
-                  setNotice(
-                    `Offline changes may not survive a restart on this device (${degradation.cause}).`,
-                  ),
-              })
-            }
-            return SqliteSyncStore.open({
-              openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(MOBILE_REPLICA_DB)),
-              deleteDatabase: () => SQLite.deleteDatabaseSync(MOBILE_REPLICA_DB),
-              onDegraded: (degradation) =>
-                setNotice(
-                  `Offline changes may not survive a restart on this device (${degradation.cause}).`,
-                ),
-            })
-          },
+          // Flipping web back to SQLite means changing the web platform module
+          // to async open/delete; keeping that experiment outside this
+          // composition root also keeps each shipped bundle on one engine.
+          openStore: () =>
+            openMobileEntityStore(MOBILE_REPLICA_DB, (cause) =>
+              setNotice(`Offline changes may not survive a restart on this device (${cause}).`),
+            ),
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
           api: trpc,
