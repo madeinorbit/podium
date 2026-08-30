@@ -33,6 +33,7 @@ const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 class FakeHub {
   readonly visibility: boolean[] = []
+  connectCalls = 0
   connectNowCalls = 0
   private handlers = new Map<string, Set<(...a: unknown[]) => void>>()
   on(kind: string, cb: (...a: unknown[]) => void): () => void {
@@ -48,7 +49,9 @@ class FakeHub {
     return { status: 'down', rttMs: null, since: 0 }
   }
   seedMetadata(): void {}
-  connect(): void {}
+  connect(): void {
+    this.connectCalls += 1
+  }
   connectNow(): void {
     this.connectNowCalls += 1
   }
@@ -131,6 +134,7 @@ function makeEngine(
     onlineEvents?: OnlineEvents
     isOnline?: () => boolean
     heartbeatIntervalMs?: number
+    networkEnabled?: boolean
     hub?: FakeHub
     api?: PodiumClientApi
     createOutboxFn?: CreateEngineOutbox
@@ -156,6 +160,7 @@ function makeEngine(
     ...(init.onlineEvents ? { onlineEvents: init.onlineEvents } : {}),
     ...(init.isOnline ? { isOnline: init.isOnline } : {}),
     ...(init.createOutboxFn ? { createOutboxFn: init.createOutboxFn } : {}),
+    ...(init.networkEnabled !== undefined ? { networkEnabled: init.networkEnabled } : {}),
     ...(init.heartbeatIntervalMs !== undefined
       ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
       : {}),
@@ -309,6 +314,31 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
     expect(onlineEvents.subscribers()).toBe(1)
     engine.destroy()
     expect(onlineEvents.subscribers()).toBe(0)
+  })
+
+  it('keeps transport and parked writes local until remote identity is revalidated', async () => {
+    const { api, layoutSets } = makeApi()
+    const onlineEvents = fakeOnlineEvents()
+    const visibility = fakeVisibility(false)
+    const { engine, hub } = makeEngine({
+      api,
+      onlineEvents,
+      isOnline: () => true,
+      networkEnabled: false,
+      visibility,
+      createOutboxFn: await kernelDriver(api),
+    })
+    engine.start()
+    engine.getSnapshot().setDockTab('git')
+    onlineEvents.fire()
+    visibility.set(true)
+    await settle()
+
+    expect(hub.connectCalls).toBe(0)
+    expect(hub.connectNowCalls).toBe(0)
+    expect(onlineEvents.subscribers()).toBe(0)
+    expect(engine.outbox.pending()).toHaveLength(1)
+    expect(layoutSets).toHaveLength(0)
   })
 })
 

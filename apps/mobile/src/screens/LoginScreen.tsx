@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { login, logout } from '../client/auth'
-import { useServerProfile } from '../client/ServerProfileGate'
+import { useServerProfile } from '../client/server-profile-context'
 import { AsciiWordmark } from '../components/AsciiWordmark'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { PressableScale } from '../components/PressableScale'

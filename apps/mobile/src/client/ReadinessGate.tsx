@@ -24,6 +24,13 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (demo) return
+    if (serverProfile?.activation === 'offline-cache') {
+      // Readiness is server-owned and cannot be inferred offline. A profile
+      // admitted by ServerProfileGate is allowed only to read its already-bound
+      // local replica, so do not turn missing diagnostics into a false block.
+      setState({ state: 'ready', reason: null, dataPlane: 'available' })
+      return
+    }
     let alive = true
     setState('checking')
     setAcceptedDegraded(false)
@@ -38,7 +45,7 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [attempt, config.httpOrigin, demo])
+  }, [attempt, config.httpOrigin, demo, serverProfile?.activation])
 
   const retry = useCallback(() => setAttempt((value) => value + 1), [])
   if (state === 'checking') return null

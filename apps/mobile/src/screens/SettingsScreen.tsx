@@ -7,6 +7,7 @@ import { useConnected, useMobileStore } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
+import { OutboxRecoveryPanel } from '../components/OutboxRecoveryPanel'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
@@ -22,7 +23,8 @@ function openDesktop() {
 
 export function SettingsScreen() {
   const router = useRouter()
-  const { conversations, issues, outboxSize, replica, sessions, httpOrigin } = useMobileStore()
+  const { conversations, issues, outboxDeadLetters, outboxSize, replica, sessions, httpOrigin } =
+    useMobileStore()
   const connected = useConnected()
   const { eraseLocalData } = useMobileShell()
   const {
@@ -170,10 +172,12 @@ export function SettingsScreen() {
           </PressableScale>
         ) : null}
 
+        <OutboxRecoveryPanel />
+
         <SectionHeader label="Connection" />
         <View style={styles.panel}>
           <Row label="Server" value={httpOrigin} />
-          <Row label="Status" value={connected ? 'live' : 'reconnecting'} />
+          <Row label="Status" value={connected ? 'live' : 'offline, showing saved data'} />
           <Row label="Platform" value={Platform.OS} />
           <Row label="Sync cursor" value={String(replica.getCursor() ?? 'none')} />
         </View>
@@ -267,6 +271,7 @@ export function SettingsScreen() {
           <Row label="Tasks" value={String(issues.length)} />
           <Row label="Conversations" value={String(conversations.length)} />
           <Row label="Queued sends" value={String(outboxSize)} />
+          <Row label="Needs recovery" value={String(outboxDeadLetters.length)} />
         </View>
 
         <SectionHeader label="Account" />

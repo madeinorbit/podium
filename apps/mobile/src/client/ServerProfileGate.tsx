@@ -33,6 +33,7 @@ import {
   setProfileCredential,
 } from './profile-credentials'
 import {
+  canOpenProfileOffline,
   createProfileId,
   classifyServerTransport,
   defaultProfileName,
@@ -152,6 +153,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(Platform.OS === 'web')
   const [bearer, setBearer] = useState<string | null>(null)
   const [credentialReleased, setCredentialReleased] = useState(Platform.OS === 'web')
+  const [activation, setActivation] = useState<'verified' | 'offline-cache'>('verified')
   const [ephemeralConfig, setEphemeralConfig] = useState<ServerConfig | null>(
     initialWeb?.config ?? null,
   )
@@ -165,6 +167,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const [activationRetry, setActivationRetry] = useState(0)
   const switchOperation = useRef(0)
   const switchInFlight = useRef(false)
+  const revalidationInFlight = useRef(false)
   const bearerRef = useRef<string | null>(null)
   const nativeOverrideActiveRef = useRef(false)
 
@@ -275,16 +278,31 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             setReady(true)
           }
         } else {
-          // The only request before this point is credential-free. The saved
-          // bearer stays inside SecureStore until identity, wire support, and
-          // transport policy have all been revalidated.
+          // Preflight is credential-free. A positive answer must revalidate
+          // identity, wire support, and transport policy before SecureStore is
+          // opened. The narrow unreachable arm below may instead reuse the
+          // trust boundary from a previously verified profile.
           const result = await preflightServer(active.httpOrigin)
           if (!alive) return
           setProfileState(stored)
           if (!result.ok) {
-            setActivationFailure({ title: result.title, detail: result.detail })
-            setCredentialReleased(false)
-            setReady(true)
+            if (canOpenProfileOffline(active, result.kind)) {
+              // Absence of a network answer does not invalidate the immutable
+              // local profile boundary established by the last verified boot.
+              // Let only the profileId + userId SQLite namespace paint. Do not
+              // release the saved bearer yet. A later network return
+              // must prove the same instance still answers at this origin
+              // before transport or the outbox can use it.
+              setBearer(null)
+              setActivation('offline-cache')
+              setActivationFailure(null)
+              setCredentialReleased(true)
+              setReady(true)
+            } else {
+              setActivationFailure({ title: result.title, detail: result.detail })
+              setCredentialReleased(false)
+              setReady(true)
+            }
           } else if (active.instanceId && active.instanceId !== result.instanceId) {
             setActivationFailure(profileReplacementFailure(active))
             setCredentialReleased(false)
@@ -307,6 +325,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             if (!alive) return
             setProfileState(next)
             setBearer(credential)
+            setActivation('verified')
             setCredentialReleased(true)
             setReady(true)
           }
@@ -355,6 +374,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       token: string | null,
       userId?: string,
     ) => {
+      // Invalidate an offline identity probe before any pairing write can race
+      // it into restoring the previous profile or credential.
+      switchOperation.current += 1
       if (Platform.OS === 'web') {
         setIncoming(null)
         setSetupOpen(false)
@@ -427,6 +449,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       setBearer(null)
       setProfileState(next)
       setBearer(token)
+      setActivation('verified')
       setCredentialReleased(true)
       setEphemeralConfig(null)
       setIncoming(null)
@@ -439,6 +462,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
 
   const saveOfflineProfile = useCallback(
     async (httpOrigin: string) => {
+      switchOperation.current += 1
       if (Platform.OS === 'web') return
       const now = new Date().toISOString()
       const existing = profileState.profiles.find((row) => row.httpOrigin === httpOrigin)
@@ -485,6 +509,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       profiles: profileState.profiles,
       config,
       bearer,
+      activation,
       runtimeKey: `${profile.id}:${revision}`,
       isEphemeralOverride: config.override,
       beginAddServer: () => {
@@ -506,7 +531,20 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         try {
           const result = await preflightServer(selected.httpOrigin)
           if (operation !== switchOperation.current) return
-          if (!result.ok) throw new Error(`${result.title}: ${result.detail}`)
+          if (!result.ok) {
+            if (!canOpenProfileOffline(selected, result.kind)) {
+              throw new Error(`${result.title}: ${result.detail}`)
+            }
+            const next = { activeProfileId: selected.id, profiles: profileState.profiles }
+            await saveServerProfiles(next)
+            if (operation !== switchOperation.current) return
+            setProfileState(next)
+            setBearer(null)
+            setActivation('offline-cache')
+            setCredentialReleased(true)
+            setRevision((value) => value + 1)
+            return
+          }
           if (selected.instanceId && selected.instanceId !== result.instanceId) {
             const failure = profileReplacementFailure(selected)
             throw new Error(`${failure.title}: ${failure.detail}`)
@@ -531,6 +569,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           if (operation !== switchOperation.current) return
           setProfileState(next)
           setBearer(credential)
+          setActivation('verified')
           setCredentialReleased(true)
           setRevision((value) => value + 1)
         } catch (cause) {
@@ -556,6 +595,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       },
       removeProfile: async (profileId) => {
         if (config.override) return
+        switchOperation.current += 1
         await deleteProfileCredential(profileId)
         const profiles = profileState.profiles.filter((row) => row.id !== profileId)
         const nextId =
@@ -577,6 +617,15 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         if (selected) {
           const result = await preflightServer(selected.httpOrigin)
           if (!result.ok) {
+            if (canOpenProfileOffline(selected, result.kind)) {
+              await saveServerProfiles(next)
+              setProfileState(next)
+              setBearer(null)
+              setActivation('offline-cache')
+              setCredentialReleased(true)
+              setRevision((value) => value + 1)
+              return
+            }
             await saveServerProfiles(next)
             setProfileState(next)
             setActivationFailure({ title: result.title, detail: result.detail })
@@ -607,15 +656,18 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         }
         setProfileState(next)
         setBearer(nextCredential)
+        setActivation('verified')
         setCredentialReleased(next.activeProfileId !== null)
         setRevision((value) => value + 1)
       },
       updateCredential: async (token) => {
+        switchOperation.current += 1
         if (Platform.OS !== 'web' && !config.override) {
           if (token) await setProfileCredential(profile.id, token)
           else await deleteProfileCredential(profile.id)
         }
         setBearer(token)
+        setActivation('verified')
         setCredentialReleased(true)
         setRevision((value) => value + 1)
       },
@@ -628,8 +680,49 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           ),
         })
       },
+      revalidateOfflineProfile: async () => {
+        if (activation !== 'offline-cache' || revalidationInFlight.current) return
+        const operation = switchOperation.current
+        revalidationInFlight.current = true
+        try {
+          const result = await preflightServer(profile.httpOrigin)
+          if (operation !== switchOperation.current) return
+          if (!result.ok) {
+            if (result.kind !== 'unreachable') {
+              setCredentialReleased(false)
+              setActivationFailure({ title: result.title, detail: result.detail })
+            }
+            return
+          }
+          if (profile.instanceId && profile.instanceId !== result.instanceId) {
+            setCredentialReleased(false)
+            setActivationFailure(profileReplacementFailure(profile))
+            return
+          }
+          const validated: ServerProfile = {
+            ...profile,
+            httpOrigin: result.httpOrigin,
+            instanceId: result.instanceId,
+            mode: result.mode,
+            transport: result.transport,
+            updatedAt: new Date().toISOString(),
+          }
+          const credential = await getProfileCredential(profile.id)
+          if (operation !== switchOperation.current) return
+          setProfileState((current) => ({
+            ...current,
+            profiles: current.profiles.map((row) => (row.id === profile.id ? validated : row)),
+          }))
+          setBearer(credential)
+          setActivation('verified')
+          setCredentialReleased(true)
+          setRevision((value) => value + 1)
+        } finally {
+          revalidationInFlight.current = false
+        }
+      },
     }
-  }, [bearer, config, persistState, profile, profileState, revision])
+  }, [activation, bearer, config, persistState, profile, profileState, revision])
 
   if (!ready) return null
   if (activationFailure && !setupOpen) {

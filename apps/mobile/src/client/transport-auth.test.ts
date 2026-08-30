@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { bearerHeaders, readServerConfig, setActiveServerRuntime } from './trpc'
+import {
+  bearerHeaders,
+  fetchMobileTransport,
+  readServerConfig,
+  setActiveServerRuntime,
+} from './trpc'
 
 afterEach(() => {
   setActiveServerRuntime(undefined, null)
@@ -8,6 +13,37 @@ afterEach(() => {
 })
 
 describe('native bearer transport', () => {
+  it('publishes a typed expiry only for an authenticated HTTP 401', async () => {
+    const expired = vi.fn()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 401 })),
+    )
+
+    await fetchMobileTransport('https://podium.example/trpc', undefined, 'device-token', expired)
+
+    expect(expired).toHaveBeenCalledTimes(1)
+    expect(expired.mock.calls[0]?.[0]).toMatchObject({
+      kind: 'auth-expired',
+      name: 'MobileAuthExpiredError',
+    })
+  })
+
+  it('keeps transport rejection on the network path', async () => {
+    const expired = vi.fn()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Network request failed')
+      }),
+    )
+
+    await expect(
+      fetchMobileTransport('https://podium.example/trpc', undefined, 'device-token', expired),
+    ).rejects.toThrow('Network request failed')
+    expect(expired).not.toHaveBeenCalled()
+  })
+
   it('adds the bearer without disturbing tRPC content headers', () => {
     const headers = bearerHeaders('device-token', { 'content-type': 'application/json' })
     expect(headers.get('authorization')).toBe('Bearer device-token')

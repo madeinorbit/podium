@@ -828,7 +828,10 @@ export class SocketHub {
       // eager requestControl) — after the re-attaches above so the session exists.
       for (const msg of this.preOpenQueue.splice(0)) this.sendRaw(msg)
       this.notifyConnections()
-      this.evaluateHealth()
+      // Publish even when the coarse health label stays `ok`: mobile reads the
+      // hub's exact connected flag on this event, and an offline cold start
+      // must not call a never-opened socket live.
+      this.evaluateHealth(true)
     }
     socket.onmessage = (ev) => {
       this.markAlive()
@@ -871,7 +874,7 @@ export class SocketHub {
     this.opts.feed?.disconnected()
     this.legacyFeed?.disconnected()
     this.notifyConnections()
-    if (!this.intentionalClose) this.evaluateHealth()
+    if (!this.intentionalClose) this.evaluateHealth(true)
     if (!this.intentionalClose) {
       const retryInMs = this.scheduleReconnect()
       // `warn`, so it forwards at the client's default threshold: a client that
@@ -1562,9 +1565,10 @@ export class SocketHub {
     return off
   }
 
-  private evaluateHealth(): void {
+  private evaluateHealth(publishUnchanged = false): void {
     const next = this.computeHealth()
-    if (next.status === this.health.status && next.rttMs === this.health.rttMs) return
+    if (!publishUnchanged && next.status === this.health.status && next.rttMs === this.health.rttMs)
+      return
     // A status that merely re-confirms keeps its start time — `since` marks the
     // transition, not the latest re-evaluation.
     this.health = next.status === this.health.status ? { ...next, since: this.health.since } : next

@@ -37,6 +37,7 @@ import {
   ChevronRight,
   Pin,
   Search,
+  Settings,
   X,
 } from '../components/icons'
 import { useCallback, useMemo, useState } from 'react'
@@ -53,6 +54,7 @@ import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu, type WorkIssueMenuTarget } from '../components/WorkIssueMenu'
 import { WorkingMark } from '../components/WorkingMark'
+import { WorkspaceContinuityNotice } from '../components/WorkspaceContinuityNotice'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
@@ -332,6 +334,9 @@ export function WorkScreen() {
             </HeaderButton>
           )}
           <NewWorkButton size={34} />
+          <HeaderButton label="Settings" size={34} onPress={() => router.push('/settings')}>
+            <Icon as={Settings} size={17} color={color.textDim} />
+          </HeaderButton>
         </>
       }
     >
@@ -373,7 +378,12 @@ export function WorkScreen() {
             automaticallyAdjustKeyboardInsets
             keyboardDismissMode="interactive"
             contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
-            ListHeaderComponent={<StorageNoticeAlert />}
+            ListHeaderComponent={
+              <View style={styles.listNotices}>
+                <StorageNoticeAlert />
+                <WorkspaceContinuityNotice />
+              </View>
+            }
             {...refreshAccessibilityProps}
             {...minimizeOnScroll}
             stickySectionHeadersEnabled={false}
@@ -794,6 +804,10 @@ const styles = StyleSheet.create({
     backgroundColor: color.engraved,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
+  },
+  listNotices: {
+    gap: space.sm,
+    paddingVertical: space.sm,
   },
   groupLabel: {
     flexDirection: 'row',

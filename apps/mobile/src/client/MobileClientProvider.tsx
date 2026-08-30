@@ -79,7 +79,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Platform } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
-import { fetchAuthStatus } from './auth'
+import { checkLiveAuth, fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
 import {
   DEMO_ISSUES,
@@ -673,18 +673,45 @@ function demoTrpc(): MobileTrpc {
 function MobileHubAttach({
   attachHub,
   connectivity,
+  networkEnabled,
+  onDisconnected,
 }: {
   attachHub: (hub: SocketHub) => void
   connectivity: NativeConnectivity | undefined
+  networkEnabled: boolean
+  onDisconnected: () => void
 }): null {
   const { hub } = useStore()
   useEffect(() => {
     attachHub(hub)
+    if (!networkEnabled) {
+      const retryTrust = (): void => {
+        if (
+          (connectivity === undefined || connectivity.isOnline()) &&
+          (connectivity === undefined || connectivity.visibility.isVisible())
+        ) {
+          onDisconnected()
+        }
+      }
+      const timer = setInterval(retryTrust, 10_000)
+      connectivity?.onlineEvents.add(retryTrust)
+      retryTrust()
+      return () => {
+        clearInterval(timer)
+        connectivity?.onlineEvents.remove(retryTrust)
+      }
+    }
     // The AppState/NetInfo controller commands the transport (`suspend` on
     // background, `connectNow` on foreground and on network restore), so it
     // needs the hub the same way the bootstrap source does. `undefined` on web,
     // where the listeners below are the ones that answer instead.
     connectivity?.attachHub(hub)
+    let observedInitialHealth = false
+    const stopConnectionWatch = hub.onConnectionHealth(() => {
+      const connected = hub.connected
+      if (observedInitialHealth && !connected) onDisconnected()
+      observedInitialHealth = true
+    })
     // iOS Safari keeps a dead WebSocket after backgrounding and does not fire
     // `close`. The replica stays open (pagehide must not close IndexedDB); this
     // is the only thing that has to happen on the way back: drop the zombie
@@ -711,6 +738,7 @@ function MobileHubAttach({
       document.addEventListener('visibilitychange', onVisibility)
     }
     return () => {
+      stopConnectionWatch()
       if (typeof window !== 'undefined') {
         window.removeEventListener('pagehide', onHide)
         window.removeEventListener('pageshow', onShow)
@@ -719,7 +747,7 @@ function MobileHubAttach({
         document.removeEventListener('visibilitychange', onVisibility)
       }
     }
-  }, [attachHub, connectivity, hub])
+  }, [attachHub, connectivity, hub, networkEnabled, onDisconnected])
   return null
 }
 
@@ -729,6 +757,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const config = serverProfile?.config ?? legacyConfig
   const profileId = serverProfile?.profile.id ?? 'legacy'
   const bearer = serverProfile?.bearer ?? null
+  const activation = serverProfile?.activation ?? 'verified'
+  const revalidateOfflineProfile = serverProfile?.revalidateOfflineProfile
+  const updateCredential = serverProfile?.updateCredential
   const recordUser = serverProfile?.recordUser
   const recordUserRef = useRef(recordUser)
   recordUserRef.current = recordUser
@@ -738,10 +769,47 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // it holds two OS subscriptions, so a rebuild per render would leak them.
   const connectivity = useMemo(() => createPlatformConnectivity(), [])
   useEffect(() => () => connectivity?.dispose(), [connectivity])
-  const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin, bearer), [bearer, config.httpOrigin])
-  const inheritedAuthStatus = useAuthStatus()
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const authExpiryHandled = useRef(false)
+  useEffect(() => {
+    authExpiryHandled.current = false
+  }, [bearer, config.httpOrigin])
+  const expireLiveCredential = useCallback(() => {
+    if (!bearer || !updateCredential || authExpiryHandled.current) return
+    authExpiryHandled.current = true
+    void updateCredential(null).catch((cause: unknown) => {
+      authExpiryHandled.current = false
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
+  }, [bearer, updateCredential])
+  const verifyLiveCredential = useCallback(() => {
+    if (activation === 'offline-cache') {
+      void revalidateOfflineProfile?.().catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+      return
+    }
+    if (!bearer || authExpiryHandled.current) return
+    void checkLiveAuth(config.httpOrigin, bearer).then((result) => {
+      if (result.kind === 'expired') expireLiveCredential()
+    })
+  }, [activation, bearer, config.httpOrigin, expireLiveCredential, revalidateOfflineProfile])
+  const trpc = useMemo(
+    () => makeMobileTrpc(config.httpOrigin, bearer, expireLiveCredential),
+    [bearer, config.httpOrigin, expireLiveCredential],
+  )
+  const inheritedAuthStatus = useAuthStatus()
+  const clientSeams = nativeClientSeams(connectivity)
+  const transportSeams =
+    activation === 'offline-cache'
+      ? {
+          visibility: clientSeams.visibility,
+          heartbeatIntervalMs: clientSeams.heartbeatIntervalMs,
+          isOnline: () => false,
+        }
+      : clientSeams
+  const networkEnabled = activation !== 'offline-cache'
   // AsyncStorage is Promise-only; hydrate the side-cache bridge before the store
   // boots. The migration and SQLite open then run BEFORE the store answers a
   // read and the app does not paint until they resolve — a replica read mid-
@@ -969,13 +1037,19 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // cache, i.e. AsyncStorage — and the durable rows in SQLite would have no
       // driver at all: every queued offline write invisible and unsent.
       createOutboxFn={openedReplica.createOutboxFn}
+      networkEnabled={networkEnabled}
       routerWindow={routerWindow}
       // Visibility, connectivity and ping cadence, from the platform rather
       // than from browser globals a phone does not have (POD-2055 WP-C).
       // Empty on web, which keeps every DOM default.
-      {...nativeClientSeams(connectivity)}
+      {...transportSeams}
     >
-      <MobileHubAttach attachHub={openedReplica.attachHub} connectivity={connectivity} />
+      <MobileHubAttach
+        attachHub={openedReplica.attachHub}
+        connectivity={connectivity}
+        networkEnabled={networkEnabled}
+        onDisconnected={verifyLiveCredential}
+      />
       <MobileShellProvider value={shell}>
         <MobileSyncBoundary store={openedReplica.syncProgress} onRetry={retryBoot}>
           {children}
