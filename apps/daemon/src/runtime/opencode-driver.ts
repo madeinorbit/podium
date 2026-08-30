@@ -36,6 +36,7 @@
  */
 
 import {
+  attachKindsForDriver,
   configureFieldsForDriver,
   type AgentSessionHandle,
   createOpencodeRuntime,
@@ -333,6 +334,7 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
         // POD-3087: what this driver's configure() can change, read off its own
         // declaration so no consumer has to keep a second copy of it.
         configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
       })
       // …and the first state, so the badge is right before the first event
       // rather than after it.

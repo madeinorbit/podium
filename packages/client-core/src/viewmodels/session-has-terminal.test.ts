@@ -56,6 +56,12 @@ describe('sessionTerminalOutlook', () => {
     expect(sessionTerminalOutlook({ driverFamily: 'embedded' })).toBe('none')
   })
 
+  it('prefers the RuntimeDriver attach contract after fresh hydration', () => {
+    expect(sessionTerminalOutlook({ attachKinds: ['client'] })).toBe('terminal')
+    expect(sessionTerminalOutlook({ attachKinds: ['engine'] })).toBe('terminal')
+    expect(sessionTerminalOutlook({ attachKinds: [], driverFamily: 'server' })).toBe('none')
+  })
+
   it('is what the two-valued reading is built from, so they cannot disagree', () => {
     for (const family of ['terminal', 'server', 'embedded', undefined] as const) {
       const session = family === undefined ? {} : { driverFamily: family }

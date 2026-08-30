@@ -3,7 +3,7 @@
 
 import type { Declared } from '@podium/harness'
 import { supported, unsupported } from '@podium/harness'
-import type { ConfigureCapability, ConfigureRequest } from './capabilities.js'
+import type { AttachCapability, ConfigureCapability, ConfigureRequest } from './capabilities.js'
 import { claudeSdkCapabilities } from './drivers/claude-sdk/capabilities.js'
 import { codexAppServerCapabilities } from './drivers/codex/capabilities.js'
 import { grokAcpCapabilities } from './drivers/grok-acp/capabilities.js'
@@ -97,6 +97,22 @@ const FAKE_CONFIGURE: Declared<ConfigureCapability> = supported({
  * hiding a control that would have worked costs one relaunch, and the totality
  * check above is what keeps that path unreachable for drivers we DO know.
  */
+const ATTACH_BY_DRIVER = {
+  'codex-app-server': () => codexAppServerCapabilities().attach,
+  'opencode-server': () => opencodeServerCapabilities().attach,
+  'grok-acp': () => grokAcpCapabilities().attach,
+  'claude-sdk': () => claudeSdkCapabilities().attach,
+  'claude-pty': () => supported({ kinds: ['engine'] as const }),
+  'generic-pty': () => supported({ kinds: ['engine'] as const }),
+  fake: () => supported({ kinds: ['engine'] as const }),
+} satisfies Record<DriverId, () => Declared<AttachCapability>>
+
+export function attachKindsForDriver(driverId: string): readonly ('engine' | 'client')[] {
+  const lookup: Partial<Record<string, () => Declared<AttachCapability>>> = ATTACH_BY_DRIVER
+  const declared = lookup[driverId]?.()
+  return declared?.supported ? declared.value.kinds : []
+}
+
 export function configureFieldsForDriver(driverId: string): readonly (keyof ConfigureRequest)[] {
   const lookup: Partial<Record<string, () => Declared<ConfigureCapability>>> = CONFIGURE_BY_DRIVER
   const declared = lookup[driverId]?.()

@@ -19,6 +19,7 @@ import {
 } from '@podium/agent-runtime'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { emitClaudeBinding } from './claude-sdk-driver'
 
@@ -51,7 +52,17 @@ async function bindFrameFor(driver: string): Promise<BindFrame> {
   return bind as BindFrame
 }
 
-describe('bind reports the driver configure fields', () => {
+describe('bind reports driver capabilities', () => {
+  it.each([
+    'opencode',
+    'codex',
+    'grok',
+    'claude-sdk',
+  ] as const)('publishes attachKinds from the bound %s driver', (name) => {
+    const source = readFileSync(new URL(`./${name}-driver.ts`, import.meta.url), 'utf8')
+    expect(source).toContain('attachKinds: [...attachKindsForDriver(handle.binding.driver)]')
+  })
+
   it('carries exactly what the bound driver declares', async () => {
     const bind = await bindFrameFor('claude-sdk')
 

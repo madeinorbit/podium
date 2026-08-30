@@ -538,6 +538,7 @@ export const SessionMetaEntity = z.object({
    * which is the failure this comment exists to prevent.
    */
   configureFields: z.array(z.string().min(1)).optional(),
+  attachKinds: z.array(z.enum(['engine', 'client'])).optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
    *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like
    *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the

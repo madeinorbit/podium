@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
 import {
+  attachKindsForDriver,
   configureFieldsForDriver,
   type AgentSessionHandle,
   type ClaudeSdkRuntime,
@@ -52,6 +53,7 @@ export async function emitClaudeBinding(
     // POD-3087: what this driver's configure() can change, read off its own
     // declaration so no consumer has to keep a second copy of it.
     configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+    attachKinds: [...attachKindsForDriver(handle.binding.driver)],
   })
   send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
   if (handle.binding.resume) {

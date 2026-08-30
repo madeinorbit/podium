@@ -912,7 +912,9 @@ describe('Session', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const s = makeSession()
     s.selectedDriverId = 'generic-pty'
+    s.attachKinds = ['client']
     s.markSpawnError('codex executable was not found')
+    expect(s.attachKinds).toBeUndefined()
 
     expect(s.toMeta(NO_SESSION_USER_STATE)).toMatchObject({
       status: 'exited',
@@ -1346,6 +1348,8 @@ describe('driver family on the wire (POD-2290)', () => {
     const s = makeSession()
     s.driverId = 'opencode-server'
     expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('server')
+    s.attachKinds = ['client']
+    expect(s.toMeta(NO_SESSION_USER_STATE).attachKinds).toEqual(['client'])
 
     s.driverId = 'claude-pty'
     expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')

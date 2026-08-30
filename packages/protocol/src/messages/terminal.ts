@@ -662,6 +662,7 @@ export const BindMessage = z.object({
    * fact. Only the second licenses hiding the control.
    */
   configureFields: z.array(z.string().min(1)).optional(),
+  attachKinds: z.array(z.enum(['engine', 'client'])).optional(),
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),

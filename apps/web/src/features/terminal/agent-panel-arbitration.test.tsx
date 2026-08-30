@@ -499,6 +499,24 @@ describe('AgentPanel on a server-family client terminal', () => {
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
   })
 
+  it('reconstructs Native from the live attach contract in fresh client state', async () => {
+    storePanelMode = {}
+    storeSessions = [serverDriven()]
+    storeSessions[0] = {
+      ...storeSessions[0],
+      driverFamily: undefined,
+      attachKinds: ['client'],
+    } as SessionMeta
+    await render({ active: true })
+    expect(container.querySelector('[data-testid="mode-native"]')).toBeTruthy()
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    storePanelMode = { s1: 'chat' }
+    await render({ active: true })
+    storePanelMode = { s1: 'native' }
+    await render({ active: true })
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps ChatView subscribed while the native view is selected', async () => {
     storeSessions = [serverDriven()]
     await render({ active: true })

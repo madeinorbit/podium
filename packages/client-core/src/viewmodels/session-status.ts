@@ -94,8 +94,10 @@ const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
 export type TerminalOutlook = 'terminal' | 'none' | 'unknown'
 
 export function sessionTerminalOutlook(
-  session: Pick<SessionMeta, 'driverFamily'> | undefined,
+  session: Pick<SessionMeta, 'driverFamily' | 'attachKinds'> | undefined,
 ): TerminalOutlook {
+  if (session?.attachKinds !== undefined)
+    return session.attachKinds.length > 0 ? 'terminal' : 'none'
   const family = session?.driverFamily
   if (family === undefined) return 'unknown'
   return family === 'embedded' ? 'none' : 'terminal'
@@ -111,7 +113,7 @@ export function sessionTerminalOutlook(
  * POD-2290's second round — ask {@link sessionTerminalOutlook} instead and wait.
  */
 export function sessionHasTerminal(
-  session: Pick<SessionMeta, 'driverFamily'> | undefined,
+  session: Pick<SessionMeta, 'driverFamily' | 'attachKinds'> | undefined,
 ): boolean {
   return sessionTerminalOutlook(session) !== 'none'
 }

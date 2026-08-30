@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { configureFieldsForDriver } from '@podium/agent-runtime'
+import { attachKindsForDriver, configureFieldsForDriver } from '@podium/agent-runtime'
 import type { RefusalReason, SessionSpec } from '@podium/agent-runtime'
 import {
   agentStateProviderFor,
@@ -689,7 +689,13 @@ export async function launchSpawn(
       // one would report `false` for a server-family session and route its
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
-      ...(driverId ? { driverId, configureFields: [...configureFieldsForDriver(driverId)] } : {}),
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
       ...(runtimeSelection.requestedDriverId
         ? { requestedDriverId: runtimeSelection.requestedDriverId }
         : {}),
@@ -977,6 +983,7 @@ async function adoptServerDriverSession(
       // named the driver but not what it can change leaves a client guessing at
       // exactly the thing this field exists to stop it guessing.
       configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
     })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
     log.info('adopted a surviving server-family session', {
@@ -1088,6 +1095,7 @@ async function resumeJournalledServerSession(
       // named the driver but not what it can change leaves a client guessing at
       // exactly the thing this field exists to stop it guessing.
       configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
     })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
     log.info('resumed a parked server-family session from its binding journal', {
@@ -1763,7 +1771,13 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       // one would report `false` for a server-family session and route its
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
-      ...(driverId ? { driverId, configureFields: [...configureFieldsForDriver(driverId)] } : {}),
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
       ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
     })
     existing.redraw()
@@ -1900,7 +1914,13 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       // one would report `false` for a server-family session and route its
       // sends down the legacy PTY path, for a session that has no PTY.
       ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
-      ...(driverId ? { driverId, configureFields: [...configureFieldsForDriver(driverId)] } : {}),
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
       ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
     })
     // attachAbducoAgent nudges the PTY before the bridge is wired, so that

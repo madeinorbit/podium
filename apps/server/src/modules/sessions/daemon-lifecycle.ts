@@ -357,6 +357,7 @@ export class SessionDaemonLifecycle {
           // previous daemon's answer rather than leave a stale capability
           // standing for a driver this one may not even have bound.
           s.configureFields = msg.configureFields
+          s.attachKinds = msg.attachKinds
           /**
            * …and the DURABLE record follows the binding, not the plan (POD-2290
            * round 2). Normally they agree. Where they can differ — a launch that

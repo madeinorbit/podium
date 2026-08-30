@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { DriverCapabilities } from './capabilities.js'
-import { configureFieldsForDriver } from './configure-catalog.js'
+import { attachKindsForDriver, configureFieldsForDriver } from './configure-catalog.js'
 import { claudeSdkCapabilities } from './drivers/claude-sdk/capabilities.js'
 import { codexAppServerCapabilities } from './drivers/codex/capabilities.js'
 import { grokAcpCapabilities } from './drivers/grok-acp/capabilities.js'
@@ -24,6 +24,35 @@ import { terminalCapabilities } from './drivers/terminal/capabilities.js'
 
 const declaredFields = (caps: DriverCapabilities): readonly string[] =>
   caps.configure.supported ? caps.configure.value.fields : []
+
+const declaredAttach = (caps: DriverCapabilities): readonly string[] =>
+  caps.attach.supported ? caps.attach.value.kinds : []
+
+describe('attachKindsForDriver', () => {
+  it.each([
+    ['codex-app-server', codexAppServerCapabilities],
+    ['opencode-server', opencodeServerCapabilities],
+    ['grok-acp', grokAcpCapabilities],
+    ['claude-sdk', claudeSdkCapabilities],
+  ] as const)('reports exactly what %s declares', (driverId, capabilities) => {
+    expect(attachKindsForDriver(driverId)).toEqual(declaredAttach(capabilities()))
+  })
+
+  it('matches the terminal factory and handles unknown ids', () => {
+    const live = terminalCapabilities({
+      driverId: 'claude-pty',
+      sendProof: ['transcript-echo'],
+      interactionsFromHooks: true,
+      draftReadable: true,
+      usesRawFirstTurn: false,
+      reportsContextPercent: true,
+      archivable: true,
+    })
+    expect(attachKindsForDriver('claude-pty')).toEqual(declaredAttach(live))
+    expect(attachKindsForDriver('generic-pty')).toEqual(declaredAttach(live))
+    expect(attachKindsForDriver('some-future-driver')).toEqual([])
+  })
+})
 
 describe('configureFieldsForDriver', () => {
   it.each([

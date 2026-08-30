@@ -395,6 +395,7 @@ export class Session {
    * it on every session during a rolling upgrade.
    */
   configureFields: readonly string[] | undefined = undefined
+  attachKinds: readonly ('engine' | 'client')[] | undefined = undefined
   /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
    *  agent offers the user as next steps. Lives in its own `offers` table (not
    *  toRow()); the registry seeds it at load and on set/clear. undefined = none.
@@ -585,6 +586,7 @@ export class Session {
     // …and the capability that came with the handle. Same reason: an exited row
     // must not describe what a driver that never ran could have changed.
     this.configureFields = undefined
+    this.attachKinds = undefined
     this.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
     this.agentState = undefined
     // Terminal transition — same stop metadata as onExit [spec:SP-6144].
@@ -1013,6 +1015,7 @@ export class Session {
       // driver changes nothing" — and a client that could not tell it from
       // "nobody told me" would hide the control on both.
       ...(this.configureFields ? { configureFields: [...this.configureFields] } : {}),
+      ...(this.attachKinds ? { attachKinds: [...this.attachKinds] } : {}),
       ...(this.contextUsagePercent !== undefined
         ? { contextUsagePercent: this.contextUsagePercent }
         : {}),
