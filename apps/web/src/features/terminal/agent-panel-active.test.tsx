@@ -415,11 +415,15 @@ describe('AgentPanel active wiring', () => {
     await flush()
     expect(setActive).toHaveBeenCalledWith(true)
 
-    // The whole cycle reused ONE terminal: no second mount, no dispose.
+    // The whole cycle reused ONE terminal: no second mount, no dispose. Chat's
+    // transcript controller owns its own listener while that surface is mounted,
+    // then stop() releases it on the return to native. The terminal path index is
+    // the one listener left alive across the whole panel lifetime.
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
     expect(dispose).not.toHaveBeenCalled()
-    expect(subscribeTranscript).toHaveBeenCalledTimes(1)
-    expect(unsubscribeTranscript).not.toHaveBeenCalled()
+    expect(subscribeTranscript).toHaveBeenCalledTimes(2)
+    expect(unsubscribeTranscript).toHaveBeenCalledTimes(1)
+    expect(subscribeTranscript.mock.calls.length - unsubscribeTranscript.mock.calls.length).toBe(1)
   })
 
   it('balances terminal and transcript resources through a StrictMode probe cycle', async () => {
