@@ -15,6 +15,23 @@ because that is what has been driven. Do not read the missing SDK column as
 driven, with measured status, rather than inventing unmeasured marks. Canonical
 text: [claude-subscription-oauth-policy.md](claude-subscription-oauth-policy.md).
 
+### Headed-driver architecture guardrail (2026-08-30)
+
+The terminal family has **one shared `TerminalRuntime`**. It owns PTY lifecycle,
+durable adoption, transport, injection ordering, event translation, receipts and
+teardown. A harness must not subclass that engine or copy one of those mechanisms.
+Harness differences are composition supplied from the manifest, outside the
+runtime; the manifest-derived `TerminalHarnessProfile` is the current adapter.
+
+The profile's present fields (`hookAnchoredAccept`, `needsSubmitVerification`,
+`usesRawFirstTurn`, `archivable`, `reportsContextPercent`) do not justify a
+refactor by themselves. They are also not permission to grow an open-ended
+boolean bundle. When another meaningful behavioural axis appears, replace the
+relevant flags with typed/discriminated strategy objects or ports—for example
+acknowledgement, injection, attachment or archive strategies—still declared by
+manifests and still backed by the single PTY engine. Invalid combinations should
+then be unrepresentable rather than checked through cross-product conditionals.
+
 ## How to read the status column
 
 | mark | means |
