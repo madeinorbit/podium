@@ -12,7 +12,7 @@ import {
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { createTranscriptController } from '@podium/client-core/transcript'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import { asMutationId, type IssueWire, type SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { StyleSheet, View } from 'react-native'
@@ -145,9 +145,10 @@ export function SessionConversation({
                 sessionId,
                 text: turn.wire,
                 wake: sessionStatusRef.current !== 'live',
+                mutationId: asMutationId(turn.deliveryId),
               })
             } else {
-              await store.resumeAndSend(sessionId, turn.wire)
+              await store.resumeAndSend(sessionId, turn.wire, asMutationId(turn.deliveryId))
             }
             return { state: 'queued' }
           } catch (error) {
@@ -158,9 +159,13 @@ export function SessionConversation({
         readQueue: () => trpc.messages.ledger.query({ sessionId, limit: 100 }),
         retract: (id) => trpc.messages.cancel.mutate({ id }).then(() => {}),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
-        interrupt: async () => {
-          const result = await trpc.sessions.interrupt.mutate({ sessionId })
-          if (result?.ok === false) throw new Error(result.reason ?? 'the agent refused the interrupt')
+        interrupt: async (messageId) => {
+          const result = await trpc.sessions.interrupt.mutate({
+            sessionId,
+            ...(messageId ? { messageId } : {}),
+          })
+          if (result?.ok === false)
+            throw new Error(result.reason ?? 'the agent refused the interrupt')
         },
         optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
       }),
@@ -179,17 +184,34 @@ export function SessionConversation({
     conversationController.subscribe,
     conversationController.getSnapshot,
   )
-  const pendingTurns = useMemo<LocalPendingTurn[]>(
-    () =>
-      conversation.projected.pending.map((turn) => ({
+  const pendingTurns = useMemo<LocalPendingTurn[]>(() => {
+    const projected = conversation.projected.pending.map((turn) => ({
+      at: turn.at,
+      value: {
         id: turn.id,
         text: turn.text,
         wire: turn.wire,
         ...(turn.files ? { files: turn.files as readonly SentAttachment[] } : {}),
         ...(turn.error ? { failed: turn.error } : {}),
-      })),
-    [conversation.projected.pending],
-  )
+        ...(turn.state === 'interrupted' ? { interrupted: true } : {}),
+        ...(turn.durable?.injectedAt === null ? { queuedId: turn.durable.id } : {}),
+        ...(turn.state === 'queued' || turn.durable ? { queued: true } : {}),
+      } satisfies LocalPendingTurn,
+    }))
+    const restored = conversation.projected.queued.map((message) => ({
+      at: message.at,
+      value: {
+        id: `queued:${message.id}`,
+        text: message.text,
+        wire: message.text,
+        ...(message.injectedAt === null ? { queuedId: message.id } : {}),
+        queued: true,
+      } satisfies LocalPendingTurn,
+    }))
+    return [...projected, ...restored]
+      .sort((left, right) => left.at - right.at || left.value.id.localeCompare(right.value.id))
+      .map((entry) => entry.value)
+  }, [conversation.projected])
   const justSent = conversation.justSent
   const attachments = useComposerAttachments(sessionId)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
@@ -203,6 +225,10 @@ export function SessionConversation({
     void transcriptController.start()
     return () => transcriptController.dispose()
   }, [transcriptController])
+
+  useEffect(() => {
+    transcriptController.markRendered()
+  }, [items, transcriptController])
 
   useEffect(() => {
     void conversationController.start()
@@ -228,7 +254,13 @@ export function SessionConversation({
       canInterrupt: nativeSessionCanInterrupt(session.status),
       latestOperatorPrompt,
     })
-  }, [conversationController, latestOperatorPrompt, session.agentState, session.offer, session.status])
+  }, [
+    conversationController,
+    latestOperatorPrompt,
+    session.agentState,
+    session.offer,
+    session.status,
+  ])
 
   /**
    * WHAT GOES ON THE WIRE IS NOT WHAT GOES IN THE BUBBLE.
@@ -270,6 +302,16 @@ export function SessionConversation({
   const loadOlder = useCallback(() => {
     void transcriptController.loadOlder()
   }, [transcriptController])
+
+  const transcriptStatus = transcript.offlineAsOf
+    ? `Offline transcript copy · as of ${new Date(transcript.offlineAsOf).toLocaleString()}`
+    : transcript.freshness === 'saved'
+      ? 'Saved transcript copy'
+      : transcript.freshness === 'checking'
+        ? 'Checking transcript…'
+        : transcript.freshness === 'rendering'
+          ? 'Updating transcript…'
+          : null
 
   // A peek stores the selected identity but renders the replica's live row, so a
   // todo toggle updates in the still-open sheet instead of waiting for reopen.
@@ -388,6 +430,7 @@ export function SessionConversation({
               hidePendingQuestion
               findRequest={findRequest}
               onRetryPending={retry}
+              onRetractPending={(id) => void conversationController.retract(id)}
               onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
               bottomInset={composerHeight + askHeight + keyboardLift}
               streaming={
@@ -471,6 +514,7 @@ export function SessionConversation({
             onSend={send}
             value={conversation.draft}
             onChangeText={conversationController.setDraft.bind(conversationController)}
+            caption={transcriptStatus}
             disabled={!composer.enabled}
             draftInsertion={draftInsertion}
             attachments={attachments}

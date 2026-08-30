@@ -120,6 +120,11 @@ export interface PendingTurn {
    *  broken and the words are lost. The row goes red, names the reason, and
    *  offers the send again. */
   failed?: string
+  /** The operator stopped this interaction after sending it. */
+  interrupted?: boolean
+  /** Durable ledger identity. Present rows can be retracted across remounts. */
+  queuedId?: string
+  queued?: boolean
 }
 
 function shortTime(ts: string | undefined): string | undefined {
@@ -493,6 +498,7 @@ interface TranscriptFeedRowProps {
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   onRefPress?: (ref: string) => void
   onRetryPending?: (turn: PendingTurn) => void
+  onRetractPending?: (id: string) => void
   onHold: (text: string) => void
 }
 
@@ -545,6 +551,7 @@ const TranscriptFeedRow = memo(
     onAnswer,
     onRefPress,
     onRetryPending,
+    onRetractPending,
     onHold,
   }: TranscriptFeedRowProps) {
     const message = (text: string, child: ReactNode) => (
@@ -598,10 +605,26 @@ const TranscriptFeedRow = memo(
                     </PressableScale>
                   ) : null}
                 </>
+              ) : turn.queuedId && onRetractPending ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel="Retract this queued message"
+                  onPress={() => onRetractPending(turn.queuedId as string)}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+                >
+                  <Text style={styles.retryText}>Retract</Text>
+                </PressableScale>
               ) : null}
             </View>
             <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
-              {failed ? 'not sent' : 'sending…'}
+              {failed
+                ? 'not sent'
+                : turn.interrupted
+                  ? 'interrupted'
+                  : turn.queued
+                    ? 'waiting its turn'
+                    : 'sending…'}
             </Text>
           </View>
         )
@@ -716,6 +739,7 @@ const TranscriptFeedRow = memo(
     previous.onAnswer === next.onAnswer &&
     previous.onRefPress === next.onRefPress &&
     previous.onRetryPending === next.onRetryPending &&
+    previous.onRetractPending === next.onRetractPending &&
     previous.onHold === next.onHold,
 )
 
@@ -815,6 +839,7 @@ export function TranscriptList({
   pendingTurns,
   pendingAsk,
   onRetryPending,
+  onRetractPending,
   onQuote,
   tail,
   streaming = false,
@@ -852,6 +877,8 @@ export function TranscriptList({
   pendingAsk?: TranscriptItem | null
   /** Send a rejected turn again (only failed rows expose the affordance). */
   onRetryPending?: (turn: PendingTurn) => void
+  /** Retract a durable message before the agent begins its turn. */
+  onRetractPending?: (id: string) => void
   /** Insert quoted markdown into the screen's composer. */
   onQuote?: (markdown: string) => void
   /** Live/idle state rendered as the transcript's final line. */
@@ -893,6 +920,7 @@ export function TranscriptList({
   const answerRef = useRef(onAnswer)
   const refPressRef = useRef(onRefPress)
   const retryPendingRef = useRef(onRetryPending)
+  const retractPendingRef = useRef(onRetractPending)
   // Memoized rows need stable wrappers, but their targets must advance only
   // after React commits. Render-time writes can leak handlers from a suspended
   // or abandoned concurrent render into the still-visible previous tree.
@@ -900,10 +928,12 @@ export function TranscriptList({
     answerRef.current = onAnswer
     refPressRef.current = onRefPress
     retryPendingRef.current = onRetryPending
-  }, [onAnswer, onRefPress, onRetryPending])
+    retractPendingRef.current = onRetractPending
+  }, [onAnswer, onRefPress, onRetractPending, onRetryPending])
   const answerRow = useCallback((answer: AskQuestionAnswer) => answerRef.current(answer), [])
   const pressRowRef = useCallback((ref: string) => refPressRef.current?.(ref), [])
   const retryPendingRow = useCallback((turn: PendingTurn) => retryPendingRef.current?.(turn), [])
+  const retractPendingRow = useCallback((id: string) => retractPendingRef.current?.(id), [])
 
   const model = useMemo(
     () => buildMobileTranscript(items, { collapseContext }),
@@ -1224,6 +1254,7 @@ export function TranscriptList({
                 onAnswer={answerRow}
                 onRefPress={onRefPress ? pressRowRef : undefined}
                 onRetryPending={onRetryPending ? retryPendingRow : undefined}
+                onRetractPending={onRetractPending ? retractPendingRow : undefined}
                 onHold={setActionText}
               />
             ))}
@@ -1246,6 +1277,7 @@ export function TranscriptList({
             onAnswer={answerRow}
             onRefPress={onRefPress ? pressRowRef : undefined}
             onRetryPending={onRetryPending ? retryPendingRow : undefined}
+            onRetractPending={onRetractPending ? retractPendingRow : undefined}
             onHold={setActionText}
           />
         )}

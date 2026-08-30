@@ -2,6 +2,14 @@ import { asSessionId, type SessionOffer, type TranscriptItem } from '@podium/mod
 import { describe, expect, it, vi } from 'vitest'
 import { createConversationController } from './controller'
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((yes) => {
+    resolve = yes
+  })
+  return { promise, resolve }
+}
+
 function transcript() {
   let items: TranscriptItem[] = []
   const listeners = new Set<() => void>()
@@ -43,6 +51,7 @@ describe('conversation controller contract', () => {
       onDraftChange: (text) => drafts.push(text),
       createDeliveryId: () => 'msg-1',
       deliver,
+      dismissOffer: vi.fn(async () => {}),
     })
     await controller.start()
     controller.updateContext({ canInterrupt: true, offer: offer(), agentPhase: 'idle' })
@@ -148,6 +157,154 @@ describe('conversation controller contract', () => {
     controller.updateContext({ canInterrupt: false })
     expect(await controller.interrupt()).toBe(false)
     expect(interrupt).toHaveBeenCalledTimes(1)
+    controller.dispose()
+  })
+
+  it('correlates a successful interrupt to the open delivery and keeps its bubble', async () => {
+    const feed = transcript()
+    const interrupt = vi.fn(async (_messageId?: string) => {})
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: async () => ({ state: 'queued' }),
+      interrupt,
+    })
+    await controller.start()
+    controller.updateContext({ canInterrupt: true, agentPhase: 'working' })
+    await controller.submit({ text: 'stop this' })
+    expect(controller.getSnapshot().interruptMessageId).toBe('msg-1')
+    expect(await controller.interrupt()).toBe(true)
+    expect(interrupt).toHaveBeenCalledWith('msg-1')
+    expect(controller.getSnapshot()).toMatchObject({
+      interruptMessageId: null,
+      pending: [expect.objectContaining({ deliveryId: 'msg-1', state: 'interrupted' })],
+    })
+    controller.dispose()
+  })
+
+  it('rejects an older queue read after a newer snapshot lands', async () => {
+    const feed = transcript()
+    const reads: Array<ReturnType<typeof deferred<unknown>>> = []
+    const readQueue = vi.fn(() => {
+      const next = deferred<unknown>()
+      reads.push(next)
+      return next.promise
+    })
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: vi.fn(),
+      readQueue,
+    })
+    const starting = controller.start()
+    reads[0]?.resolve([])
+    await starting
+
+    const older = controller.refreshQueue()
+    const newer = controller.refreshQueue()
+    reads[2]?.resolve([
+      {
+        id: 'new',
+        from: 'operator',
+        to: 'session:s1',
+        status: 'queued',
+        body: 'newer',
+        createdAt: '2026-08-30T12:00:02.000Z',
+      },
+    ])
+    await newer
+    reads[1]?.resolve([
+      {
+        id: 'old',
+        from: 'operator',
+        to: 'session:s1',
+        status: 'queued',
+        body: 'older',
+        createdAt: '2026-08-30T12:00:01.000Z',
+      },
+    ])
+    await older
+    expect(controller.getSnapshot().queued.map((message) => message.id)).toEqual(['new'])
+    controller.dispose()
+  })
+
+  it('does not let a pre-retract queue read resurrect the cancelled row', async () => {
+    const feed = transcript()
+    const stale = deferred<unknown>()
+    const row = {
+      id: 'queued-1',
+      from: 'operator',
+      to: 'session:s1',
+      status: 'queued',
+      body: 'later',
+      createdAt: '2026-08-30T12:00:00.000Z',
+    }
+    const readQueue = vi.fn().mockResolvedValueOnce([row]).mockReturnValueOnce(stale.promise)
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: vi.fn(),
+      readQueue,
+      retract: vi.fn(async () => {}),
+    })
+    await controller.start()
+    const reading = controller.refreshQueue()
+    await controller.retract('queued-1')
+    stale.resolve([row])
+    await reading
+    expect(controller.getSnapshot().queued).toEqual([])
+    controller.dispose()
+  })
+})
+
+describe.each([
+  { client: 'desktop', queueRefreshMs: 5_000, queuedAckRefreshMs: 1_000 },
+  { client: 'ios', queueRefreshMs: 5_000, queuedAckRefreshMs: 1_000 },
+] as const)('$client conversation parity', ({ client, queueRefreshMs, queuedAckRefreshMs }) => {
+  it('runs the same controlled-draft, durable-id, offer, retry, and retract contract', async () => {
+    const feed = transcript()
+    const deliveryId = `msg-${client}`
+    const deliver = vi.fn().mockRejectedValueOnce(new Error('retry')).mockResolvedValueOnce({
+      state: 'queued',
+    })
+    const retract = vi.fn(async () => {})
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      initialDraft: 'draft',
+      createDeliveryId: () => deliveryId,
+      deliver,
+      dismissOffer: vi.fn(async () => {}),
+      readQueue: async () => [
+        {
+          id: deliveryId,
+          from: 'operator',
+          to: 'session:s1',
+          status: 'queued',
+          body: 'ship',
+          createdAt: new Date(Date.now()).toISOString(),
+        },
+      ],
+      retract,
+      queueRefreshMs,
+      queuedAckRefreshMs,
+    })
+    await controller.start()
+    controller.updateContext({ canInterrupt: false, offer: offer() })
+    await controller.dismissOffer(offer().createdAt)
+    await controller.submit({ text: 'ship' })
+    await controller.retry('pending-1')
+    await controller.refreshQueue()
+    expect(controller.getSnapshot()).toMatchObject({
+      draft: '',
+      offer: null,
+      projected: { pending: [expect.objectContaining({ durable: { id: deliveryId } })] },
+    })
+    await controller.retract(deliveryId)
+    expect(controller.getSnapshot().projected).toEqual({ pending: [], queued: [] })
     controller.dispose()
   })
 })

@@ -11,7 +11,7 @@ import {
 } from './projection'
 
 export interface ConversationTranscript {
-  getSnapshot(): Pick<TranscriptState, 'items'>
+  getSnapshot(): { items: readonly TranscriptItem[] }
   subscribe(listener: () => void): () => void
 }
 
@@ -48,13 +48,17 @@ export interface ConversationControllerOptions {
   sessionId: SessionId
   transcript: ConversationTranscript
   initialDraft?: string
+  initialPending?: readonly ConversationPendingTurn[]
+  initialJustSent?: boolean
   onDraftChange?: (text: string) => void
   createDeliveryId(): string
   deliver(turn: ConversationPendingTurn): Promise<ConversationDeliveryResult | void>
   readQueue?: () => Promise<unknown>
   retract?: (id: string) => Promise<void>
   dismissOffer?: (offerCreatedAt: string) => Promise<void>
-  interrupt?: () => Promise<void>
+  /** False when the adapter's durable outbox already projects the dismissal. */
+  optimisticDismissOffer?: boolean
+  interrupt?: (messageId?: string) => Promise<void>
   echoMode?: 'matching-user' | 'any-user'
   queueRefreshMs?: number
   queuedAckRefreshMs?: number
@@ -70,9 +74,11 @@ export interface ConversationState {
   queued: ConversationQueuedMessage[]
   projected: ReturnType<typeof projectConversationQueue>
   offer: SessionOffer | null
+  dismissedOfferAt: string | null
   justSent: boolean
   canInterrupt: boolean
   interruptError: string | null
+  interruptMessageId: string | null
 }
 
 interface OpenSend {
@@ -104,6 +110,7 @@ export class ConversationController {
   private active = true
   private pendingSeq = 0
   private sendSeq = 0
+  private queueReadSerial = 0
   private openSend: OpenSend | null = null
   private context: ConversationContext = { canInterrupt: false }
   private authoritativeOffer: SessionOffer | null = null
@@ -119,8 +126,11 @@ export class ConversationController {
 
   constructor(private readonly options: ConversationControllerOptions) {
     this.clock = options.clock ?? defaultClock
-    const pending: ConversationPendingTurn[] = []
+    const pending = [...(options.initialPending ?? [])]
     const queued: ConversationQueuedMessage[] = []
+    if (options.initialJustSent) {
+      this.openSend = { seq: 0, since: null, queuedBehindTurn: false }
+    }
     this.state = {
       sessionId: options.sessionId,
       draft: options.initialDraft ?? '',
@@ -128,9 +138,11 @@ export class ConversationController {
       queued,
       projected: projectConversationQueue(pending, queued, options.transcript.getSnapshot().items),
       offer: null,
-      justSent: false,
+      dismissedOfferAt: null,
+      justSent: options.initialJustSent === true,
       canInterrupt: false,
       interruptError: null,
+      interruptMessageId: null,
     }
   }
 
@@ -148,6 +160,7 @@ export class ConversationController {
     this.unsubscribeTranscript = this.options.transcript.subscribe(() => this.observeTranscript())
     await this.refreshQueue()
     this.armQueueTimer()
+    this.armSendTimer()
   }
 
   setActive(active: boolean): void {
@@ -157,7 +170,10 @@ export class ConversationController {
   }
 
   setDraft(text: string): void {
-    if (this.state.draft === text) return
+    if (this.state.draft === text) {
+      this.options.onDraftChange?.(text)
+      return
+    }
     this.patch({ draft: text })
     this.options.onDraftChange?.(text)
   }
@@ -175,7 +191,11 @@ export class ConversationController {
     }
     const offer =
       this.authoritativeOffer?.createdAt === this.dismissedOfferAt ? null : this.authoritativeOffer
-    this.patch({ offer, canInterrupt: context.canInterrupt })
+    this.patch({
+      offer,
+      dismissedOfferAt: this.dismissedOfferAt,
+      canInterrupt: context.canInterrupt,
+    })
     this.reconcileOpenSend()
   }
 
@@ -192,7 +212,7 @@ export class ConversationController {
     const turn = this.createTurn({ text: prompt, wire: prompt }, 'offer')
     if (!turn) return null
     this.dismissedOfferAt = offerCreatedAt
-    this.patch({ offer: null })
+    this.patch({ offer: null, dismissedOfferAt: offerCreatedAt })
     await this.dispatch(turn, offerCreatedAt, true)
     return turn
   }
@@ -208,6 +228,9 @@ export class ConversationController {
 
   async retract(id: string): Promise<void> {
     if (!this.options.retract) return
+    // Retire every ledger read that began before this cancellation. A slow
+    // pre-retract response must not resurrect the row we just removed.
+    this.queueReadSerial += 1
     const queued = this.state.queued
     const retracted = queued.find((message) => message.id === id)
     const linked = pairPendingWithConversationQueue(this.state.pending, queued).pending.find(
@@ -243,14 +266,18 @@ export class ConversationController {
 
   async dismissOffer(offerCreatedAt: string): Promise<void> {
     if (!this.options.dismissOffer) return
+    if (this.options.optimisticDismissOffer === false) {
+      await this.options.dismissOffer(offerCreatedAt)
+      return
+    }
     this.dismissedOfferAt = offerCreatedAt
-    this.patch({ offer: null })
+    this.patch({ offer: null, dismissedOfferAt: offerCreatedAt })
     try {
       await this.options.dismissOffer(offerCreatedAt)
     } catch (error) {
       if (this.dismissedOfferAt === offerCreatedAt) {
         this.dismissedOfferAt = null
-        this.patch({ offer: this.authoritativeOffer })
+        this.patch({ offer: this.authoritativeOffer, dismissedOfferAt: null })
       }
       throw error
     }
@@ -263,7 +290,9 @@ export class ConversationController {
       this.setDraft(this.context.latestOperatorPrompt)
     }
     try {
-      await this.options.interrupt()
+      const messageId = this.state.interruptMessageId
+      await this.options.interrupt(messageId ?? undefined)
+      this.markInterrupted(messageId ?? undefined)
       return true
     } catch (error) {
       this.patch({ interruptError: errorText(error) })
@@ -271,11 +300,50 @@ export class ConversationController {
     }
   }
 
+  markInterrupted(deliveryId?: string, interruptedAt?: number): void {
+    const beforeInterrupt = (at: number): boolean =>
+      interruptedAt === undefined || at <= interruptedAt
+    const queued = deliveryId
+      ? this.state.queued.find((message) => message.id === deliveryId)
+      : this.state.queued.findLast((message) => beforeInterrupt(message.at))
+    const index = deliveryId
+      ? this.state.pending.findIndex((turn) => turn.deliveryId === deliveryId)
+      : this.state.pending.findLastIndex(
+          (turn) => turn.state !== 'failed' && beforeInterrupt(turn.at),
+        )
+    let pending = this.state.pending
+    if (index < 0 && queued) {
+      pending = [
+        ...pending,
+        {
+          id: `interrupted-${queued.id}`,
+          deliveryId: queued.id,
+          text: queued.text,
+          wire: queued.text,
+          at: queued.at,
+          state: 'interrupted',
+          kind: 'message',
+        },
+      ]
+    } else if (index >= 0 && pending[index]?.state !== 'interrupted') {
+      pending = pending.map((turn, candidate) =>
+        candidate === index ? { ...turn, state: 'interrupted' } : turn,
+      )
+    }
+    this.patch({
+      pending,
+      queued: queued
+        ? this.state.queued.filter((message) => message.id !== queued.id)
+        : this.state.queued,
+    })
+  }
+
   async refreshQueue(): Promise<void> {
     if (!this.options.readQueue || this.disposed) return
+    const serial = ++this.queueReadSerial
     try {
       const rows = await this.options.readQueue()
-      if (this.disposed) return
+      if (this.disposed || serial !== this.queueReadSerial) return
       this.patch({ queued: queuedConversationMessages(rows, this.options.sessionId) })
     } catch {
       // Keep the last durable projection. Transcript and sending remain usable.
@@ -338,7 +406,7 @@ export class ConversationController {
       this.clearOpenSend(sendSeq)
       if (retiredOfferAt && this.dismissedOfferAt === retiredOfferAt) {
         this.dismissedOfferAt = null
-        this.patch({ offer: this.authoritativeOffer })
+        this.patch({ offer: this.authoritativeOffer, dismissedOfferAt: null })
       }
       if (rethrow) throw error
     }
@@ -346,7 +414,12 @@ export class ConversationController {
 
   private replacePending(turn: ConversationPendingTurn): void {
     this.patch({
-      pending: this.state.pending.map((candidate) => (candidate.id === turn.id ? turn : candidate)),
+      pending: this.state.pending.map((candidate) =>
+        candidate.id !== turn.id ||
+        (candidate.state === 'interrupted' && turn.state !== 'interrupted')
+          ? candidate
+          : turn,
+      ),
     })
   }
 
@@ -354,7 +427,7 @@ export class ConversationController {
     const offer = this.authoritativeOffer
     if (!offer || this.dismissedOfferAt === offer.createdAt) return null
     this.dismissedOfferAt = offer.createdAt
-    this.patch({ offer: null })
+    this.patch({ offer: null, dismissedOfferAt: offer.createdAt })
     return offer.createdAt
   }
 
@@ -376,13 +449,19 @@ export class ConversationController {
     for (const item of users) this.seenUserIds.add(item.id)
     this.seenUserTailId = users.at(-1)?.id ?? null
     if (fresh.length > 0) {
+      const conversational = fresh.filter((item) => item.event !== 'interrupt')
+      const interruptItem = fresh.findLast((item) => item.event === 'interrupt')
+      if (interruptItem) {
+        const interruptedAt = interruptItem.ts ? Date.parse(interruptItem.ts) : Number.NaN
+        this.markInterrupted(undefined, Number.isFinite(interruptedAt) ? interruptedAt : undefined)
+      }
       this.patch({
         pending: reconcileConversationPending(
           this.state.pending,
-          fresh,
+          conversational,
           this.options.echoMode,
         ),
-        queued: reconcileConversationQueue(this.state.queued, fresh),
+        queued: reconcileConversationQueue(this.state.queued, conversational),
       })
     } else {
       this.patch({})
@@ -494,9 +573,15 @@ export class ConversationController {
   private patch(patch: Partial<ConversationState>): void {
     const pending = patch.pending ?? this.state.pending
     const queued = patch.queued ?? this.state.queued
+    const latestPending = pending.findLast((turn) => turn.state !== 'failed')
+    const interruptMessageId =
+      latestPending?.state === 'interrupted'
+        ? null
+        : (latestPending?.deliveryId ?? queued.at(-1)?.id ?? null)
     this.state = {
       ...this.state,
       ...patch,
+      interruptMessageId,
       projected: projectConversationQueue(
         pending,
         queued,

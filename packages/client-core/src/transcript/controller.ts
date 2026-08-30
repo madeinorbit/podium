@@ -93,6 +93,21 @@ export function sameTranscriptItem(left: TranscriptItem, right: TranscriptItem):
   return sameValue(left, right)
 }
 
+export function sameTranscriptItems(
+  left: readonly TranscriptItem[],
+  right: readonly TranscriptItem[],
+): boolean {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every(
+        (item, index) =>
+          transcriptItemKey(item) === transcriptItemKey(right[index] as TranscriptItem) &&
+          sameTranscriptItem(item, right[index] as TranscriptItem),
+      ))
+  )
+}
+
 /**
  * Merge a live frame into a held window. A repeated cursor replaces its earlier
  * value in place, because tailers may first emit an unterminated record and then
@@ -240,7 +255,10 @@ export class TranscriptController {
       })
       if (!this.accepts(generation, serial)) return false
       this.windowEpoch += 1
-      const items = reconcileTranscriptSnapshot(this.state.items, page.items, page.tail)
+      const reconciled = reconcileTranscriptSnapshot(this.state.items, page.items, page.tail)
+      const items = sameTranscriptItems(this.state.items, reconciled)
+        ? this.state.items
+        : reconciled
       this.patch({
         items,
         head: page.head,
@@ -308,7 +326,8 @@ export class TranscriptController {
         direction: 'before',
         limit: this.pageLimit,
       })
-      if (this.disposed || generation !== this.generation || epoch !== this.windowEpoch) return false
+      if (this.disposed || generation !== this.generation || epoch !== this.windowEpoch)
+        return false
       const fresh = freshOlderTranscriptPage(page.items, this.state.items)
       const items = fresh.length > 0 ? [...fresh, ...this.state.items] : this.state.items
       const head = fresh[0]?.cursor ?? page.head ?? anchor
@@ -374,6 +393,8 @@ export class TranscriptController {
   }
 }
 
-export function createTranscriptController(options: TranscriptControllerOptions): TranscriptController {
+export function createTranscriptController(
+  options: TranscriptControllerOptions,
+): TranscriptController {
   return new TranscriptController(options)
 }

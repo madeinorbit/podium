@@ -24,9 +24,7 @@ function deferred<T>() {
 function source() {
   const reads: TranscriptReadRequest[] = []
   const pending: Array<ReturnType<typeof deferred<TranscriptPage>>> = []
-  let subscriber:
-    | ((items: TranscriptItem[], meta: { reset: boolean }) => void)
-    | undefined
+  let subscriber: ((items: TranscriptItem[], meta: { reset: boolean }) => void) | undefined
   const subscribe = vi.fn(
     (
       _sessionId: ReturnType<typeof asSessionId>,
@@ -188,5 +186,48 @@ describe('transcript lifecycle boundaries', () => {
       item('answer-complete', 'WyJmIiw5MDAsbnVsbCwwXQ', 'answer complete'),
     ])
     expect(merged.map((entry) => entry.text)).toEqual(['prompt', 'answer complete'])
+  })
+
+  it('invalidates an in-flight read when a reset starts its replacement', async () => {
+    const io = source()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('a', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
+    await starting
+
+    const stale = controller.refresh({ disclose: true })
+    io.emit([], true)
+    io.pending[2]?.resolve({ items: [item('fresh', 'c3')], head: 'c3', tail: 'c3', hasMore: false })
+    await Promise.resolve()
+    io.pending[1]?.resolve({ items: [item('stale', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
+    expect(await stale).toBe(false)
+    await Promise.resolve()
+    expect(controller.getSnapshot().items).toEqual([item('fresh', 'c3')])
+    controller.dispose()
+  })
+
+  it('keeps cache freshness visible until the consumer marks the new graph rendered', async () => {
+    const io = source()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      cache: { read: () => ({ items: [item('saved', 'c1')], savedAt: 42 }), write: vi.fn() },
+    })
+    const starting = controller.start()
+    expect(controller.getSnapshot().freshness).toBe('checking')
+    io.pending[0]?.resolve({
+      items: [item('fresh', 'c2')],
+      head: 'c2',
+      tail: 'c2',
+      hasMore: false,
+    })
+    await starting
+    expect(controller.getSnapshot().freshness).toBe('rendering')
+    controller.markRendered()
+    expect(controller.getSnapshot().freshness).toBeNull()
+    controller.dispose()
   })
 })
