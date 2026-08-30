@@ -126,6 +126,8 @@ describe('r18 continuity selector contract', () => {
 
     expect(topBar).toContain('data-testid="desktop-topbar"')
     expect(topBar).toContain('<UtilityNavItem')
+    expect(rig).toContain("topbars.first().waitFor({state:'visible',timeout:30000})")
+    expect(rig).toContain("settings.first().waitFor({state:'visible',timeout:30000})")
     expect(topBar).toContain('label="Settings"')
     expect(rig).toContain("page.getByTestId('desktop-topbar')")
     expect(rig).toContain("getAttribute('data-chromeless')!==null")
