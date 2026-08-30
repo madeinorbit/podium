@@ -1,12 +1,24 @@
 import { chromium } from 'playwright'
-import { existsSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
+import { isAbsolute, relative } from 'node:path'
 const required=(name:string)=>{const value=process.env[name];if(!value)throw Error(`${name} is required`);return value}
-const port=Number(required('R18_PORT'))
-if(!Number.isInteger(port)||port<=0)throw Error('R18_PORT must be a positive integer')
-const O=`http://127.0.0.1:${port}`,P=required('R18_INSTANCE'),C=required('R18_CWD'),base=required('R18_BASE'),epic=required('R18_EPIC_PIN'),workspace=required('R18_WORKSPACE')
-const hookPort=Number(required('R18_HOOK_PORT')),relayPort=Number(required('R18_RELAY_PORT'))
-if(!Number.isInteger(hookPort)||!Number.isInteger(relayPort))throw Error('R18 hook and relay ports must be integers')
-if(!epic)throw Error('R18_EPIC_PIN is required')
+for(const key of ['R18_HOME','PODIUM_STATE_DIR','ABDUCO_SOCKET_DIR','PODIUM_RUNTIME_DRIVER'])if(process.env[key]!==undefined)throw Error(`REFUSED rig-authored ${key} override`)
+const parentHome=readFileSync(`/proc/${process.ppid}/environ`,'utf8').split('\0').find(value=>value.startsWith('HOME='))?.slice(5)
+if(!process.env.HOME||parentHome!==process.env.HOME)throw Error('REFUSED rig-authored HOME override')
+const positivePort=(name:string)=>{const value=Number(required(name));if(!Number.isInteger(value)||value<=0)throw Error(`${name} must be a positive integer`);return value}
+const port=positivePort('R18_PORT'),hookPort=positivePort('R18_HOOK_PORT'),relayPort=positivePort('R18_RELAY_PORT')
+const P=required('R18_INSTANCE')
+if(P==='default'||P==='p3112-oc-continuity-r18')throw Error(`REFUSED unsafe or prior R18_INSTANCE ${P}`)
+const ports=[port,hookPort,relayPort]
+if(new Set(ports).size!==3)throw Error('REFUSED R18 ports must be distinct')
+const forbiddenPorts=new Set([19797,32090,20328,47344,47345])
+if(ports.some(value=>forbiddenPorts.has(value)))throw Error(`REFUSED unsafe or prior R18 port ${ports.find(value=>forbiddenPorts.has(value))}`)
+const requestedBase=required('R18_BASE'),requestedCwd=required('R18_CWD')
+const base=realpathSync(requestedBase),C=realpathSync(requestedCwd)
+if(base==='/tmp/pod-3112-oc-continuity-r18'||!/^\/tmp\/pod-3112-[^/]+$/.test(base))throw Error(`REFUSED unsafe or prior R18_BASE ${base}`)
+const cwdRelative=relative(base,C)
+if(!cwdRelative||cwdRelative.startsWith('..')||isAbsolute(cwdRelative))throw Error(`REFUSED R18_CWD must be strictly beneath R18_BASE: ${C}`)
+const O=`http://127.0.0.1:${port}`,epic=required('R18_EPIC_PIN'),workspace=required('R18_WORKSPACE')
 const mono=()=>performance.now(),wall=()=>new Date().toISOString(),sleep=(n:number)=>new Promise(r=>setTimeout(r,n))
 const journalPath=(sid:string)=>`${process.env.HOME}/.local/state/podium/${P}/opencode-servers/${encodeURIComponent(sid)}.json`,journalSafe=(sid:string)=>{if(!existsSync(journalPath(sid)))return null;const raw=JSON.parse(readFileSync(journalPath(sid),'utf8')),safe={opencodeSessionId:raw.opencodeSessionId,process:{key:raw.process?.key,pid:raw.process?.pid},workdir:raw.workdir,seq:raw.seq,turnEpoch:raw.turnEpoch,bindingVersion:raw.bindingVersion};if(!safe.opencodeSessionId||!safe.process.key||!Number.isInteger(safe.process.pid)||safe.process.pid<=0||!safe.workdir||!Number.isInteger(safe.seq)||safe.seq<0||!Number.isInteger(safe.turnEpoch)||safe.turnEpoch<0||!Number.isInteger(safe.bindingVersion)||safe.bindingVersion<=0)throw Error('REFUSED incomplete safe journal fields');return safe}
 const processProof=(pid:number)=>{let live=false,cwd:string|null=null,instance=false;try{process.kill(pid,0);live=true;cwd=readlinkSync(`/proc/${pid}/cwd`);instance=readFileSync(`/proc/${pid}/environ`,'utf8').split('\0').includes(`PODIUM_INSTANCE=${P}`)}catch{}return {pid,live,cwd,instance,exact:live&&cwd===C&&instance}}
