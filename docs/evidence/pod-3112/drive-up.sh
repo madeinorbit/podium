@@ -43,8 +43,44 @@ if mem < int(1.5 * 1024**3):
     raise SystemExit('refusing: MemAvailable below 1.5 GiB')
 PY
 
-bash "$PODIUM_DRIVE_REPO/docs/evidence/pod-2777/link-node-modules.sh" >/dev/null
+python3 - "$PODIUM_DRIVE_REPO" <<'PY'
+import os
+import pathlib
+import sys
+
+repo = pathlib.Path(sys.argv[1]).resolve()
+root_modules = repo / 'node_modules'
+if root_modules.is_symlink() or not root_modules.is_dir():
+    raise SystemExit(f'refusing: checkout-local node_modules is absent or a directory symlink: {root_modules}')
+if root_modules.resolve() != repo / 'node_modules':
+    raise SystemExit(f'refusing: node_modules resolves outside the checkout: {root_modules.resolve()}')
+
+owners = (repo / 'scripts', repo / 'apps/server', repo / 'apps/daemon')
+workspace_links = []
+for owner in owners:
+    scope = owner / 'node_modules/@podium'
+    if scope.is_symlink() or not scope.is_dir():
+        raise SystemExit(f'refusing: checkout-local @podium scope absent or unsafe: {scope}')
+    links = sorted(scope.iterdir())
+    if not links:
+        raise SystemExit(f'refusing: checkout-local @podium scope is empty: {scope}')
+    for link in links:
+        if not link.is_symlink():
+            raise SystemExit(f'refusing: workspace dependency is not a symlink: {link}')
+        try:
+            target = link.resolve(strict=True)
+        except FileNotFoundError:
+            raise SystemExit(f'refusing: dangling workspace dependency: {link}')
+        if target != repo and repo not in target.parents:
+            raise SystemExit(f'refusing: cross-checkout workspace dependency: {link} -> {target}')
+        workspace_links.append((link, target))
+
+required = (repo / 'scripts/node_modules/@podium/runtime', repo / 'apps/server/node_modules/@podium/runtime', repo / 'apps/daemon/node_modules/@podium/runtime')
+if any(not path.is_symlink() for path in required):
+    raise SystemExit('refusing: required @podium/runtime workspace link is absent')
 env PODIUM_DRIVE_REPO="$PODIUM_DRIVE_REPO" PODIUM_INSTANCE="$PODIUM_INSTANCE" \
+print(f'checkout-local dependency graph ok: {len(workspace_links)} @podium links across scripts/server/daemon')
+PY
   bash "$PODIUM_DRIVE_REPO/docs/evidence/claim-instance.sh"
 ( cd "$PODIUM_DRIVE_REPO" && \
   env PODIUM_RIG_STATE_ROOT="$P3112_STATE_ROOT" PODIUM_INSTANCE="$PODIUM_INSTANCE" \
