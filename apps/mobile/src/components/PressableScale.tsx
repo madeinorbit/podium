@@ -4,6 +4,7 @@ import {
   Animated,
   Platform,
   Pressable,
+  StyleSheet,
   type PressableProps,
   type StyleProp,
   type ViewStyle,
@@ -71,7 +72,12 @@ export function PressableScale({
     <AnimatedPressable
       {...rest}
       disabled={disabled}
-      style={[typeof style === 'function' ? style({ pressed }) : style, { transform: [{ scale }] }]}
+      pressRetentionOffset={rest.pressRetentionOffset ?? 12}
+      style={[
+        styles.target,
+        typeof style === 'function' ? style({ pressed }) : style,
+        { transform: [{ scale }] },
+      ]}
       onPressIn={(e) => {
         setPressed(true)
         runSpring(scaleTo)
@@ -93,3 +99,11 @@ export function PressableScale({
     </AnimatedPressable>
   )
 }
+
+const styles = StyleSheet.create({
+  target: Platform.select({
+    ios: { minWidth: 44, minHeight: 44 },
+    android: { minWidth: 48, minHeight: 48 },
+    default: {},
+  })!,
+})

@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoutText: {
-    color: color.danger,
+    color: color.dangerText,
     ...sans(700),
     fontSize: font.body,
   },

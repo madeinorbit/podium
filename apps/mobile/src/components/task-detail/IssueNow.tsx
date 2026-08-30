@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
   },
   live: {
-    color: color.working,
+    color: color.workingText,
   },
   attention: {
     color: color.needsYouText,

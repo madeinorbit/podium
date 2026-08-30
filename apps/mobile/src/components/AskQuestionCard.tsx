@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
   },
   metaError: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
   },
   questionBlock: {

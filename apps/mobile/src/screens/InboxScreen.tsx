@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   error: {
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.xl,
     paddingBottom: space.sm,

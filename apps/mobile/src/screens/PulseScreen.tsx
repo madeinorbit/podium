@@ -101,7 +101,6 @@ export function PulseScreen() {
 
   return (
     <Screen title="Pulse" large>
-      <ModeSwitch mode={mode} onChange={setMode} />
       <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <ScrollView
           ref={listRef as never}
@@ -110,6 +109,7 @@ export function PulseScreen() {
           {...refreshAccessibilityProps}
           {...minimizeOnScroll}
         >
+          <ModeSwitch mode={mode} onChange={setMode} />
           {cold && feed.failed ? (
             <Unreachable onRetry={feed.reload} />
           ) : mode === 'now' ? (
@@ -643,9 +643,9 @@ function Unreachable({ onRetry }: { onRetry: () => void }) {
 // ---------------------------------------------------------------------------
 
 const TONE_COLOR: Record<QuotaTone, string> = {
-  ok: color.working,
+  ok: color.workingText,
   warn: color.accent,
-  crit: color.danger,
+  crit: color.dangerText,
 }
 
 const SEVERITY_TONE: Record<'ok' | 'warn' | 'critical', MeterTone> = {
@@ -657,9 +657,9 @@ const SEVERITY_TONE: Record<'ok' | 'warn' | 'critical', MeterTone> = {
 /** Claude's terracotta is a BRAND mark, not a status colour — it never competes
  *  with the tones the meters use. Every other harness stays neutral. */
 const markColor = (agent: AgentKind): string =>
-  agent === 'claude-code' ? color.claude : color.body
+  agent === 'claude-code' ? color.claudeText : color.body
 const markBorder = (agent: AgentKind): string =>
-  agent === 'claude-code' ? color.claude : color.border
+  agent === 'claude-code' ? color.claudeText : color.border
 
 const styles = StyleSheet.create({
   content: {

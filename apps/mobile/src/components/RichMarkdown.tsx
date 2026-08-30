@@ -269,7 +269,7 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
       {overflow && !atEnd ? (
         <LinearGradient
           pointerEvents="none"
-          colors={[alpha(color.bg, 0), color.bg]}
+          colors={[color.clear, color.bg]}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={styles.tableFade}

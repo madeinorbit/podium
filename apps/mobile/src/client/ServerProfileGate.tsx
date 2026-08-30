@@ -4,7 +4,6 @@ import { router } from 'expo-router'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Linking,
   Platform,
   ScrollView,
@@ -14,6 +13,7 @@ import {
   View,
 } from 'react-native'
 import { PairingScanner } from '../components/PairingScanner'
+import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { PressableScale } from '../components/PressableScale'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { logout } from './auth'
@@ -1017,9 +1017,10 @@ function PairingSetup({
   }
 
   return (
-    <KeyboardAvoidingView
+    <KeyboardAvoidingRoot
       style={styles.setup}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      automaticOffset
     >
       <ScrollView contentContainerStyle={styles.setupContent} keyboardShouldPersistTaps="handled">
         {canCancel ? (
@@ -1076,7 +1077,7 @@ function PairingSetup({
         ) : null}
         {step === 'checking' || step === 'claiming' ? (
           <View style={styles.busy}>
-            <ActivityIndicator color={color.working} />
+            <ActivityIndicator color={color.workingText} />
             <Text style={styles.setupBody}>
               {step === 'checking'
                 ? 'Checking server and transport…'
@@ -1144,7 +1145,7 @@ function PairingSetup({
             <Text style={styles.setupBody}>
               Confirm these exact words on your computer, then approve this phone.
             </Text>
-            <ActivityIndicator color={color.working} />
+            <ActivityIndicator color={color.workingText} />
             <SecondaryButton label="Cancel" onPress={() => setStep('welcome')} />
           </>
         ) : null}
@@ -1164,7 +1165,7 @@ function PairingSetup({
           </Text>
         ) : null}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingRoot>
   )
 }
 
@@ -1291,7 +1292,7 @@ const styles = StyleSheet.create({
   },
   serverName: { color: color.text, ...sans(700), fontSize: font.heading },
   serverOrigin: { color: color.textDim, fontSize: font.small },
-  grade: { color: color.success, ...sans(700), fontSize: font.micro, letterSpacing: 1 },
+  grade: { color: color.successText, ...sans(700), fontSize: font.micro, letterSpacing: 1 },
   warning: { color: color.needsYouText },
   warningText: { color: color.needsYouText, fontSize: font.small, lineHeight: 20 },
   phrase: {
@@ -1304,5 +1305,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   phraseText: { color: color.accentTint, ...sans(700), fontSize: font.heading },
-  errorText: { color: color.danger, fontSize: font.small, lineHeight: 20 },
+  errorText: { color: color.dangerText, fontSize: font.small, lineHeight: 20 },
 })

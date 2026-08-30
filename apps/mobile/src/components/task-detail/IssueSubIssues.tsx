@@ -130,7 +130,7 @@ function SubTaskRow({
   const state = child.needsHuman
     ? { text: 'needs you', tint: color.needsYou }
     : child.blocked
-      ? { text: 'blocked', tint: color.danger }
+      ? { text: 'blocked', tint: color.dangerText }
       : child.stage === 'proposed'
         ? { text: 'proposed', tint: stageColor('proposed') }
         : child.childCount > 0

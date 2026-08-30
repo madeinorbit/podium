@@ -26,7 +26,7 @@ export function TerminalControlAction({ control }: { control: TerminalControlSta
       <Icon
         as={controlling ? Smartphone : Maximize2}
         size={15}
-        color={controlling ? color.working : color.textDim}
+        color={controlling ? color.workingText : color.textDim}
       />
     </HeaderButton>
   )

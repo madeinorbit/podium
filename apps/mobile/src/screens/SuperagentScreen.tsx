@@ -560,12 +560,12 @@ const styles = StyleSheet.create({
   },
   stop: {
     ...sans(700),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
   },
   error: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingBottom: space.xs,

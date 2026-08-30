@@ -89,7 +89,7 @@ import { color, space } from '../theme/theme'
  * events puts the reply box thousands of pixels down the scroll, so replying
  * would mean first travelling past everything you were replying to.
  */
-export function IssueScreen() {
+export function IssueScreen({ dismiss = false }: { dismiss?: boolean } = {}) {
   const params = useLocalSearchParams<{ issueId: IssueId | string[] }>()
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
@@ -123,9 +123,14 @@ export function IssueScreen() {
   return (
     <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
       {issue ? (
-        <IssueContent issue={issue} onBack={goBack} />
+        <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
       ) : (
-        <Screen title="Task" onBack={goBack}>
+        <Screen
+          title="Task"
+          onBack={goBack}
+          backAs={dismiss ? 'text' : 'chevron'}
+          backLabel={dismiss ? 'Done' : undefined}
+        >
           {certainAbsence ? <EmptyState title="Task not found." fill /> : <DetailSkeleton />}
         </Screen>
       )}
@@ -160,7 +165,15 @@ type OpenSheet =
  *  fact be stated two ways. */
 const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
 
-function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void }) {
+function IssueContent({
+  issue,
+  onBack,
+  dismiss,
+}: {
+  issue: IssueWire
+  onBack: () => void
+  dismiss: boolean
+}) {
   const router = useRouter()
   const trpc = useTrpc()
   // The picked action set doubles as the page's IssueWriteActions — every
@@ -271,6 +284,8 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
       // the board's nesting exists to remove.
       subtitle={breadcrumb}
       onBack={onBack}
+      backAs={dismiss ? 'text' : 'chevron'}
+      backLabel={dismiss ? 'Done' : undefined}
       {...(hex ? { accent: hex } : {})}
       leading={
         <PressableScale

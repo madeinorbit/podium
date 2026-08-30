@@ -3,7 +3,7 @@ import type { IssueWire } from '@podium/model'
 import { useMemo } from 'react'
 import { StyleSheet, Text } from 'react-native'
 import { useIssues } from '../client/hooks'
-import { alpha, mix } from '../theme/mix'
+import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
 import { color, font, mono } from '../theme/theme'
 import { StageGlyph, UnknownRefGlyph } from './StageGlyph'
@@ -103,7 +103,7 @@ export function RefChip({
   const ink = refKind === 'issue' ? stageColor(stage) : color.textDim
   // The done glyph punches its check out of the surface behind it; the chip's
   // own tint is that surface, so the check reads as a hole rather than a stroke.
-  const ground = mix(ink, 12, color.bg)
+  const ground = color.surface
 
   return (
     <Text

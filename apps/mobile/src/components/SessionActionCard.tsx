@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   error: {
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny, 'prose'),
     marginTop: 6,

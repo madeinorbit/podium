@@ -6,9 +6,9 @@ product
 
 ## Platform
 
-adaptive
+native iOS
 
-(One Expo/React Native codebase. The first supported native release is iPhone-only on iOS 16.4 or later, distributed through TestFlight before App Store review. The `/mobile` web app remains an unsupported compatibility path, and Android is not in the first release contract. The app keeps one Podium design language while honoring iOS safe areas, system navigation, 44pt touch targets, accessibility settings, and reduced motion.)
+(One Expo/React Native codebase. The first supported native release is iPhone-only on iOS 16.4 or later, distributed through TestFlight before App Store review, with automatic Light and Dark Mode. Dictation is available on iOS 26 where Apple's on-device speech model is supported. The `/mobile` web app remains an unsupported compatibility path, and Android is outside the first supported release. The app keeps one Podium design language while honoring iOS safe areas, system navigation, 44pt touch targets, accessibility settings, and reduced motion.)
 
 ## Users
 
@@ -43,4 +43,4 @@ Identical to the desktop: fast, calm, precise, technical — a quiet cockpit. On
 
 ## Accessibility & Inclusion
 
-Best effort, matching the desktop: readable contrast, 44pt+ touch targets, honor platform reduced-motion and system font scaling where feasible.
+System appearance, Dynamic Type, VoiceOver semantics, 44pt targets, Reduce Motion, and native keyboard ownership are release requirements. Podium keeps its product vocabulary, issue colors, status meanings, and machine-data voice while iOS owns structural appearance and controls.
