@@ -1292,7 +1292,8 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
     let opener = tauri::ipc::CapabilityBuilder::new("transfer-external-link-opener")
         .window("main")
         .remote(pattern.clone())
-        .permission("opener:allow-open-url");
+        .permission("opener:allow-open-url")
+        .permission("opener:allow-default-urls");
     let sqlite = tauri::ipc::CapabilityBuilder::new("transfer-replica-sqlite")
         .window("main")
         .remote(pattern.clone())
@@ -1706,7 +1707,8 @@ fn main() {
             // (which load the relay origin directly) get it too.
             let mut opener_capability = tauri::ipc::CapabilityBuilder::new("external-link-opener")
                 .window("main")
-                .permission("opener:allow-open-url");
+                .permission("opener:allow-open-url")
+                .permission("opener:allow-default-urls");
             // [spec:SP-3701] The enable_hosting command is granted ONLY to a client-mode window
             // (the sole state where the toggle exists), scoped to the configured hub origin.
             let mut hosting_capability = (launch_mode_tag == "client").then(|| {
@@ -1898,17 +1900,26 @@ fn main() {
                 let close_tab = MenuItemBuilder::with_id("close-tab", "Close Tab")
                     .accelerator("CmdOrCtrl+W")
                     .build(app)?;
+                let quit = MenuItemBuilder::with_id("quit-app", "Quit Podium ADE")
+                    .accelerator("CmdOrCtrl+Q")
+                    .build(app)?;
                 let file_menu = SubmenuBuilder::new(app, "File")
                     .item(&new_agent)
                     .item(&add_project)
                     .separator()
                     .item(&close_tab)
                     .separator()
-                    .quit_with_text("Quit Podium ADE")
+                    .item(&quit)
                     .build()?;
+                let undo = MenuItemBuilder::with_id("edit-undo", "Undo")
+                    .accelerator("CmdOrCtrl+Z")
+                    .build(app)?;
+                let redo = MenuItemBuilder::with_id("edit-redo", "Redo")
+                    .accelerator("Shift+CmdOrCtrl+Z")
+                    .build(app)?;
                 let edit_menu = SubmenuBuilder::new(app, "Edit")
-                    .undo()
-                    .redo()
+                    .item(&undo)
+                    .item(&redo)
                     .separator()
                     .cut()
                     .copy()
@@ -2201,6 +2212,9 @@ fn main() {
             // and closes a tab on the selected issue while any remain. An empty
             // workspace is a no-op — the main window is not closable from here.
             "close-tab" => eval_menu_hook(app, "__PODIUM_CLOSE_TAB__"),
+            "edit-undo" => eval_menu_hook(app, "__PODIUM_UNDO__"),
+            "edit-redo" => eval_menu_hook(app, "__PODIUM_REDO__"),
+            "quit-app" => app.exit(0),
             _ => {}
         })
         .on_window_event(|window, event| {

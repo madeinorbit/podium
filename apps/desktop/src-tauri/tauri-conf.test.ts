@@ -83,6 +83,7 @@ describe('tauri desktop config', () => {
       'core:event:allow-unlisten',
     ])
     expect(JSON.stringify(defaultCapability.permissions)).not.toContain(':default')
+    expect(mainSource.match(/\.permission\("opener:allow-default-urls"\)/g)).toHaveLength(2)
   })
 
   it('keeps stable as the packaged fallback endpoint', () => {
@@ -520,6 +521,14 @@ describe('served-local launchMode classification (POD-2510)', () => {
     )
     expect(mainSource).toContain('window.app_handle().exit(0);')
     expect(mainSource).not.toContain('TrayIconBuilder')
+    const nonMacMenu = mainSource.slice(mainSource.indexOf('// Windows and Linux reserve Ctrl+W'))
+    expect(nonMacMenu).not.toContain('.undo()')
+    expect(nonMacMenu).not.toContain('.redo()')
+    expect(nonMacMenu).not.toContain('.quit()')
+    expect(nonMacMenu).not.toContain('.quit_with_text(')
+    expect(nonMacMenu).toContain('MenuItemBuilder::with_id("edit-undo", "Undo")')
+    expect(nonMacMenu).toContain('MenuItemBuilder::with_id("edit-redo", "Redo")')
+    expect(nonMacMenu).toContain('MenuItemBuilder::with_id("quit-app", "Quit Podium ADE")')
   })
 
   /**

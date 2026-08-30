@@ -55,6 +55,11 @@ export function DesktopMenuHost({
       toggleLeftSidebar,
       toggleFlightDeck,
       toggleRightSidebar,
+      // Tauri's predefined Undo/Redo items are unsupported outside macOS. The
+      // shell owns only the native accelerator; the shared document performs
+      // the edit command.
+      undo: () => document.execCommand('undo'),
+      redo: () => document.execCommand('redo'),
     })
   })
 

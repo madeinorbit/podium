@@ -42,6 +42,8 @@ export interface DesktopMenuHooks {
   toggleFlightDeck?: MenuHook
   toggleRightSidebar?: MenuHook
   closeTab?: () => boolean
+  undo?: MenuHook
+  redo?: MenuHook
 }
 
 type DesktopMenuGlobals = {
@@ -53,6 +55,8 @@ type DesktopMenuGlobals = {
   __PODIUM_TOGGLE_FLIGHT_DECK__?: MenuHook
   __PODIUM_TOGGLE_RIGHT_SIDEBAR__?: MenuHook
   __PODIUM_CLOSE_TAB__?: () => boolean
+  __PODIUM_UNDO__?: MenuHook
+  __PODIUM_REDO__?: MenuHook
 }
 
 const GLOBAL_KEYS = [
@@ -64,6 +68,8 @@ const GLOBAL_KEYS = [
   ['toggleFlightDeck', '__PODIUM_TOGGLE_FLIGHT_DECK__'],
   ['toggleRightSidebar', '__PODIUM_TOGGLE_RIGHT_SIDEBAR__'],
   ['closeTab', '__PODIUM_CLOSE_TAB__'],
+  ['undo', '__PODIUM_UNDO__'],
+  ['redo', '__PODIUM_REDO__'],
 ] as const
 
 /** Install the given hooks, replacing only the keys that are provided. */

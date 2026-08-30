@@ -34,6 +34,8 @@ export type ProofCheck = {
   expectedOsVersion?: string
   expectedPackage?: RegExp
   expectedPackageDescription?: string
+  expectedTrustMechanism?: RegExp
+  expectedTrustDescription?: string
   covers: string[]
 }
 
@@ -149,6 +151,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: CURRENT_MACOS_VERSION,
     expectedPackage: /^Podium_.+_aarch64\.dmg$/,
     expectedPackageDescription: 'Podium_<version>_aarch64.dmg',
+    expectedTrustMechanism: /developer id|gatekeeper|notari/i,
+    expectedTrustDescription: 'Apple Developer ID, Gatekeeper, or notarization verification',
     covers: [
       'Apple Silicon signed, notarized, stapled DMG',
       'fresh install, launch, native chrome, opener, file dialog, clipboard, notification, cold and warm deep-link activation, and updater restart',
@@ -166,6 +170,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: CURRENT_MACOS_VERSION,
     expectedPackage: /^Podium_.+_x64\.dmg$/,
     expectedPackageDescription: 'Podium_<version>_x64.dmg',
+    expectedTrustMechanism: /developer id|gatekeeper|notari/i,
+    expectedTrustDescription: 'Apple Developer ID, Gatekeeper, or notarization verification',
     covers: [
       'Intel signed, notarized, stapled DMG',
       'fresh install, launch, native chrome, opener, file dialog, clipboard, notification, cold and warm deep-link activation, and updater restart',
@@ -183,6 +189,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: 'Windows 11 24H2',
     expectedPackage: /^Podium_.+_x64-setup\.exe$/,
     expectedPackageDescription: 'Podium_<version>_x64-setup.exe',
+    expectedTrustMechanism: /authenticode/i,
+    expectedTrustDescription: 'Authenticode verification',
     covers: [
       'NSIS install and uninstall on Windows 11 x86_64',
       'verified Authenticode publisher, SmartScreen behavior, and WebView2 launch',
@@ -201,6 +209,8 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: 'Ubuntu 24.04.3 LTS',
     expectedPackage: /^Podium_.+_amd64\.AppImage$/,
     expectedPackageDescription: 'Podium_<version>_amd64.AppImage',
+    expectedTrustMechanism: /signature|provenance|attestation|gpg|sha-?256/i,
+    expectedTrustDescription: 'signed or attestable AppImage provenance',
     covers: [
       'AppImage launch on Ubuntu 24.04 x86_64 under an isolated X11 session',
       'verified AppImage provenance plus native opener and dialogs',
@@ -225,6 +235,11 @@ export type EvidenceEntry = {
     mechanism: string
     identity: string
     verified: boolean
+  }
+  desktopBoundaryResults?: {
+    notification: 'passed' | 'failed'
+    deepLinkCold: 'passed' | 'failed'
+    deepLinkWarm: 'passed' | 'failed'
   }
   notes: string
 }
@@ -304,6 +319,25 @@ export function parseEvidence(value: unknown): EvidenceFile {
         verified: trust.verified,
       }
     }
+    let desktopBoundaryResults: EvidenceEntry['desktopBoundaryResults']
+    if (entry.desktopBoundaryResults !== undefined) {
+      const results = asObject(
+        entry.desktopBoundaryResults,
+        `evidence.checks.${id}.desktopBoundaryResults`,
+      )
+      for (const key of ['notification', 'deepLinkCold', 'deepLinkWarm'] as const) {
+        if (results[key] !== 'passed' && results[key] !== 'failed') {
+          throw new Error(
+            `evidence.checks.${id}.desktopBoundaryResults.${key} must be passed or failed`,
+          )
+        }
+      }
+      desktopBoundaryResults = {
+        notification: results.notification as 'passed' | 'failed',
+        deepLinkCold: results.deepLinkCold as 'passed' | 'failed',
+        deepLinkWarm: results.deepLinkWarm as 'passed' | 'failed',
+      }
+    }
     for (const key of [
       'observedAt',
       'platform',
@@ -330,6 +364,7 @@ export function parseEvidence(value: unknown): EvidenceFile {
       ...(entry.packageName ? { packageName: entry.packageName as string } : {}),
       ...(entry.packageSha256 ? { packageSha256: entry.packageSha256 as string } : {}),
       ...(packageTrust ? { packageTrust } : {}),
+      ...(desktopBoundaryResults ? { desktopBoundaryResults } : {}),
     }
   }
   return {
@@ -398,6 +433,27 @@ export function validateEvidence(
         errors.push(`${check.id}: passed package evidence needs packageTrust`)
       } else if (!entry.packageTrust.verified) {
         errors.push(`${check.id}: package trust verification did not pass`)
+      } else {
+        if (
+          check.expectedTrustMechanism &&
+          !check.expectedTrustMechanism.test(entry.packageTrust.mechanism)
+        ) {
+          errors.push(
+            `${check.id}: expected ${check.expectedTrustDescription}, found ${entry.packageTrust.mechanism}`,
+          )
+        }
+        if (/unknown|unsigned|unverified/i.test(entry.packageTrust.identity)) {
+          errors.push(`${check.id}: package trust identity is not verified`)
+        }
+      }
+      if (!entry.desktopBoundaryResults) {
+        errors.push(`${check.id}: passed package evidence needs desktopBoundaryResults`)
+      } else {
+        for (const [boundary, result] of Object.entries(entry.desktopBoundaryResults)) {
+          if (result !== 'passed') {
+            errors.push(`${check.id}: desktop boundary ${boundary} did not pass`)
+          }
+        }
       }
     }
     if (entry.status === 'passed' && (entry.artifacts?.length ?? 0) === 0) {

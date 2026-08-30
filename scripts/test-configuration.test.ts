@@ -1142,6 +1142,11 @@ describe('test lane configuration', () => {
         identity: 'Developer ID Application: Podium',
         verified: true,
       },
+      desktopBoundaryResults: {
+        notification: 'passed',
+        deepLinkCold: 'passed',
+        deepLinkWarm: 'passed',
+      },
       artifacts: ['apple-silicon-run.mp4'],
       notes: 'Apple Silicon package passed.',
     }
@@ -1187,6 +1192,33 @@ describe('test lane configuration', () => {
     }
     expect(validateEvidence(untrustedWindowsPackage, { releaseReady: false })).toContain(
       'desktop-windows-package: package trust verification did not pass',
+    )
+
+    const mislabeledWindowsTrust = structuredClone(untrustedWindowsPackage)
+    mislabeledWindowsTrust.checks['desktop-windows-package']!.packageTrust = {
+      mechanism: 'checksum only',
+      identity: 'Unknown publisher',
+      verified: true,
+    }
+    expect(validateEvidence(mislabeledWindowsTrust, { releaseReady: false })).toContain(
+      'desktop-windows-package: expected Authenticode verification, found checksum only',
+    )
+    expect(validateEvidence(mislabeledWindowsTrust, { releaseReady: false })).toContain(
+      'desktop-windows-package: package trust identity is not verified',
+    )
+
+    const missingDesktopBoundaries = structuredClone(oneMacArchitecture)
+    delete missingDesktopBoundaries.checks['desktop-macos-apple-silicon-package']!
+      .desktopBoundaryResults
+    expect(validateEvidence(missingDesktopBoundaries, { releaseReady: false })).toContain(
+      'desktop-macos-apple-silicon-package: passed package evidence needs desktopBoundaryResults',
+    )
+
+    const failedDesktopBoundary = structuredClone(oneMacArchitecture)
+    failedDesktopBoundary.checks['desktop-macos-apple-silicon-package']!
+      .desktopBoundaryResults!.deepLinkWarm = 'failed'
+    expect(validateEvidence(failedDesktopBoundary, { releaseReady: false })).toContain(
+      'desktop-macos-apple-silicon-package: desktop boundary deepLinkWarm did not pass',
     )
   })
 
