@@ -11,14 +11,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-INSTANCE="p3110-grok-paired-final-tip-2af0"
-DRIVE_BASE="/tmp/pod-3110-grok-paired-final-tip-2af0"
+INSTANCE="p3110-grok-paired-057755c"
+DRIVE_BASE="/tmp/pod-3110-grok-paired-057755c"
 RUN_TOKEN="${P3110_RUN_TOKEN:?source rig-env.sh to set an immutable UTC run token}"
 RUN_DIR="$DRIVE_BASE/runs/$RUN_TOKEN"
 LOGS="$RUN_DIR/logs"
 WEB="$REPO/apps/web/dist"
 BUN="/home/mgw/.bun/bin/bun"
-PASSWORD="p3110-grok-paired-final-tip-2af0-proof"
+PASSWORD="p3110-grok-paired-057755c-proof"
 NORMAL_HOME="${HOME:?HOME must be inherited from the operator environment}"
 
 export PATH="/home/mgw/.bun/bin:/home/mgw/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
@@ -35,6 +35,7 @@ cleanup_on_failure() {
 }
 
 validate_dependencies() {
+  [ "$(sha256sum "$REPO/bun.lock" | awk '{print $1}')" = a1acc741d62d99b4146d5989a06a50ce494a9e93219b59e49af3ac4307430791 ] || { log "PREFLIGHT FAIL bun.lock hash" >&2; return 1; }
   [ -d "$REPO/node_modules" ] && [ ! -L "$REPO/node_modules" ] || { log "PREFLIGHT FAIL root node_modules must be a real checkout-local directory" >&2; return 1; }
   local link target
   for link in "$REPO/node_modules/@podium/runtime" "$REPO/node_modules/@podium/model"; do
@@ -45,7 +46,7 @@ validate_dependencies() {
 }
 
 validate_immutable_inputs() {
-  local want=2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd short stamp version hash
+  local want=057755c77a6bdfdf01aa526d968562b0316e78df short stamp version hash
   git -C "$REPO" merge-base --is-ancestor "$want" HEAD || { log "PREFLIGHT FAIL product pin is not an ancestor" >&2; return 1; }
   git -C "$REPO" diff --quiet "$want" HEAD -- . ':(exclude)docs/**' || { log "PREFLIGHT FAIL product bytes differ from exact pin" >&2; return 1; }
   [ -f "$WEB/podium-build.json" ] || { log "PREFLIGHT FAIL web bundle missing" >&2; return 1; }
@@ -168,7 +169,7 @@ start_component() {
   printf '%s\n' "$pid" >"$RUN_DIR/$name.pid"
   # This is the pin: record the checkout SHA at the same moment the process is
   # spawned.  Never infer it from /proc mtimes.
-  printf '%s\n' 2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd >"$RUN_DIR/$name.sha"
+  printf '%s\n' 057755c77a6bdfdf01aa526d968562b0316e78df >"$RUN_DIR/$name.sha"
   git -C "$REPO" rev-parse HEAD >"$RUN_DIR/$name.harness-sha"
   log "started $name pid=$pid at $(cut -c1-7 "$RUN_DIR/$name.sha")"
 }
@@ -263,7 +264,7 @@ verify() {
   local arm="${1:?verify arm row}"
   local row="${2:?verify arm row}"
   local want_sha want_short stamp web_sha server_pid daemon_pid
-  want_sha=2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd
+  want_sha=057755c77a6bdfdf01aa526d968562b0316e78df
   git -C "$REPO" merge-base --is-ancestor "$want_sha" HEAD || { log "PIN FAIL ancestry"; return 1; }
   git -C "$REPO" diff --quiet "$want_sha" HEAD -- . ':(exclude)docs/**' || { log "PIN FAIL product bytes"; return 1; }
   [ "$(sha256sum /home/mgw/.grok/downloads/grok-linux-x86_64 | awk '{print $1}')" = c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 ] || { log "PIN FAIL grok binary"; return 1; }

@@ -1,12 +1,13 @@
 # POD-3110 Grok paired final-tip instrument
 
-Static preflight instrument for journey `grok-paired-final-tip`. It is pinned to product/server/daemon/web source `2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd` and Grok `0.2.118 (1e1687c1cf) [stable]`, binary SHA-256 `c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6`.
+Static preflight instrument for journey `grok-paired-final-tip`. It is pinned to product/server/daemon/web source `057755c77a6bdfdf01aa526d968562b0316e78df` and Grok `0.2.118 (1e1687c1cf) [stable]`, binary SHA-256 `c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6`.
+Product dependency provenance: `bun.lock` SHA-256 `a1acc741d62d99b4146d5989a06a50ce494a9e93219b59e49af3ac4307430791`; launch refuses unless root `node_modules` is a real directory and `@podium/runtime` plus `@podium/model` resolve inside this checkout. The exact `057755c` web bundle is not currently present and must be built later under an explicitly granted `test:heavy` lease.
 
 This commit contains no live readings. Do not run it until POD-1761 explicitly releases a live slot. OpenCode owns that sole future provider drive.
 
 ## Isolation and arm contract
 
-The named instance is `p3110-grok-paired-final-tip-2af0`; the product derives its state root, agent home, and ports. The launch path inherits `HOME` and assigns none of `HOME`, `PODIUM_STATE_DIR`, `ABDUCO_SOCKET_DIR`, or `PODIUM_RUNTIME_DRIVER`. It scrubs inherited relay/default-instance variables, refuses ports 19797 and 32090 through the product-derived port check, and uses a unique cwd per cell.
+The named instance is `p3110-grok-paired-057755c`; the product derives its state root, agent home, and ports. The launch path inherits `HOME` and assigns none of `HOME`, `PODIUM_STATE_DIR`, `ABDUCO_SOCKET_DIR`, or `PODIUM_RUNTIME_DRIVER`. It scrubs inherited relay/default-instance variables, refuses ports 19797 and 32090 through the product-derived port check, and uses a unique cwd per cell.
 
 The terminal arm creates sessions without a runtime selection and refuses unless the observed binding is `generic-pty` / `terminal` with no requested driver. The experimental arm creates each session with explicit `runtimeContract: 'grok-acp'` and refuses unless requested and observed driver are both `grok-acp` / `server`.
 
@@ -47,4 +48,4 @@ Every JSON result carries an ISO timestamp, measured latency, pin transcript, ce
 
 ## Targeted cleanup
 
-The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-final-tip-2af0`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
+The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-057755c`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
