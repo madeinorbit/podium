@@ -1,6 +1,6 @@
 import { chromium } from 'playwright'
 import { existsSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
-const O='http://127.0.0.1:20328',P='p3112-oc-continuity-r18',C='/tmp/pod-3112-oc-continuity-r18/dummy-repo/.worktrees/issue-1-r18-continuity',seed=process.env.R18_SEED!,base='/tmp/pod-3112-oc-continuity-r18',epic=process.env.R18_EPIC_PIN!
+const O='http://127.0.0.1:20328',P='p3112-oc-continuity-r18',C='/tmp/pod-3112-oc-continuity-r18/dummy-repo',seed=process.env.R18_SEED!,base='/tmp/pod-3112-oc-continuity-r18',epic=process.env.R18_EPIC_PIN!
 if(!epic)throw Error('R18_EPIC_PIN is required')
 const mono=()=>performance.now(),wall=()=>new Date().toISOString(),sleep=(n:number)=>new Promise(r=>setTimeout(r,n))
 const journalPath=(sid:string)=>`${process.env.HOME}/.local/state/podium/${P}/opencode-servers/${encodeURIComponent(sid)}.json`,journalSafe=(sid:string)=>{if(!existsSync(journalPath(sid)))return null;const raw=JSON.parse(readFileSync(journalPath(sid),'utf8')),safe={opencodeSessionId:raw.opencodeSessionId,process:{key:raw.process?.key,pid:raw.process?.pid},workdir:raw.workdir,seq:raw.seq,turnEpoch:raw.turnEpoch,bindingVersion:raw.bindingVersion};if(!safe.opencodeSessionId||!safe.process.key||!Number.isInteger(safe.process.pid)||safe.process.pid<=0||!safe.workdir||!Number.isInteger(safe.seq)||safe.seq<0||!Number.isInteger(safe.turnEpoch)||safe.turnEpoch<0||!Number.isInteger(safe.bindingVersion)||safe.bindingVersion<=0)throw Error('REFUSED incomplete safe journal fields');return safe}
