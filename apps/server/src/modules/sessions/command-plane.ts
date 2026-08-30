@@ -527,7 +527,16 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
         disposition: 'dead_letter',
       }
     }
-    return substrateSend(ctx, input, lifecycle)
+    // A wait-send may be held behind a LIVE turn, but it cannot be held behind
+    // a dead process: no turn boundary will ever arrive to re-arm delivery.
+    // Upgrade only that process-gone state to the durable wake path. This keeps
+    // ordinary sendText non-waking for live/starting sessions while ensuring a
+    // row accepted after agentExit has both a resurrection trigger and a drain.
+    const effectiveLifecycle =
+      lifecycle === 'wait' && (target.status === 'exited' || target.status === 'hibernated')
+        ? 'wake'
+        : lifecycle
+    return substrateSend(ctx, input, effectiveLifecycle)
   }
 }
 

@@ -620,8 +620,76 @@ describe('oracle: sendText / resumeAndSend', () => {
     )
     expect(o.meta(sessionId).status).toBe('starting')
   })
-})
 
+  it('sendText after process-gone resurrects once and drains concurrent/replayed sends exactly once', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-08-31T00:00:00.000Z'))
+      const o = makeOracle()
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      goLive(o, sessionId)
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId,
+        code: 137,
+      })
+      expect(o.meta(sessionId).status).toBe('exited')
+      o.daemon.length = 0
+
+      const [first, second] = await Promise.all([
+        o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'm-dead-1' }),
+        o.call.sessions.sendText({ sessionId, text: 'two', mutationId: 'm-dead-2' }),
+      ])
+      expect(first).toMatchObject({ ok: true, queued: true })
+      expect(second).toMatchObject({ ok: true, queued: true })
+      expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+
+      await o.call.sessions.sendText({
+        sessionId,
+        text: 'one',
+        mutationId: 'm-dead-1',
+      })
+      expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+      expect(o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
+
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+        type: 'bind',
+        sessionId,
+        cmd: 'claude',
+        cwd: '/p',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+      })
+      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'idle',
+          since: '2026-08-31T00:00:01.000Z',
+          nativeSubagentCount: 0,
+        },
+      })
+      for (let i = 0; i < 5; i += 1) {
+        o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+          type: 'agentFrame',
+          sessionId,
+          seq: i,
+          data: 'eA==',
+        })
+        await vi.advanceTimersByTimeAsync(200)
+      }
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      const delivered = ptyFrames(o.daemon).map((frame) => frame.data)
+      expect(delivered.filter((data) => data.includes('one'))).toHaveLength(1)
+      expect(delivered.filter((data) => data.includes('two'))).toHaveLength(1)
+      expect(o.store.sync.listQueuedMessages(sessionId)).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+})
 describe('oracle: answerAskUserQuestion', () => {
   // The missing Enter is the load-bearing half: a LONE single-select question is
   // the one shape the native menu submits on the digit itself, so a closing CR
