@@ -1292,6 +1292,8 @@ async function main(): Promise<void> {
     )
   }
   const reading = { cell, driver, cwd, at, pin, ...out }
+  mkdirSync(READING_DIR, { recursive: true })
+  mkdirSync(PIN_DIR, { recursive: true })
   const readingRel = 'docs/evidence/pod-3112/readings/' + driver + '.' + cell.toLowerCase() + '.json'
   writeFileSync(join(ROOT, readingRel), JSON.stringify(reading, null, 2) + '\n')
   const clean = (value: unknown) => textOf(value).replace(/[\t\r\n]+/g, ' ')
