@@ -7,7 +7,7 @@ export interface ConversationPendingTurn {
   /** Exact payload delivered to the agent. Retry never reconstructs it from `text`. */
   wire: string
   at: number
-  state: 'sending' | 'queued' | 'sent' | 'failed'
+  state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted'
   kind: 'message' | 'offer'
   error?: string
   tags?: TranscriptTag[]
@@ -61,7 +61,7 @@ export function pairPendingWithConversationQueue(
 ): { pending: ProjectedConversationTurn[]; queued: ConversationQueuedMessage[] } {
   const unmatched = [...queued]
   const projected = pending.map((turn): ProjectedConversationTurn => {
-    if (turn.state === 'failed') return turn
+    if (turn.state === 'failed' || turn.state === 'interrupted') return turn
     const exact = unmatched.findIndex((message) => message.id === turn.deliveryId)
     if (exact >= 0) {
       const [durable] = unmatched.splice(exact, 1)
@@ -124,9 +124,10 @@ export function reconcileConversationPending(
   echoMode: 'matching-user' | 'any-user' = 'matching-user',
 ): ConversationPendingTurn[] {
   if (pending.length === 0 || userItems.length === 0) return pending as ConversationPendingTurn[]
-  if (echoMode === 'any-user') return []
+  if (echoMode === 'any-user') return pending.filter((turn) => turn.state === 'interrupted')
   const remaining = [...userItems]
   return pending.filter((turn) => {
+    if (turn.state === 'interrupted') return true
     const index = remaining.findIndex((item) => conversationTurnMatchesItem(turn, item))
     if (index < 0) return true
     remaining.splice(index, 1)
@@ -138,15 +139,11 @@ export function reconcileConversationQueue(
   queued: readonly ConversationQueuedMessage[],
   userItems: readonly TranscriptItem[],
 ): ConversationQueuedMessage[] {
-  if (queued.length === 0 || userItems.length === 0)
-    return queued as ConversationQueuedMessage[]
+  if (queued.length === 0 || userItems.length === 0) return queued as ConversationQueuedMessage[]
   const remaining = [...userItems]
   return queued.filter((message) => {
     const index = remaining.findIndex((item) =>
-      conversationTurnMatchesItem(
-        { text: message.text, wire: message.text },
-        item,
-      ),
+      conversationTurnMatchesItem({ text: message.text, wire: message.text }, item),
     )
     if (index < 0) return true
     remaining.splice(index, 1)
@@ -180,10 +177,7 @@ export function projectConversationQueue(
       return (
         Number.isFinite(timestamp) &&
         timestamp >= message.at - QUEUE_CLOCK_SKEW_MS &&
-        conversationTurnMatchesItem(
-          { text: message.text, wire: message.text },
-          item,
-        )
+        conversationTurnMatchesItem({ text: message.text, wire: message.text }, item)
       )
     })
     if (index < 0) return true
