@@ -5,6 +5,7 @@ import { color } from '../src/theme/theme'
 function NativeNavigation({ reduceMotion }: RootNavigationProps) {
   return (
     <Stack
+      initialRouteName="(tabs)"
       screenOptions={{
         headerShown: false,
         animation: reduceMotion ? 'fade' : 'default',
