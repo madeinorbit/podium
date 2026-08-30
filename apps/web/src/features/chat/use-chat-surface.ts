@@ -598,18 +598,24 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       taRef.current?.focus()
       if (headless) {
         void Promise.resolve(headlessTurn.interrupt())
-          .then(send.markInterrupted)
+          .then(() => send.markInterrupted(send.interruptMessageId ?? undefined))
           .catch((e: unknown) => setInterruptError(errorText(e)))
         return
       }
       // A refusal RESOLVES as `{ ok: false, reason }` (the `assertSendAccepted`
       // shape); only a transport failure throws. Reading just the throw is how a
       // stop that never reached the agent looked identical to one that worked.
-      void Promise.resolve(trpc.sessions.interrupt.mutate({ sessionId }))
+      const messageId = send.interruptMessageId
+      void Promise.resolve(
+        trpc.sessions.interrupt.mutate({
+          sessionId,
+          ...(messageId ? { messageId } : {}),
+        }),
+      )
         .then((result) => {
           const refused = refusalReason(result)
           if (refused) setInterruptError(refused)
-          else send.markInterrupted()
+          else send.markInterrupted(messageId ?? undefined)
         })
         .catch((e: unknown) => setInterruptError(errorText(e)))
     },
@@ -618,6 +624,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       headless,
       headlessTurn,
       latestOperatorPrompt,
+      send.interruptMessageId,
       send.markInterrupted,
       sessionId,
       setDraft,

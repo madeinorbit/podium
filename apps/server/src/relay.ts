@@ -942,7 +942,7 @@ export class SessionRegistry {
       applied?: (messageId: string, sessionId: SessionId) => void
       injected?: (messageId: string, sessionId: SessionId) => void
       interrupted?: (messageId: string) => void
-      interruptedPending?: (sessionId: SessionId) => void
+      interruptedPending?: (sessionId: SessionId, messageId?: string) => void
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
@@ -965,7 +965,8 @@ export class SessionRegistry {
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
       interruptQueuedMessage: (messageId) => queuedApplyHooks.interrupted?.(messageId),
-      interruptPendingMessage: (sessionId) => queuedApplyHooks.interruptedPending?.(sessionId),
+      interruptPendingMessage: (sessionId, messageId) =>
+        queuedApplyHooks.interruptedPending?.(sessionId, messageId),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
@@ -1433,9 +1434,9 @@ export class SessionRegistry {
         // A concurrent echo or explicit retraction already made the row final.
       }
     }
-    queuedApplyHooks.interruptedPending = (sessionId) => {
+    queuedApplyHooks.interruptedPending = (sessionId, messageId) => {
       try {
-        messagesSvc.cancelPendingOperatorMessage(sessionId)
+        messagesSvc.cancelPendingOperatorMessage(sessionId, messageId)
       } catch {
         // A concurrent boundary delivery or explicit retraction already made
         // the row final.

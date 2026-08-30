@@ -225,7 +225,7 @@ export interface InboxAuthorizationPort {
   interrupted?(input: { sourceMessageId: string | null; sessionId: SessionId }): void
   /** The operator interrupted while a chat message was still held in the
    *  higher-level message ledger and had no physical inbox row yet. */
-  interruptedPending?(input: { sessionId: SessionId }): void
+  interruptedPending?(input: { sessionId: SessionId; sourceMessageId?: string }): void
 }
 
 export interface InboxAttentionPort {
@@ -471,7 +471,11 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
-    const cancelledDelivery = this.cancelInterruptedDelivery(input.sessionId, true)
+    const cancelledDelivery = this.cancelInterruptedDelivery(
+      input.sessionId,
+      true,
+      input.sourceMessageId,
+    )
     const abort = this.abortKeyFor(session)
     // REFUSED, not skipped: unlike interruptText there is nothing else this call
     // does, so a silent `{ ok: true }` would be the lie POD-1214 set out to fix —
@@ -497,16 +501,27 @@ export class SessionInbox {
     this.cancelInterruptedDelivery(sessionId)
   }
 
-  private cancelInterruptedDelivery(sessionId: SessionId, includeUnattempted = false): boolean {
+  private cancelInterruptedDelivery(
+    sessionId: SessionId,
+    includeUnattempted = false,
+    sourceMessageId?: string,
+  ): boolean {
     const verification = this.submitVerificationGeneration.delete(sessionId)
     const session = this.deps.getSession(sessionId)
     if (!session) return verification
     // Only the head can have crossed into the CLI. Rows behind it have not been
     // part of the interrupted interaction and remain individually retractable.
     const rows = this.deps.queue.list(sessionId)
-    const head = rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined)
+    const head = sourceMessageId
+      ? rows.find((row) => row.sourceMessageId === sourceMessageId)
+      : (rows.find((row) => row.attempts > 0) ?? (includeUnattempted ? rows[0] : undefined))
     if (!head) {
-      if (includeUnattempted) this.deps.authorization.interruptedPending?.({ sessionId })
+      if (includeUnattempted) {
+        this.deps.authorization.interruptedPending?.({
+          sessionId,
+          ...(sourceMessageId ? { sourceMessageId } : {}),
+        })
+      }
       return verification
     }
     this.deps.queue.delete(head.id)
@@ -524,11 +539,9 @@ export class SessionInbox {
    * The bytes that abort THIS session's harness, or undefined when sending them
    * would do more harm than nothing (POD-1214).
    *
-   * There is no universal abort key. Esc cancels claude-code and grok and is
-   * inert at their idle prompts; codex ignores Esc entirely and cancels on
-   * Ctrl-C, which at an IDLE codex prompt exits the process. So the key comes
-   * from the harness manifest, and the manifest's `interruptQuitsWhenIdle` is
-   * what turns a stop into a refusal when the agent is not observed working.
+   * There is no universal abort key, and providers change their bindings. The
+   * key comes from the harness manifest; `interruptQuitsWhenIdle` turns a stop
+   * into a refusal when that provider's current key would exit an idle CLI.
    *
    * The phase read here is the SERVER's `agentState`, the authority the client's
    * replica is a copy of — which is why the client no longer gates the chord on
@@ -1089,7 +1102,11 @@ export class SessionInbox {
     // or the 90ms submit timer can win and start the prompt after Codex has
     // already printed "Conversation interrupted" (POD-1733).
     const abort = this.abortKeyFor(session)
-    if (abort && data === Buffer.from(abort).toString('base64')) {
+    if (
+      session.terminal.controllerId === client.id &&
+      abort &&
+      data === Buffer.from(abort).toString('base64')
+    ) {
       this.cancelInterruptedDelivery(sessionId, true)
     }
     session.terminal.handleInput(client.id, data, inboxPrincipalFromClient(principal).attribution)

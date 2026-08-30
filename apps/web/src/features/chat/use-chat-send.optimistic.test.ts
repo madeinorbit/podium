@@ -62,6 +62,8 @@ const IDLE_SINCE = '2026-08-24T10:00:00.000Z'
 beforeEach(() => {
   vi.useFakeTimers()
   sendText.mockClear()
+  ledger.mockClear()
+  ledger.mockResolvedValue([] as never)
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -136,13 +138,26 @@ describe('useChatSend optimistic window', () => {
     expect(result.current.justSent).toBe(true)
   })
 
-  it('keeps a cancelled outgoing bubble and marks it interrupted', async () => {
+  it('marks only the stopped outgoing bubble when RPC and transcript both report it', async () => {
     const initial = opts(IDLE_SINCE)
     const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
       initialProps: initial,
     })
     await act(async () => {
+      await result.current.send('keep this prompt')
       await result.current.send('cancel this prompt')
+    })
+    const messageId = result.current.interruptMessageId
+    expect(messageId).not.toBeNull()
+
+    await act(async () => {
+      result.current.markInterrupted(messageId ?? undefined)
+    })
+
+    const interruptedAt = Date.now()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+      await result.current.send('sent after the interrupt')
     })
 
     await act(async () => {
@@ -155,6 +170,7 @@ describe('useChatSend optimistic window', () => {
               role: 'user',
               text: 'Conversation interrupted',
               event: 'interrupt',
+              ts: new Date(interruptedAt).toISOString(),
             } as TranscriptItem,
           },
         ],
@@ -162,7 +178,68 @@ describe('useChatSend optimistic window', () => {
     })
 
     expect(result.current.pending).toEqual([
+      expect.objectContaining({ text: 'keep this prompt', state: 'sending' }),
       expect.objectContaining({ text: 'cancel this prompt', state: 'interrupted' }),
+      expect.objectContaining({ text: 'sent after the interrupt', state: 'sending' }),
+    ])
+  })
+
+  it('keeps the interrupted state when a stopped send request rejects later', async () => {
+    let rejectSend: (reason: unknown) => void = () => {}
+    sendText.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectSend = reject
+        }) as never,
+    )
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+    })
+    let request: Promise<void> | undefined
+    await act(async () => {
+      request = result.current.send('cancel before send settles')
+      await Promise.resolve()
+    })
+
+    act(() => result.current.markInterrupted(result.current.interruptMessageId ?? undefined))
+    await act(async () => {
+      rejectSend(REFUSED)
+      await request
+    })
+
+    expect(result.current.pending.at(-1)?.state).toBe('interrupted')
+  })
+
+  it('keeps a restored durable message visible when it is interrupted', async () => {
+    ledger.mockResolvedValueOnce([
+      {
+        id: 'msg_restored',
+        from: 'operator',
+        to: 'session:s-1',
+        status: 'queued',
+        body: 'cancel after refresh',
+        createdAt: '2026-08-24T10:00:01.000Z',
+        injectedAt: null,
+      },
+    ] as never)
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.interruptMessageId).toBe('msg_restored')
+    act(() => result.current.markInterrupted('msg_restored'))
+
+    expect(result.current.queuedMessages).toEqual([])
+    expect(result.current.pending).toEqual([
+      expect.objectContaining({
+        deliveryId: 'msg_restored',
+        text: 'cancel after refresh',
+        state: 'interrupted',
+      }),
     ])
   })
 

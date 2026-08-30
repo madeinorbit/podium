@@ -349,7 +349,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       interrupted: ({ sourceMessageId }) => {
         if (sourceMessageId) bag.deps.interruptQueuedMessage?.(sourceMessageId)
       },
-      interruptedPending: ({ sessionId }) => bag.deps.interruptPendingMessage?.(sessionId),
+      interruptedPending: ({ sessionId, sourceMessageId }) =>
+        bag.deps.interruptPendingMessage?.(sessionId, sourceMessageId),
       rejected: ({ sourceMessageId, reason }) => {
         if (sourceMessageId) bag.deps.rejectQueuedMessage?.(sourceMessageId, reason)
       },

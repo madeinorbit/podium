@@ -404,6 +404,7 @@ export function createdOwnership(
  */
 type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
 type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
+type InterruptInput = z.infer<typeof sessionCommandPlaneInputs.interrupt>
 type SendInput = { sessionId: SessionId; text: string; mutationId?: MutationId }
 type TargetInput = { sessionId: SessionId }
 type AnswerInput = { sessionId: SessionId; choices?: AnswerChoice[]; skip?: true }
@@ -496,6 +497,14 @@ const UNADDRESSABLE_SEND = {
   reason: 'dead-lettered: session no longer exists',
   disposition: 'dead_letter',
 } as const
+
+/** A stop may arrive before its send request. Reserve the send's mutation id
+ * so that late request replays this refusal instead of creating new work. */
+const INTERRUPTED_SEND: SubstrateOutcome = {
+  ok: false,
+  reason: 'interaction interrupted',
+  disposition: 'dead_letter',
+}
 
 function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
   return async (ctx: SessionCommandCtx, input: SendInput): Promise<SubstrateOutcome> => {
@@ -601,14 +610,23 @@ export const SESSION_COMMAND_HANDLERS = {
       ? ctx.sessions.hibernateSession(input)
       : { ok: false, reason: 'unknown session' },
 
-  interrupt: (ctx: SessionCommandCtx, input: TargetInput) => {
+  interrupt: (ctx: SessionCommandCtx, input: InterruptInput) => {
     if (!ctx.target(input.sessionId, 'sessions.interrupt')) {
       return { ok: false, reason: 'unknown session' }
     }
-    return ctx.sessions.interruptTurn({
-      ...input,
+    const reserved = input.messageId
+      ? ctx.deps.mutations.apply(asMutationId(input.messageId), 'sessions.sendText', () => ({
+          ...INTERRUPTED_SEND,
+        })).outcome === 'applied'
+      : false
+    const result = ctx.sessions.interruptTurn({
+      sessionId: input.sessionId,
+      ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
       principal: inboxPrincipalFromCommand(ctx.principal),
     })
+    // The CLI may have no safe idle abort key, but reserving the not-yet-arrived
+    // send still completed the operator's stop request.
+    return reserved && !result.ok ? { ok: true } : result
   },
 
   resurrect: (ctx: SessionCommandCtx, input: TargetInput) =>

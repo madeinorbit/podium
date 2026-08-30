@@ -1708,14 +1708,21 @@ export class MessageDeliveryService {
     return this.mailbox.cancel(messageId)
   }
 
-  /** Retract the next chat send owned by the durable ledger rather than the PTY
-   * inbox. It is the same FIFO head SessionInbox would otherwise receive. */
-  cancelPendingOperatorMessage(sessionId: SessionId): MessageRow | null {
-    const pending = this.deps.messages
-      .pendingForPage({ kind: 'session', id: sessionId }, { limit: 500 })
-      .filter((message) => message.fromKind === 'operator')
-    const message = pending[0]
+  /** Retract the named chat send, or the newest held send for a native terminal
+   * interrupt that cannot carry the chat mutation id. */
+  cancelPendingOperatorMessage(sessionId: SessionId, messageId?: string): MessageRow | null {
+    const message = messageId
+      ? this.deps.messages.getMessage(messageId)
+      : this.deps.messages.latestPendingOperatorForSession(sessionId)
     if (!message) return null
+    if (
+      message.status !== 'queued' ||
+      message.fromKind !== 'operator' ||
+      message.toKind !== 'session' ||
+      message.toId !== sessionId
+    ) {
+      return null
+    }
     return this.cancel(message.id)
   }
 

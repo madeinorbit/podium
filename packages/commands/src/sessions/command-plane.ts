@@ -70,6 +70,9 @@ const mutationId = z.string().max(128).optional()
 /** Every existing-target lifecycle command takes exactly this. */
 const targetInput = z.object({ sessionId: SessionIdField })
 
+/** Stop may also name the exact queued chat message that prompted it. */
+const interruptInput = targetInput.extend({ messageId: z.string().max(128).optional() })
+
 /** Both chat sends take exactly this — same bounds the router shipped. */
 const sendInput = z.object({
   sessionId: SessionIdField,
@@ -242,7 +245,7 @@ const resurrect: CommandDef = {
 }
 
 const interrupt: CommandDef = {
-  input: targetInput,
+  input: interruptInput,
   action: 'write',
   policy: executes,
   visibility: PERSONAL,
@@ -251,7 +254,7 @@ const interrupt: CommandDef = {
   redaction: { fields: [] },
   conflict: 'cmd',
   decision:
-    "Sends the native CLI interrupt key to a running session without acquiring terminal keyboard control. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work. WHICH key is the harness manifest's answer, not a constant (POD-1214): Esc cancels claude-code and grok, while codex ignores Esc entirely and cancels on Ctrl-C. A harness whose key exits the CLI when no turn is running (codex) is REFUSED with a reason rather than sent the key, so a stop can never be the thing that kills the session.",
+    "Sends the native CLI interrupt key to a running session without acquiring terminal keyboard control. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work. WHICH key is the harness manifest's answer, not a constant (POD-1214): the current Codex, Claude Code and Grok manifests use Esc, and each manifest separately records whether its key is safe while idle. An optional messageId retracts the exact queued chat send associated with this stop.",
 }
 
 const sendText: CommandDef = {
@@ -537,7 +540,7 @@ export const sessionCommandPlaneInputs = {
   continue: targetInput,
   create: createInput,
   hibernate: targetInput,
-  interrupt: targetInput,
+  interrupt: interruptInput,
   kill: targetInput,
   resume: resumeInput,
   resumeAndSend: sendInput,
