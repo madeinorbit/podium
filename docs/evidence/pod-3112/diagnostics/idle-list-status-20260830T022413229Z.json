@@ -1,0 +1,117 @@
+{
+  "at": "2026-08-30T02:24:13.229Z",
+  "issue": "POD-3112",
+  "instance": "p3112-oc-paired-r4",
+  "port": "20314",
+  "cwd": "/tmp/pod-3112-paired-r4/probes/default-headed-idle-latency-1788056651644",
+  "sessionId": "a7ead5d6-4aac-44dc-8d1b-9e592307c5b1",
+  "driverId": "generic-pty",
+  "requestedDriverId": null,
+  "providerTurns": 0,
+  "control": "all 20 observations remained idle",
+  "count": 10,
+  "readings": [
+    {
+      "sample": 1,
+      "listMs": 7.329,
+      "statusMs": 27.587,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 2,
+      "listMs": 10.746,
+      "statusMs": 22.237,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 3,
+      "listMs": 3.207,
+      "statusMs": 20.252,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 4,
+      "listMs": 3.084,
+      "statusMs": 20.273,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 5,
+      "listMs": 6.722,
+      "statusMs": 21.049,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 6,
+      "listMs": 5.749,
+      "statusMs": 23.449,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 7,
+      "listMs": 8.905,
+      "statusMs": 19.569,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 8,
+      "listMs": 3.831,
+      "statusMs": 17.696,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 9,
+      "listMs": 10.983,
+      "statusMs": 17.436,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    },
+    {
+      "sample": 10,
+      "listMs": 2.463,
+      "statusMs": 15.041,
+      "listPhase": "idle",
+      "statusPhase": "idle"
+    }
+  ],
+  "sessionsList": {
+    "individual": [
+      7.329,
+      10.746,
+      3.207,
+      3.084,
+      6.722,
+      5.749,
+      8.905,
+      3.831,
+      10.983,
+      2.463
+    ],
+    "medianMs": 6.236,
+    "p95Ms": 10.983
+  },
+  "sessionsStatus": {
+    "individual": [
+      27.587,
+      22.237,
+      20.252,
+      20.273,
+      21.049,
+      23.449,
+      19.569,
+      17.696,
+      17.436,
+      15.041
+    ],
+    "medianMs": 20.262,
+    "p95Ms": 27.587
+  }
+}
