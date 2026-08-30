@@ -14,16 +14,20 @@
  *
  * Every record here is deliberately path-independent. The point of the fingerprint is
  * that two sibling worktrees, installed independently but the same way, agree — that is
- * what lets them share one durable Turbo cache. So a symlink is recorded by its relative
- * link text where it has one, and otherwise only by the class of its target (inside this
- * checkout, or external). An external target is the global store; which store it is does
- * not change what resolves, and bun.lock — already a turbo globalDependency — pins the
- * content. Recording absolute store paths would split the cache per host for no
- * correctness gain.
+ * what lets them share one durable Turbo cache. A symlink is normally recorded by its
+ * relative link text where it has one, and otherwise only by the class of its target
+ * (inside this checkout, or external). The one conservative normalization is a healthy,
+ * uniquely manifest-validated executable shim in an isolated peer-context `.bin`: Bun
+ * may materialize those nondeterministically, and workspace tasks cannot resolve through
+ * them. They are still traversed and validated before being omitted. An external target
+ * is the global store; which store it is does not change what resolves, and bun.lock —
+ * already a turbo globalDependency — pins the content. Recording absolute store paths
+ * would split the cache per host for no correctness gain.
  */
 import { createHash } from 'node:crypto'
 import {
   existsSync,
+  lstatSync,
   readdirSync,
   readFileSync,
   readlinkSync,
@@ -31,7 +35,7 @@ import {
   statSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { workspaceDirectories } from './workspace-resolution-census'
 
 export interface InstallTopology {
@@ -70,6 +74,116 @@ interface Discovered {
   kind: RootKind
 }
 
+type PackageManifest = {
+  name?: unknown
+  bin?: unknown
+}
+
+/**
+ * Bun adds a peer-resolution suffix to isolated-store contexts. The executable links
+ * inside those contexts are install-time conveniences for package lifecycle scripts;
+ * unlike root/workspace `.bin`, they are not a command surface a workspace task sees.
+ * Bun 1.3.14 can nondeterministically materialize a healthy subset of them on repeated
+ * frozen installs, so only this exact context shape is eligible for normalization.
+ */
+function isPeerContextModules(checkout: string, installRoot: string): boolean {
+  const parts = portable(relative(checkout, installRoot)).split('/')
+  return (
+    parts.length === 4 &&
+    parts[0] === 'node_modules' &&
+    parts[1] === '.bun' &&
+    /\+[0-9a-f]{16}$/.test(parts[2] ?? '') &&
+    parts[3] === 'node_modules'
+  )
+}
+
+/**
+ * Expected executables are derived independently of the shim being checked. Reading
+ * the target's own package.json would let a wrong link nominate itself as correct.
+ * Instead, enumerate every package Bun linked into the peer context and accept a
+ * command only when package metadata names exactly one resolved executable for it.
+ * Ambiguous commands and installer rewrites (notably esbuild's native binary) remain
+ * layout records: if metadata cannot prove the omission, identity stays conservative.
+ */
+function manifestBins(manifest: PackageManifest): Record<string, unknown> {
+  if (typeof manifest.bin === 'string' && typeof manifest.name === 'string') {
+    return { [basename(manifest.name)]: manifest.bin }
+  }
+  return manifest.bin !== null && typeof manifest.bin === 'object' && !Array.isArray(manifest.bin)
+    ? (manifest.bin as Record<string, unknown>)
+    : {}
+}
+
+function expectedExecutables(installRoot: string): Map<string, string[]> {
+  const candidates = new Map<string, Set<string>>()
+  const packageRoots: string[] = []
+  for (const entry of readdirSync(installRoot, { withFileTypes: true })) {
+    if (entry.name === '.bin') continue
+    const path = join(installRoot, entry.name)
+    if (entry.name.startsWith('@') && entry.isDirectory()) {
+      for (const child of readdirSync(path)) packageRoots.push(join(path, child))
+    } else {
+      packageRoots.push(path)
+    }
+  }
+
+  for (const packageRoot of packageRoots) {
+    try {
+      const root = realpathSync(packageRoot)
+      const manifest = JSON.parse(
+        readFileSync(join(root, 'package.json'), 'utf8'),
+      ) as PackageManifest
+      const declared = manifestBins(manifest)
+      for (const [command, value] of Object.entries(declared)) {
+        if (typeof value !== 'string') continue
+        const lexicalTarget = resolve(root, value)
+        if (!isInside(root, lexicalTarget)) continue
+        const target = realpathSync(lexicalTarget)
+        const stat = statSync(target)
+        if (!stat.isFile() || (stat.mode & 0o111) === 0) continue
+        const forCommand = candidates.get(command) ?? new Set<string>()
+        forCommand.add(target)
+        candidates.set(command, forCommand)
+      }
+    } catch {
+      // An unreadable/malformed manifest can never justify omitting a layout record.
+    }
+  }
+  return new Map([...candidates].map(([command, targets]) => [command, [...targets].sort()]))
+}
+
+/**
+ * Whether the package that owns the resolved target can judge this command. A package
+ * with no bin metadata is opaque: Bun's native esbuild rewrite has exactly that shape,
+ * so it stays hashed. A manifest that does declare bins can positively contradict a
+ * link to another command or another file, which is a sound admission refusal.
+ */
+function targetManifestJudgment(
+  actual: string,
+  command: string,
+): 'matches' | 'contradicts' | 'opaque' {
+  let cursor = dirname(actual)
+  while (cursor !== dirname(cursor)) {
+    const path = join(cursor, 'package.json')
+    if (existsSync(path)) {
+      try {
+        const manifest = JSON.parse(readFileSync(path, 'utf8')) as PackageManifest
+        const bins = manifestBins(manifest)
+        if (Object.keys(bins).length === 0) return 'opaque'
+        const declared = bins[command]
+        if (typeof declared !== 'string') return 'contradicts'
+        const lexicalTarget = resolve(cursor, declared)
+        if (!isInside(cursor, lexicalTarget)) return 'contradicts'
+        return realpathSync(lexicalTarget) === actual ? 'matches' : 'contradicts'
+      } catch {
+        return 'opaque'
+      }
+    }
+    cursor = dirname(cursor)
+  }
+  return 'opaque'
+}
+
 /**
  * What the INSTALLER wrote, and only that.
  *
@@ -102,6 +216,9 @@ function describeEntries(
 ): Discovered[] {
   const rootLabel = portable(relative(checkout, installRoot))
   const discovered: Discovered[] = []
+  const peerExecutables = isPeerContextModules(checkout, installRoot)
+    ? expectedExecutables(installRoot)
+    : null
   const record = (name: string, type: string, detail: string): void => {
     layout.push(`${rootLabel}\t${name}\t${type}\t${detail}`)
   }
@@ -119,17 +236,44 @@ function describeEntries(
       const container = prefix === '' && entry.name.startsWith('@')
 
       if (entry.isSymbolicLink()) {
+        // Keep traversal and identity separate. Even an eligible shim is explicitly
+        // lstat/readlink/followed before a decision is made about its layout record.
+        lstatSync(path)
         const linkText = readlinkSync(path)
-        record(name, 'l', classify(checkout, path, linkText))
+        let targetStat: ReturnType<typeof statSync>
         try {
-          statSync(path)
+          targetStat = statSync(path)
         } catch {
           errors.push(
             `install topology: ${rootLabel}/${name} is a dangling symlink (-> ${portable(linkText)})`,
           )
+          record(name, 'l', classify(checkout, path, linkText))
           continue
         }
         follow(path)
+        if (prefix === '.bin/' && peerExecutables) {
+          const nestedCommand = entry.name
+          const expected = peerExecutables.get(nestedCommand) ?? []
+          // Only a unique package-metadata answer can make this shim non-identity-bearing.
+          if (expected.length === 1) {
+            const actual = realpathSync(path)
+            const expectedTarget = expected[0] as string
+            if (!targetStat.isFile() || (targetStat.mode & 0o111) === 0) {
+              errors.push(
+                `install topology: ${rootLabel}/${name} does not point to an executable file ` +
+                  `(-> ${portable(linkText)})`,
+              )
+            } else if (actual === expectedTarget) {
+              continue
+            } else if (targetManifestJudgment(actual, nestedCommand) !== 'opaque') {
+              errors.push(
+                `install topology: ${rootLabel}/${name} points to the wrong executable ` +
+                  `(-> ${portable(linkText)}; expected ${portable(relative(directory, expectedTarget))})`,
+              )
+            }
+          }
+        }
+        record(name, 'l', classify(checkout, path, linkText))
         continue
       }
 

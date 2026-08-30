@@ -14,8 +14,11 @@ Run it per target host, from a clean checkout:
       --output <path-inside-this-issue-worktree>.json
 
 It creates three detached worktrees of one commit — a hoisted control and two candidates
-installed independently through the same external global-store config — and removes them
-afterwards. The tracked bunfig.toml is never touched.
+installed independently through the exact production snapshot command (`bun install
+--frozen-lockfile --offline --ignore-scripts`) and the tracked isolated/global-store
+configuration — and removes them afterwards. The report records the nested shim set each
+install naturally produced without mutating Bun's shared store. The hermetic topology test
+supplies the guaranteed healthy-shim add/remove discriminator.
 
 ## What the cache key now covers
 
@@ -42,22 +45,33 @@ a directory carrying a package.json. A package directory that has lost its packa
 skipped by that rule and does not pass silently: nothing there resolves, so the typecheck
 goes red on its own rather than green from the cache.
 
-Every record is path-independent by construction: a symlink is recorded by its relative link text where it
-has one, otherwise only by the class of its target (inside this checkout, or external). That
-is deliberate and load-bearing in both directions. It has to distinguish a hoisted install
-(real directories under the root `node_modules`) from an isolated one (links into `.bun` and
-the global store), and it must not distinguish two sibling worktrees that were installed the
-same way at different paths — otherwise nothing could ever be shared. Which global store a
-package came from is not recorded: bun.lock is already a Turbo `globalDependency` and pins
-the content, so recording absolute store paths would split the cache per host for no gain.
+There is one narrow exception to symlinks entering hashed layout identity: a link directly
+under `node_modules/.bun/<peer-context>/node_modules/.bin` may be omitted when sibling
+package metadata declares exactly one executable for that command and the link resolves to
+that exact executable. Ambiguous commands and installer rewrites that metadata cannot prove
+remain ordinary identity-bearing records. Root and workspace `.bin` links are never
+eligible.
+
+Every retained record is path-independent by construction: a symlink is recorded by its
+relative link text where it has one, otherwise only by the class of its target (inside this
+checkout, or external). That is deliberate and load-bearing in both directions. It has to
+distinguish a hoisted install (real directories under the root `node_modules`) from an
+isolated one (links into `.bun` and the global store), and it must not distinguish two
+sibling worktrees that were installed the same way at different paths — otherwise nothing
+could ever be shared. Which global store a package came from is not recorded: bun.lock is
+already a Turbo `globalDependency` and pins the content, so recording absolute store paths
+would split the cache per host for no gain.
 
 ## What a broken install may not do
 
 The same walk refuses a dangling symlink anywhere in an install root — the checkout root,
 each workspace, and, for an isolated install, the `.bun` store and each package link farm
-inside it. The refusal runs in `scripts/typecheck.ts`, `scripts/test.ts` and
-`scripts/test-affected.ts` before Turbo is spawned, so a broken environment can neither
-serve a cached green nor record one.
+inside it. A potentially normalized executable link is still explicitly lstat'd, read,
+and followed. When package metadata uniquely identifies its command, a link to any other
+existing target is refused too; existence alone is not health. The refusal runs in
+`scripts/typecheck.ts`, `scripts/test.ts`, `scripts/test-affected.ts`, and the client build
+wrapper before Turbo is spawned, so a broken environment can neither serve a cached green
+nor record one.
 
 An **absent** optional package is not a broken one. Only a link that points at nothing is
 a fault; conflating absence with breakage would refuse healthy installs.
@@ -90,9 +104,24 @@ The JSON report exits nonzero if any acceptance field is false:
 - `trackedBunfigIsIdentical` with `layoutSeparatesCacheIdentity` — the two layouts agree on
   the tracked bunfig and still get different identities. Together these are the POD-2774
   hole and its closure; either alone proves nothing;
-- `independentCandidatesShareIdentity` — two separate installs of the same config agree;
+- `productionSnapshotInstallIsExact`, `independentCandidatesShareIdentity`, and
+  `independentClientDryHashesMatch` — two exact production-path installs agree on one
+  environment fingerprint and the same web/mobile build hashes; `productionNestedShimSets`
+  records the naturally materialized sets beside that result;
+- `sourceInvalidatesWebBuild`, `packageManifestInvalidatesWebBuild`, and
+  `lockfileInvalidatesClientBuilds` — retained tracked inputs still move the relevant
+  client hashes;
+- `linkerConfigInvalidatesClientBuilds`, `packageLinkInvalidatesClientBuilds`,
+  `rootBinInvalidatesClientBuilds`, and `workspaceBinInvalidatesClientBuilds` — every
+  retained install-identity class changes `PODIUM_CHECK_ENV_HASH` and both client hashes;
+- `clientCommandsAvoidNestedShims` — Turbo is launched through the root `.bin`, web
+  resolves Vite through its workspace `.bin`, mobile resolves Expo through its workspace
+  `.bin`, neither package-script PATH contains an isolated peer context, and the dry task
+  commands begin with those executables;
 - `hoistedProducesCache`, `hoistedToCandidateMiss` — a hoisted-warmed cache is a full miss
   for a candidate;
+- `isolatedTypecheckGraphComplete` — the isolated run still attempts all 24 tasks and
+  names every red task, so cacheable-task reuse cannot pass by silently running less;
 - `candidateTypecheckHit` — the independently installed reader replayed every task the
   producer was able to cache, recomputed none of them, and attempted the same work: the
   same task total, the same successful count, and the same set of failed tasks;
@@ -100,8 +129,11 @@ The JSON report exits nonzero if any acceptance field is false:
 - `sourceChangeMiss` — editing one source file misses again, so the hit was not indiscriminate;
 - `brokenInstallRefused` — a dangling third-party link exits nonzero, names the entry, and
   prints no Turbo summary at all, which is how the report knows Turbo never ran;
-- `refusalIsRecoverable` — restoring the link restores the hit, so the refusal was the only
-  thing that changed;
+- `nestedDanglingShimRefused`, `nestedWrongTargetShimRefused`, and
+  `nestedShimRefusalIsRecoverable` — normalized-class shims still fail closed before Turbo
+  for a missing or existing-but-wrong target, and restoring the exact link restores identity;
+- `refusalRestoresAdmission` — restoring the third-party link reaches Turbo again, so the
+  refusal was caused by the planted break rather than a permanently damaged worktree;
 - `noFullSuiteRequired` — every test proof ran exactly one Turbo task.
 
 Hits and misses are counted from Turbo's own `Tasks:`/`Cached:` lines rather than grepped
