@@ -45,7 +45,7 @@ import {
   devTarget,
   fleetHeadlessPlatforms,
   listDevBundles,
-  moveTimingIntoRecord,
+  finalizeTimingIntoRecord,
   nodeDevBundleFs,
   parseDevBundleName,
   requireDefinedMigrations,
@@ -737,7 +737,7 @@ describe('devBuildPlatforms', () => {
   })
 })
 
-describe('moveTimingIntoRecord', () => {
+describe('finalizeTimingIntoRecord', () => {
   it("moves timing staged under a '+' version into the build record", () => {
     const stateDirectory = publisherDir()
     const staging = join(stateDirectory, 'builds', '.timing')
@@ -747,7 +747,7 @@ describe('moveTimingIntoRecord', () => {
     mkdirSync(buildRecordDir(stateDirectory, buildId), { recursive: true })
     writeFileSync(stagedPath, '{"evidence":"release-build-timing"}\n')
 
-    moveTimingIntoRecord(
+    finalizeTimingIntoRecord(
       { outputDirectory: staging },
       stateDirectory,
       buildId,

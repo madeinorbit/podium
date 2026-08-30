@@ -1,10 +1,15 @@
 import { generateKeyPairSync, sign, verify } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
+import {
+  releaseBuildTimingFileName,
+  timeReleaseBuildTask,
+} from '@podium/runtime/release-build-timing'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
+import { buildRecordDir, buildTimingPath, releaseTimingStagingDir } from './build-record'
 import { DEV_DESKTOP_CHANNEL_HEADER, registerDevFeedRoutes } from './artifact-route'
 import {
   type BuiltDevBundle,
@@ -429,6 +434,94 @@ describe('development artifact route', () => {
       })
       return { wiring, publications: () => publications, unavailable }
     }
+
+    it('finalizes timing only after the approval total is written', async () => {
+      const stateDirectory = mkdtempSync(join(tmpdir(), 'podium-release-finalization-'))
+      const staging = releaseTimingStagingDir(stateDirectory)
+      const stagedPath = join(staging, releaseBuildTimingFileName(built.version))
+      let tick = 0
+      try {
+        mkdirSync(buildRecordDir(stateDirectory, built.buildId), {
+          recursive: true,
+        })
+        const releaseTiming = {
+          enabled: true,
+          outputDirectory: staging,
+          now: () => ++tick,
+          log: () => {},
+        }
+        const { wiring } = wiringFor({
+          publisherStateDir: stateDirectory,
+          releaseTiming,
+          createPublisher: (input) =>
+            ({
+              ...publisherFor(),
+              proposal: async () =>
+                ({
+                  headSha: 'abc1234',
+                  version: built.version,
+                  branch: 'dev/mw',
+                  runningVersion: '0.1.0-dev.26',
+                  commits: [],
+                  addedMigrations: [],
+                  state: 'pending',
+                }) as never,
+              requestBuild: async () =>
+                timeReleaseBuildTask(
+                  {
+                    phase: 'artifact-publication',
+                    task: 'retention',
+                    channel: 'dev',
+                    version: built.version,
+                    sourceSha: 'abc1234',
+                  },
+                  () => built,
+                  input.timing,
+                ),
+              publishFeed: async () =>
+                timeReleaseBuildTask(
+                  {
+                    phase: 'feed-activation',
+                    task: 'write-feed-manifests',
+                    channel: 'dev',
+                    version: built.version,
+                    sourceSha: 'abc1234',
+                  },
+                  () => true,
+                  input.timing,
+                ),
+            }) as never,
+        })
+
+        await wiring.approveRelease('operator', {
+          headSha: 'abc1234',
+          version: built.version,
+        })
+
+        const records = readFileSync(buildTimingPath(stateDirectory, built.buildId), 'utf8')
+          .trim()
+          .split('\n')
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                granularity: string
+                phase: string
+                task?: string
+              },
+          )
+        expect(records.map(({ granularity, phase, task }) => [granularity, phase, task])).toEqual([
+          ['task', 'artifact-publication', 'retention'],
+          ['phase', 'artifact-publication', 'retention'],
+          ['task', 'feed-activation', 'write-feed-manifests'],
+          ['phase', 'feed-activation', 'write-feed-manifests'],
+          ['task', 'approval-to-publish', 'approved-development-release'],
+          ['phase', 'approval-to-publish', 'approved-development-release'],
+        ])
+        expect(existsSync(stagedPath)).toBe(false)
+      } finally {
+        rmSync(stateDirectory, { recursive: true, force: true })
+      }
+    })
 
     /**
      * ONE SLEEPING LAPTOP IS NOT A RELEASE DEFECT (POD-3040).

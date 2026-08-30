@@ -1229,7 +1229,7 @@ async function readExistingDevBundle(
  * The sink is keyed by version because it is opened before there is a build id to key
  * it by — it times the steps that mint one. This is where the two are joined.
  */
-export function moveTimingIntoRecord(
+export function finalizeTimingIntoRecord(
   timing: ReleaseBuildTimingDeps | undefined,
   stateDirectory: string,
   buildId: string,
@@ -1465,11 +1465,6 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       record('failed:sign', artifacts)
       throw error
     }
-
-    // The timing lines this attempt produced, moved next to what it produced. Fail-open
-    // for the same reason the sink itself is: timing observes the build and must never
-    // change its result.
-    moveTimingIntoRecord(deps.timing, publisherStateDir, buildId, version)
 
     // THE RECORD, once every platform has a signed tarball this host has hashed. The
     // child signs in-process, so the first outcome the server can honestly state is

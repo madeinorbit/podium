@@ -124,8 +124,8 @@ export function buildTimingPath(stateDir: string, buildId: string): string {
  *
  * The sink is opened before the attempt has a record to write into — it times the very
  * steps that produce one — so it stages here, keyed by version, and the file is moved
- * into `builds/<buildId>/timing.jsonl` when the record is written. The leading dot
- * keeps it out of the record listing.
+ * into `builds/<buildId>/timing.jsonl` after the release boundary emits its final line.
+ * The leading dot keeps it out of the record listing.
  */
 export function releaseTimingStagingDir(stateDir: string): string {
   return join(buildRecordsRoot(stateDir), '.timing')
