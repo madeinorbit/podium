@@ -137,8 +137,14 @@ export function NewPanelMenu({
   /** Override the default "+" trigger button (e.g. a compact per-repo "+"). */
   trigger?: React.ReactElement
 }): JSX.Element {
-  const { trpc, repos, sessions, machines } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, repos: s.repos, sessions: s.sessions, machines: s.machines }),
+  const { trpc, repos, sessions, machines, setPanelMode } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      repos: s.repos,
+      sessions: s.sessions,
+      machines: s.machines,
+      setPanelMode: s.setPanelMode,
+    }),
     shallowEqual,
   )
   // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
@@ -178,15 +184,33 @@ export function NewPanelMenu({
     return repoView.machines.find((m) => m.machineId === machineId)?.path ?? worktree.path
   }
 
-  async function create(agentKind: AgentKind, machineId?: MachineId, runtimeContract?: string) {
+  async function create(
+    agentKind: AgentKind,
+    machineId?: MachineId,
+    runtimeContract?: string | true,
+  ) {
     const cwd = cwdFor(machineId)
+    // OpenCode's headed default is the stock native CLI attached to its existing
+    // server-family engine. `true` asks the shared resolver for the manifest
+    // default without naming a driver, so an unavailable/logged-out server can
+    // still degrade to the interactive terminal login path. The experimental
+    // driver row passes its concrete string and therefore remains an explicit
+    // per-session selection rather than being collapsed into this default.
+    const headedOpencode = runtimeContract === undefined && agentKind === 'opencode'
+    const driverRequest = runtimeContract ?? (headedOpencode ? true : undefined)
     const { sessionId } = await trpc.sessions.create.mutate({
       agentKind,
       cwd,
       ...(machineId ? { machineId } : {}),
       ...(issueId ? { issueId } : {}),
-      ...(runtimeContract ? { runtimeContract } : {}),
+      ...(driverRequest !== undefined ? { runtimeContract: driverRequest } : {}),
     })
+    // Server-family sessions derive Chat before startScreen/device preferences.
+    // Materialize this row's headed intent before exposing the new tab, matching
+    // the established blank-launch ordering in ColdStartComposer. The explicit
+    // experimental driver row intentionally receives no override and stays
+    // chat-first.
+    if (headedOpencode) setPanelMode(sessionId, 'native')
     onOpened(sessionId)
   }
 
@@ -426,7 +450,7 @@ function HeadlessDriverItems({
   onCreate,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId, runtimeContract?: string) => Promise<void>
+  onCreate: (kind: AgentKind, machineId: MachineId, runtimeContract?: string | true) => Promise<void>
 }): JSX.Element | null {
   const drivers =
     machine.inventory?.runtimeDrivers?.filter((driver) => driver.family !== 'terminal') ?? []
@@ -438,15 +462,17 @@ function HeadlessDriverItems({
         const agent = NEW_AGENTS.find((candidate) => candidate.kind === driver.harness)
         if (!agent) return null
         const Icon = agent.Icon
+        const loggedOut = agentLoginCondition(machine, driver.harness) === 'logged-out'
         return (
           <CapabilityAgentItem
             key={`${driver.harness}:${driver.id}`}
             label={`${agent.label} — ${driver.id}`}
             icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
             status={{
-              ...(agentLoginCondition(machine, driver.harness) === 'logged-out'
+              ...(loggedOut
                 ? {
                     warning: `${machine.name} is logged out; this driver may refuse or fall back.`,
+                    hint: 'logged out',
                   }
                 : {}),
             }}
@@ -464,7 +490,7 @@ function MachineSubmenu({
   runtimeDriversEnabled,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId, runtimeContract?: string) => Promise<void>
+  onCreate: (kind: AgentKind, machineId: MachineId, runtimeContract?: string | true) => Promise<void>
   runtimeDriversEnabled: boolean
 }): JSX.Element {
   return (

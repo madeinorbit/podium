@@ -18,10 +18,12 @@ import { NewPanelMenu } from './NewPanelMenu'
 
 // Hoisted: `vi.mock`'s factory runs before module-level bindings exist, so the
 // spy the assertions read has to be created in the hoisted scope too.
-const { conversationSearch, createSession, feature, machine } = vi.hoisted(() => ({
+const { conversationSearch, createSession, feature, machine, opened, setPanelMode } = vi.hoisted(() => ({
   createSession: vi.fn(async () => ({ sessionId: 'new' })),
   feature: { enabled: false },
   conversationSearch: vi.fn(async () => []),
+  opened: vi.fn(),
+  setPanelMode: vi.fn(),
   machine: {
     id: 'mine',
     name: 'mine',
@@ -31,10 +33,13 @@ const { conversationSearch, createSession, feature, machine } = vi.hoisted(() =>
       agents: [
         { kind: 'claude-code', installed: true, login: { state: 'in' } },
         { kind: 'cursor', installed: false, login: { state: 'unknown' } },
+        { kind: 'opencode', installed: true, login: { state: 'in' } },
       ],
       runtimeDrivers: [
         { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
         { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
+        { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
+        { harness: 'opencode', id: 'opencode-server', family: 'server' },
       ],
     },
   },
@@ -57,6 +62,7 @@ vi.mock('@/app/store', () => {
     ],
     sessions: [],
     machines: [machine],
+    setPanelMode,
     recentFiles: [],
     openFileInWorktree: vi.fn(),
     openArtifact: vi.fn(),
@@ -84,13 +90,15 @@ afterEach(() => {
   conversationSearch.mockClear()
   createSession.mockClear()
   feature.enabled = false
+  opened.mockClear()
+  setPanelMode.mockClear()
 })
 
 function open() {
   return render(
     <NewPanelMenu
       worktree={worktree as never}
-      onOpened={vi.fn()}
+      onOpened={opened}
       open
       onOpenChange={vi.fn()}
       trigger={<button type="button">plus</button>}
@@ -130,6 +138,34 @@ describe('the new-panel menu', () => {
       expect.not.objectContaining({ runtimeContract: expect.anything() }),
     )
 
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledWith('new'))
+    opened.mockClear()
+    setPanelMode.mockClear()
+    fireEvent.click(screen.getByRole('menuitem', { name: /^New OpenCode$/ }))
+    await vi.waitFor(() =>
+      expect(createSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          agentKind: 'opencode',
+          runtimeContract: true,
+        }),
+      ),
+    )
+    expect(setPanelMode).toHaveBeenCalledWith('new', 'native')
+    expect(setPanelMode.mock.invocationCallOrder[0]).toBeLessThan(
+      opened.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    )
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /New OpenCode — opencode-server/ }))
+    await vi.waitFor(() =>
+      expect(createSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          agentKind: 'opencode',
+          runtimeContract: 'opencode-server',
+        }),
+      ),
+    )
+    expect(setPanelMode).toHaveBeenCalledTimes(1)
+
     fireEvent.click(screen.getByRole('menuitem', { name: /New Claude — claude-sdk/ }))
     expect(createSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ runtimeContract: 'claude-sdk' }),
@@ -145,11 +181,13 @@ describe('the new-panel menu', () => {
 
   it('makes a logged-out headless choice visibly conditional instead of silently rebinding it', async () => {
     feature.enabled = true
-    machine.inventory.agents[0]!.login.state = 'out'
+    const claude = machine.inventory.agents.find((agent) => agent.kind === 'claude-code')
+    if (!claude) throw new Error('fixture has no claude-code inventory row')
+    claude.login.state = 'out'
     open()
 
     const headless = await screen.findByRole('menuitem', { name: /New Claude — claude-sdk/ })
-    expect(headless.textContent).toContain('logged out')
-    machine.inventory.agents[0]!.login.state = 'in'
+    await vi.waitFor(() => expect(headless.textContent).toContain('logged out'))
+    claude.login.state = 'in'
   })
 })
