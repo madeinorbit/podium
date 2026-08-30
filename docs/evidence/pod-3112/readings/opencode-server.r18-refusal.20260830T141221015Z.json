@@ -1,0 +1,63 @@
+{
+  "at": "2026-08-30T14:12:21.015Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "ab8a5e7f8f71af1ef25f22fb4a695ba68cb4dfa9",
+  "productPins": {
+    "server": "ab8a5e7f8f71af1ef25f22fb4a695ba68cb4dfa9",
+    "daemon": "ab8a5e7f8f71af1ef25f22fb4a695ba68cb4dfa9",
+    "web": "ab8a5e7"
+  },
+  "instance": "p3112-a7a-ab8a5e-r1",
+  "ports": [22063, 49063, 49064],
+  "machine": {
+    "id": "44432168-eaeb-4f23-aa0d-b9c354d41698",
+    "updateChannel": "edge",
+    "registeredRepo": "/tmp/pod-3112-a7a-ab8a5e-r1/dummy-repo"
+  },
+  "providerPrompts": 1,
+  "launch": {
+    "identity": {
+      "sessionId": "459edbb4-e0de-4d0b-bce9-f56bcad2a8fe",
+      "status": "live",
+      "driverId": "opencode-server",
+      "requestedDriverId": "opencode-server",
+      "driverFamily": "server",
+      "accountId": "native:opencode",
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_facfc430dffeKMLQQ1n1RZ3U3d"
+      },
+      "cwd": "/tmp/pod-3112-a7a-ab8a5e-r1/dummy-repo"
+    },
+    "nativeFirst": true,
+    "screenLength": 3200
+  },
+  "seed": {
+    "at": "2026-08-30T14:12:32.118Z",
+    "codeword": "R18-MTFW2FW5",
+    "nonce": "P3112-R18-SEED-MTFW2FW5",
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2,
+    "assistantText": "P3112-R18-SEED-MTFW2FW5"
+  },
+  "verdict": "REFUSED",
+  "score": "UNSCORED_DIAGNOSTIC",
+  "reason": "Error: REFUSED missing opencode journal before A7a",
+  "restartAttempted": false,
+  "a7aReadyCreated": false,
+  "a7aContinueCreated": false,
+  "resultRowAppended": false,
+  "teardown": {
+    "serverStopped": true,
+    "daemonStopped": true,
+    "credentialSymlinkRemoved": true,
+    "ownedAttachmentPidStopped": 503111,
+    "ownedProviderPidStopped": 502959,
+    "portsClear": [22063, 49063, 49064],
+    "completedAt": "2026-08-30T14:13:22Z"
+  },
+  "finishedAt": "2026-08-30T14:12:39.725Z"
+}
