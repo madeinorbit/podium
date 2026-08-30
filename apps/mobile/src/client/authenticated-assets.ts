@@ -1,3 +1,4 @@
+import { fetch as expoFetch } from 'expo/fetch'
 import { Platform, type ImageSourcePropType } from 'react-native'
 
 export const AUTHENTICATED_TEXT_PREVIEW_CAP = 512 * 1024
@@ -38,23 +39,40 @@ export async function readAuthenticatedTextPreview(
   const reader = responseReader(response)
   if (!reader) {
     const declaredBytes = contentLength(response)
-    if (declaredBytes === undefined || declaredBytes > cap) throw new Error(UNSAFE_PREVIEW_SIZE)
+    const contentEncoding = response.headers.get('content-encoding')?.trim().toLowerCase()
+    if (
+      declaredBytes === undefined ||
+      declaredBytes > cap ||
+      (contentEncoding !== undefined && contentEncoding !== 'identity')
+    ) {
+      throw new Error(UNSAFE_PREVIEW_SIZE)
+    }
     const buffer = await response.arrayBuffer()
     return new TextDecoder().decode(buffer.slice(0, cap))
   }
 
-  const bytes = new Uint8Array(cap)
+  const chunks: Uint8Array[] = []
   let received = 0
   while (received < cap) {
     const { done, value } = await reader.read()
     if (done) break
     if (!value || value.byteLength === 0) continue
     const accepted = Math.min(value.byteLength, cap - received)
-    bytes.set(value.subarray(0, accepted), received)
+    const ownsBuffer = value.byteOffset === 0 && value.byteLength === value.buffer.byteLength
+    chunks.push(accepted === value.byteLength && ownsBuffer ? value : value.slice(0, accepted))
     received += accepted
   }
   if (received === cap) await reader.cancel().catch(() => undefined)
-  return new TextDecoder().decode(bytes.subarray(0, received))
+  if (chunks.length === 0) return ''
+  if (chunks.length === 1) return new TextDecoder().decode(chunks[0])
+
+  const bytes = new Uint8Array(received)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 /**
@@ -74,7 +92,11 @@ export function authenticatedImageSource(url: string, bearer: string | null): Im
 }
 
 export function fetchAuthenticatedAsset(url: string, bearer: string | null): Promise<Response> {
-  return fetch(url, {
+  // Expo SDK 57's native response exposes a lazy stream. Importing it directly
+  // keeps headerless and compressed previews bounded even if the global fetch
+  // configuration changes.
+  const fetchAsset = Platform.OS === 'web' ? globalThis.fetch : expoFetch
+  return fetchAsset(url, {
     credentials: Platform.OS === 'web' ? 'include' : 'omit',
     headers: authenticatedAssetHeaders(bearer),
   })
