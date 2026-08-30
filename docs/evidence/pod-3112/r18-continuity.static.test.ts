@@ -25,7 +25,21 @@ describe('r18 continuity selector contract', () => {
     expect(sidebar).toContain('data-testid="project-group"')
     expect(sidebar).toContain('<StartFirstTaskRow repoPath={repo.path} />')
     expect(worktree).toContain('testId="unified-worktree-row"')
+
     expect(composer).toContain('data-testid="cold-start-launch"')
+  })
+  test('enables and selects the headless driver through visible product controls', () => {
+    const rig = read('docs/evidence/pod-3112/r18-continuity.ts')
+
+    expect(rig).toContain("getByRole('button',{name:'Settings',exact:true})")
+    expect(rig).toContain("getByRole('button',{name:'Experimental',exact:true})")
+    expect(rig).toContain("getByText('Headless session drivers',{exact:true})")
+    expect(rig).toContain("getByRole('button',{name:'Driver',exact:true})")
+    expect(rig).toContain("getByRole('menuitem',{name:exact('opencode-server')})")
+    expect(rig).toContain("exact('opencode-server').test((await driver.innerText()).trim())")
+    expect(rig).not.toContain('PODIUM_RUNTIME_DRIVER=')
+    expect(rig).not.toContain("m('sessions.create'")
+    expect(rig).not.toContain('a7b={')
   })
 
   test("compiles without executing the runtime proof", async () => {
