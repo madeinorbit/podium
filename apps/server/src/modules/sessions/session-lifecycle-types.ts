@@ -89,8 +89,9 @@ export interface SessionLifecycleDeps {
   /** Cancel a queued source intent after the harness reports that the operator
    *  interrupted the physical delivery before it became a turn. */
   interruptQueuedMessage?(messageId: string): void
-  /** Cancel the newest operator chat message still held for this session. */
-  interruptPendingMessage?(sessionId: SessionId): void
+  /** Cancel the named operator chat message, or the newest one when a native
+   *  terminal interrupt has no chat-side message id. */
+  interruptPendingMessage?(sessionId: SessionId, messageId?: string): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
    * `MutationLedger`. Threaded through rather than constructed here — the service

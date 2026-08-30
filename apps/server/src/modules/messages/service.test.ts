@@ -1205,16 +1205,48 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(store.messages.getMessage(sent.message.id)?.status).toBe('cancelled')
   })
 
-  it('cancels a held operator chat message for an interrupted session', () => {
+  it('cancels the named held operator chat message for an interrupted session', () => {
     const target = session({ sessionId: asSessionId('s1'), agentState: WORKING })
     const { svc, store } = harness([target])
+    const first = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: target.sessionId },
+        body: 'keep this one',
+        correlationId: 'msg_keep',
+      },
+    )
     const held = svc.send(
       { kind: 'operator' },
-      { to: { kind: 'session', id: target.sessionId }, body: 'cancel this one' },
+      {
+        to: { kind: 'session', id: target.sessionId },
+        body: 'cancel this one',
+        correlationId: 'msg_cancel',
+      },
     )
 
-    expect(svc.cancelPendingOperatorMessage(target.sessionId)?.id).toBe(held.message.id)
+    expect(svc.cancelPendingOperatorMessage(target.sessionId, held.message.id)?.id).toBe(
+      held.message.id,
+    )
     expect(store.messages.getMessage(held.message.id)?.status).toBe('cancelled')
+    expect(store.messages.getMessage(first.message.id)?.status).toBe('queued')
+  })
+
+  it('native interrupt fallback cancels the newest held operator chat message', () => {
+    const target = session({ sessionId: asSessionId('s1'), agentState: WORKING })
+    const { svc, store } = harness([target])
+    const first = svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: target.sessionId }, body: 'older' },
+    )
+    const latest = svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: target.sessionId }, body: 'newer' },
+    )
+
+    expect(svc.cancelPendingOperatorMessage(target.sessionId)?.id).toBe(latest.message.id)
+    expect(store.messages.getMessage(latest.message.id)?.status).toBe('cancelled')
+    expect(store.messages.getMessage(first.message.id)?.status).toBe('queued')
   })
 
   it('unknown session target dead-letters, never silently queues [POD-834]', () => {

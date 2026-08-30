@@ -117,8 +117,10 @@ export interface UseChatSendResult {
    *  its paint if the write is ever refused. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
+  /** Message id to pair with a chat-side stop request, when one is still open. */
+  interruptMessageId: string | null
   /** Keep the outgoing prompt in place but mark that this interaction stopped. */
-  markInterrupted: () => void
+  markInterrupted: (deliveryId?: string, interruptedAt?: number) => void
   /** Optimistic hide of the offer bar, keyed by the offer's createdAt. */
   dismissedOfferAt: string | null
   setDismissedOfferAt: (at: string | null) => void
@@ -172,18 +174,46 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const [pending, setPending] = useState<PendingItem[]>(initialPending)
   const pendingRef = useRef(pending)
   pendingRef.current = pending
-  const markInterrupted = useCallback(() => {
+  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
+  const queuedMessagesRef = useRef(queuedMessages)
+  queuedMessagesRef.current = queuedMessages
+  const markInterrupted = useCallback((deliveryId?: string, interruptedAt?: number) => {
+    const beforeInterrupt = (at: number): boolean =>
+      interruptedAt === undefined || at <= interruptedAt
+    const queued = deliveryId
+      ? queuedMessagesRef.current.find((message) => message.id === deliveryId)
+      : queuedMessagesRef.current.findLast((message) => beforeInterrupt(message.at))
     setPending((items) => {
-      const index = items.findLastIndex(
-        (item) => item.state !== 'failed' && item.state !== 'interrupted',
-      )
-      if (index < 0) return items
+      const index = deliveryId
+        ? items.findIndex((item) => item.deliveryId === deliveryId)
+        : items.findLastIndex((item) => item.state !== 'failed' && beforeInterrupt(item.at))
+      if (index < 0) {
+        if (!queued) return items
+        return [
+          ...items,
+          {
+            id: `interrupted-${queued.id}`,
+            deliveryId: queued.id,
+            text: queued.text,
+            at: queued.at,
+            state: 'interrupted' as const,
+          },
+        ]
+      }
+      if (items[index]?.state === 'interrupted') return items
       return items.map((item, at) =>
         at === index ? { ...item, state: 'interrupted' as const } : item,
       )
     })
+    if (queued) {
+      setQueuedMessages((messages) => messages.filter((message) => message.id !== queued.id))
+    }
   }, [])
-  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
+  const latestPending = pending.findLast((item) => item.state !== 'failed')
+  const interruptMessageId =
+    latestPending?.state === 'interrupted'
+      ? null
+      : (latestPending?.deliveryId ?? queuedMessages.at(-1)?.id ?? null)
   /**
    * THE OPEN SEND, AS STATE RATHER THAN A FLAG (POD-1595 review).
    *
@@ -294,7 +324,9 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     seenUserTailId.current = userItems.at(-1)?.id ?? null
     if (newUserItems.length > 0) {
       const conversationalItems = newUserItems.filter((item) => item.event !== 'interrupt')
-      const wasInterrupted = conversationalItems.length !== newUserItems.length
+      const interruptItem = newUserItems.findLast((item) => item.event === 'interrupt')
+      const interruptAt = interruptItem?.ts ? Date.parse(interruptItem.ts) : Number.NaN
+      const wasInterrupted = interruptItem !== undefined
       const before = pendingRef.current
       const seededBefore = before.some((item) => item.id === 'pending-first-turn')
       const seededAfter = headless
@@ -303,7 +335,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
             (item) => item.id === 'pending-first-turn',
           )
       if (wasInterrupted) {
-        markInterrupted()
+        markInterrupted(undefined, Number.isFinite(interruptAt) ? interruptAt : undefined)
       }
       // Headless: the server prepends machine context (seed/delta blocks) to the
       // delivered turn text, so the echoed user item rarely equals the optimistic
@@ -591,7 +623,11 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
         )
       } catch {
-        setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
+        setPending((p) =>
+          p.map((x) =>
+            x.id === id && x.state !== 'interrupted' ? { ...x, state: 'failed' } : x,
+          ),
+        )
         clearSent(mySend)
         // Only un-hide the offer THIS send hid: a dismissal made in between is
         // the operator's own and must not be undone by a failure over here.
@@ -619,7 +655,11 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x))),
         )
       } catch (cause) {
-        setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
+        setPending((p) =>
+          p.map((x) =>
+            x.id === id && x.state !== 'interrupted' ? { ...x, state: 'failed' } : x,
+          ),
+        )
         clearSent(mySend)
         // Same guard the typed path got: un-hide only if THIS click's offer is
         // still the one hidden. A newer offer, retired by a later send that is
@@ -698,6 +738,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     sendOfferPrompt,
     dismissOffer,
     retractQueuedMessage,
+    interruptMessageId,
     markInterrupted,
     dismissedOfferAt,
     setDismissedOfferAt: applyDismissedOfferAt,

@@ -72,6 +72,7 @@ function harness(
       ...(options.stateObservedAt ? { stateObservedAt: options.stateObservedAt } : {}),
     },
     terminal: {
+      controllerId: 'client-1',
       lastOutputAtMs: 0,
       transcriptItems: () => transcript,
       recordInputActivity: vi.fn(),
@@ -362,6 +363,25 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.interruptedPending).toHaveBeenCalledWith({ sessionId: SID })
   })
 
+  it('does not cancel a chat send for Escape from a non-controlling terminal client', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    const principal = testClientPrincipal('browser-2')
+    const client = { id: 'client-2' } as ClientConn
+
+    h.inbox.sendText({ sessionId: SID, text: 'keep this queued' })
+    h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(h.rows).toHaveLength(1)
+    expect(h.interruptedPending).not.toHaveBeenCalled()
+  })
+
   it('fails closed when a needs-human answer has no owner', () => {
     const h = harness({ owner: null })
 
@@ -487,6 +507,36 @@ describe('SessionInbox authorization and identity', () => {
     })
   })
 
+  it('cancels the named queued prompt without removing an earlier one', () => {
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'keep first',
+      sourceMessageId: 'message-keep',
+      principal: agentPrincipal(),
+    })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'cancel second',
+      sourceMessageId: 'message-cancel',
+      principal: agentPrincipal(),
+    })
+
+    expect(
+      h.inbox.interruptTurn({
+        sessionId: SID,
+        sourceMessageId: 'message-cancel',
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: true })
+
+    expect(h.rows.map((row) => row.sourceMessageId)).toEqual(['message-keep'])
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-cancel',
+      sessionId: SID,
+    })
+  })
+
   // Esc is inert at an idle prompt, so it needs no guard — and gating it would
   // reintroduce the stale-phase hole the client just stopped relying on.
   it('interrupts an idle Esc harness anyway', () => {
@@ -539,9 +589,7 @@ describe('SessionInbox authorization and identity', () => {
     expect(decoded).not.toContain('\r')
   })
 
-  // interruptText SKIPS the key rather than refusing: its job is to deliver the
-  // message, and an interrupt-urgency mail must never be what kills a session.
-  it('delivers interrupt-urgency text to an idle codex without the quit-when-idle key', async () => {
+  it('uses the current safe Escape before interrupt-urgency text at idle Codex', async () => {
     vi.useFakeTimers()
     try {
       const h = harness({ agentKind: 'codex', phase: 'idle' })
@@ -558,6 +606,7 @@ describe('SessionInbox authorization and identity', () => {
       const decoded = h.sent.map((m) =>
         Buffer.from((m as { data: string }).data, 'base64').toString(),
       )
+      expect(decoded).toContain('\x1b')
       expect(decoded.some((d) => d.includes('\x03'))).toBe(false)
       expect(decoded.some((d) => d.includes('stop and read this'))).toBe(true)
     } finally {
