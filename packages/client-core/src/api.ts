@@ -28,6 +28,7 @@ import type {
   LayoutSnapshot,
   MachineId,
   MachineQuotaWire,
+  MachineWire,
   MutationId,
   QuotaWindowHistoryWire,
   ReadPositionSnapshot,
@@ -109,7 +110,11 @@ export interface PodiumClientApi {
   discovery: {
     refreshRepos: ApiMutation<
       void,
-      { repositories: GitRepositoryWire[]; diagnostics: GitDiscoveryDiagnosticWire[] }
+      {
+        repositories: GitRepositoryWire[]
+        diagnostics: GitDiscoveryDiagnosticWire[]
+        machines: MachineWire[]
+      }
     >
   }
   models?: {

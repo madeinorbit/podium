@@ -195,10 +195,17 @@ export class RepoRegistry {
    * no principal to filter by (boot reconcile, tests) — every transport path
    * supplies it, and `audit:machine-grants` checks that.
    */
-  async scanReposAll(mayUse?: (machineId: MachineId) => boolean): Promise<ScanReposResult> {
+  async scanReposAll(
+    mayUse?: (machineId: MachineId) => boolean,
+    maySee: (machineId: MachineId) => boolean = mayUse ?? (() => true),
+  ): Promise<ScanReposResult> {
+    // Scanning touches the machine filesystem and requires `use`; persisted repo
+    // roots are machine facts and require only `see`. Keeping those predicates
+    // separate is what lets a reload restore a visible surviving session even
+    // while its daemon is reconnecting or its execution grant is unavailable.
     const registeredRows = this.store.repos
       .listRepos()
-      .filter((row) => mayUse?.(row.machineId) ?? true)
+      .filter((row) => maySee(row.machineId))
     const fallbackFor = (rows: typeof registeredRows) =>
       rows.map((row) => ({
         path: normalizeRepoPath(row.path),

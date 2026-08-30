@@ -197,6 +197,28 @@ describe('RepoRegistry.scanReposAll()', () => {
     })
   })
 
+  it('projects visible machine roots without granting filesystem scans', async () => {
+    const { repos, store, m1Out, m2Out } = regWithTwoDaemons()
+    const visible = asMachineId('m1')
+    store.repos.addRepo('/visible-repo', visible, 'https://github.com/acme/visible.git')
+    store.repos.addRepo('/hidden-repo', asMachineId('m2'))
+
+    const result = await repos.scanReposAll(
+      () => false,
+      (machineId) => machineId === visible,
+    )
+
+    expect(result.repositories).toEqual([
+      expect.objectContaining({
+        path: '/visible-repo',
+        machineId: visible,
+        repoId: store.repos.listRepos(visible)[0]?.repoId,
+      }),
+    ])
+    expect(m1Out.some((message) => message.type === 'scanReposRequest')).toBe(false)
+    expect(m2Out.some((message) => message.type === 'scanReposRequest')).toBe(false)
+  })
+
   it('single-machine invariant: with one daemon scanReposAll equals scanRepos for that machine', async () => {
     // Single machine setup
     const store = new SessionStore(':memory:')

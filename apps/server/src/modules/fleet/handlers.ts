@@ -24,6 +24,7 @@ import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { normalizeRepoPath } from '../../store'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
+import { visibleMachinesFor } from '../sessions/command-ctx'
 import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
@@ -441,8 +442,20 @@ export const repoRenameFolderHandler = async ({
  * them all would walk a colleague's filesystem through their daemon, which is
  * precisely what `use` is a boundary against.
  */
-export const discoveryRefreshReposHandler = ({ ctx }: FleetArgs<void>) =>
-  ctx.repos.scanReposAll(fleetUsePredicate(fleetAuthzDeps(ctx), 'use'))
+export const discoveryRefreshReposHandler = async ({ ctx }: FleetArgs<void>) => {
+  const result = await ctx.repos.scanReposAll(
+    fleetUsePredicate(fleetAuthzDeps(ctx), 'use'),
+    fleetUsePredicate(fleetAuthzDeps(ctx), 'see'),
+  )
+  // Repositories and machines are one authorization snapshot for the client.
+  // Returning the repo rows alone lets a page reload scope a valid durable
+  // fallback against an independently timed machine list and hide the project
+  // until another event happens to refresh both sides in the right order.
+  return {
+    ...result,
+    machines: visibleMachinesFor(mods(ctx), ctx.capability),
+  }
+}
 
 export const discoveryScanFolderHandler = ({
   ctx,

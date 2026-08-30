@@ -35,7 +35,14 @@ export class BootFetches<TApi extends PodiumClientApi> {
     this.ports.publish({ reposLoading: true })
     try {
       const r = await this.ports.api.discovery.refreshRepos.mutate()
-      this.ports.publish({ repos: r.repositories, repoDiagnostics: r.diagnostics })
+      // This is deliberately one publication. Worklist scoping joins repo rows
+      // to machine visibility; publishing either half against an older half can
+      // hide a valid durable repo during daemon rebind and leave a reload empty.
+      this.ports.publish({
+        repos: r.repositories,
+        repoDiagnostics: r.diagnostics,
+        machines: r.machines,
+      })
     } finally {
       this.ports.publish({ reposLoading: false, reposLoaded: true })
     }
