@@ -14,6 +14,7 @@ import { loadavg } from 'node:os'
 import { join } from 'node:path'
 import { Chat, login, mutate, primeTerminalTui, query, wait } from '../pod-2777/rig'
 import { canonicalCellTitle } from './recorder-contract'
+import { A2aPushObserver } from './a2a-push-observer'
 
 type Verdict = 'PASS' | 'FAIL' | 'PARTIAL' | 'BLOCKED' | 'UNDRIVEN' | 'REFUSED'
 type Driver = 'opencode-server' | 'default-headed'
@@ -631,56 +632,38 @@ async function runA1c() {
 
 async function runA2a() {
   const { sid, chat } = await create()
+  const needle = 'P3112-A2A-' + Date.now().toString(36).toUpperCase()
+  const observer = new A2aPushObserver('http://127.0.0.1:' + PORT, process.env.PODIUM_PASSWORD ?? '', sid, needle)
   try {
-    const needle = 'P3112-A2A-' + Date.now().toString(36).toUpperCase()
-    const sendCalledAt = Date.now()
+    await observer.open()
+    const calledAt = Date.now()
     const sent = await mutate('sessions.sendText', {
       sessionId: sid,
       text: 'Count from 1 to 12, one number per line, then finish with the word ' + needle + '. Do not use tools.',
     })
-    const sendAcceptedAt = Date.now()
-    const sendRoundTripMs = sendAcceptedAt - sendCalledAt
-    const samples: { at: number; phase: string; status?: string; driverId?: string | null }[] = []
-    const started = Date.now()
-    let answered = false
-    let lastPhase = ''
-    while (Date.now() - started < BUSY_MS) {
-      const row = await status(sid)
-      const phase = row?.phase ?? '(blank)'
-      if (phase !== lastPhase) {
-        samples.push({ at: Date.now() - started, phase, status: row?.status, driverId: row?.driverId })
-        lastPhase = phase
-      }
-      if (!answered) answered = (await transcript(sid)).some((item) => item.role === 'assistant' && textOf(item.text).includes(needle))
-      if (answered && phase === 'idle' && Date.now() - started > 3_000) break
-      await wait(250)
-    }
-    const after = await status(sid)
-    const firstWorkingIdx = samples.findIndex((sample) => sample.phase === 'working')
-    const lastWorkingIdx = samples.map((sample) => sample.phase).lastIndexOf('working')
-    const workingAt = firstWorkingIdx >= 0 ? samples[firstWorkingIdx] : undefined
-    const flickers = samples.filter(
-      (sample, index) => index > firstWorkingIdx && index < lastWorkingIdx && (sample.phase === 'idle' || sample.phase === '(blank)'),
-    )
-    const endsIdle = samples.at(-1)?.phase === 'idle' && after?.phase === 'idle'
+    const sendRoundTripMs = Date.now() - calledAt
+    observer.markAccepted()
+    const assessment = await observer.waitForSettled(BUSY_MS)
     const control: Control = {
-      fired: answered,
-      what: 'the short turn actually running to completion with its assistant nonce observed',
-      detail: 'assistant=' + answered + '; workingAt=' + short(workingAt ?? null),
+      fired: assessment.assistantNonceAtMonoMs !== null && assessment.firstWorkingReceiveMs !== null,
+      what: 'the direct push observer receiving both a working state and the assistant nonce',
+      detail: 'assistant=' + (assessment.assistantNonceAtMonoMs !== null) + '; workingReceiveMs=' + assessment.firstWorkingReceiveMs,
     }
-    const pass = Boolean(workingAt && workingAt.at <= 2_000 && flickers.length === 0 && endsIdle)
     return result(
-      !control.fired ? 'BLOCKED' : pass ? 'PASS' : 'FAIL',
-      !control.fired
-        ? 'short-turn completion control did not land'
-        : pass
-          ? 'working appeared within 2s of accepted send, had no mid-turn idle/blank flicker, and settled idle'
-          : 'working badge timing or continuity did not meet the release criterion',
+      assessment.verdict,
+      assessment.reason,
       control,
-      ['SEND              ' + short(sent.result?.data ?? sent.error ?? null), 'SEND ROUND-TRIP   ' + sendRoundTripMs + 'ms', 'WORKING AT        ' + short(workingAt ?? null), 'MID-TURN FLICKERS ' + flickers.length, 'FINAL IDLE        ' + endsIdle, 'AFTER             ' + short(after)],
-      { sid, answered, sendRoundTripMs, workingAt, flickers, endsIdle, samples, after },
+      [
+        'SEND              ' + short(sent.result?.data ?? sent.error ?? null),
+        'SEND ROUND-TRIP   ' + sendRoundTripMs + 'ms (excluded)',
+        'TIMING            ' + assessment.timing + ' receive=' + assessment.firstWorkingReceiveMs + 'ms source=' + assessment.sourceDeltaMs + 'ms',
+        'MID-TURN FLICKERS ' + assessment.flickers.length,
+        'PUSHED FINAL IDLE ' + assessment.finalIdle,
+      ],
+      { sid, sendRoundTripMs, assessment, pushes: observer.pushes },
     )
   } finally {
+    observer.close()
     await cleanup(sid, chat)
   }
 }
