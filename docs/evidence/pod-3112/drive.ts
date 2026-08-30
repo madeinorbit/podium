@@ -1247,6 +1247,7 @@ async function main(): Promise<void> {
   mkdirSync(cwd, { recursive: true })
   const at = stamp()
   const runToken = (process.env.P3112_PIN_SHA ?? 'UNPINNED') + '-' + at.replace(/[-:.]/g, '')
+  const pinRel = 'docs/evidence/pod-3112/pins/' + driver + '-' + cell.toLowerCase() + '-' + runToken + '.json'
   let pin: Pin | undefined
   let out: ReturnType<typeof result>
   try {
@@ -1350,6 +1351,7 @@ async function main(): Promise<void> {
   console.log(driver + '/' + cell + ' ' + reading.verdict + ' — ' + reading.summary)
   console.log('control=' + (reading.control.fired ? 'FIRED' : 'MISSING') + ' ' + reading.control.detail)
   for (const line of reading.evidence) console.log(line)
+  console.log(['P3112_ARTIFACTS', readingRel, pinRel, process.env.P3112_ADJUDICATION_FILE ?? ''].join('\t'))
 }
 
 await login()
