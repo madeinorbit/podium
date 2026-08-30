@@ -1,11 +1,11 @@
 {
   "cell": "A1B",
-  "at": "2026-08-30T01:36:39.285Z",
+  "at": "2026-08-30T02:01:22.987Z",
   "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
-  "checkoutSha": "422b645a5699e1d1cbd0c2a14aa36516e756ccc2",
-  "pinSha": "d35c7ef7b630730f727365f25323427c67614386",
-  "serverSha": "d35c7ef7b630730f727365f25323427c67614386",
-  "daemonSha": "d35c7ef7b630730f727365f25323427c67614386",
+  "checkoutSha": "d11411103666642a5754e43cbbb3dca124ad67d0",
+  "pinSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+  "serverSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+  "daemonSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
   "web": {
     "wireSchemaDigest": "4c6f2e46828ec294",
     "wireVersion": 2,
@@ -15,11 +15,11 @@
   },
   "webReuseProof": {
     "servedSourceSha": "f3d3d8f",
-    "headShort": "422b645",
+    "headShort": "d114111",
     "appsWebIdentical": true
   },
-  "serverPid": "2457491",
-  "daemonPid": "2457645",
+  "serverPid": "2551347",
+  "daemonPid": "2551567",
   "serverAlive": true,
   "daemonAlive": true,
   "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
@@ -27,11 +27,11 @@
   "tosOnDaemon": false,
   "freeMemory": {
     "MemTotal": "24603312 kB",
-    "MemAvailable": "18526728 kB",
-    "SwapFree": "40418484 kB"
+    "MemAvailable": "18813024 kB",
+    "SwapFree": "40428316 kB"
   },
-  "rootFreeKiB": 69928760,
-  "load1m": 4.7,
+  "rootFreeKiB": 69647556,
+  "load1m": 4.73,
   "credential": {
     "live": {
       "present": true,
@@ -41,7 +41,7 @@
     },
     "isolated": {
       "present": true,
-      "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r3/agent-home/.local/share/opencode/auth.json",
+      "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r4/agent-home/.local/share/opencode/auth.json",
       "mtime": "2026-08-04T12:46:44.680Z",
       "size": 126
     }
