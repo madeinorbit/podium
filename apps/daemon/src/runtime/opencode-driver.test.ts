@@ -26,6 +26,7 @@ vi.mock('@podium/agent-runtime', async (importOriginal) => {
     createOpencodeRuntime: mocks.createOpencodeRuntime,
     OPENCODE_SERVER_DRIVER_ID: 'opencode-server',
     configureFieldsForDriver: actual.configureFieldsForDriver,
+    attachKindsForDriver: actual.attachKindsForDriver,
   }
 })
 
@@ -96,7 +97,7 @@ function world() {
   const phases = () =>
     sent.flatMap((message) => (message.type === 'agentState' ? [message.state.phase] : []))
 
-  return { daemon, handle, phases, sessionId }
+  return { daemon, handle, phases, sent, sessionId }
 }
 
 describe('opencode daemon turn status', () => {
@@ -104,6 +105,9 @@ describe('opencode daemon turn status', () => {
     const w = world()
 
     await w.daemon.launch({ sessionId: w.sessionId, cwd: '/work' })
+    expect(
+      w.sent.find((message) => message.type === 'bind'),
+    ).toMatchObject({ attachKinds: ['client'] })
     expect(w.phases()).toEqual(['idle'])
 
     // No session.status event is emitted by this fixture. The accepted prompt

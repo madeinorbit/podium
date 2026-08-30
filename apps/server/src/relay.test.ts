@@ -1971,7 +1971,9 @@ describe('SessionRegistry', () => {
       ...bind(sessionId),
       agentKind: 'opencode',
       driverId: 'generic-pty',
+      attachKinds: ['engine'],
     })
+    expect(reg1.modules.sessions.listSessions().at(0)?.attachKinds).toEqual(['engine'])
     store1.close()
 
     const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
