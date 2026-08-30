@@ -95,17 +95,22 @@ test_invocation() {
 }
 
 static_self_test() {
-  local root marker rig fail_drive mutate_drive rc
+  local root marker rig fail_drive mutate_drive rc original_marker mutate_stderr expected_protected
   root="$(mktemp -d)"
   trap 'rm -rf -- "$root"' RETURN
   marker="$root/instance.json"
   rig="$root/rig"
   fail_drive="$root/fail-drive"
   mutate_drive="$root/mutate-drive"
+  mutate_stderr="$root/mutate.stderr"
+  expected_protected="${HOME:?HOME must be inherited}/.podium/instance.json"
+  [ "$PROTECTED_MARKER" = "$expected_protected" ] || { printf '%s\n' "STATIC SELF TEST protected path mismatch: $PROTECTED_MARKER" >&2; return 1; }
+  [ -f "$PROTECTED_MARKER" ] || { printf '%s\n' "STATIC SELF TEST live protected marker missing: $PROTECTED_MARKER" >&2; return 1; }
   printf '%s\n' '{"protected":true}' >"$marker"
+  original_marker="$(sha256sum "$marker" | awk '{print $1}')"
   printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$1" >>"$P3110_TEST_EVENTS"' >"$rig"
   printf '%s\n' '#!/bin/sh' 'exit 23' >"$fail_drive"
-  printf '%s\n' '#!/bin/sh' 'printf "%s\\n" changed >>"$PROTECTED_MARKER"' >"$mutate_drive"
+  printf '%s\n' '#!/bin/sh' 'printf "%s\\n" changed >>"$1"' 'printf "%s\\n" drive-succeeded >>"$P3110_TEST_EVENTS"' 'exit 0' >"$mutate_drive"
   chmod +x "$rig" "$fail_drive" "$mutate_drive"
 
   : >"$root/events"
@@ -119,12 +124,15 @@ static_self_test() {
   printf '%s\n' '{"protected":true}' >"$marker"
   : >"$root/events"
   set +e
-  P3110_TEST_EVENTS="$root/events" test_invocation "$marker" "$rig" "$mutate_drive" >/dev/null 2>&1
+  P3110_TEST_EVENTS="$root/events" test_invocation "$marker" "$rig" "$mutate_drive" >/dev/null 2>"$mutate_stderr"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || { printf '%s\n' 'STATIC SELF TEST changed marker passed' >&2; return 1; }
+  grep -Fx 'ATOMIC REFUSAL protected marker changed' "$mutate_stderr" >/dev/null || { printf '%s\n' 'STATIC SELF TEST exact marker-change refusal missing' >&2; return 1; }
+  [ "$(sha256sum "$marker" | awk '{print $1}')" != "$original_marker" ] || { printf '%s\n' 'STATIC SELF TEST marker bytes did not change' >&2; return 1; }
+  grep -Fx 'drive-succeeded' "$root/events" >/dev/null || { printf '%s\n' 'STATIC SELF TEST mutate child did not succeed' >&2; return 1; }
   [ "$(sed -n '$p' "$root/events")" = down ] || { printf '%s\n' 'STATIC SELF TEST marker change skipped down' >&2; return 1; }
-  printf '%s\n' 'ATOMIC_STATIC_SELF_TEST_OK early-drive-rc=23 down=invoked changed-marker=refused'
+  printf '%s\n' 'ATOMIC_STATIC_SELF_TEST_OK protected-path=exact live-marker=exists early-drive-rc=23 down=invoked mutate-child=succeeded marker-bytes=changed exact-refusal=matched'
 }
 
 case "${1:-}" in
@@ -134,7 +142,7 @@ case "${1:-}" in
     before_marker="$(marker_snapshot "$PROTECTED_MARKER")"
     cleanup_armed=1
     trap finish EXIT
-    "$2"
+    "$2" "$PROTECTED_MARKER"
     ;;
   '') real_run ;;
   *) printf '%s\n' 'usage: run-headed-a1a.sh [--static-self-test]' >&2; exit 2 ;;
