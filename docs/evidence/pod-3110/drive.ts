@@ -341,6 +341,36 @@ interface LiteItem {
   [key: string]: unknown
 }
 
+interface TokenCount {
+  count: number
+  itemIdentities: { index: number; id: string; occurrences: number }[]
+}
+
+function transcriptTokenCount(items: LiteItem[], role: 'assistant' | 'user', token: string): TokenCount {
+  let count = 0
+  const itemIdentities: TokenCount['itemIdentities'] = []
+  items.forEach((item, index) => {
+    if (item.role !== role) return
+    const occurrences = (item.text ?? '').split(token).length - 1
+    if (occurrences === 0) return
+    count += occurrences
+    itemIdentities.push({ index, id: item.id ?? '(missing)', occurrences })
+  })
+  return { count, itemIdentities }
+}
+
+function a1aVerdict(
+  liveUser: TokenCount,
+  reloadedUser: TokenCount,
+  liveAssistant: TokenCount,
+  reloadedAssistant: TokenCount,
+  sent: boolean,
+): Verdict {
+  if (liveUser.count < 1 || reloadedUser.count < 1) return 'BLOCKED'
+  if (liveAssistant.count !== 1 || reloadedAssistant.count !== 1) return 'FAIL'
+  return sent ? 'PASS' : 'PARTIAL'
+}
+
 class RichChat {
   readonly items: LiteItem[] = []
   readonly frameTypes = new Map<string, number>()
@@ -664,16 +694,44 @@ async function answerOne(id: string): Promise<any> {
 
 async function a1a(): Promise<void> {
   await runCell('A1a', () => withSession('A1a', async (ctx) => {
+    const started = now()
     const r = await baseline(ctx, 'IDLE')
-    const control = controlForReply(r, ctx.chat)
+    const liveUser = transcriptTokenCount(ctx.chat.items, 'user', r.token)
+    const liveAssistant = transcriptTokenCount(ctx.chat.items, 'assistant', r.token)
     const disposition = responseDisposition(r.response)
     const sent = /delivered|sent/i.test(disposition) && responseOk(r.response)
+    await ctx.chat.close()
+    const reloaded = new RichChat(ctx.sid)
+    await reloaded.open()
+    reloaded.mode(arm === 'terminal' ? 'native' : 'chat')
+    ctx.chat = reloaded
+    await waitFor(
+      () => ({ user: transcriptTokenCount(reloaded.items, 'user', r.token), assistant: transcriptTokenCount(reloaded.items, 'assistant', r.token) }),
+      (counts) => counts.user.count > 0 && counts.assistant.count > 0,
+      15_000,
+    )
+    const reloadedUser = transcriptTokenCount(reloaded.items, 'user', r.token)
+    const reloadedAssistant = transcriptTokenCount(reloaded.items, 'assistant', r.token)
+    const control: Control = {
+      fired: liveUser.count > 0 && reloadedUser.count > 0,
+      what: 'the probe prompt exists as a durable user transcript item in both live and freshly reloaded viewers',
+      detail: `liveUser=${liveUser.count} reloadedUser=${reloadedUser.count} liveItems=${short(liveUser.itemIdentities)} reloadedItems=${short(reloadedUser.itemIdentities)}`,
+    }
+    const verdict = a1aVerdict(liveUser, reloadedUser, liveAssistant, reloadedAssistant, sent)
     return {
-      verdict: !control.fired ? 'BLOCKED' : r.answer && sent ? 'PASS' : r.answer ? 'PARTIAL' : 'FAIL',
-      summary: r.answer && sent ? 'idle send replied and returned a sent/delivered disposition' : r.answer ? 'reply arrived but send did not expose sent/delivered' : 'idle send did not reply',
+      verdict,
+      summary: verdict === 'BLOCKED' ? 'durable user-prompt control was missing in the live or reloaded transcript' : verdict === 'FAIL' ? 'assistant reply token did not occur exactly once in both the live and freshly reloaded transcript item models' : verdict === 'PASS' ? 'idle send produced exactly one durable assistant reply live and after reload, with sent/delivered disposition' : 'exactly one durable assistant reply survived reload, but send did not expose sent/delivered',
       control,
-      evidence: [`SEND              ${short(dataOf(r.response) ?? r.response)}`, `DISPOSITION       ${disposition || '(absent)'}`, `REPLY             ${r.answer} after ${r.ms}ms`, `USER DURABLE      ${r.user}`],
-      data: { disposition, sent, replied: r.answer, token: r.token },
+      evidence: [
+        `SEND              ${short(dataOf(r.response) ?? r.response)}`,
+        `DISPOSITION       ${disposition || '(absent)'}`,
+        `REPLY LATENCY     ${r.ms}ms; reload observed after ${now() - started}ms`,
+        `LIVE USER         count=${liveUser.count} items=${short(liveUser.itemIdentities)}`,
+        `LIVE ASSISTANT    count=${liveAssistant.count} items=${short(liveAssistant.itemIdentities)}`,
+        `RELOAD USER       count=${reloadedUser.count} items=${short(reloadedUser.itemIdentities)}`,
+        `RELOAD ASSISTANT  count=${reloadedAssistant.count} items=${short(reloadedAssistant.itemIdentities)}`,
+      ],
+      data: { disposition, sent, token: r.token, liveUser, liveAssistant, reloadedUser, reloadedAssistant },
     }
   }))
 }
@@ -1363,6 +1421,19 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
   const blockedFired = evidenceFields(fake('A3', 'BLOCKED', true))[4]
   const blockedMissing = evidenceFields(fake('A3', 'BLOCKED', false))[4]
   if (!blockedFired.startsWith('yes —') || !blockedMissing.startsWith('no —')) throw new Error('BLOCKED control fidelity failed')
+  const token = 'P3110_UNIQUE_REPLY'
+  const userItems: LiteItem[] = [{ id: 'user-1', role: 'user', text: `Reply exactly ${token}` }]
+  const oneAssistant: LiteItem[] = [{ id: 'assistant-1', role: 'assistant', text: token }]
+  const duplicateAssistant: LiteItem[] = [
+    { id: 'assistant-1', role: 'assistant', text: token },
+    { id: 'assistant-2', role: 'assistant', text: token },
+  ]
+  const userCount = transcriptTokenCount(userItems, 'user', token)
+  const singleCount = transcriptTokenCount(oneAssistant, 'assistant', token)
+  const duplicateCount = transcriptTokenCount(duplicateAssistant, 'assistant', token)
+  if (a1aVerdict(userCount, userCount, singleCount, singleCount, true) !== 'PASS') throw new Error('A1a single assistant token did not pass')
+  if (a1aVerdict(userCount, userCount, duplicateCount, duplicateCount, true) !== 'FAIL') throw new Error('A1a duplicate assistant token did not fail')
+  if (a1aVerdict({ count: 0, itemIdentities: [] }, userCount, singleCount, singleCount, true) !== 'BLOCKED') throw new Error('A1a missing user control did not block')
   const owned = [LEDGER, JSON_PATH, ROWS, join(EVIDENCE_DIR, 'reading'), join(EVIDENCE_DIR, 'pin')]
   const exact = owned.map((path) => path.slice(REPO.length + 1))
   assertExactStagedSet(owned, exact)
@@ -1378,7 +1449,7 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     if (!String(error).includes('STOP-FIRST')) throw error
   }
   if (rows !== 1 || later !== 0) throw new Error(`stop-first self-test failed rows=${rows} later=${later}`)
-  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
+  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingle=${singleCount.count} a1aDuplicate=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
   process.exit(0)
 }
 
