@@ -35,6 +35,18 @@ const RESUME = { kind: 'claude-session', value: 'native-1' } as const
 const inputs = (daemon: ControlMessage[]) =>
   daemon.filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
 
+const confirmUserTurn = (
+  o: ReturnType<typeof makeOracle>,
+  sessionId: SessionId,
+  text: string,
+): void =>
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    type: 'transcriptDelta',
+    sessionId,
+    items: [{ id: `turn-${text}`, role: 'user' as const, text, cursor: `c-${text}` }],
+    tail: `c-${text}`,
+  })
+
 const hasSessionDelete = (client: ServerMessage[], sessionId: SessionId) =>
   client.some(
     (message) =>
@@ -424,6 +436,34 @@ describe('oracle: kill', () => {
     )
   })
 })
+  it('coalesces resurrection while asynchronous worktree preparation is pending', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    goLive(o, sessionId)
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+    })
+    o.daemon.length = 0
+
+    let release!: (result: { ok: true; cwd: string }) => void
+    vi.spyOn(o.reg.modules.sessions.workspace, 'ensureSessionWorktree').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    )
+
+    const first = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    const second = o.reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
+    expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
+
+    release({ ok: true, cwd: '/p' })
+    expect(await first).toEqual({ ok: true })
+    expect(await second).toEqual({ ok: true })
+    expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+  })
 
 describe('oracle: sendText / resumeAndSend', () => {
   /**
@@ -682,13 +722,86 @@ describe('oracle: sendText / resumeAndSend', () => {
 
       const delivered = ptyFrames(o.daemon).map((frame) => frame.data)
       expect(delivered.filter((data) => data.includes('one'))).toHaveLength(1)
-      expect(delivered.filter((data) => data.includes('two'))).toHaveLength(1)
+      expect(delivered.filter((data) => data.includes('two'))).toHaveLength(0)
+
+      confirmUserTurn(o, sessionId, 'one')
+      for (let i = 0; i < 50 && !ptyFrames(o.daemon).some((frame) => frame.data.includes('two')); i += 1) {
+        await vi.advanceTimersByTimeAsync(200)
+      }
+      expect(ptyFrames(o.daemon).filter((frame) => frame.data.includes('two'))).toHaveLength(1)
+
+      confirmUserTurn(o, sessionId, 'two')
+      for (let i = 0; i < 50 && o.store.sync.listQueuedMessages(sessionId).length > 0; i += 1) {
+        await vi.advanceTimersByTimeAsync(200)
+      }
       expect(o.store.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
     }
   })
 
+  it('refuses archived and unresumable dead targets before durable acceptance', async () => {
+    const archived = makeOracle()
+    const { sessionId: archivedId } = await archived.call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
+    goLive(archived, archivedId)
+    archived.reg.gateway.routeDaemonFrame(archived.reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId: archivedId,
+      code: 137,
+    })
+    await archived.call.sessions.setArchived({ sessionId: archivedId, archived: true })
+    archived.daemon.length = 0
+
+    expect(await archived.call.sessions.sendText({ sessionId: archivedId, text: 'do not wake' })).toEqual({
+      ok: false,
+      reason: 'session archived',
+      disposition: 'dead_letter',
+    })
+    expect(archived.store.sync.listQueuedMessages(archivedId)).toEqual([])
+    expect(archived.daemon.filter((message) => message.type === 'spawn')).toEqual([])
+
+    const unsupported = makeOracle()
+    const { sessionId: unsupportedId } = await unsupported.call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
+    unsupported.reg.gateway.routeDaemonFrame(unsupported.reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId: unsupportedId,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    unsupported.reg.gateway.routeDaemonFrame(unsupported.reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId: unsupportedId,
+      code: 1,
+    })
+
+    expect(
+      await unsupported.call.sessions.sendText({ sessionId: unsupportedId, text: 'cannot resume' }),
+    ).toEqual({ ok: false, reason: 'no resume ref', disposition: 'dead_letter' })
+    expect(unsupported.store.sync.listQueuedMessages(unsupportedId)).toEqual([])
+  })
+
+  it.each(['errored', 'idle'] as const)(
+    'does not resurrect an already-live %s target',
+    async (phase) => {
+      const o = makeOracle()
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      goLive(o, sessionId, phase)
+      o.daemon.length = 0
+
+      const result = await o.call.sessions.sendText({ sessionId, text: 'still live' })
+
+      expect(result.ok).toBe(true)
+      expect(o.daemon.filter((message) => message.type === 'spawn')).toEqual([])
+    },
+  )
 })
 describe('oracle: answerAskUserQuestion', () => {
   // The missing Enter is the load-bearing half: a LONE single-select question is

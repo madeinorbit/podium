@@ -282,6 +282,66 @@ describe('queueText (durable outbox sends)', () => {
       vi.useRealTimers()
     }
   })
+  it('reconstructs a lost wake from the durable queue after server restart and process-gone proof', async () => {
+    vi.useFakeTimers()
+    try {
+      const file = join(mkdtempSync(join(tmpdir(), 'podium-dead-send-reconcile-')), 'podium.db')
+      const storeA = new SessionStore(file, TEST_MACHINE)
+      const regA = new SessionRegistry(storeA, undefined, { instanceId: 'default' })
+      regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, () => {})
+      const sessionId = hibernatedSession(regA)
+      regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      expect(
+        regA.modules.sessions.queueText({
+          sessionId: asSessionId(sessionId),
+          text: 'wake',
+          mutationId: asMutationId('restart-wake'),
+        }),
+      ).toEqual({ ok: true, queued: true })
+      regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId: asSessionId(sessionId),
+        code: 137,
+      })
+      regA.dispose()
+
+      const storeB = new SessionStore(file, TEST_MACHINE)
+      const regB = new SessionRegistry(storeB, undefined, { instanceId: 'default' })
+      const daemon: ControlMessage[] = []
+      regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (message) => daemon.push(message))
+      expect(
+        regB.modules.sessions.listSessions().find((session) => session.sessionId === sessionId),
+      ).toMatchObject({ status: 'exited', queuedMessageCount: 1 })
+
+      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
+        type: 'reattachFailed',
+        sessionId: asSessionId(sessionId),
+        reason: 'process gone',
+      })
+      await vi.waitFor(() =>
+        expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1),
+      )
+
+      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
+        type: 'agentState',
+        sessionId: asSessionId(sessionId),
+        state: {
+          phase: 'idle',
+          since: '2026-08-31T00:00:01.000Z',
+          nativeSubagentCount: 0,
+        },
+      })
+      settle(regB, sessionId)
+      expect(pastesContaining(daemon, 'wake')).toHaveLength(1)
+      confirmUserTurn(regB, sessionId, 'wake')
+      advanceUntilSettled(regB, sessionId, 'wake')
+      expect(storeB.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
+      regB.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('a due one-off wakes a hibernated target and delivers its message exactly once', async () => {
     vi.useFakeTimers()

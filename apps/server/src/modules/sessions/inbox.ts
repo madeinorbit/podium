@@ -1042,6 +1042,20 @@ export class SessionInbox {
     return position >= 0 ? position + 1 : undefined
   }
 
+  /** Reconstruct a lost wake intent from the durable queue after liveness proof. */
+  reconcileQueuedWake(sessionId: SessionId): void {
+    const session = this.deps.getSession(sessionId)
+    if (
+      !session ||
+      session.archived ||
+      (session.status !== 'hibernated' && session.status !== 'exited') ||
+      (session.agentKind !== 'shell' && !session.resume)
+    )
+      return
+    const head = this.deps.queue.list(sessionId)[0]
+    if (head) this.deps.resurrect(sessionId, head.principal)
+  }
+
   /** Remove every still-pending PTY row backed by one message-ledger intent. */
   cancelQueuedMessage(sessionId: SessionId, sourceMessageId: string): boolean {
     const session = this.deps.getSession(sessionId)

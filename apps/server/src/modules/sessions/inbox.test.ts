@@ -43,13 +43,15 @@ function harness(
     agentKind?: 'codex' | 'opencode' | 'grok' | 'claude-code' | 'shell'
     /** The harness's observed phase — what the interrupt's idle guard reads, and
      *  what a queued send meets: `working` is WHY the send was queued (POD-1242). */
+    archived?: boolean
+    resumable?: boolean
+    condition?: 'logged-out'
     phase?: string
     userTurns?: number
     /** Whether the transcript can WITNESS a send — production's normal state for
      *  an agent session, and what the confirmation gate keys off (POD-1100). */
     transcriptAvailable?: boolean
     stateObservedAt?: string
-    archived?: boolean
     /** Model a server-family session (no PTY bridge behind it) — POD-2291. */
     serverDriven?: boolean
     /** Exact live runtime binding facts reported by the daemon bind. */
@@ -94,6 +96,9 @@ function harness(
   let nativeView = options.nativeView ?? false
   const applied = vi.fn()
   const injected = vi.fn()
+  const resurrect = vi.fn((sessionId: SessionId, principal: InboxPrincipalReference) => {
+    resurrections.push({ sessionId, principal })
+  })
   const handleInput = vi.fn()
   const transcript: Array<{ id: string; role: 'user' | 'assistant'; text: string }> = Array.from(
     { length: options.userTurns ?? 0 },
@@ -102,12 +107,13 @@ function harness(
   const session = {
     sessionId: SID,
     machineId: 'machine-1',
+    archived: options.archived ?? false,
+    condition: options.condition,
     status: options.status ?? 'live',
     agentKind: options.agentKind ?? 'codex',
-    resume: { kind: 'codex', value: 'resume-1' },
+    resume: options.resumable === false ? undefined : { kind: 'codex', value: 'resume-1' },
     runtimeContract: options.runtimeContract ?? false,
     driverId: options.driverId,
-    archived: options.archived ?? false,
     queuedMessageCount: 0,
     transcriptAvailable: options.transcriptAvailable ?? false,
     agentState: {
@@ -203,9 +209,7 @@ function harness(
     ownerOf: () => (options.owner === undefined ? ALICE : options.owner),
     setSessionDraft,
     draftText: () => draft,
-    resurrect: (sessionId, principal) => {
-      resurrections.push({ sessionId, principal })
-    },
+    resurrect,
     ...(options.serverDriven !== undefined
       ? { serverDriven: () => options.serverDriven === true }
       : {}),
@@ -267,6 +271,7 @@ function harness(
     injected,
     handleInput,
     transcript,
+    resurrect,
     revoke: () => {
       authorized = false
     },
@@ -1211,6 +1216,49 @@ describe('SessionInbox authorization and identity', () => {
     vi.advanceTimersByTime(5_000)
 
     expect(h.sent).toHaveLength(1)
+  })
+})
+
+describe('SessionInbox durable wake reconciliation', () => {
+  it.each(['exited', 'hibernated'])('reconstructs one wake for queued %s work', (status) => {
+    const h = harness({ status })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'queued before crash',
+      mutationId: asMutationId('reconcile-wake'),
+      principal: agentPrincipal(),
+    })
+    h.resurrect.mockClear()
+
+    h.inbox.reconcileQueuedWake(SID)
+    h.inbox.reconcileQueuedWake(SID)
+
+    expect(h.resurrect).toHaveBeenCalledTimes(2)
+    expect(h.resurrect).toHaveBeenCalledWith(SID, agentPrincipal())
+  })
+
+  it.each([
+    ['already-live', { status: 'live' }],
+    ['errored-live', { status: 'live', phase: 'errored' }],
+    ['logged-out-live', { status: 'live', phase: 'errored', condition: 'logged-out' }],
+    ['archived', { status: 'exited', archived: true }],
+    ['unsupported-no-resume', { status: 'exited', resumable: false }],
+  ] as const)('does not reconstruct a wake for %s', (_name, options) => {
+    const h = harness()
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'durable row',
+      mutationId: asMutationId('reconcile-ineligible'),
+      principal: agentPrincipal(),
+    })
+    Object.assign(h.session, options)
+    if (_name === 'unsupported-no-resume') Object.assign(h.session, { resume: undefined })
+    h.resurrect.mockClear()
+
+    h.inbox.reconcileQueuedWake(SID)
+
+    expect(h.resurrect).not.toHaveBeenCalled()
+    expect(h.rows).toHaveLength(1)
   })
 })
 

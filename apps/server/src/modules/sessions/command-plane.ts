@@ -527,6 +527,20 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
         disposition: 'dead_letter',
       }
     }
+    if (target.archived) {
+      return {
+        ok: false,
+        reason: 'session archived',
+        disposition: 'dead_letter',
+      }
+    }
+    if (
+      (target.status === 'exited' || target.status === 'hibernated') &&
+      target.agentKind !== 'shell' &&
+      !target.resumable
+    ) {
+      return { ok: false, reason: 'no resume ref', disposition: 'dead_letter' }
+    }
     // A wait-send may be held behind a LIVE turn, but it cannot be held behind
     // a dead process: no turn boundary will ever arrive to re-arm delivery.
     // Upgrade only that process-gone state to the durable wake path. This keeps

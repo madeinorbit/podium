@@ -466,6 +466,10 @@ export class SessionDaemonLifecycle {
             this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
           }
         }
+        // A queued send may have committed just before the server died, losing
+        // only its in-memory wake event. Once the durable host confirms this
+        // process is gone, reconstruct that wake from the durable queue.
+        this.inbox.reconcileQueuedWake(msg.sessionId)
         this.broadcastSessions()
         break
       }

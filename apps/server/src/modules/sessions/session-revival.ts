@@ -85,11 +85,15 @@ export interface SessionRevivalPorts {
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
+type ResurrectionResult = { ok: boolean; reason?: string }
+
 export class SessionRevival {
   /** ONE coordinator for the life of this owner — its single-flight map is the
    *  guard. A per-call coordinator would start every dispatch with an empty map. */
   private handoffCoordinator: HandoffCoordinator | undefined
+  /** One resurrection transition per session, including async workspace repair. */
 
+  private readonly pendingResurrections = new Map<SessionId, Promise<ResurrectionResult>>()
   constructor(private readonly ports: SessionRevivalPorts) {}
 
   async resumeSession(
@@ -276,6 +280,8 @@ export class SessionRevival {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return Promise.resolve({ ok: false, reason: 'unknown session' })
     if (session.archived) return Promise.resolve({ ok: false, reason: 'session is archived' })
+    const pending = this.pendingResurrections.get(sessionId)
+    if (pending) return pending
     // Hibernated (parked on purpose) and exited (process died or was killed
     // externally) are the same situation here: no process, but the row and the
     // resume ref are intact — both come back with one spawn.
@@ -331,7 +337,13 @@ export class SessionRevival {
       ? { ok: true, cwd: session.cwd }
       : this.ports.workspace.ensureSessionWorktree(session, issues)
     if (ensured instanceof Promise) {
-      return ensured.then((e) => this.finishResurrect(session, e, adoptedBinding))
+      const resurrection = ensured
+        .then((e) => this.finishResurrect(session, e, adoptedBinding))
+        .finally(() => {
+          this.pendingResurrections.delete(sessionId)
+        })
+      this.pendingResurrections.set(sessionId, resurrection)
+      return resurrection
     }
     return Promise.resolve(this.finishResurrect(session, ensured, adoptedBinding))
   }
