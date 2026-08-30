@@ -176,6 +176,14 @@ private struct PodiumSpeechFailure: CodedError, LocalizedError, Sendable {
     }
     return Self(code: fallbackCode, message: fallbackMessage, recoverable: true)
   }
+
+  static var audioBacklogOverflow: Self {
+    return Self(
+      code: "audio_backlog_overflow",
+      message: "Dictation stopped because audio processing fell behind. Try again.",
+      recoverable: true
+    )
+  }
 }
 
 @available(iOS 26.0, *)
@@ -236,8 +244,34 @@ private struct PodiumAudioSessionConfiguration {
   let options: AVAudioSession.CategoryOptions
 }
 
+private final class PodiumSpeechOverflowLatch: @unchecked Sendable {
+  private let lock = NSLock()
+  private var overflowed = false
+
+  var hasOverflowed: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return overflowed
+  }
+
+  func signal() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !overflowed else { return false }
+    overflowed = true
+    return true
+  }
+}
+
 @available(iOS 26.0, *)
 private actor PodiumSpeechService {
+  // Sixteen 4096-frame tap buffers allow about 1.4 seconds of scheduling
+  // delay at 48 kHz without letting slow conversion retain audio forever.
+  private static let capturedAudioBufferLimit = 16
+  // Conversion can produce several analyzer buffers for one tap buffer, so
+  // its downstream queue gets a larger but still fixed allowance.
+  private static let analyzerInputBufferLimit = 32
+
   private let emit: @Sendable (PodiumSpeechEvent) -> Void
   private var generation = 0
   private var eventGeneration = 0
@@ -259,6 +293,7 @@ private actor PodiumSpeechService {
   private var ownsAudioSession = false
   private var audioTapInstalled = false
   private var previousAudioSessionConfiguration: PodiumAudioSessionConfiguration?
+  private var audioOverflowLatch: PodiumSpeechOverflowLatch?
   private var terminalFailure: PodiumSpeechFailure?
 
   init(emit: @escaping @Sendable (PodiumSpeechEvent) -> Void) {
@@ -475,6 +510,9 @@ private actor PodiumSpeechService {
     if try stopWasSuperseded(generation: stopGeneration) { return }
 
     do {
+      if audioOverflowLatch?.hasOverflowed == true {
+        throw PodiumSpeechFailure.audioBacklogOverflow
+      }
       try flushConverter()
       inputContinuation?.finish()
       inputContinuation = nil
@@ -593,13 +631,21 @@ private actor PodiumSpeechService {
       )
     }
 
-    let (inputSequence, inputContinuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
-    let (audioSequence, audioContinuation) = AsyncStream.makeStream(of: AVAudioPCMBuffer.self)
+    let (inputSequence, inputContinuation) = AsyncStream.makeStream(
+      of: AnalyzerInput.self,
+      bufferingPolicy: .bufferingOldest(Self.analyzerInputBufferLimit)
+    )
+    let (audioSequence, audioContinuation) = AsyncStream.makeStream(
+      of: AVAudioPCMBuffer.self,
+      bufferingPolicy: .bufferingOldest(Self.capturedAudioBufferLimit)
+    )
+    let overflowLatch = PodiumSpeechOverflowLatch()
     self.transcriber = transcriber
     self.analyzer = analyzer
     self.analyzerFormat = analyzerFormat
     self.inputContinuation = inputContinuation
     self.audioContinuation = audioContinuation
+    self.audioOverflowLatch = overflowLatch
 
     resultTask = Task { [weak self, transcriber] in
       do {
@@ -676,12 +722,50 @@ private actor PodiumSpeechService {
     self.converter = converter
     installAudioObservers(for: session, engine: engine, generation: startGeneration)
 
+    let stopForOverflow: @Sendable () -> Void = { [weak self] in
+      guard overflowLatch.signal() else { return }
+      // Finishing here makes later tap callbacks observe .terminated instead
+      // of scheduling one abort task per rejected buffer.
+      audioContinuation.finish()
+      Task { [weak self] in
+        await self?.abort(
+          generation: startGeneration,
+          reason: .audioBacklogOverflow,
+          notify: true
+        )
+      }
+    }
     inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, _ in
-      audioContinuation.yield(buffer)
+      switch audioContinuation.yield(buffer) {
+      case .enqueued:
+        break
+      case .dropped:
+        stopForOverflow()
+      case .terminated:
+        break
+      @unknown default:
+        stopForOverflow()
+      }
     }
     audioTapInstalled = true
     engine.prepare()
     try engine.start()
+  }
+
+  private func yieldAnalyzerInput(
+    _ buffer: AVAudioPCMBuffer,
+    to continuation: AsyncStream<AnalyzerInput>.Continuation
+  ) throws {
+    switch continuation.yield(AnalyzerInput(buffer: buffer)) {
+    case .enqueued:
+      return
+    case .dropped:
+      throw PodiumSpeechFailure.audioBacklogOverflow
+    case .terminated:
+      throw CancellationError()
+    @unknown default:
+      throw PodiumSpeechFailure.audioBacklogOverflow
+    }
   }
 
   private func consume(_ buffer: AVAudioPCMBuffer, generation startGeneration: Int) throws {
@@ -730,7 +814,7 @@ private actor PodiumSpeechService {
         return buffer
       }
       if converted.frameLength > 0 {
-        inputContinuation.yield(AnalyzerInput(buffer: converted))
+        try yieldAnalyzerInput(converted, to: inputContinuation)
       }
 
       switch status {
@@ -778,7 +862,7 @@ private actor PodiumSpeechService {
         return nil
       }
       if converted.frameLength > 0 {
-        inputContinuation.yield(AnalyzerInput(buffer: converted))
+        try yieldAnalyzerInput(converted, to: inputContinuation)
       }
 
       switch status {
@@ -930,6 +1014,7 @@ private actor PodiumSpeechService {
     analyzerFormat = nil
     converter = nil
     audioEngine = nil
+    audioOverflowLatch = nil
     currentAvailability = nil
     let session = AVAudioSession.sharedInstance()
     if ownsAudioSession {
