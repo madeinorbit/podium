@@ -631,38 +631,52 @@ async function runA2a() {
   const { sid, chat } = await create()
   try {
     const needle = 'P3112-A2A-' + Date.now().toString(36).toUpperCase()
+    const sendCalledAt = Date.now()
     const sent = await mutate('sessions.sendText', {
       sessionId: sid,
-      text: 'Count from 1 to 180 with one sentence per number. Do not use tools. Include ' + needle + ' in your final line.',
+      text: 'Count from 1 to 12, one number per line, then finish with the word ' + needle + '. Do not use tools.',
     })
-    const user = await waitForNeedle(sid, chat, needle, 'user', 5_000)
-    const samples: { at: number; phase?: string; status?: string; driverId?: string | null }[] = []
+    const sendAcceptedAt = Date.now()
+    const sendRoundTripMs = sendAcceptedAt - sendCalledAt
+    const samples: { at: number; phase: string; status?: string; driverId?: string | null }[] = []
     const started = Date.now()
-    while (Date.now() - started < 15_000) {
+    let answered = false
+    let lastPhase = ''
+    while (Date.now() - started < BUSY_MS) {
       const row = await status(sid)
-      samples.push({ at: Date.now() - started, phase: row?.phase, status: row?.status, driverId: row?.driverId })
+      const phase = row?.phase ?? '(blank)'
+      if (phase !== lastPhase) {
+        samples.push({ at: Date.now() - started, phase, status: row?.status, driverId: row?.driverId })
+        lastPhase = phase
+      }
+      if (!answered) answered = (await items(sid)).some((item) => item.role === 'assistant' && item.text.includes(needle))
+      if (answered && phase === 'idle' && Date.now() - started > 3_000) break
       await wait(250)
     }
-    const workingAt = samples.find((x) => x.phase === 'working')
-    const idleDuring = samples.filter((x) => x.phase === 'idle').length
-    const assistant = await waitForNeedle(sid, chat, needle, 'assistant', BUSY_MS)
     const after = await status(sid)
+    const firstWorkingIdx = samples.findIndex((sample) => sample.phase === 'working')
+    const lastWorkingIdx = samples.map((sample) => sample.phase).lastIndexOf('working')
+    const workingAt = firstWorkingIdx >= 0 ? samples[firstWorkingIdx] : undefined
+    const flickers = samples.filter(
+      (sample, index) => index > firstWorkingIdx && index < lastWorkingIdx && (sample.phase === 'idle' || sample.phase === '(blank)'),
+    )
+    const endsIdle = samples.at(-1)?.phase === 'idle' && after?.phase === 'idle'
     const control: Control = {
-      fired: user.ok || assistant.ok || Boolean(workingAt) || Boolean((sent.result?.data as { ok?: boolean } | undefined)?.ok),
-      what: 'the working-turn send delivering or producing a measurable in-flight signal',
-      detail: 'user=' + user.ok + '; assistant=' + assistant.ok + '; workingAt=' + short(workingAt ?? null),
+      fired: answered,
+      what: 'the short turn actually running to completion with its assistant nonce observed',
+      detail: 'assistant=' + answered + '; workingAt=' + short(workingAt ?? null),
     }
-    const pass = Boolean(workingAt && workingAt.at <= 2_000 && idleDuring === 0 && after?.phase !== 'working')
+    const pass = Boolean(workingAt && workingAt.at <= 2_000 && flickers.length === 0 && endsIdle)
     return result(
       !control.fired ? 'BLOCKED' : pass ? 'PASS' : 'FAIL',
       !control.fired
-        ? 'working-turn control did not land'
+        ? 'short-turn completion control did not land'
         : pass
-          ? 'working appeared within 2s, stayed working through the sample, and returned idle'
+          ? 'working appeared within 2s of accepted send, had no mid-turn idle/blank flicker, and settled idle'
           : 'working badge timing or continuity did not meet the release criterion',
       control,
-      ['SEND              ' + short(sent.result?.data ?? sent.error ?? null), 'WORKING AT        ' + short(workingAt ?? null), 'IDLE SAMPLES      ' + idleDuring, 'AFTER             ' + short(after)],
-      { sid, user: user.ok, assistant: assistant.ok, workingAt, idleDuring, samples, after },
+      ['SEND              ' + short(sent.result?.data ?? sent.error ?? null), 'SEND ROUND-TRIP   ' + sendRoundTripMs + 'ms', 'WORKING AT        ' + short(workingAt ?? null), 'MID-TURN FLICKERS ' + flickers.length, 'FINAL IDLE        ' + endsIdle, 'AFTER             ' + short(after)],
+      { sid, answered, sendRoundTripMs, workingAt, flickers, endsIdle, samples, after },
     )
   } finally {
     await cleanup(sid, chat)
