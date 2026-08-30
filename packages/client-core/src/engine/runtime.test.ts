@@ -376,6 +376,31 @@ describe('engine lifecycle', () => {
     engine.dispose()
   })
 
+  it('refreshes an authorized repo snapshot when a machine event keeps the same online count', async () => {
+    const api = makeApi()
+    const { engine, hub } = makeEngine({ api })
+    engine.start()
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    hub.emit('machines', [
+      { id: asMachineId('daemon-before-restart'), online: true, name: 'before' },
+    ])
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    // A rebound daemon replacing the prior visible machine leaves the online
+    // count at one. The old count-rise heuristic skipped this invalidation and
+    // could leave the worklist joined against the wrong machine snapshot.
+    hub.emit('machines', [
+      { id: asMachineId('daemon-after-restart'), online: true, name: 'after' },
+    ])
+    await settle()
+
+    expect(api.discovery.refreshRepos.mutate).toHaveBeenCalledTimes(1)
+    engine.dispose()
+  })
+
   it("publishes the signed-in user's superagent threads at boot (POD-330)", async () => {
     // The view used to fetch this list itself and hold it in useState. It is
     // store state now, so boot must actually load it — a store field nobody

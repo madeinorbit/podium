@@ -24,6 +24,7 @@ export interface BootFetchPorts<TApi extends PodiumClientApi> {
 
 export class BootFetches<TApi extends PodiumClientApi> {
   private readonly ports: BootFetchPorts<TApi>
+  private refreshReposGeneration = 0
 
   constructor(ports: BootFetchPorts<TApi>) {
     this.ports = ports
@@ -32,9 +33,14 @@ export class BootFetches<TApi extends PodiumClientApi> {
   /** Enrich the registered repos with branch/worktree metadata (fast — no
    *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */
   async refreshRepos(): Promise<void> {
+    const generation = ++this.refreshReposGeneration
     this.ports.publish({ reposLoading: true })
     try {
       const r = await this.ports.api.discovery.refreshRepos.mutate()
+      // A machinesChanged invalidation may start a newer authorized refresh
+      // while this request is in flight. Its response is the only snapshot
+      // allowed to publish; an older HTTP response must not undo it.
+      if (generation !== this.refreshReposGeneration) return
       // This is deliberately one publication. Worklist scoping joins repo rows
       // to machine visibility; publishing either half against an older half can
       // hide a valid durable repo during daemon rebind and leave a reload empty.
@@ -44,7 +50,9 @@ export class BootFetches<TApi extends PodiumClientApi> {
         machines: r.machines,
       })
     } finally {
-      this.ports.publish({ reposLoading: false, reposLoaded: true })
+      if (generation === this.refreshReposGeneration) {
+        this.ports.publish({ reposLoading: false, reposLoaded: true })
+      }
     }
   }
 

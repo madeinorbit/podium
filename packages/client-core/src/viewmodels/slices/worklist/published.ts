@@ -49,6 +49,7 @@ import { allIssueViewModels } from '../../../replica/issue-view-cache'
 import type { IssueNavigationModel } from '../issues'
 import { defineSlice } from '../publish'
 import { groupUnifiedWorkRows, splitPinnedWork, type UnifiedWorkGroup } from './folds'
+import { reposVisibleOnMachines } from './machine-scope'
 import { type SidebarSections, sidebarSections } from './nav'
 import type { UnifiedWorkRow } from './row-types'
 import { unifiedWorkList } from './rows'
@@ -204,13 +205,12 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
   },
   derive: (store) => {
     const issues = issuesOf(store)
-    // refreshRepos already applies machine SEE on the server and publishes the
-    // authorized repository and machine snapshots together. Do not join those
-    // repositories against the independently streamed machine snapshot again:
-    // a stale machinesChanged event can omit a reconnecting daemon after the
-    // refresh and must not erase an already-authorized durable repository row.
+    // The repo/project tree is bounded by machine SEE before it is built (POD-407):
+    // repos and worktrees are per-machine facts and inherit that machine's scoping
+    // rather than carrying their own. See `machine-scope.ts` for why an unstamped
+    // row and an empty machine list both mean "not scoped", not "hide it".
     const sections = sidebarSections(
-      store.repos,
+      reposVisibleOnMachines(store.repos, store.machines),
       store.sessions,
       store.pins,
       store.coarseNow,

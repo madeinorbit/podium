@@ -595,17 +595,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // (host metrics, machines, drafts) mirrors hub events into the snapshot.
     offs.push(this.hub.on('hostMetrics', (m) => this.apply({ hostMetrics: m })))
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
-    // Repos are only scannable through a connected daemon, so a machine coming
-    // online (e.g. the split daemon reconnecting after a restart) can make
-    // previously-empty repos available. Refetch when the online count climbs, so
-    // the workspace isn't stuck on the "add a repo" empty state until a reload.
-    let onlineMachines = 0
+    // Apply the scoped machine snapshot immediately so a SEE revocation hides
+    // its repositories, then reconcile repos and machines from one authorized
+    // server snapshot. Every event is an invalidation: equal online counts can
+    // still replace a restarted daemon, so count-based refresh skips are unsafe.
     offs.push(
       this.hub.on('machines', (m) => {
         this.apply({ machines: m })
-        const online = m.reduce((n, x) => n + (x.online ? 1 : 0), 0)
-        if (online > onlineMachines) void this.boot.refreshRepos().catch(() => {})
-        onlineMachines = online
+        void this.boot.refreshRepos().catch(() => {})
       }),
     )
     // An arriving composer document. It is OFFERED to the ledger rather than
