@@ -519,8 +519,9 @@ describe('the side cache', () => {
 
   it('bounds the transcript cache: newest items per conversation, LRU across them', () => {
     let clock = 0
+    const storage = memoryStorage()
     const side = createSideCache({
-      storage: memoryStorage(),
+      storage,
       enumerateKeys: () => [],
       now: () => (clock += 1),
     })
@@ -535,6 +536,58 @@ describe('the side cache', () => {
     // newest is kept.
     expect(side.transcriptWindow('c1')).toBeUndefined()
     expect(side.transcriptWindow('c51')).toBeDefined()
+
+    const reloaded = createSideCache({ storage, enumerateKeys: () => [] })
+    expect(reloaded.transcriptWindow('c1')).toBeUndefined()
+    expect(reloaded.transcriptWindow('c51')).toBeDefined()
+  })
+
+  it('writes one transcript shard and lazily recovers untouched v1 windows', () => {
+    const values = new Map<string, string>()
+    const writes: { key: string; value: string }[] = []
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, value)
+        writes.push({ key, value })
+      },
+      removeItem: (key: string) => void values.delete(key),
+    }
+    const legacyKey = 'podium.kernel-replica.transcripts.v1'
+    values.set(
+      legacyKey,
+      JSON.stringify({
+        'conversation/one': { items: [{ id: 'old-1' }], savedAt: 1 },
+        'conversation/two': { items: [{ id: 'old-2' }], savedAt: 2 },
+      }),
+    )
+
+    const side = createSideCache({ storage, enumerateKeys: () => [], now: () => 3 })
+    writes.length = 0
+    side.putTranscriptWindow('conversation/one', [{ id: 'new-1' }] as never[])
+
+    expect(writes.map((write) => write.key)).toEqual([
+      'podium.kernel-replica.transcript-window.v2.conversation%2Fone',
+      'podium.kernel-replica.transcripts-index.v2',
+    ])
+    expect(values.get(legacyKey)).toContain('old-2')
+    expect(writes.every((write) => write.value.length < (values.get(legacyKey)?.length ?? 0))).toBe(
+      true,
+    )
+
+    const reloaded = createSideCache({ storage, enumerateKeys: () => [] })
+    expect((reloaded.transcriptWindow('conversation/one')?.items[0] as { id: string }).id).toBe(
+      'new-1',
+    )
+    expect((reloaded.transcriptWindow('conversation/two')?.items[0] as { id: string }).id).toBe(
+      'old-2',
+    )
+
+    writes.length = 0
+    reloaded.putTranscriptWindow('conversation/one', [{ id: 'newer-1' }] as never[])
+    expect(writes.map((write) => write.key)).toEqual([
+      'podium.kernel-replica.transcript-window.v2.conversation%2Fone',
+    ])
   })
 
   it('keeps the queued and awaiting-truth outbox stages in SEPARATE homes', () => {

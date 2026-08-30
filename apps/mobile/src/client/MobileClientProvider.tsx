@@ -48,6 +48,7 @@ import {
   createSideCache,
   FeedAuthorityClient,
   FeedSink,
+  isTranscriptWindowStorageKey,
   PushedBootstrapSource,
   preparePrincipalNamespace,
   REPLICA_KEY_PREFIX,
@@ -262,6 +263,8 @@ export interface MobileReplica {
   readonly store: MobileEntityStore
   readonly principal: string
   readonly clientPrincipal: string
+  /** Drain entity storage and the debounced AsyncStorage side cache. */
+  settled(): Promise<void>
   /**
    * Call once the engine's hub exists. A re-bootstrap is a reconnect, so
    * `PushedBootstrapSource` needs `hub.requestFreshWorld()`, and the hub is
@@ -505,6 +508,9 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     store,
     principal,
     clientPrincipal,
+    settled: async () => {
+      await Promise.all([store.settled(), deps.flushStorage?.() ?? Promise.resolve()])
+    },
     attachHub: (attached) => {
       hub = attached
       if (freshWorldPending) {
@@ -772,7 +778,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     // background, and closing IndexedDB there is the ~60s lock on the next
     // open. The socket is woken separately in MobileHubAttach.
     const onPageHide = () => {
-      void replicaForCleanup?.store.settled()
+      void replicaForCleanup?.settled()
     }
     if (typeof window !== 'undefined') {
       window.addEventListener('pagehide', onPageHide)
@@ -785,7 +791,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const [bridge, status, pendingCleanups] = await Promise.all([
-          createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES),
+          createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES, {
+            coalesce: isTranscriptWindowStorageKey,
+          }),
           inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
