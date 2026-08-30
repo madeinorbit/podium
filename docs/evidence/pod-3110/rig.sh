@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # POD-3110 — isolated Grok acceptance rig.
 #
-# This rig deliberately does not set HOME, PODIUM_STATE_DIR, ABDUCO_SOCKET_DIR,
-# PODIUM_PORT, or any XDG path.  The named instance derives its state root,
+# This rig deliberately does not assign HOME, PODIUM_STATE_DIR, ABDUCO_SOCKET_DIR,
+# PODIUM_RUNTIME_DRIVER, or any XDG path. PODIUM_PORT is exported only by the
+# drive client; server and daemon use the complete product-derived port tuple. The named instance derives its state root,
 # ports, and agent home from the product's normal resolvers.  The only paths
 # supplied here are the checkout's built web bundle and the evidence scratch
 # directory; neither changes instance identity.
@@ -12,7 +13,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 INSTANCE="p3110-grok-paired-final-tip-2af0"
 DRIVE_BASE="/tmp/pod-3110-grok-paired-final-tip-2af0"
-LOGS="$DRIVE_BASE/logs"
+RUN_TOKEN="${P3110_RUN_TOKEN:?source rig-env.sh to set an immutable UTC run token}"
+RUN_DIR="$DRIVE_BASE/runs/$RUN_TOKEN"
+LOGS="$RUN_DIR/logs"
 WEB="$REPO/apps/web/dist"
 BUN="/home/mgw/.bun/bin/bun"
 PASSWORD="p3110-grok-paired-final-tip-2af0-proof"
@@ -21,6 +24,46 @@ NORMAL_HOME="${HOME:?HOME must be inherited from the operator environment}"
 export PATH="/home/mgw/.bun/bin:/home/mgw/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 
 mkdir -p "$LOGS"
+
+cleanup_on_failure() {
+  local rc=$?
+  [ "$rc" -eq 0 ] && return 0
+  auth on >/dev/null 2>&1 || true
+  stop_named daemon >/dev/null 2>&1 || true
+  stop_named server >/dev/null 2>&1 || true
+  printf '%s\n' "failure cleanup completed for run $RUN_TOKEN (rc=$rc)" >&2
+}
+
+validate_dependencies() {
+  [ -d "$REPO/node_modules" ] && [ ! -L "$REPO/node_modules" ] || { log "PREFLIGHT FAIL root node_modules must be a real checkout-local directory" >&2; return 1; }
+  local link target
+  for link in "$REPO/node_modules/@podium/runtime" "$REPO/node_modules/@podium/model"; do
+    [ -e "$link" ] || { log "PREFLIGHT FAIL missing workspace link $link; run setup:worktree before launch" >&2; return 1; }
+    target="$(readlink -f "$link")"
+    case "$target" in "$REPO"/*) ;; *) log "PREFLIGHT FAIL workspace link escapes checkout: $link -> $target" >&2; return 1 ;; esac
+  done
+}
+
+validate_immutable_inputs() {
+  local want=2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd short stamp version hash
+  git -C "$REPO" merge-base --is-ancestor "$want" HEAD || { log "PREFLIGHT FAIL product pin is not an ancestor" >&2; return 1; }
+  git -C "$REPO" diff --quiet "$want" HEAD -- . ':(exclude)docs/evidence/pod-3110' || { log "PREFLIGHT FAIL product bytes differ from exact pin" >&2; return 1; }
+  [ -f "$WEB/podium-build.json" ] || { log "PREFLIGHT FAIL web bundle missing" >&2; return 1; }
+  short="${want:0:7}"
+  stamp="$(sed -n 's/.*"sourceSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$WEB/podium-build.json")"
+  [ "$stamp" = "$short" ] || { log "PREFLIGHT FAIL web sourceSha=$stamp want=$short" >&2; return 1; }
+  hash="$(sha256sum /home/mgw/.grok/downloads/grok-linux-x86_64 | awk '{print $1}')"
+  [ "$hash" = c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 ] || { log "PREFLIGHT FAIL Grok hash" >&2; return 1; }
+  version="$(/home/mgw/.grok/downloads/grok-linux-x86_64 --version 2>&1 | head -1 | tr -d '\r')"
+  [ "$version" = '0.2.118 (1e1687c1cf) [stable]' ] || { log "PREFLIGHT FAIL Grok version=$version" >&2; return 1; }
+  local isolated_auth="$AGENT_HOME/.grok/auth.json" operator_auth="$NORMAL_HOME/.grok/auth.json"
+  if [ -L "$isolated_auth" ]; then
+    [ "$(readlink -f "$isolated_auth")" = "$(readlink -f "$operator_auth")" ] || { log "PREFLIGHT FAIL credential symlink target" >&2; return 1; }
+  elif [ -e "$isolated_auth" ]; then
+    log "PREFLIGHT FAIL isolated credential is not a symlink" >&2; return 1
+  fi
+  validate_dependencies
+}
 
 # The Podium session itself has relay and default-instance variables in its
 # environment.  A child runtime inheriting them would silently join the
@@ -45,17 +88,19 @@ state_dir() {
     'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())'
 }
 
-port() {
+ports() {
   env "${env_args[@]}" \
     PODIUM_INSTANCE="$INSTANCE" PODIUM_NO_RELAY=1 \
     "$BUN" --conditions=@podium/source -e \
-    'import { defaultInstancePorts } from "@podium/runtime/instance"; console.log(defaultInstancePorts(process.env.PODIUM_INSTANCE).server)'
+    'import { defaultInstancePorts } from "@podium/runtime/instance"; const p=defaultInstancePorts(process.env.PODIUM_INSTANCE); console.log(`${p.server} ${p.hook} ${p.agentRelay}`)'
 }
 
 STATE_DIR="$(state_dir)"
-PORT="$(port)"
-[ "$PORT" != 19797 ] || { printf '%s\n' 'refusing operator/default port 19797' >&2; exit 1; }
-[ "$PORT" != 32090 ] || { printf '%s\n' 'refusing reserved sandbox port 32090' >&2; exit 1; }
+read -r PORT HOOK_PORT RELAY_PORT <<<"$(ports)"
+for derived in "$PORT" "$HOOK_PORT" "$RELAY_PORT"; do
+  case "$derived" in 19797|32090) printf '%s\n' "refusing reserved port $derived" >&2; exit 1 ;; esac
+done
+[ "$PORT" != "$HOOK_PORT" ] && [ "$PORT" != "$RELAY_PORT" ] && [ "$HOOK_PORT" != "$RELAY_PORT" ] || { printf '%s\n' 'refusing duplicate derived ports' >&2; exit 1; }
 AGENT_HOME="$STATE_DIR/agent-home"
 
 runtime_env=(
@@ -76,14 +121,14 @@ log() { printf '%s\n' "$*"; }
 
 pid_of() {
   local name="$1"
-  local file="$DRIVE_BASE/$name.pid"
+  local file="$RUN_DIR/$name.pid"
   [ -s "$file" ] || return 1
   cat "$file"
 }
 
 stop_named() {
   local name="$1"
-  local file="$DRIVE_BASE/$name.pid"
+  local file="$RUN_DIR/$name.pid"
   [ -s "$file" ] || return 0
   local pid
   pid="$(cat "$file")"
@@ -120,11 +165,12 @@ start_component() {
   nohup bash -c 'cd "$1"; shift; exec "$@"' _ "$REPO" env "${env_for_component[@]}" "$BUN" --conditions=@podium/source "$script" \
     >"$LOGS/$name.log" 2>&1 </dev/null &
   local pid=$!
-  printf '%s\n' "$pid" >"$DRIVE_BASE/$name.pid"
+  printf '%s\n' "$pid" >"$RUN_DIR/$name.pid"
   # This is the pin: record the checkout SHA at the same moment the process is
   # spawned.  Never infer it from /proc mtimes.
-  git -C "$REPO" rev-parse HEAD >"$DRIVE_BASE/$name.sha"
-  log "started $name pid=$pid at $(cut -c1-7 "$DRIVE_BASE/$name.sha")"
+  printf '%s\n' 2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd >"$RUN_DIR/$name.sha"
+  git -C "$REPO" rev-parse HEAD >"$RUN_DIR/$name.harness-sha"
+  log "started $name pid=$pid at $(cut -c1-7 "$RUN_DIR/$name.sha")"
 }
 
 wait_health() {
@@ -161,9 +207,11 @@ up() {
   case "$arm" in headless|terminal) ;; *) log "usage: $0 up headless|terminal" >&2; return 2 ;; esac
   stop_named daemon
   stop_named server
+  validate_immutable_inputs
+  trap cleanup_on_failure EXIT
   claim_state
   seed_grok
-  rm -f "$DRIVE_BASE/daemon.sha" "$DRIVE_BASE/server.sha"
+  rm -f "$RUN_DIR/daemon.sha" "$RUN_DIR/server.sha"
 
   start_component server scripts/server.ts PODIUM_CHAT_STREAMING=1
   wait_health
@@ -203,19 +251,21 @@ verify() {
   local arm="${1:?verify arm row}"
   local row="${2:?verify arm row}"
   local want_sha want_short stamp web_sha server_pid daemon_pid
-  want_sha="$(git -C "$REPO" rev-parse HEAD)"
-  [ "$want_sha" = 2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd ] || { log "PIN FAIL checkout=$want_sha"; return 1; }
+  want_sha=2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd
+  git -C "$REPO" merge-base --is-ancestor "$want_sha" HEAD || { log "PIN FAIL ancestry"; return 1; }
+  git -C "$REPO" diff --quiet "$want_sha" HEAD -- . ':(exclude)docs/evidence/pod-3110' || { log "PIN FAIL product bytes"; return 1; }
   [ "$(sha256sum /home/mgw/.grok/downloads/grok-linux-x86_64 | awk '{print $1}')" = c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 ] || { log "PIN FAIL grok binary"; return 1; }
-  want_short="$(git -C "$REPO" rev-parse --short=7 HEAD)"
+  want_short="${want_sha:0:7}"
   server_pid="$(pid_of server)"
   daemon_pid="$(pid_of daemon)"
   kill -0 "$server_pid" 2>/dev/null || { log "PIN FAIL server pid=$server_pid is not alive"; return 1; }
   kill -0 "$daemon_pid" 2>/dev/null || { log "PIN FAIL daemon pid=$daemon_pid is not alive"; return 1; }
   [ "$(readlink -f "/proc/$server_pid/cwd")" = "$REPO" ] || { log "PIN FAIL server cwd"; return 1; }
   [ "$(readlink -f "/proc/$daemon_pid/cwd")" = "$REPO" ] || { log "PIN FAIL daemon cwd"; return 1; }
-  [ "$(cat "$DRIVE_BASE/server.sha")" = "$want_sha" ] || { log "PIN FAIL server spawn SHA"; return 1; }
-  [ "$(cat "$DRIVE_BASE/daemon.sha")" = "$want_sha" ] || { log "PIN FAIL daemon spawn SHA"; return 1; }
-  [ "$(git -C "$REPO" rev-parse HEAD)" = "$want_sha" ] || { log "PIN FAIL checkout SHA"; return 1; }
+  [ "$(cat "$RUN_DIR/server.sha")" = "$want_sha" ] || { log "PIN FAIL server spawn SHA"; return 1; }
+  [ "$(cat "$RUN_DIR/daemon.sha")" = "$want_sha" ] || { log "PIN FAIL daemon spawn SHA"; return 1; }
+  [ "$(cat "$RUN_DIR/server.harness-sha")" = "$(git -C "$REPO" rev-parse HEAD)" ] || { log "PIN FAIL server harness SHA"; return 1; }
+  [ "$(cat "$RUN_DIR/daemon.harness-sha")" = "$(git -C "$REPO" rev-parse HEAD)" ] || { log "PIN FAIL daemon harness SHA"; return 1; }
 
   stamp="$(curl -fsS "http://127.0.0.1:$PORT/podium-build.json")"
   web_sha="$(printf '%s' "$stamp" | sed -n 's/.*"sourceSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"

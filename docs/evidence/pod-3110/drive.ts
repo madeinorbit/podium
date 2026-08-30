@@ -6,7 +6,7 @@
  * session is created. A missing positive control is BLOCKED, never a failure.
  */
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   AGENT_KIND,
@@ -73,16 +73,25 @@ const arm = (process.argv[2] ?? 'headless') as Arm
 if (arm !== 'headless' && arm !== 'terminal') throw new Error('usage: grok-drive.ts headless|terminal')
 
 const INSTANCE = 'p3110-grok-paired-final-tip-2af0'
-const CELL_ROOT = join(DRIVE_BASE, 'cells')
+const RUN_TOKEN = process.env.P3110_RUN_TOKEN ?? (() => { throw new Error('P3110_RUN_TOKEN is required') })()
+const EVIDENCE_DIR = process.env.PODIUM_EVIDENCE_DIR ?? (() => { throw new Error('PODIUM_EVIDENCE_DIR is required') })()
+const CELL_ROOT = join(DRIVE_BASE, 'runs', RUN_TOKEN, 'cells')
 const RIG = join(import.meta.dir, 'rig.sh')
-const ROWS = join(DRIVE_BASE, 'results', `grok.${arm}.candidate.tsv`)
+const JSON_PATH = join(EVIDENCE_DIR, `grok.${arm}.json`)
+const ROWS = join(EVIDENCE_DIR, `grok.${arm}.candidate.tsv`)
 const REPLY_MS = 120_000
 const BIND_MS = 90_000
 const LONG_PROMPT =
   'Count from 1 to 60. Put each number on its own line and write one full sentence about each number. ' +
   'Do not use tools and do not summarize.'
+let authRestoreRequired = false
+process.on('exit', () => {
+  if (authRestoreRequired) spawnSync('bash', [RIG, 'auth', 'on'], { cwd: join(import.meta.dir, '../../..'), env: cleanRigEnv(), stdio: 'ignore' })
+})
+
 const ONLY = new Set((process.env.PODIUM_ONLY ?? '').split(',').map((value) => value.trim()).filter(Boolean))
 
+if (existsSync(JSON_PATH) || existsSync(ROWS)) throw new Error(`refusing overwrite for immutable run ${RUN_TOKEN} arm ${arm}`)
 mkdirSync(CELL_ROOT, { recursive: true })
 
 function short(value: unknown, n = 320): string {
@@ -159,8 +168,8 @@ function preflight(id: string): { ok: boolean; memory: number | null; pin: strin
 const results: Cell[] = []
 
 function saveResults(): void {
-  mkdirSync(join(DRIVE_BASE, 'results'), { recursive: true })
-  writeFileSync(join(DRIVE_BASE, 'results', `grok.${arm}.json`), `${JSON.stringify({ instance: INSTANCE, arm, results }, null, 2)}\n`)
+  mkdirSync(join(JSON_PATH, '..'), { recursive: true })
+  writeFileSync(JSON_PATH, `${JSON.stringify({ instance: INSTANCE, arm, results }, null, 2)}\n`)
 }
 
 function field(value: unknown): string {
@@ -179,7 +188,8 @@ function appendCandidateRow(cell: Cell): void {
   if (fields.length !== 8 || fields.some((value) => !value)) throw new Error(`refusing malformed evidence row for ${cell.id}`)
   const line = `${fields.join('\t')}\n`
   const prior = (() => { try { return readFileSync(ROWS, 'utf8') } catch { return '' } })()
-  if (!prior.includes(line)) appendFileSync(ROWS, line)
+  if (prior.includes(line)) throw new Error(`refusing duplicate evidence row for ${cell.id}`)
+  appendFileSync(ROWS, line)
 }
 
 function record(id: string, prep: ReturnType<typeof preflight>, reading: CellReading): void {
@@ -201,6 +211,7 @@ function record(id: string, prep: ReturnType<typeof preflight>, reading: CellRea
   saveResults()
   appendCandidateRow(cell)
   console.log(`${id} ${arm} ${cell.verdict} control=${cell.control.fired ? 'FIRED' : 'MISSING'} — ${cell.summary}`)
+  if (cell.verdict !== 'PASS') throw new Error(`STOP-FIRST ${id} ${cell.verdict}: ${cell.summary}`)
 }
 
 function blocked(id: string, prep: ReturnType<typeof preflight>, reason: string): void {
@@ -992,7 +1003,9 @@ async function a8(): Promise<void> {
     // If the normal home was already logged out, there is no state transition
     // to reload. Avoid restarting the persistent daemon from this short-lived
     // runner process: the host reaps descendants when the command returns.
+    authRestoreRequired = false
     const authChanged = /moved aside/i.test(off.output)
+    authRestoreRequired = authChanged
     const restarted = authChanged
       ? rig('restart-daemon', arm)
       : { code: 0, output: 'daemon left running; derived Grok credential was already absent' }
@@ -1018,6 +1031,7 @@ async function a8(): Promise<void> {
       await mutate('sessions.kill', { sessionId: first.sid }).catch(() => {})
 
       const on = rig('auth', 'on')
+      authRestoreRequired = false
       const rearmed = authChanged
         ? rig('restart-daemon', arm)
         : { code: 0, output: 'daemon left running; there was no credential to restore' }
@@ -1045,6 +1059,7 @@ async function a8(): Promise<void> {
       if (loggedOut) { await loggedOut.chat.close().catch(() => {}); await mutate('sessions.kill', { sessionId: loggedOut.sid }).catch(() => {}) }
       if (restored) await mutate('sessions.kill', { sessionId: restored.sid }).catch(() => {})
       rig('auth', 'on')
+      authRestoreRequired = false
       if (authChanged) rig('restart-daemon', arm)
     }
   })
@@ -1277,4 +1292,4 @@ await a10()
 await providerSpot()
 await oomSpot()
 
-console.log(`Completed ${results.length} Grok ${arm} readings; JSON at ${join(DRIVE_BASE, 'results', `grok.${arm}.json`)}`)
+console.log(`Completed ${results.length} Grok ${arm} readings; JSON at ${JSON_PATH}; rows at ${ROWS}`)
