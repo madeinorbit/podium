@@ -205,7 +205,7 @@ describe('handlePodiumLinkClick', () => {
   })
 
   it('normalizes every protocol-relative spelling for desktop middle-click', () => {
-    const openExternal = vi.fn(async () => undefined)
+    const openExternal = vi.fn<(url: string) => Promise<void>>(async () => undefined)
     ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
       platform: 'macos',
       openExternal,
