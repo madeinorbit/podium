@@ -968,7 +968,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         const isCurrentOwner = () =>
           switchOperation.current === credentialOwnerOperation &&
           activeProfileIdRef.current === profile.id
-        if (!isCurrentOwner()) throw new StaleCredentialOwnerError()
+        if (!isCurrentOwner()) return
         const next: ServerProfileState = {
           ...profileState,
           profiles: profileState.profiles.map((row) =>
@@ -982,7 +982,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           await saveServerProfiles(profileState)
           return false
         })
-        if (!committed || !isCurrentOwner()) throw new StaleCredentialOwnerError()
+        if (!committed || !isCurrentOwner()) return
         setProfileState(next)
       },
       revalidateOfflineProfile: async () => {
