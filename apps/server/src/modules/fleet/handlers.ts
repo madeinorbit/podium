@@ -103,7 +103,10 @@ export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: 
   )
   // The outcome is what this machine's row will say. Callers must not infer
   // success from a granted-id list: an empty list has five different meanings.
-  const outcome = modules.updates.authorizeMachine(asMachineId(input.id))
+  const outcome = modules.updates.authorizeMachine(asMachineId(input.id), {
+    initiator: { kind: 'operator-apply' },
+    eligibility: 'a person pressed Apply on this fleet row',
+  })
   return { machines: modules.machines.listMachines(), outcome }
 }
 
