@@ -24,6 +24,7 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { arch, homedir, platform } from 'node:os'
+import { join } from 'node:path'
 import { type InstallTopology, readInstallTopology } from './install-topology'
 import { sharedCacheDir } from './shared-cache-dir'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
