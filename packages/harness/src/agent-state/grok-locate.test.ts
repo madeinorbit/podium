@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -38,10 +38,11 @@ describe('locateGrokSessionPaths', () => {
     ).toBe(current)
   })
 
-  it('accepts a recorded current-authority pathHint without scanning the root', async () => {
+  it('accepts a confined recorded current-authority pathHint without scanning the root', async () => {
     const home = await seedHome()
-    const current = join(home, 'recorded', 'sess-recorded.jsonl')
-    await mkdir(join(home, 'recorded'), { recursive: true })
+    const transcriptRoot = join(home, 'product-transcripts')
+    const current = join(transcriptRoot, 'recorded', 'sess-recorded.jsonl')
+    await mkdir(join(transcriptRoot, 'recorded'), { recursive: true })
     await writeFile(current, `${JSON.stringify({ type: 'assistant', content: 'recorded' })}\n`)
     expect(
       await locateGrokChatHistory({
@@ -49,8 +50,63 @@ describe('locateGrokSessionPaths', () => {
         sessionId: 'sess-recorded',
         pathHint: current,
         homeDir: home,
+        transcriptRoot,
       }),
     ).toBe(current)
+  })
+
+  it('rejects a traversal-shaped hint that does not have one project directory', async () => {
+    const home = await seedHome()
+    const transcriptRoot = join(home, 'product-transcripts')
+    await mkdir(join(transcriptRoot, 'project'), { recursive: true })
+    const escaped = join(transcriptRoot, 'sess-traversal.jsonl')
+    await writeFile(escaped, '{}\n')
+    expect(
+      await locateGrokChatHistory({
+        cwd: '/repo/main',
+        sessionId: 'sess-traversal',
+        pathHint: transcriptRoot + '/project/../sess-traversal.jsonl',
+        homeDir: home,
+        transcriptRoot,
+      }),
+    ).toBeNull()
+  })
+
+  it('rejects a current-authority hint outside transcriptRoot', async () => {
+    const home = await seedHome()
+    const transcriptRoot = join(home, 'product-transcripts')
+    const outside = join(home, 'outside', 'sess-outside.jsonl')
+    await mkdir(transcriptRoot, { recursive: true })
+    await mkdir(join(home, 'outside'), { recursive: true })
+    await writeFile(outside, '{}\n')
+    expect(
+      await locateGrokChatHistory({
+        cwd: '/repo/main',
+        sessionId: 'sess-outside',
+        pathHint: outside,
+        homeDir: home,
+        transcriptRoot,
+      }),
+    ).toBeNull()
+  })
+
+  it('rejects a root-scanned transcript symlink that escapes transcriptRoot', async () => {
+    const home = await seedHome()
+    const transcriptRoot = join(home, 'product-transcripts')
+    const project = join(transcriptRoot, 'project')
+    const outside = join(home, 'outside', 'sess-symlink.jsonl')
+    await mkdir(project, { recursive: true })
+    await mkdir(join(home, 'outside'), { recursive: true })
+    await writeFile(outside, '{}\n')
+    await symlink(outside, join(project, 'sess-symlink.jsonl'))
+    expect(
+      await locateGrokChatHistory({
+        cwd: '/repo/main',
+        sessionId: 'sess-symlink',
+        homeDir: home,
+        transcriptRoot,
+      }),
+    ).toBeNull()
   })
 
   it('resolves the exact current-cwd bucket when the file is there', async () => {
