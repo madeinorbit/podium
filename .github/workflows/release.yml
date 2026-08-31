@@ -27,7 +27,7 @@ jobs:
   # platforms costs one more compile each, not one more runner each.
   headless:
     name: cross-build all headless platforms
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     env:
       TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
@@ -170,7 +170,7 @@ jobs:
 
   publish:
     needs: [headless, ab-check]
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
