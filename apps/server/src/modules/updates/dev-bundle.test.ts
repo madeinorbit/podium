@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { matchUpdateFailureToken, UpdateTarget } from '@podium/protocol'
 import type {
   ReleaseBuildTimingDeps,
@@ -29,6 +29,7 @@ import {
   type BuiltDevBundle,
   buildDevBundle,
   classifyIgnoredSourceInputs,
+  defaultReadIgnoredSourceInputs,
   classifySourceIdentity,
   createDevBundlePublisher,
   DEV_BUNDLE_RETAINED,
@@ -2707,5 +2708,90 @@ describe('the dev feed manifest the publisher writes', () => {
       runningSha: '1111111',
       sinceSha: 'ccccccc',
     })
+  })
+})
+
+describe('defaultReadIgnoredSourceInputs', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
+
+  function repo(gitignore: string, files: Record<string, string>): string {
+    const root = mkdtempSync(join(tmpdir(), 'podium-ignored-source-'))
+    roots.push(root)
+    execFileSync('git', ['init', '--quiet'], { cwd: root })
+    execFileSync('git', ['config', 'user.email', 'fence@test.invalid'], { cwd: root })
+    execFileSync('git', ['config', 'user.name', 'Fence Test'], { cwd: root })
+    writeFileSync(join(root, '.gitignore'), gitignore)
+    for (const [path, contents] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true })
+      writeFileSync(join(root, path), contents)
+    }
+    execFileSync('git', ['add', '-A'], { cwd: root })
+    execFileSync('git', ['commit', '--quiet', '-m', 'tracked'], { cwd: root })
+    return root
+  }
+
+  async function offending(root: string): Promise<string[]> {
+    return classifyIgnoredSourceInputs(await defaultReadIgnoredSourceInputs(root))
+  }
+
+  /**
+   * The reason the fast path cannot be a bare `git ls-files --directory`.
+   * That collapses `apps/secret/` to one extensionless entry, which the
+   * classifier discards, and an ignored `.ts` sails into a dev+<sha> bundle.
+   */
+  it('sees an importable file inside a wholly ignored directory', async () => {
+    const root = repo('apps/secret/\nnode_modules/\n', {
+      'apps/web/app.ts': 'export const app = 1\n',
+      'apps/secret/sneaky.ts': 'export const sneaky = 1\n',
+      'apps/web/node_modules/pkg/index.json': '{}\n',
+    })
+    expect(await offending(root)).toEqual(['apps/secret/sneaky.ts'])
+  })
+
+  it('sees an importable file nested deep inside a wholly ignored directory', async () => {
+    const root = repo('apps/secret/\n', {
+      'apps/web/app.ts': 'export const app = 1\n',
+      'apps/secret/a/b/c/deep.tsx': 'export const deep = 1\n',
+      'apps/secret/notes.md': 'not importable\n',
+    })
+    expect(await offending(root)).toEqual(['apps/secret/a/b/c/deep.tsx'])
+  })
+
+  it('sees an ignored source file beside tracked files', async () => {
+    const root = repo('*.local.ts\n', {
+      'packages/core/index.ts': 'export const core = 1\n',
+      'packages/core/override.local.ts': 'export const override = 1\n',
+    })
+    expect(await offending(root)).toEqual(['packages/core/override.local.ts'])
+  })
+
+  it('does not descend into dependency and output trees inside an ignored directory', async () => {
+    const root = repo('apps/junk/\n', {
+      'apps/web/app.ts': 'export const app = 1\n',
+      'apps/junk/node_modules/pkg/index.js': 'module.exports = 1\n',
+      'apps/junk/dist/bundle.js': 'bundled\n',
+      'apps/junk/.turbo/log.json': '{}\n',
+    })
+    expect(await offending(root)).toEqual([])
+  })
+
+  it('ignores generated trees on the allowlist and paths outside the source trees', async () => {
+    const root = repo('apps/web/.sourcemaps/\nscratch/\n', {
+      'apps/web/app.ts': 'export const app = 1\n',
+      'apps/web/.sourcemaps/builds.json': '{}\n',
+      'scratch/loose.ts': 'export const loose = 1\n',
+    })
+    expect(await offending(root)).toEqual([])
+  })
+
+  it('reports nothing when every ignored file is uninteresting', async () => {
+    const root = repo('*.log\n', {
+      'apps/web/app.ts': 'export const app = 1\n',
+      'apps/web/build.log': 'noise\n',
+    })
+    expect(await offending(root)).toEqual([])
   })
 })
