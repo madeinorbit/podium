@@ -238,6 +238,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   )
   const [activationRetry, setActivationRetry] = useState(0)
   const [profileSwitchSettled, setProfileSwitchSettled] = useState(0)
+  const [credentialOwnerRevision, setCredentialOwnerRevision] = useState(0)
   const switchOperation = useRef(0)
   const switchInFlight = useRef(false)
   const savedProfileRestartPending = useRef(false)
@@ -246,6 +247,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const startupLinkGeneration = useRef(0)
   const nativeLinkIntent = useRef<'handoff' | 'pairing' | null>(null)
   const initialNativeUrlConsumed = useRef(false)
+  const setupOwnsStartup = useRef(false)
   const activeProfileIdRef = useRef(profileState.activeProfileId)
   const bearerRef = useRef<string | null>(null)
   const nativeOverrideActiveRef = useRef(false)
@@ -273,6 +275,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
 
   const restartSavedProfile = useCallback(() => {
     if (Platform.OS === 'web') return
+    setupOwnsStartup.current = false
     nativeLinkIntent.current = null
     startupLinkGeneration.current += 1
     setActivationFailure(null)
@@ -307,9 +310,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       } catch {
         // not mounted yet — the pair route's own <Redirect> covers it
       }
+      setupOwnsStartup.current = false
     }
     if (Platform.OS !== 'web' && captureMobileHandoffUrl(raw)) {
       startupLinkGeneration.current += 1
+      switchOperation.current += 1
+      setCredentialOwnerRevision((value) => value + 1)
+      if (switchInFlight.current) savedProfileRestartPending.current = true
       nativeLinkIntent.current = 'handoff'
       setIncoming(null)
       setLinkError(null)
@@ -321,6 +328,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       nativeLinkIntent.current = 'pairing'
       retirePendingMobileHandoff()
       switchOperation.current += 1
+      setCredentialOwnerRevision((value) => value + 1)
     }
     try {
       const parsed = parsePairingLink(raw)
@@ -344,14 +352,21 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       window.addEventListener('hashchange', onHashChange)
       return () => window.removeEventListener('hashchange', onHashChange)
     }
+    // Terminal setup owns only the startup run it superseded. A deliberate
+    // activation retry starts after React cleans that run up and may proceed.
+    setupOwnsStartup.current = false
     let alive = true
     void (async () => {
-      const initialUrl =
-        initialNativePairingConsumed || initialNativeUrlConsumed.current
-          ? null
-          : await Linking.getInitialURL()
+      const shouldReadInitialUrl =
+        !initialNativePairingConsumed && !initialNativeUrlConsumed.current
       initialNativeUrlConsumed.current = true
+      const initialUrlGeneration = startupLinkGeneration.current
+      const resolvedInitialUrl = shouldReadInitialUrl ? await Linking.getInitialURL() : null
       if (!alive) return
+      // A live Linking event that arrived while the cold URL was pending is
+      // newer intent. The delayed cold result must never reclaim startup.
+      const initialUrl =
+        initialUrlGeneration === startupLinkGeneration.current ? resolvedInitialUrl : null
       const isNativeLink = Boolean(
         initialUrl && (initialUrl.startsWith('podium:') || initialUrl.includes('#pair=')),
       )
@@ -404,8 +419,8 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       // read is allowed to choose any profile or release any credential.
       const stored = await profileWrites.run(() => loadServerProfiles())
       await purgeOrphanedProfileCredentials(stored.profiles.map((row) => row.id))
-      if (!alive) return
-      while (alive) {
+      if (!alive || setupOwnsStartup.current) return
+      while (alive && !setupOwnsStartup.current) {
         const generation = startupLinkGeneration.current
         const intent = nativeLinkIntent.current
         const pending = pendingMobileHandoffSnapshot()
@@ -451,7 +466,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         // opened. A newer link restarts selection before any result or bearer
         // can publish the old active profile.
         const result = await preflightServer(active.httpOrigin)
-        if (!alive) return
+        if (!alive || setupOwnsStartup.current) return
         if (generation !== startupLinkGeneration.current) continue
         setProfileState(startupState)
         if (!result.ok) {
@@ -499,7 +514,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           }
           return savedCredential
         })
-        if (!alive) return
+        if (!alive || setupOwnsStartup.current) return
         if (generation !== startupLinkGeneration.current) continue
         setProfileState(next)
         setBearer(credential)
@@ -563,6 +578,8 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setRevision((value) => value + 1)
         return
       }
+      setupOwnsStartup.current = true
+      startupLinkGeneration.current += 1
       const now = new Date().toISOString()
       // Never reuse a profile/replica/credential boundary because a new origin
       // reports the same public instanceId. Address migration needs a separate,
@@ -600,30 +617,51 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         : null
       try {
         // Metadata first, then the secure value. If either store refuses the
-        // issuance, restore the prior state and revoke the just-minted session.
-        await profileWrites.run(async () => {
-          if (operation !== switchOperation.current) {
-            throw new Error('This server setup was replaced by a newer link.')
+        // issuance, restore the prior state before a newer terminal action can
+        // enter the queue. An owner change also rolls back inside this turn so
+        // the newer link's eventual write is guaranteed to remain last.
+        const committed = await profileWrites.run(async () => {
+          let profileAttempted = false
+          let credentialAttempted = false
+          const restoreCredential = async () => {
+            if (!token || !credentialAttempted) return
+            if (priorCredential && existing) {
+              await credentialWrites.run(() => setProfileCredential(existing.id, priorCredential))
+            } else {
+              await credentialWrites.run(() => deleteProfileCredential(nextProfile.id))
+            }
           }
-          await saveServerProfiles(next)
+
+          try {
+            if (operation !== switchOperation.current) return false
+            profileAttempted = true
+            await saveServerProfiles(next)
+            if (operation !== switchOperation.current) {
+              await saveServerProfiles(profileState)
+              return false
+            }
+            if (token) {
+              credentialAttempted = true
+              await credentialWrites.run(() => setProfileCredential(nextProfile.id, token))
+            }
+            if (operation !== switchOperation.current) {
+              await restoreCredential()
+              await saveServerProfiles(profileState)
+              return false
+            }
+            return true
+          } catch (cause) {
+            await restoreCredential().catch(() => {})
+            if (profileAttempted) await saveServerProfiles(profileState).catch(() => {})
+            throw cause
+          }
         })
-        if (token) {
-          await credentialWrites.run(() => setProfileCredential(nextProfile.id, token))
+        if (!committed) {
+          if (token) await logout(result.httpOrigin, token).catch(() => {})
+          return
         }
       } catch (cause) {
-        if (operation === switchOperation.current) {
-          await profileWrites.run(() => saveServerProfiles(profileState)).catch(() => {})
-        }
         if (token) {
-          if (priorCredential && existing) {
-            await credentialWrites
-              .run(() => setProfileCredential(existing.id, priorCredential))
-              .catch(() => {})
-          } else {
-            await credentialWrites
-              .run(() => deleteProfileCredential(nextProfile.id))
-              .catch(() => {})
-          }
           const revoked = await logout(result.httpOrigin, token)
             .then(() => true)
             .catch(() => false)
@@ -636,6 +674,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         }
         throw cause
       }
+      if (operation !== switchOperation.current) return
       // Cross-server switches clear the transport credential first. Even if a
       // renderer exposes intermediate state, a bearer is never sent to the old
       // or new wrong origin.
@@ -650,6 +689,8 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       setIncoming(null)
       setSetupOpen(false)
       setActivationFailure(null)
+      nativeLinkIntent.current = null
+      setReady(true)
       setRevision((value) => value + 1)
     },
     [credentialWrites, profileState, profileWrites],
@@ -657,8 +698,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
 
   const saveOfflineProfile = useCallback(
     async (httpOrigin: string) => {
-      switchOperation.current += 1
+      const operation = ++switchOperation.current
       if (Platform.OS === 'web') return
+      setupOwnsStartup.current = true
+      startupLinkGeneration.current += 1
       const now = new Date().toISOString()
       const existing = profileState.profiles.find((row) => row.httpOrigin === httpOrigin)
       const nextProfile: ServerProfile = existing
@@ -683,11 +726,20 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           ? profileState.profiles.map((row) => (row.id === existing.id ? nextProfile : row))
           : [...profileState.profiles, nextProfile],
       }
-      await profileWrites.run(() => saveServerProfiles(next))
+      const committed = await profileWrites.run(async () => {
+        if (operation !== switchOperation.current) return false
+        await saveServerProfiles(next)
+        if (operation === switchOperation.current) return true
+        await saveServerProfiles(profileState)
+        return false
+      })
+      if (!committed || operation !== switchOperation.current) return
       setBearer(null)
       setProfileState(next)
       setSetupOpen(false)
       setCredentialReleased(false)
+      nativeLinkIntent.current = null
+      setReady(true)
       setActivationFailure({
         title: 'Server saved for later',
         detail:
@@ -955,6 +1007,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     activation,
     bearer,
     config,
+    credentialOwnerRevision,
     credentialWrites,
     persistState,
     profile,

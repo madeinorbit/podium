@@ -46,6 +46,24 @@ vi.mock('react-native', async (importOriginal) => {
       }),
       openSettings: vi.fn(),
     },
+    TextInput: ({
+      accessibilityLabel,
+      onChangeText,
+      placeholder,
+      value,
+    }: {
+      accessibilityLabel?: string
+      onChangeText?(value: string): void
+      placeholder?: string
+      value?: string
+    }) => (
+      <input
+        aria-label={accessibilityLabel}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChangeText?.(event.currentTarget.value)}
+      />
+    ),
   }
 })
 vi.mock('../components/PairingScanner', () => ({ PairingScanner: () => null }))
@@ -262,6 +280,42 @@ afterEach(() => {
 })
 
 describe('handoff profile selection', () => {
+  it('keeps a warm event authoritative over an older deferred initial URL', async () => {
+    let resolveInitialUrl = (_url: string | null) => {}
+    const initialUrlResolved = new Promise<string | null>((resolve) => {
+      resolveInitialUrl = resolve
+    })
+    seams.getInitialUrl.mockImplementation(() => initialUrlResolved)
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await waitFor(() => expect(seams.linkListener).not.toBeNull())
+
+    act(() => {
+      seams.linkListener?.({
+        url: handoffLink('https://b.example', 'instance-b', 'newer-warm-session'),
+      })
+    })
+    await act(async () => {
+      resolveInitialUrl(PAIRING_LINK)
+      await initialUrlResolved
+    })
+
+    await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-b'))
+    expect(pendingMobileHandoffSnapshot()).toMatchObject({
+      profileSelected: true,
+      request: {
+        kind: 'destination',
+        destination: { sessionId: 'newer-warm-session' },
+      },
+    })
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(pendingMobileHandoffSnapshot())).not.toContain(PAIRING_SECRET)
+  })
+
   it('resolves a cold initial handoff before releasing the previously active profile', async () => {
     seams.getInitialUrl.mockResolvedValue(
       handoffLink('https://b.example', 'instance-b', 'cold-session-on-b'),
@@ -527,6 +581,122 @@ describe('pairing supersedes handoff intent', () => {
     expect(JSON.stringify(pendingMobileHandoffSnapshot())).not.toContain(PAIRING_SECRET)
   })
 
+  it('does not publish a pairing completion superseded during its profile save', async () => {
+    await mountActiveProfileA()
+    let releasePairingSave = () => {}
+    const pairingSaveReleased = new Promise<void>((resolve) => {
+      releasePairingSave = resolve
+    })
+    let reportPairingSaveStarted = () => {}
+    const pairingSaveStarted = new Promise<void>((resolve) => {
+      reportPairingSaveStarted = resolve
+    })
+    seams.saveProfiles.mockImplementation(async (state) => {
+      const active = state.profiles.find((profile) => profile.id === state.activeProfileId)
+      if (active?.httpOrigin === 'https://pair.example') {
+        seams.durableProfiles = state
+        reportPairingSaveStarted()
+        await pairingSaveReleased
+        return
+      }
+      seams.durableProfiles = state
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Request approval'))
+    await pairingSaveStarted
+
+    act(() => {
+      seams.linkListener?.({
+        url: handoffLink('https://a.example', 'instance-a', 'newest-session-on-a'),
+      })
+    })
+    await act(async () => {
+      releasePairingSave()
+      await pairingSaveReleased
+    })
+
+    await waitFor(() => {
+      expect(seams.activeContext?.profile.id).toBe('profile-a')
+      expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true)
+    })
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-a')
+    expect([...seams.credentials.values()]).not.toContain('token-c')
+    expect(pendingMobileHandoffSnapshot()).toMatchObject({
+      request: {
+        kind: 'destination',
+        destination: { sessionId: 'newest-session-on-a' },
+      },
+    })
+  })
+
+  it('does not publish an offline save superseded during its profile write', async () => {
+    await mountActiveProfileA()
+    seams.preflight.mockImplementation(async (origin: string) => {
+      if (origin === 'https://offline.example') {
+        return {
+          ok: false as const,
+          kind: 'unreachable' as const,
+          title: 'Server unavailable',
+          detail: 'Try again when this phone can reach the server.',
+          transport: 'trusted-https' as const,
+        }
+      }
+      return successfulPreflight(origin)
+    })
+    let releaseOfflineSave = () => {}
+    const offlineSaveReleased = new Promise<void>((resolve) => {
+      releaseOfflineSave = resolve
+    })
+    let reportOfflineSaveStarted = () => {}
+    const offlineSaveStarted = new Promise<void>((resolve) => {
+      reportOfflineSaveStarted = resolve
+    })
+    seams.saveProfiles.mockImplementation(async (state) => {
+      const active = state.profiles.find((profile) => profile.id === state.activeProfileId)
+      if (active?.httpOrigin === 'https://offline.example') {
+        seams.durableProfiles = state
+        reportOfflineSaveStarted()
+        await offlineSaveReleased
+        return
+      }
+      seams.durableProfiles = state
+    })
+    seams.parsePairing.mockImplementationOnce(() => {
+      throw new Error('Use a server address instead.')
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Enter server address'))
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: 'https://offline.example' },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    fireEvent.click(await screen.findByLabelText('Save for later'))
+    await offlineSaveStarted
+
+    act(() => {
+      seams.linkListener?.({
+        url: handoffLink('https://a.example', 'instance-a', 'newest-session-on-a'),
+      })
+    })
+    await act(async () => {
+      releaseOfflineSave()
+      await offlineSaveReleased
+    })
+
+    await waitFor(() => {
+      expect(seams.activeContext?.profile.id).toBe('profile-a')
+      expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true)
+    })
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-a')
+    expect(seams.durableProfiles?.profiles).not.toContainEqual(
+      expect.objectContaining({ httpOrigin: 'https://offline.example' }),
+    )
+  })
+
   it('waits for cold handoff rollback before recovering from pairing cancellation', async () => {
     seams.getInitialUrl.mockResolvedValue(
       handoffLink('https://b.example', 'instance-b', 'cold-session-on-b'),
@@ -578,6 +748,141 @@ describe('pairing supersedes handoff intent', () => {
       origin: 'https://b.example',
       bearer: 'token-b',
     })
+  })
+
+  it('lets pairing completion own a still-draining cold handoff startup', async () => {
+    seams.getInitialUrl.mockResolvedValue(
+      handoffLink('https://b.example', 'instance-b', 'cold-session-on-b'),
+    )
+    let releaseProfileBSave = () => {}
+    const profileBSaveReleased = new Promise<void>((resolve) => {
+      releaseProfileBSave = resolve
+    })
+    let reportProfileBSaveStarted = () => {}
+    const profileBSaveStarted = new Promise<void>((resolve) => {
+      reportProfileBSaveStarted = resolve
+    })
+    seams.saveProfiles.mockImplementation(async (state) => {
+      if (state.activeProfileId === 'profile-b') {
+        seams.durableProfiles = state
+        reportProfileBSaveStarted()
+        await profileBSaveReleased
+        return
+      }
+      seams.durableProfiles = state
+    })
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await profileBSaveStarted
+
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Request approval'))
+
+    await act(async () => {
+      releaseProfileBSave()
+      await profileBSaveReleased
+    })
+
+    await waitFor(() => {
+      expect(seams.activeContext?.config.httpOrigin).toBe('https://pair.example')
+      expect(seams.activeContext?.bearer).toBe('token-c')
+    })
+    const durableActive = seams.durableProfiles?.profiles.find(
+      (profile) => profile.id === seams.durableProfiles?.activeProfileId,
+    )
+    expect(durableActive).toMatchObject({
+      httpOrigin: 'https://pair.example',
+      instanceId: 'pair-instance',
+      userId: 'user:c',
+    })
+    expect(seams.getCredential).not.toHaveBeenCalledWith('profile-b')
+    expect([...seams.runtime, ...seams.socket]).not.toContainEqual({
+      origin: 'https://b.example',
+      bearer: 'token-b',
+    })
+  })
+
+  it('lets an offline profile save own a still-draining cold handoff startup', async () => {
+    seams.getInitialUrl.mockResolvedValue(
+      handoffLink('https://b.example', 'instance-b', 'cold-session-on-b'),
+    )
+    seams.preflight.mockImplementation(async (origin: string) => {
+      if (origin === 'https://offline.example') {
+        return {
+          ok: false as const,
+          kind: 'unreachable' as const,
+          title: 'Server unavailable',
+          detail: 'Try again when this phone can reach the server.',
+          transport: 'trusted-https' as const,
+        }
+      }
+      return successfulPreflight(origin)
+    })
+    let releaseProfileBSave = () => {}
+    const profileBSaveReleased = new Promise<void>((resolve) => {
+      releaseProfileBSave = resolve
+    })
+    let reportProfileBSaveStarted = () => {}
+    const profileBSaveStarted = new Promise<void>((resolve) => {
+      reportProfileBSaveStarted = resolve
+    })
+    seams.saveProfiles.mockImplementation(async (state) => {
+      if (state.activeProfileId === 'profile-b') {
+        seams.durableProfiles = state
+        reportProfileBSaveStarted()
+        await profileBSaveReleased
+        return
+      }
+      seams.durableProfiles = state
+    })
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await profileBSaveStarted
+
+    seams.parsePairing.mockImplementationOnce(() => {
+      throw new Error('Use a server address instead.')
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Enter server address'))
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: 'https://offline.example' },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    fireEvent.click(await screen.findByLabelText('Save for later'))
+
+    await act(async () => {
+      releaseProfileBSave()
+      await profileBSaveReleased
+    })
+
+    await waitFor(() => expect(screen.getByText('Server saved for later')).toBeTruthy())
+    const durableActive = seams.durableProfiles?.profiles.find(
+      (profile) => profile.id === seams.durableProfiles?.activeProfileId,
+    )
+    expect(durableActive).toMatchObject({ httpOrigin: 'https://offline.example' })
+    expect(seams.getCredential).not.toHaveBeenCalledWith('profile-b')
+    expect([...seams.runtime, ...seams.socket]).not.toContainEqual({
+      origin: 'https://b.example',
+      bearer: 'token-b',
+    })
+
+    seams.preflight.mockImplementation(async (origin: string) => successfulPreflight(origin))
+    fireEvent.click(screen.getByLabelText('Retry safely'))
+    await waitFor(() => {
+      expect(seams.activeContext?.config.httpOrigin).toBe('https://offline.example')
+      expect(seams.activeContext?.profile.id).toBe(durableActive?.id)
+    })
+    expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
   })
 
   it('rolls back a late switch save before recovering from pairing cancellation', async () => {
@@ -678,6 +983,46 @@ describe('pairing supersedes handoff intent', () => {
 })
 
 describe('profile credential completion races', () => {
+  it('rebinds credential ownership after a same-profile handoff', async () => {
+    await mountActiveProfileA()
+    const priorUpdateCredential = seams.activeContext!.updateCredential
+
+    act(() => {
+      seams.linkListener?.({
+        url: handoffLink('https://a.example', 'instance-a', 'same-profile-session'),
+      })
+    })
+    await waitFor(() => {
+      expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true)
+      expect(seams.activeContext?.updateCredential).not.toBe(priorUpdateCredential)
+    })
+
+    await act(async () => {
+      await seams.activeContext!.updateCredential('refreshed-token-a')
+    })
+    expect(seams.credentials.get('profile-a')).toBe('refreshed-token-a')
+    expect(seams.activeContext?.bearer).toBe('refreshed-token-a')
+  })
+
+  it('rebinds credential ownership after pairing is opened and canceled', async () => {
+    await mountActiveProfileA()
+    const priorUpdateCredential = seams.activeContext!.updateCredential
+
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Cancel server setup'))
+    await waitFor(() => {
+      expect(seams.activeContext?.updateCredential).not.toBe(priorUpdateCredential)
+    })
+
+    await act(async () => {
+      await seams.activeContext!.updateCredential('post-cancel-token-a')
+    })
+    expect(seams.credentials.get('profile-a')).toBe('post-cancel-token-a')
+    expect(seams.activeContext?.bearer).toBe('post-cancel-token-a')
+  })
+
   it('rolls back an A login write that becomes stale while B is activating', async () => {
     await mountActiveProfileA()
     const updateA = seams.activeContext!.updateCredential
