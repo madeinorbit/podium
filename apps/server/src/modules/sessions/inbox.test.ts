@@ -54,6 +54,16 @@ function harness(
   const interrupted = vi.fn()
   const interruptedPending = vi.fn()
   const handleInput = vi.fn()
+  // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
+  // base64 spelling of the same call (terminal.ts). This fixture records the
+  // base64 one, so the bytes entry point has to fold back onto it — otherwise
+  // every test whose path reaches it dies on the TypeError this fixture's
+  // comment below predicts, rather than on anything it meant to assert.
+  const handleInputBytes = vi.fn(
+    (clientId: string, bytes: Uint8Array, attribution?: unknown): void => {
+      handleInput(clientId, Buffer.from(bytes).toString('base64'), attribution)
+    },
+  )
   const transcript: Array<{ id: string; role: 'user' | 'assistant'; text: string }> = Array.from(
     { length: options.userTurns ?? 0 },
     (_, index) => ({ id: `u${index}`, role: 'user' as const, text: `turn ${index}` }),
@@ -82,6 +92,7 @@ function harness(
       // whichever line happens to be exercised. See POD-1459.
       noteInputAttribution: vi.fn(),
       handleInput,
+      handleInputBytes,
       requestControl: vi.fn(),
       handleResize: vi.fn(),
       reconcileGeometry: vi.fn(),
@@ -150,6 +161,7 @@ function harness(
     interrupted,
     interruptedPending,
     handleInput,
+    handleInputBytes,
     transcript,
     revoke: () => {
       authorized = false
@@ -183,7 +195,7 @@ const PASTE_CLOSE = '\x1b[201~'
  *  the submitting CR dropped — i.e. the prompts an operator actually sent. */
 const typedTexts = (sent: unknown[]): string[] =>
   sent
-    .map((entry) => Buffer.from((entry as { data: string }).data, 'base64').toString())
+    .map((entry) => Buffer.from((entry as { bytes: Uint8Array }).bytes).toString())
     .filter((text) => text !== '\r')
     .map((text) =>
       text.startsWith(PASTE_OPEN) && text.endsWith(PASTE_CLOSE)
@@ -274,7 +286,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind: 'grok' })
     expect(h.inbox.sendText({ sessionId: SID, text: 'hello grok' })).toEqual({ ok: true })
     const decode = (entry: unknown) =>
-      Buffer.from((entry as { data: string }).data, 'base64').toString()
+      Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
     expect(decode(h.sent[0])).toBe('hello grok')
     vi.advanceTimersByTime(100)
     expect(decode(h.sent[1])).toBe('\r')
@@ -285,7 +297,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind: 'grok', userTurns: 1 })
     expect(h.inbox.sendText({ sessionId: SID, text: 'follow up' })).toEqual({ ok: true })
     const decode = (entry: unknown) =>
-      Buffer.from((entry as { data: string }).data, 'base64').toString()
+      Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
     expect(decode(h.sent[0])).toBe('\x1b[200~follow up\x1b[201~')
     vi.advanceTimersByTime(100)
     expect(decode(h.sent[1])).toBe('\r')
@@ -311,7 +323,7 @@ describe('SessionInbox authorization and identity', () => {
       h.inbox.sendText({ sessionId: SID, text: 'mail', inputOrigin: 'mail', principal }),
     ).toEqual({ ok: true })
     const decode = (entry: unknown) =>
-      Buffer.from((entry as { data: string }).data, 'base64').toString()
+      Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
     expect(decode(h.sent[0])).toBe(
       String.fromCharCode(27) + '[200~mail' + String.fromCharCode(27) + '[201~',
     )
@@ -324,9 +336,11 @@ describe('SessionInbox authorization and identity', () => {
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
-    h.inbox.handleControllerInput(principal, client, SID, 'x')
+    // Real base64: this path decodes to bytes now, and 'x' on its own is not a
+    // decodable payload — it would arrive as zero bytes and be dropped.
+    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
 
-    expect(h.handleInput).toHaveBeenCalledWith('client-1', 'x', {
+    expect(h.handleInput).toHaveBeenCalledWith('client-1', Buffer.from('x').toString('base64'), {
       actor: { kind: 'user', id: principal.user },
       onBehalfOf: principal.user,
     })
@@ -352,7 +366,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       h.sent
-        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+        .map((message) => Buffer.from((message as { bytes: Uint8Array }).bytes).toString())
         .filter((text) => text === '\r'),
     ).toHaveLength(0)
     expect(h.handleInput).toHaveBeenCalledWith(
@@ -410,7 +424,6 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.sent).toEqual([
       expect.objectContaining({
-        type: 'input',
         attribution: principal.attribution satisfies Attribution,
       }),
     ])
@@ -437,8 +450,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.sent).toEqual([
       expect.objectContaining({
-        type: 'input',
-        data: Buffer.from('\x1b').toString('base64'),
+        bytes: Buffer.from('\x1b'),
         attribution: principal.attribution,
       }),
     ])
@@ -470,8 +482,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.sent).toEqual([
       expect.objectContaining({
-        type: 'input',
-        data: Buffer.from(key).toString('base64'),
+        bytes: Buffer.from(key),
         attribution: principal.attribution,
       }),
     ])
@@ -556,7 +567,7 @@ describe('SessionInbox authorization and identity', () => {
     await vi.advanceTimersByTimeAsync(100)
     expect(
       h.sent
-        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+        .map((message) => Buffer.from((message as { bytes: Uint8Array }).bytes).toString())
         .filter((text) => text === '\r'),
     ).toHaveLength(1)
 
@@ -567,7 +578,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(
       h.sent
-        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+        .map((message) => Buffer.from((message as { bytes: Uint8Array }).bytes).toString())
         .filter((text) => text === '\r'),
     ).toHaveLength(1)
   })
@@ -583,7 +594,7 @@ describe('SessionInbox authorization and identity', () => {
     await vi.advanceTimersByTimeAsync(5_000)
 
     const decoded = h.sent.map((message) =>
-      Buffer.from((message as { data: string }).data, 'base64').toString(),
+      Buffer.from((message as { bytes: Uint8Array }).bytes).toString(),
     )
     expect(decoded).toContain('\x1b')
     expect(decoded).not.toContain('\r')
@@ -604,7 +615,7 @@ describe('SessionInbox authorization and identity', () => {
       await vi.advanceTimersByTimeAsync(500)
 
       const decoded = h.sent.map((m) =>
-        Buffer.from((m as { data: string }).data, 'base64').toString(),
+        Buffer.from((m as { bytes: Uint8Array }).bytes).toString(),
       )
       expect(decoded).toContain('\x1b')
       expect(decoded.some((d) => d.includes('\x03'))).toBe(false)
@@ -639,7 +650,7 @@ describe('SessionInbox authorization and identity', () => {
       ).toEqual({ ok: true })
 
       const decoded = () =>
-        h.sent.map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+        h.sent.map((m) => Buffer.from((m as { bytes: Uint8Array }).bytes).toString())
 
       expect(decoded()).toEqual(['3'])
       await vi.advanceTimersByTimeAsync(120)
