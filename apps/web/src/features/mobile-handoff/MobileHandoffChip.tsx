@@ -4,7 +4,7 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
-import { useHasFirstTask, useMobileHandoffUrl } from './mobile-handoff'
+import { useFocusedHandoffSessionId, useHasFirstTask, useMobileHandoffUrl } from './mobile-handoff'
 
 /**
  * "ON YOUR PHONE" — the status strip's right end (POD-1320, design 1a).
@@ -22,12 +22,14 @@ import { useHasFirstTask, useMobileHandoffUrl } from './mobile-handoff'
  */
 export function MobileHandoffChip(): JSX.Element | null {
   const trpc = useStoreSelector((s) => s.trpc)
-  const url = useMobileHandoffUrl(trpc)
+  const httpOrigin = useStoreSelector((s) => s.httpOrigin)
+  const sessionId = useFocusedHandoffSessionId()
+  const url = useMobileHandoffUrl(trpc, httpOrigin, sessionId)
   const hasFirstTask = useHasFirstTask()
   const [open, setOpen] = useState(false)
   // Before the first task there is nothing on a phone to watch, so the chip
   // would be an ad in a status bar. Same gate as the sidebar card.
-  if (!hasFirstTask) return null
+  if (!hasFirstTask || !url) return null
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger

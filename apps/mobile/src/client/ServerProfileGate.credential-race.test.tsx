@@ -1,4 +1,5 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { PODIUM_SCHEME, formatPodiumLink } from '@podium/protocol'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServerProfileContextValue } from './server-profile-context'
@@ -98,16 +99,18 @@ vi.mock('./override-lifecycle', () => ({
 }))
 vi.mock('./trpc', () => ({
   envServer: () => null,
-  setActiveServerRuntime: (
-    config: { httpOrigin: string } | undefined,
-    bearer: string | null,
-  ) => {
+  setActiveServerRuntime: (config: { httpOrigin: string } | undefined, bearer: string | null) => {
     seams.runtime.push({ origin: config?.httpOrigin ?? null, bearer })
   },
 }))
 vi.mock('./auth', () => ({ logout: vi.fn() }))
 
 import { ServerProfileGate, useServerProfile } from './ServerProfileGate'
+import {
+  captureMobileHandoffUrl,
+  consumePendingMobileHandoff,
+  pendingMobileHandoffSnapshot,
+} from './mobile-handoff'
 
 function ProfileProbe() {
   const context = useServerProfile()
@@ -145,6 +148,7 @@ async function mountActiveProfileA() {
 }
 
 beforeEach(() => {
+  consumePendingMobileHandoff(pendingMobileHandoffSnapshot().id)
   seams.activeContext = null
   seams.credentials.clear()
   seams.credentials.set('profile-a', 'token-a')
@@ -171,6 +175,32 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+})
+
+describe('handoff profile selection', () => {
+  it('selects another exact saved profile before an authenticated client mounts', async () => {
+    await mountActiveProfileA()
+    const link = formatPodiumLink(PODIUM_SCHEME, {
+      kind: 'session',
+      session: 'session-on-b',
+      search: '?origin=https%3A%2F%2Fb.example&instance=instance-b',
+    })
+
+    act(() => {
+      expect(captureMobileHandoffUrl(link)).toBe(true)
+    })
+
+    await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-b'))
+    expect(seams.preflight).toHaveBeenCalledWith('https://b.example')
+    expect(seams.saveProfiles).toHaveBeenCalledWith(
+      expect.objectContaining({ activeProfileId: 'profile-b' }),
+    )
+    expect(pendingMobileHandoffSnapshot().request).not.toBeNull()
+    expect([...seams.runtime, ...seams.socket]).not.toContainEqual({
+      origin: 'https://b.example',
+      bearer: 'token-a',
+    })
+  })
 })
 
 describe('profile credential completion races', () => {

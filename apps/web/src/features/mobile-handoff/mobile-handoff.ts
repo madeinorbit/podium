@@ -1,61 +1,132 @@
 /**
  * MOBILE HANDOFF — the two surfaces that hand a desk session to a phone.
  *
- * `/mobile` is the Expo app this server already serves (`static-web.ts`,
- * POD-102) and the same URL Settings → Connected devices puts behind its
- * open-mode QR. Both surfaces here point at exactly that: no second URL
- * vocabulary, and nothing minted — a promotional code that expires is a support
- * ticket.
+ * Both surfaces emit the shared `podium:` session address understood by the
+ * installed phone app. The scope is public server identity, not a credential;
+ * pairing and its expiring secret remain owned by Connected devices.
  *
- * The QR carries the PUBLIC origin when the instance has one configured, not
- * `location.origin`: a phone cannot resolve the `localhost` address the
- * operator's browser is on, and a code that resolves to nothing is worse than
- * no code at all.
+ * The QR carries the PUBLIC origin when the instance has one configured, never
+ * `location.origin`: the packaged desktop page origin is not the server, and
+ * the phone must match the exact saved server before opening the session.
  */
 
+import { focusedPaneSession } from '@podium/client-core/engine'
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
+import {
+  PODIUM_SCHEME,
+  canonicalPodiumOrigin,
+  formatPodiumLink,
+  parseServerVersion,
+  parsePodiumLink,
+  podiumTargetPath,
+} from '@podium/protocol'
 import { useEffect, useState } from 'react'
-import { type Store, useReplicaIssues } from '@/app/store'
+import { type Store, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
-/** The phone entry point on this instance — the Expo app, not the desktop shell. */
-export const MOBILE_PATH = '/mobile'
+const HANDOFF_ORIGIN_PARAM = 'origin'
+const HANDOFF_INSTANCE_PARAM = 'instance'
+const MAX_INSTANCE_ID_LENGTH = 256
 
-/** Absolute `/mobile` URL on `origin`, with no query and no fragment. */
-export function mobileHandoffUrl(origin: string): string {
-  const url = new URL(MOBILE_PATH, origin)
-  url.search = ''
-  url.hash = ''
-  return url.href
+/**
+ * A native app address containing only canonical server origin + instance
+ * identity and the opaque session id. The shared protocol formatter and parser
+ * own the address grammar; this feature only adds the server scope the phone
+ * must verify before opening.
+ */
+export function mobileHandoffUrl(
+  origin: string,
+  instanceId: string,
+  sessionId: string,
+): string | null {
+  const canonicalOrigin = canonicalPodiumOrigin(origin)
+  if (
+    !canonicalOrigin ||
+    !sessionId ||
+    instanceId.length === 0 ||
+    instanceId.length > MAX_INSTANCE_ID_LENGTH
+  ) {
+    return null
+  }
+  const scope = new URLSearchParams({
+    [HANDOFF_ORIGIN_PARAM]: canonicalOrigin,
+    [HANDOFF_INSTANCE_PARAM]: instanceId,
+  })
+  const target = {
+    kind: 'session',
+    session: sessionId,
+    search: `?${scope.toString()}`,
+  } as const
+  const href = formatPodiumLink(PODIUM_SCHEME, target)
+
+  // Guard the QR boundary with the same grammar the phone will use. Comparing
+  // canonical target paths also catches an accidental formatter change that
+  // would drop or reinterpret the server scope.
+  const parsed = parsePodiumLink(href)
+  if (
+    parsed?.kind !== 'internal' ||
+    parsed.target.kind !== 'session' ||
+    podiumTargetPath(parsed.target) !== podiumTargetPath(target)
+  ) {
+    return null
+  }
+  return href
 }
 
 /**
- * The URL a phone should open. Starts on this window's origin so the surfaces
- * can render immediately, and upgrades to the configured public URL when the
- * probe answers — the shape Settings → Network validates, and the only address
- * that is reachable from off this machine.
+ * The URL a phone should open. It appears only after setup.info supplies the
+ * canonical public origin, or confirms that this client's server origin is the
+ * fallback. A session change invalidates the old code before the next query.
  */
-export function useMobileHandoffUrl(trpc: Store['trpc'] | undefined): string {
-  const [url, setUrl] = useState(() => mobileHandoffUrl(window.location.origin))
+export function useMobileHandoffUrl(
+  trpc: Store['trpc'] | undefined,
+  httpOrigin: string | undefined,
+  sessionId: string | null,
+): string | null {
+  const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
-    if (!trpc) return
+    setUrl(null)
+    if (!trpc || !httpOrigin || !sessionId) return
     let cancelled = false
     const load = async (): Promise<void> => {
       try {
-        const info = await trpc.setup.info.query()
-        if (cancelled || typeof info.publicUrl !== 'string' || info.publicUrl === '') return
-        setUrl(mobileHandoffUrl(info.publicUrl))
+        const [info, versionResponse] = await Promise.all([
+          trpc.setup.info.query(),
+          fetch(`${httpOrigin}/version`, { credentials: 'omit', signal: controller.signal }),
+        ])
+        const version = parseServerVersion(await versionResponse.json())
+        if (cancelled) return
+        const instanceId = version.instanceId
+        if (typeof instanceId !== 'string' || instanceId.length === 0) return
+        const destinationOrigin =
+          typeof info.publicUrl === 'string' && info.publicUrl !== '' ? info.publicUrl : httpOrigin
+        setUrl(mobileHandoffUrl(destinationOrigin, instanceId, sessionId))
       } catch {
-        // The window's own origin stays — right on any instance reached by the
-        // address it is actually served from, which is the common case.
+        // A destination without canonical server identity cannot be checked on
+        // the phone. Hide the QR instead of minting a guess from the page URL.
       }
     }
+    const controller = new AbortController()
     void load()
     return () => {
       cancelled = true
+      controller.abort()
     }
-  }, [trpc])
+  }, [httpOrigin, sessionId, trpc])
   return url
+}
+
+/** The session in the pane the operator is actively using. */
+export function useFocusedHandoffSessionId(): string | null {
+  return useStoreSelector((store) => {
+    // Focused component tests intentionally expose only the fields their
+    // subject reads. Treat those partial fixtures like a shell with no focused
+    // session rather than making an unrelated handoff affordance throw.
+    if (!Array.isArray(store.issues) || !store.workspaces || typeof store.workspaces !== 'object') {
+      return null
+    }
+    return focusedPaneSession(store)
+  })
 }
 
 /**

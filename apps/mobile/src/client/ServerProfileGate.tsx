@@ -1,7 +1,15 @@
 import { parseServerOrigin, type ServerConfig } from '@podium/client-core/transport'
 import * as Haptics from 'expo-haptics'
 import { router } from 'expo-router'
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import {
   ActivityIndicator,
   Linking,
@@ -24,6 +32,14 @@ import {
   replaceCredentialForOwner,
 } from './credential-ownership'
 import { LaunchReadyView } from './launch-ready'
+import {
+  captureMobileHandoffUrl,
+  consumePendingMobileHandoff,
+  matchingMobileHandoffProfile,
+  mobileHandoffFallbackStatus,
+  pendingMobileHandoffSnapshot,
+  subscribePendingMobileHandoff,
+} from './mobile-handoff'
 import {
   configureNativeWebSocketCredential,
   installNativeWebSocketAuthentication,
@@ -191,10 +207,17 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   )
   const [linkError, setLinkError] = useState<string | null>(consumedInitialPairing.error)
   const [activationFailure, setActivationFailure] = useState<ActivationFailure | null>(null)
+  const [handoffStatus, setHandoffStatus] = useState('')
+  const pendingHandoff = useSyncExternalStore(
+    subscribePendingMobileHandoff,
+    pendingMobileHandoffSnapshot,
+    pendingMobileHandoffSnapshot,
+  )
   const [activationRetry, setActivationRetry] = useState(0)
   const switchOperation = useRef(0)
   const switchInFlight = useRef(false)
   const revalidationInFlight = useRef(false)
+  const handoffSwitchingRequest = useRef<number | null>(null)
   const activeProfileIdRef = useRef(profileState.activeProfileId)
   const bearerRef = useRef<string | null>(null)
   const nativeOverrideActiveRef = useRef(false)
@@ -244,6 +267,12 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       } catch {
         // not mounted yet — the pair route's own <Redirect> covers it
       }
+    }
+    if (Platform.OS !== 'web' && captureMobileHandoffUrl(raw)) {
+      setIncoming(null)
+      setLinkError(null)
+      setSetupOpen(false)
+      return
     }
     try {
       const parsed = parsePairingLink(raw)
@@ -801,10 +830,61 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     }
   }, [activation, bearer, config, credentialWrites, persistState, profile, profileState, revision])
 
+  // Profile selection must happen OUTSIDE AuthGate: the requested saved profile
+  // may be signed out, so its authenticated client tree cannot mount until this
+  // gate selects it. The existing switch path owns preflight, credential
+  // clearing, and the POD-1812 owner fence; this effect only chooses its exact
+  // origin + instance target and leaves authentication/replica proof downstream.
+  useEffect(() => {
+    if (!ready || !pendingHandoff.request) return
+    const fallback = (reason: Parameters<typeof mobileHandoffFallbackStatus>[0]): void => {
+      consumePendingMobileHandoff(pendingHandoff.id)
+      setHandoffStatus(mobileHandoffFallbackStatus(reason))
+      router.replace('/work')
+    }
+    if (pendingHandoff.request.kind === 'unscoped') {
+      fallback('unscoped')
+      return
+    }
+    const selected = matchingMobileHandoffProfile(pendingHandoff.request, profileState.profiles)
+    if (!selected) {
+      fallback('profile-unavailable')
+      return
+    }
+    if (selected.id !== profile?.id) {
+      if (!context || handoffSwitchingRequest.current === pendingHandoff.id) return
+      handoffSwitchingRequest.current = pendingHandoff.id
+      setHandoffStatus('Opening the matching saved server.')
+      void context
+        .switchProfile(selected.id)
+        .catch(() => {
+          if (pendingMobileHandoffSnapshot().id !== pendingHandoff.id) return
+          fallback('identity-unverified')
+        })
+        .finally(() => {
+          if (handoffSwitchingRequest.current === pendingHandoff.id) {
+            handoffSwitchingRequest.current = null
+          }
+        })
+      return
+    }
+    if (activationFailure) fallback('identity-unverified')
+    else setHandoffStatus('')
+  }, [
+    activationFailure,
+    context,
+    pendingHandoff,
+    profile?.id,
+    profileState.profiles,
+    ready,
+    router,
+  ])
+
   if (!ready) return null
   if (activationFailure && !setupOpen) {
     return (
       <LaunchReadyView>
+        <HandoffStatus text={handoffStatus} />
         <ActivationFailureView
           failure={activationFailure}
           onRetry={() => {
@@ -867,6 +947,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   if (!profile || !config || setupOpen) {
     return (
       <LaunchReadyView>
+        <HandoffStatus text={handoffStatus} />
         <PairingSetup
           incoming={incoming}
           initialError={linkError}
@@ -885,6 +966,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   return (
     <ServerProfileContext.Provider value={context}>
       <View style={styles.fill} key={context?.runtimeKey}>
+        <HandoffStatus text={handoffStatus} />
         {config.override ? (
           <View style={styles.overrideBanner}>
             <Text style={styles.overrideText}>SERVER OVERRIDE · NOT SAVED</Text>
@@ -894,6 +976,14 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       </View>
     </ServerProfileContext.Provider>
   )
+}
+
+function HandoffStatus({ text }: { text: string }) {
+  return text ? (
+    <Text role="status" accessibilityLiveRegion="polite" style={styles.srStatus}>
+      {text}
+    </Text>
+  ) : null
 }
 
 function ActivationFailureView({
@@ -1358,6 +1448,7 @@ function SecondaryButton({
 
 const styles = StyleSheet.create({
   fill: { flex: 1, minHeight: 0 },
+  srStatus: { position: 'absolute', width: 1, height: 1, overflow: 'hidden' },
   overrideBanner: { backgroundColor: color.needsYou, paddingVertical: 4, alignItems: 'center' },
   overrideText: { color: color.onAccent, ...sans(700), fontSize: font.micro, letterSpacing: 1 },
   setup: { flex: 1, backgroundColor: color.bg },
