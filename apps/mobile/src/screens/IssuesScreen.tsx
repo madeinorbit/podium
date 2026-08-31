@@ -675,6 +675,7 @@ function TaskRow({
         // chevron would have been a control only a finger could find. As a
         // rotor action it is available to both.
         accessibilityState={childCount > 0 ? { expanded: row.expanded } : undefined}
+        aria-expanded={childCount > 0 ? row.expanded : undefined}
         accessibilityActions={
           childCount > 0
             ? [

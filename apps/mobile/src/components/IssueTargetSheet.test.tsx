@@ -37,7 +37,8 @@ vi.mock('react-native', async (importOriginal) => {
   return { ...actual, FlatList: CapturingFlatList as ComponentType<FlatListProps> }
 })
 
-const { IssueTargetSheet, filterIssueTargets } = await import('./IssueTargetSheet')
+const { IssueTargetSheet, filterIssueTargets, issueTargetFooterPadding } =
+  await import('./IssueTargetSheet')
 
 afterEach(() => {
   captured = undefined
@@ -97,18 +98,8 @@ describe('IssueTargetSheet scale boundary', () => {
     expect(filterIssueTargets(issues, 'pod 417').map((issue) => issue.id)).toEqual(['issue-417'])
   })
 
-  it('keeps the pinned Cancel control above the home indicator', () => {
-    const { getByRole } = render(
-      <IssueTargetSheet
-        visible
-        title="Parent"
-        issues={[]}
-        onPick={() => {}}
-        onClose={() => {}}
-      />,
-    )
-
-    const cancel = getByRole('button', { name: 'Cancel' })
-    expect((cancel.parentElement as HTMLElement).style.paddingBottom).toBe('46px')
+  it('clears the home indicator without double-paying it above the keyboard', () => {
+    expect(issueTargetFooterPadding(34, 0)).toBe(46)
+    expect(issueTargetFooterPadding(34, 280)).toBe(12)
   })
 })

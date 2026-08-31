@@ -143,6 +143,7 @@ export function NewIssueScreen() {
                 accessibilityRole="radio"
                 accessibilityLabel={`Repository ${name}`}
                 accessibilityState={{ checked: active }}
+                aria-checked={active}
                 onPress={() => {
                   setRepoPath(repo)
                   setLaunchPlan(null)
@@ -264,6 +265,7 @@ function Choice({
       accessibilityRole="radio"
       accessibilityLabel={label}
       accessibilityState={{ checked: selected }}
+      aria-checked={selected}
       onPress={onPress}
       style={[styles.chip, selected && styles.chipActive]}
     >

@@ -33,6 +33,7 @@ export function IssueTargetSheet({
   }, [visible])
 
   const matches = useMemo(() => filterIssueTargets(issues, query), [issues, query])
+  const footerPadding = issueTargetFooterPadding(insets.bottom, keyboardHeight)
 
   return (
     <BottomSheet
@@ -59,10 +60,7 @@ export function IssueTargetSheet({
       footerRule={false}
       footer={
         <View
-          style={[
-            styles.footer,
-            { paddingBottom: keyboardHeight > 0 ? space.md : insets.bottom + space.md },
-          ]}
+          style={[styles.footer, { paddingBottom: footerPadding }]}
         >
           <PressableScale
             accessibilityRole="button"
@@ -127,6 +125,11 @@ export function filterIssueTargets(
           .replace(/[^a-z0-9]/g, '')
           .includes(refNeedle)),
   )
+}
+
+/** Clear the home indicator when idle; the sheet itself already pays for an open keyboard. */
+export function issueTargetFooterPadding(safeBottom: number, keyboardHeight: number): number {
+  return keyboardHeight > 0 ? space.md : safeBottom + space.md
 }
 
 const styles = StyleSheet.create({
