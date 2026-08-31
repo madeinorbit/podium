@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
-import { createReadStream, existsSync, readFileSync, renameSync } from 'node:fs'
+import { createReadStream, type Dirent, existsSync, readFileSync, renameSync } from 'node:fs'
 import { mkdir, readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -307,22 +307,129 @@ export function classifyIgnoredSourceInputs(
  */
 export type DevBundleSourceReader = (root: string) => string | Promise<string>
 
-function defaultReadIgnoredSourceInputs(root: string): Promise<string> {
-  const excludes = DEV_BUNDLE_NON_SOURCE_TREES.map((tree) => `:(exclude)**/${tree}/**`)
-  const generatedExcludes = DEV_BUNDLE_IGNORED_SOURCE_ALLOWED_PREFIXES.map(
-    (prefix) => `:(exclude)${prefix}**`,
+/**
+ * Enumerates ignored files under the source trees without walking the trees
+ * that can never hold source.
+ *
+ * `git ls-files --others --ignored` applies `:(exclude)` pathspecs *after* the
+ * walk, so the one-shot form descends into every `node_modules`, `dist`,
+ * `.turbo` and `target` on disk to emit paths it then throws away — measured
+ * at 18,045 paths to yield 227, seconds to tens of seconds cold (POD-3163).
+ *
+ * `--directory` collapses a fully-ignored directory to a single entry and is
+ * near-instant, but on its own it BLINDS the fence: a gitignored `apps/secret/`
+ * collapses to `apps/secret/`, which carries no file extension, so
+ * `classifyIgnoredSourceInputs` skips it and the `.ts` inside sails through.
+ *
+ * So: collapse first, then open only the collapsed directories that could hold
+ * source — pruning, as the classifier does, the output and dependency trees and
+ * the generated prefixes. Everything under a collapsed directory is ignored by
+ * construction, so that expansion is a plain directory read; git is consulted a
+ * second time only to confirm the candidates it turns up, and only when there
+ * are any. On a checkout whose collapsed directories are all build output — the
+ * normal case — nothing is opened and the expensive walk never runs, while an
+ * `apps/secret/` is still descended into and caught.
+ */
+const IGNORED_SOURCE_LS_FILES = [
+  'ls-files',
+  '-z',
+  '--others',
+  '--ignored',
+  '--exclude-standard',
+] as const
+
+function ignoredSourceExcludePathspecs(): string[] {
+  return [
+    ...DEV_BUNDLE_NON_SOURCE_TREES.map((tree) => `:(exclude)**/${tree}/**`),
+    ...DEV_BUNDLE_IGNORED_SOURCE_ALLOWED_PREFIXES.map((prefix) => `:(exclude)${prefix}**`),
+  ]
+}
+
+function isPrunedIgnoredSourcePath(path: string): boolean {
+  const basename = path.replace(/\/$/, '').split('/').pop() ?? ''
+  if ((DEV_BUNDLE_NON_SOURCE_TREES as readonly string[]).includes(basename)) return true
+  return DEV_BUNDLE_IGNORED_SOURCE_ALLOWED_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(prefix),
   )
-  return git(root, [
-    'ls-files',
-    '-z',
-    '--others',
-    '--ignored',
-    '--exclude-standard',
+}
+
+/**
+ * Candidate source files under one collapsed ignored directory.
+ *
+ * A directory git could not read is reported as a candidate itself: the
+ * confirming query then decides, because a directory the fence cannot open is
+ * not a directory the fence may declare clean.
+ */
+async function readCollapsedIgnoredDirectory(root: string, directory: string): Promise<string[]> {
+  const candidates: string[] = []
+  const queue = [directory.replace(/\/$/, '')]
+  while (queue.length > 0) {
+    const current = queue.pop() as string
+    let entries: Dirent[]
+    try {
+      entries = await readdir(join(root, current), { withFileTypes: true })
+    } catch {
+      candidates.push(current)
+      continue
+    }
+    for (const entry of entries) {
+      const path = `${current}/${entry.name}`
+      if (isPrunedIgnoredSourcePath(path)) continue
+      // Symlinks are not followed: the target is either already enumerated
+      // under its own path or outside the source trees entirely.
+      if (entry.isDirectory()) {
+        queue.push(path)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const dot = entry.name.lastIndexOf('.')
+      const extension = dot === -1 ? '' : entry.name.slice(dot)
+      if ((DEV_BUNDLE_SOURCE_EXTENSIONS as readonly string[]).includes(extension)) {
+        candidates.push(path)
+      }
+    }
+  }
+  return candidates
+}
+
+export async function defaultReadIgnoredSourceInputs(root: string): Promise<string> {
+  const excludes = ignoredSourceExcludePathspecs()
+  const collapsed = await git(root, [
+    ...IGNORED_SOURCE_LS_FILES,
+    '--directory',
     '--',
     ...DEV_BUNDLE_SOURCE_TREES,
     ...excludes,
-    ...generatedExcludes,
   ])
+
+  const files: string[] = []
+  const candidates: string[] = []
+  for (const entry of collapsed.split('\0')) {
+    if (entry === '') continue
+    // `--directory` reports the outermost ignored directory, and git emits
+    // those even when they sit outside the source-tree pathspec (`.worktrees/`
+    // and `.turbo/` at the repository root). The one-shot form never yielded
+    // them, so drop anything not actually under a source tree.
+    if (!DEV_BUNDLE_SOURCE_TREES.some((tree) => entry === tree || entry.startsWith(`${tree}/`))) {
+      continue
+    }
+    if (isPrunedIgnoredSourcePath(entry)) continue
+    if (entry.endsWith('/')) {
+      candidates.push(...(await readCollapsedIgnoredDirectory(root, entry)))
+      continue
+    }
+    files.push(entry)
+  }
+
+  if (candidates.length === 0) return files.join('\0')
+
+  // Confirm against git rather than trusting the directory read: the pathspecs
+  // are exact paths, so this costs a stat apiece and never re-walks a tree.
+  const confirmed = await git(root, [...IGNORED_SOURCE_LS_FILES, '--', ...candidates, ...excludes])
+  for (const path of confirmed.split('\0')) {
+    if (path !== '') files.push(path)
+  }
+  return files.join('\0')
 }
 
 function defaultReadSourceStatus(root: string): Promise<string> {
@@ -1229,20 +1336,21 @@ async function readExistingDevBundle(
 /**
  * Move this release's staged timing lines into its record.
  *
- * The sink is keyed by version because it is opened before there is a build id to key
- * it by — it times the steps that mint one. This is where the two are joined.
+ * The sink is keyed by the run id because it is opened before there is a build id to key
+ * it by — it times the steps that mint one — and because two attempts at one version must
+ * not share a file. This is where the run and the build it produced are joined.
  */
 export function finalizeTimingIntoRecord(
   timing: ReleaseBuildTimingDeps | undefined,
   stateDirectory: string,
   buildId: string,
-  version: string,
+  identity: string,
 ): void {
   const staging = timing?.outputDirectory
   if (!staging) return
   try {
     renameSync(
-      join(staging, releaseBuildTimingFileName(version)),
+      join(staging, releaseBuildTimingFileName(identity)),
       buildTimingPath(stateDirectory, buildId),
     )
   } catch {
@@ -1310,6 +1418,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       channel: 'dev',
       version,
       sourceSha: sha,
+      ...(deps.timing?.context?.runId ? { runId: deps.timing.context.runId } : {}),
     })
 
     const platforms = devBuildPlatforms(deps.platforms)
@@ -2066,11 +2175,26 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       // Fail closed BEFORE restoring or compiling: a dirty checkout cannot
       // produce a dev+<sha> build of that commit, and a recorded build must not be
       // restored under a tree that has since diverged.
-      await assertSourceMatchesHead(
-        deps.root ?? SOURCE_ROOT,
-        headSha,
-        deps.readSourceStatus,
-        deps.readIgnoredSourceInputs,
+      //
+      // Timed as its own task: on a cold ignored-source walk this is the single
+      // largest step of the whole approval-to-publish envelope, and it runs before
+      // the snapshot exists, so nothing downstream can account for it.
+      await timeReleaseBuildTask(
+        {
+          phase: 'validation',
+          task: 'live-source-inputs',
+          channel: 'dev',
+          ...(approved?.version ? { version: approved.version } : {}),
+          sourceSha: headSha,
+        },
+        () =>
+          assertSourceMatchesHead(
+            deps.root ?? SOURCE_ROOT,
+            headSha,
+            deps.readSourceStatus,
+            deps.readIgnoredSourceInputs,
+          ),
+        deps.timing,
       )
       // A restart loses only the in-memory descriptor, not the signed bytes.
       // Restore an exact-HEAD build from the ledger first; compile only when it

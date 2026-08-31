@@ -33,8 +33,10 @@ done
 
 bun scripts/abduco-cross.ts >/dev/null || { echo "ABORT: could not build the reference abduco helpers" >&2; exit 1; }
 HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
-DARWIN_REF="$ROOT/dist-bun/abduco-cache/darwin-aarch64-$HASH"
-LINUX_REF="$ROOT/dist-bun/abduco-cache/linux-x86_64-$HASH"
+# Ask the builder where it put them; the cache is durable and outside the checkout.
+ABDUCO_CACHE="$(bun scripts/abduco-cross.ts --print-cache-dir)"
+DARWIN_REF="$ABDUCO_CACHE/darwin-aarch64-$HASH"
+LINUX_REF="$ABDUCO_CACHE/linux-x86_64-$HASH"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-negctl-XXXXXX")"
 # When a case fails, the first question is always "what was actually in that tarball?".

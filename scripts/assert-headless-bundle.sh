@@ -289,7 +289,10 @@ if [ "$ABDUCO_IDENTITY" = required ]; then
     *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
     *) fail "reference abduco is not $EXPECT_FORMAT $EXPECT_ARCH (got: $ref_file)" ;;
   esac
-  OTHER_REF="$ROOT/dist-bun/abduco-cache/$OTHER_PLATFORM-$(basename "$ABDUCO_REF" | sed "s/^$PLATFORM-//")"
+  # The sibling entry sits beside the reference we were handed. Derived from that path
+  # rather than a literal cache directory: the cache is durable and outside the checkout
+  # (POD-3162), and this script must not have its own opinion about where it lives.
+  OTHER_REF="$(dirname "$ABDUCO_REF")/$OTHER_PLATFORM-$(basename "$ABDUCO_REF" | sed "s/^$PLATFORM-//")"
   report="$(python3 - "$CLI" "$ABDUCO_REF" "$OTHER_REF" <<'PY'
 import sys
 cli, ref, other = sys.argv[1:4]

@@ -1,17 +1,20 @@
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  emitReleaseBuildTiming,
+  mintReleaseTimingRunId,
+  type ReleaseBuildTimingRecord,
   releaseBuildTimingEnvironment,
   releaseBuildTimingFileName,
   timeReleaseBuild,
   timeReleaseBuildSync,
-  type ReleaseBuildTimingRecord,
 } from './release-build-timing'
 
 describe('release build timing', () => {
   it('gives development versions a filesystem-safe staging identity', () => {
-    expect(releaseBuildTimingFileName('0.1.1-dev.24+421a3ae')).toBe(
-      '0.1.1-dev.24-421a3ae.jsonl',
-    )
+    expect(releaseBuildTimingFileName('0.1.1-dev.24+421a3ae')).toBe('0.1.1-dev.24-421a3ae.jsonl')
   })
 
   it('is default-off and does not even read the clock', () => {
@@ -72,6 +75,59 @@ describe('release build timing', () => {
     ])
   })
 
+  it('separates two attempts at one version into two staging files', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-timing-'))
+    const line = (runId: string) =>
+      ({
+        evidence: 'release-build-timing',
+        granularity: 'phase',
+        phase: 'approval-to-publish',
+        outcome: 'success',
+        durationMs: 1,
+        runId,
+        version: '0.4.3-dev.29+09743a0',
+        sourceSha: '09743a0',
+      }) as const
+    for (const runId of ['run-one', 'run-two'])
+      emitReleaseBuildTiming(line(runId), { outputDirectory: root, log: () => {} })
+
+    expect(readdirSync(root).sort()).toEqual(['run-one.jsonl', 'run-two.jsonl'])
+    expect(JSON.parse(readFileSync(join(root, 'run-one.jsonl'), 'utf8'))).toMatchObject({
+      version: '0.4.3-dev.29+09743a0',
+      sourceSha: '09743a0',
+    })
+  })
+
+  it('keys a child process line by the run id it inherited', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-release-timing-child-'))
+    timeReleaseBuildSync({ granularity: 'phase', phase: 'client-bundle' }, () => 'built', {
+      enabled: true,
+      outputDirectory: root,
+      log: () => {},
+      now: vi.fn().mockReturnValueOnce(1).mockReturnValueOnce(2),
+      env: {
+        PODIUM_RELEASE_TIMING_RUN: 'inherited-run',
+        PODIUM_RELEASE_TIMING_VERSION: '0.4.3-dev.29+09743a0',
+        PODIUM_RELEASE_TIMING_SHA: '09743a0',
+      },
+    })
+
+    expect(readdirSync(root)).toEqual(['inherited-run.jsonl'])
+    expect(JSON.parse(readFileSync(join(root, 'inherited-run.jsonl'), 'utf8'))).toMatchObject({
+      runId: 'inherited-run',
+      version: '0.4.3-dev.29+09743a0',
+      sourceSha: '09743a0',
+    })
+  })
+
+  it('mints a distinct run id per attempt within the same second', () => {
+    const now = () => Date.UTC(2026, 7, 30, 20, 58, 14)
+    const first = mintReleaseTimingRunId({ now, random: () => 0.123456 })
+    const second = mintReleaseTimingRunId({ now, random: () => 0.654321 })
+    expect(first).toMatch(/^20260830205814Z-[0-9a-z]{6}$/)
+    expect(second).not.toBe(first)
+  })
+
   it('fails open when the clock or evidence sink fails', () => {
     expect(
       timeReleaseBuildSync({ granularity: 'phase', phase: 'signing' }, () => 'built', {
@@ -110,6 +166,17 @@ describe('release build timing', () => {
       PODIUM_RELEASE_TIMING_VERSION: '0.4.3-dev.7+abc1234',
       PODIUM_RELEASE_TIMING_SHA: 'abc1234',
     })
+    expect(
+      releaseBuildTimingEnvironment(
+        { enabled: true, outputDirectory: '/release-evidence' },
+        {
+          channel: 'dev',
+          version: '0.4.3-dev.7+abc1234',
+          sourceSha: 'abc1234',
+          runId: '20260830205814Z-a1b2c3',
+        },
+      ),
+    ).toMatchObject({ PODIUM_RELEASE_TIMING_RUN: '20260830205814Z-a1b2c3' })
     expect(
       releaseBuildTimingEnvironment(
         { enabled: false, outputDirectory: '/release-evidence' },

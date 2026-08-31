@@ -1,16 +1,21 @@
 import { generateKeyPairSync, sign, verify } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
-import {
-  releaseBuildTimingFileName,
-  timeReleaseBuildTask,
-} from '@podium/runtime/release-build-timing'
+import { timeReleaseBuildTask } from '@podium/runtime/release-build-timing'
 import { Hono } from 'hono'
 import { afterAll, describe, expect, it } from 'vitest'
-import { buildRecordDir, buildTimingPath, releaseTimingStagingDir } from './build-record'
 import { DEV_DESKTOP_CHANNEL_HEADER, registerDevFeedRoutes } from './artifact-route'
+import { buildRecordDir, buildTimingPath, releaseTimingStagingDir } from './build-record'
 import {
   type BuiltDevBundle,
   DevArtifactIntegrityError,
@@ -19,9 +24,9 @@ import {
 } from './dev-bundle'
 import {
   developmentArtifactUrl,
+  isRemoteUpdateConsumer,
   selectDevelopmentArtifactOrigin,
   wireDevBundlePublisher,
-  isRemoteUpdateConsumer,
 } from './dev-publisher-wiring'
 
 const bytes = new Uint8Array([9, 8, 7, 6])
@@ -438,7 +443,6 @@ describe('development artifact route', () => {
     it('finalizes timing only after the approval total is written', async () => {
       const stateDirectory = mkdtempSync(join(tmpdir(), 'podium-release-finalization-'))
       const staging = releaseTimingStagingDir(stateDirectory)
-      const stagedPath = join(staging, releaseBuildTimingFileName(built.version))
       let tick = 0
       try {
         mkdirSync(buildRecordDir(stateDirectory, built.buildId), {
@@ -517,7 +521,80 @@ describe('development artifact route', () => {
           ['task', 'approval-to-publish', 'approved-development-release'],
           ['phase', 'approval-to-publish', 'approved-development-release'],
         ])
-        expect(existsSync(stagedPath)).toBe(false)
+        // Nothing stays behind: the run's staging file is the one that moved.
+        expect(readdirSync(staging)).toEqual([])
+      } finally {
+        rmSync(stateDirectory, { recursive: true, force: true })
+      }
+    })
+
+    it('keeps two attempts at one version in two build records', async () => {
+      const stateDirectory = mkdtempSync(join(tmpdir(), 'podium-release-two-runs-'))
+      const staging = releaseTimingStagingDir(stateDirectory)
+      const buildIds = ['20260812T182015Z-abc1234', '20260812T190244Z-abc1234']
+      let attempt = 0
+      let tick = 0
+      try {
+        for (const buildId of buildIds)
+          mkdirSync(buildRecordDir(stateDirectory, buildId), { recursive: true })
+        const releaseTiming = {
+          enabled: true,
+          outputDirectory: staging,
+          now: () => ++tick,
+          log: () => {},
+        }
+        const { wiring } = wiringFor({
+          publisherStateDir: stateDirectory,
+          releaseTiming,
+          createPublisher: (input) =>
+            ({
+              ...publisherFor(),
+              current: () => ({ ...built, buildId: buildIds[attempt - 1] as string }),
+              proposal: async () =>
+                ({
+                  headSha: 'abc1234',
+                  version: built.version,
+                  branch: 'dev/mw',
+                  runningVersion: '0.1.0-dev.26',
+                  commits: [],
+                  addedMigrations: [],
+                  state: 'pending',
+                }) as never,
+              requestBuild: async () => {
+                attempt += 1
+                return timeReleaseBuildTask(
+                  {
+                    phase: 'artifact-publication',
+                    task: 'retention',
+                    channel: 'dev',
+                    version: built.version,
+                    sourceSha: 'abc1234',
+                  },
+                  () => built,
+                  input.timing,
+                )
+              },
+            }) as never,
+        })
+
+        for (const _ of buildIds)
+          await wiring.approveRelease('operator', { headSha: 'abc1234', version: built.version })
+
+        const runIds = buildIds.map((buildId) => {
+          const lines = readFileSync(buildTimingPath(stateDirectory, buildId), 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line) as { runId?: string; version?: string })
+          // Each record holds only its own attempt, and loses neither the version nor the sha.
+          expect(lines).toHaveLength(4)
+          expect(lines.every((line) => line.version === built.version)).toBe(true)
+          const runId = lines[0]?.runId
+          expect(lines.every((line) => line.runId === runId)).toBe(true)
+          return runId
+        })
+        expect(runIds[0]).toBeDefined()
+        expect(runIds[0]).not.toBe(runIds[1])
+        expect(readdirSync(staging)).toEqual([])
       } finally {
         rmSync(stateDirectory, { recursive: true, force: true })
       }
@@ -595,8 +672,7 @@ describe('development artifact route', () => {
     it('refuses before publication when a built artifact is no longer on disk', async () => {
       const { wiring, publications, unavailable } = wiringFor({
         // Retention swept the Mac tarball out from under this publish.
-        artifactSize: async (path: string) =>
-          path === darwinArtifact ? undefined : bytes.length,
+        artifactSize: async (path: string) => (path === darwinArtifact ? undefined : bytes.length),
       })
 
       await expect(wiring.requestBuild()).rejects.toThrow(/is not on disk/)

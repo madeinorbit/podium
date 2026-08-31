@@ -2694,7 +2694,8 @@ main() {
     container_exec "$container" sh -lc 'command -v gzip >/dev/null'
   done
   helper="$(container_exec "$SOURCE" sh -lc \
-    'find /work/source/dist-bun/abduco-cache -type f -name "linux-x86_64-*" -print -quit')"
+    'cd /work/source && find "$(bun scripts/abduco-cross.ts --print-cache-dir)" \
+       -type f -name "linux-x86_64-*" -print -quit')"
   [[ -n "$helper" ]]
   container_exec "$SOURCE" test -x "$helper"
   container_exec "$SOURCE" "$helper" -v >/dev/null

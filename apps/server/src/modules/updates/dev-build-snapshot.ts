@@ -125,6 +125,8 @@ export async function withDevBuildSnapshot<T>(
         if (!failed) throw error
       }
     }
-    await rm(parent, { recursive: true, force: true })
+    // The worktree removal above is timed; the temp PARENT it lived in is a separate
+    // recursive delete, and an untimed one made the envelope look larger than its phases.
+    await timed('checkout', 'snapshot-teardown', () => rm(parent, { recursive: true, force: true }))
   }
 }
