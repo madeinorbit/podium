@@ -11645,7 +11645,7 @@ button.waterfall-fold:hover {
   border-radius: 3px;
   color: var(--muted-foreground);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   line-height: 13px;
 }
