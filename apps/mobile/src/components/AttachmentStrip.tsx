@@ -1,6 +1,6 @@
 import { FileText, X } from './icons'
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { color, font, mono, radius, sans, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import type { ComposerAttachment } from './useComposerAttachments'
@@ -54,7 +54,15 @@ export function AttachmentStrip({
                 </Text>
               </View>
             )}
-            {failed ? <Text style={styles.failedMark}>failed</Text> : null}
+            {failed ? (
+              <Text
+                accessibilityLabel={`${attachment.name}: ${attachment.error ?? 'Upload failed.'}`}
+                style={styles.failedMark}
+                numberOfLines={2}
+              >
+                {attachment.error ?? 'Upload failed.'}
+              </Text>
+            ) : null}
             <PressableScale
               accessibilityRole="button"
               accessibilityLabel={`Remove ${attachment.name}`}
@@ -125,14 +133,21 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   failedMark: {
-    ...mono(500),
+    ...sans(600),
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 4,
+    bottom: 0,
+    minHeight: 22,
+    paddingHorizontal: 3,
+    paddingVertical: 2,
     textAlign: 'center',
     color: color.dangerText,
-    fontSize: font.micro,
+    backgroundColor: color.bg,
+    fontSize: 9,
+    lineHeight: 10,
+    borderBottomLeftRadius: radius.md,
+    borderBottomRightRadius: radius.md,
   },
   remove: {
     position: 'absolute',

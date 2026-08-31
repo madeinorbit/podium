@@ -2,12 +2,17 @@ import type { SessionId } from '@podium/model'
 import { useCallback, useRef, useState } from 'react'
 import { useTrpc } from '../client/hooks'
 import {
+  createAttachmentSessionResolver,
+  uploadWithResolvedSession,
+} from '../lib/attachment-session'
+import {
   canPasteMedia,
   canPickFiles,
   type PickedFile,
   pasteMedia,
   pickFiles,
 } from '../lib/composer-media'
+import { pickedFileReady } from '../lib/composer-media-types'
 
 /**
  * THE PROMPT'S ATTACHMENTS, on the phone.
@@ -38,6 +43,8 @@ export interface ComposerAttachment {
   /** The absolute path on the session's machine, once uploaded. */
   path?: string
   state: 'uploading' | 'ready' | 'failed'
+  /** A useful per-file refusal, kept until the operator removes the chip. */
+  error?: string
 }
 
 export interface ComposerAttachmentsApi {
@@ -77,23 +84,58 @@ export interface SentAttachment {
 
 let seq = 0
 
-export function useComposerAttachments(sessionId: SessionId | undefined): ComposerAttachmentsApi {
+export function useComposerAttachments(
+  sessionId: SessionId | undefined,
+  options: {
+    prepareSession?: () => Promise<SessionId>
+    /** Testable platform seam; production uses the native/web picker module. */
+    pickMedia?: () => Promise<PickedFile[]>
+  } = {},
+): ComposerAttachmentsApi {
   const trpc = useTrpc()
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   // The send reads paths at the instant of the press, and `ready()` must not be
   // a stale closure over the render that created the callback.
   const latest = useRef(attachments)
   latest.current = attachments
+  const sessionRef = useRef(sessionId)
+  sessionRef.current = sessionId
+  const prepareRef = useRef(options.prepareSession)
+  prepareRef.current = options.prepareSession
+  const pickMediaRef = useRef(options.pickMedia ?? pickFiles)
+  pickMediaRef.current = options.pickMedia ?? pickFiles
+  // Every picker result joins one composer-owned queue. Serializing within a
+  // single selection is insufficient: a second Photos/Files choice can arrive
+  // while the first upload still owns a full base64 payload.
+  const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
+  // Native pickers perform their filesystem/base64 read before `accept`. Keep
+  // the whole pick → read → upload lifecycle serial too, otherwise two rapid
+  // taps could build two full encoded batches before either reached the upload
+  // queue above.
+  const intakeQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const resolverRef = useRef<(() => Promise<SessionId>) | null>(null)
+  const resolverBindingRef = useRef<SessionId | undefined>(sessionId)
+  if (!resolverRef.current || resolverBindingRef.current !== sessionId) {
+    // A Superagent clear kills its old headless session. Binding identity is
+    // therefore the resolver generation: promise/cache sharing is correct only
+    // until the screen publishes a cleared or replacement binding.
+    resolverBindingRef.current = sessionId
+    resolverRef.current = createAttachmentSessionResolver(
+      () => sessionRef.current,
+      () => {
+        const prepare = prepareRef.current
+        if (!prepare)
+          return Promise.reject(new Error('No session is available for this attachment.'))
+        return prepare()
+      },
+    )
+  }
 
   const upload = useCallback(
-    async (id: string, file: PickedFile) => {
-      if (!sessionId) {
-        setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, state: 'failed' } : a)))
-        return
-      }
+    async (id: string, file: PickedFile & { dataBase64: string }, targetSessionId: SessionId) => {
       try {
         const result = await trpc.sessions.uploadImage.mutate({
-          sessionId,
+          sessionId: targetSessionId,
           filename: file.name,
           mimeType: file.mimeType,
           dataBase64: file.dataBase64,
@@ -104,11 +146,14 @@ export function useComposerAttachments(sessionId: SessionId | undefined): Compos
         setAttachments((prev) =>
           prev.map((a) => (a.id === id ? { ...a, path: result.path, state: 'ready' } : a)),
         )
-      } catch {
-        setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, state: 'failed' } : a)))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setAttachments((prev) =>
+          prev.map((a) => (a.id === id ? { ...a, state: 'failed', error: message } : a)),
+        )
       }
     },
-    [sessionId, trpc],
+    [trpc],
   )
 
   const accept = useCallback(
@@ -119,21 +164,57 @@ export function useComposerAttachments(sessionId: SessionId | undefined): Compos
           id: `att-${++seq}`,
           name: file.name,
           previewUri: file.previewUri,
-          state: 'uploading' as const,
+          state: pickedFileReady(file) ? ('uploading' as const) : ('failed' as const),
+          ...(file.error ? { error: file.error } : {}),
         },
         file,
       }))
       setAttachments((prev) => [...prev, ...added.map((entry) => entry.chip)])
-      for (const entry of added) void upload(entry.chip.id, entry.file)
+      const ready = added.flatMap((entry) =>
+        pickedFileReady(entry.file) ? [{ chip: entry.chip, file: entry.file }] : [],
+      )
+      if (ready.length === 0) return
+      const resolveSession = resolverRef.current as () => Promise<SessionId>
+      uploadQueueRef.current = uploadQueueRef.current
+        .then(() =>
+          uploadWithResolvedSession(ready, resolveSession, (entry, targetSessionId) =>
+            upload(entry.chip.id, entry.file, targetSessionId),
+          ),
+        )
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error)
+          const ids = new Set(ready.map((entry) => entry.chip.id))
+          setAttachments((prev) =>
+            prev.map((attachment) =>
+              ids.has(attachment.id)
+                ? { ...attachment, state: 'failed', error: message }
+                : attachment,
+            ),
+          )
+        })
     },
     [upload],
   )
 
   const fromSource = useCallback(
     (source: () => Promise<PickedFile[]>) => {
-      void source()
-        .then(accept)
-        .catch(() => {})
+      intakeQueueRef.current = intakeQueueRef.current.then(async () => {
+        try {
+          accept(await source())
+        } catch (error) {
+          accept([
+            {
+              name: 'Attachment',
+              mimeType: 'application/octet-stream',
+              previewUri: '',
+              error: error instanceof Error ? error.message : String(error),
+            },
+          ])
+        }
+        // `accept` updates the ref synchronously. Waiting here keeps the next
+        // picker read behind this batch's upload and its retained base64 bytes.
+        await uploadQueueRef.current
+      })
     },
     [accept],
   )
@@ -141,7 +222,7 @@ export function useComposerAttachments(sessionId: SessionId | undefined): Compos
   return {
     attachments,
     uploading: attachments.some((a) => a.state === 'uploading'),
-    ...(canPickFiles ? { pick: () => fromSource(pickFiles) } : {}),
+    ...(canPickFiles ? { pick: () => fromSource(pickMediaRef.current) } : {}),
     ...(canPasteMedia ? { paste: () => fromSource(pasteMedia) } : {}),
     accept,
     remove: useCallback(
