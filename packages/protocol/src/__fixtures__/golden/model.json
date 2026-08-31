@@ -1374,6 +1374,112 @@
       "encoded": "{\"id\":\"id\",\"path\":\"path\",\"podiumId\":\"podiumId\",\"agentKind\":\"claude-code\",\"title\":\"title\",\"name\":\"name\",\"summary\":\"summary\",\"projectPath\":\"projectPath\",\"parentConversationId\":\"parentConversationId\",\"statusHint\":\"statusHint\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"messageCount\":1,\"sizeBytes\":1,\"git\":{\"branch\":\"git.branch\",\"sha\":\"git.sha\",\"originUrl\":\"git.originUrl\"},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"providerId\":\"providerId\"}"
     },
     {
+      "schema": "CostFloor",
+      "variant": "minimal",
+      "wire": "none",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"none\""
+    },
+    {
+      "schema": "CostFloor",
+      "variant": "full",
+      "wire": "none",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"none\""
+    },
+    {
+      "schema": "CostHarness",
+      "variant": "minimal",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "CostHarness",
+      "variant": "full",
+      "wire": "claude-code",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"claude-code\""
+    },
+    {
+      "schema": "CostModelTotalWire",
+      "variant": "minimal",
+      "wire": {
+        "model": "model",
+        "inputTokens": 1,
+        "outputTokens": 1,
+        "cacheReadTokens": 1,
+        "cacheCreationTokens": 1,
+        "cacheCreation1hTokens": 1,
+        "messages": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}"
+    },
+    {
+      "schema": "CostModelTotalWire",
+      "variant": "full",
+      "wire": {
+        "model": "model",
+        "inputTokens": 1,
+        "outputTokens": 1,
+        "cacheReadTokens": 1,
+        "cacheCreationTokens": 1,
+        "cacheCreation1hTokens": 1,
+        "messages": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}"
+    },
+    {
+      "schema": "CostTotalsWire",
+      "variant": "minimal",
+      "wire": {
+        "models": [],
+        "messages": 1,
+        "sessionCount": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"models\":[],\"messages\":1,\"sessionCount\":1}"
+    },
+    {
+      "schema": "CostTotalsWire",
+      "variant": "full",
+      "wire": {
+        "models": [
+          {
+            "model": "models[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ],
+        "messages": 1,
+        "sessionCount": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1}"
+    },
+    {
       "schema": "CredentialSource",
       "variant": "minimal",
       "wire": "per-user-scrypt",
@@ -8485,6 +8591,50 @@
       "encoded": "\"logged-out\""
     },
     {
+      "schema": "SessionCostWire",
+      "variant": "minimal",
+      "wire": {
+        "sessionId": null,
+        "title": null,
+        "harness": "claude-code",
+        "running": true,
+        "models": [],
+        "firstTsMs": 1,
+        "lastTsMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":null,\"title\":null,\"harness\":\"claude-code\",\"running\":true,\"models\":[],\"firstTsMs\":1,\"lastTsMs\":1}"
+    },
+    {
+      "schema": "SessionCostWire",
+      "variant": "full",
+      "wire": {
+        "sessionId": "sessionId",
+        "title": "title",
+        "harness": "claude-code",
+        "running": true,
+        "models": [
+          {
+            "model": "models[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ],
+        "firstTsMs": 1,
+        "lastTsMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"title\":\"title\",\"harness\":\"claude-code\",\"running\":true,\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"firstTsMs\":1,\"lastTsMs\":1}"
+    },
+    {
       "schema": "SessionDerived",
       "variant": "minimal",
       "wire": {},
@@ -12196,6 +12346,166 @@
       "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"sessionIds\":[\"sessionIds[0]\"]}"
     },
     {
+      "schema": "TaskCostRowWire",
+      "variant": "minimal",
+      "wire": {
+        "issueId": "issueId",
+        "seq": 1,
+        "title": "title",
+        "stage": "stage",
+        "models": [],
+        "messages": 1,
+        "sessionCount": 1,
+        "floor": "none",
+        "harnesses": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"seq\":1,\"title\":\"title\",\"stage\":\"stage\",\"models\":[],\"messages\":1,\"sessionCount\":1,\"floor\":\"none\",\"harnesses\":[]}"
+    },
+    {
+      "schema": "TaskCostRowWire",
+      "variant": "full",
+      "wire": {
+        "issueId": "issueId",
+        "seq": 1,
+        "title": "title",
+        "stage": "stage",
+        "models": [
+          {
+            "model": "models[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ],
+        "messages": 1,
+        "sessionCount": 1,
+        "floor": "none",
+        "harnesses": ["claude-code"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"seq\":1,\"title\":\"title\",\"stage\":\"stage\",\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1,\"floor\":\"none\",\"harnesses\":[\"claude-code\"]}"
+    },
+    {
+      "schema": "TaskCostState",
+      "variant": "minimal",
+      "wire": "costed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"costed\""
+    },
+    {
+      "schema": "TaskCostState",
+      "variant": "full",
+      "wire": "costed",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"costed\""
+    },
+    {
+      "schema": "TaskCostWire",
+      "variant": "minimal",
+      "wire": {
+        "issueId": "issueId",
+        "state": "costed",
+        "own": {
+          "models": [],
+          "messages": 1,
+          "sessionCount": 1
+        },
+        "rollup": {
+          "models": [],
+          "messages": 1,
+          "sessionCount": 1
+        },
+        "descendantCount": 1,
+        "provisional": true,
+        "floor": "none",
+        "harnesses": [],
+        "sessions": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"state\":\"costed\",\"own\":{\"models\":[],\"messages\":1,\"sessionCount\":1},\"rollup\":{\"models\":[],\"messages\":1,\"sessionCount\":1},\"descendantCount\":1,\"provisional\":true,\"floor\":\"none\",\"harnesses\":[],\"sessions\":[]}"
+    },
+    {
+      "schema": "TaskCostWire",
+      "variant": "full",
+      "wire": {
+        "issueId": "issueId",
+        "state": "costed",
+        "own": {
+          "models": [
+            {
+              "model": "own.models[0].model",
+              "inputTokens": 1,
+              "outputTokens": 1,
+              "cacheReadTokens": 1,
+              "cacheCreationTokens": 1,
+              "cacheCreation1hTokens": 1,
+              "messages": 1
+            }
+          ],
+          "messages": 1,
+          "sessionCount": 1
+        },
+        "rollup": {
+          "models": [
+            {
+              "model": "rollup.models[0].model",
+              "inputTokens": 1,
+              "outputTokens": 1,
+              "cacheReadTokens": 1,
+              "cacheCreationTokens": 1,
+              "cacheCreation1hTokens": 1,
+              "messages": 1
+            }
+          ],
+          "messages": 1,
+          "sessionCount": 1
+        },
+        "descendantCount": 1,
+        "provisional": true,
+        "floor": "none",
+        "harnesses": ["claude-code"],
+        "sessions": [
+          {
+            "sessionId": "sessions[0].sessionId",
+            "title": "sessions[0].title",
+            "harness": "claude-code",
+            "running": true,
+            "models": [
+              {
+                "model": "sessions[0].models[0].model",
+                "inputTokens": 1,
+                "outputTokens": 1,
+                "cacheReadTokens": 1,
+                "cacheCreationTokens": 1,
+                "cacheCreation1hTokens": 1,
+                "messages": 1
+              }
+            ],
+            "firstTsMs": 1,
+            "lastTsMs": 1
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"state\":\"costed\",\"own\":{\"models\":[{\"model\":\"own.models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1},\"rollup\":{\"models\":[{\"model\":\"rollup.models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1},\"descendantCount\":1,\"provisional\":true,\"floor\":\"none\",\"harnesses\":[\"claude-code\"],\"sessions\":[{\"sessionId\":\"sessions[0].sessionId\",\"title\":\"sessions[0].title\",\"harness\":\"claude-code\",\"running\":true,\"models\":[{\"model\":\"sessions[0].models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"firstTsMs\":1,\"lastTsMs\":1}]}"
+    },
+    {
       "schema": "TelegramChatBinding",
       "variant": "minimal",
       "wire": {
@@ -12422,6 +12732,52 @@
       "encoded": "{\"name\":\"name\",\"installed\":true,\"version\":\"version\",\"path\":\"path\"}"
     },
     {
+      "schema": "TranscriptCostWire",
+      "variant": "minimal",
+      "wire": {
+        "machineId": "machineId",
+        "nativeId": "nativeId",
+        "path": "path",
+        "harness": "claude-code",
+        "scannedBytes": 1,
+        "firstTsMs": 1,
+        "lastTsMs": 1,
+        "models": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"machineId\":\"machineId\",\"nativeId\":\"nativeId\",\"path\":\"path\",\"harness\":\"claude-code\",\"scannedBytes\":1,\"firstTsMs\":1,\"lastTsMs\":1,\"models\":[]}"
+    },
+    {
+      "schema": "TranscriptCostWire",
+      "variant": "full",
+      "wire": {
+        "machineId": "machineId",
+        "nativeId": "nativeId",
+        "path": "path",
+        "harness": "claude-code",
+        "scannedBytes": 1,
+        "firstTsMs": 1,
+        "lastTsMs": 1,
+        "models": [
+          {
+            "model": "models[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"machineId\":\"machineId\",\"nativeId\":\"nativeId\",\"path\":\"path\",\"harness\":\"claude-code\",\"scannedBytes\":1,\"firstTsMs\":1,\"lastTsMs\":1,\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}]}"
+    },
+    {
       "schema": "TranscriptItem",
       "variant": "minimal",
       "wire": {
@@ -12559,6 +12915,93 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"hour\":\"hour\",\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}"
+    },
+    {
+      "schema": "UsageModelTotalWire",
+      "variant": "minimal",
+      "wire": {
+        "model": "model",
+        "inputTokens": 1,
+        "outputTokens": 1,
+        "cacheReadTokens": 1,
+        "cacheCreationTokens": 1,
+        "messages": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"messages\":1}"
+    },
+    {
+      "schema": "UsageModelTotalWire",
+      "variant": "full",
+      "wire": {
+        "model": "model",
+        "inputTokens": 1,
+        "outputTokens": 1,
+        "cacheReadTokens": 1,
+        "cacheCreationTokens": 1,
+        "cacheCreation1hTokens": 1,
+        "messages": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"model\":\"model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}"
+    },
+    {
+      "schema": "UsageSourceWire",
+      "variant": "minimal",
+      "wire": {
+        "path": "path",
+        "harness": "claude-code",
+        "scannedBytes": 1,
+        "firstTsMs": 1,
+        "lastTsMs": 1,
+        "models": [],
+        "windowModels": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"harness\":\"claude-code\",\"scannedBytes\":1,\"firstTsMs\":1,\"lastTsMs\":1,\"models\":[],\"windowModels\":[]}"
+    },
+    {
+      "schema": "UsageSourceWire",
+      "variant": "full",
+      "wire": {
+        "path": "path",
+        "harness": "claude-code",
+        "scannedBytes": 1,
+        "firstTsMs": 1,
+        "lastTsMs": 1,
+        "models": [
+          {
+            "model": "models[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ],
+        "windowModels": [
+          {
+            "model": "windowModels[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"path\":\"path\",\"harness\":\"claude-code\",\"scannedBytes\":1,\"firstTsMs\":1,\"lastTsMs\":1,\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"windowModels\":[{\"model\":\"windowModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}]}"
     },
     {
       "schema": "UserAccount",

@@ -40,6 +40,11 @@ export * from './entities/issue-status'
 // entity", which reaches the right answer for the wrong reason. `Repo` here is
 // the LOGICAL repo keyed by `RepoId`; `GitRepositoryWire` in `./machine` is the
 // per-checkout machine fact and a different grain of the same English word.
+// What a task cost (POD-1858): the read path's wire shapes plus the rules that
+// decide what a figure MEANS — the four states, the floor mark, the rollup walk.
+// In the model because the server produces them and both clients read them, and
+// because the states are the contract the UI slices are written against.
+export * from './entities/cost'
 export * from './entities/issue-dep'
 export * from './entities/issue-event'
 export * from './entities/repo'
