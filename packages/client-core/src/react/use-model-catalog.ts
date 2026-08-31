@@ -32,10 +32,10 @@ function cacheKey(machineId: MachineId | undefined): string {
   return machineId ?? DEFAULT_MACHINE
 }
 
-function publish(key: string, snapshot: Snapshot): void {
+function publish(key: string, snapshot: Snapshot, status: ModelCatalogStatus): void {
   cache.set(key, snapshot)
   checkedAt.set(key, Date.now())
-  statusByKey.set(key, 'ready')
+  statusByKey.set(key, status)
   for (const subscriber of subscribers.get(key) ?? []) subscriber()
 }
 
@@ -57,15 +57,23 @@ async function fetchCatalog(
   if (existing) return existing
 
   const pending = (async () => {
+    // A catalog past its recheck boundary is data we can keep displaying, but
+    // it is not launch authority until the server proves it fresh again.
+    publishStatus(key, 'loading')
     try {
       const input = machineId ? { machineId } : undefined
       const snapshot = await api.catalog.query(input)
-      publish(key, snapshot)
+      if (!needsRefresh(snapshot)) {
+        publish(key, snapshot, 'ready')
+        return
+      }
+      publish(key, snapshot, 'loading')
       // A stale server read starts an SWR probe and returns the old value immediately.
       // Join that same in-flight probe so this mounted picker receives the result now,
       // rather than waiting for the next interval. The shared max age keeps the client
       // and server on the same definition of stale.
-      if (needsRefresh(snapshot)) publish(key, await api.refresh.mutate(input))
+      const refreshed = await api.refresh.mutate(input)
+      publish(key, refreshed, needsRefresh(refreshed) ? 'unavailable' : 'ready')
     } catch {
       // Keep the last good catalog, but record the check so an unavailable server
       // does not create a tight retry loop across several mounted pickers.
@@ -102,7 +110,9 @@ export function useModelCatalogState<TApi extends PodiumClientApi = PodiumClient
     const revalidate = (): void => {
       const lastCheck = checkedAt.get(key) ?? 0
       const api = (trpc as Partial<PodiumClientApi>).models
-      if (api && Date.now() - lastCheck >= MODEL_CATALOG_MAX_AGE_MS) {
+      if (!api) {
+        publishStatus(key, 'unavailable')
+      } else if (Date.now() - lastCheck >= MODEL_CATALOG_MAX_AGE_MS) {
         void fetchCatalog(api, machineId)
       }
     }

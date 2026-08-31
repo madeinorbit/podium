@@ -351,6 +351,20 @@ describe('taskBoardSections', () => {
       text: '1 working',
       tone: 'live',
     })
+
+    const progressWithRootWorker = taskBoardProgress(
+      [root, child, grandchild],
+      sections,
+      new Map([
+        ['root', 1],
+        ['grandchild', 1],
+      ]),
+    )
+    expect(progressWithRootWorker.get('root')?.liveAgents).toBe(1)
+    expect(taskStateWord(root, 1, progressWithRootWorker.get('root'))).toEqual({
+      text: '2 working',
+      tone: 'live',
+    })
   })
 })
 

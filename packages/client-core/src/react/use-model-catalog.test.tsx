@@ -22,7 +22,12 @@ function Probe() {
 
 function StatusProbe({ machineId }: { machineId: ReturnType<typeof asMachineId> }) {
   const state = useModelCatalogState(machineId)
-  return <div>{state.status}</div>
+  return (
+    <div>
+      <span>{state.status}</span>
+      <span>{state.catalog.codex?.map((model) => model.label).join(', ')}</span>
+    </div>
+  )
 }
 
 describe('useModelCatalog', () => {
@@ -82,13 +87,51 @@ describe('useModelCatalog', () => {
     expect(screen.getByText('unavailable')).toBeTruthy()
   })
 
-  it('recovers from unavailable to a later fresh catalog', async () => {
+  it('keeps a stale query non-ready while refresh is pending but retains its data', async () => {
     const machineId = asMachineId('75c55a26-b2d5-401d-87a8-c1bf21a4b1c3')
-    catalog.mockRejectedValueOnce(new Error('offline')).mockImplementationOnce(async () => ({
+    catalog.mockResolvedValue({
       machineId,
-      byAgent: { codex: [{ value: 'gpt-current', label: 'Current' }] },
-      fetchedAt: Date.now(),
-    }))
+      byAgent: { codex: [{ value: 'retired', label: 'Last known' }] },
+      fetchedAt: Date.now() - MODEL_CATALOG_MAX_AGE_MS,
+    })
+    refresh.mockReturnValue(new Promise(() => {}))
+
+    render(<StatusProbe machineId={machineId} />)
+    await act(async () => {})
+
+    expect(screen.getByText('loading')).toBeTruthy()
+    expect(screen.getByText('Last known')).toBeTruthy()
+  })
+
+  it('marks a stale query unavailable when its refresh fails', async () => {
+    const machineId = asMachineId('f3ea4e1d-a33b-4821-ab56-fe9cb96e424d')
+    catalog.mockResolvedValue({
+      machineId,
+      byAgent: { codex: [{ value: 'retired', label: 'Last known' }] },
+      fetchedAt: Date.now() - MODEL_CATALOG_MAX_AGE_MS,
+    })
+    refresh.mockRejectedValue(new Error('offline'))
+
+    render(<StatusProbe machineId={machineId} />)
+    await act(async () => {})
+    expect(screen.getByText('unavailable')).toBeTruthy()
+    expect(screen.getByText('Last known')).toBeTruthy()
+  })
+
+  it('recovers from a failed stale refresh to a later fresh catalog', async () => {
+    const machineId = asMachineId('fc4c5682-f6c1-4f6b-87a9-297ff6355d9d')
+    catalog
+      .mockResolvedValueOnce({
+        machineId,
+        byAgent: { codex: [{ value: 'retired', label: 'Last known' }] },
+        fetchedAt: Date.now() - MODEL_CATALOG_MAX_AGE_MS,
+      })
+      .mockImplementationOnce(async () => ({
+        machineId,
+        byAgent: { codex: [{ value: 'gpt-current', label: 'Current' }] },
+        fetchedAt: Date.now(),
+      }))
+    refresh.mockRejectedValueOnce(new Error('offline'))
 
     render(<StatusProbe machineId={machineId} />)
     await act(async () => {})
@@ -98,5 +141,6 @@ describe('useModelCatalog', () => {
       await vi.advanceTimersByTimeAsync(MODEL_CATALOG_MAX_AGE_MS)
     })
     expect(screen.getByText('ready')).toBeTruthy()
+    expect(screen.getByText('Current')).toBeTruthy()
   })
 })

@@ -48,10 +48,7 @@ import { stageFoldKey } from '../lib/fold-keys'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { buildScreeningQueue } from '../lib/screening'
 import { taskBoardProgress, taskBoardSections } from '../lib/task-board'
-import {
-  dispatchTaskRowAccessibilityAction,
-  TASK_ROW_ACCESSIBILITY_ACTIONS,
-} from '../lib/task-row-accessibility'
+import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
@@ -660,12 +657,18 @@ function TaskRow({
         : state?.tone === 'live'
           ? color.workingText
           : color.textFaint
+  const accessibility = taskRowAccessibilityProps({
+    seq: issue.seq,
+    title: issue.title,
+    ...(state ? { stateText: state.text } : {}),
+    onOpen: () => onOpen(issue.id),
+    onShowActions: () => onOpenActions(issue),
+  })
   return (
     <View style={[styles.rowWrap, row.depth > 0 && { marginLeft: row.depth * CHILD_INDENT }]}>
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel={`Task ${issue.seq}: ${issue.title}${state ? `, ${state.text}` : ''}`}
-        accessibilityHint="Open task, or use Actions for task actions."
+        {...accessibility}
         // THE DISCLOSURE IS AN ACTION ON THE ROW, not a button inside it. The
         // card is one accessibility element (a nested pressable inside an
         // `accessible` parent is never reachable on iOS), so the sub-task
@@ -675,21 +678,17 @@ function TaskRow({
         accessibilityActions={
           childCount > 0
             ? [
-                ...TASK_ROW_ACCESSIBILITY_ACTIONS,
+                ...(accessibility.accessibilityActions ?? []),
                 { name: 'expand', label: row.expanded ? 'Hide sub-tasks' : 'Show sub-tasks' },
               ]
-            : TASK_ROW_ACCESSIBILITY_ACTIONS
+            : accessibility.accessibilityActions
         }
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === 'expand') {
             onToggleExpanded(issue.id)
             return
           }
-          dispatchTaskRowAccessibilityAction(
-            event.nativeEvent.actionName,
-            () => onOpen(issue.id),
-            () => onOpenActions(issue),
-          )
+          accessibility.onAccessibilityAction?.(event)
         }}
         onPress={() => onOpen(issue.id)}
         onLongPress={() => onOpenActions(issue)}
