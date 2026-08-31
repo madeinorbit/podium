@@ -79,10 +79,10 @@ jobs:
           echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
           echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
           echo "releasing $channel from $checkout_ref"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ steps.resolve.outputs.checkout_ref }}
-      - uses: useblacksmith/setup-bun@v1
+      - uses: useblacksmith/setup-bun@v2
         with: { bun-version: '1.3.14' }
       - name: Validate release selection
         env:
@@ -142,12 +142,12 @@ jobs:
               apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.checkout_ref }}
       # The Blacksmith wrappers assume Blacksmith infrastructure; the GitHub-hosted Intel mac
       # leg uses the upstream actions instead.
-      - uses: useblacksmith/setup-bun@v1
+      - uses: useblacksmith/setup-bun@v2
         if: startsWith(matrix.runner, 'blacksmith-')
         with: { bun-version: '1.3.14' }
       - uses: oven-sh/setup-bun@v2
@@ -167,7 +167,7 @@ jobs:
             ~/.bun/install/cache
             packages/agent-bridge/src/abduco.bin
           key: desktop-build-${{ matrix.target }}-${{ hashFiles('bun.lock', 'apps/desktop/src-tauri/Cargo.lock') }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         if: ${{ !startsWith(matrix.runner, 'blacksmith-') }}
         with:
           path: |
@@ -259,7 +259,7 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/podium-signing.keychain-db" || true
           rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/certificate.p12"
       - name: Stage desktop bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.target }}
           path: ${{ matrix.artifact_paths }}
@@ -270,13 +270,13 @@ jobs:
     needs: [validate, build]
     runs-on: blacksmith-2vcpu-ubuntu-2204
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.checkout_ref }}
-      - uses: useblacksmith/setup-bun@v1
+      - uses: useblacksmith/setup-bun@v2
         with: { bun-version: '1.3.14' }
       - name: Collect promoted desktop bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
           path: dist-desktop-input
