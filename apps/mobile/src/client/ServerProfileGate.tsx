@@ -614,23 +614,19 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             createdAt: now,
             updatedAt: now,
           }
-      const next: ServerProfileState = {
-        activeProfileId: nextProfile.id,
-        profiles: existing
-          ? profileState.profiles.map((row) => (row.id === existing.id ? nextProfile : row))
-          : [...profileState.profiles, nextProfile],
-      }
       const priorCredential = existing
         ? await credentialWrites.run(() => getProfileCredential(existing.id))
         : null
+      let committedState: ServerProfileState | null = null
       try {
         // Metadata first, then the secure value. If either store refuses the
         // issuance, restore the prior state before a newer terminal action can
         // enter the queue. An owner change also rolls back inside this turn so
         // the newer link's eventual write is guaranteed to remain last.
-        const committed = await profileWrites.run(async () => {
+        committedState = await profileWrites.run(async () => {
           let profileAttempted = false
           let credentialAttempted = false
+          let current: ServerProfileState | null = null
           const restoreCredential = async () => {
             if (!token || !credentialAttempted) return
             if (priorCredential && existing) {
@@ -641,12 +637,33 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           }
 
           try {
-            if (operation !== switchOperation.current) return false
+            if (operation !== switchOperation.current) return null
+            current = await loadServerProfiles()
+            const durableExisting = current.profiles.find((row) => row.id === nextProfile.id)
+            const durableNextProfile: ServerProfile = durableExisting
+              ? {
+                  ...durableExisting,
+                  httpOrigin: result.httpOrigin,
+                  instanceId: result.instanceId,
+                  mode: result.mode,
+                  transport: result.transport,
+                  ...(userId ? { userId } : {}),
+                  updatedAt: now,
+                }
+              : nextProfile
+            const candidate: ServerProfileState = {
+              activeProfileId: durableNextProfile.id,
+              profiles: durableExisting
+                ? current.profiles.map((row) =>
+                    row.id === durableExisting.id ? durableNextProfile : row,
+                  )
+                : [...current.profiles, durableNextProfile],
+            }
             profileAttempted = true
-            await saveServerProfiles(next)
+            await saveServerProfiles(candidate)
             if (operation !== switchOperation.current) {
-              await saveServerProfiles(profileState)
-              return false
+              await saveServerProfiles(current)
+              return null
             }
             if (token) {
               credentialAttempted = true
@@ -654,17 +671,17 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             }
             if (operation !== switchOperation.current) {
               await restoreCredential()
-              await saveServerProfiles(profileState)
-              return false
+              await saveServerProfiles(current)
+              return null
             }
-            return true
+            return candidate
           } catch (cause) {
             await restoreCredential().catch(() => {})
-            if (profileAttempted) await saveServerProfiles(profileState).catch(() => {})
+            if (profileAttempted && current) await saveServerProfiles(current).catch(() => {})
             throw cause
           }
         })
-        if (!committed) {
+        if (!committedState) {
           if (token) {
             const revoked = await logout(result.httpOrigin, token)
               .then(() => true)
@@ -695,7 +712,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       setActiveServerRuntime(undefined, null)
       configureNativeWebSocketCredential(null, null)
       setBearer(null)
-      setProfileState(next)
+      setProfileState(committedState)
       setBearer(token)
       setActivation('verified')
       setCredentialReleased(true)
@@ -734,22 +751,34 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             createdAt: now,
             updatedAt: now,
           }
-      const next: ServerProfileState = {
-        activeProfileId: nextProfile.id,
-        profiles: existing
-          ? profileState.profiles.map((row) => (row.id === existing.id ? nextProfile : row))
-          : [...profileState.profiles, nextProfile],
-      }
       const committed = await profileWrites.run(async () => {
-        if (operation !== switchOperation.current) return false
-        await saveServerProfiles(next)
-        if (operation === switchOperation.current) return true
-        await saveServerProfiles(profileState)
-        return false
+        if (operation !== switchOperation.current) return null
+        const current = await loadServerProfiles()
+        const durableExisting = current.profiles.find((row) => row.id === nextProfile.id)
+        const durableNextProfile: ServerProfile = durableExisting
+          ? {
+              ...durableExisting,
+              httpOrigin,
+              transport: classifyServerTransport(httpOrigin),
+              updatedAt: now,
+            }
+          : nextProfile
+        const candidate: ServerProfileState = {
+          activeProfileId: durableNextProfile.id,
+          profiles: durableExisting
+            ? current.profiles.map((row) =>
+                row.id === durableExisting.id ? durableNextProfile : row,
+              )
+            : [...current.profiles, durableNextProfile],
+        }
+        await saveServerProfiles(candidate)
+        if (operation === switchOperation.current) return candidate
+        await saveServerProfiles(current)
+        return null
       })
       if (!committed || operation !== switchOperation.current) return
       setBearer(null)
-      setProfileState(next)
+      setProfileState(committed)
       setSetupOpen(false)
       setCredentialReleased(false)
       nativeLinkIntent.current = null

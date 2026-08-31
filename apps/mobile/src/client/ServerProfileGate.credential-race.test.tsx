@@ -997,7 +997,7 @@ describe('pairing supersedes handoff intent', () => {
 })
 
 describe('profile credential completion races', () => {
-  it('rolls back a delayed A principal record before handoff activates B', async () => {
+  it('merges a delayed A principal record before handoff activates B', async () => {
     await mountActiveProfileA()
     const recordUserA = seams.activeContext!.recordUser
     let releaseRecord = () => {}
@@ -1050,7 +1050,7 @@ describe('profile credential completion races', () => {
     })
   })
 
-  it('cancels a delayed principal record without disrupting a same-profile handoff', async () => {
+  it('completes a delayed principal record without disrupting a same-profile handoff', async () => {
     await mountActiveProfileA()
     const recordUserA = seams.activeContext!.recordUser
     let releaseRecord = () => {}
@@ -1097,6 +1097,111 @@ describe('profile credential completion races', () => {
       await seams.activeContext!.updateCredential('post-handoff-token-a')
     })
     expect(seams.activeContext?.bearer).toBe('post-handoff-token-a')
+  })
+
+  it('preserves a queued principal merge when pairing becomes active', async () => {
+    await mountActiveProfileA()
+    const recordUserA = seams.activeContext!.recordUser
+    let releaseRecord = () => {}
+    const recordReleased = new Promise<void>((resolve) => {
+      releaseRecord = resolve
+    })
+    let reportRecordStarted = () => {}
+    const recordStarted = new Promise<void>((resolve) => {
+      reportRecordStarted = resolve
+    })
+    seams.saveProfiles.mockImplementation(async (state) => {
+      const profileA = state.profiles.find((profile) => profile.id === 'profile-a')
+      if (state.activeProfileId === 'profile-a' && profileA?.userId === 'user:a-late') {
+        seams.durableProfiles = state
+        reportRecordStarted()
+        await recordReleased
+        return
+      }
+      seams.durableProfiles = state
+    })
+    const recording = recordUserA('user:a-late')
+    await recordStarted
+
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Request approval'))
+    await act(async () => {
+      releaseRecord()
+      await Promise.all([recordReleased, recording])
+    })
+
+    await waitFor(() => {
+      expect(seams.activeContext?.config.httpOrigin).toBe('https://pair.example')
+      expect(seams.activeContext?.bearer).toBe('token-c')
+    })
+    expect(
+      seams.durableProfiles?.profiles.find((profile) => profile.id === 'profile-a')?.userId,
+    ).toBe('user:a-late')
+  })
+
+  it('preserves a queued principal merge when an offline profile is saved', async () => {
+    await mountActiveProfileA()
+    const recordUserA = seams.activeContext!.recordUser
+    seams.preflight.mockImplementation(async (origin: string) => {
+      if (origin === 'https://offline.example') {
+        return {
+          ok: false as const,
+          kind: 'unreachable' as const,
+          title: 'Server unavailable',
+          detail: 'Try again when this phone can reach the server.',
+          transport: 'trusted-https' as const,
+        }
+      }
+      return successfulPreflight(origin)
+    })
+    let releaseRecord = () => {}
+    const recordReleased = new Promise<void>((resolve) => {
+      releaseRecord = resolve
+    })
+    let reportRecordStarted = () => {}
+    const recordStarted = new Promise<void>((resolve) => {
+      reportRecordStarted = resolve
+    })
+    seams.saveProfiles.mockImplementation(async (state) => {
+      const profileA = state.profiles.find((profile) => profile.id === 'profile-a')
+      if (state.activeProfileId === 'profile-a' && profileA?.userId === 'user:a-late') {
+        seams.durableProfiles = state
+        reportRecordStarted()
+        await recordReleased
+        return
+      }
+      seams.durableProfiles = state
+    })
+    const recording = recordUserA('user:a-late')
+    await recordStarted
+
+    seams.parsePairing.mockImplementationOnce(() => {
+      throw new Error('Use a server address instead.')
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Enter server address'))
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: 'https://offline.example' },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    fireEvent.click(await screen.findByLabelText('Save for later'))
+    await act(async () => {
+      releaseRecord()
+      await Promise.all([recordReleased, recording])
+    })
+
+    await waitFor(() => expect(screen.getByText('Server saved for later')).toBeTruthy())
+    const durableActive = seams.durableProfiles?.profiles.find(
+      (profile) => profile.id === seams.durableProfiles?.activeProfileId,
+    )
+    expect(durableActive?.httpOrigin).toBe('https://offline.example')
+    expect(
+      seams.durableProfiles?.profiles.find((profile) => profile.id === 'profile-a')?.userId,
+    ).toBe('user:a-late')
   })
 
   it('rebinds credential ownership after a same-profile handoff', async () => {
