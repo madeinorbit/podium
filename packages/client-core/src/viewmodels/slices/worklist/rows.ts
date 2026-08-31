@@ -12,7 +12,7 @@ import {
   isSystemOwnedIssueStage,
   type SessionMeta,
 } from '@podium/model'
-import { issueContinuation } from '../../mission'
+import { issueContinuation, missionRollup } from '../../mission'
 import {
   issueIdOwningSession,
   type SessionOwnershipIndex,
@@ -154,7 +154,16 @@ function buildUnifiedRows(
   // The work sidebar is issue-only. Unattached and orphaned sessions remain
   // available through session/history surfaces, but a repository branch is
   // never promoted into a pseudo-issue row (for example "podium · main").
-  return nestStartedByIssues(continued, sessions, allWorktreePaths, issues, ownership)
+  //
+  // Stamp the same child-task rollup the Flight Deck meter uses onto each
+  // visible mission root. The sidebar status can now describe the task without
+  // reverse-engineering it from agent sessions or recomputing the issue tree in
+  // every client surface.
+  return nestStartedByIssues(continued, sessions, allWorktreePaths, issues, ownership).map((row) =>
+    row.kind === 'issue'
+      ? { ...row, missionRollup: missionRollup(issues, sessions, row.issue.id) }
+      : row,
+  )
 }
 
 /**

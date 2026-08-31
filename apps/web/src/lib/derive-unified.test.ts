@@ -1145,7 +1145,7 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
     expect(rowWaitingCount(midRow as UnifiedWorkRow)).toBe(1)
   })
 
-  it('L3: the sub-line whispers the deepest source when the yellow is beyond visible depth', () => {
+  it('L3: task status stays child-derived when attention comes from deep below', () => {
     const { root, mid, leaf } = tree()
     const rows = rowsFor(
       [root, mid, leaf],
@@ -1156,15 +1156,14 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
     )
     const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
     expect(deepAttentionSource(rootRow)).toMatchObject({ depth: 2 })
-    // No head-count: a row saying both "working" and where the ask is has spent
-    // its width, and the fleet stack already shows how many agents (POD-703).
-    expect(rowStatusLine(rootRow, NOW)).toBe('working · deep: #3 needs you')
-    // A depth-capped child (visibleDepth 0) whispers even for a direct child source.
+    expect(rowStatusLine(rootRow, NOW)).toBe('0/2 subtasks done · 2 underway')
+    // Child rows are internal to the derivation here and fall back to their own
+    // task stage when no mission rollup is stamped on them.
     const midRow = (rootRow.startedByChildren ?? [])[0] as Extract<
       UnifiedWorkRow,
       { kind: 'issue' }
     >
-    expect(rowStatusLine(midRow, NOW, 0)).toBe('deep: #3 needs you')
+    expect(rowStatusLine(midRow, NOW, 0)).toBe('in progress')
   })
 
   it('L3: a VISIBLE waiting child explains itself — no whisper at default depth', () => {

@@ -65,7 +65,15 @@ function issueRow(
 ): Extract<UnifiedWorkRow, { kind: 'issue' }> {
   return {
     kind: 'issue',
-    issue: { id: 'i1', updatedAt: new Date(NOW).toISOString(), draft, ...issueOver },
+    issue: {
+      id: 'i1',
+      updatedAt: new Date(NOW).toISOString(),
+      stage: 'in_progress',
+      childCount: 0,
+      childDoneCount: 0,
+      draft,
+      ...issueOver,
+    },
     sessions,
     activityAt: NOW - 120_000,
   } as unknown as Extract<UnifiedWorkRow, { kind: 'issue' }>
@@ -164,7 +172,7 @@ describe('rowMotionPhase — aggregate row phase (#41)', () => {
       const row = issueRow([working()], false, reviewIssue())
       expect(rowPendingDecision(row)).toBeNull()
       expect(rowMotionPhase(row)).toBe('working')
-      expect(rowStatusLine(row, NOW)).toBe('working')
+      expect(rowStatusLine(row, NOW)).toBe('review')
     })
 
     it('leaves pre-review stages alone', () => {
@@ -242,10 +250,10 @@ describe('rowMotionPhase — aggregate row phase (#41)', () => {
       })
 
       it('does not outrank a live agent on the branch', () => {
-        // A descendant is still computing: the signpost is true but it is not
-        // the row's news, and stillness must stay the "needs you" signal.
+        // Agent activity is a separate signal. The task still says where its
+        // work went.
         const row = { ...continued(), sessions: [working()] }
-        expect(rowStatusLine(row, NOW)).toBe('working')
+        expect(rowStatusLine(row, NOW)).toBe('continued · POD-1192')
       })
     })
   })
@@ -278,78 +286,68 @@ describe('rowWaitingCount — the amber pill / rail badge number', () => {
   })
 })
 
-describe('rowStatusLine — the second line copy grammar', () => {
-  it('waiting rows surface what is waited for; multi-agent rows carry the head-count', () => {
-    expect(rowStatusLine(issueRow([waiting()]), NOW)).toBe('needs answer')
-    expect(rowStatusLine(issueRow([waiting(), done()]), NOW)).toBe('2 agents · needs answer')
-  })
-
-  // POD-703: the row is the mission's ONLY line in the worklist since it
-  // flattened to one row per mission, so a waiting row that stays silent about a
-  // running agent tells the operator the fleet has stopped. The ask still wins
-  // the phase (and the amber); the work is stated in the words beside it.
-  it('says a running agent out loud on a row that is also asking', () => {
+describe('rowStatusLine — task status, separate from agent activity', () => {
+  it('keeps agent activity out of a leaf task status', () => {
+    expect(rowStatusLine(issueRow([waiting()]), NOW)).toBe('in progress')
+    expect(rowStatusLine(issueRow([waiting(), done()]), NOW)).toBe('in progress')
     const row = issueRow([waiting(), working(), done()])
     expect(rowMotionPhase(row)).toBe('waiting')
     expect(rowHasWorkingSession(row)).toBe(true)
-    // The head-count yields its place: line 2 has room for two of the three,
-    // and the fleet stack on line 1 already carries the number.
-    expect(rowStatusLine(row, NOW)).toBe('working · needs answer')
-    // A standing offer beside a live agent is the shape the bug was found in:
-    // the offer outlived its decision while a second session did the work.
-    expect(rowStatusLine(issueRow([offered(), working()]), NOW)).toBe(
-      'working · waiting on decision',
-    )
-    // Nothing running ⇒ nothing said, and the head-count keeps its place (the
-    // case asserted just above).
+    expect(rowStatusLine(row, NOW)).toBe('in progress')
+    expect(rowStatusLine(issueRow([offered(), working()]), NOW)).toBe('in progress')
     expect(rowHasWorkingSession(issueRow([waiting(), done()]))).toBe(false)
   })
 
-  it('names the pending decision after the producing turn is done', () => {
-    expect(rowStatusLine(issueRow([offered()]), NOW)).toBe('waiting on decision')
+  it('keeps an offer as attention without replacing the task stage', () => {
+    expect(rowStatusLine(issueRow([offered()]), NOW)).toBe('in progress')
     expect(rowMotionTiming(issueRow([offered()]))).toMatchObject({
       phase: 'waiting',
       sinceMs: NOW - 30_000,
     })
   })
 
-  it('working, done and idle rows read as their phase words', () => {
-    expect(rowStatusLine(issueRow([working()]), NOW)).toBe('working')
-    expect(rowStatusLine(issueRow([done()], false, { stage: 'in_progress' }), NOW)).toBe('idle')
+  it('reads the leaf task stage regardless of the agent turn state', () => {
+    expect(rowStatusLine(issueRow([working()]), NOW)).toBe('in progress')
+    expect(rowStatusLine(issueRow([done()], false, { stage: 'in_progress' }), NOW)).toBe(
+      'in progress',
+    )
     expect(rowStatusLine(issueRow([done()], false, { stage: 'done' }), NOW)).toBe('done')
-    // Quiet motion bucket is still `queued`; the status word is idle.
     expect(rowMotionPhase(issueRow([sess()]))).toBe('queued')
-    expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('idle')
-    expect(rowStatusLine(issueRow([working(), working()]), NOW)).toBe('2 agents · working')
-    // Presence is the fleet stack's job. A parked or finished teammate must
-    // not make one computing session read as "2 agents working".
-    expect(rowStatusLine(issueRow([working(), done()]), NOW)).toBe('working')
-    expect(rowStatusLine(issueRow([working(), sess()]), NOW)).toBe('working')
+    expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('in progress')
+    expect(rowStatusLine(issueRow([working(), working()]), NOW)).toBe('in progress')
   })
 
-  it('child progress reads as subtasks beside the task state (POD-85)', () => {
-    // A finished agent turn does not close its task. Open subtasks remain the
-    // progress fact beside the task's quiet state.
+  it('derives a container task status from its child-task rollup', () => {
+    const container = (progress: {
+      total: number
+      done: number
+      run: number
+      review: number
+      stall: number
+      block: number
+      wait: number
+    }) => ({
+      ...issueRow([done()], false, { stage: 'in_progress', childCount: progress.total }),
+      missionRollup: { progress, fromChildren: true },
+    })
     expect(
       rowStatusLine(
-        issueRow([done()], false, {
-          stage: 'in_progress',
-          childCount: 1,
-          childDoneCount: 0,
-        }),
+        container({ total: 3, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 1 }),
         NOW,
       ),
-    ).toBe('idle · 0/1 subtasks')
-    expect(
-      rowStatusLine(issueRow([working()], false, { childCount: 3, childDoneCount: 1 }), NOW),
-    ).toBe('working · 1/3 subtasks')
-    // All subtasks done: plain "done", no redundant tally.
+    ).toBe('1/3 subtasks done · 1 underway')
     expect(
       rowStatusLine(
-        issueRow([done()], false, { stage: 'done', childCount: 2, childDoneCount: 2 }),
+        container({ total: 2, done: 0, run: 0, review: 0, stall: 0, block: 1, wait: 1 }),
         NOW,
       ),
-    ).toBe('done')
+    ).toBe('0/2 subtasks done · 1 blocked')
+    expect(
+      rowStatusLine(
+        container({ total: 2, done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 0 }),
+        NOW,
+      ),
+    ).toBe('2/2 subtasks done')
   })
 
   // POD-1601 — the case the whole change is for. An agent that moved its issue
@@ -359,13 +357,11 @@ describe('rowStatusLine — the second line copy grammar', () => {
   describe('an agent that stopped on an error', () => {
     const reviewIssue = { stage: 'review', branch: 'issue/9-reviewable' }
 
-    it('names the error instead of the stage decision', () => {
+    it('keeps the task decision as status while exposing the agent error separately', () => {
       const row = issueRow([errored()], false, reviewIssue)
-      // The decision is still THERE — the stage genuinely says review, and the
-      // merge/review controls still read it. It just does not get the line.
       expect(rowPendingDecision(row)).toBe('review')
       expect(rowErrorLine(row)).toBe('agent overloaded')
-      expect(rowStatusLine(row, NOW)).toBe('agent overloaded')
+      expect(rowStatusLine(row, NOW)).toBe('needs review')
     })
 
     it('beats a merge decision too', () => {
@@ -380,7 +376,7 @@ describe('rowStatusLine — the second line copy grammar', () => {
         },
       })
       expect(rowPendingDecision(row)).toBe('merge')
-      expect(rowStatusLine(row, NOW)).toBe('agent overloaded')
+      expect(rowStatusLine(row, NOW)).toBe('ready to merge · 3')
     })
 
     // `unknown` is the harness admitting it could not classify the failure, and
@@ -392,7 +388,7 @@ describe('rowStatusLine — the second line copy grammar', () => {
       ['max_output_tokens_typo'],
     ])('falls back to a plain sentence for the %s class', (cls) => {
       expect(rowErrorLine(issueRow([errored(cls)]))).toBe('agent errored')
-      expect(rowStatusLine(issueRow([errored(cls)]), NOW)).toBe('agent errored')
+      expect(rowStatusLine(issueRow([errored(cls)]), NOW)).toBe('in progress')
     })
 
     // The row's line-2 grammar is lower case throughout — it sits beside
@@ -402,12 +398,8 @@ describe('rowStatusLine — the second line copy grammar', () => {
       expect(rowErrorLine(issueRow([errored('max_output_tokens')]))).toBe('hit the output limit')
     })
 
-    // The same grammar POD-703 gave every other waiting row: the ask keeps the
-    // words, the work says so beside it.
-    it('still says a live teammate is working', () => {
-      expect(rowStatusLine(issueRow([errored(), working()]), NOW)).toBe(
-        'working · agent overloaded',
-      )
+    it('does not let a live teammate replace the task stage either', () => {
+      expect(rowStatusLine(issueRow([errored(), working()]), NOW)).toBe('in progress')
     })
 
     it('says nothing once the task is closed', () => {
@@ -423,10 +415,8 @@ describe('rowStatusLine — the second line copy grammar', () => {
   it('a draft vessel with only unstarted sessions reads "awaiting first prompt", not "idle"', () => {
     const fresh = sess({ title: '✳ Claude Code' })
     expect(rowStatusLine(issueRow([fresh], true), NOW)).toBe('awaiting first prompt')
-    // Same session under a REAL issue keeps the quiet grammar → idle.
-    expect(rowStatusLine(issueRow([fresh]), NOW)).toBe('idle')
-    // A draft whose session was actually prompted (meaningful title) is idle.
-    expect(rowStatusLine(issueRow([sess()], true), NOW)).toBe('idle')
+    expect(rowStatusLine(issueRow([fresh]), NOW)).toBe('in progress')
+    expect(rowStatusLine(issueRow([sess()], true), NOW)).toBe('in progress')
   })
 })
 

@@ -33,6 +33,7 @@ import {
   missionIndexStats,
   missionIssueIds,
   missionProgress,
+  missionRollup,
   missionRootFor,
   missionSessions,
   type OperationalState,
@@ -1267,6 +1268,17 @@ describe('missionProgress', () => {
       SessionMeta[] | undefined,
     ]
     expect(missionProgress(issues, sessions ?? [], issues[0]?.id ?? null)).toEqual(expected)
+  })
+
+  it('records whether status comes from the root or its accepted child tasks', () => {
+    const root = issue('root', { stage: 'in_progress' })
+    const child = issue('child', { parentId: 'root', stage: 'backlog' })
+    expect(missionRollup([root], [], 'root').fromChildren).toBe(false)
+    expect(missionRollup([root, child], [], 'root').fromChildren).toBe(true)
+    expect(
+      missionRollup([root, issue('proposal', { parentId: 'root', stage: 'proposed' })], [], 'root')
+        .fromChildren,
+    ).toBe(false)
   })
 
   // POD-1179 IN THE FLESH: a lone root in `planning` with an agent working in it,

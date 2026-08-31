@@ -3,7 +3,6 @@ import {
   isDraftAgentVessel,
   issueDisplayTitle,
   missionProgress,
-  pendingDecisionLabel,
   pendingDecisionTitle,
   rowErrorLine,
   rowHasWorkingSession,
@@ -12,7 +11,6 @@ import {
   rowPendingDecision,
   rowStatusLine,
   rowUnreadEmphasized,
-  rowWaitingCount,
   type UnifiedIssueRow as UnifiedIssueRowView,
 } from '@podium/client-core/viewmodels'
 import {
@@ -25,7 +23,7 @@ import {
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { idSquareLabel } from '@/components/IdSquare'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
@@ -75,11 +73,9 @@ function flashLineage(issueId: IssueId): void {
  * spawn parent and native workers are secondary details, not a competing
  * navigation tree". The tree lives one column right, in the Flight Deck.
  *
- * What a subtree still owes this row is its SUMMARY: attention bubbles up
- * (`rowWaitingCount` counts the whole branch), the status line names the deepest
- * source when the ask is hidden below, and the fleet stack speaks for every
- * descendant session. All of it is derived here from the row's bubbled session
- * set — no stored aggregates.
+ * What a subtree still owes this row is its summary. Task progress comes from
+ * the formal child-task rollup, while attention and the fleet remain separate
+ * agent signals. The status words never infer task state from those sessions.
  *
  * Agent drafts (a draft issue whose only content is agents, no worktree) click
  * straight into their session; real issues select the mission.
@@ -147,26 +143,17 @@ export function UnifiedIssueRow({
   // here, so the phase alone left a running fleet reading as stillness
   // (POD-703). This is the predicate every working texture below gates on.
   const working = rowHasWorkingSession(row)
-  // An agent on this mission stopped on an error (POD-1601). Read BEFORE the
-  // decision, and rendered instead of it: `review` is a stage the agent sets on
-  // ITSELF, so a run that died right after setting it printed `Needs review`
-  // forever — a verdict nobody is waiting for, over a corpse the row never
-  // mentioned.
-  const errorLine = rowErrorLine(row)
   // What this row is asking of the human, if anything (POD-279).
   const decision = rowPendingDecision(row)
-  const waitingCount = rowWaitingCount(row)
+  const errorLine = rowErrorLine(row)
   const timing = rowMotionTiming(row)
-  // The row's own progress, at the scope the row speaks for: its whole mission.
-  // `missionProgress` is the Flight Deck's derivation, imported rather than
-  // restated — the two columns must never disagree about how far a mission is,
-  // and it already handles both formal parentId children and agent-started
-  // provenance. Memoised on the store's own array identities, so a `now` tick
-  // re-renders the row without re-walking the issue graph.
-  const progress = useMemo(
-    () => missionProgress(issues, allSessions, issue.id),
-    [issues, allSessions, issue.id],
-  )
+  // The published row carries the Flight Deck's child-task rollup. Direct
+  // component fixtures use the same derivation as a fallback.
+  const progress =
+    row.missionRollup?.progress ??
+    // Direct component fixtures predate the published row rollup. Keep their
+    // fallback on the same canonical derivation rather than inventing another.
+    missionProgress(issues, allSessions, issue.id)
   const hex = issueColorHex(issue.color)
   // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). The 30px square carried the
   // ref, the phase, a corner badge and the colour picker — four jobs on the
@@ -268,52 +255,16 @@ export function UnifiedIssueRow({
               // calm blue inside an ochre waiting lockup without a prop.
               <WorkingMark size={12} className="mr-1" />
             )}
-            {/* THE PILL'S WORDS, WITHOUT THE PILL (3a): the count was the part
-                worth keeping, so it leads the sentence line 2 was already
-                saying, in that line's own ochre. */}
-            {decision === null && waitingCount > 1 && (
-              <span className="flex-none" data-testid="need-count">
-                {waitingCount} need you ·{' '}
-              </span>
-            )}
-            {errorLine !== null ? (
-              // RED, not the line's usual ochre. Amber is the "needs you"
-              // signal and nothing else (POD-293) — a decision waiting on you is
-              // the system working as intended, and a dead agent is not. The
-              // session row underneath already reads `text-destructive` for
-              // `agentBadge` → `tone: 'error'`, so the task row and the agent row
-              // now say the same thing in the same colour.
-              //
-              // The colour is also what lets the words stay this short: `Agent
-              // overloaded` in red needs no `error:` prefix to be read as one.
-              <span
-                data-testid="agent-error-status"
-                title="An agent on this task stopped on an error"
-                className="flex-none font-semibold text-destructive"
-              >
-                {errorLine}
-              </span>
-            ) : decision !== null ? (
-              // The one word that answers "what is being asked of me here" — a
-              // merge states its commit count so the row is a fact, not a mood
-              // (POD-279). It is the row's single amber voice (POD-293): plain
-              // weighted text, no box, no icon — the boxed chip made every
-              // review row shout. The git stamp's own "N commits ahead" is
-              // suppressed below: one voice per region (DESIGN.md, The Signal
-              // Rule).
+            {decision !== null ? (
               <span
                 data-testid={decision === 'merge' ? 'awaiting-merge-status' : 'needs-review-status'}
                 data-decision={decision}
                 title={pendingDecisionTitle(issue, decision)}
                 className="flex-none font-semibold text-attention"
               >
-                {pendingDecisionLabel(issue, decision)}
+                {continuationStatus ?? rowStatusLine(row, now, 0)}
               </span>
             ) : (
-              // Nothing below this row renders (the mission's tree is the Flight
-              // Deck's), so the status line reports at visible depth 0: an ask
-              // buried three levels down names its source instead of a bare
-              // "needs you" with no visible row to explain it.
               (continuationStatus ?? rowStatusLine(row, now, 0))
             )}
           </>
@@ -357,18 +308,28 @@ export function UnifiedIssueRow({
           onGripDown && !isIssueDeferred(issue, now) ? (e) => onGripDown(e, issue.id) : undefined
         }
         statusExtra={
-          origin &&
-          !continuationStatus && (
-            <span
-              // No size of its own: line 2 sets one, and a second here was what
-              // made the tick's line box taller than the sentence it annotates.
-              className="flex-none tabular-nums"
-              data-testid="spinoff-origin-tick"
-              title={`Spun off from ${issueDisplayRef(origin)} · ${origin.title}`}
-            >
-              ⤷ {origin.seq}
-            </span>
-          )
+          <>
+            {errorLine && (
+              <span
+                data-testid="agent-error-status"
+                title="An agent on this task stopped on an error"
+                className="flex-none font-semibold text-destructive"
+              >
+                {errorLine}
+              </span>
+            )}
+            {origin && !continuationStatus && (
+              <span
+                // No size of its own: line 2 sets one, and a second here was what
+                // made the tick's line box taller than the sentence it annotates.
+                className="flex-none tabular-nums"
+                data-testid="spinoff-origin-tick"
+                title={`Spun off from ${issueDisplayRef(origin)} · ${origin.title}`}
+              >
+                ⤷ {origin.seq}
+              </span>
+            )}
+          </>
         }
         onContextMenu={onContextMenu}
         onDoubleClick={() => rename.begin()}

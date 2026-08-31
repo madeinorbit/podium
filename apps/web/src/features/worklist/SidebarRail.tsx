@@ -73,9 +73,7 @@
  */
 
 import {
-  type MissionProgress,
   type MotionPhase,
-  missionProgress,
   rowMotionPhase,
   rowStatusLine,
   rowWaitingCount,
@@ -213,8 +211,6 @@ export function SidebarRail(): JSX.Element {
   const {
     pinned,
     groups,
-    issues,
-    sessions,
     selectedIssueId,
     selectedWorktree,
     selectIssue,
@@ -259,21 +255,6 @@ export function SidebarRail(): JSX.Element {
     })),
   )
 
-  // One walk of the issue graph for the whole column rather than one per tile:
-  // `missionProgress` is the Flight Deck's derivation and it is not cheap, and
-  // a rail with thirty tiles would otherwise run it thirty times on every tick
-  // of the shell's clock. Keyed on the row set's identity, so a selection or a
-  // `now` tick re-renders without re-walking.
-  const missionIds = rows.filter(isIssueRow).map((row) => String(row.issue.id))
-  const missionKey = missionIds.join('|')
-  const progressByIssue = useMemo(() => {
-    const map = new Map<string, MissionProgress>()
-    for (const id of missionKey === '' ? [] : missionKey.split('|')) {
-      map.set(id, missionProgress(issues, sessions, id))
-    }
-    return map
-  }, [issues, sessions, missionKey])
-
   const renderIssueMark = (
     row: UnifiedIssueRow,
     phase: MotionPhase,
@@ -282,7 +263,7 @@ export function SidebarRail(): JSX.Element {
   ): JSX.Element => {
     const { issue } = row
     const shortcutDigit = shortcutNumbers.get(issue.id)
-    const progress = progressByIssue.get(String(issue.id))
+    const progress = row.missionRollup?.progress
     return (
       <>
         <IdSquare

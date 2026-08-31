@@ -257,15 +257,12 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(rowToggles).toEqual([])
   })
 
-  it('bubbles a descendant ask up to the mission row, in words', () => {
+  it('keeps descendant attention separate from the child-derived task status', () => {
     render(<SidebarUnified />)
-    // The question is on a grandchild's session; nothing below the mission row
-    // renders, so the row has to say it itself.
-    // The status line names WHERE, since no visible row can explain it, and it
-    // is the row's ONE amber voice (POD-1057): the boxed `Needs you` pill that
-    // used to sit on line 1 saying the same thing is gone.
+    // A grandchild session is asking, so the row keeps its attention colour.
+    // Its words describe the task tree instead of adopting the session state.
     const status = missionRow().querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
-    expect(status.textContent).toContain('deep: #3 needs you')
+    expect(status.textContent).toContain('0/2 subtasks done · 2 underway')
     // The ochre is on the PHRASE, not the whole line: the trailing facts (git,
     // the spin-off tick) must not inherit an ask they are not part of.
     expect(
