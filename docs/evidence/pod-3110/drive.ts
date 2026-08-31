@@ -90,9 +90,9 @@ const DECLARED_GROK_SHA256 = 'c192282e62abd24a9be64750363ff827d806ba613918399a8c
 const EXPECTED_AGENT_HOME = process.env.P3110_AGENT_HOME ?? (() => { throw new Error('P3110_AGENT_HOME is required') })()
 const EXPECTED_STATE_DIR = process.env.P3110_STATE_DIR ?? (() => { throw new Error('P3110_STATE_DIR is required') })()
 const EXPECTED_GROK_HOME = join(EXPECTED_AGENT_HOME, '.grok')
-const EXPECTED_ABDUCO_SOCKET_DIR = join(EXPECTED_STATE_DIR, 'runtime', 'abduco')
+const EXPECTED_ABDUCO_SOCKET_DIR = process.env.P3110_ABDUCO_SOCKET_DIR ?? (() => { throw new Error('P3110_ABDUCO_SOCKET_DIR is required') })()
 
-const INSTANCE = 'p3110-grok-paired-a4a209c-r6'
+const INSTANCE = 'p3110-grok-paired-a4a209c-r7'
 const PRODUCT_PIN = 'a4a209cc6d902db2c65db0e240a0dbb21aa9b014'
 const RUN_TOKEN = process.env.P3110_RUN_TOKEN ?? (() => { throw new Error('P3110_RUN_TOKEN is required') })()
 const EVIDENCE_DIR = process.env.PODIUM_EVIDENCE_DIR ?? (() => { throw new Error('PODIUM_EVIDENCE_DIR is required') })()
@@ -1594,7 +1594,8 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     { ...providerGood, abducoSocketDir: '/tmp/escaped-abduco' },
     { ...providerGood, ambientOverrides: ['PODIUM_AGENT_HOME'] },
     { ...providerGood, grokHome: `${EXPECTED_AGENT_HOME}/escape/../.grok` },
-    { ...providerGood, abducoSocketDir: `${EXPECTED_STATE_DIR}/escape/../runtime/abduco` },
+    { ...providerGood, abducoSocketDir: join(EXPECTED_STATE_DIR, 'runtime', 'abduco') },
+    { ...providerGood, abducoSocketDir: `${EXPECTED_ABDUCO_SOCKET_DIR}/escape/..` },
   ]) {
     if (providerPinMatches(bad)) throw new Error(`provider exact pin self-test accepted mismatch: ${JSON.stringify(bad)}`)
   }
