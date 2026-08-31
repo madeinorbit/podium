@@ -579,6 +579,11 @@ pub fn opener_shim_script() -> &'static str {
       const u = new URL(href, base);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
       const outgoing = handoffHref(href, u);
+      // An authority-relative address is external by definition in the shared
+      // resolver, even when it happens to repeat the active server's host.
+      // Treating that spelling as ours leaves its target=_blank to WKWebView,
+      // which drops both clicks and window.open.
+      if (/^[\\/][\\/]/.test(href)) return outgoing;
       // Userinfo is how a link disguises its real host. The protocol resolver
       // refuses it outright, and the two halves have to answer alike: if this
       // one called it ours it would decline, the page would have stamped
