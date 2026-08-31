@@ -512,3 +512,83 @@ on a ledger that can silently merge two runs.
 | Q5 run-keyed ledger | Mint a run id at the approval boundary; version stays on every record. | correctness | ≈1 day |
 
 Recommended order: **Q5 → Q2 → Q1 → Q4**, and file Q3 as deferred.
+
+---
+
+# Addendum 2 — parent review's two qualifications, tested
+
+The parent review raised two objections to the pigz recommendation. **Both were
+right to raise; one was right, one was wrong, and the net effect is that the
+headline saving drops from ≈7.8 s (17 %) to ≈6.8 s (15 %).**
+
+## "pigz is gzip-format compatible, not necessarily byte-identical"
+
+**Correct.** Measured on the same tar stream from the real dev.30 bundle:
+
+| | bytes |
+|---|---:|
+| `gzip -n` | 63,245,574 |
+| `pigz -n` | 63,212,332 |
+
+Not identical — pigz is marginally *smaller*. (The gzip figure is also an
+independent confirmation that this reconstruction is faithful: 63,245,574 is
+exactly the size of the published `linux-x86_64` artifact.)
+
+But the specific mechanism the review worried about — parallel deflate block
+partitioning varying the output — **does not occur**. `pigz -n` at `-p1`,
+`-p2`, `-p4` and `-p8` produced the *same* sha256. Partitioning is fixed by
+input, not by thread count.
+
+**Consequence for the recommendation.** A gzip-fallback (Q1) is safe *today*,
+because each release signs whatever bytes it produced and every client can
+extract either. But it is incompatible with the reproducible-archive goal in
+§4: two release hosts, one with pigz and one without, would produce different
+digests for identical input. **So if archive reproducibility is ever adopted,
+the compressor must be pinned rather than fallen back on.** Ship the fallback
+now; make pigz a hard requirement at the same time as `--sort`/`--mtime`.
+
+## "The 7.8 s is extrapolated from unconstrained measurements"
+
+**Correct, and it mattered.** Re-measured inside the actual production cgroup
+shape — `systemd-run --user --scope -p CPUQuota=200% -p CPUWeight=50`, the
+values `build-scope.ts` sets — on the real bundle contents:
+
+| Run | `tar -czf` (gzip) | `tar \| pigz -n -p2` |
+|---|---:|---:|
+| 1 | 9.08 s | 4.04 s |
+| 2 | 7.61 s | 4.00 s |
+| 3 | 9.71 s | 3.61 s |
+| **mean** | **8.80 s** | **3.88 s** |
+
+**Measured ratio under the real quota: 2.27×**, against the 2.79× extrapolated
+from unconstrained numbers in §4. Applying it to the production archive time:
+
+> **12.12 s → ≈5.34 s, saving ≈6.8 s = 15 % of the 45.36 s release.**
+
+Still the largest single win available, and still not caching — but 15 %, not
+17 %. §4's table and the §7 arithmetic should be read with this ratio.
+
+Two cautions the numbers make visible:
+
+- **A first quota run measured only 1.25×** (7.02 s) while the box was at load
+  23. Under `CPUWeight=50` a release competes with everything else on the host,
+  so the *realised* saving on a busy box is variable and can approach zero. The
+  three-run figures above were taken at comparable load.
+- **Thread count must be pinned to the quota.** Under the 200 % cap, default
+  `pigz` (`-p8`, oversubscribed) measured 8.35 s versus 7.02 s for `-p2` in the
+  same conditions — oversubscription costs real time. At 400 %/`-p4` the same
+  archive takes 2.03 s and at 800 %/`-p8` 1.99 s, so the quota, not pigz, is
+  the binding constraint. **Do not raise the quota**: capping the build is the
+  deliberate POD-1966 decision that a build must not slow the box. Set
+  `-p2` explicitly to match it.
+
+## Revised summary line
+
+| Change | Saving | Basis |
+|---|---:|---|
+| pigz `-p2` for the archives | **≈6.8 s (15 %)** | measured under `CPUQuota=200%` |
+| relocate the abduco cache | ≈1.9 s (4 %) | measured, dev.30 ledger |
+| everything else caching could buy | ≈1.6 s | estimated, ~0 % hit rate |
+
+Unconditional regardless: signing, digesting, the identity fences, retention,
+standing-shell resolution and feed activation.
