@@ -47,15 +47,23 @@ export function waterfallSessionEnd(session: SessionMeta, now: number): number {
 /**
  * A bounded history window keeps the Now line fixed while a long-running epic
  * remains usable. Old spans clip at the left edge instead of compressing recent
- * work into a few pixels. The final ten percent is reserved for dependency and
- * waiting labels, never fabricated durations.
+ * work into a few pixels. The remaining 22 percent is reserved for dependency
+ * and waiting labels, never fabricated durations.
  */
-export function buildWaterfallTimeline(
-  sessions: readonly SessionMeta[],
+export function waterfallTimelineStart(sessions: readonly SessionMeta[]): number | null {
+  let earliest: number | null = null
+  for (const session of sessions) {
+    const candidate = time(session.createdAt) ?? time(session.lastActiveAt)
+    if (candidate !== null) earliest = earliest === null ? candidate : Math.min(earliest, candidate)
+  }
+  return earliest
+}
+
+export function buildWaterfallTimelineFromStart(
+  timelineStart: number | null,
   now: number,
 ): WaterfallTimeline {
-  let earliest = now
-  for (const session of sessions) earliest = Math.min(earliest, waterfallSessionStart(session, now))
+  const earliest = Math.min(timelineStart ?? now, now)
   const duration = Math.min(
     WATERFALL_MAX_WINDOW_MS,
     Math.max(WATERFALL_MIN_WINDOW_MS, now - earliest),
@@ -66,6 +74,13 @@ export function buildWaterfallTimeline(
     duration,
     nowPercent: WATERFALL_NOW_PERCENT,
   }
+}
+
+export function buildWaterfallTimeline(
+  sessions: readonly SessionMeta[],
+  now: number,
+): WaterfallTimeline {
+  return buildWaterfallTimelineFromStart(waterfallTimelineStart(sessions), now)
 }
 
 export function waterfallInterval(

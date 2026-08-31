@@ -3,11 +3,13 @@ import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildWaterfallTimeline,
+  buildWaterfallTimelineFromStart,
   WATERFALL_MAX_WINDOW_MS,
   WATERFALL_NOW_PERCENT,
   waterfallInterval,
   waterfallSessionEnd,
   waterfallSessionStart,
+  waterfallTimelineStart,
 } from './flight-deck-waterfall'
 
 const NOW = Date.parse('2026-08-31T12:00:00.000Z')
@@ -117,6 +119,25 @@ describe('Flight Deck waterfall geometry', () => {
     expect(waterfallInterval(old, timeline).clippedStart).toBe(true)
     const active = waterfallInterval(live, timeline)
     expect(active.left + active.width).toBeCloseTo(WATERFALL_NOW_PERCENT)
+  })
+
+  it('advances a live interval on the shared clock while the Now line stays fixed', () => {
+    const history = session('history', {
+      createdAt: '2026-08-31T10:00:00.000Z',
+      status: 'exited',
+      stoppedAt: '2026-08-31T10:30:00.000Z',
+    })
+    const live = session('live', { createdAt: '2026-08-31T11:00:00.000Z' })
+    const start = waterfallTimelineStart([history, live])
+    const initial = buildWaterfallTimelineFromStart(start, NOW)
+    const later = buildWaterfallTimelineFromStart(start, NOW + 10 * 60_000)
+    const initialActive = waterfallInterval(live, initial)
+    const laterActive = waterfallInterval(live, later)
+
+    expect(later.nowPercent).toBe(initial.nowPercent)
+    expect(laterActive.left).toBeLessThan(initialActive.left)
+    expect(laterActive.width).toBeGreaterThan(initialActive.width)
+    expect(laterActive.left + laterActive.width).toBeCloseTo(WATERFALL_NOW_PERCENT)
   })
 
   it('distinguishes working, attention, live and finished spans', () => {

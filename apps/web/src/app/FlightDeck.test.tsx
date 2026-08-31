@@ -41,6 +41,7 @@ const harness = vi.hoisted(() => ({
   machines: [] as unknown[],
   selectedIssueId: null as string | null,
   paneA: null as string | null,
+  coarseNow: Date.parse('2026-01-01T00:10:00.000Z'),
   display: 'compact' as 'compact' | 'expanded',
   onDisplayChange: vi.fn(),
   openSessionTab: vi.fn(),
@@ -91,7 +92,7 @@ vi.mock('./store', () => ({
       paneB: null,
       split: false,
       drafts: {},
-      coarseNow: Date.parse('2026-01-01T00:10:00.000Z'),
+      coarseNow: harness.coarseNow,
       uiState,
       setSelectedWorktree: vi.fn(),
       setSelectedIssueId: harness.setSelectedIssueId,
@@ -203,6 +204,7 @@ beforeEach(() => {
   harness.machines = []
   harness.selectedIssueId = 'root'
   harness.paneA = null
+  harness.coarseNow = Date.parse('2026-01-01T00:10:00.000Z')
   harness.display = 'compact'
   harness.onDisplayChange.mockClear()
   harness.openSessionTab.mockClear()
@@ -801,11 +803,13 @@ describe('flight deck unread (POD-912)', () => {
     ]
     deck()
     const task = document.querySelector('[data-flight-issue="t2"]') as HTMLElement
-    expect(task.querySelector('.deck-strip [data-testid="row-unread-dot"]')).toBeNull()
+    expect(task.querySelector('.waterfall-issue-cell .waterfall-unread-dot')).toBeNull()
     const unreadSession = document.querySelector('[data-flight-session="s2"]') as HTMLElement
-    expect(unreadSession.querySelector('[data-testid="row-unread-dot"]')).toBeTruthy()
+    expect(unreadSession.getAttribute('data-unread')).toBe('true')
+    expect(unreadSession.querySelector('.waterfall-unread-dot')).toBeTruthy()
     const readSession = document.querySelector('[data-flight-session="s3"]') as HTMLElement
-    expect(readSession.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
+    expect(readSession.getAttribute('data-unread')).toBeNull()
+    expect(readSession.querySelector('.waterfall-unread-dot')).toBeNull()
   })
 
   it('a collapsed parent stays unread when a child session is new', () => {
@@ -874,7 +878,34 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.openSessionTab.mock.calls).toEqual([['s3', { permanent: false }]])
   })
 
-  it('keeps active native workers inside their owning Podium session', () => {
+  it('advances active bar geometry with the shared clock while Now stays fixed', () => {
+    harness.sessions = harness.sessions.map((raw) => {
+      const candidate = raw as SessionMeta
+      return candidate.sessionId === 's2'
+        ? { ...candidate, createdAt: '2026-01-01T00:05:00.000Z' }
+        : candidate
+    })
+    const view = deck()
+    const initialLane = sessionRow('s2').closest('.waterfall-session-lane') as HTMLElement
+    const initialLeft = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-left'))
+    const initialWidth = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-width'))
+    const nowLine = document.querySelector('.waterfall-now-line') as HTMLElement
+    expect(nowLine.style.getPropertyValue('--waterfall-now')).toBe('78%')
+
+    harness.coarseNow += 10 * 60_000
+    view.rerender(<DeckHarness />)
+
+    const advancedLane = sessionRow('s2').closest('.waterfall-session-lane') as HTMLElement
+    const advancedLeft = Number.parseFloat(advancedLane.style.getPropertyValue('--waterfall-left'))
+    const advancedWidth = Number.parseFloat(
+      advancedLane.style.getPropertyValue('--waterfall-width'),
+    )
+    expect(advancedLeft).toBeLessThan(initialLeft)
+    expect(advancedWidth).toBeGreaterThan(initialWidth)
+    expect(nowLine.style.getPropertyValue('--waterfall-now')).toBe('78%')
+  })
+
+  it('opens a native worker through its owning session without overriding panel choice', () => {
     harness.sessions = [
       session('s1', { issueId: 't1' }),
       session('s2', {
@@ -886,10 +917,28 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     ]
     deck()
 
-    expect(sessionRow('s2').textContent).toContain('+1')
-    fireEvent.click(sessionRow('s2'))
-    settle()
+    const toggle = screen.getByRole('button', { name: 'Show 1 native worker for s2' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const worker = screen.getByRole('button', {
+      name: 'Open s2 native panel for general-purpose worker w1',
+    })
+    expect(worker.tagName).toBe('BUTTON')
+    expect((worker as HTMLButtonElement).tabIndex).toBe(0)
+    fireEvent.click(worker)
+
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
+    expect(harness.preferPanelMode).toHaveBeenCalledWith('s2', 'native')
+    expect(harness.setPanelMode).not.toHaveBeenCalled()
+    expect(harness.onDisplayChange).not.toHaveBeenCalled()
+  })
+
+  it('opens the shared session lifecycle menu from a waterfall bar', () => {
+    deck()
+    fireEvent.contextMenu(sessionRow('s2'))
+    expect(screen.getByRole('menu', { name: 'Session actions' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeTruthy()
   })
 
   it('reopens the Task dock when an issue is picked', () => {

@@ -3,25 +3,31 @@ import {
   type FlightDeckMode,
   type FlightDeckRow,
   isCoordinatorSession,
+  nativeSubagentRows,
   sessionAsksOnIssue,
+  sessionUnreadEmphasized,
 } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown, ChevronRight, Ellipsis } from 'lucide-react'
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { memo, useMemo } from 'react'
+import { memo, useId, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
+import { SessionContextMenu } from '@/lib/SessionContextMenu'
+import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { KindIcon, SessionNameEditor, sessionDisplayName } from '@/lib/WorkerLabel'
 import { cn } from '@/lib/utils'
 import { useClickIntent } from './click-intent'
+import { useSessionHovered } from './session-hover'
 import { useStoreSelector } from './store'
 import type { FlightDeckDisplay } from './flight-deck-display'
 import {
-  buildWaterfallTimeline,
+  buildWaterfallTimelineFromStart,
   formatWaterfallDuration,
   waterfallAxisTicks,
   waterfallInterval,
+  waterfallTimelineStart,
 } from './flight-deck-waterfall'
 
 interface WaterfallIssueRow {
@@ -43,7 +49,11 @@ interface FlightDeckWaterfallProps {
   isFolded: (row: FlightDeckRow) => boolean
   onToggle: (row: FlightDeckRow) => void
   onSelectIssue: (row: FlightDeckRow, permanent: boolean) => void
-  onSelectSession: (issueId: IssueId, session: SessionMeta, permanent: boolean) => void
+  onSelectSession: (
+    issueId: IssueId,
+    session: SessionMeta,
+    options: { permanent: boolean; native?: boolean },
+  ) => void
   onIssueMenu: (issueId: IssueId, event: ReactMouseEvent) => void
   onStatusPick: (issueId: string, value: string) => void
   onRenameIssue: (issueId: string, title: string, openedTitle: string) => void
@@ -70,38 +80,63 @@ function sessionReason(row: FlightDeckRow, session: SessionMeta): string | null 
   return row.issue.humanQuestion?.trim() || 'Waiting for operator'
 }
 
-function SessionElapsed({
-  session,
-  startedAt,
+const WaterfallAxis = memo(function WaterfallAxis({
+  timelineStart,
 }: {
-  session: SessionMeta
-  startedAt: number
+  timelineStart: number | null
 }): JSX.Element {
-  // Only live bar readouts subscribe to the shared minute clock. The indexed
-  // mission rows and interval geometry stay memoized and do not rerender on a
-  // timer tick.
   const now = useStoreSelector((store) => store.coarseNow)
-  const end =
-    session.status === 'exited' || session.archived
-      ? Date.parse(session.stoppedAt ?? session.lastActiveAt)
-      : now
-  return <span>{formatWaterfallDuration(Math.max(0, end - startedAt))}</span>
-}
+  const timeline = useMemo(
+    () => buildWaterfallTimelineFromStart(timelineStart, now),
+    [now, timelineStart],
+  )
+  const ticks = useMemo(() => waterfallAxisTicks(timeline), [timeline])
+  return (
+    <>
+      <div className="waterfall-axis">
+        <span className="waterfall-axis-title">Task / session</span>
+        <div className="waterfall-axis-track" aria-hidden="true">
+          {ticks.map((tick) => (
+            <span key={tick.left} style={{ left: `${tick.left}%` }}>
+              {tick.label}
+            </span>
+          ))}
+          <span className="waterfall-axis-now" style={{ left: `${timeline.nowPercent}%` }}>
+            Now
+          </span>
+        </div>
+      </div>
+      <div
+        className="waterfall-now-line"
+        style={{ '--waterfall-now': `${timeline.nowPercent}%` } as CSSProperties}
+        aria-hidden="true"
+      />
+    </>
+  )
+})
 
 const WaterfallSessionBar = memo(function WaterfallSessionBar({
   row,
   session,
-  timeline,
+  timelineStart,
   selected,
   onOpen,
+  onOpenNative,
 }: {
   row: FlightDeckRow
   session: SessionMeta
-  timeline: ReturnType<typeof buildWaterfallTimeline>
+  timelineStart: number | null
   selected: boolean
   onOpen: (permanent: boolean) => void
+  onOpenNative: () => void
 }): JSX.Element {
   const intent = useClickIntent()
+  const now = useStoreSelector((store) => store.coarseNow)
+  const renameSession = useStoreSelector((store) => store.renameSession)
+  const timeline = useMemo(
+    () => buildWaterfallTimelineFromStart(timelineStart, now),
+    [now, timelineStart],
+  )
   const interval = waterfallInterval(session, timeline)
   const asking = sessionAsksOnIssue(row.issue, session)
   const state = asking ? 'attention' : interval.state
@@ -109,71 +144,169 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   const name = sessionDisplayName(session)
   const ref = session.displayRef?.trim()
   const coordinator = isCoordinatorSession(row.issue, session.sessionId)
-  const workers = session.agentState?.nativeSubagentCount ?? 0
+  const workers = useMemo(() => nativeSubagentRows(session), [session])
+  const pointed = useSessionHovered(session.sessionId)
+  const unread = sessionUnreadEmphasized(session)
+  const [nativeOpen, setNativeOpen] = useState(false)
+  const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
+  const [editing, setEditing] = useState(false)
+  const nativeListId = useId()
+  const openMenu = (event: ReactMouseEvent<HTMLElement>): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    setMenuAnchor({
+      x: event.clientX || rect.right,
+      y: event.clientY || rect.bottom,
+    })
+  }
   const label = [
     ref,
     name,
     coordinator ? 'coordinator' : null,
     reason,
-    workers > 0 ? `${workers} active native worker${workers === 1 ? '' : 's'}` : null,
+    unread ? 'unread' : null,
+    workers.length > 0
+      ? `${workers.length} active native worker${workers.length === 1 ? '' : 's'}`
+      : null,
     formatWaterfallDuration(interval.end - interval.start),
     state === 'finished' ? 'finished' : state === 'working' ? 'working now' : 'live',
   ]
     .filter(Boolean)
     .join(' · ')
+  const geometry = {
+    '--waterfall-left': `${interval.left}%`,
+    '--waterfall-width': `${interval.width}%`,
+  } as CSSProperties
   return (
-    <div className="waterfall-session-lane">
-      <button
-        data-pressable
-        type="button"
-        className="waterfall-session-bar"
-        data-flight-session={session.sessionId}
-        data-state={state}
-        data-selected={selected || undefined}
-        data-clipped-start={interval.clippedStart || undefined}
-        aria-label={label}
-        aria-pressed={selected}
-        style={
-          {
-            '--waterfall-left': `${interval.left}%`,
-            '--waterfall-width': `${interval.width}%`,
-          } as CSSProperties
-        }
-        onClick={() =>
-          intent.press(
-            () => onOpen(false),
-            () => onOpen(true),
-          )
-        }
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter') return
-          event.preventDefault()
-          intent.commit(() => onOpen(true))
-        }}
-      >
-        <KindIcon kind={session.agentKind} compact dimmed={state === 'finished'} />
-        <span className="waterfall-session-name">{name}</span>
-        {workers > 0 ? (
-          <span className="waterfall-native-count" aria-label={`${workers} active native workers`}>
-            +{workers}
-          </span>
-        ) : null}
-        <span className="waterfall-session-time font-mono tabular-nums">
-          {state === 'finished' ? (
-            formatWaterfallDuration(interval.end - interval.start)
-          ) : (
-            <SessionElapsed session={session} startedAt={interval.start} />
-          )}
-        </span>
-      </button>
+    <div
+      className="waterfall-session-lane"
+      data-pointed={pointed || undefined}
+      data-unread={unread || undefined}
+      data-has-native={workers.length > 0 || undefined}
+      style={geometry}
+    >
+      {editing ? (
+        <div className="waterfall-session-editor">
+          <SessionNameEditor
+            value={name}
+            onCommit={(next) => {
+              void renameSession(session.sessionId, next)
+              setEditing(false)
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
+      ) : (
+        <>
+          <button
+            data-pressable
+            type="button"
+            className="waterfall-session-bar"
+            data-flight-session={session.sessionId}
+            data-state={state}
+            data-selected={selected || undefined}
+            data-clipped-start={interval.clippedStart || undefined}
+            data-pointed={pointed || undefined}
+            data-unread={unread || undefined}
+            aria-label={label}
+            aria-pressed={selected}
+            onClick={() =>
+              intent.press(
+                () => onOpen(false),
+                () => onOpen(true),
+              )
+            }
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              intent.commit(() => onOpen(true))
+            }}
+            onContextMenu={openMenu}
+          >
+            <KindIcon kind={session.agentKind} compact dimmed={state === 'finished'} />
+            <span className="waterfall-session-name">{name}</span>
+            {unread ? (
+              <>
+                <span className="waterfall-unread-dot" aria-hidden="true" />
+                <span className="sr-only">unread</span>
+              </>
+            ) : null}
+            <span className="waterfall-session-time font-mono tabular-nums">
+              {formatWaterfallDuration(interval.end - interval.start)}
+            </span>
+          </button>
+          <div className="waterfall-session-tools">
+            {workers.length > 0 ? (
+              <button
+                data-pressable
+                type="button"
+                className="waterfall-native-toggle"
+                aria-label={`${nativeOpen ? 'Hide' : 'Show'} ${workers.length} native worker${workers.length === 1 ? '' : 's'} for ${name}`}
+                aria-expanded={nativeOpen}
+                aria-controls={nativeListId}
+                onClick={() => setNativeOpen((open) => !open)}
+              >
+                +{workers.length}
+              </button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="waterfall-session-menu"
+              aria-label={`Session actions for ${name}`}
+              title="Session actions"
+              onClick={openMenu}
+            >
+              <Ellipsis size={11} aria-hidden="true" />
+            </Button>
+          </div>
+        </>
+      )}
+      {nativeOpen && workers.length > 0 ? (
+        <div id={nativeListId} className="waterfall-native-list" data-testid="flight-native-agents">
+          {workers.map((worker) => {
+            const workerName = worker.anonymous ? 'unnamed worker' : `worker ${worker.id}`
+            return (
+              <button
+                data-pressable
+                key={`${session.sessionId}:${worker.id}`}
+                type="button"
+                className="waterfall-native-worker"
+                data-native-worker={worker.id}
+                aria-label={`Open ${name} native panel for ${worker.type} ${workerName}`}
+                title={`Open ${name} native panel · ${worker.type} ${workerName}`}
+                onClick={onOpenNative}
+              >
+                <span className="waterfall-native-worker-name">
+                  {worker.type}
+                  {!worker.anonymous ? ` · ${worker.id.slice(0, 8)}` : ''}
+                </span>
+                <span>{worker.working ? 'working' : 'waiting'}</span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
       {reason ? <span className="waterfall-wait-reason">{reason}</span> : null}
+      {menuAnchor ? (
+        <SessionContextMenu
+          session={session}
+          anchor={menuAnchor}
+          onClose={() => setMenuAnchor(null)}
+          onRename={() => {
+            setMenuAnchor(null)
+            setEditing(true)
+          }}
+        />
+      ) : null}
     </div>
   )
 })
 
 const WaterfallIssue = memo(function WaterfallIssue({
   item,
-  timeline,
+  timelineStart,
   focused,
   activeSessionId,
   renameSeed,
@@ -181,13 +314,14 @@ const WaterfallIssue = memo(function WaterfallIssue({
   onToggle,
   onSelectIssue,
   onSelectSession,
+  onSelectNative,
   onIssueMenu,
   onStatusPick,
   onRenameIssue,
   onRenameDone,
 }: {
   item: WaterfallIssueRow
-  timeline: ReturnType<typeof buildWaterfallTimeline>
+  timelineStart: number | null
   focused: boolean
   activeSessionId: string | null
   renameSeed: string | null
@@ -195,6 +329,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
   onToggle: () => void
   onSelectIssue: (permanent: boolean) => void
   onSelectSession: (session: SessionMeta, permanent: boolean) => void
+  onSelectNative: (session: SessionMeta) => void
   onIssueMenu: (event: ReactMouseEvent) => void
   onStatusPick: (value: string) => void
   onRenameIssue: (title: string) => void
@@ -279,9 +414,10 @@ const WaterfallIssue = memo(function WaterfallIssue({
               key={session.sessionId}
               row={item.row}
               session={session}
-              timeline={timeline}
+              timelineStart={timelineStart}
               selected={session.sessionId === activeSessionId}
               onOpen={(permanent) => onSelectSession(session, permanent)}
+              onOpenNative={() => onSelectNative(session)}
             />
           ))
         ) : future ? (
@@ -330,38 +466,20 @@ export function FlightDeckWaterfall({
     [displayTitles, mode, rootRow, rows],
   )
   const sessions = useMemo(() => projected.flatMap((item) => item.sessions), [projected])
-  const timeline = useMemo(() => buildWaterfallTimeline(sessions, Date.now()), [sessions])
-  const ticks = useMemo(() => waterfallAxisTicks(timeline), [timeline])
+  const timelineStart = useMemo(() => waterfallTimelineStart(sessions), [sessions])
   return (
     <div
       className={cn('flight-waterfall', display === 'expanded' && 'flight-waterfall-expanded')}
       data-testid="flight-deck-waterfall"
       data-display={display}
     >
-      <div className="waterfall-axis">
-        <span className="waterfall-axis-title">Task / session</span>
-        <div className="waterfall-axis-track" aria-hidden="true">
-          {ticks.map((tick) => (
-            <span key={tick.left} style={{ left: `${tick.left}%` }}>
-              {tick.label}
-            </span>
-          ))}
-          <span className="waterfall-axis-now" style={{ left: `${timeline.nowPercent}%` }}>
-            Now
-          </span>
-        </div>
-      </div>
-      <div
-        className="waterfall-now-line"
-        style={{ '--waterfall-now': `${timeline.nowPercent}%` } as CSSProperties}
-        aria-hidden="true"
-      />
+      <WaterfallAxis timelineStart={timelineStart} />
       <div className="waterfall-rows" data-testid="flight-deck-rows">
         {projected.map((item) => (
           <WaterfallIssue
             key={item.row.issue.id}
             item={item}
-            timeline={timeline}
+            timelineStart={timelineStart}
             focused={focusedIssueId === item.row.issue.id}
             activeSessionId={activeSessionId}
             renameSeed={renameTarget?.id === item.row.issue.id ? renameTarget.seed : null}
@@ -369,7 +487,10 @@ export function FlightDeckWaterfall({
             onToggle={() => onToggle(item.row)}
             onSelectIssue={(permanent) => onSelectIssue(item.row, permanent)}
             onSelectSession={(session, permanent) =>
-              onSelectSession(item.row.issue.id, session, permanent)
+              onSelectSession(item.row.issue.id, session, { permanent })
+            }
+            onSelectNative={(session) =>
+              onSelectSession(item.row.issue.id, session, { permanent: false, native: true })
             }
             onIssueMenu={(event) => onIssueMenu(item.row.issue.id, event)}
             onStatusPick={(value) => onStatusPick(item.row.issue.id, value)}

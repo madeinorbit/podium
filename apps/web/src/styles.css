@@ -9802,7 +9802,7 @@ button.waterfall-fold:hover {
   align-items: center;
   gap: 4px;
   overflow: hidden;
-  padding: 0 5px;
+  padding: 0 24px 0 5px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--text-faint) 10%, var(--bar));
@@ -9811,6 +9811,9 @@ button.waterfall-fold:hover {
   transition:
     border-color 120ms ease-out,
     background-color 120ms ease-out;
+}
+.waterfall-session-lane[data-has-native="true"] .waterfall-session-bar {
+  padding-right: 43px;
 }
 .waterfall-session-bar[data-clipped-start="true"] {
   border-left-style: dashed;
@@ -9843,7 +9846,18 @@ button.waterfall-fold:hover {
   border-color: var(--issue);
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--issue) 72%, transparent);
 }
+.waterfall-session-lane[data-pointed="true"] .waterfall-session-bar:not([data-selected="true"]) {
+  border-color: var(--flow);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--flow) 56%, transparent);
+}
+.waterfall-session-lane[data-unread="true"] .waterfall-session-name {
+  color: var(--text-strong);
+  font-weight: 650;
+}
 .waterfall-session-bar:focus-visible,
+.waterfall-session-menu:focus-visible,
+.waterfall-native-toggle:focus-visible,
+.waterfall-native-worker:focus-visible,
 .waterfall-issue-open:focus-visible,
 .waterfall-fold:focus-visible {
   outline: 2px solid var(--issue);
@@ -9859,19 +9873,114 @@ button.waterfall-fold:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.waterfall-native-count,
 .waterfall-session-time {
   flex: none;
   font-size: 8.5px;
   line-height: 1;
 }
-.waterfall-native-count {
-  color: var(--motion-working);
-  font-family: var(--font-mono);
-}
 .waterfall-session-time {
   color: currentColor;
   opacity: 0.82;
+}
+.waterfall-unread-dot {
+  width: 4px;
+  height: 4px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--issue);
+}
+.waterfall-session-tools {
+  position: absolute;
+  z-index: 4;
+  top: 1px;
+  left: calc(var(--waterfall-left) + var(--waterfall-width));
+  display: flex;
+  height: 20px;
+  align-items: center;
+  gap: 1px;
+  padding-inline: 1px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bar) 88%, transparent);
+  transform: translateX(-100%);
+}
+.waterfall-native-toggle,
+.waterfall-session-menu {
+  display: inline-flex;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--text-faint);
+}
+.waterfall-native-toggle {
+  min-width: 18px;
+  padding-inline: 3px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1;
+}
+.waterfall-session-menu {
+  width: 18px;
+  min-width: 18px;
+}
+.waterfall-native-toggle[aria-expanded="true"],
+.waterfall-native-toggle:hover,
+.waterfall-session-menu:hover {
+  background: var(--muted);
+  color: var(--text-strong);
+}
+.waterfall-session-editor {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  left: var(--waterfall-left);
+  width: var(--waterfall-width);
+  min-width: 96px;
+  height: 22px;
+  padding: 2px 4px;
+  border: 1px solid var(--issue);
+  border-radius: var(--radius-md);
+  background: var(--bar);
+}
+.waterfall-native-list {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: calc(78% - var(--waterfall-left));
+  min-width: 120px;
+  flex-direction: column;
+  gap: 1px;
+  margin-left: var(--waterfall-left);
+  padding-top: 25px;
+  padding-left: 8px;
+  border-left: 1px solid var(--hairline-soft);
+}
+.waterfall-native-worker {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 18px;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 4px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1.2;
+  text-align: left;
+}
+.waterfall-native-worker:hover {
+  background: var(--muted);
+  color: var(--text-dim);
+}
+.waterfall-native-worker-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .waterfall-wait-reason {
   position: absolute;
@@ -9919,9 +10028,11 @@ button.waterfall-fold:hover {
     gap: 2px;
     padding-inline: 3px;
   }
-  .waterfall-session-bar > :first-child,
-  .waterfall-native-count {
+  .waterfall-session-bar > :first-child {
     display: none;
+  }
+  .waterfall-native-list {
+    min-width: 92px;
   }
 }
 

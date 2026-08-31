@@ -3803,8 +3803,8 @@ export function FlightDeck({
                 if (!permanent && row.depth > 0 && hasPayload(row)) toggleFold(row)
                 selectIssue(row, permanent)
               }}
-              onSelectSession={(issueId, session, permanent) =>
-                selectSession(issueId, session, { permanent })
+              onSelectSession={(issueId, session, options) =>
+                selectSession(issueId, session, options)
               }
               onIssueMenu={openIssueMenu}
               onStatusPick={pickRowStatus}
