@@ -8,7 +8,31 @@ const workspaceRoot = path.resolve(projectRoot, '../..')
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(projectRoot)
 
-config.watchFolders = Array.from(new Set([...(config.watchFolders || []), workspaceRoot]))
+// THE PACKAGES ARE NOT UNDER THIS CHECKOUT (POD-3171). Bun's isolated linker with
+// `globalStore` (bunfig.toml) leaves node_modules a farm of symlinks whose targets
+// live in a store shared by every worktree — `~/.bun/install/cache/links` by
+// default. Metro resolves a symlink to its real path and then refuses anything
+// outside a watched root, so the store has to be one: without it a bare
+// `react/jsx-runtime` from inside a dependency is reported as "could not be found"
+// while Node resolves it fine.
+const bunLinkStore = (() => {
+  const cache = process.env.BUN_INSTALL_CACHE_DIR
+    ? path.resolve(process.env.BUN_INSTALL_CACHE_DIR)
+    : path.join(
+        process.env.BUN_INSTALL || path.join(require('node:os').homedir(), '.bun'),
+        'install',
+        'cache',
+      )
+  return path.join(cache, 'links')
+})()
+
+config.watchFolders = Array.from(
+  new Set([
+    ...(config.watchFolders || []),
+    workspaceRoot,
+    ...(require('node:fs').existsSync(bunLinkStore) ? [bunLinkStore] : []),
+  ]),
+)
 // expo-sqlite's web worker imports its SQLite engine as a `.wasm` asset. Metro
 // otherwise treats that exact, present file as unresolvable, which makes the
 // browser lane's mandatory mobile-web prerequisite fail before Playwright can
