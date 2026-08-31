@@ -45,7 +45,181 @@ declare global {
  * the branch rail, the elbow, the selection tick and the attention rule — which
  * is exactly why it was the row that showed the collision.
  */
+/** Minutes before the stub's frozen clock (2026-01-01T00:30Z), as ISO. */
+const ago = (minutes: number): string =>
+  new Date(Date.parse('2026-01-01T00:30:00.000Z') - minutes * 60_000).toISOString()
+
 const MISSIONS = {
+  /**
+   * THE COMPLEX TICKET THE WATERFALL IS FOR (POD-1854): an epic with staggered
+   * real times, a reviewer that looped three times (on/off/on — the segmented
+   * bar's reason to exist), a crew big enough to trip the history fold, a
+   * blocked task, and a proposed next step. Every waterfall feature is
+   * observable here: fit-to-content, segments, label ladder, future chips.
+   */
+  epic: () => {
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-1700',
+        title: 'Checkout revamp',
+        description: 'Split payment capture from cart mutation, then land fraud checks.',
+        stage: 'in_progress',
+        type: 'epic',
+        memberSessionIds: ['coord'],
+        coordinatorSessionId: 'coord',
+      }),
+      issue('t1', {
+        parentId: 'root',
+        displayRef: 'POD-1701',
+        title: 'Cart service contract',
+        stage: 'done',
+        closedReason: 'done',
+        memberSessionIds: ['c1', 'c2'],
+      }),
+      issue('t2', {
+        parentId: 'root',
+        displayRef: 'POD-1702',
+        title: 'Payment intents',
+        memberSessionIds: ['lead2', 'rev'],
+      }),
+      issue('t3', {
+        parentId: 'root',
+        displayRef: 'POD-1703',
+        title: 'Fraud checks',
+        stage: 'review',
+        memberSessionIds: ['ask3'],
+      }),
+      issue('t4', {
+        parentId: 'root',
+        displayRef: 'POD-1704',
+        title: 'Receipt emails',
+        memberSessionIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'live4'],
+      }),
+      issue('t5', {
+        parentId: 'root',
+        displayRef: 'POD-1705',
+        title: 'Ledger backfill',
+        blocked: true,
+        blockedByNotes: ['Waiting on POD-1702 intents schema'],
+      }),
+      issue('t6', {
+        parentId: 'root',
+        displayRef: 'POD-1706',
+        stage: 'proposed',
+        title: 'Retry queue for captures',
+      }),
+    ]
+    state.sessions = [
+      session('coord', {
+        issueId: 'root',
+        displayRef: 'POD-1700-A',
+        name: 'Checkout coordinator',
+        title: 'Checkout coordinator',
+        createdAt: ago(200),
+        agentState: {
+          phase: 'working',
+          since: ago(20),
+          workingMsTotal: 4_500_000,
+        },
+      }),
+      session('c1', {
+        issueId: 't1',
+        displayRef: 'POD-1701-A',
+        name: 'Contract draft',
+        title: 'Contract draft',
+        status: 'exited',
+        createdAt: ago(190),
+        stoppedAt: ago(150),
+        lastActiveAt: ago(150),
+      }),
+      session('c2', {
+        issueId: 't1',
+        displayRef: 'POD-1701-B',
+        name: 'Contract review',
+        title: 'Contract review',
+        status: 'exited',
+        createdAt: ago(155),
+        stoppedAt: ago(120),
+        lastActiveAt: ago(120),
+      }),
+      session('lead2', {
+        issueId: 't2',
+        displayRef: 'POD-1702-A',
+        name: 'Intents implementation',
+        title: 'Intents implementation',
+        createdAt: ago(140),
+        agentState: { phase: 'working', since: ago(35), workingMsTotal: 5_100_000 },
+      }),
+      // THE LOOPING REVIEWER: three distinct work stretches with waits between,
+      // now stopped on a question — the on/off/on case, verbatim.
+      session('rev', {
+        issueId: 't2',
+        displayRef: 'POD-1702-B',
+        name: 'Intents reviewer',
+        title: 'Intents reviewer',
+        createdAt: ago(150),
+        unread: true,
+        agentState: {
+          phase: 'needs_user',
+          since: ago(15),
+          need: { kind: 'question', summary: 'Charge idempotency key format?' },
+        },
+      }),
+      session('ask3', {
+        issueId: 't3',
+        displayRef: 'POD-1703-A',
+        name: 'Fraud rules pass',
+        title: 'Fraud rules pass',
+        createdAt: ago(90),
+        agentState: { phase: 'needs_user', since: ago(25) },
+      }),
+      ...['h1', 'h2', 'h3', 'h4', 'h5'].map((id, index) =>
+        session(id, {
+          issueId: 't4',
+          displayRef: `POD-1704-${'ABCDE'[index]}`,
+          name: `Email sweep ${index + 1}`,
+          title: `Email sweep ${index + 1}`,
+          status: 'exited',
+          createdAt: ago(170 - index * 25),
+          stoppedAt: ago(150 - index * 25),
+          lastActiveAt: ago(150 - index * 25),
+        }),
+      ),
+      session('live4', {
+        issueId: 't4',
+        displayRef: 'POD-1704-F',
+        name: 'Template polish',
+        title: 'Template polish',
+        createdAt: ago(40),
+        agentState: { phase: 'working', since: ago(10) },
+      }),
+    ]
+    state.activity = {
+      coord: [
+        { at: ago(200), phase: 'working' },
+        { at: ago(110), phase: 'idle' },
+        { at: ago(60), phase: 'working' },
+        { at: ago(45), phase: 'idle' },
+        { at: ago(20), phase: 'working' },
+      ],
+      rev: [
+        { at: ago(150), phase: 'working' },
+        { at: ago(120), phase: 'idle' },
+        { at: ago(95), phase: 'working' },
+        { at: ago(70), phase: 'idle' },
+        { at: ago(45), phase: 'working' },
+        { at: ago(15), phase: 'needs_user' },
+      ],
+      lead2: [
+        { at: ago(140), phase: 'working' },
+        { at: ago(80), phase: 'idle' },
+        { at: ago(35), phase: 'working' },
+      ],
+    }
+    state.selectedIssueId = 'root'
+    state.paneA = 'lead2'
+  },
   /** The filed case, verbatim. */
   asking: () => {
     state.issues = [
@@ -745,6 +919,9 @@ function Harness(): JSX.Element {
   const [color, setColor] = useState<string | null>(null)
   const [, bump] = useState(0)
 
+  // Phase history belongs to the fixture that declared it; a swap must not
+  // leak one mission's segments onto another's bars.
+  state.activity = {}
   MISSIONS[mission]()
 
   const changeDisplay = useCallback((next: 'compact' | 'expanded'): void => {

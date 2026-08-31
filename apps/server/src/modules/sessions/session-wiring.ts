@@ -31,6 +31,7 @@ import {
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
+import { SessionActivityHistory } from './activity-history'
 import { AgentConcurrencyHistory } from './concurrency-history'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
@@ -83,6 +84,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.funnel = deps.funnel
   bag.concurrencyHistory = new AgentConcurrencyHistory({
     sessions: () => bag.sessions.values(),
+    events: bag.store.events,
+    bus: bag.bus,
+    now: () => bag.now(),
+  })
+  bag.activityHistory = new SessionActivityHistory({
     events: bag.store.events,
     bus: bag.bus,
     now: () => bag.now(),

@@ -925,7 +925,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.openSessionTab.mock.calls).toEqual([['s3', { permanent: false }]])
   })
 
-  it('advances active bar geometry with the shared clock while Now stays fixed', () => {
+  it('advances active bar geometry with the shared clock while Now stays anchored', () => {
     harness.sessions = harness.sessions.map((raw) => {
       const candidate = raw as SessionMeta
       return candidate.sessionId === 's2'
@@ -936,8 +936,12 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     const initialLane = sessionRow('s2').closest('.waterfall-session-lane') as HTMLElement
     const initialLeft = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-left'))
     const initialWidth = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-width'))
-    const nowLine = document.querySelector('.waterfall-now-line') as HTMLElement
-    expect(nowLine.style.getPropertyValue('--waterfall-now')).toBe('72%')
+    // The Now anchor is a property of the auto-fit viewport, written once on
+    // the waterfall root; while following it must not drift with the clock.
+    const waterfall = screen.getByTestId('flight-deck-waterfall')
+    const initialNow = waterfall.style.getPropertyValue('--waterfall-now')
+    expect(Number.parseFloat(initialNow)).toBeGreaterThan(50)
+    expect(Number.parseFloat(initialNow)).toBeLessThanOrEqual(100)
 
     harness.coarseNow += 10 * 60_000
     view.rerender(<DeckHarness />)
@@ -949,7 +953,10 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     )
     expect(advancedLeft).toBeLessThan(initialLeft)
     expect(advancedWidth).toBeGreaterThan(initialWidth)
-    expect(nowLine.style.getPropertyValue('--waterfall-now')).toBe('72%')
+    expect(Number.parseFloat(waterfall.style.getPropertyValue('--waterfall-now'))).toBeCloseTo(
+      Number.parseFloat(initialNow),
+      6,
+    )
   })
 
   it('opens a native worker through its owning session without overriding panel choice', () => {
@@ -1713,7 +1720,9 @@ describe('flight deck spine (POD-758)', () => {
         session(id, { issueId: 'root', status: 'exited', name: `Retired ${id}` }),
       ),
     ]
-    deck()
+    // The history fold is the waterfall's own density valve; the plain deck
+    // never rendered it, and this ran green only while the view was ungated.
+    waterfallDeck()
     const summary = screen.getByRole('button', { name: /Expand 4 completed sessions/ })
     for (const id of ['r1', 'r2', 'r3', 'r4']) {
       expect(document.querySelector(`[data-flight-session="${id}"]`)).toBeNull()

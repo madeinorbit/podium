@@ -3648,7 +3648,9 @@ export function FlightDeck({
           {/* The mission chrome belongs to the one definite-height scrollport
               but stays in view while its roster moves underneath. Header
               growth now changes content height, never the scrollport itself. */}
-          <div className="deck-chrome sticky top-0 z-[1] flex-none">
+          {/* z-10: the waterfall's own layers (axis, bars, tools) reach z-6,
+              and rows bleeding through this chrome was a filed defect. */}
+          <div className="deck-chrome sticky top-0 z-10 flex-none">
             {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
               Roomy because it is read once where the strips below are scanned.
               It carries NO fill of its own any more (POD-725): the column ITSELF

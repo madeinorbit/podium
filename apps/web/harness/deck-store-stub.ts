@@ -62,6 +62,9 @@ export const state = {
   paneA: null as string | null,
   ui: new Map<string, string>(),
   listeners: new Set<() => void>(),
+  /** Per-session phase samples served to the waterfall's activityHistory
+   *  query — the on/off record a fixture declares for segmented bars. */
+  activity: {} as Record<string, Array<{ at: string; phase: string }>>,
   /** Bumped by the entry so React re-renders when the fixture is replaced. */
   version: 0,
 }
@@ -106,6 +109,18 @@ const trpc = {
     setPlacement: { mutate: noop },
     start: { mutate: noop },
     addSession: { mutate: noop },
+  },
+  sessions: {
+    activityHistory: {
+      query: async ({ sessionIds }: { sessionIds: string[] }) => ({
+        sampledAt: new Date().toISOString(),
+        sessions: Object.fromEntries(
+          sessionIds
+            .filter((id) => (state.activity[id]?.length ?? 0) > 0)
+            .map((id) => [id, state.activity[id]]),
+        ),
+      }),
+    },
   },
 } as unknown
 
