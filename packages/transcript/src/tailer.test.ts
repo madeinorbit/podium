@@ -1,5 +1,6 @@
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { open as openFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -356,9 +357,9 @@ describe('tailTranscript — missing provider file', () => {
     writeFileSync(path, JSON.stringify({ uuid: 'recover-1', type: 'user', content: 'seed' }) + '\n')
     const emissions: Emission[] = []
     const statuses: { kind: string; path: string }[] = []
-    const failure = Object.assign(new Error('stable open failure'), { code: 'EACCES' })
+    const failure = Object.assign(new Error('stable descriptor stat failure'), { code: 'EACCES' })
     let watcher = (): void => {}
-    let failOpen = true
+    let failStat = true
     const tailer = tailTranscript(
       path,
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
@@ -370,8 +371,20 @@ describe('tailTranscript — missing provider file', () => {
             return () => { watcher = (): void => {} }
           },
         },
-        onReadOpen: () => {
-          if (failOpen) throw failure
+        openFile: async (candidate) => {
+          const handle = await openFile(candidate, 'r')
+          return new Proxy(handle, {
+            get(target, property) {
+              if (property === 'stat') {
+                return async () => {
+                  if (failStat) throw failure
+                  return await target.stat()
+                }
+              }
+              const value = Reflect.get(target, property)
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+          })
         },
         onStatus: (event) => statuses.push(event),
       },
@@ -384,12 +397,15 @@ describe('tailTranscript — missing provider file', () => {
       }
       expect(statuses).toEqual([expect.objectContaining({ kind: 'error', path })])
 
-      failOpen = false
+      failStat = false
       watcher()
       await waitFor(() => textsOf(emissions).includes('seed'))
       expect(statuses.at(-1)).toEqual(expect.objectContaining({ kind: 'first-emission', path }))
+      // onItems precedes descriptor close by contract; let the successful cycle's
+      // finally finish before injecting the next failure.
+      await new Promise((resolve) => setTimeout(resolve, 10))
 
-      failOpen = true
+      failStat = true
       appendFileSync(path, JSON.stringify({ uuid: 'recover-2', type: 'user', content: 'next' }) + '\n')
       watcher()
       await waitFor(() => statuses.filter((event) => event.kind === 'error').length === 2)

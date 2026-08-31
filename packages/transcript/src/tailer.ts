@@ -81,6 +81,8 @@ export interface TranscriptTailOptions {
   readChunkBytes?: number
   /** Test seam for the cheap pre-seed existence check. */
   initialPathStat?: (path: string) => Promise<unknown>
+  /** Test seam for a successfully acquired descriptor whose operations may fail. */
+  openFile?: (path: string) => ReturnType<typeof open>
   /** Test/attribution seam: fires only when a changed file requires a descriptor. */
   onReadOpen?: () => void
   /** Bounded lifecycle visibility: one first-emission event and one event per distinct error. */
@@ -238,7 +240,8 @@ export function tailTranscript(
         return
       }
       opts.onReadOpen?.()
-      const handle = await open(path, 'r')
+      const handle = await (opts.openFile ? opts.openFile(path) : open(path, 'r'))
+      let cycleSucceeded = false
       try {
         const { size } = await handle.stat()
         let reset = false
@@ -264,7 +267,10 @@ export function tailTranscript(
           flushedOffset = -1
           reset = true
         }
-        if (size === offset + leftover.length && !reset) return
+        if (size === offset + leftover.length && !reset) {
+          cycleSucceeded = true
+          return
+        }
         let items: TranscriptItem[] = []
         // CHUNKED read + parse: one bounded allocation and one bounded synchronous
         // parse slice per chunk; the await on each chunk read yields the event
@@ -335,9 +341,10 @@ export function tailTranscript(
             reportStatus({ kind: 'first-emission', path, items: items.length, reset })
           }
         }
+        cycleSucceeded = true
       } finally {
         await handle.close()
-        lastErrorKey = undefined
+        if (cycleSucceeded) lastErrorKey = undefined
       }
     } catch (error) {
       // File missing (not created yet / rotated away) remains retryable, but is no
