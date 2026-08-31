@@ -5,15 +5,15 @@ import { homedir, hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { bindHarnessExec, buildResolvedInventory, harnessMcpConfigTransport } from '@podium/harness'
-import type { UsageBucketWire } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import type { UsageBucketWire, UsageSourceWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
-import { bundleStagePath } from '../handoff-package'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
+import { bundleStagePath } from '../handoff-package'
 import { buildHarnessExec } from '../harness-exec.js'
-import { repoOpCommand } from '../repo-op'
 import { scanQuotaHistory } from '../quota-history-scan'
-import { scanHostUsage } from '../usage-scan'
+import { repoOpCommand } from '../repo-op'
+import { scanHostUsageSources, UsageScanCache } from '../usage-scan'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const execFileAsync = promisify(execFile)
@@ -129,9 +129,10 @@ async function runHarnessExec(
       args,
       stdin,
       env: execEnv,
-    } = bindHarnessExec(snapshot, msg.agent, buildHarnessExec(
+    } = bindHarnessExec(
+      snapshot,
       msg.agent,
-      {
+      buildHarnessExec(msg.agent, {
         prompt: msg.prompt,
         ...(msg.model ? { model: msg.model } : {}),
         ...(msg.effort ? { effort: msg.effort } : {}),
@@ -139,8 +140,8 @@ async function runHarnessExec(
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
         ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
         ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-      },
-    ))
+      }),
+    )
     // promisified execFile still exposes the child: deliver the prompt on
     // stdin (claude — variadic --allowedTools would eat an argv prompt) and
     // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.
@@ -207,16 +208,21 @@ function rescanUsage(ctx: DaemonContext, sinceMs: number): Promise<void> {
   const pending = usageRescans.get(ctx)
   if (pending) return pending
   const started = (async () => {
-    let buckets: UsageBucketWire[]
+    let scan: { buckets: UsageBucketWire[]; sources: UsageSourceWire[] }
     try {
-      buckets = await scanHostUsage({
+      // The cache lives on the memo box, so the SECOND walk on this daemon reads
+      // only the bytes appended since the first one. Transcripts are append-only,
+      // which is what makes that exact rather than a guess.
+      ctx.usageMemo.cache ??= new UsageScanCache()
+      scan = await scanHostUsageSources({
         sinceMs,
+        cache: ctx.usageMemo.cache,
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       })
     } catch {
-      buckets = []
+      scan = { buckets: [], sources: [] }
     }
-    ctx.usageMemo.value = { atMs: Date.now(), sinceMs, buckets }
+    ctx.usageMemo.value = { atMs: Date.now(), sinceMs, ...scan }
   })().finally(() => {
     usageRescans.delete(ctx)
   })
@@ -248,6 +254,10 @@ async function runUsageScan(
     hostname: hostname(),
     ...(current ? { sampledAt: new Date(current.atMs).toISOString() } : {}),
     buckets,
+    // Only when asked. The status chip polls this every 90s and wants the
+    // buckets alone; the per-file breakdown is an order of magnitude larger and
+    // has exactly one reader, the server's cost fold.
+    ...(msg.withSources && current ? { sources: current.sources } : {}),
   })
 }
 
@@ -306,7 +316,7 @@ async function runGitHubCli(
 
 export const execHandlers: Pick<
   ControlHandlers,
-    | 'repoOpRequest'
+  | 'repoOpRequest'
   | 'harnessExecRequest'
   | 'usageRequest'
   | 'agentQuotaRequest'

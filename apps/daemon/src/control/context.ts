@@ -9,8 +9,8 @@ import type { AgentRelayHub } from '../agent-relay'
 import type { BindingStore } from '../binding-store'
 import type { BrowserOpenManager } from '../browser-open'
 import type { ComposerSyncEngine } from '../composer-sync'
-import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
+import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
 import type { SessionBinding } from '../session-binding'
@@ -104,9 +104,17 @@ export interface DaemonContext {
   quotaFetcher: {
     getAgentQuota(refresh?: boolean): Promise<import('@podium/model').AgentQuotaWire[]>
   }
-  /** Usage-scan memo (mutable box — handlers replace the value). */
+  /** Usage-scan memo (mutable box — handlers replace the value). `sources` is
+   *  the per-file half of the same walk, which the server folds into per-task
+   *  cost; `cache` is the incremental cursor set the next walk resumes from. */
   usageMemo: {
-    value?: { atMs: number; sinceMs: number; buckets: UsageBucketWire[] }
+    value?: {
+      atMs: number
+      sinceMs: number
+      buckets: UsageBucketWire[]
+      sources: import('@podium/model').UsageSourceWire[]
+    }
+    cache?: import('../usage-scan').UsageScanCache
   }
 
   /** Process-wide admission/drain fence for daemon-owned portable-state mutations. */
