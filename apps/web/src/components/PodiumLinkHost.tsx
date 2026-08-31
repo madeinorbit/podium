@@ -7,6 +7,7 @@ import {
   PODIUM_NATIVE_OPEN_EVENT,
   activatePodiumHref,
   classifyPodiumLink,
+  hasServerSelector,
   hasUnsupportedTypedDetail,
   setKnownPodiumOrigins,
   setPodiumTargetActivator,
@@ -121,7 +122,11 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
       const detail = (event as CustomEvent<unknown>).detail
       if (typeof detail !== 'string') return
       const link = classifyPodiumLink(detail)
-      if (link?.kind !== 'internal' || hasUnsupportedTypedDetail(link.target)) {
+      if (
+        link?.kind !== 'internal' ||
+        hasServerSelector(detail) ||
+        hasUnsupportedTypedDetail(link.target)
+      ) {
         return
       }
       pendingHref.current = detail

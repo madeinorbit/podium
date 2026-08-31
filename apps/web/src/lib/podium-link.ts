@@ -23,6 +23,7 @@ import {
   type PodiumTarget,
   formatPodiumLink,
   parsePodiumLink,
+  podiumTargetPath,
 } from '@podium/protocol'
 
 export const PODIUM_NATIVE_OPEN_EVENT = 'podium:native-open'
@@ -57,6 +58,7 @@ export function classifyPodiumLink(href: string): PodiumLink | null {
 
 /** The target `href` names inside this Podium, or null when it names someone else's. */
 export function internalPodiumTarget(href: string): PodiumTarget | null {
+  if (hasServerSelector(href)) return null
   const link = classifyPodiumLink(href)
   return link?.kind === 'internal' ? link.target : null
 }
@@ -65,8 +67,9 @@ export function internalPodiumTarget(href: string): PodiumTarget | null {
  * Capture a canonical target before the ordinary web router sees startup URL.
  * The router has no route for sessions, artifacts or files, and issue refs need
  * replica resolution before they can become the opaque id its route expects.
- * The host activates the base target and retains any query or fragment on the
- * routed URL.
+ * The host activates only targets it can represent losslessly. `server` is
+ * boot configuration rather than target detail: capture strips it from the
+ * pending address after the startup route preserves it for transport setup.
  */
 export function startupPodiumHref(location: {
   pathname: string
@@ -76,8 +79,9 @@ export function startupPodiumHref(location: {
   const href = `${location.pathname}${location.search}${location.hash ?? ''}`
   const link = parsePodiumLink(href)
   if (link?.kind !== 'internal' || link.target.kind === 'view') return null
-  if (hasUnsupportedTypedDetail(link.target)) return null
-  return href
+  const target = withoutStartupServer(link.target)
+  if (hasUnsupportedTypedDetail(target)) return null
+  return podiumTargetPath(target)
 }
 
 /** The router destination used while a typed startup URL waits for replica
@@ -91,15 +95,30 @@ export function startupPodiumRouteHref(location: { search: string }): string {
 }
 
 /** Query/fragment semantics belong to the opened target. This client has no
- * such consumers yet; `server` is the sole exception because boot consumes it
- * before activation and the router deliberately retains it. */
+ * such consumers yet, so live activation must decline all of them. */
 export function hasUnsupportedTypedDetail(target: PodiumTarget): boolean {
   if (target.kind === 'view') return Boolean(target.search || target.hash)
   if ('hash' in target && target.hash) return true
-  if (!('search' in target) || !target.search) return false
+  return 'search' in target && Boolean(target.search)
+}
+
+/** Whether an href asks boot to connect to a different server. This is never
+ * live target detail: resolving its ref against the current replica would open
+ * the same-looking row on the wrong server. */
+export function hasServerSelector(href: string): boolean {
+  const query = href.indexOf('?')
+  if (query === -1) return false
+  const fragment = href.indexOf('#', query)
+  const search = href.slice(query, fragment === -1 ? href.length : fragment)
+  return new URLSearchParams(search).has('server')
+}
+
+function withoutStartupServer(target: PodiumTarget): PodiumTarget {
+  if (!('search' in target) || !target.search) return target
   const params = new URLSearchParams(target.search)
   params.delete('server')
-  return params.toString() !== ''
+  const query = params.toString()
+  return { ...target, search: query ? `?${query}` : '' }
 }
 
 /** Resolve a host-less internal address to the active HTTP server for an OS
