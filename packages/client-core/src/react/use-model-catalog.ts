@@ -24,7 +24,7 @@ const EMPTY_CATALOG: ModelCatalog = {}
 
 interface CatalogScope {
   cache: Map<string, Snapshot>
-  /** When this client last checked, distinct from when the server last probed. */
+  /** When the last unavailable attempt failed, used only for retry backoff. */
   checkedAt: Map<string, number>
   inflight: Map<string, Promise<void>>
   subscribers: Map<string, Set<() => void>>
@@ -58,7 +58,8 @@ function publish(
   status: ModelCatalogStatus,
 ): void {
   scope.cache.set(key, snapshot)
-  scope.checkedAt.set(key, Date.now())
+  if (status === 'unavailable') scope.checkedAt.set(key, Date.now())
+  else scope.checkedAt.delete(key)
   scope.statusByKey.set(key, status)
   for (const subscriber of scope.subscribers.get(key) ?? []) subscriber()
 }
@@ -82,6 +83,9 @@ async function fetchCatalog(
   if (existing) return existing
 
   const pending = (async () => {
+    // Let the in-flight entry become visible before publishing. Subscribers may
+    // render immediately and must join this request rather than start another.
+    await Promise.resolve()
     // A catalog past its recheck boundary is data we can keep displaying, but
     // it is not launch authority until the server proves it fresh again.
     publishStatus(scope, key, 'loading')
@@ -123,7 +127,7 @@ export function useModelCatalogState<TApi extends PodiumClientApi = PodiumClient
   machineId?: MachineId,
 ): ModelCatalogState {
   const trpc = useStoreSelector<TApi, TApi>((store) => store.trpc)
-  const [, forceRender] = useState(0)
+  const [revision, forceRender] = useState(0)
   const key = cacheKey(machineId)
   const scope = catalogScope(trpc)
 
@@ -133,28 +137,53 @@ export function useModelCatalogState<TApi extends PodiumClientApi = PodiumClient
     listeners.add(subscriber)
     scope.subscribers.set(key, listeners)
 
-    const revalidate = (): void => {
-      const lastCheck = scope.checkedAt.get(key) ?? 0
-      const api = (trpc as Partial<PodiumClientApi>).models
-      if (!api) {
-        publishStatus(scope, key, 'unavailable')
-      } else if (Date.now() - lastCheck >= MODEL_CATALOG_MAX_AGE_MS) {
-        void fetchCatalog(scope, api, machineId)
-      }
-    }
-
-    revalidate()
-    const timer = setInterval(revalidate, MODEL_CATALOG_MAX_AGE_MS)
     return () => {
-      clearInterval(timer)
       listeners.delete(subscriber)
       if (listeners.size === 0) scope.subscribers.delete(key)
     }
   }, [key, machineId, scope, trpc])
 
+  useEffect(() => {
+    const api = (trpc as Partial<PodiumClientApi>).models
+    if (!api) {
+      if (scope.statusByKey.get(key) !== 'unavailable') {
+        publishStatus(scope, key, 'unavailable')
+      }
+      return
+    }
+
+    if (scope.inflight.has(key)) return
+
+    const snapshot = scope.cache.get(key)
+    const status = scope.statusByKey.get(key)
+    const now = Date.now()
+    let delay = 0
+
+    if (status === 'ready' && snapshot && !needsRefresh(snapshot)) {
+      delay = snapshot.fetchedAt + MODEL_CATALOG_MAX_AGE_MS - now
+    } else if (status === 'unavailable') {
+      const failedAt = scope.checkedAt.get(key) ?? 0
+      delay = failedAt + MODEL_CATALOG_MAX_AGE_MS - now
+    }
+
+    if (delay > 0) {
+      const timer = setTimeout(() => {
+        void fetchCatalog(scope, api, machineId)
+      }, delay)
+      return () => clearTimeout(timer)
+    }
+
+    void fetchCatalog(scope, api, machineId)
+  }, [key, machineId, revision, scope, trpc])
+
+  const snapshot = scope.cache.get(key)
+  const storedStatus = scope.statusByKey.get(key) ?? 'loading'
+  const status =
+    storedStatus === 'ready' && snapshot && needsRefresh(snapshot) ? 'loading' : storedStatus
+
   return {
-    catalog: scope.cache.get(key)?.byAgent ?? EMPTY_CATALOG,
-    status: scope.statusByKey.get(key) ?? 'loading',
+    catalog: snapshot?.byAgent ?? EMPTY_CATALOG,
+    status,
   }
 }
 

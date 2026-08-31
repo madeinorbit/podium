@@ -70,6 +70,89 @@ describe('useModelCatalog', () => {
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
+  it('revalidates a near-expiry query at the snapshot deadline', async () => {
+    const machineId = asMachineId('199a3c18-931d-4d59-a101-3097b331fd38')
+    const deadlineDelay = 1_000
+    let resolveFresh: ((snapshot: unknown) => void) | undefined
+    catalog
+      .mockResolvedValueOnce({
+        machineId,
+        byAgent: { codex: [{ value: 'near-expiry', label: 'Near expiry' }] },
+        fetchedAt: Date.now() - MODEL_CATALOG_MAX_AGE_MS + deadlineDelay,
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFresh = resolve
+        }),
+      )
+
+    render(<StatusProbe machineId={machineId} />)
+    await act(async () => {})
+    expect(screen.getByText('ready')).toBeTruthy()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(deadlineDelay - 1)
+    })
+    expect(catalog).toHaveBeenCalledOnce()
+    expect(screen.getByText('ready')).toBeTruthy()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(catalog).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('loading')).toBeTruthy()
+    expect(screen.getByText('Near expiry')).toBeTruthy()
+
+    await act(async () => {
+      resolveFresh?.({
+        machineId,
+        byAgent: { codex: [{ value: 'fresh', label: 'Fresh' }] },
+        fetchedAt: Date.now(),
+      })
+    })
+    expect(screen.getByText('ready')).toBeTruthy()
+    expect(screen.getByText('Fresh')).toBeTruthy()
+  })
+
+  it('renders an expired cached snapshot non-ready on remount and recovers', async () => {
+    const machineId = asMachineId('8d637611-fe58-47f9-8ac8-d2432c9a03ba')
+    let resolveFresh: ((snapshot: unknown) => void) | undefined
+    catalog
+      .mockResolvedValueOnce({
+        machineId,
+        byAgent: { codex: [{ value: 'cached', label: 'Cached' }] },
+        fetchedAt: Date.now(),
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFresh = resolve
+        }),
+      )
+
+    const firstView = render(<StatusProbe machineId={machineId} />)
+    await act(async () => {})
+    expect(screen.getByText('ready')).toBeTruthy()
+    firstView.unmount()
+
+    await vi.advanceTimersByTimeAsync(MODEL_CATALOG_MAX_AGE_MS)
+    render(<StatusProbe machineId={machineId} />)
+
+    expect(screen.getByText('loading')).toBeTruthy()
+    expect(screen.getByText('Cached')).toBeTruthy()
+    await act(async () => {})
+    expect(catalog).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      resolveFresh?.({
+        machineId,
+        byAgent: { codex: [{ value: 'fresh', label: 'Fresh after remount' }] },
+        fetchedAt: Date.now(),
+      })
+    })
+    expect(screen.getByText('ready')).toBeTruthy()
+    expect(screen.getByText('Fresh after remount')).toBeTruthy()
+  })
+
   it('reports loading until the first catalog read resolves', () => {
     const machineId = asMachineId('ca532a8b-9994-4d58-9bb8-ddcba18548a1')
     catalog.mockReturnValue(new Promise(() => {}))
