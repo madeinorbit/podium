@@ -29,31 +29,45 @@ interface PodiumLinkClickEvent {
 
 /**
  * Answer a click if it landed on a link into this Podium. Returns whether the
- * click was claimed; false means leave the anchor exactly as it was, which is a
- * real navigation and therefore still correct.
+ * click was claimed. Before returning false for a hostless Podium link, rewrite
+ * the anchor to the active server so browser-default navigation stays on the
+ * same replica as the app.
  */
 export function handlePodiumLinkClick(e: PodiumLinkClickEvent): boolean {
   const anchor = (e.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null
-  const href = anchor?.getAttribute('href')
+  if (!anchor) return false
+  const href = anchor.getAttribute('href')
   if (!href) return false
   // CLASSIFIED AT CLICK TIME, not read off the render-time marking: the html may
   // have been produced before the client knew its own server origin, and the
   // string is memoized per message, so a body rendered during boot would keep
   // whatever verdict it got then.
   const target = internalPodiumTarget(href)
-  if (!target) return false
+  const browserHref = systemBrowserPodiumHref(href)
+  if (!target) {
+    if (browserHref) anchor.href = browserHref
+    return false
+  }
 
   if (e.metaKey || e.ctrlKey || e.shiftKey) {
-    const browserHref = systemBrowserPodiumHref(href)
     if (!browserHref) return false
     const handoff = openInSystemBrowser(browserHref)
-    if (!handoff) return false // a browser tab: the anchor already opens one
+    if (!handoff) {
+      // A browser tab will perform the navigation itself. Give it the active
+      // server's absolute address first: a relative href belongs to this
+      // Podium, not necessarily to the origin that happened to serve the page.
+      anchor.href = browserHref
+      return false
+    }
     e.preventDefault()
     handoff.catch(() => {})
     return true
   }
 
-  if (!activatePodiumTarget(target, e)) return false
+  if (!activatePodiumTarget(target, e)) {
+    if (browserHref) anchor.href = browserHref
+    return false
+  }
   e.preventDefault()
   return true
 }
