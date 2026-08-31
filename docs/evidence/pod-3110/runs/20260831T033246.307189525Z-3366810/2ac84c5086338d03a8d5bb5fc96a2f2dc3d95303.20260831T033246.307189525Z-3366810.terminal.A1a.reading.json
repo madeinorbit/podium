@@ -1,0 +1,72 @@
+{
+  "id": "A1a",
+  "arm": "terminal",
+  "verdict": "FAIL",
+  "summary": "assistant reply token did not occur exactly once in both the live and freshly reloaded transcript item models",
+  "control": {
+    "fired": true,
+    "what": "the probe prompt exists as a durable user transcript item in both live and freshly reloaded viewers",
+    "detail": "liveUser=1 reloadedUser=1 liveItems=[{\"index\":0,\"id\":\"grok-user-tucdyw\",\"occurrences\":1}] reloadedItems=[{\"index\":0,\"id\":\"grok-user-tucdyw\",\"occurrences\":1}]"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "DISPOSITION       delivered",
+    "REPLY LATENCY     120180ms; reload observed after 138117ms",
+    "LIVE USER         count=1 items=[{\"index\":0,\"id\":\"grok-user-tucdyw\",\"occurrences\":1}]",
+    "LIVE ASSISTANT    count=0 items=[]",
+    "PROVIDER PIN      pid=3367639 exe=/home/mgw/.grok/downloads/grok-linux-x86_64 version=grok 0.2.118 (1e1687c1cf) [stable] versionSource=declared-exact-bytes sha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 home=/home/mgw/.local/state/podium/p3110-grok-paired-2ac84c5-r9/agent-home grokHome=/home/mgw/.local/state/podium/p3110-grok-paired-2ac84c5-r9/agent-home/.grok abducoSocketDir=/tmp/pd-SUQ-A4oEi7 ambientOverrides=none",
+    "RELOAD USER       count=1 items=[{\"index\":0,\"id\":\"grok-user-tucdyw\",\"occurrences\":1}]",
+    "RELOAD ASSISTANT  count=0 items=[]"
+  ],
+  "data": {
+    "disposition": "delivered",
+    "sent": true,
+    "token": "IDLE-L9L1Z8",
+    "liveUser": {
+      "count": 1,
+      "itemIdentities": [
+        {
+          "index": 0,
+          "id": "grok-user-tucdyw",
+          "occurrences": 1
+        }
+      ]
+    },
+    "liveAssistant": {
+      "count": 0,
+      "itemIdentities": []
+    },
+    "reloadedUser": {
+      "count": 1,
+      "itemIdentities": [
+        {
+          "index": 0,
+          "id": "grok-user-tucdyw",
+          "occurrences": 1
+        }
+      ]
+    },
+    "reloadedAssistant": {
+      "count": 0,
+      "itemIdentities": []
+    },
+    "providerPin": {
+      "pid": 3367639,
+      "executable": "/home/mgw/.grok/downloads/grok-linux-x86_64",
+      "declaredExecutable": "/home/mgw/.grok/downloads/grok-linux-x86_64",
+      "version": "grok 0.2.118 (1e1687c1cf) [stable]",
+      "sha256": "c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6",
+      "home": "/home/mgw/.local/state/podium/p3110-grok-paired-2ac84c5-r9/agent-home",
+      "grokHome": "/home/mgw/.local/state/podium/p3110-grok-paired-2ac84c5-r9/agent-home/.grok",
+      "abducoSocketDir": "/tmp/pd-SUQ-A4oEi7",
+      "ambientOverrides": []
+    }
+  },
+  "cwd": "/tmp/pod-3110-grok-paired-2ac84c5-r9/runs/20260831T033246.307189525Z-3366810/cells/terminal-a1a",
+  "memoryMb": 13426,
+  "pin": "PIN OK row=A1a arm=terminal instance=p3110-grok-paired-2ac84c5-r9 serverPid=3367047 daemonPid=3367160 serverSha=2ac84c5086338d03a8d5bb5fc96a2f2dc3d95303 webSourceSha=057755c driver=no-runtime-override grokVersion='grok 0.2.118 (1e1687c1cf) [stable]' grokBinSha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 state=/home/mgw/.local/state/podium/p3110-grok-paired-2ac84c5-r9 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [
+    "17e353dd-9ba1-4e25-a27a-ebfe5a6ed5a3"
+  ],
+  "at": "2026-08-31T03:35:21.576Z"
+}
