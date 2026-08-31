@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1-edge.4] - 2026-08-31
+
 ### Added
 
 - Updates are now a first-class release pipeline rather than a one-shot script: every release
