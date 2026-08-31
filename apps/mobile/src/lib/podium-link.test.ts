@@ -155,6 +155,17 @@ describe('followPodiumLink', () => {
     setPodiumTargetActivator(null)
     openURL.mockRestore()
   })
+
+  it('gives protocol-relative external links an OS-openable scheme', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    setActivePodiumOrigin('http://127.0.0.1:8787')
+
+    followPodiumLink('//example.test/guide')
+    expect(openURL).toHaveBeenCalledWith('http://example.test/guide')
+
+    openURL.mockRestore()
+  })
 })
 
 describe('the two origin slots (POD-1606 finding 4)', () => {

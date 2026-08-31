@@ -6,8 +6,8 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import {
   PODIUM_NATIVE_OPEN_EVENT,
   activatePodiumHref,
-  appendPodiumAddressDetail,
   classifyPodiumLink,
+  hasUnsupportedTypedDetail,
   setKnownPodiumOrigins,
   setPodiumTargetActivator,
 } from '@/lib/podium-link'
@@ -64,19 +64,13 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
       // something; the caller cancels the anchor only on true, so an address
       // this client cannot answer falls back to an ordinary navigation.
       if (!open) return false
-      const preserveDetail = (): void => {
-        const href = appendPodiumAddressDetail(window.location, open)
-        if (href) window.history.replaceState(null, '', href)
-      }
       switch (open.kind) {
         case 'issue':
           setOpenIssueId(open.issueId)
           setView('issues')
-          preserveDetail()
           return true
         case 'session':
           navigateToSession(open.sessionIdOrRef)
-          preserveDetail()
           return true
         case 'artifact':
           openArtifact({
@@ -85,7 +79,6 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
             path: open.path,
             ...(open.worktreePath ? { worktreePath: open.worktreePath } : {}),
           })
-          preserveDetail()
           return true
         case 'file':
           openFileInWorktree({
@@ -93,7 +86,6 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
             path: open.path,
             ...(open.machineId ? { machineId: open.machineId } : {}),
           })
-          preserveDetail()
           return true
         default: {
           // A plain page, and only the ones this build actually routes. A
@@ -127,7 +119,11 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
   useEffect(() => {
     const onNativeOpen = (event: Event): void => {
       const detail = (event as CustomEvent<unknown>).detail
-      if (typeof detail !== 'string' || classifyPodiumLink(detail)?.kind !== 'internal') return
+      if (typeof detail !== 'string') return
+      const link = classifyPodiumLink(detail)
+      if (link?.kind !== 'internal' || hasUnsupportedTypedDetail(link.target)) {
+        return
+      }
       pendingHref.current = detail
       setPendingRevision((value) => value + 1)
     }

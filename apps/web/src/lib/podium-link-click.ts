@@ -17,7 +17,7 @@
  */
 
 import { openInSystemBrowser } from './nativeDesktop'
-import { activatePodiumTarget, internalPodiumTarget } from './podium-link'
+import { activatePodiumTarget, internalPodiumTarget, systemBrowserPodiumHref } from './podium-link'
 
 interface PodiumLinkClickEvent {
   target: EventTarget | null
@@ -44,7 +44,9 @@ export function handlePodiumLinkClick(e: PodiumLinkClickEvent): boolean {
   if (!target) return false
 
   if (e.metaKey || e.ctrlKey || e.shiftKey) {
-    const handoff = openInSystemBrowser(anchor?.href ?? href)
+    const browserHref = systemBrowserPodiumHref(href)
+    if (!browserHref) return false
+    const handoff = openInSystemBrowser(browserHref)
     if (!handoff) return false // a browser tab: the anchor already opens one
     e.preventDefault()
     handoff.catch(() => {})
