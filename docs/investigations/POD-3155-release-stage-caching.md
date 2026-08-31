@@ -759,3 +759,81 @@ without inheriting a cache key that has nothing to do with C.** Two shell
 callers reference the literal path and move with it:
 `scripts/assert-headless-bundle.sh:292` and
 `scripts/prove-headless-assertions-can-fail.sh:36–37`.
+
+---
+
+# Addendum 4 — what shipped, and what the instrumentation now shows
+
+All five sub-issues landed on `issue/3155-release-build-cache-graph`:
+POD-3160 run-keyed timing ledger, POD-3161 pigz archives, POD-3162 durable
+abduco cache, POD-3163 ignored-source fence walk, POD-3164 full attribution.
+171 tests across the six affected files pass as a set; `@podium/server` and
+`@podium/runtime` typecheck clean.
+
+## A real cross build, with every wrapper firing
+
+Driven on the integrated branch as the publisher drives it —
+`bun scripts/release.ts --prepare-cross --platform linux-x86_64 --platform
+darwin-aarch64` with `PODIUM_RELEASE_BUILD_TIMING=1` — no publisher and no live
+checkout involved:
+
+| phase | task | linux-x86_64 | darwin-aarch64 |
+|---|---|---:|---:|
+| client-preparation | turbo-lane / stamp / verify | 49.40 / 0.70 / 0.09 | — |
+| dependency-preparation | abduco-helper | **0.00** | **0.00** |
+| headless-platform-build | compile-cli | 0.78 | 0.76 |
+| headless-platform-build | assemble-bundle | 0.44 | 0.25 |
+| headless-platform-build | **archive** | **3.15** | **2.00** |
+| signing | darwin-cli / headless-artifact | 0.25 | 0.42 / 0.20 |
+| validation | archive-proof | 1.60 | 1.39 |
+| artifact-publication | stage | 0.06 | 0.04 |
+
+**Both performance changes are confirmed in a real build.**
+
+- `abduco-helper` **1.86 s → 0.00 s**. POD-3162's relocation: the helper now
+  comes from `~/.cache/podium/abduco/<projectKey>` instead of being recompiled
+  into a directory that is thrown away.
+- `archive` **12.12 s → 5.15 s** here. An earlier run of the same two platforms
+  measured 5.95 s. §4's projection under the production quota was 5.34 s.
+
+**These absolute numbers are NOT comparable to the dev.30 ledger.** That release
+ran inside the build scope's `CPUQuota=200%`; this run was unconstrained. The
+ratio is what carries over, and it lands where Addendum 2 predicted.
+
+## The instrumentation earned its keep immediately
+
+`client-preparation / turbo-lane` reads **49.40 s** in the run above — a *cold*
+client build, because cherry-picking POD-3164 changed `scripts/build-clients.ts`
+and so changed the Turbo key. An earlier run on the same branch, warm, measured
+**3.10 s**.
+
+That is the whole point of the issue. Before this work a cold client build was
+invisible: it landed in the 18 s unattributed gap and looked like noise. It is
+now a labelled line that says which step ran long and why. The estimate-vs-
+measured table:
+
+| span | Addendum Q2 estimate | measured (warm) |
+|---|---:|---:|
+| client-preparation (all three) | 3.51 s | 3.95 s |
+| archive-proof, both platforms | 2.76 s | 2.99 s |
+| assemble-bundle, both platforms | ~1.70 s | 0.86 s |
+| stage, both platforms | 0.62 s | **0.05 s** |
+
+Most estimates hold. **`stage` was overestimated by more than 10×**: the 0.62 s
+came from a cold `cp` of 111 MB, and in a real build those bytes were just
+written and are still in page cache. A reminder that a step measured in
+isolation is not the same step measured in place.
+
+## What is still deferred
+
+`approval-to-publish` is emitted by the publisher when a human approves a
+release on the live server (`dev-publisher-wiring.ts:553`), so **the end-to-end
+check — that the phase sum now reaches the envelope to within tenths — cannot be
+run from a branch.** It is deferred to the first real development release after
+this set merges. Every span *below* that envelope is verified above; what
+remains unverified is only the reconciliation against the envelope itself.
+
+Both publisher-side spans that the child run cannot reach are covered
+structurally instead: `validation / live-source-inputs` is asserted to be
+`tasks[0]` — it fires before any build phase opens — and
+`checkout / snapshot-teardown` is asserted in `dev-build-snapshot.test.ts`.
