@@ -162,14 +162,27 @@ describe('taskBoardSections', () => {
   it('lists a promoted proposal once, even while its parent is expanded', () => {
     // Both paths want the same row on screen: the promotion lifts screenable
     // proposals into Proposed, and expansion reveals every child in place. A
-    // SectionList keyed by issue id cannot render the row twice.
+    // SectionList keyed by issue id cannot render the row twice, and the
+    // proposal must remain a root decision rather than ordinary mission work.
     const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
     const proposal = issue({ id: 'prop', parentId: 'epic', stage: 'proposed', seq: 2 })
 
-    const ids = rowIds(
-      taskBoardSections([epic, proposal], { showDone: false, expanded: new Set(['epic']) }),
-    )
-    expect(ids).toEqual(['epic', 'prop'])
+    const sections = taskBoardSections([epic, proposal], {
+      showDone: false,
+      expanded: new Set(['epic']),
+    })
+    expect(rowIds(sections)).toEqual(['epic', 'prop'])
+    expect(sections.find((section) => section.stage === 'in_progress')?.rows).toEqual([
+      expect.objectContaining({
+        issue: expect.objectContaining({ id: 'epic' }),
+        depth: 0,
+        childCount: 0,
+        expanded: false,
+      }),
+    ])
+    expect(sections.find((section) => section.stage === 'proposed')?.rows).toEqual([
+      expect.objectContaining({ issue: expect.objectContaining({ id: 'prop' }), depth: 0 }),
+    ])
   })
 
   it('promotes a proposal parented under an approved epic into Proposed', () => {

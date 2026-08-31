@@ -144,12 +144,34 @@ export function taskBoardSections(
   }
   const scoped = boardScope.filter((issue) => retainedIds.has(issue.id))
   const ordering = opts.ordering ?? TASK_BOARD_ORDERING
-  const groups = issueRowsByStage(scoped, ordering, {
+  const promoted = buildScreeningQueue(scoped).filter(
+    (issue) => Boolean(issue.parentId) && matchedIds.has(issue.id),
+  )
+  const promotedIds = new Set(promoted.map((issue) => issue.id))
+  // A screenable proposal is a decision row of its own, even while its
+  // approved parent is expanded. Remove the proposal and its subtree from the
+  // ordinary tree before deriving rows; promotion below adds that subtree back
+  // under Proposed. Deriving after removal also keeps the parent's disclosure
+  // count honest instead of promising a child that was moved elsewhere.
+  const ordinaryScope =
+    promotedIds.size === 0
+      ? scoped
+      : scoped.filter((issue) => {
+          const seen = new Set<string>()
+          let current: IssueWire | undefined = issue
+          while (current && !seen.has(current.id)) {
+            if (promotedIds.has(current.id)) return false
+            seen.add(current.id)
+            current = current.parentId ? byId.get(current.parentId) : undefined
+          }
+          return true
+        })
+  const groups = issueRowsByStage(ordinaryScope, ordering, {
     flatten: false,
     expanded,
   })
   const byStage = new Map(groups.map((g) => [g.stage, [...g.rows]]))
-  promoteScreenableProposals(scoped, byStage, expanded, ordering, matchedIds)
+  promoteScreenableProposals(scoped, byStage, expanded, ordering, promoted)
   return TASK_STAGE_ORDER.map((stage) => ({
     stage,
     title: STAGE_LABEL[stage],
@@ -180,13 +202,11 @@ function promoteScreenableProposals(
   byStage: Map<IssueBoardStage, IssueRow<IssueWire>[]>,
   expanded: ReadonlySet<string>,
   ordering: IssuesOrdering,
-  matchedIds: ReadonlySet<string>,
+  promoted: readonly IssueWire[],
 ): void {
   const listed = new Set([...byStage.values()].flatMap((rows) => rows.map((row) => row.issue.id)))
   const { childrenByParent } = partitionIssueTree(scoped)
-  const extras = buildScreeningQueue(scoped).filter(
-    (issue) => matchedIds.has(issue.id) && !listed.has(issue.id),
-  )
+  const extras = promoted.filter((issue) => !listed.has(issue.id))
   if (extras.length === 0) return
 
   const emit = (issue: IssueWire, depth: number, out: IssueRow<IssueWire>[]): void => {
