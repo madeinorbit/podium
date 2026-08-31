@@ -41,9 +41,10 @@ import { rowSessions, type UnifiedIssueRow, type UnifiedWorkRow } from './row-ty
  * Aggregate motion phase for one unified WORK row (#41): the row wears the most
  * human-relevant of its member sessions' phases. `waiting` dominates (stillness
  * is the signal — a row that needs you must read amber even while other agents
- * grind on), then `working`, then `done` when every member finished; a row
- * whose sessions are merely idle/ready reads motion `queued` (dimmed stillness
- * — status copy surfaces this as "idle", not "queued").
+ * grind on), then `working`. Finished turns make an open issue quiet, not done:
+ * the row names the TASK, so only a closed issue may wear the terminal phase.
+ * Everything else reads motion `queued` (dimmed stillness — status copy
+ * surfaces this as "idle", not "queued").
  */
 export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   if (row.kind === 'issue' && pendingDecisionStats(row).count > 0) return 'waiting'
@@ -55,7 +56,16 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   ) {
     return 'done'
   }
-  return aggregateMotionPhase(sessions, row.kind === 'issue' ? row.issue : undefined)
+  const phase = aggregateMotionPhase(sessions, row.kind === 'issue' ? row.issue : undefined)
+  if (
+    phase === 'done' &&
+    row.kind === 'issue' &&
+    row.issue.stage !== 'done' &&
+    row.issue.closedReason == null
+  ) {
+    return 'queued'
+  }
+  return phase
 }
 
 /** The same waiting > working > all-done > queued aggregation over any member

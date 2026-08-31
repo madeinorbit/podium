@@ -72,10 +72,14 @@ function issueRow(
 }
 
 describe('rowMotionPhase — aggregate row phase (#41)', () => {
-  it('waiting dominates working; working dominates done; all-done rows are done', () => {
+  it('waiting dominates working; finished turns only make closed tasks done', () => {
     expect(rowMotionPhase(issueRow([working(), waiting()]))).toBe('waiting')
     expect(rowMotionPhase(issueRow([working(), done()]))).toBe('working')
-    expect(rowMotionPhase(issueRow([done(), done()]))).toBe('done')
+    const parkedFinishedTurn = { ...done(), status: 'hibernated' as const }
+    expect(rowMotionPhase(issueRow([parkedFinishedTurn], false, { stage: 'in_progress' }))).toBe(
+      'queued',
+    )
+    expect(rowMotionPhase(issueRow([done(), done()], false, { stage: 'done' }))).toBe('done')
   })
 
   it('finished branch delta becomes ready-to-merge attention until it lands', () => {
@@ -311,7 +315,8 @@ describe('rowStatusLine — the second line copy grammar', () => {
 
   it('working, done and idle rows read as their phase words', () => {
     expect(rowStatusLine(issueRow([working()]), NOW)).toBe('working')
-    expect(rowStatusLine(issueRow([done()]), NOW)).toBe('done')
+    expect(rowStatusLine(issueRow([done()], false, { stage: 'in_progress' }), NOW)).toBe('idle')
+    expect(rowStatusLine(issueRow([done()], false, { stage: 'done' }), NOW)).toBe('done')
     // Quiet motion bucket is still `queued`; the status word is idle.
     expect(rowMotionPhase(issueRow([sess()]))).toBe('queued')
     expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('idle')
@@ -322,17 +327,28 @@ describe('rowStatusLine — the second line copy grammar', () => {
     expect(rowStatusLine(issueRow([working(), sess()]), NOW)).toBe('working')
   })
 
-  it('child progress reads as subtasks; open subtasks override a bare "done" (POD-85)', () => {
-    // The old grammar produced "done · 0/1 done" — nonsense to a human.
+  it('child progress reads as subtasks beside the task state (POD-85)', () => {
+    // A finished agent turn does not close its task. Open subtasks remain the
+    // progress fact beside the task's quiet state.
     expect(
-      rowStatusLine(issueRow([done()], false, { childCount: 1, childDoneCount: 0 }), NOW),
-    ).toBe('0/1 subtasks done')
+      rowStatusLine(
+        issueRow([done()], false, {
+          stage: 'in_progress',
+          childCount: 1,
+          childDoneCount: 0,
+        }),
+        NOW,
+      ),
+    ).toBe('idle · 0/1 subtasks')
     expect(
       rowStatusLine(issueRow([working()], false, { childCount: 3, childDoneCount: 1 }), NOW),
     ).toBe('working · 1/3 subtasks')
     // All subtasks done: plain "done", no redundant tally.
     expect(
-      rowStatusLine(issueRow([done()], false, { childCount: 2, childDoneCount: 2 }), NOW),
+      rowStatusLine(
+        issueRow([done()], false, { stage: 'done', childCount: 2, childDoneCount: 2 }),
+        NOW,
+      ),
     ).toBe('done')
   })
 
@@ -449,8 +465,8 @@ describe('rowMotionTiming — the line-2 timer inputs', () => {
   it('done rows sum every member total for the ∑ stamp; totals absent → none', () => {
     const a = done({ workingMsTotal: 30_000 })
     const b = done({ workingMsTotal: 12_000 })
-    expect(rowMotionTiming(issueRow([a, b])).totalMs).toBe(42_000)
-    expect(rowMotionTiming(issueRow([done()])).totalMs).toBeUndefined()
+    expect(rowMotionTiming(issueRow([a, b], false, { stage: 'done' })).totalMs).toBe(42_000)
+    expect(rowMotionTiming(issueRow([done()], false, { stage: 'done' })).totalMs).toBeUndefined()
   })
 
   it('queued rows fall back to the row activity stamp', () => {
