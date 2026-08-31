@@ -301,6 +301,7 @@ describe('handoff profile selection', () => {
     expect(seams.router.replace).toHaveBeenCalledWith('/work')
     expect(seams.router.replace.mock.calls.every(([route]) => route === '/work')).toBe(true)
     expect(seams.preflight.mock.calls.map(([origin]) => origin)).toEqual(['https://a.example'])
+    expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
     expect(seams.announce).toHaveBeenCalledWith(
       'Opened Work because the matching saved server is unavailable.',
     )
@@ -498,6 +499,7 @@ describe('pairing supersedes handoff intent', () => {
     })
     expect(pendingMobileHandoffSnapshot().request).toBeNull()
     expect(seams.preflight).toHaveBeenCalledWith('https://a.example')
+    expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
   })
 
   it('retires a pending handoff before parsing a newer pairing secret', async () => {
