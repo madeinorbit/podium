@@ -16,7 +16,7 @@
  * OS browser is the honest answer, and the same one the reader used to get.
  */
 
-import { openInSystemBrowser } from './nativeDesktop'
+import { nativeDesktopBridge, openInSystemBrowser } from './nativeDesktop'
 import {
   activatePodiumTarget,
   canonicalizePodiumAnchor,
@@ -32,6 +32,33 @@ interface PodiumLinkClickEvent {
   preventDefault(): void
 }
 
+interface PodiumLinkAuxClickEvent {
+  target: EventTarget | null
+  button?: number
+  preventDefault(): void
+}
+
+interface PodiumLinkContextMenuEvent {
+  target: EventTarget | null
+  preventDefault(): void
+}
+
+function closestAnchor(target: EventTarget | null): HTMLAnchorElement | null {
+  return (target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+}
+
+function isPodiumLinkCandidate(anchor: HTMLAnchorElement): boolean {
+  return (
+    anchor.hasAttribute('data-podium-link-candidate') || anchor.hasAttribute('data-podium-link')
+  )
+}
+
+/** The authored address survives canonicalization so hostless intent and raw
+ * query bytes remain available when the app must fall back to a browser. */
+function sourceHref(anchor: HTMLAnchorElement): string | null {
+  return anchor.getAttribute('data-podium-link-source') ?? anchor.getAttribute('href')
+}
+
 /**
  * Answer a click if it landed on a link into this Podium. Returns whether the
  * click was claimed. Before returning false for a hostless Podium link, rewrite
@@ -39,12 +66,12 @@ interface PodiumLinkClickEvent {
  * same replica as the app.
  */
 export function handlePodiumLinkClick(e: PodiumLinkClickEvent): boolean {
-  const anchor = (e.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+  const anchor = closestAnchor(e.target)
   if (!anchor) return false
   // Late-mounted HTML may have been classified before httpOrigin existed. Fix
   // its href and stale target=_blank before either the app or browser answers.
   canonicalizePodiumAnchor(anchor)
-  const href = anchor.getAttribute('href')
+  const href = sourceHref(anchor)
   if (!href) return false
   // CLASSIFIED AT CLICK TIME, not read off the render-time marking: the html may
   // have been produced before the client knew its own server origin, and the
@@ -53,7 +80,7 @@ export function handlePodiumLinkClick(e: PodiumLinkClickEvent): boolean {
   const target = internalPodiumTarget(href)
   const browserHref = systemBrowserPodiumHref(href)
   if (!target) {
-    if (browserHref) anchor.href = browserHref
+    if (browserHref) anchor.setAttribute('href', browserHref)
     return false
   }
 
@@ -64,7 +91,7 @@ export function handlePodiumLinkClick(e: PodiumLinkClickEvent): boolean {
       // A browser tab will perform the navigation itself. Give it the active
       // server's absolute address first: a relative href belongs to this
       // Podium, not necessarily to the origin that happened to serve the page.
-      anchor.href = browserHref
+      anchor.setAttribute('href', browserHref)
       return false
     }
     e.preventDefault()
@@ -73,9 +100,47 @@ export function handlePodiumLinkClick(e: PodiumLinkClickEvent): boolean {
   }
 
   if (!activatePodiumTarget(target, e)) {
-    if (browserHref) anchor.href = browserHref
+    if (browserHref) anchor.setAttribute('href', browserHref)
     return false
   }
+  e.preventDefault()
+  return true
+}
+
+/**
+ * WKWebView does not turn a middle click into the ordinary `click` event above.
+ * Hand that deliberate new-window gesture to the OS browser explicitly. A
+ * normal browser gets null from `openInSystemBrowser` and keeps its default.
+ */
+export function handlePodiumLinkAuxClick(e: PodiumLinkAuxClickEvent): boolean {
+  if (e.button !== 1) return false
+  const anchor = closestAnchor(e.target)
+  if (!anchor || !isPodiumLinkCandidate(anchor)) return false
+  canonicalizePodiumAnchor(anchor)
+  const href = sourceHref(anchor)
+  if (!href) return false
+  const browserHref = systemBrowserPodiumHref(href)
+  if (!browserHref) return false
+  const handoff = openInSystemBrowser(browserHref)
+  if (!handoff) return false
+  e.preventDefault()
+  handoff.catch(() => {})
+  return true
+}
+
+/**
+ * WebKit exposes context-menu display, but not which native menu item the user
+ * later chose. In a browser, canonicalizing here makes Open/Copy use the active
+ * server. In the packaged shell, suppress the menu only for links the shared
+ * resolver owns: otherwise its unobservable Open in New Tab action can be
+ * swallowed by WKWebView. Ordinary and middle clicks remain supported.
+ */
+export function handlePodiumLinkContextMenu(e: PodiumLinkContextMenuEvent): boolean {
+  const anchor = closestAnchor(e.target)
+  if (!anchor || !isPodiumLinkCandidate(anchor)) return false
+  canonicalizePodiumAnchor(anchor)
+  const href = sourceHref(anchor)
+  if (!href || !nativeDesktopBridge() || !systemBrowserPodiumHref(href)) return false
   e.preventDefault()
   return true
 }

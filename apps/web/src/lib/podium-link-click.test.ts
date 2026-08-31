@@ -9,13 +9,18 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  hasServerSelector,
   internalPodiumTarget,
   setKnownPodiumOrigins,
   setPodiumTargetActivator,
   startupPodiumHref,
   startupPodiumRouteHref,
 } from './podium-link'
-import { handlePodiumLinkClick } from './podium-link-click'
+import {
+  handlePodiumLinkAuxClick,
+  handlePodiumLinkClick,
+  handlePodiumLinkContextMenu,
+} from './podium-link-click'
 
 const HOME = 'http://127.0.0.1:8787'
 
@@ -111,7 +116,8 @@ describe('handlePodiumLinkClick', () => {
 
   it('keeps unknown file fallback query bytes exact', () => {
     setPodiumTargetActivator(() => false)
-    const href = '/file?path=%2Fw%2Fa.ts&root=%2Fw&label=hello%20world&signature=a%2Fb%3D'
+    const href =
+      '/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D'
     const event = clickOn(`<a href="${href}">x</a>`)
     expect(event.defaultPrevented).toBe(false)
     expect((document.querySelector('a') as HTMLAnchorElement).getAttribute('href')).toBe(
@@ -142,6 +148,62 @@ describe('handlePodiumLinkClick', () => {
     const event = clickOn('<a href="/issues/POD-1606">x</a>', { metaKey: true })
     expect(openExternal).toHaveBeenCalledWith(`${HOME}/issues/POD-1606`)
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('hands a desktop middle-click to the OS browser', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    document.body.innerHTML =
+      '<a href="/issues/POD-1606" data-podium-link-candidate="" data-podium-link-source="/issues/POD-1606">x</a>'
+    const anchor = document.querySelector('a') as HTMLAnchorElement
+    const event = new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+    Object.defineProperty(event, 'target', { value: anchor })
+
+    expect(handlePodiumLinkAuxClick(event)).toBe(true)
+    expect(openExternal).toHaveBeenCalledWith(`${HOME}/issues/POD-1606`)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('keeps browser context actions canonical but suppresses the shell dead menu', () => {
+    document.body.innerHTML =
+      '<a href="/issues/POD-1606" data-podium-link-candidate="" data-podium-link-source="/issues/POD-1606">x</a>'
+    const anchor = document.querySelector('a') as HTMLAnchorElement
+    const browserEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    Object.defineProperty(browserEvent, 'target', { value: anchor })
+
+    expect(handlePodiumLinkContextMenu(browserEvent)).toBe(false)
+    expect(anchor.href).toBe(`${HOME}/issues/POD-1606`)
+    expect(browserEvent.defaultPrevented).toBe(false)
+
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    const shellEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    Object.defineProperty(shellEvent, 'target', { value: anchor })
+    expect(handlePodiumLinkContextMenu(shellEvent)).toBe(true)
+    expect(shellEvent.defaultPrevented).toBe(true)
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
+  it('does not intercept ordinary app anchors at the document boundary', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    document.body.innerHTML = '<a href="/settings">settings</a>'
+    const anchor = document.querySelector('a') as HTMLAnchorElement
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'target', { value: anchor })
+
+    expect(handlePodiumLinkContextMenu(event)).toBe(false)
+    expect(event.defaultPrevented).toBe(false)
+    expect(anchor.getAttribute('href')).toBe('/settings')
   })
 
   it('ignores a click that did not land on a link', () => {
@@ -210,5 +272,10 @@ describe('server identity', () => {
     expect(
       internalPodiumTarget('/file?path=%2Fw%2Fa.ts&root=%2Fw&server=wss%3A%2F%2Fother.example'),
     ).toBeNull()
+  })
+
+  it('does not mistake a question mark inside a fragment for a server selector', () => {
+    expect(hasServerSelector('/issues/POD-1606#example?server=docs')).toBe(false)
+    expect(hasServerSelector('/issues/POD-1606?server=docs#example')).toBe(true)
   })
 })

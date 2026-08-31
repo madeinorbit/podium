@@ -6,7 +6,6 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import {
   PODIUM_NATIVE_OPEN_EVENT,
   activatePodiumHref,
-  canonicalizePodiumAnchor,
   canonicalizePodiumAnchors,
   classifyPodiumLink,
   hasServerSelector,
@@ -14,6 +13,10 @@ import {
   setKnownPodiumOrigins,
   setPodiumTargetActivator,
 } from '@/lib/podium-link'
+import {
+  handlePodiumLinkAuxClick,
+  handlePodiumLinkContextMenu,
+} from '@/lib/podium-link-click'
 import { resolvePodiumTarget } from '@/lib/podium-link-open'
 
 /**
@@ -61,16 +64,21 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
     if (httpOrigin) canonicalizePodiumAnchors(document)
   }, [httpOrigin])
 
-  // Middle-click and context-menu Open/Copy do not dispatch an ordinary click.
-  // Prepare any boot-rendered relative anchor during their capture phase so
-  // the browser sees the active server before it performs its default action.
+  // Middle-click and context menus do not dispatch an ordinary click. The
+  // shared handlers canonicalize browser fallbacks and cover the packaged
+  // shell's narrower interaction contract without opening on menu display.
   useEffect(() => {
-    const prepareAnchor = (event: Event): void => canonicalizePodiumAnchor(event.target)
-    document.addEventListener('auxclick', prepareAnchor, true)
-    document.addEventListener('contextmenu', prepareAnchor, true)
+    const onAuxClick = (event: MouseEvent): void => {
+      handlePodiumLinkAuxClick(event)
+    }
+    const onContextMenu = (event: MouseEvent): void => {
+      handlePodiumLinkContextMenu(event)
+    }
+    document.addEventListener('auxclick', onAuxClick, true)
+    document.addEventListener('contextmenu', onContextMenu, true)
     return () => {
-      document.removeEventListener('auxclick', prepareAnchor, true)
-      document.removeEventListener('contextmenu', prepareAnchor, true)
+      document.removeEventListener('auxclick', onAuxClick, true)
+      document.removeEventListener('contextmenu', onContextMenu, true)
     }
   }, [])
 

@@ -11,8 +11,9 @@ import { classifyPodiumLink, internalPodiumTarget, systemBrowserPodiumHref } fro
  * the transcript the reader is in. INTERNAL links — an address on a Podium
  * server this client knows — are marked and receive an active-server absolute
  * href before the chat surface's click handler routes them in-app (POD-1606).
- * The absolute href also answers middle-click and context-menu actions, which
- * do not dispatch an ordinary click. This pass used to have
+ * In a browser, the absolute href also answers middle-click and context-menu
+ * actions, which do not dispatch an ordinary click. The desktop host owns its
+ * narrower WebKit boundary. This pass used to have
  * NO origin test at all: every anchor with an href got `target="_blank"`, so a
  * link to the reader's own issue left the app for a browser tab.
  *
@@ -35,17 +36,18 @@ export function externalizeLinks(html: string): string {
     const rewrittenAttrs = browserHref
       ? attrs.replace(hrefMatch[0], `href="${escapeHtml(browserHref)}"`)
       : attrs
+    const candidateAttrs = ` data-podium-link-candidate="" data-podium-link-source="${escapeHtml(decodedHref)}"`
     if (internalPodiumTarget(decodedHref)) {
-      return `<a${rewrittenAttrs} data-podium-link-candidate="" data-podium-link="">`
+      return `<a${rewrittenAttrs}${candidateAttrs} data-podium-link="">`
     }
     if (link?.kind === 'internal') {
       return alreadyTargeted
-        ? `<a${rewrittenAttrs} data-podium-link-candidate="" data-podium-link="">`
-        : `<a${rewrittenAttrs} data-podium-link-candidate="" data-podium-link="" target="_blank" rel="noopener noreferrer">`
+        ? `<a${rewrittenAttrs}${candidateAttrs} data-podium-link="">`
+        : `<a${rewrittenAttrs}${candidateAttrs} data-podium-link="" target="_blank" rel="noopener noreferrer">`
     }
     return alreadyTargeted
-      ? `<a${rewrittenAttrs} data-podium-link-candidate="">`
-      : `<a${rewrittenAttrs} data-podium-link-candidate="" target="_blank" rel="noopener noreferrer">`
+      ? `<a${rewrittenAttrs}${candidateAttrs}>`
+      : `<a${rewrittenAttrs}${candidateAttrs} target="_blank" rel="noopener noreferrer">`
   })
 }
 
