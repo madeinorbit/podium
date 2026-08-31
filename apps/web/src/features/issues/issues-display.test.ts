@@ -1,10 +1,7 @@
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
+import { readSharedIssuesDisplay, writeSharedIssuesDisplay } from '@podium/client-core/viewmodels'
 import { asIssueId, asSessionId, type SessionMeta } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
-import {
-  readMobileTaskDisplay,
-  writeMobileTaskDisplay,
-} from '../../../../mobile/src/lib/task-display'
 import { makeIssue as issue } from '@/lib/test-issue'
 import {
   confirmedWorkingAgentCount,
@@ -74,8 +71,8 @@ describe('readIssuesDisplay', () => {
       showAgentTasks: false,
       badges: { labels: false, type: true, estimate: false, due: true, sessions: false },
     }
-    const mobile = readMobileTaskDisplay(writeIssuesDisplay(desktop))
-    const persisted = writeMobileTaskDisplay({
+    const mobile = readSharedIssuesDisplay(writeIssuesDisplay(desktop))
+    const persisted = writeSharedIssuesDisplay({
       ...mobile,
       ordering: 'updated',
       showAgentTasks: true,

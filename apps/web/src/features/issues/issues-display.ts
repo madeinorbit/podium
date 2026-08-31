@@ -2,7 +2,9 @@ import {
   confirmedWorkingAgentCount as coreConfirmedWorkingAgentCount,
   confirmedWorkingAgentCountsByIssue as coreConfirmedWorkingAgentCountsByIssue,
   orderIssues as coreOrderIssues,
+  readSharedIssuesDisplay,
   type IssuesOrdering,
+  writeSharedIssuesDisplay,
 } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
@@ -38,20 +40,11 @@ export const DEFAULT_DISPLAY: IssuesDisplay = {
 }
 
 const LAYOUTS = new Set<string>(['board', 'list'])
-const ORDERINGS = new Set<string>(['priority', 'updated', 'created'])
-
 /** Parse a persisted display-options blob, falling back field-by-field so a
  *  stale or hand-edited value never breaks the view. */
 export function readIssuesDisplay(raw: string | null): IssuesDisplay {
-  if (!raw) return DEFAULT_DISPLAY
-  let v: unknown
-  try {
-    v = JSON.parse(raw)
-  } catch {
-    return DEFAULT_DISPLAY
-  }
-  if (typeof v !== 'object' || v == null) return DEFAULT_DISPLAY
-  const o = v as Record<string, unknown>
+  const shared = readSharedIssuesDisplay(raw)
+  const o = shared.source
   const badges = (typeof o.badges === 'object' && o.badges != null ? o.badges : {}) as Record<
     string,
     unknown
@@ -60,12 +53,9 @@ export function readIssuesDisplay(raw: string | null): IssuesDisplay {
     typeof badges[k] === 'boolean' ? (badges[k] as boolean) : DEFAULT_DISPLAY.badges[k]
   return {
     layout: LAYOUTS.has(String(o.layout)) ? (o.layout as IssuesLayout) : DEFAULT_DISPLAY.layout,
-    ordering: ORDERINGS.has(String(o.ordering))
-      ? (o.ordering as IssuesOrdering)
-      : DEFAULT_DISPLAY.ordering,
+    ordering: shared.ordering,
     flatten: typeof o.flatten === 'boolean' ? o.flatten : DEFAULT_DISPLAY.flatten,
-    showAgentTasks:
-      typeof o.showAgentTasks === 'boolean' ? o.showAgentTasks : DEFAULT_DISPLAY.showAgentTasks,
+    showAgentTasks: shared.showAgentTasks,
     badges: {
       labels: badge('labels'),
       type: badge('type'),
@@ -77,7 +67,11 @@ export function readIssuesDisplay(raw: string | null): IssuesDisplay {
 }
 
 export function writeIssuesDisplay(d: IssuesDisplay): string {
-  return JSON.stringify(d)
+  return writeSharedIssuesDisplay({
+    ordering: d.ordering,
+    showAgentTasks: d.showAgentTasks,
+    source: { ...d },
+  })
 }
 
 // The board scope filter is platform-neutral and lives in client-core so the

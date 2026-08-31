@@ -7,6 +7,7 @@ import {
   launchPlanCanSubmit,
   normalizeLaunchConfiguration,
   selectLaunchAgent,
+  selectInheritedLaunchAgent,
   selectLaunchMachine,
 } from './launch-configuration'
 
@@ -121,6 +122,15 @@ describe('normalizeLaunchConfiguration', () => {
       machineId: 'host-b',
       modelPick: AUTO,
       effort: AUTO,
+    })
+  })
+
+  it('omits the agent override while the configured coding role remains inherited', () => {
+    const inherited = selectInheritedLaunchAgent(selected)
+    expect(inherited).toMatchObject({ inheritAgent: true, modelPick: AUTO, effort: AUTO })
+    expect(launchConfigurationPatch(inherited)).not.toHaveProperty('defaultAgent')
+    expect(launchConfigurationPatch(selectLaunchAgent(inherited, 'codex'))).toMatchObject({
+      defaultAgent: 'codex',
     })
   })
 })

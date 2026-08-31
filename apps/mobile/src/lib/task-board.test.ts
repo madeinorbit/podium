@@ -300,6 +300,29 @@ describe('taskBoardSections', () => {
       )
     }
   })
+
+  it('keeps root context when only a decomposition child matches', () => {
+    const parent = issue({
+      id: 'parent',
+      title: 'Release readiness',
+      stage: 'in_progress',
+      childCount: 1,
+    })
+    const child = issue({
+      id: 'child',
+      parentId: 'parent',
+      title: 'Needle-only decomposition',
+      stage: 'planning',
+      seq: 2,
+    })
+
+    const rows = taskBoardSections([parent, child], {
+      showDone: false,
+      filter: { text: 'Needle-only' },
+    })
+    expect(rowIds(rows)).toEqual(['parent'])
+    expect(rows[0]?.rows[0]).toMatchObject({ depth: 0, issue: { id: 'parent' } })
+  })
 })
 
 describe('taskBoardOrder / taskNeighbours', () => {

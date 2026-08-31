@@ -105,21 +105,35 @@ export function taskBoardSections(
   },
 ): TaskBoardSection[] {
   const expanded = opts.expanded ?? EMPTY_EXPANDED
-  // "Show done" filters the population so a revealed done child cannot bypass
-  // the phone's fold merely because children render in their parent's section.
-  const scoped = filterBoardIssues(
-    filterBoardScope(issues, opts.showAgentTasks ?? false).filter(
-      (issue) => opts.showDone || issue.stage !== 'done',
-    ),
-    opts.filter ?? {},
+  const boardScope = filterBoardScope(issues, opts.showAgentTasks ?? false).filter(
+    (issue) => opts.showDone || issue.stage !== 'done',
   )
+  const matches = filterBoardIssues(boardScope, opts.filter ?? {})
+  const matchedIds = new Set(matches.map((issue) => issue.id))
+  // Filtering a tree as a flat array promotes an isolated matching child to a
+  // root. Retain its ancestor chain so the root-only phone board keeps the work
+  // context; decomposition children remain reachable on that root's detail.
+  const retainedIds = new Set(matchedIds)
+  const byId = new Map(boardScope.map((issue) => [issue.id, issue]))
+  for (const match of matches) {
+    const seen = new Set<string>([match.id])
+    let parentId = match.parentId
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId)
+      const parent = byId.get(parentId)
+      if (!parent) break
+      retainedIds.add(parent.id)
+      parentId = parent.parentId
+    }
+  }
+  const scoped = boardScope.filter((issue) => retainedIds.has(issue.id))
   const ordering = opts.ordering ?? TASK_BOARD_ORDERING
   const groups = issueRowsByStage(scoped, ordering, {
     flatten: false,
     expanded,
   })
   const byStage = new Map(groups.map((g) => [g.stage, [...g.rows]]))
-  promoteScreenableProposals(scoped, byStage, expanded, ordering)
+  promoteScreenableProposals(scoped, byStage, expanded, ordering, matchedIds)
   return TASK_STAGE_ORDER.map((stage) => ({
     stage,
     title: STAGE_LABEL[stage],
@@ -150,10 +164,13 @@ function promoteScreenableProposals(
   byStage: Map<IssueBoardStage, IssueRow<IssueWire>[]>,
   expanded: ReadonlySet<string>,
   ordering: IssuesOrdering,
+  matchedIds: ReadonlySet<string>,
 ): void {
   const listed = new Set([...byStage.values()].flatMap((rows) => rows.map((row) => row.issue.id)))
   const { childrenByParent } = partitionIssueTree(scoped)
-  const extras = buildScreeningQueue(scoped).filter((issue) => !listed.has(issue.id))
+  const extras = buildScreeningQueue(scoped).filter(
+    (issue) => matchedIds.has(issue.id) && !listed.has(issue.id),
+  )
   if (extras.length === 0) return
 
   const emit = (issue: IssueWire, depth: number, out: IssueRow<IssueWire>[]): void => {

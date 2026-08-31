@@ -22,6 +22,7 @@ import {
   type LaunchPlan,
   normalizeLaunchConfiguration,
   selectLaunchAgent,
+  selectInheritedLaunchAgent,
   selectLaunchMachine,
   selectLaunchModel,
 } from '../lib/launch-configuration'
@@ -38,11 +39,13 @@ export function LaunchConfigurationFields({
   value,
   onChange,
   onPlan,
+  allowInheritedAgent = false,
 }: {
   repoPath: string
   value: LaunchConfiguration
   onChange: (value: LaunchConfiguration) => void
   onPlan?: (plan: LaunchPlan) => void
+  allowInheritedAgent?: boolean
 }) {
   const store = useMobileStore()
   const [fallback, setFallback] = useState<Picker>(null)
@@ -96,10 +99,13 @@ export function LaunchConfigurationFields({
           { value: value.machineId, label: 'Unavailable machine', disabled: true },
         ]
       : machineOptions
-  const agentOptions: NativePickerOption[] = ISSUE_AGENT_KINDS.map((kind) => ({
-    value: kind,
-    label: ISSUE_AGENT_LABELS[kind],
-  }))
+  const agentOptions: NativePickerOption[] = [
+    ...(allowInheritedAgent ? [{ value: '', label: 'Auto' }] : []),
+    ...ISSUE_AGENT_KINDS.map((kind) => ({
+      value: kind,
+      label: ISSUE_AGENT_LABELS[kind],
+    })),
+  ]
   const modelOptions = useMemo<NativePickerOption[]>(() => {
     const group = ISSUE_AGENT_LABELS[effective.agentKind]
     return allConnectorModelOptions(catalog)
@@ -124,10 +130,14 @@ export function LaunchConfigurationFields({
     {
       key: 'agent',
       label: 'Agent',
-      selected: effective.agentKind,
+      selected: effective.inheritAgent ? '' : effective.agentKind,
       options: agentOptions,
-      valueLabel: ISSUE_AGENT_LABELS[effective.agentKind],
+      valueLabel: effective.inheritAgent ? 'Auto' : ISSUE_AGENT_LABELS[effective.agentKind],
       select: (selected) => {
+        if (!selected && allowInheritedAgent) {
+          onChange(selectInheritedLaunchAgent(value))
+          return
+        }
         const agentKind = issueAgentKind(selected)
         if (agentKind) onChange(selectLaunchAgent(value, agentKind))
       },

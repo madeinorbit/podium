@@ -52,4 +52,43 @@ describe('newTaskInput', () => {
     expect(input).not.toHaveProperty('defaultEffort')
     expect(input).not.toHaveProperty('machineId')
   })
+
+  it('keeps the configured coding role authoritative when Agent stays Auto', () => {
+    const input = newTaskInput({
+      repoPath: '/repo',
+      title: 'Use configured role',
+      prompt: 'Start with the configured coding agent',
+      type: 'task',
+      priority: 2,
+      startNow: true,
+      launch: { ...launch, defaultAgent: undefined },
+    })
+    expect(input).not.toHaveProperty('defaultAgent')
+    expect(input).toMatchObject({
+      defaultModel: 'gpt-5.6-sol',
+      defaultEffort: 'high',
+      machineId: asMachineId('phone-host'),
+    })
+  })
+
+  it('omits every untouched Auto execution override', () => {
+    const input = newTaskInput({
+      repoPath: '/repo',
+      title: 'All configured defaults',
+      prompt: '',
+      type: 'task',
+      priority: 2,
+      startNow: true,
+      launch: {
+        defaultAgent: undefined,
+        defaultModel: 'auto',
+        defaultEffort: 'auto',
+        machineId: null,
+      },
+    })
+    expect(input).not.toHaveProperty('defaultAgent')
+    expect(input).not.toHaveProperty('defaultModel')
+    expect(input).not.toHaveProperty('defaultEffort')
+    expect(input).not.toHaveProperty('machineId')
+  })
 })

@@ -1,4 +1,9 @@
-import { ISSUE_STAGE_LABELS, reposToViews, repoUsageAt } from '@podium/client-core/viewmodels'
+import {
+  codingRoleHarness,
+  ISSUE_STAGE_LABELS,
+  reposToViews,
+  repoUsageAt,
+} from '@podium/client-core/viewmodels'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
@@ -15,12 +20,13 @@ import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
-import { AUTO } from '../lib/agent-models'
+import { AUTO, issueAgentKind } from '../lib/agent-models'
 import { newTaskInput } from '../lib/new-task'
 import { color, font, radius, sans, space } from '../theme/theme'
 
 const PRIORITIES = [0, 1, 2, 3, 4]
 const DEFAULT_LAUNCH: LaunchConfiguration = {
+  inheritAgent: true,
   agentKind: 'claude-code',
   modelPick: AUTO,
   effort: AUTO,
@@ -64,6 +70,24 @@ export function NewIssueScreen() {
       .then(setFallbackRepos)
       .catch(() => setFallbackRepos([]))
   }, [store.repos.length, store.trpc])
+
+  useEffect(() => {
+    let cancelled = false
+    store.trpc.settings.get
+      .query()
+      .then((settings) => {
+        if (cancelled) return
+        const configured = issueAgentKind(codingRoleHarness(settings))
+        if (!configured) return
+        setLaunch((current) =>
+          current.inheritAgent ? { ...current, agentKind: configured } : current,
+        )
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [store.trpc])
 
   useEffect(() => {
     if (!repoPath || !repos.includes(repoPath)) setRepoPath(repos[0] ?? '')
@@ -194,6 +218,7 @@ export function NewIssueScreen() {
             <LaunchConfigurationFields
               repoPath={repoPath}
               value={launch}
+              allowInheritedAgent
               onChange={(next) => {
                 setLaunchPlan(null)
                 setLaunch(next)

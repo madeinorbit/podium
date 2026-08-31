@@ -1,4 +1,5 @@
 import type { IssueType, MachineId } from '@podium/model'
+import { AUTO } from './agent-models'
 
 export interface NewTaskInput {
   repoPath: string
@@ -22,7 +23,7 @@ export function newTaskInput(args: {
   priority: number
   startNow: boolean
   launch: {
-    defaultAgent: string
+    defaultAgent?: string
     defaultModel: string
     defaultEffort: string
     machineId: MachineId | null
@@ -38,9 +39,11 @@ export function newTaskInput(args: {
     startNow: args.startNow,
     ...(args.startNow
       ? {
-          defaultAgent: args.launch.defaultAgent,
-          defaultModel: args.launch.defaultModel,
-          defaultEffort: args.launch.defaultEffort,
+          ...(args.launch.defaultAgent ? { defaultAgent: args.launch.defaultAgent } : {}),
+          ...(args.launch.defaultModel !== AUTO ? { defaultModel: args.launch.defaultModel } : {}),
+          ...(args.launch.defaultEffort !== AUTO
+            ? { defaultEffort: args.launch.defaultEffort }
+            : {}),
           ...(args.launch.machineId ? { machineId: args.launch.machineId } : {}),
         }
       : {}),

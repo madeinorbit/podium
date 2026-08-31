@@ -10,6 +10,8 @@ import {
 } from './agent-models'
 
 export interface LaunchConfiguration {
+  /** False/absent pins agentKind; true leaves the configured coding role authoritative. */
+  inheritAgent?: boolean
   agentKind: IssueAgentKind
   modelPick: string
   effort: string
@@ -53,7 +55,11 @@ export function selectLaunchAgent(
   value: LaunchConfiguration,
   agentKind: IssueAgentKind,
 ): LaunchConfiguration {
-  return { ...value, agentKind, modelPick: AUTO, effort: AUTO }
+  return { ...value, inheritAgent: false, agentKind, modelPick: AUTO, effort: AUTO }
+}
+
+export function selectInheritedLaunchAgent(value: LaunchConfiguration): LaunchConfiguration {
+  return { ...value, inheritAgent: true, modelPick: AUTO, effort: AUTO }
 }
 
 export function selectLaunchModel(
@@ -73,6 +79,7 @@ export function selectLaunchMachine(
 export function launchConfigurationForIssue(issue: IssueWire): LaunchConfiguration {
   const agentKind = issueAgentKind(issue.defaultAgent) ?? 'claude-code'
   return {
+    inheritAgent: false,
     agentKind,
     modelPick:
       issue.defaultModel && issue.defaultModel !== AUTO
@@ -122,14 +129,14 @@ export function normalizeLaunchConfiguration(
 }
 
 export function launchConfigurationPatch(configuration: LaunchConfiguration): {
-  defaultAgent: string
+  defaultAgent?: string
   defaultModel: string
   defaultEffort: string
   machineId: MachineId | null
 } {
   const decoded = decodeModelPick(configuration.modelPick)
   return {
-    defaultAgent: configuration.agentKind,
+    ...(!configuration.inheritAgent ? { defaultAgent: configuration.agentKind } : {}),
     defaultModel: decoded.model === AUTO ? AUTO : decoded.model,
     defaultEffort: configuration.effort || AUTO,
     machineId: configuration.machineId ? (configuration.machineId as MachineId) : null,

@@ -4,7 +4,9 @@ import {
   confirmedWorkingAgentCountsByIssue,
   filterChips,
   type IssueRow,
+  readSharedIssuesDisplay as readMobileTaskDisplay,
   taskStateWord,
+  writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/viewmodels'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
@@ -44,7 +46,6 @@ import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { stageFoldKey } from '../lib/fold-keys'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { buildScreeningQueue } from '../lib/screening'
-import { readMobileTaskDisplay, writeMobileTaskDisplay } from '../lib/task-display'
 import { taskBoardSections } from '../lib/task-board'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
