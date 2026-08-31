@@ -24,6 +24,7 @@ import { createLogger } from '@podium/logger'
 import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import {
+  mintReleaseTimingRunId,
   type ReleaseBuildTimingDeps,
   timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
@@ -237,17 +238,37 @@ export function wireDevBundlePublisher(deps: {
   const artifactOrigin = deps.artifactOrigin
   const instanceId = deps.instanceId ?? 'default'
   const publisherStateDirectory = deps.publisherStateDir ?? stateDir()
-  const releaseTiming =
+  const releaseTimingBase =
     sourceRoot && deps.releaseTiming !== false
       ? (deps.releaseTiming ?? {
           enabled: true,
           // Beside the ledger, not in the checkout. Each release's lines land in a
-          // `<version>.jsonl` here and are moved into `builds/<buildId>/timing.jsonl`
+          // `<runId>.jsonl` here and are moved into `builds/<buildId>/timing.jsonl`
           // after publication finishes, so how long a release took ends up
           // next to what it produced instead of in a directory a clean wipes.
           outputDirectory: releaseTimingStagingDir(publisherStateDirectory),
         })
       : undefined
+  /**
+   * THE RUN THE SINK IS KEYED BY, and why it is read late.
+   *
+   * The publisher and its build processes are wired once, but a run id belongs to an
+   * ATTEMPT: it is minted below, at the approval boundary where the envelope span opens.
+   * A getter lets everything wired here — including `buildDevBundle`'s inherited env —
+   * read the attempt that is actually running rather than the one wiring saw (none).
+   */
+  let currentTimingRunId: string | undefined
+  const releaseTiming: ReleaseBuildTimingDeps | undefined = releaseTimingBase
+    ? {
+        ...releaseTimingBase,
+        get context() {
+          return {
+            ...releaseTimingBase.context,
+            ...(currentTimingRunId ? { runId: currentTimingRunId } : {}),
+          }
+        },
+      }
+    : undefined
   /**
    * ONE HEAD READER for everything below, and the reason it is here.
    *
@@ -319,10 +340,15 @@ export function wireDevBundlePublisher(deps: {
    * boundary has stopped emitting. Moving it inside the bundle build strands every
    * later snapshot, publication, and outer approval record in a recreated staging file.
    */
-  const finalizeReleaseTiming = (version: string): void => {
+  const finalizeReleaseTiming = (version: string, runId: string | undefined): void => {
     const candidate = publisher?.current()
     if (!releaseTiming || !candidate || candidate.version !== version) return
-    finalizeTimingIntoRecord(releaseTiming, publisherStateDirectory, candidate.buildId, version)
+    finalizeTimingIntoRecord(
+      releaseTiming,
+      publisherStateDirectory,
+      candidate.buildId,
+      runId ?? version,
+    )
   }
 
   let unavailableDiagnostic: string | undefined
@@ -517,6 +543,10 @@ export function wireDevBundlePublisher(deps: {
   const approval = createReleaseApprovalFlow({
     proposal: async () => publisher?.proposal(),
     release: async (approved) => {
+      // One id for this attempt, minted before the first line is emitted. Two approvals
+      // of the same version are two runs and must not share a staging file.
+      const runId = mintReleaseTimingRunId()
+      currentTimingRunId = runId
       try {
         await timeReleaseBuildTask(
           {
@@ -553,7 +583,8 @@ export function wireDevBundlePublisher(deps: {
       } finally {
         // `timeReleaseBuildTask` emits its outer phase only as it returns. Finalizing
         // inside its callback would still strand that total in a new staging tail.
-        finalizeReleaseTiming(approved.version)
+        finalizeReleaseTiming(approved.version, runId)
+        currentTimingRunId = undefined
       }
     },
     failureLogs: (error) =>
@@ -618,6 +649,11 @@ export function wireDevBundlePublisher(deps: {
       headSha?.invalidate()
       // `preparing` is published by the publisher's `onAdmitted` above, not
       // from here: this call returns before admission has been decided.
+      //
+      // This legacy entry point opens no approval envelope, so it mints the run id
+      // itself: its lines are still ONE attempt and must not merge with another's.
+      const runId = mintReleaseTimingRunId()
+      currentTimingRunId = runId
       return publisher.requestBuild(true).then(
         async (built) => {
           try {
@@ -630,10 +666,12 @@ export function wireDevBundlePublisher(deps: {
             await publishToFeed()
             return built
           } finally {
-            if (built) finalizeReleaseTiming(built.version)
+            if (built) finalizeReleaseTiming(built.version, runId)
+            currentTimingRunId = undefined
           }
         },
         async (error: unknown) => {
+          currentTimingRunId = undefined
           await observeBundleReadiness()
           // The failure must reach the read model, or a stale target stays
           // published while the only trace of the problem is this log line.

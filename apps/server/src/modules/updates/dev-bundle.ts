@@ -1333,20 +1333,21 @@ async function readExistingDevBundle(
 /**
  * Move this release's staged timing lines into its record.
  *
- * The sink is keyed by version because it is opened before there is a build id to key
- * it by — it times the steps that mint one. This is where the two are joined.
+ * The sink is keyed by the run id because it is opened before there is a build id to key
+ * it by — it times the steps that mint one — and because two attempts at one version must
+ * not share a file. This is where the run and the build it produced are joined.
  */
 export function finalizeTimingIntoRecord(
   timing: ReleaseBuildTimingDeps | undefined,
   stateDirectory: string,
   buildId: string,
-  version: string,
+  identity: string,
 ): void {
   const staging = timing?.outputDirectory
   if (!staging) return
   try {
     renameSync(
-      join(staging, releaseBuildTimingFileName(version)),
+      join(staging, releaseBuildTimingFileName(identity)),
       buildTimingPath(stateDirectory, buildId),
     )
   } catch {
@@ -1414,6 +1415,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
       channel: 'dev',
       version,
       sourceSha: sha,
+      ...(deps.timing?.context?.runId ? { runId: deps.timing.context.runId } : {}),
     })
 
     const platforms = devBuildPlatforms(deps.platforms)

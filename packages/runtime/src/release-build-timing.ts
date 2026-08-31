@@ -6,6 +6,11 @@ export const RELEASE_BUILD_TIMING_ENABLED_ENV = 'PODIUM_RELEASE_BUILD_TIMING'
 export const RELEASE_BUILD_TIMING_DIR_ENV = 'PODIUM_RELEASE_TIMING_DIR'
 export const RELEASE_BUILD_TIMING_VERSION_ENV = 'PODIUM_RELEASE_TIMING_VERSION'
 export const RELEASE_BUILD_TIMING_SHA_ENV = 'PODIUM_RELEASE_TIMING_SHA'
+/**
+ * Identifies ONE release attempt. Two attempts at the same version are two runs, so
+ * the staging sink is keyed by this rather than by the version they share.
+ */
+export const RELEASE_BUILD_TIMING_RUN_ENV = 'PODIUM_RELEASE_TIMING_RUN'
 
 export interface ReleaseBuildTimingRecord {
   evidence: typeof RELEASE_BUILD_TIMING_EVIDENCE
@@ -15,6 +20,8 @@ export interface ReleaseBuildTimingRecord {
   outcome: 'success' | 'failure'
   durationMs: number
   channel?: string
+  /** The attempt this line belongs to. Version and sha stay beside it. */
+  runId?: string
   version?: string
   sourceSha?: string
   target?: string
@@ -33,7 +40,7 @@ export interface ReleaseBuildTimingDeps {
   now?: () => number
   /** Durable evidence directory. No file is written when this and the env seam are absent. */
   outputDirectory?: string
-  context?: Partial<Pick<ReleaseBuildTimingRecord, 'channel' | 'version' | 'sourceSha'>>
+  context?: Partial<Pick<ReleaseBuildTimingRecord, 'channel' | 'version' | 'sourceSha' | 'runId'>>
   env?: NodeJS.ProcessEnv
   log?: (line: string) => void
 }
@@ -53,9 +60,12 @@ export function releaseBuildTimingEnabled(deps: ReleaseBuildTimingDeps = {}): bo
 
 function environmentContext(
   env: NodeJS.ProcessEnv,
-): Partial<Pick<ReleaseBuildTimingRecord, 'channel' | 'version' | 'sourceSha' | 'target'>> {
+): Partial<
+  Pick<ReleaseBuildTimingRecord, 'channel' | 'version' | 'sourceSha' | 'target' | 'runId'>
+> {
   return {
     ...(env.PODIUM_RELEASE_CHANNEL ? { channel: env.PODIUM_RELEASE_CHANNEL } : {}),
+    ...(env[RELEASE_BUILD_TIMING_RUN_ENV] ? { runId: env[RELEASE_BUILD_TIMING_RUN_ENV] } : {}),
     ...(env[RELEASE_BUILD_TIMING_VERSION_ENV]
       ? { version: env[RELEASE_BUILD_TIMING_VERSION_ENV] }
       : {}),
@@ -78,7 +88,7 @@ export function emitReleaseBuildTiming(
   const root = deps.outputDirectory ?? env[RELEASE_BUILD_TIMING_DIR_ENV]
   if (!root) return
   mkdirSync(root, { recursive: true })
-  const identity = record.version ?? record.sourceSha ?? 'development-release'
+  const identity = record.runId ?? record.version ?? record.sourceSha ?? 'development-release'
   appendFileSync(join(root, releaseBuildTimingFileName(identity)), `${JSON.stringify(record)}\n`)
 }
 
@@ -184,10 +194,29 @@ export function timeReleaseBuildTask<T>(
   )
 }
 
+/**
+ * Name one release attempt.
+ *
+ * Minted at the approval boundary, before there is a build id, so every line an
+ * attempt emits — including the ones that precede the mint of `buildId` — shares a
+ * key no second attempt at the same version can collide with.
+ */
+export function mintReleaseTimingRunId(
+  deps: { now?: () => number; random?: () => number } = {},
+): string {
+  const stamp = new Date((deps.now ?? Date.now)())
+    .toISOString()
+    .replace(/[^0-9]/g, '')
+    .slice(0, 14)
+  const suffix = (deps.random ?? Math.random)().toString(36).slice(2, 8).padEnd(6, '0')
+  return `${stamp}Z-${suffix}`
+}
+
 /** Environment inherited by the approved checkout's build processes. */
 export function releaseBuildTimingEnvironment(
   deps: ReleaseBuildTimingDeps,
-  context: Pick<ReleaseBuildTimingRecord, 'channel' | 'version' | 'sourceSha'>,
+  context: Pick<ReleaseBuildTimingRecord, 'channel' | 'version' | 'sourceSha'> &
+    Partial<Pick<ReleaseBuildTimingRecord, 'runId'>>,
 ): NodeJS.ProcessEnv {
   if (!releaseBuildTimingEnabled(deps)) return {}
   return {
@@ -196,5 +225,6 @@ export function releaseBuildTimingEnvironment(
     PODIUM_RELEASE_CHANNEL: context.channel,
     [RELEASE_BUILD_TIMING_VERSION_ENV]: context.version,
     [RELEASE_BUILD_TIMING_SHA_ENV]: context.sourceSha,
+    ...(context.runId ? { [RELEASE_BUILD_TIMING_RUN_ENV]: context.runId } : {}),
   }
 }
