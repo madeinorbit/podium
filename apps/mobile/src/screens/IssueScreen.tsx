@@ -38,6 +38,7 @@ import { ErrorNote } from '../components/task-detail/chrome'
 import { IssueActivitySection, MailSection } from '../components/task-detail/IssueActivity'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
 import { IssueBanners } from '../components/task-detail/IssueBanners'
+import { GitReviewSection } from '../components/task-detail/GitReviewSection'
 import {
   IssueBrief,
   IssueDescription,
@@ -362,6 +363,12 @@ function IssueContent({
           <IssueBrief issue={issue} />
           <LongFormFields issue={issue} busy={busy} commands={commands} />
           <IssueAgentPanel issue={issue} />
+          {issue.worktreePath ? (
+            <GitReviewSection
+              root={issue.worktreePath}
+              {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
+            />
+          ) : null}
           <IssueSubIssues
             issue={issue}
             subIssues={children}

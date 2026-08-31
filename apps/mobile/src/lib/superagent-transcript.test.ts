@@ -38,6 +38,26 @@ describe('dropEchoedTurns', () => {
     )
   })
 
+  it('matches attachment turns by uploaded paths after the transcript lifts them out of text', () => {
+    const pending = [
+      {
+        id: 'p1',
+        text: 'review this',
+        files: [{ path: '/uploads/shot.png' }],
+      },
+    ]
+    expect(
+      dropEchoedTurns(pending, [
+        item({
+          id: 't1',
+          role: 'user',
+          text: 'review this',
+          toolPaths: ['/uploads/shot.png'],
+        }),
+      ]),
+    ).toEqual([])
+  })
+
   it('keeps a turn the transcript has not echoed, and ignores assistant echoes', () => {
     const pending = [{ id: 'p1', text: 'ship it' }]
     expect(

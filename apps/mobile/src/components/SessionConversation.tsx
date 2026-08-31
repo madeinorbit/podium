@@ -160,6 +160,10 @@ export function SessionConversation({
         readQueue: () => trpc.messages.ledger.query({ sessionId, limit: 100 }),
         retract: (id) => trpc.messages.cancel.mutate({ id }).then(() => {}),
         dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
+        // The store's recoverable outbox owns the optimistic overlay. Keeping a
+        // second local hide here unmounted the action card before a rejected
+        // enqueue could put its retryable error beside the dismissal control.
+        optimisticDismissOffer: false,
         interrupt: (messageId) => interruptSession(trpc.sessions, sessionId, messageId),
         optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
       }),

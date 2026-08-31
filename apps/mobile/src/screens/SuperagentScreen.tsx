@@ -1,5 +1,6 @@
 import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
+  buildImagePrompt,
   mergeTranscriptItems,
   prependTranscriptItems,
   superagentSlice,
@@ -30,6 +31,10 @@ import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
+import {
+  type SentAttachment,
+  useComposerAttachments,
+} from '../components/useComposerAttachments'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { humanizeSendFailure } from '../lib/send-failure'
@@ -61,6 +66,8 @@ import { color, font, sans, space } from '../theme/theme'
  *    sit under the well, same contract as the desktop prompt-box rail.
  */
 const THREAD_ID = asThreadId('global')
+
+type LocalPendingTurn = PendingTurn & { wire: string }
 
 export function SuperagentScreen() {
   // Narrow subscriptions: everything this screen reads off the store is
@@ -122,7 +129,8 @@ export function SuperagentScreen() {
     () => resolveSuperagentBackend(superagent.active, backendPick),
     [superagent.active, backendPick],
   )
-  const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
+  const [pendingTurns, setPendingTurns] = useState<LocalPendingTurn[]>([])
+  const attachments = useComposerAttachments(podiumSid)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
   // Each send re-pins the feed to its tail so the just-written turn is on
@@ -138,6 +146,26 @@ export function SuperagentScreen() {
     hasMore: false,
     loading: false,
   })
+
+  // Mint the invisible, PTY-less headless session before the first prompt so
+  // Photos and Files have the same upload target on an empty Superagent thread
+  // that they have after the first turn. `ensureSession` is idempotent and does
+  // not invoke a harness.
+  useEffect(() => {
+    if (!superagent.active || podiumSid) return
+    let cancelled = false
+    void trpc.superagent.ensureSession
+      .mutate({ threadId: THREAD_ID })
+      .then((result) => {
+        if (!cancelled && result.podiumSessionId) setAckedSid(result.podiumSessionId)
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [podiumSid, superagent.active, trpc.superagent.ensureSession])
 
   const cancelLiveTextFrame = useCallback(() => {
     // A callback can already be dequeued when cancellation runs. Invalidate its
@@ -296,7 +324,7 @@ export function SuperagentScreen() {
           // dropEchoedTurns to match. Without this the row says "sending…" for
           // ever. The writer lock is released at turn-end and the server refuses
           // a second concurrent turn, so anything still pending is this turn's.
-          setPendingTurns((prev) => markTurnsFailed(prev, reason) as PendingTurn[])
+          setPendingTurns((prev) => [...markTurnsFailed(prev, reason)])
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
         }
       } else if (event.kind === 'status') {
@@ -331,7 +359,7 @@ export function SuperagentScreen() {
   // Drop an optimistic turn once the transcript carries it.
   useEffect(() => {
     if (pendingTurns.length === 0) return
-    setPendingTurns((prev) => dropEchoedTurns(prev, settled) as PendingTurn[])
+    setPendingTurns((prev) => [...dropEchoedTurns(prev, settled)])
   }, [settled, pendingTurns.length])
 
   // Once the transcript has echoed the optimistic row, transport is complete.
@@ -346,11 +374,11 @@ export function SuperagentScreen() {
   // (POD-346) — the old path only set a banner, which reads as "nothing
   // happened" when the reason is a stuck turn or an offline server.
   const dispatch = useCallback(
-    (id: string, text: string) => {
+    (id: string, wire: string) => {
       setJustSent(true)
       setPinRequest((count) => count + 1)
       void trpc.superagent.sendTurn
-        .mutate({ threadId: THREAD_ID, text, ...superagentTurnChoice(backend) })
+        .mutate({ threadId: THREAD_ID, text: wire, ...superagentTurnChoice(backend) })
         .then((ack) => {
           if (ack?.podiumSessionId) setAckedSid(ack.podiumSessionId)
           void refreshSuperThreads().catch(() => {})
@@ -369,27 +397,46 @@ export function SuperagentScreen() {
   )
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, files?: readonly SentAttachment[]) => {
       const trimmed = text.trim()
-      if (!trimmed) return
+      const attached = files ?? []
+      if (!trimmed && attached.length === 0) return
       setError(null)
       // Counter, not text length: two identical messages inside one millisecond
       // would share an id, and `failed`/retry address a row BY id.
       const id = `${Date.now()}:${turnSeq.current++}`
-      setPendingTurns((prev) => [...prev, { id, text: trimmed }])
-      dispatch(id, trimmed)
+      const wire = buildImagePrompt(
+        attached.map((file) => file.path),
+        trimmed,
+      )
+      setPendingTurns((prev) => [
+        ...prev,
+        {
+          id,
+          text: trimmed,
+          wire,
+          ...(attached.length > 0 ? { files: attached } : {}),
+        },
+      ])
+      dispatch(id, wire)
     },
     [dispatch],
   )
 
   const retry = useCallback(
     (turn: PendingTurn) => {
+      const local = pendingTurns.find((candidate) => candidate.id === turn.id)
+      if (!local) return
       setPendingTurns((prev) =>
-        prev.map((t) => (t.id === turn.id ? { id: t.id, text: t.text } : t)),
+        prev.map((t) => {
+          if (t.id !== turn.id) return t
+          const { failed: _failed, ...retrying } = t
+          return retrying
+        }),
       )
-      dispatch(turn.id, turn.text)
+      dispatch(local.id, local.wire)
     },
-    [dispatch],
+    [dispatch, pendingTurns],
   )
 
   const interrupt = useCallback(async () => {
@@ -530,6 +577,7 @@ export function SuperagentScreen() {
             placeholder="Delegate a task…"
             onSend={send}
             draftInsertion={draftInsertion}
+            attachments={podiumSid ? attachments : undefined}
             bottomInset={tabBarInset}
             leading={
               <SuperagentBackendRail

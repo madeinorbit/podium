@@ -1,4 +1,8 @@
 import * as Clipboard from 'expo-clipboard'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system/legacy'
+import * as ImagePicker from 'expo-image-picker'
+import { ActionSheetIOS, Platform } from 'react-native'
 
 /**
  * WHERE MEDIA COMES FROM, PER PLATFORM.
@@ -28,12 +32,87 @@ export interface PickedFile {
   size?: number
 }
 
-/** A browser can open a file dialog. A native runtime, without a picker module
- *  linked in, cannot — and offering a paperclip that does nothing is worse than
- *  not offering one. */
-export const canPickFiles = false
+/** Native intake is a two-step system choice rather than a web-shaped file
+ * dialog. The paperclip first asks for Photos or Files, then hands control to
+ * the corresponding iOS picker. */
+export const canPickFiles = true
+
+async function readUri(
+  uri: string,
+  name: string,
+  mimeType: string | null | undefined,
+  size?: number,
+): Promise<PickedFile> {
+  const type = mimeType || 'application/octet-stream'
+  return {
+    name,
+    mimeType: type,
+    dataBase64: await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    }),
+    previewUri: type.startsWith('image/') ? uri : '',
+    ...(size === undefined ? {} : { size }),
+  }
+}
+
+async function pickPhotos(): Promise<PickedFile[]> {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsMultipleSelection: true,
+    selectionLimit: 10,
+    quality: 0.85,
+  })
+  if (result.canceled) return []
+  return Promise.all(
+    result.assets.map(async (asset, index) => {
+      const mimeType = asset.mimeType || 'image/jpeg'
+      const dataBase64 = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      })
+      return {
+        name: asset.fileName || `photo-${index + 1}.${mimeType === 'image/png' ? 'png' : 'jpg'}`,
+        mimeType,
+        dataBase64,
+        previewUri: asset.uri,
+        ...(asset.fileSize === undefined ? {} : { size: asset.fileSize }),
+      }
+    }),
+  )
+}
+
+async function pickDocuments(): Promise<PickedFile[]> {
+  const result = await DocumentPicker.getDocumentAsync({
+    type: '*/*',
+    multiple: true,
+    copyToCacheDirectory: true,
+  })
+  if (result.canceled) return []
+  return Promise.all(
+    result.assets.map((asset) =>
+      readUri(asset.uri, asset.name, asset.mimeType, asset.size),
+    ),
+  )
+}
+
+function chooseIosSource(): Promise<'photos' | 'files' | null> {
+  return new Promise((resolve) => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: 'Attach',
+        options: ['Photos', 'Files', 'Cancel'],
+        cancelButtonIndex: 2,
+      },
+      (index) => resolve(index === 0 ? 'photos' : index === 1 ? 'files' : null),
+    )
+  })
+}
 
 export async function pickFiles(): Promise<PickedFile[]> {
+  // The first supported native release is iPhone-only. Files remains a useful
+  // fallback if this module is exercised by another native runtime.
+  const source = Platform.OS === 'ios' ? await chooseIosSource() : 'files'
+  if (source === 'photos') return pickPhotos()
+  if (source === 'files') return pickDocuments()
   return []
 }
 

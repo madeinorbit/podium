@@ -12,6 +12,11 @@ import { PressableScale } from './PressableScale'
 export const composeOfferPrompt = (prompt: string, feedback: string): string =>
   `${prompt}\n\n${feedback.trim()}`
 
+function errorText(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message.trim() : String(error).trim()
+  return (message || fallback).replace(/[.!?]+$/, '')
+}
+
 /**
  * A session-owned offer, kept in the transcript flow. This is deliberately a
  * compact action block rather than a Tray card or persistent bottom accessory:
@@ -63,19 +68,19 @@ export function SessionActionCard({
   const [feedback, setFeedback] = useState('')
   const [sending, setSending] = useState(false)
   const [dismissing, setDismissing] = useState(false)
-  const [failed, setFailed] = useState(false)
-  const [dismissFailed, setDismissFailed] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [dismissFailed, setDismissFailed] = useState<string | null>(null)
   const [headline, ...rest] = offer.message.split('\n')
   const body = rest.join('\n').trim()
   const pending = inputAction === null ? undefined : offer.actions[inputAction]
 
   const send = async (prompt: string) => {
     setSending(true)
-    setFailed(false)
+    setFailed(null)
     try {
       await onAction(prompt)
-    } catch {
-      setFailed(true)
+    } catch (error) {
+      setFailed(errorText(error, 'The action did not reach the agent'))
     } finally {
       setSending(false)
     }
@@ -84,14 +89,14 @@ export function SessionActionCard({
   const dismiss = async () => {
     if (!onDismiss || dismissing || sending) return
     setDismissing(true)
-    setDismissFailed(false)
+    setDismissFailed(null)
     try {
       await onDismiss(offer.createdAt)
-    } catch {
+    } catch (error) {
       // Only on the failure path does the flag come back down: a dismissal that
       // WORKED unmounts this card with the cleared session, and releasing it on
       // the way out would flash the control live again first.
-      setDismissFailed(true)
+      setDismissFailed(errorText(error, 'The offer is still active'))
       setDismissing(false)
     }
   }
@@ -165,8 +170,10 @@ export function SessionActionCard({
       {/* Failures get their own line rather than a slot in the eyebrow: at 390pt
           "not dismissed — try again" beside the label wrapped the eyebrow onto
           two lines, and an error is not a thing to truncate. */}
-      {failed ? <Text style={styles.error}>Not sent — try again.</Text> : null}
-      {dismissFailed ? <Text style={styles.error}>Not dismissed — try again.</Text> : null}
+      {failed ? <Text style={styles.error}>Not sent: {failed}. Try again.</Text> : null}
+      {dismissFailed ? (
+        <Text style={styles.error}>Not dismissed: {dismissFailed}. Try again.</Text>
+      ) : null}
       {pending ? (
         <View style={styles.inputBlock}>
           <TextInput
@@ -196,7 +203,7 @@ export function SessionActionCard({
               onPress={() => {
                 setInputAction(null)
                 setFeedback('')
-                setFailed(false)
+                setFailed(null)
               }}
               style={styles.linkButton}
             >
@@ -219,7 +226,7 @@ export function SessionActionCard({
               onPress={() => {
                 if (action.input) {
                   setInputAction(index)
-                  setFailed(false)
+                  setFailed(null)
                 } else {
                   void send(action.prompt)
                 }
