@@ -874,6 +874,7 @@ export class SessionRegistry {
               agentKind: session.agentKind,
               resume: session.resume,
               transcriptItems: () => session.terminal.transcriptItems(),
+              runtimeTranscriptItems: () => session.terminal.runtimeTranscriptItems(),
             }
           : undefined
       },

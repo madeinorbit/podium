@@ -39,7 +39,7 @@ import { createLogger } from '@podium/logger'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionView } from './view'
-import { runtimeInterruptMarkerFromEvent } from './runtime-transcript'
+import { runtimeTranscriptItemFromEvent } from './runtime-transcript'
 
 const log = createLogger('server:sessions')
 
@@ -489,19 +489,17 @@ export class SessionRepository {
       // inventing `'never'` for it would authorize discarding one.
       ...(r.conversationBinding ? { conversationBinding: r.conversationBinding } : {}),
     })
-    // Headless interrupt markers are synthetic user actions: the provider file
-    // cannot re-learn them after a server restart. Re-seed the bounded terminal
-    // cache from the durable runtime event log while the session is still off the
-    // client surface. This is a narrow marker overlay, not general transcript
-    // persistence; provider transcript reads remain the source of truth.
-    const markers =
+    // Re-seed runtime-backed transcript items before the session reaches clients.
+    // Terminal drivers use this durable bridge when the legacy observation path
+    // is fenced; provider-file deltas can still overlap and upsert by cursor/id.
+    const runtimeItems =
       this.ports.store?.events
-        .listRuntimeInterruptEvents(session.sessionId)
+        .listRuntimeTranscriptEvents(session.sessionId)
         .flatMap((event) => {
-          const marker = runtimeInterruptMarkerFromEvent(event)
-          return marker ? [marker] : []
+          const item = runtimeTranscriptItemFromEvent(event)
+          return item ? [item] : []
         }) ?? []
-    if (markers.length > 0) session.terminal.applyDelta(markers, {})
+    if (runtimeItems.length > 0) session.terminal.applyRuntimeDelta(runtimeItems)
     return session
   }
 

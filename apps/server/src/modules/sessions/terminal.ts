@@ -157,6 +157,9 @@ export class SessionTerminal {
   private readonly outputLog: { seq: number; bytes: Buffer }[] = []
   private outputLogBytes = 0
   private transcript: TranscriptItem[] = []
+  /** Complete items committed through the runtime event log. Kept separately
+   * so a legacy tail reset cannot erase the shared terminal bridge. */
+  private runtimeTranscript: TranscriptItem[] = []
   private transcriptAvailable = false
   private readonly transcriptSubscribers = new Map<string, ClientConn>()
   /**
@@ -397,20 +400,23 @@ export class SessionTerminal {
     return this.transcript
   }
 
+  runtimeTranscriptItems(): TranscriptItem[] {
+    return this.runtimeTranscript
+  }
+
+  applyRuntimeDelta(items: TranscriptItem[]): boolean {
+    this.runtimeTranscript = mergeTranscriptCache(this.runtimeTranscript, items)
+    return this.applyDelta(items, {})
+  }
+
   applyDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string }): boolean {
-    const preservedInterrupts = opts.reset
-      ? this.transcript.filter((item) => item.event === 'interrupt')
-      : []
     const becameAvailable =
       !this.transcriptAvailable && (items.length > 0 || this.transcript.length > 0)
     if (becameAvailable) {
       this.transcriptAvailable = true
       this.init.onTranscriptAvailable?.()
     }
-    const deltaItems =
-      opts.reset && preservedInterrupts.length > 0
-        ? mergeTranscriptCache(items, preservedInterrupts)
-        : items
+    const deltaItems = opts.reset ? mergeTranscriptCache(items, this.runtimeTranscript) : items
     this.transcript = mergeTranscriptCache(opts.reset ? [] : this.transcript, deltaItems)
     if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
       this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)

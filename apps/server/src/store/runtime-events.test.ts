@@ -63,19 +63,20 @@ function turnEvent(input: {
   }
 }
 
-function interruptEvent(input: { at: string; seq: number; sessionId: string }): RuntimeEvent {
+function terminalItemEvent(input: {
+  at: string
+  seq: number
+  item: {
+    id: string
+    cursor: string
+    role: 'user' | 'assistant'
+    text: string
+    ts: string
+  }
+}): RuntimeEvent {
   return {
     t: 'item',
-    item: {
-      kind: 'complete',
-      item: {
-        id: `codex-interrupt-${input.sessionId}-1`,
-        role: 'user',
-        text: '[Request interrupted by user]',
-        ts: input.at,
-        event: 'interrupt',
-      },
-    },
+    item: { kind: 'complete', item: input.item },
     at: input.at,
     provenance: 'live',
     cursor: { segmentId: 'runtime-segment', components: { seq: input.seq } },
@@ -145,14 +146,14 @@ describe('durable runtime observation gate', () => {
     store.close()
   })
 
-  it('restores a durable interrupt marker into transcript reads after a registry restart', async () => {
+  it('bridges real terminal items live and after reload without duplicate replay', async () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
 
     registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'runtimeEvent',
-      deliveryId: 'bootstrap-interrupt',
+      deliveryId: 'bootstrap-terminal-transcript',
       sessionId,
       event: stateEvent({
         at: '2026-08-23T00:00:00.000Z',
@@ -162,26 +163,48 @@ describe('durable runtime observation gate', () => {
         change: { kind: 'session_started' },
       }),
     })
-    const marker = interruptEvent({
-      at: '2026-08-23T00:00:01.000Z',
-      seq: 2,
-      sessionId,
-    })
-    const markerItem = marker.t === 'item' && marker.item.kind === 'complete' ? marker.item.item : undefined
-    if (!markerItem) throw new Error('interrupt fixture must be a complete item')
-    registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'interrupt-marker',
-      sessionId,
-      event: marker,
-    })
-    // The daemon also sends its normal transcript delta. It must not create a
-    // second marker or make the synthetic one disappear.
+    // Shape emitted by TerminalRuntime for a native Grok transcript tail: the
+    // provider item identity rides inside a complete runtime item event.
+    const items = [
+      {
+        id: 'grok-message-user-1',
+        cursor: 'grok:messages.jsonl:0:91',
+        role: 'user' as const,
+        text: 'IDLE-DC53VW',
+        ts: '2026-08-23T00:00:01.000Z',
+      },
+      {
+        id: 'grok-message-assistant-1',
+        cursor: 'grok:messages.jsonl:92:207',
+        role: 'assistant' as const,
+        text: 'Bridge control reply',
+        ts: '2026-08-23T00:00:02.000Z',
+      },
+    ]
+    for (const [index, item] of items.entries()) {
+      const event = terminalItemEvent({ at: item.ts, seq: index + 2, item })
+      registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: `terminal-item-${index}`,
+        sessionId,
+        event,
+      })
+      // An outbox replay of the same causal event is a duplicate, not a row.
+      registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: `terminal-item-replay-${index}`,
+        sessionId,
+        event,
+      })
+    }
+    // Chat-originated sends can also arrive through the legacy transcript tail;
+    // identical cursor identity must upsert rather than duplicate.
     registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
-      items: [markerItem],
+      items,
     })
+    // A tail replay/reset must not erase the already committed runtime bridge.
     registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
@@ -193,11 +216,11 @@ describe('durable runtime observation gate', () => {
       { sessionId, direction: 'before', limit: 50 },
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
-    expect(liveTranscript.items.filter((item) => item.event === 'interrupt')).toEqual([markerItem])
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)).toMatchObject({
-      transcriptAvailable: true,
-    })
-    expect(store.events.listRuntimeInterruptEvents(sessionId)).toHaveLength(1)
+    expect(liveTranscript.items).toEqual(items)
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId),
+    ).toMatchObject({ transcriptAvailable: true })
+    expect(store.events.listRuntimeTranscriptEvents(sessionId)).toHaveLength(2)
 
     registry.dispose()
     const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
@@ -208,7 +231,7 @@ describe('durable runtime observation gate', () => {
       { sessionId, direction: 'before', limit: 50 },
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
-    expect(transcript.items.filter((item) => item.event === 'interrupt')).toEqual([markerItem])
+    expect(transcript.items).toEqual(items)
 
     restarted.dispose()
     store.close()
