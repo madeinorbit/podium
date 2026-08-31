@@ -2216,9 +2216,36 @@ describe('eager mark-read-on-view (POD-272)', () => {
     )
     await settle()
     expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1) // leading edge
+    // THE SERVER'S ECHO, and the test is wrong without it. `sessions.markRead`
+    // carries only the session id — the server stamps its own readAt when it
+    // processes the mutation — so while that pass is in flight its optimistic
+    // overlay holds the row at `unread: false`, and everything arriving behind
+    // it is already covered by the stamp the server has yet to make. A second
+    // mutation there would be redundant, which is why the reaction declines to
+    // send one, and why the tail below is only meaningful once the read lands.
     engine.replica.applyChanges(
       'sessions',
-      [active('s1', { lastActiveAt: '2026-07-01T00:02:00.000Z', unread: true })],
+      [
+        active('s1', {
+          lastActiveAt: '2026-07-01T00:01:00.000Z',
+          readAt: '2026-07-01T00:01:30.000Z',
+          unread: false,
+        }),
+      ],
+      [],
+    )
+    await settle()
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1)
+    // Fresh activity AFTER that confirmed read, still inside the throttle window.
+    engine.replica.applyChanges(
+      'sessions',
+      [
+        active('s1', {
+          lastActiveAt: '2026-07-01T00:02:00.000Z',
+          readAt: '2026-07-01T00:01:30.000Z',
+          unread: true,
+        }),
+      ],
       [],
     )
     await settle()
