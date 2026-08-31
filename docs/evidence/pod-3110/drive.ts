@@ -7,7 +7,7 @@
  */
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   AGENT_KIND,
   BASE,
@@ -76,7 +76,9 @@ interface ProviderPinReceipt {
   version: string
   sha256: string
   home: string
-  forbiddenOverrides: string[]
+  grokHome: string
+  abducoSocketDir: string
+  ambientOverrides: string[]
 }
 
 
@@ -86,8 +88,11 @@ const DECLARED_GROK_BIN = '/home/mgw/.grok/downloads/grok-linux-x86_64'
 const DECLARED_GROK_VERSION = 'grok 0.2.118 (1e1687c1cf) [stable]'
 const DECLARED_GROK_SHA256 = 'c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6'
 const EXPECTED_AGENT_HOME = process.env.P3110_AGENT_HOME ?? (() => { throw new Error('P3110_AGENT_HOME is required') })()
+const EXPECTED_STATE_DIR = process.env.P3110_STATE_DIR ?? (() => { throw new Error('P3110_STATE_DIR is required') })()
+const EXPECTED_GROK_HOME = join(EXPECTED_AGENT_HOME, '.grok')
+const EXPECTED_ABDUCO_SOCKET_DIR = join(EXPECTED_STATE_DIR, 'runtime', 'abduco')
 
-const INSTANCE = 'p3110-grok-paired-a4a209c-r5'
+const INSTANCE = 'p3110-grok-paired-a4a209c-r6'
 const PRODUCT_PIN = 'a4a209cc6d902db2c65db0e240a0dbb21aa9b014'
 const RUN_TOKEN = process.env.P3110_RUN_TOKEN ?? (() => { throw new Error('P3110_RUN_TOKEN is required') })()
 const EVIDENCE_DIR = process.env.PODIUM_EVIDENCE_DIR ?? (() => { throw new Error('PODIUM_EVIDENCE_DIR is required') })()
@@ -679,12 +684,18 @@ function ownedPids(): { pids: number[]; cmds: Map<number, string> } {
   return { pids: pids.sort((a, b) => a - b), cmds }
 }
 
+function providerExecutableCandidate(executable: string, declaredExecutable: string): boolean {
+  return executable === declaredExecutable
+}
+
 function providerPinMatches(receipt: ProviderPinReceipt): boolean {
   return receipt.executable === receipt.declaredExecutable
     && receipt.version === DECLARED_GROK_VERSION
     && receipt.sha256 === DECLARED_GROK_SHA256
     && receipt.home === EXPECTED_AGENT_HOME
-    && receipt.forbiddenOverrides.length === 0
+    && resolve(receipt.grokHome) === resolve(EXPECTED_GROK_HOME)
+    && resolve(receipt.abducoSocketDir) === resolve(EXPECTED_ABDUCO_SOCKET_DIR)
+    && receipt.ambientOverrides.length === 0
 }
 
 async function liveProviderPin(ms = 20_000): Promise<ProviderPinReceipt> {
@@ -695,14 +706,14 @@ async function liveProviderPin(ms = 20_000): Promise<ProviderPinReceipt> {
     for (const pid of ownedPids().pids) {
       try {
         const executable = readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, '')
-        if (!executable.toLowerCase().includes('grok')) continue
+        if (!providerExecutableCandidate(executable, declaredExecutable)) continue
         const hashResult = spawnSync('sha256sum', [executable], { encoding: 'utf8' })
         const envEntries = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').filter(Boolean)
         const providerEnv = new Map(envEntries.map((entry) => {
           const split = entry.indexOf('=')
           return [entry.slice(0, split), entry.slice(split + 1)] as const
         }))
-        const forbiddenNames = ['PODIUM_STATE_DIR', 'PODIUM_AGENT_HOME', 'PODIUM_HOME', 'GROK_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'ABDUCO_SOCKET_DIR']
+        const ambientOverrideNames = ['PODIUM_STATE_DIR', 'PODIUM_AGENT_HOME', 'PODIUM_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']
         const receipt: ProviderPinReceipt = {
           pid,
           executable,
@@ -710,7 +721,9 @@ async function liveProviderPin(ms = 20_000): Promise<ProviderPinReceipt> {
           version: DECLARED_GROK_VERSION,
           sha256: String(hashResult.stdout ?? '').trim().split(/\s+/, 1)[0] ?? '',
           home: providerEnv.get('HOME') ?? '',
-          forbiddenOverrides: forbiddenNames.filter((name) => providerEnv.has(name)),
+          grokHome: providerEnv.get('GROK_HOME') ?? '',
+          abducoSocketDir: providerEnv.get('ABDUCO_SOCKET_DIR') ?? '',
+          ambientOverrides: ambientOverrideNames.filter((name) => providerEnv.has(name)),
         }
         if (hashResult.status !== 0) {
           last = `pid=${pid} executable=${executable} hashStatus=${hashResult.status}`
@@ -837,7 +850,7 @@ async function a1a(): Promise<void> {
         `REPLY LATENCY     ${r.ms}ms; reload observed after ${now() - started}ms`,
         `LIVE USER         count=${liveUser.count} items=${short(liveUser.itemIdentities)}`,
         `LIVE ASSISTANT    count=${liveAssistant.count} items=${short(liveAssistant.itemIdentities)}`,
-        `PROVIDER PIN      pid=${ctx.providerPin.pid} exe=${ctx.providerPin.executable} version=${ctx.providerPin.version} versionSource=declared-exact-bytes sha256=${ctx.providerPin.sha256} home=${ctx.providerPin.home} forbiddenOverrides=${ctx.providerPin.forbiddenOverrides.join(',') || 'none'}`,
+        `PROVIDER PIN      pid=${ctx.providerPin.pid} exe=${ctx.providerPin.executable} version=${ctx.providerPin.version} versionSource=declared-exact-bytes sha256=${ctx.providerPin.sha256} home=${ctx.providerPin.home} grokHome=${ctx.providerPin.grokHome} abducoSocketDir=${ctx.providerPin.abducoSocketDir} ambientOverrides=${ctx.providerPin.ambientOverrides.join(',') || 'none'}`,
         `RELOAD USER       count=${reloadedUser.count} items=${short(reloadedUser.itemIdentities)}`,
         `RELOAD ASSISTANT  count=${reloadedAssistant.count} items=${short(reloadedAssistant.itemIdentities)}`,
       ],
@@ -1568,14 +1581,18 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
   for (const raw of ['A1a,A1a', 'UNKNOWN', 'A1a,,A1b', '', undefined]) {
     try { parseCellSelector(raw) } catch { selectorRefusals++ }
   }
-  const providerGood: ProviderPinReceipt = { pid: 1, executable: '/declared/grok', declaredExecutable: '/declared/grok', version: DECLARED_GROK_VERSION, sha256: DECLARED_GROK_SHA256, home: EXPECTED_AGENT_HOME, forbiddenOverrides: [] }
+  if (providerExecutableCandidate(join(EXPECTED_STATE_DIR, 'bin', 'grok-paired-abduco'), '/declared/grok')) throw new Error('abduco path containing grok was selected')
+  if (!providerExecutableCandidate('/declared/grok', '/declared/grok')) throw new Error('exact Grok executable was skipped')
+  const providerGood: ProviderPinReceipt = { pid: 1, executable: '/declared/grok', declaredExecutable: '/declared/grok', version: DECLARED_GROK_VERSION, sha256: DECLARED_GROK_SHA256, home: EXPECTED_AGENT_HOME, grokHome: EXPECTED_GROK_HOME, abducoSocketDir: EXPECTED_ABDUCO_SOCKET_DIR, ambientOverrides: [] }
   if (!providerPinMatches(providerGood)) throw new Error('provider exact pin self-test rejected match')
   for (const bad of [
     { ...providerGood, executable: '/other/grok' },
     { ...providerGood, version: 'grok 1.0.13 (5e9a58528b76) [stable]' },
     { ...providerGood, sha256: '0'.repeat(64) },
     { ...providerGood, home: '/home/mgw' },
-    { ...providerGood, forbiddenOverrides: ['GROK_HOME'] },
+    { ...providerGood, grokHome: '/home/mgw/.grok' },
+    { ...providerGood, abducoSocketDir: '/tmp/escaped-abduco' },
+    { ...providerGood, ambientOverrides: ['PODIUM_AGENT_HOME'] },
   ]) {
     if (providerPinMatches(bad)) throw new Error(`provider exact pin self-test accepted mismatch: ${JSON.stringify(bad)}`)
   }
@@ -1600,7 +1617,7 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     if (!String(error).includes('STOP-FIRST')) throw error
   }
   if (rows !== 1 || later !== 0) throw new Error(`stop-first self-test failed rows=${rows} later=${later}`)
-  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} selectorOne=${oneSelected.length} selectorTwo=${twoSelected.length} selectorAll=${allSelected.length} selectorRefusals=${selectorRefusals} dispatch=${executed.join(',')} headedFields=${headedFields.length} headlessFields=${headlessFields.length} rigLinks=missing+escaping-refused providerPin=exact+mismatches-refused unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
+  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} selectorOne=${oneSelected.length} selectorTwo=${twoSelected.length} selectorAll=${allSelected.length} selectorRefusals=${selectorRefusals} dispatch=${executed.join(',')} headedFields=${headedFields.length} headlessFields=${headlessFields.length} rigLinks=missing+escaping-refused providerCandidate=abduco-skipped+exact-selected providerPin=exact+hash-home-env-escapes-refused unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
   process.exit(0)
 }
 

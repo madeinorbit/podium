@@ -9,7 +9,7 @@ This commit contains no live readings. Do not run it until POD-1761 explicitly r
 
 ## Isolation and arm contract
 
-The current named instance is `p3110-grok-paired-a4a209c-r5`; the product derives its isolated state root, agent home, and ports. The prior r1/r2/r3/r4 state roots and run files are retained unchanged as refusal evidence and are never reused. The launch path inherits `HOME` and assigns none of `HOME`, `PODIUM_STATE_DIR`, `ABDUCO_SOCKET_DIR`, or `PODIUM_RUNTIME_DRIVER`. It scrubs inherited relay/default-instance variables, refuses ports 19797 and 32090 through the product-derived port check, and uses a unique cwd per cell.
+The current named instance is `p3110-grok-paired-a4a209c-r6`; the product derives its isolated state root, agent home, and ports. The prior r1/r2/r3/r4/r5 state roots and run files are retained unchanged as refusal evidence and are never reused. The launch path inherits `HOME` and assigns none of `HOME`, `PODIUM_STATE_DIR`, `ABDUCO_SOCKET_DIR`, or `PODIUM_RUNTIME_DRIVER`. It scrubs inherited relay/default-instance variables, refuses ports 19797 and 32090 through the product-derived port check, and uses a unique cwd per cell.
 
 The terminal arm creates sessions without a runtime selection and refuses unless the observed binding is `generic-pty` / `terminal` with no requested driver. The experimental arm creates each session with explicit `runtimeContract: 'grok-acp'` and refuses unless requested and observed driver are both `grok-acp` / `server`.
 
@@ -27,7 +27,7 @@ Run arms sequentially, never concurrently. Before launch, run `bun run setup:wor
 5. The headless sequence requires its own explicit live release and equivalent atomic wrapper; it is not authorized by the headed wrapper.
 6. Validate candidate rows with `awk -F'\t' 'NF != 8 { print NR ":" NF; bad=1 } END { exit bad }'` before appending them once to the epic ledger.
 
-`rig.sh verify ARM CELL` gates every cell on checkout HEAD, server and daemon spawn stamps/PIDs/cwds/environments, served web stamp, declared provider-binary hash, instance identity, inherited HOME, absent forbidden variables, and available memory. After the session starts but before any prompt is sent, the runner resolves the owned Grok PID's `/proc/<pid>/exe`, hashes those running bytes without executing a second provider, and refuses unless the realpath and SHA-256 equal the already preflight-versioned declared binary. It also requires the provider PID's `HOME` to equal the product-derived named-instance agent home and refuses credential-home overrides; the receipt records the declared version as derived from those exact bytes. A missing positive control records BLOCKED rather than inventing a product verdict.
+`rig.sh verify ARM CELL` gates every cell on checkout HEAD, server and daemon spawn stamps/PIDs/cwds/environments, served web stamp, declared provider-binary hash, instance identity, inherited HOME, absent forbidden variables, and available memory. After the session starts but before any prompt is sent, the runner skips every owned PID whose `/proc/<pid>/exe` realpath is not the declared Grok binary, then hashes only the exact match without executing a second provider. It requires the provider PID's `HOME` and `GROK_HOME` to equal the product-derived named-instance agent locations, `ABDUCO_SOCKET_DIR` to equal the derived isolated runtime socket directory, and ambient credential-home overrides to be absent; the receipt records the declared version as derived from those exact bytes. A missing positive control records BLOCKED rather than inventing a product verdict.
 
 ## Covered journeys
 
@@ -50,5 +50,5 @@ Every JSON result carries an ISO timestamp, measured latency, pin transcript, ce
 
 ## Targeted cleanup
 
-The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-a4a209c-r5`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
+The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-a4a209c-r6`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
 The atomic headed wrapper is the sole exception to the no-access statement: it reads only `$HOME/.podium/instance.json` metadata and bytes before and after the isolated run, never writes that marker, and refuses a missing or changed marker.
