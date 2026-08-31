@@ -27,12 +27,12 @@ jobs:
           path: ~\.bun\install\cache
           key: windows-bun-${{ hashFiles('bun.lock') }}
       # No package lifecycle hook is required for the Bun/ConPTY runtime.
-      # --linker=hoisted overrides bunfig's isolated linker on Windows only. The isolated
-      # linker builds node_modules out of symlinks into the shared global store; on a
-      # windows-latest runner those links cannot be made and Bun falls back to copyfile,
-      # which then fails ENOENT for most of the graph ("Failed to install 1310 packages").
-      # Every other platform keeps the isolated install this repo is configured for.
-      - run: bun install --frozen-lockfile --ignore-scripts --linker=hoisted
+      # KNOWN RED: this install currently fails on windows-latest — bunfig's isolated linker
+      # wants node_modules to be symlinks into the shared global store, the runner will not
+      # make them, and Bun's copyfile fallback then fails ENOENT for most of the graph
+      # ("Failed to install 1310 packages"). Windows is meant to use the global store like
+      # every other platform, so the fix belongs there and not in an override here.
+      - run: bun install --frozen-lockfile --ignore-scripts
 
       - name: ConPTY runtime smoke (spawn → write/exec → resize → exit)
         run: bun --conditions=@podium/source scripts/conpty-smoke.ts
