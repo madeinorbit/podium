@@ -2870,6 +2870,121 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
   })
 })
 
+
+describe('Grok accepted rebind transcript bridge', () => {
+  it('tails a late-created chat_history on the shared tick and replays it once after reload', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-transcript-rebind-'))
+    const cwd = '/repo/grok-transcript-rebind'
+    const nativeId = 'grok-native-rebind'
+    const sessionId = asSessionId('podium-grok-transcript-rebind')
+    const sessionDir = join(home, '.grok', 'sessions', encodeURIComponent(cwd), nativeId)
+    const chatHistory = join(sessionDir, 'chat_history.jsonl')
+    await mkdir(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'summary.json'), JSON.stringify({ info: { id: nativeId, cwd } }))
+    await writeFile(join(sessionDir, 'updates.jsonl'), '')
+
+    const statTick = new ManualStatTick()
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      homeDir: home,
+      statTick,
+    })
+    const spawn = {
+      type: 'spawn' as const,
+      sessionId,
+      agentKind: 'grok' as const,
+      cwd,
+      geometry: G,
+      durableLabel: 'podium-grok-transcript-rebind',
+      observationGeneration: 1,
+      observationBindingVersion: 1,
+      observationProviderSessionId: null,
+    }
+    observers.initSessionObservers(
+      spawn,
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false, newSessionId: nativeId },
+    )
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === 'agentObservationRebind')).toBe(true)
+    })
+    const rebind = sent.find(
+      (message): message is Extract<DaemonMessage, { type: 'agentObservationRebind' }> =>
+        message.type === 'agentObservationRebind',
+    )!
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId,
+      provider: 'grok',
+      rebindId: rebind.rebindId,
+      priorObserverGeneration: 1,
+      priorBindingVersion: 1,
+      nextProviderSessionId: nativeId,
+      providerSessionId: nativeId,
+      result: 'accepted',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      checkpoint: null,
+    })
+
+    await writeFile(
+      chatHistory,
+      [
+        JSON.stringify({ type: 'system', content: 'hidden' }),
+        JSON.stringify({ uuid: 'grok-user-token', type: 'user', content: 'user token' }),
+        JSON.stringify({ uuid: 'grok-assistant-token', type: 'assistant', content: 'assistant token' }),
+      ].join('\n') + '\n',
+    )
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+    })
+    const live = sent.find(
+      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+        message.type === 'transcriptDelta',
+    )!
+    expect(live.items.map((item) => [item.id, item.role, item.text])).toEqual([
+      ['grok-user-token', 'user', 'user token'],
+      ['grok-assistant-token', 'assistant', 'assistant token'],
+    ])
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+
+    observers.clearSession(sessionId)
+    const reloadStart = sent.length
+    observers.initSessionObservers(
+      {
+        ...spawn,
+        resume: { kind: 'grok-session', value: nativeId },
+        observationGeneration: 2,
+        observationBindingVersion: 2,
+        observationProviderSessionId: nativeId,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false },
+    )
+    await vi.waitFor(() => {
+      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(true)
+    })
+    const replay = sent.slice(reloadStart).find(
+      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+        message.type === 'transcriptDelta',
+    )!
+    expect(replay.reset).toBe(true)
+    expect(replay.items.map((item) => item.id)).toEqual(['grok-user-token', 'grok-assistant-token'])
+
+    observers.clearSession(sessionId)
+    await rm(home, { recursive: true, force: true })
+  })
+})
+
 describe('Grok causal hook ingest', () => {
   it('opens Working from UserPromptSubmit without emitting a rejected unfenced agentState', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-causal-hook-'))

@@ -296,6 +296,7 @@ describe('tailTranscript — missing provider file', () => {
   it('lets the shared tick observe a file created while the seed gate is held exactly once', async () => {
     const path = join(dir, 'grok-created-after-bind.jsonl')
     const emissions: Emission[] = []
+    const statuses: { kind: string; path: string }[] = []
     let watcher = (): void => {}
     const held = new Promise<void>(() => {})
     const tailer = tailTranscript(
@@ -312,10 +313,12 @@ describe('tailTranscript — missing provider file', () => {
           },
         },
         seedGate: async () => held,
+        onStatus: (event) => statuses.push(event),
       },
     )
     try {
       await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(statuses).toEqual([expect.objectContaining({ kind: 'error', path })])
       writeFileSync(
         path,
         [
@@ -332,6 +335,10 @@ describe('tailTranscript — missing provider file', () => {
       ])
       expect(emissions).toHaveLength(1)
       expect(emissions[0]?.reset).toBe(true)
+      expect(statuses).toEqual([
+        expect.objectContaining({ kind: 'error', path }),
+        expect.objectContaining({ kind: 'first-emission', path }),
+      ])
 
       watcher()
       await new Promise((resolve) => setTimeout(resolve, 10))

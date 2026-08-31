@@ -1099,6 +1099,22 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,
+          onStatus: (event) => {
+            if (event.kind === 'first-emission') {
+              log.info('transcript tail first emission', {
+                sessionId,
+                path: event.path,
+                items: event.items,
+                reset: event.reset,
+              })
+              return
+            }
+            log.warn('transcript tail read failed', {
+              sessionId,
+              path: event.path,
+              error: event.error,
+            })
+          },
         },
       ),
     )

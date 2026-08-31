@@ -1187,6 +1187,27 @@ describe('Session transcript cache (recent-delta window)', () => {
     expect(s.terminal.transcriptItems()).toEqual([item('u1', 'c1'), item('u2', 'c2')])
   })
 
+  it('delivers Grok daemon items live and replays stable ids once to a reload subscriber', () => {
+    const s = makeSession()
+    const live = makeClient('grok-live')
+    s.terminal.subscribeTranscript(live)
+    const items = [
+      item('grok-user-token', 'grok-user-cursor', 'user token'),
+      item('grok-assistant-token', 'grok-assistant-cursor', 'assistant token'),
+    ]
+
+    s.terminal.applyDelta(items, { reset: true, tail: 'grok-assistant-cursor' })
+    s.terminal.applyDelta(items, { reset: true, tail: 'grok-assistant-cursor' })
+    expect(s.terminal.transcriptItems()).toEqual(items)
+    expect(live.sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(2)
+
+    const reload = makeClient('grok-reload')
+    s.terminal.subscribeTranscript(reload)
+    expect(reload.sent).toEqual([
+      { type: 'transcriptDelta', sessionId: asSessionId('s1'), items },
+    ])
+  })
+
   it('replaces a re-emitted cursor in the cache instead of recording it twice', () => {
     const s = makeSession()
     const partial = item('provider-v1', 'stable-cursor', 'Hel')

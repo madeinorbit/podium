@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
@@ -55,7 +55,8 @@ describe('createGrokConversationProvider', () => {
 
   test('scans Grok summary.json sessions and builds resumable summaries', async () => {
     const root = await createRoot()
-    await writeGrokSession(root)
+    const summaryPath = await writeGrokSession(root)
+    const chatBytes = (await stat(join(summaryPath, '..', 'chat_history.jsonl'))).size
 
     const result = await createGrokConversationProvider().scanRoot(root)
 
@@ -74,7 +75,8 @@ describe('createGrokConversationProvider', () => {
           originUrl: 'git@example.com:repo/grok.git',
         },
         resume: { kind: 'grok-session', value: '019e-grok' },
-        source: expect.objectContaining({ providerId: 'grok-sessions', root }),
+        source: expect.objectContaining({ providerId: 'grok-sessions', root, path: expect.stringMatching(/chat_history.jsonl$/), relatedPaths: expect.arrayContaining([expect.stringMatching(/summary.json$/)]) }),
+        sizeBytes: chatBytes,
       }),
     ])
     expect(result.conversations[0]?.createdAt?.toISOString()).toBe('2026-06-01T12:00:00.000Z')
@@ -107,7 +109,7 @@ describe('createGrokConversationProvider', () => {
     const summary = scan.conversations[0]
     expect(summary).toBeDefined()
     if (!summary) throw new Error('Expected Grok conversation summary')
-    await rm(join(summary.source.path, '..', 'chat_history.jsonl'))
+    await rm(summary.source.path)
 
     await expect(provider.loadConversation(summary)).rejects.toBeInstanceOf(
       AgentConversationLoadError,
@@ -122,7 +124,7 @@ describe('createGrokConversationProvider', () => {
     const summary = scan.conversations[0]
     if (!summary) throw new Error('Expected Grok conversation summary')
     await writeFile(
-      join(summary.source.path, '..', 'chat_history.jsonl'),
+      summary.source.path,
       '{"ok":true}\nnot-json\n',
     )
 

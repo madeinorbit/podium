@@ -83,9 +83,15 @@ export interface TranscriptTailOptions {
   initialPathStat?: (path: string) => Promise<unknown>
   /** Test/attribution seam: fires only when a changed file requires a descriptor. */
   onReadOpen?: () => void
+  /** Bounded lifecycle visibility: one first-emission event and one event per distinct error. */
+  onStatus?: (event: TranscriptTailStatus) => void
 }
 
 /** Metadata accompanying each `onItems` delta. */
+export type TranscriptTailStatus =
+  | { kind: 'first-emission'; path: string; items: number; reset: boolean }
+  | { kind: 'error'; path: string; error: unknown }
+
 export interface TranscriptTailMeta {
   /** True when consumers should CLEAR their window and treat `items` as the new
    *  seed (first read, or after a truncation/replacement). */
@@ -198,6 +204,16 @@ export function tailTranscript(
     return stampCursors(recordToItems(record), fileId, lineOffset, recordUuid(record))
   }
 
+  let firstEmissionReported = false
+  let lastErrorKey: string | undefined
+  const reportError = (error: unknown): void => {
+    const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined
+    const key = code ?? (error instanceof Error ? error.message : String(error))
+    if (key === lastErrorKey) return
+    lastErrorKey = key
+    opts.onStatus?.({ kind: 'error', path, error })
+  }
+
   const readNew = async (): Promise<void> => {
     if (reading || stopped) return
     reading = true
@@ -209,6 +225,7 @@ export function tailTranscript(
       // one descriptor snapshot below so truncation and bounded reads stay
       // coherent if an append races this check.
       const observed = await stat(path)
+      lastErrorKey = undefined
       if (!first && observed.size === offset + leftover.length) return
       opts.onReadOpen?.()
       const handle = await open(path, 'r')
@@ -302,13 +319,20 @@ export function tailTranscript(
         }
         if (reset && items.length > maxInitialItems) items = items.slice(-maxInitialItems)
         if (items.length > 0 || reset) {
+          if (!firstEmissionReported) {
+            firstEmissionReported = true
+            opts.onStatus?.({ kind: 'first-emission', path, items: items.length, reset })
+          }
           onItems(items, { reset, tail: items.at(-1)?.cursor })
         }
       } finally {
         await handle.close()
       }
-    } catch {
-      // file missing (not created yet / rotated away) — keep polling
+    } catch (error) {
+      // File missing (not created yet / rotated away) remains retryable, but is no
+      // longer invisible. Deduplicate identical failures so the shared tick cannot
+      // turn one absent path into an unbounded log stream.
+      reportError(error)
     } finally {
       reading = false
     }
@@ -337,6 +361,7 @@ export function tailTranscript(
   void (opts.initialPathStat ?? stat)(path).then(
     () => pacedSeed(),
     (error: unknown) => {
+      reportError(error)
       if (isMissingPathError(error)) seeded = true
       else void pacedSeed()
     },
