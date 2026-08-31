@@ -8,7 +8,19 @@ const issue = (over: Partial<LinkIssueLike> = {}): LinkIssueLike => ({
   seq: 1606,
   displayRef: 'POD-1606',
   worktreePath: '/w/1606',
-  panel: { artifacts: [{ path: 'docs/proof.html', artifactId: 'art1', entry: 'proof.html' }] },
+  panel: {
+    artifacts: [
+      {
+        path: 'docs/proof.html',
+        artifactId: 'art1',
+        entry: 'proof.html',
+        files: [
+          { path: 'proof.html', size: 100 },
+          { path: 'shots/a.png', size: 200 },
+        ],
+      },
+    ],
+  },
   ...over,
 })
 
@@ -68,13 +80,44 @@ describe('resolvePodiumTarget', () => {
     })
   })
 
-  it('prefers the file the address names inside the bundle', () => {
+  it('opens a secondary file named by the bundle manifest', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'shots/a.png' },
         context,
       ),
     ).toMatchObject({ path: 'shots/a.png' })
+  })
+
+  it('refuses a missing entry even when the artifact id is real', () => {
+    expect(
+      resolvePodiumTarget(
+        { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'missing.html' },
+        context,
+      ),
+    ).toBeNull()
+  })
+
+  it('opens a legacy snapshot primary entry when files metadata is absent', () => {
+    const legacy = [
+      issue({
+        panel: {
+          artifacts: [{ path: 'docs/source.md', artifactId: 'art1', entry: 'index.html' }],
+        },
+      }),
+    ]
+    expect(
+      resolvePodiumTarget(
+        { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'index.html' },
+        { issues: legacy, sessions },
+      ),
+    ).toMatchObject({ path: 'index.html' })
+    expect(
+      resolvePodiumTarget(
+        { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'source.md' },
+        { issues: legacy, sessions },
+      ),
+    ).toBeNull()
   })
 
   it('falls back to the artifact path basename when the panel has no entry', () => {

@@ -68,6 +68,28 @@ describe('handlePodiumLinkClick', () => {
     )
   })
 
+  it('removes a boot-stale blank target before an activator fallback', () => {
+    setPodiumTargetActivator(() => false)
+    const event = clickOn(
+      `<a href="${HOME}/issues/POD-9999" data-podium-link-candidate="" target="_blank" rel="noopener noreferrer">x</a>`,
+    )
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(event.defaultPrevented).toBe(false)
+    expect(link.getAttribute('target')).toBeNull()
+    expect(link.getAttribute('rel')).toBeNull()
+  })
+
+  it('keeps deliberate blank-target fallback on an already-marked internal link', () => {
+    setPodiumTargetActivator(() => false)
+    const event = clickOn(
+      `<a href="${HOME}/files/asset?path=%2Fw%2Fa.png" data-podium-link-candidate="" data-podium-link="" target="_blank" rel="noopener noreferrer">x</a>`,
+    )
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(event.defaultPrevented).toBe(false)
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
   it('leaves the anchor alone when no activator is installed at all', () => {
     expect(clickOn(`<a href="${HOME}/issues/POD-1606">x</a>`).defaultPrevented).toBe(false)
   })
@@ -85,6 +107,16 @@ describe('handlePodiumLinkClick', () => {
     const event = clickOn('<a href="/issues/POD-1606">x</a>', { metaKey: true })
     expect(event.defaultPrevented).toBe(false)
     expect((document.querySelector('a') as HTMLAnchorElement).href).toBe(`${HOME}/issues/POD-1606`)
+  })
+
+  it('keeps unknown file fallback query bytes exact', () => {
+    setPodiumTargetActivator(() => false)
+    const href = '/file?path=%2Fw%2Fa.ts&root=%2Fw&label=hello%20world&signature=a%2Fb%3D'
+    const event = clickOn(`<a href="${href}">x</a>`)
+    expect(event.defaultPrevented).toBe(false)
+    expect((document.querySelector('a') as HTMLAnchorElement).getAttribute('href')).toBe(
+      `${HOME}${href}`,
+    )
   })
 
   it('hands a modifier click to the OS browser inside the desktop shell', () => {

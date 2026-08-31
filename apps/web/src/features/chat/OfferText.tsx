@@ -1,6 +1,10 @@
 import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
-import { internalPodiumTarget } from '@/lib/podium-link'
+import {
+  classifyPodiumLink,
+  internalPodiumTarget,
+  systemBrowserPodiumHref,
+} from '@/lib/podium-link'
 import { handlePodiumLinkClick } from '@/lib/podium-link-click'
 
 /**
@@ -35,13 +39,17 @@ export function OfferText({ text, className }: { text: string; className?: strin
           return <span key={index}>{segment.text}</span>
         }
         const target = internalPodiumTarget(segment.href)
+        const link = classifyPodiumLink(segment.href)
+        const href = link?.kind === 'internal' ? systemBrowserPodiumHref(segment.href) : null
         return (
           <a
             // Segments are positional; a URL repeated in one message is the
             // same href twice and has no better key than where it sits.
             // biome-ignore lint/suspicious/noArrayIndexKey: positional by nature
             key={index}
-            href={segment.href}
+            href={href ?? segment.href}
+            data-podium-link-candidate=""
+            data-podium-link={link?.kind === 'internal' ? '' : undefined}
             {...(target ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
             onClick={(event) => {
               event.stopPropagation()

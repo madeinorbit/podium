@@ -9,11 +9,12 @@
  * again. The paired profiles are exactly the known-origins list the resolver
  * wants, which is why they are registered here.
  *
- * WHAT THE PHONE CAN OPEN. Issues and sessions have screens
- * (app/issue/[issueId], app/session/[sessionId]); artifacts and files do not.
- * An address the phone cannot show resolves to null and the caller falls back to
- * opening it externally — the browser can render an artifact's bytes, and that
- * is a better answer than a dead tap.
+ * WHAT THE PHONE CAN OPEN. Issues and sessions on the active profile have
+ * screens (app/issue/[issueId], app/session/[sessionId]); artifacts and files
+ * do not. A target on a different paired profile is classified without losing
+ * its matched origin, but POD-1837 owns switching profiles and retrying it.
+ * Until then it falls back to that exact origin in the browser, never to the
+ * active replica. An address the phone cannot show also falls back externally.
  */
 
 import {

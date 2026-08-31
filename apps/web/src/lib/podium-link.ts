@@ -131,6 +131,54 @@ export function systemBrowserPodiumHref(href: string): string | null {
   return serverOrigin ? formatPodiumLink(serverOrigin, link.target) : null
 }
 
+/**
+ * Rebase already-rendered Podium anchors after the active server becomes known.
+ * Markdown can render during boot, before PodiumLinkHost registers httpOrigin,
+ * and settled transcript HTML deliberately does not rerender afterward. A real
+ * absolute href is required because middle-click, context-menu Open, and Copy
+ * Link Address do not pass through the click resolver.
+ */
+export function canonicalizePodiumAnchors(root: ParentNode): void {
+  for (const anchor of root.querySelectorAll<HTMLAnchorElement>(
+    'a[data-podium-link-candidate][href], a[data-podium-link][href]',
+  )) {
+    canonicalizePodiumAnchor(anchor)
+  }
+}
+
+/** Prepare the one anchor targeted by a browser action. */
+export function canonicalizePodiumAnchor(target: EventTarget | null): void {
+  const anchor = (target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+  const isLinkRendererCandidate =
+    anchor?.hasAttribute('data-podium-link-candidate') || anchor?.hasAttribute('data-podium-link')
+  if (!isLinkRendererCandidate) return
+  const href = anchor?.getAttribute('href')
+  const link = href ? classifyPodiumLink(href) : null
+  if (!anchor || !href) return
+  if (link?.kind !== 'internal') {
+    // This candidate belonged to the previous active server. Restore the
+    // renderer's external-link contract instead of navigating the current
+    // tab or WebView away from the newly active replica.
+    if (anchor.hasAttribute('data-podium-link')) {
+      anchor.removeAttribute('data-podium-link')
+      anchor.setAttribute('target', '_blank')
+      anchor.setAttribute('rel', 'noopener noreferrer')
+    }
+    return
+  }
+  const wasMarkedInternal = anchor.hasAttribute('data-podium-link')
+  const browserHref = systemBrowserPodiumHref(href)
+  if (browserHref) anchor.setAttribute('href', browserHref)
+  anchor.setAttribute('data-podium-link', '')
+  // An anchor rendered before httpOrigin was registered looked external and
+  // therefore received target=_blank. Once its origin is known to be ours,
+  // leaving that target in place makes WKWebView drop an activator fallback.
+  if (!wasMarkedInternal) {
+    anchor.removeAttribute('target')
+    anchor.removeAttribute('rel')
+  }
+}
+
 // --- Activator registry ----------------------------------------------------
 
 /** How a click modifier was held when a Podium link was activated. */

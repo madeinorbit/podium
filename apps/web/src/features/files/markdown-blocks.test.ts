@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { setKnownPodiumOrigins } from '@/lib/podium-link'
 import { assembleMarkdownBlocksUnsafe, renderMarkdownBlocks } from './markdown-blocks'
+
+const HOME = 'http://127.0.0.1:8787'
+
+afterEach(() => setKnownPodiumOrigins([]))
 
 // The source-line map is asserted on assembleMarkdownBlocksUnsafe (pre-sanitize) — pure
 // and environment-independent. DOMPurify under happy-dom strips the FIRST top-level
@@ -48,5 +53,12 @@ describe('renderMarkdownBlocks', () => {
     const html = renderMarkdownBlocks('# ok\n\nParagraph content.\n')
     expect(html).toContain('<h1')
     expect(html).toContain('Paragraph content')
+  })
+
+  it('renders hostless Podium links against the active server', () => {
+    setKnownPodiumOrigins([HOME])
+    const html = renderMarkdownBlocks('[issue](/issues/POD-1606)')
+    expect(html).toContain(`href="${HOME}/issues/POD-1606"`)
+    expect(html).toContain('data-podium-link')
   })
 })

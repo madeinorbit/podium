@@ -1,11 +1,19 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderMarkdown } from './markdown'
-import { internalPodiumTarget, setKnownPodiumOrigins } from './podium-link'
+import {
+  canonicalizePodiumAnchors,
+  internalPodiumTarget,
+  setKnownPodiumOrigins,
+} from './podium-link'
 
 const HOME = 'http://127.0.0.1:8787'
+const OTHER = 'http://127.0.0.1:9898'
 
-afterEach(() => setKnownPodiumOrigins([]))
+afterEach(() => {
+  setKnownPodiumOrigins([])
+  document.body.innerHTML = ''
+})
 
 describe('a transcript link that points at this Podium (POD-1606)', () => {
   it('stays in the app instead of opening a browser tab', () => {
@@ -28,11 +36,52 @@ describe('a transcript link that points at this Podium (POD-1606)', () => {
     const html = renderMarkdown('[docs](https://example.com/guide)')
     expect(html).toContain('target="_blank"')
     expect(html).toContain('rel="noopener noreferrer"')
-    expect(html).not.toContain('data-podium-link')
+    expect(html).toContain('data-podium-link-candidate')
+    expect(html).not.toContain('data-podium-link=""')
   })
 
   it('keeps a root-relative address in the app with no origin registered', () => {
     expect(renderMarkdown('[here](/issues/POD-1606)')).toContain('data-podium-link')
+  })
+
+  it('renders a hostless address against the active server rather than the page origin', () => {
+    expect(window.location.origin).not.toBe(HOME)
+    setKnownPodiumOrigins([HOME])
+    const html = renderMarkdown('[here](/issues/POD-1606)')
+    expect(html).toContain(`href="${HOME}/issues/POD-1606"`)
+  })
+
+  it('rebases boot-rendered active-server anchors after the origin becomes known', () => {
+    expect(window.location.origin).not.toBe(HOME)
+    document.body.innerHTML = `${renderMarkdown(
+      `[here](${HOME}/issues/POD-1606)`,
+    )}<a id="app-chrome" href="/settings">settings</a>`
+    const link = document.querySelector('a[data-podium-link-candidate]') as HTMLAnchorElement
+    const appChrome = document.querySelector('#app-chrome') as HTMLAnchorElement
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.hasAttribute('data-podium-link')).toBe(false)
+    setKnownPodiumOrigins([HOME])
+    canonicalizePodiumAnchors(document)
+    expect(link.href).toBe(`${HOME}/issues/POD-1606`)
+    expect(link.getAttribute('target')).toBeNull()
+    expect(link.hasAttribute('data-podium-link')).toBe(true)
+    expect(appChrome.getAttribute('href')).toBe('/settings')
+    expect(appChrome.hasAttribute('data-podium-link')).toBe(false)
+  })
+
+  it('restores external fallback when the active server changes', () => {
+    setKnownPodiumOrigins([HOME])
+    document.body.innerHTML = renderMarkdown(`[here](${HOME}/issues/POD-1606)`)
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.hasAttribute('data-podium-link')).toBe(true)
+    expect(link.getAttribute('target')).toBeNull()
+
+    setKnownPodiumOrigins([OTHER])
+    canonicalizePodiumAnchors(document)
+    expect(link.href).toBe(`${HOME}/issues/POD-1606`)
+    expect(link.hasAttribute('data-podium-link')).toBe(false)
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
   })
 
   it('leaves ref chips and file links exactly as they were', () => {
