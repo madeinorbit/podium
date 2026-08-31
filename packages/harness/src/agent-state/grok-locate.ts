@@ -120,7 +120,7 @@ async function locateCurrentTranscript(opts: {
   return candidates[0]?.path ?? null
 }
 
-export async function confinedCurrentTranscript(
+async function confinedCurrentTranscript(
   root: string,
   lexicalRoot: string,
   candidate: string,
