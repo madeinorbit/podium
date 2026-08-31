@@ -550,21 +550,30 @@ pub fn opener_shim_script() -> &'static str {
       return p + '//' + u.hostname + (u.port ? ':' + u.port : '');
     } catch { return null; }
   };
+  const activeOrigin = () => {
+    const server = window.__PODIUM_SERVER__;
+    if (typeof server === 'string') return httpOrigin(server);
+    return httpOrigin(window.location.href);
+  };
   const isOurs = (origin) => {
     if (origin === null) return false;
-    if (origin === window.location.origin) return true;
-    const server = window.__PODIUM_SERVER__;
-    return typeof server === 'string' && httpOrigin(server) === origin;
+    return activeOrigin() === origin;
   };
   const externalHref = (raw) => {
     try {
-      const u = new URL(raw, window.location.href);
+      const base = activeOrigin() || window.location.href;
+      const u = new URL(raw, base);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
       // Userinfo is how a link disguises its real host. The protocol resolver
       // refuses it outright, and the two halves have to answer alike: if this
       // one called it ours it would decline, the page would have stamped
       // target=_blank, and WKWebView would drop the click on the floor.
       if (u.username || u.password) return u.href;
+      // `server` is BOOT configuration, never detail for the active replica.
+      // The web resolver declines it so the destination can reboot against the
+      // selected server; this capture-phase half must therefore hand it out
+      // rather than swallowing the blank-target fallback as one of "ours".
+      if (u.searchParams.has('server')) return u.href;
       return isOurs(httpOrigin(u.href)) ? null : u.href;
     } catch { return null; }
   };
@@ -580,7 +589,7 @@ pub fn opener_shim_script() -> &'static str {
     if (e.defaultPrevented) return;
     const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
     if (!a) return;
-    const href = externalHref(a.href);
+    const href = externalHref(a.getAttribute('href') || a.href);
     if (href === null) return;
     e.preventDefault();
     openExternal(href);

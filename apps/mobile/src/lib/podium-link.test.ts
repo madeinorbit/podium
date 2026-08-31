@@ -139,6 +139,19 @@ describe('followPodiumLink', () => {
     openURL.mockRestore()
   })
 
+  it('retains a file server selector in browser fallback instead of opening active A', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    setActivePodiumOrigin('https://active-a.example')
+
+    followPodiumLink('/file?path=%2Fw%2Fa.ts&root=%2Fw&server=wss%3A%2F%2Fselected-b.example')
+    expect(openURL).toHaveBeenCalledWith(
+      'https://active-a.example/file?path=%2Fw%2Fa.ts&root=%2Fw&server=wss%3A%2F%2Fselected-b.example',
+    )
+
+    openURL.mockRestore()
+  })
+
   it('never resolves another paired server against the active replica', async () => {
     const { Linking } = await import('react-native')
     const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
@@ -156,13 +169,25 @@ describe('followPodiumLink', () => {
     openURL.mockRestore()
   })
 
-  it('gives protocol-relative external links an OS-openable scheme', async () => {
+  it('gives every accepted protocol-relative spelling an OS-openable scheme', async () => {
     const { Linking } = await import('react-native')
     const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
     setActivePodiumOrigin('http://127.0.0.1:8787')
 
-    followPodiumLink('//example.test/guide')
-    expect(openURL).toHaveBeenCalledWith('http://example.test/guide')
+    for (const href of [
+      '//example.test/guide',
+      '/\\example.test/guide',
+      '\\/example.test/guide',
+      '\\\\example.test\\guide',
+    ]) {
+      followPodiumLink(href)
+    }
+    expect(openURL.mock.calls.map(([href]) => href)).toEqual([
+      'http://example.test/guide',
+      'http://example.test/guide',
+      'http://example.test/guide',
+      'http://example.test/guide',
+    ])
 
     openURL.mockRestore()
   })

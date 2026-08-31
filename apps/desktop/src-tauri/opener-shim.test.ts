@@ -110,6 +110,29 @@ describe('desktop opener shim', () => {
     })
   })
 
+  it('hands live server selection to the OS instead of the active replica', () => {
+    injectServer('ws://127.0.0.1:8787')
+    expect(clickOfferLink('/sessions/POD-1606-A?server=wss%3A%2F%2Frelay.example')).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', {
+      url: 'http://127.0.0.1:8787/sessions/POD-1606-A?server=wss%3A%2F%2Frelay.example',
+    })
+  })
+
+  it('does not call the page origin ours when an injected server is active', () => {
+    injectServer('ws://127.0.0.1:8787')
+    expect(clickOfferLink(`${window.location.origin}/issues/POD-1606`)).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', {
+      url: `${window.location.origin}/issues/POD-1606`,
+    })
+  })
+
+  it('hands an active-origin link with a server selector to the OS', () => {
+    injectServer('ws://127.0.0.1:8787')
+    const href = 'http://127.0.0.1:8787/sessions/POD-1606-A?server=wss%3A%2F%2Frelay.example'
+    expect(clickOfferLink(href)).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: href })
+  })
+
   it('reads the injected endpoint at click time, not at install time', () => {
     // The shim stays installed across the navigation to a transferred remote
     // origin; a value captured at install would go stale exactly then.

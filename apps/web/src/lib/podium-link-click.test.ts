@@ -142,6 +142,15 @@ describe('startupPodiumHref', () => {
         search: '?server=wss%3A%2F%2Fother.example',
       }),
     ).toBe('/sessions/POD-1606-A')
+    expect(
+      startupPodiumHref({
+        pathname: '/file',
+        search: '?path=%2Fw%2Fa.ts&root=%2Fw&server=wss%3A%2F%2Fother.example',
+      }),
+    ).toBe('/file?path=%2Fw%2Fa.ts&root=%2Fw')
+    expect(
+      startupPodiumHref({ pathname: '/file', search: '?path=%2Fw%2Fa.ts&root=%2Fw&line=42' }),
+    ).toBeNull()
   })
 })
 
