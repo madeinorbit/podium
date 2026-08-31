@@ -43,6 +43,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { timeReleaseBuildSync } from '@podium/runtime/release-build-timing'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
 import { JANITOR_WORKER_ENTRY } from '../apps/janitor/src/janitor-worker-embed.js'
@@ -68,12 +69,12 @@ import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigestFromSites,
 } from './client-build-root-digest'
+import { resolvePigz, tarCompressArgs } from './parallel-gzip'
 import {
   type ClientBuildEvidence,
   isClientBuildEvidence,
   verifyClientBuild,
 } from './verify-client-build'
-import { timeReleaseBuildSync } from '@podium/runtime/release-build-timing'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -240,18 +241,23 @@ export async function beginFreshClientPackagingSession(
   // per-platform client builds a cross-compiled release used to pay for in full.
   // Freshness does not weaken by restoring: what packaging accepts is the checksum
   // evidence below, which reads the dist that is actually on disk.
+  // `buildClients` times its own turbo run and stamp (scripts/build-clients.ts).
   const run = await buildClients(root, [], { ...process.env, PODIUM_APP_VERSION: version })
   const sourceCommit = developmentSourceSha(root)
   if (!sourceCommit) {
     throw new Error('build-bun: cannot name HEAD, so the client build cannot be verified')
   }
-  return verifyClientBuild({
-    web: `${root}apps/web/dist`,
-    mobile: `${root}apps/mobile/dist`,
-    sourceCommit,
-    version,
-    run,
-  })
+  return timeReleaseBuildSync({ granularity: 'phase', phase: 'client-preparation' }, () =>
+    timeReleaseBuildSync({ granularity: 'task', phase: 'client-preparation', task: 'verify' }, () =>
+      verifyClientBuild({
+        web: `${root}apps/web/dist`,
+        mobile: `${root}apps/mobile/dist`,
+        sourceCommit,
+        version,
+        run,
+      }),
+    ),
+  )
 }
 
 /**
@@ -707,37 +713,53 @@ export function packageHeadlessForFreshClients(
     profile: 'packaged',
     instanceId: 'default',
   })
-  syncBundleWeb(webDist, `${headless}/web`)
-  syncBundleWeb(mobileDist, `${headless}/mobile`)
-  const copiedClientRootDigest = clientBuildRootDigestFromSites({
-    web: `${headless}/web`,
-    mobile: `${headless}/mobile`,
-  })
-  if (copiedClientRootDigest !== session.clientRootDigest) {
-    throw new Error(
-      `build-bun: client output changed while it was copied into the bundle ` +
-        `(captured=${session.clientRootDigest}, copied=${copiedClientRootDigest})`,
-    )
-  }
+  // Both client trees plus the compiled binary land in the bundle here. Timed as one
+  // task per target: it is the bytes-into-place step, and the copies dominate it.
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
+    () =>
+      timeReleaseBuildSync(
+        {
+          granularity: 'task',
+          phase: 'headless-platform-build',
+          task: 'assemble-bundle',
+          target: spec?.platform ?? 'local',
+        },
+        () => {
+          syncBundleWeb(webDist, `${headless}/web`)
+          syncBundleWeb(mobileDist, `${headless}/mobile`)
+          const copiedClientRootDigest = clientBuildRootDigestFromSites({
+            web: `${headless}/web`,
+            mobile: `${headless}/mobile`,
+          })
+          if (copiedClientRootDigest !== session.clientRootDigest) {
+            throw new Error(
+              `build-bun: client output changed while it was copied into the bundle ` +
+                `(captured=${session.clientRootDigest}, copied=${copiedClientRootDigest})`,
+            )
+          }
 
-  // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
-  const bundledCli = `${headless}/${names.cli}`
-  if (win) {
-    cpSync(`${bundleRoot}/${names.compiled}`, bundledCli)
-  } else {
-    // A running Linux executable cannot be opened for an in-place copy (ETXTBSY),
-    // but replacing its directory entry is safe: the old process keeps its inode
-    // while new launches see the complete new binary.
-    const stagedCli = `${bundledCli}.new-${process.pid}`
-    try {
-      cpSync(`${bundleRoot}/${names.compiled}`, stagedCli)
-      chmodSync(stagedCli, 0o755)
-      renameSync(stagedCli, bundledCli)
-    } finally {
-      rmSync(stagedCli, { force: true })
-    }
-  }
-  chmodSync(bundledCli, 0o755)
+          // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
+          const bundledCli = `${headless}/${names.cli}`
+          if (win) {
+            cpSync(`${bundleRoot}/${names.compiled}`, bundledCli)
+          } else {
+            // A running Linux executable cannot be opened for an in-place copy (ETXTBSY),
+            // but replacing its directory entry is safe: the old process keeps its inode
+            // while new launches see the complete new binary.
+            const stagedCli = `${bundledCli}.new-${process.pid}`
+            try {
+              cpSync(`${bundleRoot}/${names.compiled}`, stagedCli)
+              chmodSync(stagedCli, 0o755)
+              renameSync(stagedCli, bundledCli)
+            } finally {
+              rmSync(stagedCli, { force: true })
+            }
+          }
+          chmodSync(bundledCli, 0o755)
+        },
+      ),
+  )
 
   // License notices ship with every headless bundle (Apache-2.0 NOTICE convention + the
   // generated third-party inventory; regenerate via scripts/generate-third-party-notices.ts).
@@ -759,6 +781,13 @@ export function packageHeadlessForFreshClients(
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
   const tarball = updateArtifactPath(bundleRoot, version, argv, env)
+  // Compress in parallel where pigz is installed — archiving is the slowest single step of a
+  // release and gzip only ever uses one of the build scope's two cores. See scripts/parallel-gzip.ts
+  // for the measurements, the -p2 thread pin, and why pigz stays optional.
+  const pigz = resolvePigz()
+  console.log(
+    `build-bun: archiving ${tarball} with ${pigz ? `${pigz} -p2` : 'gzip (pigz not found)'}`,
+  )
   timeReleaseBuildSync(
     { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
     () =>
@@ -770,7 +799,7 @@ export function packageHeadlessForFreshClients(
           target: spec?.platform ?? 'local',
         },
         () =>
-          execFileSync('tar', ['-czf', tarball, '-C', bundleRoot, 'headless'], {
+          execFileSync('tar', tarCompressArgs(tarball, bundleRoot, 'headless', pigz), {
             cwd: root,
             stdio: 'inherit',
           }),
@@ -821,22 +850,36 @@ export function packageHeadlessForFreshClients(
   // continuity, not correctness: it catches stale/wrong paths, partial copies,
   // corruption, and substitution between the build and packaging. A bad build can
   // still agree with its own manifest.
-  const extracted = mkdtempSync(join(tmpdir(), 'podium-packaged-client-proof-'))
-  try {
-    execFileSync('tar', ['-xzf', tarball, '-C', extracted])
-    const packagedClientRootDigest = clientBuildRootDigestFromSites({
-      web: join(extracted, 'headless/web'),
-      mobile: join(extracted, 'headless/mobile'),
-    })
-    if (packagedClientRootDigest !== session.clientRootDigest) {
-      throw new Error(
-        `build-bun: packaged clients differ from the fresh build ` +
-          `(captured=${session.clientRootDigest}, packaged=${packagedClientRootDigest})`,
-      )
-    }
-  } finally {
-    rmSync(extracted, { recursive: true, force: true })
-  }
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'validation', target: spec?.platform ?? 'local' },
+    () =>
+      timeReleaseBuildSync(
+        {
+          granularity: 'task',
+          phase: 'validation',
+          task: 'archive-proof',
+          target: spec?.platform ?? 'local',
+        },
+        () => {
+          const extracted = mkdtempSync(join(tmpdir(), 'podium-packaged-client-proof-'))
+          try {
+            execFileSync('tar', ['-xzf', tarball, '-C', extracted])
+            const packagedClientRootDigest = clientBuildRootDigestFromSites({
+              web: join(extracted, 'headless/web'),
+              mobile: join(extracted, 'headless/mobile'),
+            })
+            if (packagedClientRootDigest !== session.clientRootDigest) {
+              throw new Error(
+                `build-bun: packaged clients differ from the fresh build ` +
+                  `(captured=${session.clientRootDigest}, packaged=${packagedClientRootDigest})`,
+              )
+            }
+          } finally {
+            rmSync(extracted, { recursive: true, force: true })
+          }
+        },
+      ),
+  )
 
   console.log(`[build-bun] headless bundle -> ${headless} (VERSION ${version})`)
   console.log(`[build-bun] headless update artifact -> ${tarball}`)

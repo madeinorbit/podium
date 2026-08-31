@@ -16,10 +16,11 @@
  * that two sibling worktrees, installed independently but the same way, agree — that is
  * what lets them share one durable Turbo cache. A symlink is normally recorded by its
  * relative link text where it has one, and otherwise only by the class of its target
- * (inside this checkout, or external). The one conservative normalization is a healthy,
- * uniquely manifest-validated executable shim in an isolated peer-context `.bin`: Bun
- * may materialize those nondeterministically, and workspace tasks cannot resolve through
- * them. They are still traversed and validated before being omitted. An external target
+ * (inside this checkout, or external). The one conservative normalization is the isolated
+ * peer-context `.bin` — its healthy, uniquely manifest-validated executable shims, and the
+ * container directory that holds them: Bun may materialize those nondeterministically, and
+ * workspace tasks cannot resolve through them. They are still traversed and validated
+ * before being omitted, and a shim that is dangling or wrong still refuses. An external target
  * is the global store; which store it is does not change what resolves, and bun.lock —
  * already a turbo globalDependency — pins the content. Recording absolute store paths
  * would split the cache per host for no correctness gain.
@@ -287,7 +288,14 @@ function describeEntries(
         continue
       }
       if (container || (prefix === '' && kind === 'modules' && entry.name === '.bin')) {
-        record(name, 'd', '-')
+        // The same nondeterminism that moves a peer-context shim also moves the `.bin`
+        // that holds it: Bun 1.3.14 writes the whole directory on some frozen installs
+        // and not others (POD-3185). A bare directory record carries no resolvable
+        // command, and every child that still bears identity records under a `.bin/`
+        // prefix of its own, so the container itself is redundant here — and recording
+        // it would flip the fingerprint, and with it every task hash, per install.
+        const peerBin = peerExecutables !== null && !container && prefix === ''
+        if (!peerBin) record(name, 'd', '-')
         visit(path, `${name}/`)
         continue
       }

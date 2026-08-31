@@ -20,7 +20,8 @@
  *
  * Regenerating by hand (Linux, `zig` and `rcodesign` on PATH):
  *
- *   bun scripts/abduco-cross.ts            # all four, into dist-bun/abduco-cache
+ *   bun scripts/abduco-cross.ts            # all four, into the durable cache
+ *   bun scripts/abduco-cross.ts --print-cache-dir   # where that is
  *   bun scripts/abduco-cross.ts --platform darwin-aarch64 --force
  *
  * See docs/internal/headless-cross-compilation.md for the full provenance note.
@@ -29,8 +30,9 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { sharedCacheDir } from './shared-cache-dir'
 
 /** Repo root, from this file's location (works under bun run and bun --compile alike). */
 export const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -138,8 +140,27 @@ export function abducoSourceHash(source: string = ABDUCO_SOURCE): string {
   return createHash('sha256').update(readFileSync(source)).digest('hex')
 }
 
+/**
+ * Where the compiled helpers live.
+ *
+ * DURABLE, NOT IN THE CHECKOUT (POD-3162). This used to default to
+ * `<root>/dist-bun/abduco-cache`, which meant it never hit for the one build that
+ * needed it most: a release packages from a fresh detached worktree in /tmp, where
+ * `dist-bun/` is gitignored and therefore created empty, so every release paid two
+ * zig compiles the cache existed to avoid. The default is now the same per-host,
+ * per-repository path the Turbo cache uses — keyed on the COMMON GIT DIR, so a
+ * detached worktree shares its parent repository's entries. The KEY is unchanged:
+ * still `<platform>-<sha256(abduco.c)[0:16]>`, so relocating it cannot widen what
+ * a hit means.
+ *
+ * `PODIUM_ABDUCO_CACHE_DIR` overrides it (CI pins the in-checkout path so
+ * actions/cache can still archive a fixed directory); `root` still selects the
+ * repository whose cache to use, which is what lets a test point at a temp dir.
+ */
 export function abducoCacheDir(root: string = REPO_ROOT): string {
-  return join(root, 'dist-bun', 'abduco-cache')
+  const override = process.env.PODIUM_ABDUCO_CACHE_DIR?.trim()
+  if (override) return resolve(root, override)
+  return sharedCacheDir('abduco', root)
 }
 
 /**
@@ -234,6 +255,11 @@ export function crossBuildAbduco(
 
 function main(): void {
   const argv = process.argv.slice(2)
+  // Shell callers need the path too, and must never re-derive it from a literal.
+  if (argv.includes('--print-cache-dir')) {
+    console.log(abducoCacheDir())
+    return
+  }
   const force = argv.includes('--force')
   const requested = argv
     .filter((a) => a.startsWith('--platform='))

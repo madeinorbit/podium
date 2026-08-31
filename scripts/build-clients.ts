@@ -29,6 +29,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { timeReleaseBuild } from '@podium/runtime/release-build-timing'
 import { admissionRefusal, decideForce, readCensus, turboEnv } from './typecheck'
 
 export const CLIENT_BUILD_TASKS = ['@podium/web#build', '@podium/mobile#build'] as const
@@ -145,8 +146,17 @@ export async function buildClients(
   args: readonly string[] = [],
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ClientBuildRun> {
-  const summaryPath = await runTurboBuild(root, CLIENT_FILTERS, args, env)
-  await stampClients(root, env)
+  // The two halves are recorded apart because they behave differently: turbo is 453 ms
+  // on a cache hit, while the stamp pays two Bun starts every time. They do not nest,
+  // so the phase records sum without double counting.
+  const timedClientStep = <T>(task: string, run: () => Promise<T>): Promise<T> =>
+    timeReleaseBuild({ granularity: 'phase', phase: 'client-preparation' }, () =>
+      timeReleaseBuild({ granularity: 'task', phase: 'client-preparation', task }, run),
+    )
+  const summaryPath = await timedClientStep('turbo-lane', () =>
+    runTurboBuild(root, CLIENT_FILTERS, args, env),
+  )
+  await timedClientStep('stamp', () => stampClients(root, env))
   return { summaryPath, tasks: readRunSummary(root, summaryPath) }
 }
 
