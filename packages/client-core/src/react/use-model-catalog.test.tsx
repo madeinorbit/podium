@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { asMachineId } from '@podium/model'
 import { MODEL_CATALOG_MAX_AGE_MS } from '@podium/protocol'
 import { act, cleanup, render, screen } from '@testing-library/react'
