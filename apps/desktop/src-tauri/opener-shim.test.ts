@@ -122,6 +122,19 @@ describe('desktop opener shim', () => {
     expect(nativeOpen).not.toHaveBeenCalled()
   })
 
+  it('keeps protocol-relative links external even when they repeat the active host', () => {
+    injectServer('http://127.0.0.1:8787')
+    const href = '//127.0.0.1:8787/guide?q=x#y'
+    const expected = 'http://127.0.0.1:8787/guide?q=x#y'
+    expect(clickOfferLink(href)).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: expected })
+
+    invoke.mockClear()
+    window.open(href, '_blank')
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: expected })
+    expect(nativeOpen).not.toHaveBeenCalled()
+  })
+
   it('leaves an in-app link to the webview', () => {
     expect(clickOfferLink(`${window.location.origin}/session/abc`)).toBe(false)
     expect(invoke).not.toHaveBeenCalled()
