@@ -7,6 +7,7 @@ import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { color } from '../theme/theme'
 import TerminalDom from './TerminalDom'
 import type { TerminalControlState } from './terminal-control'
+import { encodeFrameBytes } from './terminal-dom-bridge'
 import type { TerminalDomControlEvent, TerminalDomHandle } from './terminal-dom-bridge'
 
 /**
@@ -93,7 +94,7 @@ export function TerminalPane({
   const onAttachTerminal = useCallback(async () => {
     if (connRef.current) return
     const conn = hub.attach(sessionId, {
-      onFrame: (text) => domRef.current?.frame(text),
+      onFrame: (bytes) => domRef.current?.frame(encodeFrameBytes(bytes)),
       onState: (state: ConnectionState) => domRef.current?.connState(state),
       onReset: () => domRef.current?.reset(),
       onAttached: () => domRef.current?.attached(),

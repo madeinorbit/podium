@@ -8,6 +8,30 @@ import type { SessionId } from '@podium/model'
 import type { TerminalControlView } from './terminal-control'
 
 /**
+ * PTY OUTPUT CROSSES THIS SEAM AS BASE64, NOT AS TEXT.
+ *
+ * The hub delivers PTY output as raw bytes, because a terminal stream is not
+ * guaranteed to be text: a multi-byte UTF-8 rune can straddle two frames, and
+ * a program is free to emit bytes that decode to nothing at all. Every Expo
+ * DOM call is serialized into an `injectJavaScript` evaluation, so the wire
+ * here is a JSON string and the bytes need an encoding to survive it. Decoding
+ * to text would corrupt exactly the two cases above; base64 is byte-exact, and
+ * it is the encoding the hub itself already uses for the same reason on the
+ * socket wire (socket-hub.ts).
+ */
+export function encodeFrameBytes(bytes: Uint8Array): string {
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin)
+}
+
+/** Inverse of {@link encodeFrameBytes}, run inside the webview. */
+export function decodeFrameBytes(b64: string): Uint8Array {
+  const bin = atob(b64)
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0))
+}
+
+/**
  * THE SEAM BETWEEN THE NATIVE HUB AND THE WEBVIEW TERMINAL.
  *
  * The native pane renders xterm inside an Expo DOM component ('use dom' on
@@ -53,8 +77,8 @@ export interface TerminalDomControlEvent extends TerminalControlView {
  * (tens of small text frames per second).
  */
 export interface TerminalDomHandle {
-  /** One PTY output frame (already base64-decoded text). */
-  frame(text: string): void
+  /** One PTY output frame, base64 of the raw bytes — see {@link encodeFrameBytes}. */
+  frame(b64: string): void
   /** The native SessionConnection's latest full state. */
   connState(state: BridgeConnectionState): void
   /** A full replay is incoming — clear before the buffered frames land. */
@@ -108,7 +132,7 @@ export interface TerminalBridge {
   hub: SocketHub
   /** The receiving half the DOM component wires into its imperative handle. */
   push: {
-    frame(text: string): void
+    frame(b64: string): void
     state(next: BridgeConnectionState): void
     reset(): void
     attached(): void
@@ -171,7 +195,7 @@ export function createTerminalBridge(
   return {
     hub,
     push: {
-      frame: (text) => cb.onFrame?.(text),
+      frame: (b64) => cb.onFrame?.(decodeFrameBytes(b64)),
       state: (next) => {
         state = next
         cb.onState?.(next)

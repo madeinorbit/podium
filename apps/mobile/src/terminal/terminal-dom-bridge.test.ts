@@ -3,6 +3,7 @@ import { asSessionId } from '@podium/model'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createTerminalBridge,
+  encodeFrameBytes,
   initialBridgeState,
   type TerminalDomActions,
 } from './terminal-dom-bridge'
@@ -92,16 +93,30 @@ describe('createTerminalBridge', () => {
     } satisfies SessionCallbacks
     bridge.hub.attach(SESSION, cb)
 
-    bridge.push.frame('hello')
+    bridge.push.frame(encodeFrameBytes(new TextEncoder().encode('hello')))
     bridge.push.reset()
     bridge.push.attached()
-    expect(cb.onFrame).toHaveBeenCalledWith('hello')
+    expect(cb.onFrame).toHaveBeenCalledWith(new TextEncoder().encode('hello'))
     expect(cb.onReset).toHaveBeenCalledTimes(1)
     expect(cb.onAttached).toHaveBeenCalledTimes(1)
 
     bridge.hub.detach(SESSION)
-    bridge.push.frame('late')
+    bridge.push.frame(encodeFrameBytes(new TextEncoder().encode('late')))
     expect(cb.onFrame).toHaveBeenCalledTimes(1)
+  })
+
+  it('carries PTY bytes across the seam exactly, text or not', () => {
+    // The guard on the encoding choice. A terminal stream is not text: these
+    // bytes are a NUL, a lone UTF-8 continuation byte and a 0xff — none of
+    // which survive a decode/encode round trip through a string. If the seam
+    // ever goes back to carrying text, this is what breaks.
+    const bridge = createTerminalBridge(SESSION, harness.box)
+    const seen: Uint8Array[] = []
+    bridge.hub.attach(SESSION, { onFrame: (bytes) => seen.push(bytes) })
+
+    const raw = new Uint8Array([0x00, 0x80, 0xff, 0x1b, 0x5b, 0x41])
+    bridge.push.frame(encodeFrameBytes(raw))
+    expect(seen).toEqual([raw])
   })
 
   it('forwards every connection mutation to the native actions', () => {

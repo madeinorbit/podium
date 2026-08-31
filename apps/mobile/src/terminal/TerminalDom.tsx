@@ -142,8 +142,8 @@ export default function TerminalDom({
   useDOMImperativeHandle(
     ref as Ref<never>,
     () => ({
-      frame(text: JSONValue) {
-        bridge.push.frame(text as string)
+      frame(b64: JSONValue) {
+        bridge.push.frame(b64 as string)
       },
       connState(state: JSONValue) {
         bridge.push.state(state as unknown as BridgeConnectionState)
