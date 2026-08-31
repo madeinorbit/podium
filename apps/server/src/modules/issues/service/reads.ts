@@ -689,16 +689,22 @@ export class IssueReportsModule {
           .map((b) => `${this.niceRef(b)} (${b.title})`)
         const parent = me.parentId && mayRead(me.parentId) ? this.get(me.parentId) : null
         if (me.draft) {
+          const artifacts = me.panel?.artifacts ?? []
           return [
             `This session is attached to a draft work item (${this.niceRef(me)}).`,
+            artifacts.length > 0
+              ? `User attachments on this draft:\n${artifacts.map((artifact, index) => `  - ${index + 1}. ${artifact.title ?? artifact.path}`).join('\n')}\nRead one with: podium issue artifact ${me.seq} --get <number> [--out <path>]`
+              : null,
             "Once you have understood and named the user's request, EITHER:",
-            `  - retitle it if this is new work: podium issue update --id ${me.seq} --title "…" (this makes it a real issue — 3–5 words naming the thing, not the activity), OR`,
+            `  - name it if this is new work: podium issue update --id ${me.seq} --title "…" --description "…" (this makes it a real issue — use a 3–5 word title naming the thing and a 1–3 sentence, context-free description), OR`,
             '  - attach to an existing issue that already covers it: podium issue attach --id <id>.',
             'Prefer attaching over duplicating.',
-            `Retitling only names the issue — it leaves it in \`backlog\`. In the SAME step, put it in the stage you are actually in: \`podium issue update --id ${me.seq} --stage planning\` while you are still designing or investigating, \`--stage in_progress\` the moment you start changing code. Then keep it current (\`--stage review\`, \`podium issue close ${me.seq}\`) as you go.`,
+            `Naming the issue still leaves it in \`backlog\`. Add \`--stage planning\` to that update while you are designing or investigating, or \`--stage in_progress\` the moment you start changing code. Then keep it current (\`--stage review\`, \`podium issue close ${me.seq}\`) as you go.`,
             '',
             ...rules,
-          ].join('\n')
+          ]
+            .filter((line) => line !== null)
+            .join('\n')
         }
         // Agent mail (issue #103): surface pending mail at prime time so a fresh /
         // resumed agent learns about messages that arrived while nothing was live.

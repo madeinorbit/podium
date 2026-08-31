@@ -24,7 +24,7 @@ import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
+import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import { type Router, routeDefaults } from '../ui-state'
 import type {
   DockTab,
@@ -244,16 +244,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     permanent?: boolean
   }): void
   recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void
-  spawnDraftAgent(args: {
-    sessionId?: SessionId
-    issueId?: IssueId
-    mutationId?: MutationId
-    target: SpawnTarget
-    agentKind: AgentKind
-    firstPrompt?: string
-    model?: string
-    effort?: string
-  }): {
+  spawnDraftAgent(args: SpawnDraftAgentArgs): {
     sessionId: SessionId
     issueId: IssueId
     settled: Promise<boolean>

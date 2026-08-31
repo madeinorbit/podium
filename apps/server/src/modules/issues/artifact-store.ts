@@ -78,6 +78,12 @@ export interface ArtifactSnapshotInput {
   extraPaths?: string[]
 }
 
+export interface ArtifactUploadInput {
+  issueId: IssueId
+  filename: string
+  dataBase64: string
+}
+
 /** The two daemon RPCs the snapshotter rides (DaemonRpcService, structurally). */
 export interface ArtifactRpc {
   readAsset(input: {
@@ -131,6 +137,55 @@ export class IssueArtifactStore {
   async snapshot(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
     const write = () => this.snapshotWritable(o)
     return this.writeFence ? this.writeFence.runWriter(write) : write()
+  }
+
+  /** Store browser-provided bytes as an issue artifact without first writing a
+   *  source file into a checkout or daemon upload directory. */
+  async upload(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
+    const write = () => this.uploadWritable(o)
+    return this.writeFence ? this.writeFence.runWriter(write) : write()
+  }
+
+  private async uploadWritable(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
+    if (
+      !o.filename ||
+      o.filename === '.' ||
+      o.filename === '..' ||
+      o.filename.includes('/') ||
+      o.filename.includes('\\') ||
+      o.filename.includes('\0')
+    ) {
+      throw new Error('artifact filename must be a plain filename')
+    }
+    const bytes = Buffer.from(o.dataBase64, 'base64')
+    if (bytes.length > ARTIFACT_FILE_CAP_BYTES) {
+      throw new Error(
+        `${o.filename} is ${bytes.length} bytes (per-file cap ${ARTIFACT_FILE_CAP_BYTES / (1024 * 1024)}MB)`,
+      )
+    }
+    const artifactId = asArtifactId(randomBytes(6).toString('hex'))
+    const dir = this.artifactDir(o.issueId, artifactId)
+    const target = join(dir, o.filename)
+    this.assertInBase(target)
+    try {
+      await mkdir(dir, { recursive: true })
+      const fh = await open(target, 'w')
+      try {
+        await fh.writeFile(bytes)
+        await fh.sync()
+      } finally {
+        await fh.close()
+      }
+      return {
+        artifactId,
+        entry: o.filename,
+        files: [{ path: o.filename, size: bytes.length }],
+        sourcePaths: [],
+      }
+    } catch (error) {
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
+      throw error
+    }
   }
 
   private async snapshotWritable(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {

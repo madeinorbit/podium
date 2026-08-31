@@ -1,3 +1,4 @@
+import type { DraftIssueArtifactInput } from '@podium/commands'
 import { createLogger } from '@podium/logger'
 import {
   asMutationId,
@@ -24,6 +25,21 @@ export interface SpawnTarget {
 }
 
 export type TaskSpawnOutcome = 'started' | 'issue-only' | 'failed'
+
+type DraftSpawnReservation =
+  | { sessionId: SessionId; issueId: IssueId; mutationId: MutationId }
+  | { sessionId?: never; issueId?: never; mutationId?: never }
+
+/** Retry identity is one reservation, not three independent switches. Reusing
+ *  a mutation receipt with freshly-minted entity ids cannot reconcile. */
+export type SpawnDraftAgentArgs = DraftSpawnReservation & {
+  draftArtifacts?: DraftIssueArtifactInput[]
+  target: SpawnTarget
+  agentKind: AgentKind
+  firstPrompt?: string
+  model?: string
+  effort?: string
+}
 
 /**
  * The network half of the "New <Agent> in <Repo>" spawn: create the session (in a
@@ -78,6 +94,7 @@ export async function createDraftAgent(args: {
   sessionId: SessionId
   issueId: IssueId
   mutationId?: MutationId
+  draftArtifacts?: DraftIssueArtifactInput[]
   target: SpawnTarget
   agentKind: AgentKind
   firstPrompt?: string
@@ -92,6 +109,7 @@ export async function createDraftAgent(args: {
     agentKind: args.agentKind,
     cwd: args.target.path,
     draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
+    ...(args.draftArtifacts?.length ? { draftArtifacts: args.draftArtifacts } : {}),
     ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
     ...(text ? { initialPrompt: text } : {}),
     ...(args.model ? { model: args.model } : {}),

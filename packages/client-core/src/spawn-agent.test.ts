@@ -89,6 +89,31 @@ describe('spawn machine-USE placement', () => {
       mutationId: 'launch-1:first-prompt',
     })
   })
+
+  it('puts direct attachments on the draft create rather than in the prompt', async () => {
+    const { trpc, create } = api()
+    await createDraftAgent({
+      ...base,
+      trpc,
+      target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
+      firstPrompt: 'Review the mock',
+      draftArtifacts: [
+        {
+          id: 'att-1',
+          filename: 'mock.png',
+          mimeType: 'image/png',
+          dataBase64: 'UE5H',
+        },
+      ],
+    })
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialPrompt: 'Review the mock',
+        draftArtifacts: [expect.objectContaining({ filename: 'mock.png', dataBase64: 'UE5H' })],
+      }),
+    )
+  })
 })
 
 describe('firstPrompt delivery (POD-549)', () => {

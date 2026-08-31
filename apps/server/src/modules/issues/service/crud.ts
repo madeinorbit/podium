@@ -445,6 +445,41 @@ export class IssueCrudModule {
     return wire
   }
 
+  /** Attach browser-provided bytes straight to the issue's permanent artifact
+   *  store. Unlike `panelArtifactAdd`, this has no source path and therefore no
+   *  issue-worktree requirement. */
+  async panelArtifactUpload(
+    id: string,
+    input: { id: string; filename: string; dataBase64: string },
+  ): Promise<IssueWire> {
+    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    const store = this.store.deps.artifacts
+    if (!store) throw new Error('permanent issue artifact storage is unavailable')
+    if (!/^[A-Za-z0-9._-]+$/.test(input.id)) throw new Error('invalid draft artifact id')
+    const snap = await store.upload({
+      issueId: row.id,
+      filename: input.filename,
+      dataBase64: input.dataBase64,
+    })
+    const path = `attachments/${input.id}/${snap.entry}`
+    const existing = this.store.parsePanel(row).artifacts.find((artifact) => artifact.path === path)
+    try {
+      const wire = this.panelApply(row.id, {
+        op: 'artifact-add',
+        path,
+        title: input.filename,
+        artifactId: snap.artifactId,
+        entry: snap.entry,
+        files: snap.files,
+      })
+      if (existing?.artifactId) void store.remove(row.id, existing.artifactId).catch(() => {})
+      return wire
+    } catch (error) {
+      void store.remove(row.id, snap.artifactId).catch(() => {})
+      throw error
+    }
+  }
+
   /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
    *  The dir delete is best-effort AFTER the committed panel update. */
   panelArtifactRemove(id: string, index: number): IssueWire {

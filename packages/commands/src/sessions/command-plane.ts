@@ -147,6 +147,20 @@ const AGENT: CommandDef['exposure'] = ['trpc', 'mcp', 'relay', 'cli']
 const PLACEMENT_DECISION =
   'Placement fails closed (§3.1.4 M5): an explicit machineId is gated BEFORE prepareSessionTarget, which may clone a repo onto the target — a side effect a denied principal must never cause. The IMPLICIT pick is gated too, by threading the principal’s use decision into MachinesService so agentCapabilityRejection refuses a denied machine in the same branch as an offline one. Unauthorized stays distinguishable from unreachable inside the see set (D18.5); outside it the machine is absent and reads exactly like a never-paired id.'
 
+export const draftIssueArtifactInput = z.object({
+  /** Stable browser-side identity. It makes two same-named uploads distinct. */
+  id: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9._-]+$/),
+  filename: z.string().min(1).max(255),
+  mimeType: z.string().max(100),
+  /** Browser bytes go straight to permanent issue storage, never a workspace. */
+  dataBase64: z.string().max(10 * 1024 * 1024),
+})
+export type DraftIssueArtifactInput = z.infer<typeof draftIssueArtifactInput>
+
 const createInput = z.object({
   agentKind: agentKind.optional(),
   cwd: z.string(),
@@ -171,6 +185,9 @@ const createInput = z.object({
    *  be the one in the chain. */
   sessionId: z.string().uuid().pipe(SessionIdField).optional(),
   draftIssue: z.object({ repoPath: z.string(), issueId: IssueIdField.optional() }).optional(),
+  /** User-provided files for a newly-created draft issue. The create handler
+   *  snapshots these before the agent starts, so its prime sees the artifacts. */
+  draftArtifacts: z.array(draftIssueArtifactInput).optional(),
   mutationId,
 })
 
@@ -181,7 +198,10 @@ const create: CommandDef = {
   visibility: PERSONAL,
   exposure: OPERATOR,
   offline: 'online-only',
-  redaction: { fields: [], note: 'a cwd and a harness name are not secrets' },
+  redaction: {
+    fields: ['draftArtifacts'],
+    note: 'Draft artifact bytes are user content and must never reach command logs. The whole array is redacted because this contract redacts top-level fields.',
+  },
   conflict: 'cmd',
   decision: `${PLACEMENT_DECISION} Ownership on create is resolved from the principal, not the transport: an agent-created session is owned by its onBehalfOf HUMAN with the agent as actor (A4), and one spawned under an issue inherits THAT issue's owner and grants — otherwise sharing an issue does not share its work and retiring an agent orphans what it made. The draftIssue vessel resolves the same owner, so the low-friction start path produces an OWNED draft. No relay exposure: agents spawn through messages.spawnAgent, which carries its own budget and parent-scope rules.`,
 }

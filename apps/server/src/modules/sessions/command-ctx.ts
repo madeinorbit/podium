@@ -107,6 +107,9 @@ export function sessionCommandCtx(
       )!,
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    attachDraftArtifacts: async (issueId, artifacts) => {
+      for (const artifact of artifacts) await issues.panelArtifactUpload(issueId, artifact)
+    },
     discardUnlaunchedDraft: (issueId) => issues.discardUnlaunchedDraft(issueId),
     issueOwner: (issueId) => issues.ownedTarget(issueId, 'read')?.owner ?? undefined,
     access: {

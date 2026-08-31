@@ -16,7 +16,11 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { IssueUpdatePatch, SuperagentUserFocus } from '@podium/commands'
+import type {
+  DraftIssueArtifactInput,
+  IssueUpdatePatch,
+  SuperagentUserFocus,
+} from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -136,6 +140,7 @@ export interface PodiumClientApi {
         title?: string
         issueId?: IssueId
         draftIssue?: { repoPath: string; issueId?: IssueId }
+        draftArtifacts?: DraftIssueArtifactInput[]
         machineId?: MachineId
         /** First prompt; argv harnesses get it on launch (POD-549). */
         initialPrompt?: string

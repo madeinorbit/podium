@@ -84,6 +84,26 @@ describe('useAttachments drag cursor (POD-1595 review)', () => {
 })
 
 describe('useAttachments', () => {
+  it('keeps new-issue bytes in memory instead of writing a daemon upload', async () => {
+    const { result } = renderHook(() => useAttachments({ sessionId, trpc, destination: 'issue' }))
+
+    await act(async () => {
+      await result.current.processFiles([new File(['PNG'], 'shot.png', { type: 'image/png' })])
+    })
+
+    expect(mutate).not.toHaveBeenCalled()
+    expect(result.current.ready()).toMatchObject({
+      paths: [],
+      draftArtifacts: [
+        expect.objectContaining({
+          filename: 'shot.png',
+          mimeType: 'image/png',
+          dataBase64: 'UE5H',
+        }),
+      ],
+    })
+  })
+
   it('takes a document, not only an image', async () => {
     const { result } = renderHook(() => useAttachments({ sessionId, trpc }))
 

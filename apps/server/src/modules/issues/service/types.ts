@@ -306,6 +306,12 @@ export interface IssueDeps {
       files: { path: string; size: number }[]
       sourcePaths?: string[]
     }>
+    upload(o: { issueId: IssueId; filename: string; dataBase64: string }): Promise<{
+      artifactId: ArtifactId
+      entry: string
+      files: { path: string; size: number }[]
+      sourcePaths?: string[]
+    }>
     /** Read one snapshotted file back out (POD-1999) — server-local, so it
      *  answers with the owning machine offline. Null = no such stored file. */
     read(

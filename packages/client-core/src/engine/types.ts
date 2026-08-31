@@ -36,7 +36,7 @@ import type { OutboxDeadLetterEntry } from '../outbox'
 import type { ReadPositionPort } from '../read-position'
 import type { Replica } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
+import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
@@ -391,16 +391,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  ids so the broadcast reconciles by id — and rolls the optimistic rows back
    *  if the create never lands. Returns the ids synchronously so the caller
    *  navigates without waiting on the round-trip. */
-  spawnDraftAgent: (args: {
-    sessionId?: SessionId
-    issueId?: IssueId
-    mutationId?: MutationId
-    target: SpawnTarget
-    agentKind: AgentKind
-    firstPrompt?: string
-    model?: string
-    effort?: string
-  }) => {
+  spawnDraftAgent: (args: SpawnDraftAgentArgs) => {
     sessionId: SessionId
     issueId: IssueId
     settled: Promise<boolean>

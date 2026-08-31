@@ -1395,6 +1395,14 @@ describe('spawn transport failure (#263 review finding 4)', () => {
       issueId: asIssueId('reserved-issue'),
       sessionId: asSessionId('reserved-session'),
       mutationId: asMutationId('reserved-mutation'),
+      draftArtifacts: [
+        {
+          id: 'att-1',
+          filename: 'mock.png',
+          mimeType: 'image/png',
+          dataBase64: 'UE5H',
+        },
+      ],
       target: { path: '/w', repoPath: '/w' },
       agentKind: 'codex',
       firstPrompt: 'Name this work',
@@ -1405,6 +1413,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
       sessionId: 'reserved-session',
       mutationId: 'reserved-mutation',
       initialPrompt: 'Name this work',
+      draftArtifacts: [expect.objectContaining({ filename: 'mock.png', dataBase64: 'UE5H' })],
       draftIssue: { repoPath: '/w', issueId: 'reserved-issue' },
     })
     engine.dispose()

@@ -109,10 +109,9 @@ function promptTitle(prompt: string): string {
 /**
  * THE BRIEF IS WHERE THE ATTACHED PATHS GO (POD-1203).
  *
- * A persisted legacy issue retry still stores paths in `brief`, while a fresh
- * draft launch appends the same text to `firstPrompt`. In both cases the agent
- * gets the file paths without the composer writing them into human-facing issue
- * metadata.
+ * Persisted launches from before direct issue attachments still carry daemon
+ * paths. Keep those retries readable without putting paths into human-facing
+ * issue metadata. New launches send browser bytes to the draft issue instead.
  *
  * The chat composer's own convention is paths first, then prose; the ordering
  * differs here for the same reason the fields do — an issue leads with its
@@ -425,29 +424,14 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     })
   }, [authorized, selectedMachine])
 
-  /**
-   * ATTACHING BEFORE THERE IS ANYTHING TO ATTACH TO (POD-1203).
-   *
-   * The same hook, the same mutation and the same daemon that the session chat
-   * composer uses — a second upload path would be a second set of size limits,
-   * failure shapes and GC rules to keep in step, for no gain. The two things it
-   * has to be told are the two the session normally answers:
-   *
-   *  - WHICH MACHINE. The chosen one, because the paths that come back have to be
-   *    valid on the disk this mission is about to run on. The hook re-uploads by
-   *    itself if that choice changes underneath an attachment.
-   *  - WHICH FOLDER. Uploads are filed per session, and this one has no session.
-   *    A scope id minted here stands in for it: the daemon treats it as an opaque
-   *    directory name (it deliberately validates no session — a client may upload
-   *    before the PTY is live), so the bytes land beside every other upload and
-   *    are swept by the same 24h TTL. It is NOT a session id in disguise; nothing
-   *    ever looks it up, and the session this mission spawns gets its own.
-   */
+  /** The home composer has no issue yet. Keep picked bytes in browser memory;
+   *  `sessions.create` snapshots them onto the new draft before its agent runs.
+   *  Existing-session chat keeps using daemon workspace uploads. */
   const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
   const attachments = useAttachments({
     sessionId: uploadScope,
     trpc,
-    ...(selectedMachine ? { machineId: selectedMachine.id } : {}),
+    destination: 'issue',
   })
 
   /**
@@ -673,8 +657,10 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     setBusy(true)
     setError(null)
     try {
+      const readyAttachments = attachments.ready()
       const attachmentPaths =
-        draft.attachmentPaths.length > 0 ? draft.attachmentPaths : attachments.ready().paths
+        draft.attachmentPaths.length > 0 ? draft.attachmentPaths : readyAttachments.paths
+      const draftArtifacts = readyAttachments.draftArtifacts
       const brief = attachmentBrief(attachmentPaths)
       // Drafts left by the old two-mutation path may already have a durable issue.
       // Finish those in place; every new launch uses the single optimistic path.
@@ -798,6 +784,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       setDraft(launchDraft)
       const started = spawnDraftAgent({
         ...retryCreate,
+        ...(draftArtifacts.length ? { draftArtifacts } : {}),
         target: {
           path: selectedCheckout.path,
           repoPath: selectedCheckout.path,
@@ -809,12 +796,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         ...(draft.model !== AUTO ? { model: draft.model } : {}),
         ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
       })
-      attachments.clear()
       // Keep prompt, attachments and ids until the authority has accepted the
       // draft vessel and its first session. The mutation and client-minted ids
       // make an ambiguous retry duplicate-safe.
       void started.settled.then((settled) => {
         if (settled) {
+          attachments.clear()
           clearFirstTaskDraft(uiState)
           return
         }

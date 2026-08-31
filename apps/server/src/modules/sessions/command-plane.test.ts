@@ -119,6 +119,9 @@ function ctxFor(
 
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    attachDraftArtifacts: async (issueId, artifacts) => {
+      for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
+    },
     discardUnlaunchedDraft: (issueId) => modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: () => undefined,
     access: {
@@ -134,6 +137,36 @@ function ctxFor(
 }
 
 describe('draft launch compensation', () => {
+  it('stores browser attachments on the draft before starting its session', async () => {
+    const o = makeOracle()
+    const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+      agentKind: 'codex',
+      cwd: '/p',
+      draftIssue: { repoPath: '/p' },
+      draftArtifacts: [
+        {
+          id: 'att-1',
+          filename: 'mock.png',
+          mimeType: 'image/png',
+          dataBase64: 'UE5H',
+        },
+      ],
+    })
+
+    const draft = o.reg.issues.list('/p').find((issue) => issue.draft)
+    expect(draft?.panel?.artifacts).toEqual([
+      expect.objectContaining({
+        path: 'attachments/att-1/mock.png',
+        title: 'mock.png',
+        entry: 'mock.png',
+      }),
+    ])
+    expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(draft?.id)
+    expect((await o.reg.issues.panelArtifactRead(draft?.id ?? '', { index: 1 })).dataBase64).toBe(
+      'UE5H',
+    )
+  })
+
   it('does not create a draft when an existing issue takes precedence', async () => {
     const o = makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
