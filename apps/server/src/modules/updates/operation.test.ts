@@ -213,6 +213,35 @@ describe('planUpdateOperation', () => {
       steps: [],
     },
     {
+      /**
+       * POD-2907: SERVING NEW ASSETS IS NOT A RESTART, and this row is what
+       * makes that claim checkable rather than a reading of the runner. A
+       * source coordinator whose website is stale gets a `web` step — a
+       * rebuild — and NO `server` step, so nothing on this path can reach
+       * `requestCoordinatorRestart`. If serving assets ever did require a
+       * restart, this row would gain `UPDATE_STEP_SERVER` and the confirmation
+       * UI would owe the user that sentence.
+       */
+      name: 'a source coordinator with a stale website rebuilds it without restarting',
+      input: {
+        target: {
+          ...packedTarget(),
+          version: `0.1.1-dev.1+${NEXT_WEB_DIGEST}`,
+          artifacts: {
+            ...packedTarget().artifacts,
+            web: { digest: NEXT_WEB_DIGEST },
+          },
+        },
+        // ON the target version — so nothing about the SERVER is behind, and
+        // the only thing that is, is the website on disk.
+        appVersion: `0.1.1-dev.1+${NEXT_WEB_DIGEST}`,
+        sourceDigest: NEXT_WEB_DIGEST,
+        serverInstallKind: 'source',
+        servedWebDigest: WEB_DIGEST,
+      },
+      steps: [UPDATE_STEP_WEB],
+    },
+    {
       name: 'a website already at the target digest is not rebuilt',
       input: { servedWebDigest: WEB_DIGEST, fleet: [machine({ id: 'vmi' })] },
       steps: [UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER],
@@ -1916,7 +1945,12 @@ describe('the step runners', () => {
 
     const originalGrantId = h.sent[0]?.message.grantId
     expect(originalGrantId).toBe('grant_1')
-    expect(h.updates.reissueGrants('dev')).toEqual(['vmi'])
+    expect(
+      h.updates.reissueGrants('dev', undefined, {
+        initiator: { kind: 'operation-retry', operationId: 'op_1', step: 'machines' },
+        eligibility: 'a grant went silent and the step stalled',
+      }),
+    ).toEqual(['vmi'])
     expect(h.sent[1]?.message.grantId).toBe('grant_2')
 
     h.updates.onStatus(asMachineId('vmi'), {

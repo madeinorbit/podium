@@ -272,6 +272,17 @@ On disk:
   purpose: the machine there is the one the server *authenticated*, not one a
   peer described itself as, and the two evidentiary grades should not share a
   filename space.
+- **How both forwarded families are written:** one primitive
+  (`apps/server/src/modules/logs/queued-writer.ts`). Ingestion **never writes on
+  the request or socket callback that carried the batch**. Records are tagged and
+  queued, and the queue drains in bounded slices between event-loop turns, so a
+  500-record batch costs the next request a slice rather than the batch. The
+  queue is bounded and drops **oldest**; those drops are counted apart from the
+  drops a sender reports about its own queue, because a lossy link and a
+  saturated server are different problems. A sender's reported drops are also
+  written **into the file** as a marker record, so a gap is not ambiguous to
+  whoever reads it. At shutdown the final drain is unsliced — there is no request
+  left to protect and the tail is the part that explains the stop.
 - **Under systemd:** nothing on disk here — records go to the unit's stdout and
   journald owns them.
 - **`~/.podium/logs/<role>.log`** (no `.ndjson`) still exists in detached mode

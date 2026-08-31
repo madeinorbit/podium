@@ -291,6 +291,7 @@ export {
   logsSetLevelInput,
   MAX_CRASH_SNAPSHOT_RECORDS,
   MAX_FORWARDED_RECORDS,
+  MAX_REPORTED_DROPS,
 } from './logs/contracts'
 export {
   type AddressDeps,

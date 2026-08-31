@@ -9,6 +9,12 @@ import type {
 } from '@podium/protocol'
 import { isHeadlessPlatform, isProvablyNewer, targetPlatforms } from '@podium/protocol'
 import {
+  describeGrantCause,
+  type GrantCause,
+  type GrantRecord,
+  type RecordGrant,
+} from './grant-cause'
+import {
   decideWave,
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
@@ -22,6 +28,19 @@ import {
 } from './wave'
 
 const log = createLogger('server:updates')
+
+/**
+ * The default cause, and deliberately the WEAKEST one: a wave continued from
+ * inside a `fleet()` read because some machine's directory version proved the
+ * canary while an operator authorization still stood. It is a default only
+ * because {@link UpdatesService.fleet} is the caller that genuinely has nothing
+ * more specific to say — every path a human or a background process reaches
+ * states its own.
+ */
+const WAVE_CONTINUATION_CAUSE: GrantCause = {
+  initiator: { kind: 'wave-continuation' },
+  eligibility: 'an authorized wave widened after a machine proved this target',
+}
 
 export interface UpdatesDeps {
   machines(): readonly WaveMachine[]
@@ -85,6 +104,16 @@ export interface UpdatesDeps {
   exclusiveOperationVersion?(channel: UpdateChannel): string | undefined
   /** A packaged rollback may be reported before target resolution finishes. */
   onTargetChanged?(channel: UpdateChannel): void
+  /**
+   * THE DURABLE HALF OF "WHO AUTHORIZED THIS" (POD-2907).
+   *
+   * Every grant this service issues is handed here before it is sent. The
+   * composition root appends it to the server's own event log, so the answer
+   * outlives both the process the grant replaces and whatever log level the
+   * operator happened to be running that day. Absent in tests that assert on
+   * the record directly, and in embeddings with no store.
+   */
+  recordGrant?: RecordGrant
 }
 
 /** What one channel's last release-target lookup produced. */
@@ -918,9 +947,9 @@ export class UpdatesService {
   }
 
   /** Record the operator decision for one authority and start its controlled wave. */
-  authorize(channel: UpdateChannel = 'dev'): string[] {
+  authorize(channel: UpdateChannel = 'dev', cause: GrantCause = WAVE_CONTINUATION_CAUSE): string[] {
     this.markAuthorized(channel)
-    return this.tick(channel)
+    return this.tick(channel, cause)
   }
 
   /**
@@ -999,7 +1028,14 @@ export class UpdatesService {
       : { result: 'legacy-instance-trust', version: target.version }
   }
 
-  authorizeMachine(machineId: MachineId): MachineApplyOutcome {
+  /**
+   * `cause` is REQUIRED (POD-2907). Two callers reach this method and they are
+   * not the same act: a person pressing Apply on one row, and the standing
+   * reconciliation converging a machine nobody is watching. Before this
+   * parameter the grant they issued was byte-identical, which is why the
+   * 2026-08-31 restart could only be attributed by eliminating code paths.
+   */
+  authorizeMachine(machineId: MachineId, cause: GrantCause): MachineApplyOutcome {
     // `project()`, because this issues a grant (POD-2180): a wave continued from
     // inside the lookup would move machines this row is not about, and then this
     // method would plan against the fleet as it was before that happened.
@@ -1048,7 +1084,7 @@ export class UpdatesService {
       concurrency: 1,
       canaryHealthy: true,
     })
-    const issued = this.issueGrants(channel, target, [planned], selected)
+    const issued = this.issueGrants(channel, target, [planned], selected, cause)
     return issued.includes(machineId)
       ? { result: 'granted', version: target.version }
       : { result: 'offline' }
@@ -1060,7 +1096,7 @@ export class UpdatesService {
    * is the purpose of repair. Every schema, signature, progress, restart and rollback
    * guard below the grant remains unchanged.
    */
-  repairMachine(machineId: MachineId): MachineApplyOutcome {
+  repairMachine(machineId: MachineId, cause: GrantCause): MachineApplyOutcome {
     const machine = this.project().machines.find((candidate) => candidate.id === machineId)
     if (!machine) return { result: 'unknown-machine' }
     if (!isPackagedRolloutTarget(machine)) return { result: 'source-checkout' }
@@ -1081,13 +1117,13 @@ export class UpdatesService {
     }
     if (!machine.online) return { result: 'offline' }
     this.clearMachineVerdicts(channel, [machineId], { keepCanaryProof: true })
-    const issued = this.issueGrants(channel, target, [machine], [machine.id], true)
+    const issued = this.issueGrants(channel, target, [machine], [machine.id], cause, true)
     return issued.includes(machineId)
       ? { result: 'granted', version: target.version }
       : { result: 'offline' }
   }
 
-  tick(channel: UpdateChannel = 'dev'): string[] {
+  tick(channel: UpdateChannel = 'dev', cause: GrantCause = WAVE_CONTINUATION_CAUSE): string[] {
     const target = this.target(channel)
     const rollout = this.rollout(channel)
     if (!target || rollout.halted) return []
@@ -1137,7 +1173,7 @@ export class UpdatesService {
         online: machine.online,
       })),
     })
-    const issued = this.issueGrants(channel, target, channelMachines, selected)
+    const issued = this.issueGrants(channel, target, channelMachines, selected, cause)
     /**
      * …AND THE SAME ANSWER SOMEWHERE A CHECK CAN READ IT (POD-2754).
      *
@@ -1204,7 +1240,7 @@ export class UpdatesService {
     this.replayTerminalStatusesForKnownMachines()
     const { machines, continuing } = this.project()
     if (continuing.size === 0) return machines
-    for (const channel of continuing) this.tick(channel)
+    for (const channel of continuing) this.tick(channel, WAVE_CONTINUATION_CAUSE)
     // The re-read cannot continue anything further: a machine is only ever
     // `continuing` because its directory version proved the target while a
     // convergence record still stood, and the projection above deleted that
@@ -1313,7 +1349,11 @@ export class UpdatesService {
    * that is not connected, and pretending otherwise would produce a fresh
    * deadline for a message nobody received.
    */
-  reissueGrants(channel: UpdateChannel, machineIds?: readonly string[]): string[] {
+  reissueGrants(
+    channel: UpdateChannel,
+    machineIds: readonly string[] | undefined,
+    cause: GrantCause,
+  ): string[] {
     // `project()`, for the sharpest form of POD-2180: this selects on IN_FLIGHT
     // and then re-grants what it selects. Reading through `fleet()` would let
     // the read's own wave continuation hand a machine its first grant and this
@@ -1342,6 +1382,7 @@ export class UpdatesService {
       target,
       replanned,
       replanned.map((machine) => machine.id),
+      cause,
     )
   }
 
@@ -1399,11 +1440,18 @@ export class UpdatesService {
     )
   }
 
+  /**
+   * THE ONE PLACE A GRANT LEAVES THIS SERVER — and, since POD-2907, the one
+   * place a grant's AUTHORITY is written down. `cause` is required: a new call
+   * site cannot compile without answering "on whose authority", which is the
+   * half a log line can never enforce.
+   */
   private issueGrants(
     channel: UpdateChannel,
     target: UpdateTarget,
     machines: readonly WaveMachine[],
     selected: readonly string[],
+    cause: GrantCause,
     repair = false,
   ): string[] {
     const issued: string[] = []
@@ -1416,31 +1464,35 @@ export class UpdatesService {
         ...(this.deps.updatePubkey ? { updatePubkey: this.deps.updatePubkey() } : {}),
       }
       const machine = machines.find((candidate) => candidate.id === machineId)
-      this.deps.send(asMachineId(machineId), grant)
       /**
-       * THE MOMENT A GRANT LEFT THIS PROCESS (POD-3170).
+       * BEFORE THE SEND, and that ordering is the difference between the two
+       * halves this merges (POD-3170 + POD-2907).
        *
-       * The only grant anything logged was the coordinator's own, because
-       * `local-participant.ts` logs on RECEIPT and a remote machine has no
-       * equivalent. So the one fact needed to attribute a slow update — when
-       * this machine was told to update, and under which grant id — existed
-       * nowhere. Reconstructing it afterwards took the wave-round records, and
-       * those are written AFTER the whole round, which is a different instant
-       * from the one a download is measured against.
-       *
-       * `coordinator` is on the line because granting it is the event that ends
-       * this server: every line after it belongs to a different process.
+       * POD-3170 put `update grant issued` here for the instant a download is
+       * measured against, and named the reason granting the coordinator is
+       * special: "granting it is the event that ends this server: every line
+       * after it belongs to a different process." Taken to its conclusion, the
+       * line has to precede the send rather than follow it — the local
+       * participant applies in-process, and a durable append that comes after
+       * is an append the handover can beat.
        */
-      log.info('update grant issued', {
-        machineId,
-        ...(machine?.name ? { machine: machine.name } : {}),
+      this.recordGrant({
+        at: this.deps.now(),
         grantId: grant.grantId,
+        machineId,
+        ...(machine?.name ? { machineName: machine.name } : {}),
         channel,
         targetVersion: target.version,
-        fromVersion: machine?.version,
-        ...(machine?.coordinator ? { coordinator: true } : {}),
+        ...(machine?.version ? { fromVersion: machine.version } : {}),
+        initiator: cause.initiator,
+        eligibility: cause.eligibility,
         ...(repair ? { repair: true } : {}),
+        // ONE ANSWER TO "IS THIS THIS SERVER?" (POD-3170's `coordinator` flag on
+        // the projection), rather than a second identity this module keeps for
+        // itself. The planner holds this machine last for the same fact.
+        handover: machine?.coordinator === true,
       })
+      this.deps.send(asMachineId(machineId), grant)
       this.pendingGrants.set(machineId, {
         channel,
         grantId: grant.grantId,
@@ -1454,6 +1506,48 @@ export class UpdatesService {
       issued.push(machineId)
     }
     return issued
+  }
+
+  /**
+   * ONE GRANT, ONE RECORD, ONE LINE.
+   *
+   * `update grant issued` is POD-3170's line — the instant a grant left this
+   * process, which is what a download's duration is measured against — and it
+   * carries POD-2907's authority fields rather than sitting beside a second
+   * line saying the same thing about the same event. A reader tailing the
+   * journal and a reader querying the event log a week later see the same
+   * sentence.
+   *
+   * The line exists as well as the durable record because a row is the forensic
+   * answer and a line is the live one — but the record is the one that has to
+   * be there, so a sink that throws must not stop the grant it describes from
+   * going out. A coordinator that cannot append a row still has to be able to
+   * take an update.
+   */
+  private recordGrant(record: GrantRecord): void {
+    log.info('update grant issued', {
+      machineId: record.machineId,
+      ...(record.machineName ? { machine: record.machineName } : {}),
+      grantId: record.grantId,
+      channel: record.channel,
+      targetVersion: record.targetVersion,
+      ...(record.fromVersion ? { fromVersion: record.fromVersion } : {}),
+      ...(record.repair ? { repair: true } : {}),
+      // POD-3170 spelled this `coordinator`; it is the same fact, and the field
+      // name is kept so an existing journal query keeps matching.
+      ...(record.handover ? { coordinator: true } : {}),
+      initiator: record.initiator,
+      eligibility: record.eligibility,
+      because: describeGrantCause(record),
+    })
+    try {
+      this.deps.recordGrant?.(record)
+    } catch (error) {
+      log.warn('could not durably record why a grant was issued', {
+        grantId: record.grantId,
+        err: error,
+      })
+    }
   }
 
   /**

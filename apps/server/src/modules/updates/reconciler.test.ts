@@ -181,6 +181,13 @@ describe('decideReconciliation', () => {
       because: 'unknown-machine',
     },
     {
+      /** POD-2907: a handover is not background work. Above every question
+       *  about the target, because it is a fact about WHICH machine this is. */
+      name: 'the coordinator itself is never converged in the background',
+      over: { machine: machine({ id: 'ludovico', coordinator: true }) },
+      because: 'coordinator',
+    },
+    {
       name: 'no published target means nothing to converge to',
       over: { target: undefined },
       because: 'no-target',

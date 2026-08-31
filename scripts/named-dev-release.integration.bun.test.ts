@@ -14,8 +14,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliDecompressSync, gunzipSync } from 'node:zlib'
-import type { UpdateChannel } from '@podium/model'
+import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { Hono } from 'hono'
 import { registerDevFeedRoutes } from '../apps/server/src/modules/updates/artifact-route'
 import { withDevBuildSnapshot } from '../apps/server/src/modules/updates/dev-build-snapshot'
@@ -27,7 +28,11 @@ import {
   desktopManifestFeedChannel,
   resolveReleaseTarget,
 } from '../apps/server/src/modules/updates/release-target'
+import type { GrantRecord } from '../apps/server/src/modules/updates/grant-cause'
+import { startLocalUpdateParticipant } from '../apps/server/src/modules/updates/local-participant'
+import { UpdateReconciler } from '../apps/server/src/modules/updates/reconciler'
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
+import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
 import { readOrCreateDevArtifactToken } from '../apps/server/src/modules/updates/signing-key'
 import { refreshTargetsOnBoot } from '../apps/server/src/modules/updates/target-refresh'
 import { beginFreshClientPackagingSession } from './build-bun'
@@ -583,4 +588,222 @@ describe('named-instance development releases', () => {
       else process.env.PODIUM_UPDATE_SIGNING_KEY = previousSigningKey
     }
   }, 2_400_000)
+
+  /**
+   * THE NO-CLICK PUBLICATION PROOF (POD-2907).
+   *
+   * A real development release is minted and published into a real feed; a real
+   * `UpdatesService` resolves it at boot; the coordinator's own machine row is
+   * in the fleet, behind it; the real {@link UpdateReconciler} then gets the one
+   * edge that fired on 2026-08-31 — a `machine.connected` carrying THIS host's
+   * machine id. Nobody clicks anything and no operation exists.
+   *
+   * The acceptance sentence is that nothing is granted, so the local update
+   * participant never asks its parent to swap or hand over — and the ARMED
+   * CONTROL beside it is the same publication driven through the reconciler as
+   * it stood on the day of the incident, which restarts the server. A guard
+   * proved only by its own passing is not proved.
+   */
+  it('publishing a release does not authorize the coordinator to replace itself', async () => {
+    const HOST = 'coordinator-machine'
+    const parent = scratch()
+    const root = join(parent, 'repo')
+    const state = join(parent, 'state')
+    mkdirSync(root)
+    mkdirSync(state)
+    writeFileSync(join(root, 'package.json'), '{"version":"0.1.0-edge.20"}\n')
+    writeFileSync(join(root, 'approved-source.ts'), 'export const approved = true\n')
+    git(root, 'init', '--quiet')
+    git(root, 'config', 'user.email', 'no-click@test.invalid')
+    git(root, 'config', 'user.name', 'No Click Test')
+    git(root, 'add', '.')
+    git(root, 'commit', '--quiet', '-m', 'approved')
+    const sha = git(root, 'rev-parse', '--short=7', 'HEAD')
+    const artifactToken = readOrCreateDevArtifactToken(state)
+
+    const publisher = createDevBundlePublisher({
+      root,
+      publisherStateDir: state,
+      checkoutReleaseBase: '0.1.0-edge.20',
+      sourceCheckoutAvailable: true,
+      instanceId: INSTANCE_ID,
+      headSha: () => sha,
+      migrationsAt: async () => ['20260715135845_baseline'],
+      proposalFacts: async () => ({
+        branch: 'main',
+        commits: [{ sha, summary: 'Approved release' }],
+        addedMigrations: [],
+      }),
+      snapshotBuild: (approvedSha, build) =>
+        withDevBuildSnapshot(
+          { sourceRoot: root, approvedSha, install: async () => {} },
+          async (snapshotRoot) => {
+            const result = await build(snapshotRoot)
+            await assertSourceMatchesHead(snapshotRoot, approvedSha)
+            return result
+          },
+        ),
+      lock: { acquire: async () => true, renew: async () => {}, release: async () => {} },
+      platform: 'linux-x86_64',
+      artifactUrl: (version, platform) =>
+        `https://no-click.test/updates/feed/dev/artifact/${version}/${platform}?token=${encodeURIComponent(artifactToken)}`,
+      desktopShellManifest: async (channel) =>
+        channel === 'edge'
+          ? {
+              raw: {
+                version: '0.1.0-edge.20',
+                bridgeVersion: 1,
+                platforms: {
+                  'linux-x86_64': {
+                    url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium.AppImage',
+                    signature: 'edge-signature',
+                  },
+                },
+              },
+            }
+          : { missing: 'dev desktop manifest returned HTTP 404' },
+      spawnBuild: async ({ artifacts }) =>
+        artifacts.map(({ platform, artifactPath }) => {
+          mkdirSync(dirname(artifactPath), { recursive: true })
+          writeFileSync(artifactPath, 'no-click release bytes')
+          writeFileSync(artifactPath + '.sig', 'development-signature\n')
+          return { platform, path: artifactPath, signature: 'development-signature' }
+        }),
+    })
+
+    // 1. THE ONLY HUMAN ACT: approve a proposal. Its subject is a release.
+    const proposal = await publisher.proposal()
+    const built = await publisher.requestBuild(true, proposal ?? undefined)
+    expect(await publisher.publishFeed()).toBe(true)
+    if (!built) throw new Error('development release did not build')
+
+    const manifestUrl = 'https://no-click.test/updates/feed/dev/podium-update.json'
+    const artifactBase = 'https://no-click.test/updates/feed/dev/'
+    const persistedManifest = readFileSync(publisher.feedManifestPath(), 'utf8')
+    const feedFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input)
+      if (init?.method === 'HEAD' && url.startsWith(artifactBase)) {
+        return new Response(null, { status: 200 })
+      }
+      if (url === manifestUrl) {
+        return new Response(persistedManifest, {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(null, { status: 404 })
+    }) as typeof fetch
+
+    /**
+     * One run of the whole path. `knowsItsOwnIdentity: false` is the control —
+     * the fleet projection as it stood before POD-3170 put `coordinator` on it.
+     */
+    const run = async (knowsItsOwnIdentity: boolean) => {
+      const granted: string[] = []
+      const recorded: GrantRecord[] = []
+      const restarts: string[] = []
+      const installed: string[] = []
+      let participantSend:
+        | ((message: Extract<ControlMessage, { type: 'updateGrant' }>) => void)
+        | undefined
+
+      const updates = new UpdatesService({
+        machines: () => [
+          {
+            id: HOST,
+            name: 'coordinator',
+            version: '0.1.0-edge.20',
+            state: 'current',
+            online: true,
+            busy: false,
+            installKind: 'installed',
+            deliveryCaps: ['update.delivery.feed'],
+            platform: 'linux-x86_64',
+            // POD-3170's projection flag, and the one answer to "is this this
+            // server?". Absent is the control: the fleet as it was on the day.
+            ...(knowsItsOwnIdentity ? { coordinator: true } : {}),
+          } as unknown as WaveMachine,
+        ],
+        send: (machineId, message) => {
+          granted.push(String(machineId))
+          participantSend?.(message as never)
+        },
+        now: () => 1_000,
+        nextGrantId: () => 'no-click-grant',
+        concurrency: 3,
+        fleetChannel: () => 'dev',
+        locallyPublished: (channel) => channel === 'dev',
+        recordGrant: (record) => recorded.push(record),
+        resolveTarget: (channel) =>
+          channel === 'dev'
+            ? resolveReleaseTarget('dev', {
+                feed: { manifestUrl, artifactBase, trust: 'instance' },
+                fetch: feedFetch,
+              })
+            : Promise.reject(new Error('only dev is published here')),
+      })
+
+      // 2. The coordinator's local participant, as server.ts attaches it.
+      startLocalUpdateParticipant({
+        machineId: asMachineId(HOST),
+        appVersion: '0.1.0-edge.20',
+        runtimeDir: join(state, 'runtime'),
+        machines: {
+          setMachineBuild: () => {},
+          attachUpdateParticipant: (_id, send) => {
+            participantSend = send
+          },
+          detachUpdateParticipant: () => true,
+        },
+        updates: { onStatus: (machineId, status) => updates.onStatus(machineId, status) },
+        installTarget: async (target) => {
+          installed.push(target.version)
+          return {}
+        },
+        writePending: () => {},
+        restart: (expectedVersion) => restarts.push(expectedVersion),
+      })
+
+      // 3. Boot resolves what was just published. Still nobody has clicked.
+      await refreshTargetsOnBoot({ refresh: (channel) => updates.refreshTarget(channel) })
+      expect(updates.target('dev')?.version).toBe(built.version)
+
+      // 4. The local daemon reconnects, carrying this host's machine id.
+      const reconciler = new UpdateReconciler({
+        updates,
+        operationActive: () => false,
+        schedule: () => {},
+      })
+      reconciler.onMachineConnected(HOST)
+      for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
+      return { granted, recorded, restarts, installed }
+    }
+
+    // ARMED CONTROL: the reconciler as it stood on 2026-08-31.
+    const control = await run(false)
+    expect(control.granted).toEqual([HOST])
+    expect(control.restarts).toEqual([built.version])
+    /**
+     * …and even in the failure, the record now names who did it. `handover` is
+     * FALSE here and that is the control being honest rather than a gap: this
+     * arm is the projection as it stood on the day, which did not know the row
+     * was this server — the very ignorance that let the reconciler grant it.
+     * The `handover: true` label is asserted where the flag exists, in
+     * `coordinator-convergence.test.ts`.
+     */
+    expect(control.recorded).toHaveLength(1)
+    expect(control.recorded[0]).toMatchObject({
+      machineId: HOST,
+      targetVersion: built.version,
+      initiator: { kind: 'reconciliation', event: 'machine-connected' },
+      handover: false,
+    })
+
+    // THE PROOF: the same publication, the same reconnect, nothing granted.
+    const fixed = await run(true)
+    expect(fixed.granted, 'a grant left the coordinator').toEqual([])
+    expect(fixed.recorded, 'a grant was recorded').toEqual([])
+    expect(fixed.installed, 'the coordinator swapped its own bundle').toEqual([])
+    expect(fixed.restarts, 'the coordinator asked its parent to hand over').toEqual([])
+  }, 120_000)
 })

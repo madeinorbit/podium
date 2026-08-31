@@ -156,6 +156,7 @@ import {
   LIFECYCLE_EXCLUSION_GROUP,
   updateOperationKind,
 } from './modules/updates/operation'
+import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
 import { UpdateReconciler } from './modules/updates/reconciler'
 import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
@@ -635,6 +636,26 @@ export class SessionRegistry {
       exclusiveOperationVersion: (channel) =>
         exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       onTargetChanged: (channel) => targetChanged?.(channel),
+      /**
+       * WHY EVERY GRANT WENT OUT, WHERE IT SURVIVES THE PROCESS (POD-2907).
+       *
+       * The durable event log, not the process log: a grant to this host's own
+       * machine ends this process, and the answer to "what authorized that"
+       * must not depend on the log level somebody was running. `announce:
+       * false` keeps it out of the live activity feed — this is a forensic
+       * row, not an event anybody subscribed to.
+       */
+      recordGrant: (record) => {
+        this.store.events.appendEvent(
+          {
+            ts: new Date(record.at).toISOString(),
+            kind: GRANT_EVENT_KIND,
+            subject: record.machineId,
+            payload: record,
+          },
+          { announce: false },
+        )
+      },
     })
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({

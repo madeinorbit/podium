@@ -6,8 +6,27 @@ import {
 } from '@podium/model'
 import { resolveUpdateChannel } from '@podium/runtime/config'
 import { describe, expect, it, vi } from 'vitest'
+import type { GrantCause } from './grant-cause'
 import { classifyMachineFailure } from './operation'
 import { UpdatesService } from './service'
+
+/**
+ * The causes these cases state. Every granting method REQUIRES one (POD-2907),
+ * so a test cannot exercise a grant without saying who it is standing in for —
+ * which is the same discipline the production call sites are under.
+ */
+const TEST_APPLY: GrantCause = {
+  initiator: { kind: 'operator-apply' },
+  eligibility: 'a person pressed Apply on this fleet row',
+}
+const TEST_REPAIR: GrantCause = {
+  initiator: { kind: 'operator-repair' },
+  eligibility: 'a person asked for a payload repair',
+}
+const TEST_RETRY: GrantCause = {
+  initiator: { kind: 'operation-retry', operationId: 'op_test', step: 'machines' },
+  eligibility: 'a grant went silent and the step stalled',
+}
 
 /**
  * These cases are about the DEVELOPMENT wave, so they state a `dev` fleet
@@ -353,16 +372,16 @@ describe('UpdatesService', () => {
       ])
       svc.setTarget(target)
 
-      expect(svc.authorizeMachine(asMachineId('current'))).toEqual({
+      expect(svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toEqual({
         result: 'already-current',
         version: '0.4.2',
       })
-      expect(svc.authorizeMachine(asMachineId('offline'))).toEqual({ result: 'offline' })
-      expect(svc.authorizeMachine(asMachineId('missing'))).toEqual({ result: 'unknown-machine' })
+      expect(svc.authorizeMachine(asMachineId('offline'), TEST_APPLY)).toEqual({ result: 'offline' })
+      expect(svc.authorizeMachine(asMachineId('missing'), TEST_APPLY)).toEqual({ result: 'unknown-machine' })
 
-      expect(svc.authorizeMachine(asMachineId('flying'))).toMatchObject({ result: 'granted' })
+      expect(svc.authorizeMachine(asMachineId('flying'), TEST_APPLY)).toMatchObject({ result: 'granted' })
       // A second apply while the first is still converging is not a failure.
-      expect(svc.authorizeMachine(asMachineId('flying'))).toEqual({
+      expect(svc.authorizeMachine(asMachineId('flying'), TEST_APPLY)).toEqual({
         result: 'in-flight',
         state: 'granted',
       })
@@ -372,7 +391,7 @@ describe('UpdatesService', () => {
       const { svc, send } = make([m('source', { installKind: 'source' })])
       svc.setTarget(target)
 
-      expect(svc.authorizeMachine(asMachineId('source'))).toEqual({
+      expect(svc.authorizeMachine(asMachineId('source'), TEST_APPLY)).toEqual({
         result: 'source-checkout',
       })
       expect(send).not.toHaveBeenCalled()
@@ -382,7 +401,7 @@ describe('UpdatesService', () => {
       const { svc, send } = make([m('current', { version: '0.4.2' })])
       svc.setTarget(target)
 
-      expect(svc.repairMachine(asMachineId('current'))).toEqual({
+      expect(svc.repairMachine(asMachineId('current'), TEST_REPAIR)).toEqual({
         result: 'granted',
         version: '0.4.2',
       })
@@ -394,7 +413,7 @@ describe('UpdatesService', () => {
 
     it('explains an unresolved authority rather than reporting a missing grant', () => {
       const { svc } = make([m('a')])
-      expect(svc.authorizeMachine(asMachineId('a'))).toMatchObject({ result: 'no-target' })
+      expect(svc.authorizeMachine(asMachineId('a'), TEST_APPLY)).toMatchObject({ result: 'no-target' })
     })
 
     /** The regression behind repro 2: retry was permanently impossible. */
@@ -411,7 +430,7 @@ describe('UpdatesService', () => {
       expect(svc.fleet()[0]).toMatchObject({ state: 'stuck' })
       send.mockClear()
 
-      expect(svc.authorizeMachine(asMachineId('a'))).toEqual({
+      expect(svc.authorizeMachine(asMachineId('a'), TEST_APPLY)).toEqual({
         result: 'granted',
         version: '0.4.2',
       })
@@ -456,7 +475,7 @@ describe('UpdatesService', () => {
         detail: 'machine-dirty-checkout',
       })
 
-      expect(svc.authorizeMachine(asMachineId('d'))).toEqual({
+      expect(svc.authorizeMachine(asMachineId('d'), TEST_APPLY)).toEqual({
         result: 'granted',
         version: '0.4.2',
       })
@@ -577,7 +596,7 @@ describe('UpdatesService', () => {
       send.mockClear()
       expect(svc.tick('dev')).toEqual([])
 
-      expect(svc.reissueGrants('dev')).toEqual(['a'])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
       expect(send).toHaveBeenCalledTimes(1)
       expect(send.mock.calls[0]?.[1]).toMatchObject({ type: 'updateGrant', grantId: 'g2' })
     })
@@ -612,7 +631,7 @@ describe('UpdatesService', () => {
       // The operation spends its bounded retry while the crashed packaged
       // process is down, so g2 is now the coordinator's correlation id. The
       // durable marker that survives the process crash still names g1.
-      expect(svc.reissueGrants('dev')).toEqual(['a'])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
       svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
         grantId: 'g1',
@@ -642,7 +661,7 @@ describe('UpdatesService', () => {
         state: 'restarting',
         version: '0.4.1',
       })
-      expect(svc.reissueGrants('dev')).toEqual(['a'])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
 
       svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
@@ -669,7 +688,7 @@ describe('UpdatesService', () => {
       source.installKind = 'source'
       send.mockClear()
 
-      expect(svc.reissueGrants('dev')).toEqual([])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual([])
       expect(send).not.toHaveBeenCalled()
     })
 
@@ -679,7 +698,7 @@ describe('UpdatesService', () => {
       svc.authorize()
       send.mockClear()
 
-      expect(svc.reissueGrants('dev')).toEqual([])
+      expect(svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual([])
       expect(send).not.toHaveBeenCalled()
     })
   })
@@ -1727,7 +1746,7 @@ describe('a release that predates a machine', () => {
   it('answers a per-row Apply with the platform fact instead of granting', () => {
     const { svc, send } = make([mac()])
     svc.setTarget(linuxOnly)
-    expect(svc.authorizeMachine(asMachineId('mac'))).toEqual({
+    expect(svc.authorizeMachine(asMachineId('mac'), TEST_APPLY)).toEqual({
       result: 'platform-not-in-release',
       platform: 'darwin-aarch64',
     })
@@ -1737,7 +1756,7 @@ describe('a release that predates a machine', () => {
   it('answers a per-row Repair the same way, for the same reason', () => {
     const { svc, send } = make([mac()])
     svc.setTarget(linuxOnly)
-    expect(svc.repairMachine(asMachineId('mac'))).toMatchObject({
+    expect(svc.repairMachine(asMachineId('mac'), TEST_REPAIR)).toMatchObject({
       result: 'platform-not-in-release',
     })
     expect(send).not.toHaveBeenCalled()
@@ -1782,7 +1801,7 @@ describe('a machine that predates channel-keyed trust', () => {
   it('answers direct Apply with the verifier-generation fact', () => {
     const { svc, send } = make([flatblock()])
     svc.setTarget(instanceTarget)
-    expect(svc.authorizeMachine(asMachineId('flatblock'))).toEqual({
+    expect(svc.authorizeMachine(asMachineId('flatblock'), TEST_APPLY)).toEqual({
       result: 'legacy-instance-trust',
       version: '0.4.2',
     })
@@ -1792,7 +1811,7 @@ describe('a machine that predates channel-keyed trust', () => {
   it('does not pretend an in-band Repair can bypass the same verifier', () => {
     const { svc, send } = make([flatblock()])
     svc.setTarget(instanceTarget)
-    expect(svc.repairMachine(asMachineId('flatblock'))).toEqual({
+    expect(svc.repairMachine(asMachineId('flatblock'), TEST_REPAIR)).toEqual({
       result: 'legacy-instance-trust',
       version: '0.4.2',
     })
@@ -1804,7 +1823,7 @@ describe('a machine that predates channel-keyed trust', () => {
       m('current', { platform: 'linux-x86_64', deliveryCaps: ['update.delivery.feed'] }),
     ])
     svc.setTarget(instanceTarget)
-    expect(svc.authorizeMachine(asMachineId('current'))).toMatchObject({ result: 'granted' })
+    expect(svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toMatchObject({ result: 'granted' })
     expect(send).toHaveBeenCalledOnce()
   })
 })
