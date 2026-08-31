@@ -1,11 +1,10 @@
-import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 // Importing the DOM-free renderer applies the shared marked config (gfm/breaks +
 // diff-aware code renderer) in both the file preview and transcript Worker.
 import '@/lib/markdown-renderer'
 // The file preview additionally shares the path linkifier and new-tab rewriter
 // with the chat render path.
-import { externalizeLinks, linkifyCodePaths } from '@/lib/markdown'
+import { externalizeLinks, linkifyCodePaths, sanitizeMarkdownHtml } from '@/lib/markdown'
 
 export interface RenderBlocksOptions {
   /** Map a relative image src to a servable URL; return null to leave it as-is. */
@@ -64,10 +63,10 @@ export function assembleMarkdownBlocksUnsafe(text: string, opts: RenderBlocksOpt
 
 /**
  * Markdown → sanitized HTML for rendering in the browser. `opts` (e.g. `resolveAsset`)
- * are applied during assembly, before sanitization. Uses DOMPurify's default policy —
- * exactly like markdown.ts's renderMarkdown — so it keeps <div>, class, and the
- * data-source-line anchors in a real browser, with no lossy allowlist.
+ * are applied during assembly, before sanitization. Uses the shared Markdown
+ * sanitizer: DOMPurify's default policy plus validated `podium:` anchor hrefs,
+ * so it keeps <div>, class, and data-source-line anchors with no lossy tag list.
  */
 export function renderMarkdownBlocks(text: string, opts: RenderBlocksOptions = {}): string {
-  return externalizeLinks(DOMPurify.sanitize(assembleMarkdownBlocksUnsafe(text, opts)))
+  return externalizeLinks(sanitizeMarkdownHtml(assembleMarkdownBlocksUnsafe(text, opts)))
 }

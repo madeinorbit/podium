@@ -1,5 +1,5 @@
-import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
-import DOMPurify from 'dompurify'
+import { anyRefMatcher, parseAnyRef, parsePodiumLink } from '@podium/protocol'
+import DOMPurify, { type UponSanitizeAttributeHook } from 'dompurify'
 import { renderMarkdownUnsafe } from './markdown-renderer'
 import { getKnownRefPrefixes, isKnownRefPrefix } from './markdown-references'
 import { classifyPodiumLink, internalPodiumTarget, systemBrowserPodiumHref } from './podium-link'
@@ -18,24 +18,33 @@ import { classifyPodiumLink, internalPodiumTarget, systemBrowserPodiumHref } fro
  * link to the reader's own issue left the app for a browser tab.
  *
  * file-link anchors (internal file opens) carry data-path and no href, so keying
- * on href leaves them in-window. Runs on the already-sanitized HTML, so any
- * dangerous href scheme has been stripped first. This marks URL anchors and
- * rewrites only recognized internal hrefs to the active server origin.
+ * on href leaves them in-window. Runs on already-sanitized HTML: dangerous
+ * schemes have been stripped, while validated `podium:` anchor hrefs survive
+ * through the narrow hook below. This marks URL anchors and rewrites only
+ * recognized internal hrefs to the active server origin.
  */
 export function externalizeLinks(html: string): string {
-  return html.replace(/<a\b([^>]*)>/g, (full, attrs: string) => {
-    const hrefMatch = /\bhref="([^"]*)"/.exec(attrs)
+  return html.replace(/<a\b([^>]*)>/g, (_full, attrs: string) => {
+    // `data-*` survives DOMPurify. Remove every resolver-owned attribute before
+    // stamping trusted values so raw Markdown HTML cannot substitute a target
+    // that differs from its visible href.
+    const cleanAttrs = attrs.replace(
+      /\sdata-podium-link[\w.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi,
+      '',
+    )
+    const cleanFull = `<a${cleanAttrs}>`
+    const hrefMatch = /\bhref="([^"]*)"/.exec(cleanAttrs)
     const href = hrefMatch?.[1]
-    if (!hrefMatch || href === undefined) return full // internal file-link (no href)
-    if (/\bclass="[^"]*\bref-link\b/.test(attrs)) return full // internal ref activation
-    const alreadyTargeted = /\btarget=/.test(attrs)
+    if (!hrefMatch || href === undefined) return cleanFull // internal file-link (no href)
+    if (/\bclass="[^"]*\bref-link\b/.test(cleanAttrs)) return cleanFull // internal ref activation
+    const alreadyTargeted = /\btarget=/.test(cleanAttrs)
     // The href is HTML-escaped inside the attribute; the resolver reads a URL.
     const decodedHref = decodeHtmlEntities(href)
     const link = classifyPodiumLink(decodedHref)
     const browserHref = link?.kind === 'internal' ? systemBrowserPodiumHref(decodedHref) : null
     const rewrittenAttrs = browserHref
-      ? attrs.replace(hrefMatch[0], `href="${escapeHtml(browserHref)}"`)
-      : attrs
+      ? cleanAttrs.replace(hrefMatch[0], `href="${escapeHtml(browserHref)}"`)
+      : cleanAttrs
     const candidateAttrs = ` data-podium-link-candidate="" data-podium-link-source="${escapeHtml(decodedHref)}"`
     if (internalPodiumTarget(decodedHref)) {
       return `<a${rewrittenAttrs}${candidateAttrs} data-podium-link="">`
@@ -49,6 +58,31 @@ export function externalizeLinks(html: string): string {
       ? `<a${rewrittenAttrs}${candidateAttrs}>`
       : `<a${rewrittenAttrs}${candidateAttrs} target="_blank" rel="noopener noreferrer">`
   })
+}
+
+/**
+ * Keep only validated `podium:` navigation hrefs through DOMPurify. A global
+ * URI-regexp override would also allow the scheme in image/form attributes;
+ * the hook is deliberately limited to an anchor href that the shared parser
+ * accepts, and is removed immediately after the synchronous sanitize call.
+ */
+export function sanitizeMarkdownHtml(html: string): string {
+  const keepPodiumHref: UponSanitizeAttributeHook = (node, event) => {
+    if (
+      node.localName === 'a' &&
+      event.attrName === 'href' &&
+      /^podium:/i.test(event.attrValue) &&
+      parsePodiumLink(event.attrValue)?.kind === 'internal'
+    ) {
+      event.forceKeepAttr = true
+    }
+  }
+  DOMPurify.addHook('uponSanitizeAttribute', keepPodiumHref)
+  try {
+    return DOMPurify.sanitize(html)
+  } finally {
+    DOMPurify.removeHook('uponSanitizeAttribute', keepPodiumHref)
+  }
 }
 
 /** The five entities DOMPurify may have written into an attribute value. */
@@ -169,7 +203,7 @@ export function linkifyRefs(html: string): string {
  */
 export function sanitizeRenderedMarkdown(unsafeHtml: string): string {
   const rendered = linkifyCodePaths(unsafeHtml)
-  return externalizeLinks(linkifyRefs(DOMPurify.sanitize(rendered)))
+  return externalizeLinks(linkifyRefs(sanitizeMarkdownHtml(rendered)))
 }
 
 export function renderMarkdown(text: string): string {

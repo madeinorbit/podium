@@ -4,7 +4,10 @@ import { assembleMarkdownBlocksUnsafe, renderMarkdownBlocks } from './markdown-b
 
 const HOME = 'http://127.0.0.1:8787'
 
-afterEach(() => setKnownPodiumOrigins([]))
+afterEach(() => {
+  setKnownPodiumOrigins([])
+  document.body.innerHTML = ''
+})
 
 // The source-line map is asserted on assembleMarkdownBlocksUnsafe (pre-sanitize) — pure
 // and environment-independent. DOMPurify under happy-dom strips the FIRST top-level
@@ -60,5 +63,17 @@ describe('renderMarkdownBlocks', () => {
     const html = renderMarkdownBlocks('[issue](/issues/POD-1606)')
     expect(html).toContain(`href="${HOME}/issues/POD-1606"`)
     expect(html).toContain('data-podium-link')
+  })
+
+  it('keeps a custom-scheme file href and exact fallback bytes in previews', () => {
+    setKnownPodiumOrigins([HOME])
+    const href =
+      'podium://file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy'
+    document.body.innerHTML = renderMarkdownBlocks(`[file](${href})`)
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('data-podium-link-source')).toBe(href)
+    expect(link.getAttribute('href')).toBe(
+      `${HOME}/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy`,
+    )
   })
 })

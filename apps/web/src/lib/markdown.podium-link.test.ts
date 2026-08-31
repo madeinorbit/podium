@@ -51,6 +51,31 @@ describe('a transcript link that points at this Podium (POD-1606)', () => {
     expect(html).toContain(`href="${HOME}/issues/POD-1606"`)
   })
 
+  it('keeps a validated custom-scheme file href and its exact fallback bytes', () => {
+    setKnownPodiumOrigins([HOME])
+    const href =
+      'podium://file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy'
+    document.body.innerHTML = renderMarkdown(`[file](${href})`)
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('data-podium-link-source')).toBe(href)
+    expect(link.getAttribute('href')).toBe(
+      `${HOME}/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy`,
+    )
+    expect(link.getAttribute('target')).toBe('_blank')
+  })
+
+  it('replaces raw HTML resolver markers with values derived from the href', () => {
+    setKnownPodiumOrigins([HOME])
+    document.body.innerHTML = renderMarkdown(
+      '<a href="https://example.com/guide" data-podium-link-source="/issues/POD-1606" data-podium-link-candidate data-podium-link>guide</a>',
+    )
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('data-podium-link-source')).toBe('https://example.com/guide')
+    expect(link.hasAttribute('data-podium-link-candidate')).toBe(true)
+    expect(link.hasAttribute('data-podium-link')).toBe(false)
+    expect(link.getAttribute('target')).toBe('_blank')
+  })
+
   it('rebases boot-rendered active-server anchors after the origin becomes known', () => {
     expect(window.location.origin).not.toBe(HOME)
     document.body.innerHTML = `${renderMarkdown(
