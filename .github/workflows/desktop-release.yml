@@ -158,12 +158,22 @@ jobs:
             artifact_paths: |
               apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
               apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig
-          - target: windows-x86_64
-            runner: windows-latest
-            build_args: "-- --bundles nsis"
-            artifact_paths: |
-              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
-              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+          # Windows is experimental and is deliberately NOT built by default. A red leg here does
+          # not withhold the release — `publish` runs on the legs that succeeded, so a Windows
+          # failure only ever produced a manifest without Windows in it — but it does spend a
+          # runner and put a failure on every release, which reads as a broken release when it is
+          # a platform we are not shipping yet. Re-add this entry to build it:
+          #
+          #   - target: windows-x86_64
+          #     runner: windows-latest
+          #     build_args: "-- --bundles nsis"
+          #     artifact_paths: |
+          #       apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          #       apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+          #
+          # The install and compile fixes it needs are already in place (see the --linker=hoisted
+          # note below and `exit_status_details` in src-tauri/src/main.rs), so it builds when
+          # someone opts back in.
           - target: darwin-aarch64
             runner: macos-15
             build_args: "-- --target aarch64-apple-darwin"

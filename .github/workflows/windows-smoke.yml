@@ -2,9 +2,11 @@
 # that the headless bundle builds AND boots on Windows [spec:SP-7f2c]. The release
 # matrix (#35) can hang its Windows row off this.
 name: windows-smoke
+#
+# Windows is experimental and not built by default, so this no longer runs on every push to
+# main: a platform we are not shipping yet should not paint main red. Dispatch it when working
+# on Windows, and put the push trigger back when Windows becomes a platform we ship.
 on:
-  push:
-    branches: [main, 'worktree-issue-90-*']
   workflow_dispatch:
 concurrency:
   group: windows-smoke-${{ github.ref }}
