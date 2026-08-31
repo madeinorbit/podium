@@ -29,12 +29,19 @@ function submitsCommandLine(bytes: Uint8Array): boolean {
 }
 
 /**
- * Keep only the newest form of each cursor. Provider rows can be re-emitted as
- * their content grows; late subscribers must replay one logical item, not every
- * version.
+ * Merge logical transcript rows by either stable alias. Providers may preserve
+ * an id while rotating a cursor, or preserve a cursor while deriving a new id;
+ * either match identifies the same row. Rebuilding the alias match each round
+ * also safely collapses the rare bridge item that joins two prior aliases.
+ *
+ * Complete rows are ordered by their real event timestamps. A missing/invalid
+ * timestamp sorts before dated rows and keeps observed order as a deterministic
+ * fallback, so it cannot masquerade as the newest item in a latest-page read.
  */
-function transcriptItemKey(item: TranscriptItem): string {
-  return item.cursor ?? item.id
+function transcriptTimestamp(item: TranscriptItem): number | undefined {
+  if (!item.ts) return undefined
+  const parsed = Date.parse(item.ts)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 export function mergeTranscriptItems(
@@ -43,19 +50,56 @@ export function mergeTranscriptItems(
   limit = MAX_TRANSCRIPT_ITEMS,
 ): TranscriptItem[] {
   if (delta.length === 0) return previous
-  const next = [...previous]
-  const indexByKey = new Map(next.map((item, index) => [transcriptItemKey(item), index]))
+  let next = previous.map((item, order) => ({ item, order }))
+  let nextOrder = next.length
   for (const item of delta) {
-    const key = transcriptItemKey(item)
-    const existingIndex = indexByKey.get(key)
-    if (existingIndex === undefined) {
-      indexByKey.set(key, next.length)
-      next.push(item)
-    } else {
-      next[existingIndex] = item
+    const matching = next.filter(
+      (candidate) =>
+        (item.cursor !== undefined &&
+          item.cursor.length > 0 &&
+          candidate.item.cursor === item.cursor) ||
+        (item.id.length > 0 && candidate.item.id === item.id),
+    )
+    if (matching.length === 0) {
+      next.push({ item, order: nextOrder++ })
+      continue
     }
+    const aliases = new Set(matching)
+    const order = Math.min(...matching.map((candidate) => candidate.order))
+    next = next.filter((candidate) => !aliases.has(candidate))
+    next.push({ item, order })
   }
-  return next.length > limit ? next.slice(-limit) : next
+  next.sort((a, b) => {
+    const aTimestamp = transcriptTimestamp(a.item)
+    const bTimestamp = transcriptTimestamp(b.item)
+    if (aTimestamp !== undefined && bTimestamp !== undefined && aTimestamp !== bTimestamp) {
+      return aTimestamp - bTimestamp
+    }
+    if (aTimestamp === undefined && bTimestamp !== undefined) return -1
+    if (aTimestamp !== undefined && bTimestamp === undefined) return 1
+    if (a.order !== b.order) return a.order - b.order
+    const cursorOrder = (a.item.cursor ?? '').localeCompare(b.item.cursor ?? '')
+    return cursorOrder !== 0 ? cursorOrder : a.item.id.localeCompare(b.item.id)
+  })
+  const items = next.map(({ item }) => item)
+  return items.length > limit ? items.slice(-limit) : items
+}
+
+export function mergeLatestTranscriptPage(
+  providerItems: TranscriptItem[],
+  runtimeItems: TranscriptItem[],
+  limit: number,
+): { items: TranscriptItem[]; hasMore: boolean } {
+  const boundedLimit = Math.max(0, limit)
+  const allItems = mergeTranscriptItems(
+    providerItems,
+    runtimeItems,
+    Number.MAX_SAFE_INTEGER,
+  )
+  return {
+    items: boundedLimit === 0 ? [] : allItems.slice(-boundedLimit),
+    hasMore: allItems.length > boundedLimit,
+  }
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences

@@ -5,7 +5,10 @@ import {
   RuntimeEventGate,
   type RuntimeEventGatePorts,
 } from '../modules/sessions/runtime-event-gate'
-import { mergeTranscriptItems } from '../modules/sessions/terminal'
+import {
+  mergeLatestTranscriptPage,
+  mergeTranscriptItems,
+} from '../modules/sessions/terminal'
 import { SessionRegistry } from '../relay'
 import { SessionStore } from '../store'
 import type { RuntimeEventLogRecord } from './events'
@@ -182,11 +185,31 @@ describe('durable runtime observation gate', () => {
         ts: '2026-08-23T00:00:02.000Z',
       },
     ]
-    // Cursor is the stable identity when provider-derived ids drift. The
-    // runtime item replaces the provider slice row instead of duplicating it.
+    // Either alias is sufficient: provider-derived ids can drift while cursors
+    // stay stable, and a rewritten record can rotate its cursor under one id.
     expect(
       mergeTranscriptItems([{ ...items[0], id: 'derived-user-id' }], [items[0]], 50),
     ).toEqual([items[0]])
+    expect(
+      mergeTranscriptItems([{ ...items[0], cursor: 'grok:old-cursor' }], [items[0]], 50),
+    ).toEqual([items[0]])
+    // An unmatched older runtime row must not displace the true newest provider
+    // row after cursor-based overlap is collapsed, and hasMore reflects the two
+    // logical rows rather than the three physical inputs.
+    expect(
+      mergeLatestTranscriptPage(
+        [{ ...items[1], id: 'provider-derived-assistant' }],
+        [
+          {
+            ...items[0],
+            id: 'older-runtime-only',
+            cursor: 'grok:older-runtime-only',
+          },
+          items[1],
+        ],
+        1,
+      ),
+    ).toEqual({ items: [items[1]], hasMore: true })
     // The same shared merge bounds both the visible transcript and the runtime
     // overlay; the oldest row falls away while the newest rows survive.
     expect(
@@ -257,6 +280,72 @@ describe('durable runtime observation gate', () => {
       { kind: 'user', id: FIRST_ADMIN_USER_ID },
     )
     expect(transcript.items).toEqual(items)
+
+    restarted.dispose()
+    store.close()
+  })
+
+  it('never projects a rejected complete event and preserves one interrupt across restart', async () => {
+    const store = new SessionStore(':memory:')
+    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const sessionId = bindContract(registry, store)
+    const rejectedItem = {
+      id: 'rejected-before-gate',
+      cursor: 'grok:rejected:1',
+      role: 'assistant' as const,
+      text: 'must never appear',
+      ts: '2026-08-23T01:00:00.000Z',
+    }
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'rejected-complete-item',
+      sessionId,
+      event: {
+        ...terminalItemEvent({ at: rejectedItem.ts, seq: 1, item: rejectedItem }),
+        observerGeneration: 2,
+      },
+    })
+    expect(store.events.listRuntimeTranscriptEvents(sessionId)).toEqual([])
+    expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual([])
+
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'bootstrap-before-interrupt',
+      sessionId,
+      event: stateEvent({
+        at: '2026-08-23T01:00:01.000Z',
+        seq: 1,
+        observerGeneration: 1,
+        provenance: 'bootstrap',
+        change: { kind: 'session_started' },
+      }),
+    })
+    const interruptItem = {
+      id: 'terminal-interrupt-1',
+      cursor: 'grok:interrupt:2',
+      role: 'user' as const,
+      text: '[Request interrupted by user]',
+      ts: '2026-08-23T01:00:02.000Z',
+      event: 'interrupt' as const,
+    }
+    const interruptEvent = terminalItemEvent({ at: interruptItem.ts, seq: 2, item: interruptItem })
+    for (const deliveryId of ['interrupt-once', 'interrupt-replay']) {
+      registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId,
+        sessionId,
+        event: interruptEvent,
+      })
+    }
+    const live = registry.modules.sessions.transcriptFor(sessionId)
+    expect(live).toEqual([interruptItem])
+    expect(live.some((item) => item.id === rejectedItem.id)).toBe(false)
+
+    registry.dispose()
+    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reloaded = restarted.modules.sessions.transcriptFor(sessionId)
+    expect(reloaded).toEqual([interruptItem])
+    expect(reloaded.some((item) => item.id === rejectedItem.id)).toBe(false)
 
     restarted.dispose()
     store.close()
