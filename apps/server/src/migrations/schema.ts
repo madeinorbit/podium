@@ -177,6 +177,10 @@ export const sessions = sqliteTable(
   (table) => [
     index('idx_sessions_deleted_by_issue').on(table.deletedByIssueId),
     index('idx_sessions_deleted_at').on(table.deletedAt),
+    // The second half of POD-1858's per-file resolution: segment identity to the
+    // session that owns it. Also the join `conversation_segments` has always
+    // implied and never had an index for.
+    index('idx_sessions_machine_resume').on(table.machineId, table.resumeValue),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -935,6 +939,9 @@ export const conversationSegments = sqliteTable(
   },
   (table) => [
     index('conversation_segments_podium').on(table.podiumId, table.seqInConv),
+    // POD-1858 resolves a transcript PATH to a session, once per file, on every
+    // usage harvest. Without this the cost fold is a full table scan per file.
+    index('conversation_segments_path').on(table.path),
     primaryKey({ columns: [table.machineId, table.nativeId], name: 'conversation_segments_pk' }),
   ],
 )
@@ -943,6 +950,67 @@ export const conversationSegments = sqliteTable(
 // The registry row above remains the current native-id projection; this history
 // records the file-identity incarnations whose immutable lake copies form its
 // readable transcript chain.
+/**
+ * WHAT A TRANSCRIPT COST — the durable half of the usage harvest (POD-1858).
+ *
+ * The hour×model bucket set answers "what did this host spend in the last seven
+ * days" and forgets both which file each record came from and everything older
+ * than the window. This table is where the walk's per-file fold is banked, so
+ * "what did this task cost" survives the window rolling past it.
+ *
+ * KEYED BY THE TRANSCRIPT, NOT THE SESSION, and the difference is load-bearing.
+ * A Claude session's delegates write their own files under
+ * `<nativeId>/subagents/`, so a session owns SEVERAL transcripts; and two
+ * session rows can name the same `resume_value`, so a session key would double
+ * count a resumed conversation. `(machine_id, native_id)` is the same identity
+ * `conversation_segments` uses, which is what makes the fold idempotent: the
+ * daemon reports absolute per-file totals, so re-ingesting a file overwrites
+ * rather than accumulating. Per-session and per-issue figures are GROUPED from
+ * here — `session_id` and `issue_id` are the resolution, cached on the row.
+ *
+ * `scanned_bytes` is the byte cursor the daemon had reached. Stored rather than
+ * merely reported so a future seeding pass can resume a partially-read corpus
+ * without re-reading it; nothing in this slice reads it back.
+ */
+export const transcriptCosts = sqliteTable(
+  'transcript_costs',
+  {
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    nativeId: text('native_id').notNull(),
+    path: text().notNull(),
+    harness: text().notNull(),
+    /** Resolved owner. NULL means the transcript maps to no Podium session —
+     *  a Codex rollout nobody launched through Podium, and the reason the
+     *  attribution figure is not 100%. */
+    sessionId: text('session_id').$type<SessionId>(),
+    issueId: text('issue_id').$type<IssueId>(),
+    scannedBytes: integer('scanned_bytes').default(0).notNull(),
+    firstTsMs: integer('first_ts_ms').default(0).notNull(),
+    lastTsMs: integer('last_ts_ms').default(0).notNull(),
+    messages: integer().default(0).notNull(),
+    /** `CostModelTotalWire[]` — tokens by model, for the WHOLE file. NEVER a
+     *  dollar figure: the one price table lives in client-core and the server
+     *  does not import it. */
+    modelsJson: text('models_json').notNull(),
+    /** The same fold over the harvest's WINDOW only, and `window_since_ms` is
+     *  the window it was taken over. Two folds because they answer different
+     *  questions: the durable one is "what did this task cost", which outlives
+     *  any window, and the windowed one is "what did this week's spend go on",
+     *  which is what the usage sheet compares against its own 7-day total. A row
+     *  the latest harvest did not touch has a stale `window_since_ms` and
+     *  therefore contributes nothing to the current window — which is correct,
+     *  because a file the walk skipped on mtime has no activity in it. */
+    windowModelsJson: text('window_models_json').default('[]').notNull(),
+    windowSinceMs: integer('window_since_ms').default(0).notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    index('idx_transcript_costs_issue').on(table.issueId),
+    index('idx_transcript_costs_session').on(table.sessionId),
+    primaryKey({ columns: [table.machineId, table.nativeId], name: 'transcript_costs_pk' }),
+  ],
+)
+
 export const conversationSegmentIncarnations = sqliteTable(
   'conversation_segment_incarnations',
   {

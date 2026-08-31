@@ -15,6 +15,7 @@ import type {
   SessionId,
   TranscriptItem,
   UsageBucketWire,
+  UsageSourceWire,
 } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import type {
@@ -176,6 +177,7 @@ const USAGE = daemonRequestKind<{
   hostname: string
   sampledAt?: string
   buckets: UsageBucketWire[]
+  sources?: UsageSourceWire[]
 }>('us')
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
 const QUOTA_HISTORY = daemonRequestKind<{ samples: QuotaHistorySampleWire[] }>('qh')
@@ -258,6 +260,7 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
       hostname: msg.hostname,
       ...(msg.sampledAt === undefined ? {} : { sampledAt: msg.sampledAt }),
       buckets: msg.buckets,
+      ...(msg.sources === undefined ? {} : { sources: msg.sources }),
     }),
   agentQuotaResult: (broker, machineId, msg) =>
     void broker.settle(AGENT_QUOTA, msg.requestId, machineId, {
@@ -469,11 +472,23 @@ export class DaemonRpcService {
     )
   }
 
-  /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
-  usage(sinceMs?: number): Promise<{
+  /**
+   * Token-usage buckets from the daemon's transcript harvest (empty on timeout).
+   *
+   * `withSources` also returns the per-FILE breakdown behind the buckets, which
+   * is what per-task cost is folded from (POD-1858). Opt-in because it is an
+   * order of magnitude larger than the buckets and has exactly one reader: the
+   * cost fold on `usage.summary`, which strips it before the payload reaches a
+   * client. The status chip's 90-second poll asks without it.
+   */
+  usage(
+    sinceMs?: number,
+    withSources?: boolean,
+  ): Promise<{
     hostname: string
     sampledAt?: string
     buckets: UsageBucketWire[]
+    sources?: UsageSourceWire[]
   }> {
     return this.request(
       USAGE,
@@ -483,6 +498,7 @@ export class DaemonRpcService {
         type: 'usageRequest',
         requestId,
         ...(sinceMs !== undefined ? { sinceMs } : {}),
+        ...(withSources ? { withSources } : {}),
       }),
     )
   }

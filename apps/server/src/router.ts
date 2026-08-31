@@ -64,6 +64,7 @@ import { lockRouterFromCommands } from './modules/lock/trpc'
 import { logsFamilyProcedures } from './modules/logs/trpc'
 import {
   AUTOMATION_QUERIES,
+  COST_QUERIES,
   FEATURE_QUERIES,
   GIT_QUERIES,
   QUOTA_QUERIES,
@@ -374,6 +375,7 @@ export const appRouter = t.router({
   // unchanged and still surfaces as BAD_REQUEST with the store's message.
   repos: t.router({ ...queryProcedures('repos', REPO_QUERIES), ...fleet.repos }),
   usage: t.router(queryProcedures('usage', USAGE_QUERIES)),
+  cost: t.router(queryProcedures('cost', COST_QUERIES)),
   quota: t.router(queryProcedures('quota', QUOTA_QUERIES)),
   models: t.router(modelFamilyProcedures()),
   /**

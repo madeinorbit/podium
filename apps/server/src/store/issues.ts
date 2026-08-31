@@ -548,6 +548,22 @@ export class IssuesRepository {
    * crash-loop the server. Individual JSON columns additionally self-quarantine
    * to safe defaults (see parseStringArray), which keeps the row.
    */
+  /**
+   * THE PARENT EDGE FOR EVERY ISSUE — the cost rollup's whole input (POD-1858).
+   *
+   * Two columns rather than `listIssueRows()`, and that is the point: a rollup
+   * walk needs the tree and nothing else, and mapping 1,800 full issue rows
+   * (with their JSON columns and per-row quarantine guard) to read one field is
+   * how a panel read turns into a visible pause.
+   */
+  listIssueParentEdges(): { id: IssueId; parentId: IssueId | null }[] {
+    const rows = this.db.prepare('SELECT id, parent_id FROM issues').all() as {
+      id: IssueId
+      parent_id: IssueId | null
+    }[]
+    return rows.map((r) => ({ id: r.id, parentId: r.parent_id ?? null }))
+  }
+
   listIssueRows(repoPath?: string): IssueRow[] {
     // Repo-scoped reads key on the stable repo_id (issue #164): the given path
     // resolves to its logical repo, so two registered clones of one repository

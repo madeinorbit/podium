@@ -113,6 +113,30 @@ export class SessionsRepository {
     return out
   }
 
+  /**
+   * Every live-table session bound to one of these issues (POD-1858).
+   *
+   * The cost read's denominator: how many sessions a task HAS is what separates
+   * "no sessions ever" from "sessions ran and left no transcript", and neither
+   * is a zero-dollar figure. Tombstones stay excluded — a deleted session's work
+   * is not part of what the task cost today.
+   */
+  findSessionsByIssueIds(issueIds: readonly IssueId[]): SessionRow[] {
+    const unique = [...new Set(issueIds)]
+    const out: SessionRow[] = []
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      out.push(
+        ...this.readSessions(
+          `issue_id IN (${chunk.map(() => '?').join(',')}) AND deleted_at IS NULL`,
+          ...chunk,
+        ),
+      )
+    }
+    return out
+  }
+
   /** All session tombstones, for repository-level inspection and maintenance. */
   loadDeletedSessions(): SessionRow[] {
     return this.readSessions('deleted_at IS NOT NULL')
