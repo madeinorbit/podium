@@ -13,11 +13,16 @@ vi.mock('./provider', () => ({
   useStoreSelector: (select: (store: { trpc: unknown }) => unknown) => select({ trpc }),
 }))
 
-const { useModelCatalog } = await import('./use-model-catalog')
+const { useModelCatalog, useModelCatalogState } = await import('./use-model-catalog')
 
 function Probe() {
   const models = useModelCatalog()
   return <div>{models.codex?.map((model) => model.label).join(', ')}</div>
+}
+
+function StatusProbe({ machineId }: { machineId: ReturnType<typeof asMachineId> }) {
+  const state = useModelCatalogState(machineId)
+  return <div>{state.status}</div>
 }
 
 describe('useModelCatalog', () => {
@@ -56,5 +61,24 @@ describe('useModelCatalog', () => {
     expect(screen.getByText('GPT-5.6-Sol')).toBeTruthy()
     expect(catalog).toHaveBeenCalledTimes(2)
     expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports loading until the first catalog read resolves', () => {
+    const machineId = asMachineId('ca532a8b-9994-4d58-9bb8-ddcba18548a1')
+    catalog.mockReturnValue(new Promise(() => {}))
+
+    render(<StatusProbe machineId={machineId} />)
+
+    expect(screen.getByText('loading')).toBeTruthy()
+  })
+
+  it('reports an unavailable first read so launch controls can fail closed', async () => {
+    const machineId = asMachineId('b6e665b2-04f7-48d4-b035-6dce5ed0cd4f')
+    catalog.mockRejectedValue(new Error('offline'))
+
+    render(<StatusProbe machineId={machineId} />)
+    await act(async () => {})
+
+    expect(screen.getByText('unavailable')).toBeTruthy()
   })
 })

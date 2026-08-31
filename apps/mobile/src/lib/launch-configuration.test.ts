@@ -99,6 +99,32 @@ describe('normalizeLaunchConfiguration', () => {
     })
   })
 
+  it('fails closed to Auto when the selected agent catalog is empty', () => {
+    const plan = normalizeLaunchConfiguration(selected, {}, [{ value: 'host-a', label: 'Host A' }])
+    expect(plan.configuration).toMatchObject({ modelPick: AUTO, effort: AUTO })
+    expect(launchConfigurationPatch(plan.configuration)).toMatchObject({
+      defaultModel: AUTO,
+      defaultEffort: AUTO,
+    })
+  })
+
+  it.each([
+    'loading',
+    'unavailable',
+  ] as const)('fails closed to Auto while the catalog is %s', (status) => {
+    const plan = normalizeLaunchConfiguration(
+      selected,
+      catalog,
+      [{ value: 'host-a', label: 'Host A' }],
+      status,
+    )
+    expect(plan.configuration).toMatchObject({ modelPick: AUTO, effort: AUTO })
+    expect(launchConfigurationPatch(plan.configuration)).toMatchObject({
+      defaultModel: AUTO,
+      defaultEffort: AUTO,
+    })
+  })
+
   it('resets selections that belong to a different agent or unsupported effort ladder', () => {
     expect(
       normalizeLaunchConfiguration(

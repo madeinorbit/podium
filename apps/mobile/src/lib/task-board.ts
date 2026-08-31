@@ -8,6 +8,8 @@ import {
   issueRowsByStage,
   orderIssues,
   partitionIssueTree,
+  type TaskProgress,
+  taskProgressMap,
   type IssuesOrdering,
 } from '@podium/client-core/viewmodels'
 import type { IssueBoardStage, IssueWire } from '@podium/model'
@@ -83,6 +85,20 @@ export interface TaskBoardSection {
   title: string
   /** Rows the section WOULD show — its count, independent of the fold. */
   rows: IssueRow<IssueWire>[]
+}
+
+/** Full-subtree progress for the roots currently represented on the phone board. */
+export function taskBoardProgress(
+  issues: readonly IssueWire[],
+  sections: readonly TaskBoardSection[],
+  workingByIssue: ReadonlyMap<string, number>,
+): Map<string, TaskProgress | null> {
+  const published = issues.filter((issue) => !issue.archived && !issue.deletedAt)
+  return taskProgressMap(
+    published,
+    sections.flatMap((section) => section.rows.map((row) => row.issue.id)),
+    workingByIssue,
+  )
 }
 
 /**

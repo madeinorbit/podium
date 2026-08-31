@@ -1,4 +1,4 @@
-import { useModelCatalog } from '@podium/client-core/react'
+import { useModelCatalogState } from '@podium/client-core/react'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import { agentCapabilityRejection, type MachineId, machinesForRepoOrClone } from '@podium/model'
 import { useLayoutEffect, useMemo, useState } from 'react'
@@ -81,12 +81,12 @@ export function LaunchConfigurationFields({
   // An unpinned launch is validated by the server's own authority/default
   // catalog. Never substitute the first eligible repo machine: it may expose a
   // different harness or model set than the host that validates the spawn.
-  const catalog = useModelCatalog<MobileTrpc>(
+  const { catalog, status: catalogStatus } = useModelCatalogState<MobileTrpc>(
     value.machineId ? (value.machineId as MachineId) : undefined,
   )
   const plan = useMemo(
-    () => normalizeLaunchConfiguration(value, catalog, machineOptions),
-    [catalog, machineOptions, value],
+    () => normalizeLaunchConfiguration(value, catalog, machineOptions, catalogStatus),
+    [catalog, catalogStatus, machineOptions, value],
   )
   // Commit the validity plan before the parent paints an enabled submit button.
   // A machine can go offline while this sheet is open; a passive effect would
@@ -108,17 +108,17 @@ export function LaunchConfigurationFields({
     })),
   ]
   const modelOptions = useMemo<NativePickerOption[]>(() => {
+    if (catalogStatus !== 'ready') return [{ value: AUTO, label: 'Auto' }]
     const group = ISSUE_AGENT_LABELS[effective.agentKind]
     return allConnectorModelOptions(catalog)
       .filter((option) => option.value === AUTO || option.group === group)
       .map(({ value: optionValue, label }) => ({ value: optionValue, label }))
-  }, [catalog, effective.agentKind])
+  }, [catalog, catalogStatus, effective.agentKind])
   const decoded = decodeModelPick(effective.modelPick)
-  const effortOptions = effortOptionsForModel(
-    effective.agentKind,
-    decoded.model,
-    catalog[effective.agentKind],
-  )
+  const effortOptions =
+    catalogStatus === 'ready'
+      ? effortOptionsForModel(effective.agentKind, decoded.model, catalog[effective.agentKind])
+      : []
 
   const rows: Array<{
     key: Exclude<Picker, null>

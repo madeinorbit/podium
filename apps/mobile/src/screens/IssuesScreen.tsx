@@ -5,6 +5,7 @@ import {
   filterChips,
   type IssueRow,
   readSharedIssuesDisplay as readMobileTaskDisplay,
+  type TaskProgress,
   taskStateWord,
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/viewmodels'
@@ -46,7 +47,11 @@ import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { stageFoldKey } from '../lib/fold-keys'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { buildScreeningQueue } from '../lib/screening'
-import { taskBoardSections } from '../lib/task-board'
+import { taskBoardProgress, taskBoardSections } from '../lib/task-board'
+import {
+  dispatchTaskRowAccessibilityAction,
+  TASK_ROW_ACCESSIBILITY_ACTIONS,
+} from '../lib/task-row-accessibility'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
@@ -150,6 +155,10 @@ export function IssuesScreen() {
     () => confirmedWorkingAgentCountsByIssue(issues, sessions, store.coarseNow),
     [issues, sessions, store.coarseNow],
   )
+  const progressByIssue = useMemo(
+    () => taskBoardProgress(issues, board, workingByIssue),
+    [board, issues, workingByIssue],
+  )
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
   // flow is the fast way through them, so the board leads with it whenever any
@@ -222,6 +231,7 @@ export function IssuesScreen() {
             board={board}
             issues={issues}
             workingByIssue={workingByIssue}
+            progressByIssue={progressByIssue}
             listRef={listRef}
             refreshControl={refreshControl}
             refreshAccessibilityProps={refreshAccessibilityProps}
@@ -370,6 +380,7 @@ function StageSections({
   board,
   issues,
   workingByIssue,
+  progressByIssue,
   listRef,
   refreshControl,
   refreshAccessibilityProps,
@@ -387,6 +398,7 @@ function StageSections({
   board: { stage: IssueBoardStage; title: string; rows: IssueRow<IssueWire>[] }[]
   issues: readonly IssueWire[]
   workingByIssue: ReadonlyMap<string, number>
+  progressByIssue: ReadonlyMap<string, TaskProgress | null>
   listRef: RefreshableTab['listRef']
   // Typed from the hook rather than restated: a hand-written `ReactElement` here
   // drops the RefreshControlProps generic the list actually requires.
@@ -502,6 +514,7 @@ function StageSections({
           row={item}
           issues={issues}
           workingAgents={workingByIssue.get(item.issue.id) ?? 0}
+          progress={progressByIssue.get(item.issue.id)}
           onOpen={onOpen}
           onToggleExpanded={onToggleExpanded}
           onOpenActions={onOpenActions}
@@ -619,6 +632,7 @@ function TaskRow({
   row,
   issues,
   workingAgents,
+  progress,
   onOpen,
   onToggleExpanded,
   onOpenActions,
@@ -626,6 +640,7 @@ function TaskRow({
   row: IssueRow<IssueWire>
   issues: readonly IssueWire[]
   workingAgents: number
+  progress?: TaskProgress | null
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
   onOpenActions: (issue: IssueWire) => void
@@ -636,7 +651,7 @@ function TaskRow({
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? ''
   const parent = issue.parentId ? issues.find((item) => item.id === issue.parentId) : undefined
   const childCount = row.childCount
-  const state = taskStateWord(issue, workingAgents)
+  const state = taskStateWord(issue, workingAgents, progress)
   const stateColor =
     state?.tone === 'attention'
       ? color.needsYouText
@@ -650,23 +665,32 @@ function TaskRow({
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`Task ${issue.seq}: ${issue.title}${state ? `, ${state.text}` : ''}`}
-        accessibilityHint="Open task. Long press for task actions."
+        accessibilityHint="Open task, or use Actions for task actions."
         // THE DISCLOSURE IS AN ACTION ON THE ROW, not a button inside it. The
         // card is one accessibility element (a nested pressable inside an
         // `accessible` parent is never reachable on iOS), so the sub-task
         // chevron would have been a control only a finger could find. As a
         // rotor action it is available to both.
-        {...(childCount > 0
-          ? {
-              accessibilityState: { expanded: row.expanded },
-              accessibilityActions: [
+        accessibilityState={childCount > 0 ? { expanded: row.expanded } : undefined}
+        accessibilityActions={
+          childCount > 0
+            ? [
+                ...TASK_ROW_ACCESSIBILITY_ACTIONS,
                 { name: 'expand', label: row.expanded ? 'Hide sub-tasks' : 'Show sub-tasks' },
-              ],
-              onAccessibilityAction: (event: { nativeEvent: { actionName: string } }): void => {
-                if (event.nativeEvent.actionName === 'expand') onToggleExpanded(issue.id)
-              },
-            }
-          : {})}
+              ]
+            : TASK_ROW_ACCESSIBILITY_ACTIONS
+        }
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'expand') {
+            onToggleExpanded(issue.id)
+            return
+          }
+          dispatchTaskRowAccessibilityAction(
+            event.nativeEvent.actionName,
+            () => onOpen(issue.id),
+            () => onOpenActions(issue),
+          )
+        }}
         onPress={() => onOpen(issue.id)}
         onLongPress={() => onOpenActions(issue)}
         style={({ pressed }) => [

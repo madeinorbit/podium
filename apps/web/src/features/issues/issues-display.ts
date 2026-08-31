@@ -3,6 +3,8 @@ import {
   confirmedWorkingAgentCountsByIssue as coreConfirmedWorkingAgentCountsByIssue,
   orderIssues as coreOrderIssues,
   readSharedIssuesDisplay,
+  type TaskProgress,
+  taskProgressMap,
   type IssuesOrdering,
   writeSharedIssuesDisplay,
 } from '@podium/client-core/viewmodels'
@@ -84,47 +86,7 @@ export { boardIssues, filterBoardScope } from '@podium/client-core/viewmodels'
  *  agents whose process and harness activity Podium can confirm right now.
  *  Returns null when the issue has no descendants (nothing to roll up — render
  *  nothing). Pure. */
-export interface EpicProgress {
-  total: number
-  done: number
-  liveAgents: number
-}
-
-/** parent id → non-draft children. Built ONCE per render and shared across all
- *  roots so the rollup is O(n), not O(roots·n) (a hot-path re-scan otherwise). */
-type ChildrenIndex = Map<string, IssueViewModel[]>
-function buildChildrenIndex(issues: IssueViewModel[]): ChildrenIndex {
-  const childrenOf: ChildrenIndex = new Map()
-  for (const i of issues) {
-    if (i.draft || !i.parentId) continue
-    const arr = childrenOf.get(i.parentId)
-    if (arr) arr.push(i)
-    else childrenOf.set(i.parentId, [i])
-  }
-  return childrenOf
-}
-
-function progressFrom(
-  childrenOf: ChildrenIndex,
-  epicId: string,
-  workingByIssue: ReadonlyMap<string, number>,
-): EpicProgress | null {
-  let total = 0
-  let done = 0
-  let liveAgents = 0
-  const seen = new Set<string>([epicId])
-  const stack = [...(childrenOf.get(epicId) ?? [])]
-  while (stack.length > 0) {
-    const node = stack.pop()!
-    if (seen.has(node.id)) continue
-    seen.add(node.id)
-    total += 1
-    if (node.stage === 'done') done += 1
-    liveAgents += workingByIssue.get(node.id) ?? 0
-    for (const child of childrenOf.get(node.id) ?? []) stack.push(child)
-  }
-  return total === 0 ? null : { total, done, liveAgents }
-}
+export type EpicProgress = TaskProgress
 
 /** The board's spelling of the shared confirmed-computing predicate. */
 export function confirmedWorkingAgentCount(sessions: readonly SessionMeta[], now: number): number {
@@ -146,10 +108,12 @@ export function computeEpicProgress(
   sessions: readonly SessionMeta[] = [],
   now = Date.now(),
 ): EpicProgress | null {
-  return progressFrom(
-    buildChildrenIndex(issues),
-    epicId,
-    confirmedWorkingAgentCountsByIssue(issues, sessions, now),
+  return (
+    taskProgressMap(
+      issues,
+      [epicId],
+      confirmedWorkingAgentCountsByIssue(issues, sessions, now),
+    ).get(epicId) ?? null
   )
 }
 
@@ -161,9 +125,8 @@ export function computeEpicProgressMap(
   sessions: readonly SessionMeta[] = [],
   now = Date.now(),
 ): Map<string, EpicProgress | null> {
-  const childrenOf = buildChildrenIndex(issues)
   const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
-  return new Map(rootIds.map((id) => [id, progressFrom(childrenOf, id, workingByIssue)]))
+  return taskProgressMap(issues, rootIds, workingByIssue)
 }
 
 /** Stable ordering for board columns and list groups. Pure — returns a copy.

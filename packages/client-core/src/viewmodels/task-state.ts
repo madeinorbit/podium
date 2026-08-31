@@ -17,6 +17,54 @@ export interface TaskProgress {
   liveAgents: number
 }
 
+export interface TaskProgressIssue {
+  id: string
+  parentId?: string
+  draft?: boolean
+  stage: string
+}
+
+/**
+ * Descendant progress for several roots over one shared child index.
+ *
+ * The root itself is deliberately excluded: callers already pass its direct
+ * worker count to rankedTaskStateSlots. Draft descendants are not published
+ * work and do not participate in either desktop or mobile progress.
+ */
+export function taskProgressMap<T extends TaskProgressIssue>(
+  issues: readonly T[],
+  rootIds: readonly string[],
+  workingByIssue: ReadonlyMap<string, number>,
+): Map<string, TaskProgress | null> {
+  const childrenOf = new Map<string, T[]>()
+  for (const issue of issues) {
+    if (issue.draft || !issue.parentId) continue
+    const children = childrenOf.get(issue.parentId)
+    if (children) children.push(issue)
+    else childrenOf.set(issue.parentId, [issue])
+  }
+
+  return new Map(
+    rootIds.map((rootId) => {
+      let total = 0
+      let done = 0
+      let liveAgents = 0
+      const seen = new Set<string>([rootId])
+      const stack = [...(childrenOf.get(rootId) ?? [])]
+      while (stack.length > 0) {
+        const issue = stack.pop()!
+        if (seen.has(issue.id)) continue
+        seen.add(issue.id)
+        total += 1
+        if (issue.stage === 'done') done += 1
+        liveAgents += workingByIssue.get(issue.id) ?? 0
+        for (const child of childrenOf.get(issue.id) ?? []) stack.push(child)
+      }
+      return [rootId, total === 0 ? null : { total, done, liveAgents }] as const
+    }),
+  )
+}
+
 export type TaskStateSlot =
   | { kind: 'deleted' }
   | { kind: 'needs-human' }

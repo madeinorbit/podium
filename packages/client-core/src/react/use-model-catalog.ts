@@ -5,6 +5,12 @@ import type { PodiumClientApi } from '../api'
 import { useStoreSelector } from './provider'
 
 export type ModelCatalog = Record<string, ModelChoiceWire[]>
+export type ModelCatalogStatus = 'loading' | 'ready' | 'unavailable'
+
+export interface ModelCatalogState {
+  catalog: ModelCatalog
+  status: ModelCatalogStatus
+}
 
 interface Snapshot {
   machineId: MachineId
@@ -20,6 +26,7 @@ const cache = new Map<string, Snapshot>()
 const checkedAt = new Map<string, number>()
 const inflight = new Map<string, Promise<void>>()
 const subscribers = new Map<string, Set<() => void>>()
+const statusByKey = new Map<string, ModelCatalogStatus>()
 
 function cacheKey(machineId: MachineId | undefined): string {
   return machineId ?? DEFAULT_MACHINE
@@ -28,6 +35,12 @@ function cacheKey(machineId: MachineId | undefined): string {
 function publish(key: string, snapshot: Snapshot): void {
   cache.set(key, snapshot)
   checkedAt.set(key, Date.now())
+  statusByKey.set(key, 'ready')
+  for (const subscriber of subscribers.get(key) ?? []) subscriber()
+}
+
+function publishStatus(key: string, status: ModelCatalogStatus): void {
+  statusByKey.set(key, status)
   for (const subscriber of subscribers.get(key) ?? []) subscriber()
 }
 
@@ -57,6 +70,7 @@ async function fetchCatalog(
       // Keep the last good catalog, but record the check so an unavailable server
       // does not create a tight retry loop across several mounted pickers.
       checkedAt.set(key, Date.now())
+      publishStatus(key, 'unavailable')
     } finally {
       inflight.delete(key)
     }
@@ -72,9 +86,9 @@ async function fetchCatalog(
  * picker rechecks periodically; previously this happened only on mount, leaving the
  * always-mounted empty-state composer stuck on whatever snapshot it first received.
  */
-export function useModelCatalog<TApi extends PodiumClientApi = PodiumClientApi>(
+export function useModelCatalogState<TApi extends PodiumClientApi = PodiumClientApi>(
   machineId?: MachineId,
-): ModelCatalog {
+): ModelCatalogState {
   const trpc = useStoreSelector<TApi, TApi>((store) => store.trpc)
   const [, forceRender] = useState(0)
   const key = cacheKey(machineId)
@@ -102,5 +116,15 @@ export function useModelCatalog<TApi extends PodiumClientApi = PodiumClientApi>(
     }
   }, [key, machineId, trpc])
 
-  return cache.get(key)?.byAgent ?? EMPTY_CATALOG
+  return {
+    catalog: cache.get(key)?.byAgent ?? EMPTY_CATALOG,
+    status: statusByKey.get(key) ?? 'loading',
+  }
+}
+
+/** Compatibility surface for consumers that only need the last good catalog. */
+export function useModelCatalog<TApi extends PodiumClientApi = PodiumClientApi>(
+  machineId?: MachineId,
+): ModelCatalog {
+  return useModelCatalogState<TApi>(machineId).catalog
 }

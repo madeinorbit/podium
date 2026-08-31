@@ -1,7 +1,7 @@
 import type { IssueWire, IssueWireInput } from '@podium/model'
-import { filterBoardIssues } from '@podium/client-core/viewmodels'
+import { filterBoardIssues, taskStateWord } from '@podium/client-core/viewmodels'
 import { describe, expect, it } from 'vitest'
-import { taskBoardOrder, taskBoardSections, taskNeighbours } from './task-board'
+import { taskBoardOrder, taskBoardProgress, taskBoardSections, taskNeighbours } from './task-board'
 
 /**
  * The defect this file guards is a POPULATION defect: which rows exist on the
@@ -322,6 +322,35 @@ describe('taskBoardSections', () => {
     })
     expect(rowIds(rows)).toEqual(['parent'])
     expect(rows[0]?.rows[0]).toMatchObject({ depth: 0, issue: { id: 'parent' } })
+  })
+
+  it('ranks a root as working when only a grandchild has a confirmed worker', () => {
+    const root = issue({ id: 'root', type: 'epic', stage: 'in_progress', childCount: 1 })
+    const child = issue({
+      id: 'child',
+      parentId: 'root',
+      stage: 'planning',
+      childCount: 1,
+      seq: 2,
+    })
+    const grandchild = issue({
+      id: 'grandchild',
+      parentId: 'child',
+      stage: 'in_progress',
+      seq: 3,
+    })
+    const sections = taskBoardSections([root, child, grandchild], { showDone: false })
+    const progress = taskBoardProgress(
+      [root, child, grandchild],
+      sections,
+      new Map([['grandchild', 1]]),
+    )
+
+    expect(progress.get('root')).toEqual({ total: 2, done: 0, liveAgents: 1 })
+    expect(taskStateWord(root, 0, progress.get('root'))).toEqual({
+      text: '1 working',
+      tone: 'live',
+    })
   })
 })
 

@@ -250,7 +250,7 @@ function FilterRow({
   )
 }
 
-function ToggleRow({
+export function ToggleRow({
   label,
   hint,
   value,
@@ -267,7 +267,12 @@ function ToggleRow({
         <Text style={styles.rowLabel}>{label}</Text>
         {hint ? <Text style={styles.hint}>{hint}</Text> : null}
       </View>
-      <Switch value={value} onValueChange={onChange} />
+      <Switch
+        accessibilityLabel={label}
+        accessibilityHint={hint}
+        value={value}
+        onValueChange={onChange}
+      />
     </View>
   )
 }

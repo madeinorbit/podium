@@ -1,4 +1,4 @@
-import type { ModelCatalog } from '@podium/client-core/react'
+import type { ModelCatalog, ModelCatalogStatus } from '@podium/client-core/react'
 import type { IssueWire, MachineId } from '@podium/model'
 import {
   AUTO,
@@ -111,6 +111,7 @@ export function normalizeLaunchConfiguration(
   value: LaunchConfiguration,
   catalog: ModelCatalog,
   machines: readonly LaunchMachineOption[],
+  catalogStatus: ModelCatalogStatus = 'ready',
 ): LaunchPlan {
   const machine = value.machineId
     ? machines.find((option) => option.value === value.machineId)
@@ -129,12 +130,16 @@ export function normalizeLaunchConfiguration(
   const live = catalog[value.agentKind] ?? []
   const retiredModel =
     value.modelPick !== AUTO &&
-    (decoded.agentKind !== value.agentKind ||
-      (live.length > 0 && !live.some((model) => model.value === decoded.model)))
+    (catalogStatus !== 'ready' ||
+      decoded.agentKind !== value.agentKind ||
+      !live.some((model) => model.value === decoded.model))
   const modelPick = retiredModel ? AUTO : value.modelPick
   const model = decodeModelPick(modelPick).model
   const effort =
-    retiredModel || !isEffortValid(value.agentKind, value.effort, catalog[value.agentKind])
+    catalogStatus !== 'ready' ||
+    retiredModel ||
+    (value.effort !== AUTO && live.length === 0) ||
+    !isEffortValid(value.agentKind, value.effort, catalog[value.agentKind])
       ? AUTO
       : value.effort
 
