@@ -399,7 +399,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         }
       }
       nativeOverrideActiveRef.current = false
-      const stored = await loadServerProfiles()
+      // A restart must not observe the transient half of an older queued
+      // activation write. The older owner restores its saved state before this
+      // read is allowed to choose any profile or release any credential.
+      const stored = await profileWrites.run(() => loadServerProfiles())
       await purgeOrphanedProfileCredentials(stored.profiles.map((row) => row.id))
       if (!alive) return
       while (alive) {
@@ -1028,7 +1031,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     router,
   ])
 
-  if (!ready) return null
+  // A newer pairing link must be able to replace and cancel a withheld cold
+  // handoff even while the older profile write is still draining.
+  if (!ready && !setupOpen) return null
   if (activationFailure && !setupOpen) {
     return (
       <LaunchReadyView>

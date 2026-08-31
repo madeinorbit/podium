@@ -525,6 +525,59 @@ describe('pairing supersedes handoff intent', () => {
     expect(JSON.stringify(pendingMobileHandoffSnapshot())).not.toContain(PAIRING_SECRET)
   })
 
+  it('waits for cold handoff rollback before recovering from pairing cancellation', async () => {
+    seams.getInitialUrl.mockResolvedValue(
+      handoffLink('https://b.example', 'instance-b', 'cold-session-on-b'),
+    )
+    let releaseProfileBSave = () => {}
+    const profileBSaveReleased = new Promise<void>((resolve) => {
+      releaseProfileBSave = resolve
+    })
+    let reportProfileBSaveStarted = () => {}
+    const profileBSaveStarted = new Promise<void>((resolve) => {
+      reportProfileBSaveStarted = resolve
+    })
+    seams.saveProfiles.mockImplementation(async (state) => {
+      if (state.activeProfileId === 'profile-b') {
+        // Model a store whose durable value becomes observable before its
+        // completion promise settles.
+        seams.durableProfiles = state
+        reportProfileBSaveStarted()
+        await profileBSaveReleased
+        return
+      }
+      seams.durableProfiles = state
+    })
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await profileBSaveStarted
+
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Cancel server setup'))
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-b')
+
+    await act(async () => {
+      releaseProfileBSave()
+      await profileBSaveReleased
+    })
+
+    await waitFor(() => {
+      expect(seams.activeContext?.profile.id).toBe('profile-a')
+      expect(seams.activeContext?.bearer).toBe('token-a')
+    })
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-a')
+    expect(seams.getCredential).not.toHaveBeenCalledWith('profile-b')
+    expect([...seams.runtime, ...seams.socket]).not.toContainEqual({
+      origin: 'https://b.example',
+      bearer: 'token-b',
+    })
+  })
+
   it('rolls back a late switch save before recovering from pairing cancellation', async () => {
     await mountActiveProfileA()
     let releaseProfileBSave = () => {}
