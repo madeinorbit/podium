@@ -6,6 +6,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
+  autoLaunchMachineOption,
   AUTO,
   allConnectorModelLabel,
   allConnectorModelOptions,
@@ -53,34 +54,31 @@ export function LaunchConfigurationFields({
     () => (repo ? machinesForRepoOrClone(repo, store.machines) : []),
     [repo, store.machines],
   )
-  const machineOptions = useMemo<LaunchMachineOption[]>(
-    () => [
-      { value: '', label: 'Auto' },
-      ...machines.map((machine) => {
-        const rejection = agentCapabilityRejection(machine, value.agentKind)
-        const reason =
-          machine.use === 'denied'
-            ? `You do not have permission to use ${machine.name}.`
-            : !machine.online
-              ? `${machine.name} is offline.`
-              : rejection !== undefined
-                ? `${machine.name} cannot run ${ISSUE_AGENT_LABELS[value.agentKind]}.`
-                : undefined
-        return {
-          value: machine.id,
-          label: machine.name,
-          disabled: reason !== undefined,
-          ...(reason ? { reason } : {}),
-        }
-      }),
-    ],
-    [machines, value.agentKind],
-  )
-  const catalogMachine =
-    (value.machineId || machineOptions.find((option) => option.value && !option.disabled)?.value) ??
-    ''
+  const machineOptions = useMemo<LaunchMachineOption[]>(() => {
+    const explicit = machines.map((machine) => {
+      const rejection = agentCapabilityRejection(machine, value.agentKind)
+      const reason =
+        machine.use === 'denied'
+          ? `You do not have permission to use ${machine.name}.`
+          : !machine.online
+            ? `${machine.name} is offline.`
+            : rejection !== undefined
+              ? `${machine.name} cannot run ${ISSUE_AGENT_LABELS[value.agentKind]}.`
+              : undefined
+      return {
+        value: machine.id,
+        label: machine.name,
+        disabled: reason !== undefined,
+        ...(reason ? { reason } : {}),
+      }
+    })
+    return [autoLaunchMachineOption(explicit, ISSUE_AGENT_LABELS[value.agentKind]), ...explicit]
+  }, [machines, value.agentKind])
+  // An unpinned launch is validated by the server's own authority/default
+  // catalog. Never substitute the first eligible repo machine: it may expose a
+  // different harness or model set than the host that validates the spawn.
   const catalog = useModelCatalog<MobileTrpc>(
-    catalogMachine ? (catalogMachine as MachineId) : undefined,
+    value.machineId ? (value.machineId as MachineId) : undefined,
   )
   const plan = useMemo(
     () => normalizeLaunchConfiguration(value, catalog, machineOptions),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AUTO, encodeModelPick } from './agent-models'
 import {
+  autoLaunchMachineOption,
   type LaunchConfiguration,
   launchConfigurationPatch,
   launchPlanCanSubmit,
@@ -48,6 +49,38 @@ describe('normalizeLaunchConfiguration', () => {
         },
       ]),
     ).toMatchObject({ refusal: 'You do not have permission to use Host A.' })
+  })
+
+  it('blocks Auto when no repository machine can run the selected harness', () => {
+    const auto = autoLaunchMachineOption(
+      [
+        { value: 'offline', label: 'Offline', disabled: true },
+        { value: 'denied', label: 'Denied', disabled: true },
+      ],
+      'Codex',
+    )
+    expect(auto).toMatchObject({
+      value: '',
+      disabled: true,
+      reason: expect.stringContaining('Codex'),
+    })
+    expect(
+      normalizeLaunchConfiguration({ ...selected, machineId: '' }, catalog, [auto]),
+    ).toMatchObject({
+      refusal: expect.stringContaining('Codex'),
+    })
+  })
+
+  it('keeps Auto eligible when at least one repository machine can run the harness', () => {
+    expect(
+      autoLaunchMachineOption(
+        [
+          { value: 'offline', label: 'Offline', disabled: true },
+          { value: 'ready', label: 'Ready' },
+        ],
+        'Codex',
+      ),
+    ).toEqual({ value: '', label: 'Auto' })
   })
 
   it('submits Auto for a retired model and its stale effort', () => {

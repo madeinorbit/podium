@@ -29,6 +29,22 @@ export interface LaunchPlan {
   refusal?: string
 }
 
+/** Auto still needs an eligible destination; it is a placement choice, not a bypass. */
+export function autoLaunchMachineOption(
+  machines: readonly LaunchMachineOption[],
+  agentLabel: string,
+): LaunchMachineOption {
+  if (machines.some((machine) => machine.value !== '' && !machine.disabled)) {
+    return { value: '', label: 'Auto' }
+  }
+  return {
+    value: '',
+    label: 'Auto',
+    disabled: true,
+    reason: `No available machine can run ${agentLabel} for this repository.`,
+  }
+}
+
 export function launchPlanCanSubmit(plan: LaunchPlan | null): plan is LaunchPlan {
   return plan !== null && plan.refusal === undefined
 }
@@ -75,14 +91,16 @@ export function normalizeLaunchConfiguration(
 ): LaunchPlan {
   const machine = value.machineId
     ? machines.find((option) => option.value === value.machineId)
-    : null
+    : machines.find((option) => option.value === '')
   const refusal = value.machineId
     ? !machine
       ? 'The selected machine is no longer available for this repository.'
       : machine.disabled
         ? (machine.reason ?? 'The selected machine is unavailable.')
         : undefined
-    : undefined
+    : machine?.disabled
+      ? (machine.reason ?? 'No machine is available for automatic placement.')
+      : undefined
 
   const decoded = decodeModelPick(value.modelPick)
   const live = catalog[value.agentKind] ?? []
