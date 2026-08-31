@@ -3547,7 +3547,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   padding-inline-start: 16px;
 }
 .transcript-process-row::before {
-  content: '';
+  content: "";
   position: absolute;
   inset-block: 0;
   inset-inline-start: 0;
@@ -3708,8 +3708,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   display: flex;
   justify-content: center;
   box-sizing: border-box;
-  padding: 11px
-    max(32px, calc((100% - var(--chat-reading-measure) - var(--chat-rail-w, 0px)) / 2))
+  padding: 11px max(32px, calc((100% - var(--chat-reading-measure) - var(--chat-rail-w, 0px)) / 2))
     0;
   pointer-events: none;
   animation: brief-shelf-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -9601,6 +9600,337 @@ a.ref-link--session::before {
   container-name: deck-rows;
 }
 
+/* ── MISSION WATERFALL ──────────────────────────────────────────────────────
+   Formal issues keep the tree's stable vertical order. Sessions occupy real
+   elapsed spans within their owning issue, while the final 22% remains beyond
+   the single Now line for facts about known future work. */
+.flight-waterfall {
+  --waterfall-label-col: 138px;
+  position: relative;
+  min-width: 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  container-type: inline-size;
+  container-name: flight-waterfall;
+}
+.flight-waterfall-expanded {
+  --waterfall-label-col: 214px;
+}
+.waterfall-axis,
+.waterfall-issue-row,
+.waterfall-now-line {
+  display: grid;
+  grid-template-columns: minmax(0, var(--waterfall-label-col)) minmax(0, 1fr);
+}
+.waterfall-axis {
+  position: sticky;
+  top: var(--waterfall-chrome-offset, 0);
+  z-index: 4;
+  min-height: 26px;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.waterfall-axis-title {
+  display: flex;
+  align-items: center;
+  padding-inline: 8px;
+  border-right: 1px solid var(--hairline-soft);
+  text-transform: uppercase;
+}
+.waterfall-axis-track {
+  position: relative;
+  min-width: 0;
+}
+.waterfall-axis-track > span {
+  position: absolute;
+  top: 7px;
+  translate: -50% 0;
+  white-space: nowrap;
+}
+.waterfall-axis-track > span:first-child {
+  translate: 4px 0;
+}
+.waterfall-axis-track .waterfall-axis-now {
+  color: var(--motion-working);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  translate: -50% 0;
+}
+.waterfall-now-line {
+  position: absolute;
+  z-index: 1;
+  inset: 26px 0 0;
+  pointer-events: none;
+}
+.waterfall-now-line::after {
+  content: "";
+  grid-column: 2;
+  width: 1px;
+  height: 100%;
+  margin-left: var(--waterfall-now);
+  background: color-mix(in srgb, var(--motion-working) 58%, transparent);
+}
+.waterfall-rows {
+  position: relative;
+  z-index: 2;
+}
+.waterfall-issue-row {
+  min-height: 36px;
+  border-bottom: 1px solid var(--hairline-soft);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+}
+.waterfall-issue-row:last-child {
+  border-bottom: 0;
+}
+.waterfall-issue-row[data-focused="true"] {
+  background: color-mix(in srgb, var(--issue) calc(8 * var(--issue-tint-scale, 1%)), transparent);
+}
+.waterfall-issue-cell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 7px 4px 7px calc(5px + var(--waterfall-depth) * 12px);
+  border-right: 1px solid var(--hairline-soft);
+}
+.waterfall-tree-guides {
+  position: absolute;
+  inset-block: 0;
+  left: calc(10px + var(--waterfall-depth) * 12px);
+  width: 1px;
+  background: color-mix(in srgb, var(--issue) 38%, var(--hairline-soft));
+  opacity: min(1, var(--waterfall-depth));
+}
+.waterfall-fold {
+  display: inline-flex;
+  width: 16px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+button.waterfall-fold:hover {
+  color: var(--text-strong);
+}
+.waterfall-issue-open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding-top: 1px;
+  text-align: left;
+}
+.waterfall-issue-ref {
+  color: var(--text-faint);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.waterfall-issue-title {
+  width: 100%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.waterfall-issue-open[aria-current="true"] .waterfall-issue-title {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.waterfall-issue-menu {
+  flex: none;
+  margin-top: -1px;
+}
+.waterfall-track-cell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding-block: 5px;
+  overflow: hidden;
+}
+.waterfall-track-cell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    transparent calc(25% - 0.5px),
+    var(--hairline-soft) 25%,
+    transparent calc(25% + 0.5px),
+    transparent calc(50% - 0.5px),
+    var(--hairline-soft) 50%,
+    transparent calc(50% + 0.5px),
+    transparent calc(75% - 0.5px),
+    var(--hairline-soft) 75%,
+    transparent calc(75% + 0.5px)
+  );
+  background-size: 78% 100%;
+  background-repeat: no-repeat;
+  opacity: 0.55;
+}
+.waterfall-session-lane {
+  position: relative;
+  min-height: 22px;
+}
+.waterfall-session-bar {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: var(--waterfall-left);
+  display: flex;
+  width: var(--waterfall-width);
+  min-width: 24px;
+  max-width: calc(78% - var(--waterfall-left));
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--text-faint) 10%, var(--bar));
+  color: var(--text-muted);
+  text-align: left;
+  transition:
+    border-color 120ms ease-out,
+    background-color 120ms ease-out;
+}
+.waterfall-session-bar[data-clipped-start="true"] {
+  border-left-style: dashed;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.waterfall-session-bar[data-state="working"] {
+  border-color: color-mix(in srgb, var(--motion-working) 70%, var(--border-strong));
+  background: color-mix(in srgb, var(--motion-working) 18%, var(--bar));
+  color: var(--text-strong);
+}
+.waterfall-session-bar[data-state="live"] {
+  border-color: color-mix(in srgb, var(--motion-working) 38%, var(--border-strong));
+  background: color-mix(in srgb, var(--motion-working) 8%, var(--bar));
+}
+.waterfall-session-bar[data-state="attention"] {
+  border-color: color-mix(in srgb, var(--attention) 68%, var(--border-strong));
+  background: color-mix(in srgb, var(--attention) 13%, var(--bar));
+  color: var(--attention);
+}
+.waterfall-session-bar[data-state="finished"] {
+  border-color: var(--hairline-bar);
+  background: color-mix(in srgb, var(--text-faint) 6%, var(--bar));
+  color: var(--text-dim);
+}
+.waterfall-session-bar:hover {
+  border-color: var(--text-dim);
+  background: color-mix(in srgb, var(--text-muted) 12%, var(--bar));
+}
+.waterfall-session-bar[data-selected="true"] {
+  border-color: var(--issue);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--issue) 72%, transparent);
+}
+.waterfall-session-bar:focus-visible,
+.waterfall-issue-open:focus-visible,
+.waterfall-fold:focus-visible {
+  outline: 2px solid var(--issue);
+  outline-offset: 1px;
+}
+.waterfall-session-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.waterfall-native-count,
+.waterfall-session-time {
+  flex: none;
+  font-size: 8.5px;
+  line-height: 1;
+}
+.waterfall-native-count {
+  color: var(--motion-working);
+  font-family: var(--font-mono);
+}
+.waterfall-session-time {
+  color: currentColor;
+  opacity: 0.82;
+}
+.waterfall-wait-reason {
+  position: absolute;
+  z-index: 3;
+  top: 4px;
+  left: calc(var(--waterfall-left) + var(--waterfall-width) + 5px);
+  max-width: calc(78% - var(--waterfall-left) - var(--waterfall-width) - 8px);
+  overflow: hidden;
+  color: var(--attention);
+  font-size: 9px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.waterfall-future-label,
+.waterfall-empty-label {
+  position: relative;
+  z-index: 2;
+  align-self: flex-start;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 1.35;
+}
+.waterfall-future-label {
+  max-width: 21%;
+  margin-left: 79%;
+  padding: 2px 4px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow-wrap: anywhere;
+}
+.waterfall-empty-label {
+  margin-left: 5px;
+}
+
+@container flight-waterfall (max-width: 390px) {
+  .flight-waterfall {
+    --waterfall-label-col: 118px;
+  }
+  .waterfall-issue-title {
+    font-size: 10px;
+  }
+  .waterfall-session-bar {
+    gap: 2px;
+    padding-inline: 3px;
+  }
+  .waterfall-session-bar > :first-child,
+  .waterfall-native-count {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waterfall-session-bar {
+    transition: none;
+  }
+}
+
 /* At this measure, a useful 160px name plus ref, role, state and gaps no longer
    fit. Keep the two scan anchors on line one (name and live state), then put the
    stable address and provenance on line two. The role may wrap only when its
@@ -11178,7 +11508,7 @@ a.ref-link--session::before {
   background: var(--live);
 }
 .quota-groove[data-now]::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: -2px -1px;
   border: 1px solid color-mix(in srgb, var(--live) 70%, transparent);
@@ -11187,7 +11517,7 @@ a.ref-link--session::before {
 /* The plan changed here, so the pool underneath is a different size and the
    percentages either side are not comparable. */
 .quota-groove[data-plan-break]::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -11256,17 +11586,17 @@ a.ref-link--session::before {
 /* The track is 7% ink by design — enough to read as a groove behind a fill, but
    as a lone 11px chip in a legend it all but disappears. The rim is what makes
    it legible as a swatch without changing the material it stands for. */
-.quota-swatch[data-k='track'] {
+.quota-swatch[data-k="track"] {
   border: 1px solid var(--usage-rule);
   background: var(--usage-scale);
 }
-.quota-swatch[data-k='used'] {
+.quota-swatch[data-k="used"] {
   background: color-mix(in srgb, var(--live) 82%, transparent);
 }
-.quota-swatch[data-k='now'] {
+.quota-swatch[data-k="now"] {
   background: var(--live);
 }
-.quota-swatch[data-k='partial'] {
+.quota-swatch[data-k="partial"] {
   background: repeating-linear-gradient(
     135deg,
     color-mix(in srgb, var(--live) 62%, transparent) 0 3px,

@@ -41,6 +41,8 @@ const harness = vi.hoisted(() => ({
   machines: [] as unknown[],
   selectedIssueId: null as string | null,
   paneA: null as string | null,
+  display: 'compact' as 'compact' | 'expanded',
+  onDisplayChange: vi.fn(),
   openSessionTab: vi.fn(),
   focusIssueSession: vi.fn(async () => null),
   setPanelMode: vi.fn(),
@@ -173,7 +175,11 @@ function DeckHarness() {
             reads it to know which task the dock is already showing — so the
             harness supplies the real provider rather than the default context. */}
         <IssueExplorerProvider>
-          <FlightDeck onCollapse={vi.fn()} />
+          <FlightDeck
+            onCollapse={vi.fn()}
+            display={harness.display}
+            onDisplayChange={harness.onDisplayChange}
+          />
         </IssueExplorerProvider>
       </OperatorFocusProvider>
     </ConfirmProvider>
@@ -197,6 +203,8 @@ beforeEach(() => {
   harness.machines = []
   harness.selectedIssueId = 'root'
   harness.paneA = null
+  harness.display = 'compact'
+  harness.onDisplayChange.mockClear()
   harness.openSessionTab.mockClear()
   harness.focusIssueSession.mockClear()
   harness.setPanelMode.mockClear()
@@ -820,12 +828,13 @@ describe('flight deck unread (POD-912)', () => {
 
 describe('flight deck click semantics (POD-710 §4.1)', () => {
   const sessionRow = (id: string): HTMLElement => {
-    const row = document.querySelector(`[data-flight-session="${id}"] button`)
+    const container = document.querySelector(`[data-flight-session="${id}"]`)
+    const row = container?.matches('button') ? container : container?.querySelector('button')
     if (!row) throw new Error(`no session row ${id}`)
     return row as HTMLElement
   }
   const taskRow = (id: string): HTMLElement => {
-    const row = document.querySelectorAll(`[data-flight-issue="${id}"] button`)[1]
+    const row = document.querySelector(`[data-flight-issue="${id}"] .waterfall-issue-open`)
     if (!row) throw new Error(`no task row ${id}`)
     return row as HTMLElement
   }
@@ -838,11 +847,34 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
 
-  it('lands a native worker row on the terminal without overruling a Chat pick', () => {
-    // POD-1702. These rows are navigation — "take me to the agent running this
-    // worker, on the terminal it is running in" — so they SUGGEST the CLI. They
-    // used to write it as the session's mode, which overwrote an explicit Chat
-    // pick and persisted it, so the session reopened on the terminal too.
+  it('contracts an expanded waterfall after opening a session preview', () => {
+    harness.display = 'expanded'
+    deck()
+    fireEvent.click(sessionRow('s2'))
+    settle()
+    expect(harness.onDisplayChange).toHaveBeenCalledWith('compact')
+    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
+  })
+
+  it('expands a compact waterfall when the selected bar is clicked again', () => {
+    harness.paneA = 's2'
+    deck()
+    expect(sessionRow('s2').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(sessionRow('s2'))
+    settle()
+    expect(harness.onDisplayChange).toHaveBeenCalledWith('expanded')
+  })
+
+  it('swaps to a different preview without expanding the compact waterfall', () => {
+    harness.paneA = 's2'
+    deck()
+    fireEvent.click(sessionRow('s3'))
+    settle()
+    expect(harness.onDisplayChange).not.toHaveBeenCalled()
+    expect(harness.openSessionTab.mock.calls).toEqual([['s3', { permanent: false }]])
+  })
+
+  it('keeps active native workers inside their owning Podium session', () => {
     harness.sessions = [
       session('s1', { issueId: 't1' }),
       session('s2', {
@@ -854,13 +886,10 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     ]
     deck()
 
-    const worker = document.querySelector('[data-testid="flight-native-agents"] button')
-    expect(worker).toBeTruthy()
-    fireEvent.click(worker as HTMLElement)
+    expect(sessionRow('s2').textContent).toContain('+1')
+    fireEvent.click(sessionRow('s2'))
     settle()
-
-    expect(harness.preferPanelMode.mock.calls).toEqual([['s2', 'native']])
-    expect(harness.setPanelMode).not.toHaveBeenCalled()
+    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
 
   it('reopens the Task dock when an issue is picked', () => {

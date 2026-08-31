@@ -6,6 +6,8 @@ import {
   createRoutedUiState,
   createRouterUiState,
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
+  FLIGHT_DECK_DISPLAY_KEY,
+  FLIGHT_DECK_EXPANDED_WIDTH_KEY,
   type ReplicatedUiStatePort,
   readStoredDensity,
   requireReplicatedLayoutKey,
@@ -124,6 +126,8 @@ describe('workspace ui-state routing', () => {
 
   it('keeps the Flight Deck brief cutoff on this device', () => {
     expect(uiStateRoute(FLIGHT_DECK_BRIEF_CUTOFF_KEY).home).toBe('device-local')
+    expect(uiStateRoute(FLIGHT_DECK_DISPLAY_KEY).home).toBe('device-local')
+    expect(uiStateRoute(FLIGHT_DECK_EXPANDED_WIDTH_KEY).home).toBe('device-local')
   })
 
   it('moves legacy replicated values once, then removes the principal-local copy', () => {
