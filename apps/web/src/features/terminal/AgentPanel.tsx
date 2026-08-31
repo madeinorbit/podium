@@ -1312,7 +1312,20 @@ export function AgentPanel({
               active={active && effectiveMode === 'chat'}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
-              deferInitialTranscript={!spawnConfirmed}
+              /* AND NOT WHILE THE NATIVE PANE IS THE SURFACE. Keeping both
+                 surfaces mounted is what makes the toggle warm, but a chat view
+                 that is merely PARKED behind the terminal must not open a
+                 transcript subscription: before this merge neither branch ever
+                 had one there — dev/mw did not mount this view in native mode at
+                 all, and the epic's transcript hook still gated its own
+                 read-then-subscribe on `active`. dev/mw moved that gate inside
+                 the transcript controller, which starts on mount, so without
+                 this every native panel in the fleet would hold a live
+                 subscription it never used. A BACKGROUND CHAT TAB still starts:
+                 the condition is the selected SURFACE, not focus, which is
+                 exactly the warm-but-subscribed panel dev/mw kept catching
+                 deltas for. */
+              deferInitialTranscript={!spawnConfirmed || effectiveMode !== 'chat'}
             />
           </div>
           {/* THE ONE HONEST NATIVE PANE [POD-2290]. Reachable only through the

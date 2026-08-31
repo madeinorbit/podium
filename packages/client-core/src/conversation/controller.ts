@@ -62,6 +62,15 @@ export interface ConversationControllerOptions {
   createDeliveryId(): string
   deliver(turn: ConversationPendingTurn): Promise<ConversationDeliveryResult | void>
   readQueue?: () => Promise<unknown>
+  /**
+   * The rows {@link readQueue} just returned, handed over RAW.
+   *
+   * ONE READ, TWO PROJECTIONS. An adapter that needs a second view of the same
+   * ledger — the web chat's dead-lettered rows, whose wording is its own — must
+   * not issue its own query for it: two reads of one ledger race each other,
+   * and the loser projects a snapshot the winner has already moved past.
+   */
+  onQueueRows?: (rows: unknown) => void
   retract?: (id: string) => Promise<void>
   dismissOffer?: (offerCreatedAt: string) => Promise<void>
   /** False when the adapter's durable outbox already projects the dismissal. */
@@ -397,6 +406,7 @@ export class ConversationController {
     try {
       const rows = await this.options.readQueue()
       if (this.disposed || serial !== this.queueReadSerial) return
+      this.options.onQueueRows?.(rows)
       this.patch({
         queued: queuedConversationMessages(rows, this.options.sessionId).filter(
           (message) => !this.retractingQueueIds.has(message.id),

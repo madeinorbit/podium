@@ -168,6 +168,15 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     [sessionId, headless, superThread, composer, ownThreadIds],
   )
   const [ctxSeq, setCtxSeq] = useState<number | null>(null)
+  /**
+   * DEAD-LETTERED ROWS, RESTORED (POD-1761). A delivery the authority gave up on
+   * is terminal, so it is not in the queued projection the controller keeps —
+   * but dropping it off the surface is what made a failed send look like a send
+   * that never happened. Derived from the controller's OWN ledger read rather
+   * than a second query of the same rows, and formatted here because the wording
+   * is the web ledger's (`deadLetterDeliveryLine`).
+   */
+  const [failedMessages, setFailedMessages] = useState<DeadLetteredChatMessage[]>([])
 
   const deliver = useCallback(
     async (
@@ -281,6 +290,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         : {
             readQueue: () =>
               operationsRef.current.trpc.messages.ledger.query({ sessionId, limit: 100 }),
+            onQueueRows: (rows) => setFailedMessages(deadLetteredOperatorMessages(rows, sessionId)),
             retract: (id: string) =>
               operationsRef.current.trpc.messages.cancel.mutate({ id }).then(() => undefined),
           }),
@@ -319,42 +329,6 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     ],
   )
 
-  /**
-   * DEAD-LETTERED ROWS, RESTORED (POD-1761). A delivery the authority gave up on
-   * is not in the queued projection the controller keeps — it is terminal — but
-   * dropping it off the surface is what made a failed send look like a send that
-   * never happened. Read here rather than in the shared controller because the
-   * wording is the web ledger's (`deadLetterDeliveryLine`).
-   */
-  const [failedMessages, setFailedMessages] = useState<DeadLetteredChatMessage[]>([])
-  // Cleared only when the ADDRESSED CONVERSATION changes. Clearing on every
-  // re-read would blank the list on each queue movement and flicker a terminal
-  // row out and back; a stale row is the better wrong answer for the moment a
-  // read is in flight, because it is the one that was true.
-  const failedFor = useRef<SessionId | null>(null)
-  if (failedFor.current !== sessionId) {
-    failedFor.current = sessionId
-    if (failedMessages.length > 0) setFailedMessages([])
-  }
-  useEffect(() => {
-    if (headless) {
-      setFailedMessages([])
-      return
-    }
-    let live = true
-    void trpc.messages.ledger
-      .query({ sessionId, limit: 100 })
-      .then((rows) => {
-        if (live) setFailedMessages(deadLetteredOperatorMessages(rows, sessionId))
-      })
-      .catch(() => {
-        // Chat stays usable without the optional ledger read; keep the last set.
-      })
-    return () => {
-      live = false
-    }
-  }, [headless, sessionId, trpc, state.queued])
-
   const seedSettled = useRef(initialPendingText === undefined)
   useEffect(() => {
     if (seedSettled.current) return
@@ -390,7 +364,13 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   )
 
   return {
-    pending: state.projected.pending,
+    // The controller records a failed turn's reason as `error`; the bubble that
+    // renders it calls the same fact `failure` (POD-2604). Bridged here, at the
+    // one seam where a controller turn becomes a web pending item, rather than
+    // teaching either side the other's word for it.
+    pending: state.projected.pending.map((turn) =>
+      turn.error === undefined ? turn : { ...turn, failure: turn.error },
+    ),
     queuedMessages: state.projected.queued,
     failedMessages,
     justSent: state.justSent,
