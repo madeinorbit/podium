@@ -35,6 +35,7 @@ import { LaunchReadyView } from './launch-ready'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
+  markPendingMobileHandoffProfileSelected,
   matchingMobileHandoffProfile,
   mobileHandoffFallbackStatus,
   pendingMobileHandoffSnapshot,
@@ -214,6 +215,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     pendingMobileHandoffSnapshot,
   )
   const [activationRetry, setActivationRetry] = useState(0)
+  const [profileSwitchSettled, setProfileSwitchSettled] = useState(0)
   const switchOperation = useRef(0)
   const switchInFlight = useRef(false)
   const revalidationInFlight = useRef(false)
@@ -669,6 +671,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           throw cause
         } finally {
           switchInFlight.current = false
+          setProfileSwitchSettled((value) => value + 1)
         }
       },
       renameProfile: async (profileId, name) => {
@@ -851,6 +854,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       fallback('profile-unavailable')
       return
     }
+    // A link captured during an older profile switch belongs to a newer
+    // generation. Keep it claimed outside the authenticated host until that
+    // switch settles, then this effect reruns and selects the latest target.
+    if (switchInFlight.current) {
+      setHandoffStatus('Opening the matching saved server.')
+      return
+    }
     if (selected.id !== profile?.id) {
       if (!context || handoffSwitchingRequest.current === pendingHandoff.id) return
       handoffSwitchingRequest.current = pendingHandoff.id
@@ -869,12 +879,16 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       return
     }
     if (activationFailure) fallback('identity-unverified')
-    else setHandoffStatus('')
+    else {
+      markPendingMobileHandoffProfileSelected(pendingHandoff.id)
+      setHandoffStatus('')
+    }
   }, [
     activationFailure,
     context,
     pendingHandoff,
     profile?.id,
+    profileSwitchSettled,
     profileState.profiles,
     ready,
     router,

@@ -196,10 +196,80 @@ describe('handoff profile selection', () => {
       expect.objectContaining({ activeProfileId: 'profile-b' }),
     )
     expect(pendingMobileHandoffSnapshot().request).not.toBeNull()
+    expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true)
     expect([...seams.runtime, ...seams.socket]).not.toContainEqual({
       origin: 'https://b.example',
       bearer: 'token-a',
     })
+  })
+
+  it('re-evaluates the latest handoff after an older profile switch settles', async () => {
+    await mountActiveProfileA()
+    let releaseProfileB = () => {}
+    const profileBReleased = new Promise<void>((resolve) => {
+      releaseProfileB = resolve
+    })
+    let reportProfileBStarted = () => {}
+    const profileBStarted = new Promise<void>((resolve) => {
+      reportProfileBStarted = resolve
+    })
+    seams.preflight.mockImplementation(async (origin: string) => {
+      if (origin === 'https://b.example') {
+        reportProfileBStarted()
+        await profileBReleased
+      }
+      return successfulPreflight(origin)
+    })
+
+    act(() => {
+      captureMobileHandoffUrl(
+        formatPodiumLink(PODIUM_SCHEME, {
+          kind: 'session',
+          session: 'older-session-on-b',
+          search: '?origin=https%3A%2F%2Fb.example&instance=instance-b',
+        }),
+      )
+    })
+    await profileBStarted
+
+    act(() => {
+      captureMobileHandoffUrl(
+        formatPodiumLink(PODIUM_SCHEME, {
+          kind: 'session',
+          session: 'newer-session-on-a',
+          search: '?origin=https%3A%2F%2Fa.example&instance=instance-a',
+        }),
+      )
+    })
+    const newerRequestId = pendingMobileHandoffSnapshot().id
+    expect(pendingMobileHandoffSnapshot()).toMatchObject({
+      id: newerRequestId,
+      profileSelected: false,
+      request: {
+        kind: 'destination',
+        destination: { sessionId: 'newer-session-on-a' },
+      },
+    })
+
+    await act(async () => {
+      releaseProfileB()
+      await profileBReleased
+    })
+
+    await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-a'))
+    await waitFor(() => expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true))
+    expect(pendingMobileHandoffSnapshot()).toMatchObject({
+      id: newerRequestId,
+      request: {
+        kind: 'destination',
+        destination: { sessionId: 'newer-session-on-a' },
+      },
+    })
+    expect(seams.preflight.mock.calls.map(([origin]) => origin)).toEqual([
+      'https://a.example',
+      'https://b.example',
+      'https://a.example',
+    ])
   })
 })
 

@@ -18,14 +18,15 @@ export type MobileHandoffRequest =
 export interface PendingMobileHandoff {
   id: number
   request: MobileHandoffRequest | null
+  profileSelected: boolean
 }
 
 let nextRequestId = 0
-let pendingSnapshot: PendingMobileHandoff = { id: 0, request: null }
+let pendingSnapshot: PendingMobileHandoff = { id: 0, request: null, profileSelected: false }
 const pendingListeners = new Set<() => void>()
 
 function publish(request: MobileHandoffRequest | null): void {
-  pendingSnapshot = { id: ++nextRequestId, request }
+  pendingSnapshot = { id: ++nextRequestId, request, profileSelected: false }
   for (const listener of pendingListeners) listener()
 }
 
@@ -42,6 +43,15 @@ export function pendingMobileHandoffSnapshot(): PendingMobileHandoff {
 /** Consume only the request the caller resolved, never a newer incoming link. */
 export function consumePendingMobileHandoff(id: number): void {
   if (pendingSnapshot.id === id && pendingSnapshot.request !== null) publish(null)
+}
+
+/** Release one exact generation to the authenticated host after profile selection settles. */
+export function markPendingMobileHandoffProfileSelected(id: number): void {
+  if (pendingSnapshot.id !== id || !pendingSnapshot.request || pendingSnapshot.profileSelected) {
+    return
+  }
+  pendingSnapshot = { ...pendingSnapshot, profileSelected: true }
+  for (const listener of pendingListeners) listener()
 }
 
 /**

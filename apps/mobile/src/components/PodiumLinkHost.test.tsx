@@ -34,6 +34,7 @@ vi.mock('../client/server-profile-context', () => ({
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
+  markPendingMobileHandoffProfileSelected,
   pendingMobileHandoffSnapshot,
 } from '../client/mobile-handoff'
 import { PodiumLinkHost } from './PodiumLinkHost'
@@ -104,7 +105,7 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('PodiumLinkHost mobile handoff integration', () => {
-  it('uses native replace only after the authorized replica contains the session', async () => {
+  it('waits for profile selection before opening from the authorized replica', async () => {
     seams.sessions = [{ sessionId: SESSION_ID }]
     render(<PodiumLinkHost />)
 
@@ -112,6 +113,14 @@ describe('PodiumLinkHost mobile handoff integration', () => {
       captureMobileHandoffUrl(handoff('https://current.example'))
     })
 
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe('Checking the matching saved server.'),
+    )
+    expect(seams.router.replace).not.toHaveBeenCalled()
+
+    act(() => {
+      markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
+    })
     await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith(`/session/${SESSION_ID}`))
     expect(seams.router.push).not.toHaveBeenCalled()
     expect(screen.getByRole('status').textContent).toBe('Opening the session.')
@@ -125,6 +134,7 @@ describe('PodiumLinkHost mobile handoff integration', () => {
 
     act(() => {
       captureMobileHandoffUrl(handoff(replacement.httpOrigin, 'old-instance'))
+      markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
     })
 
     await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith('/work'))
@@ -140,6 +150,7 @@ describe('PodiumLinkHost mobile handoff integration', () => {
 
     act(() => {
       captureMobileHandoffUrl(handoff('https://current.example'))
+      markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
     })
 
     await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith('/work'))

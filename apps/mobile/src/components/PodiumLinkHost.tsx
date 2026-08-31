@@ -64,6 +64,10 @@ export function PodiumLinkHost() {
 
   useEffect(() => {
     if (!pending.request) return
+    if (!pending.profileSelected) {
+      setHandoffStatus('Checking the matching saved server.')
+      return
+    }
     const decision = decideMobileHandoff(pending.request, {
       profiles,
       activeProfileId: profile.id,
