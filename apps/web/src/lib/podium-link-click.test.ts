@@ -141,7 +141,7 @@ describe('startupPodiumHref', () => {
         pathname: '/sessions/POD-1606-A',
         search: '?server=wss%3A%2F%2Fother.example',
       }),
-    ).toBe('/sessions/POD-1606-A?server=wss%3A%2F%2Fother.example')
+    ).toBe('/sessions/POD-1606-A')
   })
 })
 
@@ -153,5 +153,12 @@ describe('server identity', () => {
       kind: 'issue',
       issue: 'POD-1606',
     })
+  })
+
+  it('does not resolve a live server selector against the active replica', () => {
+    expect(internalPodiumTarget('/sessions/POD-1606-A?server=wss%3A%2F%2Fother.example')).toBeNull()
+    expect(
+      internalPodiumTarget('/file?path=%2Fw%2Fa.ts&root=%2Fw&server=wss%3A%2F%2Fother.example'),
+    ).toBeNull()
   })
 })

@@ -158,13 +158,13 @@ describe('resolvePodiumTarget', () => {
     ).toBeNull()
   })
 
-  it('allows the server selector because boot consumes and retains it', () => {
+  it('declines a server selector presented to the live resolver', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'session', session: 'POD-1606-A', search: '?server=wss%3A%2F%2FB' },
         context,
       ),
-    ).toEqual({ kind: 'session', sessionIdOrRef: 'sess_1' })
+    ).toBeNull()
   })
 
   it('resolves nothing for an issue this replica has not seen', () => {
