@@ -95,7 +95,7 @@ test_invocation() {
 }
 
 static_self_test() {
-  local root marker rig fail_drive mutate_drive rc original_marker mutate_stderr expected_protected old_instance new_instance old_state new_state ports
+  local root marker rig fail_drive mutate_drive rc original_marker mutate_stderr expected_protected old_instance new_instance old_state new_state derived_new_state old_ports new_ports port
   root="$(mktemp -d)"
   trap 'rm -rf -- "$root"' RETURN
   marker="$root/instance.json"
@@ -103,17 +103,34 @@ static_self_test() {
   fail_drive="$root/fail-drive"
   mutate_drive="$root/mutate-drive"
   mutate_stderr="$root/mutate.stderr"
-  expected_protected="${HOME:?HOME must be inherited}/.podium/instance.json"
-  [ "$PROTECTED_MARKER" = "$expected_protected" ] || { printf '%s\n' "STATIC SELF TEST protected path mismatch: $PROTECTED_MARKER" >&2; return 1; }
-  [ -f "$PROTECTED_MARKER" ] || { printf '%s\n' "STATIC SELF TEST live protected marker missing: $PROTECTED_MARKER" >&2; return 1; }
+  if [ "${P3110_ATOMIC_TEST_MODE:-0}" = 1 ]; then
+    [ -f "$PROTECTED_MARKER" ] || { printf '%s\n' "STATIC SELF TEST fixture marker missing: $PROTECTED_MARKER" >&2; return 1; }
+  else
+    expected_protected="${HOME:?HOME must be inherited}/.podium/instance.json"
+    [ "$PROTECTED_MARKER" = "$expected_protected" ] || { printf '%s\n' "STATIC SELF TEST protected path mismatch: $PROTECTED_MARKER" >&2; return 1; }
+    [ -f "$PROTECTED_MARKER" ] || { printf '%s\n' "STATIC SELF TEST live protected marker missing: $PROTECTED_MARKER" >&2; return 1; }
+  fi
   old_instance=p3110-grok-paired-a4a209c-r7
   new_instance=p3110-grok-paired-a4a209c-r8
+  new_state="${P3110_STATE_DIR:?P3110_STATE_DIR is required}"
+  [ ! -e "$new_state" ] || { printf '%s\n' "STATIC SELF TEST new state root exists before derivations: $new_state" >&2; return 1; }
   [ "$old_instance" != "$new_instance" ] || { printf '%s\n' 'STATIC SELF TEST instance ids collide' >&2; return 1; }
   old_state="$(env -u PODIUM_STATE_DIR -u XDG_STATE_HOME PODIUM_INSTANCE="$old_instance" "$BUN" --conditions=@podium/source -e 'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())')"
-  new_state="$(env -u PODIUM_STATE_DIR -u XDG_STATE_HOME PODIUM_INSTANCE="$new_instance" "$BUN" --conditions=@podium/source -e 'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())')"
+  derived_new_state="$(env -u PODIUM_STATE_DIR -u XDG_STATE_HOME PODIUM_INSTANCE="$new_instance" "$BUN" --conditions=@podium/source -e 'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())')"
+  [ "$derived_new_state" = "$new_state" ] || { printf '%s\n' "STATIC SELF TEST expected/derived new state mismatch: $new_state != $derived_new_state" >&2; return 1; }
   [ "$old_state" != "$new_state" ] || { printf '%s\n' 'STATIC SELF TEST state roots collide' >&2; return 1; }
-  [ ! -e "$new_state/instance.json" ] || { printf '%s\n' "STATIC SELF TEST new marker exists: $new_state/instance.json" >&2; return 1; }
-  ports="$(env -u PODIUM_STATE_DIR PODIUM_INSTANCE="$new_instance" "$BUN" --conditions=@podium/source -e 'import { defaultInstancePorts } from "@podium/runtime/instance"; const p=defaultInstancePorts(process.env.PODIUM_INSTANCE); console.log(`${p.server},${p.hook},${p.agentRelay}`)')"
+  old_ports="$(env -u PODIUM_STATE_DIR PODIUM_INSTANCE="$old_instance" "$BUN" --conditions=@podium/source -e 'import { defaultInstancePorts } from "@podium/runtime/instance"; const p=defaultInstancePorts(process.env.PODIUM_INSTANCE); console.log(`${p.server},${p.hook},${p.agentRelay}`)')"
+  new_ports="$(env -u PODIUM_STATE_DIR PODIUM_INSTANCE="$new_instance" "$BUN" --conditions=@podium/source -e 'import { defaultInstancePorts } from "@podium/runtime/instance"; const p=defaultInstancePorts(process.env.PODIUM_INSTANCE); console.log(`${p.server},${p.hook},${p.agentRelay}`)')"
+  [ "$old_ports" != "$new_ports" ] || { printf '%s\n' 'STATIC SELF TEST old/new port tuples collide' >&2; return 1; }
+  IFS=, read -r -a new_port_tuple <<<"$new_ports"
+  [ "${#new_port_tuple[@]}" -eq 3 ] || { printf '%s\n' "STATIC SELF TEST malformed new port tuple: $new_ports" >&2; return 1; }
+  [ "${new_port_tuple[0]}" != "${new_port_tuple[1]}" ] && [ "${new_port_tuple[0]}" != "${new_port_tuple[2]}" ] && [ "${new_port_tuple[1]}" != "${new_port_tuple[2]}" ] || { printf '%s\n' "STATIC SELF TEST duplicate new ports: $new_ports" >&2; return 1; }
+  for port in "${new_port_tuple[@]}"; do
+    case "$port" in 19797|32090) printf '%s\n' "STATIC SELF TEST reserved new port: $port" >&2; return 1 ;; esac
+    if ss -ltn | awk -v suffix=":$port" '$1 == "LISTEN" && index($4, suffix) == length($4)-length(suffix)+1 { found=1 } END { exit !found }'; then
+      printf '%s\n' "STATIC SELF TEST new port has listener: $port" >&2; return 1
+    fi
+  done
   printf '%s\n' '{"protected":true}' >"$marker"
   original_marker="$(sha256sum "$marker" | awk '{print $1}')"
   printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$1" >>"$P3110_TEST_EVENTS"' >"$rig"
@@ -140,7 +157,8 @@ static_self_test() {
   [ "$(sha256sum "$marker" | awk '{print $1}')" != "$original_marker" ] || { printf '%s\n' 'STATIC SELF TEST marker bytes did not change' >&2; return 1; }
   grep -Fx 'drive-succeeded' "$root/events" >/dev/null || { printf '%s\n' 'STATIC SELF TEST mutate child did not succeed' >&2; return 1; }
   [ "$(sed -n '$p' "$root/events")" = down ] || { printf '%s\n' 'STATIC SELF TEST marker change skipped down' >&2; return 1; }
-  printf '%s\n' "ATOMIC_STATIC_SELF_TEST_OK protected-path=exact live-marker=exists old-new-instance=distinct old-new-state=distinct new-marker=absent ports=$ports early-drive-rc=23 down=invoked mutate-child=succeeded marker-bytes=changed exact-refusal=matched"
+  [ ! -e "$new_state" ] || { printf '%s\n' "STATIC SELF TEST new state root exists after helpers: $new_state" >&2; return 1; }
+  printf '%s\n' "ATOMIC_STATIC_SELF_TEST_OK protected-path=exact live-marker=exists old-new-instance=distinct old-new-state=distinct whole-root-before=absent whole-root-after=absent old-new-ports=distinct new-ports-pairwise=distinct new-ports-nonreserved=yes new-ports-listeners=zero ports=$new_ports early-drive-rc=23 down=invoked mutate-child=succeeded marker-bytes=changed exact-refusal=matched"
 }
 
 case "${1:-}" in
