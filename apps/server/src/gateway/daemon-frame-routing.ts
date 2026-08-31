@@ -32,6 +32,7 @@ export const DAEMON_PORT_IDS = [
   'agentRelay',
   'approvals',
   'updates',
+  'logs',
 ] as const
 export type DaemonPortId = (typeof DAEMON_PORT_IDS)[number]
 
@@ -71,6 +72,9 @@ export const DAEMON_FRAME_PORTS = {
   inventoryReport: ['machines'],
   machineDiagnostic: ['machines'],
   updateStatus: ['updates'],
+
+  // ---- fleet daemon log capture (POD-3156) ----
+  daemonLogBatch: ['logs'],
 
   // ---- host-owned ----
   hostMetrics: ['hosts'],
@@ -185,6 +189,8 @@ export const MACHINE_SCOPE_CARRIER = {
   inventoryReport: 'principal',
   machineDiagnostic: 'principal',
   updateStatus: 'principal',
+  // Filed UNDER the machine, so the machine had better not come from the frame.
+  daemonLogBatch: 'principal',
   hostMetrics: 'principal',
   memoryBreakdownResult: 'request-correlated',
   reclaimDiskEstimateResult: 'request-correlated',

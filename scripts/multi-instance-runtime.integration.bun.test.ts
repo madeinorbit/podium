@@ -39,6 +39,7 @@ import {
 import { encodeJoin } from '@podium/runtime/join'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
+import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
 import { SessionStore } from '../apps/server/src/store'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 
@@ -583,6 +584,105 @@ describe('multi-instance runtime isolation', () => {
       state: 'connected',
     })
   }, 120_000)
+
+  /**
+   * FLEET DAEMON LOG CAPTURE, ACROSS THE SOCKET (POD-3156).
+   *
+   * The hermetic roundtrip in `apps/server/src/modules/logs/` drives every
+   * schema, table and filename rule in this path, and deliberately stops at the
+   * socket. This is the half it cannot hold: TWO INDEPENDENT RUNTIMES — a
+   * coordinator and a separately-installed, separately-stated daemon that
+   * enrolled with a real pair code over a real WebSocket — where the machine the
+   * records are filed under is one the SERVER AUTHENTICATED rather than one a
+   * test injected.
+   *
+   * It is the multi-instance lane rather than a unit test for the reason
+   * docs/multi-instance.md gives: an acceptance about separate deployments has
+   * to start separate deployments, and multiple clients routed to one runtime
+   * would prove the opposite of what is claimed.
+   */
+  it('raises a joined remote daemon from the coordinator and keeps its records centrally', async () => {
+    const source = await packagedCoordinator()
+    const sourceApi = trpc(source)
+    const pairing = await sourceApi.machines.pairingCode.mutate()
+    const fleet = makeSpec('blue', 'packaged-log-capture-member')
+    const executable = buildPackagedCli()
+    packagedSpecs.push({ executable, spec: fleet })
+    const token = encodeJoin({
+      v: 1,
+      serverUrl: `ws://127.0.0.1:${source.port}`,
+      pairCode: pairing.code,
+    })
+
+    const joined = await runPackagedCli(executable, fleet, [
+      'setup',
+      '--join',
+      token,
+      '--persist',
+      'detached',
+    ])
+    expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+      machineId: string
+    }
+    await waitUntil(
+      async () =>
+        (await sourceApi.machines.list.query()).some(
+          (machine) => machine.id === identity.machineId && machine.online,
+        ),
+      'remote daemon enrollment for log capture',
+    )
+
+    // The file is named by the same rule the server files under, imported rather
+    // than restated — a test that derived the name its own way could pass while
+    // the operator's `podium logs fleet-<machine>` looked in the wrong place.
+    const fleetFile = join(
+      source.stateDir,
+      'logs',
+      'fleet',
+      `${machineFileKey(identity.machineId)}.ndjson`,
+    )
+    const central = (): string => (existsSync(fleetFile) ? readFileSync(fleetFile, 'utf8') : '')
+
+    // DEFAULT CLOSED. An enrolled, connected, actively-logging daemon has sent
+    // nothing, because nobody asked it to.
+    expect(existsSync(fleetFile)).toBe(false)
+
+    const raised = await sourceApi.logs.setDaemonLevel.mutate({
+      level: 'debug',
+      ttlMs: 600_000,
+      target: { machineId: identity.machineId },
+    })
+    expect(raised.daemons.map((d) => String(d.machineId))).toEqual([identity.machineId])
+
+    await waitUntil(
+      () => central().includes('daemon log level raised'),
+      'the raised daemon’s records reaching the coordinator',
+    )
+
+    const records = central()
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    // FILED UNDER THE AUTHENTICATED MACHINE, every one of them. The frame carries
+    // no machine field at all; this is the server's own answer on disk.
+    expect(records.length).toBeGreaterThan(0)
+    expect(records.every((r) => r.machineId === identity.machineId)).toBe(true)
+    // The raise ships what the daemon had already recorded, so the central file
+    // starts before the operator's command rather than at it.
+    expect(records.some((r) => String(r.ns).startsWith('daemon'))).toBe(true)
+
+    // AND THE WAY BACK, in the same file, which is what tells a later reader
+    // that the stream stopping was an expiry rather than a dead machine.
+    await sourceApi.logs.setDaemonLevel.mutate({
+      level: null,
+      target: { machineId: identity.machineId },
+    })
+    await waitUntil(
+      () => central().includes('daemon log level restored'),
+      'the reset reaching the remote daemon',
+    )
+  }, 180_000)
 
   it('returns nonzero with the auth reason when packaged join is rejected', async () => {
     const source = await packagedCoordinator()

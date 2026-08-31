@@ -123,6 +123,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     installDir,
     send: (message) => connection?.send(message),
     sendOutput: (batch: DaemonPtyOutputBatch) => connection?.sendOutput(batch),
+    isConnected: () => connection?.state === 'connected',
   })
   connection = createDaemonConnection({
     options,

@@ -125,6 +125,14 @@ export interface DaemonContext {
     point: import('../server-transfer').ServerTransferCrashPoint,
   ) => void | Promise<void>
 
+  /**
+   * FLEET DAEMON LOG CAPTURE (POD-3156) — the operator's knob, as this daemon
+   * holds it. The `setDaemonLogLevel` handler is the only caller; everything
+   * else about the raise (the TTL, the flight recorder, the bounded queue) is
+   * the forwarding module's, so the context carries the handle and no policy.
+   */
+  logForwarding: import('@podium/runtime/log-forward').DaemonLogForwarding
+
   /** Server-granted convergence is wired by the production composition root. */
   applyUpdateGrant: (
     grant: Extract<ControlMessage, { type: 'updateGrant' }>,

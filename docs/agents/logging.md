@@ -110,6 +110,7 @@ presence. Those assertions exist now; if you add a role, add one for it too.
 | Server / daemon / janitor / CLI | `PODIUM_LOG_LEVEL=debug` for everything |
 | One namespace | `PODIUM_LOG='daemon:*=debug'` — comma/space separated, most specific pattern wins |
 | Clients (no env: browser, webview, phone) | `podium logs level debug --role web` from a shell on the server host — see below |
+| A REMOTE machine's daemon (no shell on it) | `podium logs daemon-level debug --machine <id>` from the coordinating server — see below |
 | Desktop Rust side | `PODIUM_LOG_LEVEL` only; the per-namespace syntax is not implemented in the crate |
 
 Raising a client's level raises the console **and** the forwarding stream
@@ -195,6 +196,46 @@ The user at the client can do the same thing from **Settings → Privacy →
 Diagnostic detail** ("turn up for 30 minutes"), which drives the identical knob —
 for hosted installs, phones, and anyone you cannot give a shell command to.
 
+### Raising a daemon on a machine you have no shell on
+
+Same problem one plane out: a remote host's daemon has an env you cannot set and
+a journal you cannot read without SSH. From the **coordinating server**:
+
+```sh
+podium logs daemons                                     # which machines have a live daemon
+podium logs daemon-level debug --machine <id> --for 30m # turn one up
+# …reproduce the problem…
+podium logs fleet-<id> --pretty                         # read what it forwarded
+podium logs daemon-level reset --machine <id>           # put it back
+```
+
+Everything the client verbs promise holds here — the listing is also a reset, a
+raise that matched nothing exits non-zero, `--for` defaults to 30 minutes and is
+capped at 24h — plus three differences that are the whole design:
+
+- **A daemon forwards nothing until it is raised.** A browser forwards `warn`+
+  continuously because its records are the user's own data moving between the
+  user's own processes. A remote daemon's records are *another host's* paths,
+  branch names and command output crossing a network, so the default is closed
+  and every raise expires. An empty `fleet-<id>.ndjson` before you raise is
+  correct, not a broken pipeline.
+- **The raise ships the recent past.** The daemon keeps a `trace` flight recorder
+  in memory at all times and sends it as the first batch, so the central file
+  starts *before* the moment you typed the command — including records below the
+  level the daemon was running at.
+- **The machine is not self-reported.** The daemon frame carries no machine
+  field. The server files the records under the machine the daemon socket
+  *authenticated as*, so `fleet-<id>.ndjson` is a claim the server made, where
+  `clients/<origin>.ndjson` is a claim the client made about itself.
+
+A raise that a machine misses because it was offline is simply not delivered —
+the command sends only to machines with a live socket and lists what it reached.
+Re-issue it; nothing is queued, deliberately.
+
+Underneath it is one call to `logs.setDaemonLevel` (tRPC, admin) — the sibling
+of `logs.setLevel` above, same admin floor, same "no state on the server" rule —
+which pushes a `setDaemonLogLevel` control frame down the daemon socket.
+
 ## Where the logs are
 
 The two process families wire different sink sets, and the difference matters
@@ -226,6 +267,11 @@ On disk:
 - **Server family:** `~/.podium/logs/<role>.ndjson`, rotated at 10 MB × 5.
 - **Forwarded client logs:** `~/.podium/logs/clients/<origin>.ndjson`, one file
   per origin (role + machine), same rotation.
+- **Forwarded remote-daemon logs:** `~/.podium/logs/fleet/<machine>.ndjson`, one
+  file per machine, same rotation. A separate directory from `clients/` on
+  purpose: the machine there is the one the server *authenticated*, not one a
+  peer described itself as, and the two evidentiary grades should not share a
+  filename space.
 - **Under systemd:** nothing on disk here — records go to the unit's stdout and
   journald owns them.
 - **`~/.podium/logs/<role>.log`** (no `.ndjson`) still exists in detached mode
@@ -243,12 +289,16 @@ Reading them:
 podium logs                      # tail the component logs
 podium logs --pretty             # NDJSON rendered for humans
 podium logs web-<machine>        # a forwarded client's own file, by origin
+podium logs fleet-<machine>      # a raised remote daemon's own file, by machine
 podium logs export-crash         # bundle recent crash events for support
 ```
 
 `podium logs clients` and `podium logs level` are the same verb's reach into a
 connected client — see [Raising a client you are not sitting
-at](#raising-a-client-you-are-not-sitting-at).
+at](#raising-a-client-you-are-not-sitting-at). `podium logs daemons` and
+`podium logs daemon-level` are its reach into a remote machine's daemon — see
+[Raising a daemon on a machine you have no shell
+on](#raising-a-daemon-on-a-machine-you-have-no-shell-on).
 
 Under systemd `podium logs` points you at `journalctl` instead, which is the
 authority there.

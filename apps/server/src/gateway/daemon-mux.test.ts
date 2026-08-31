@@ -70,6 +70,7 @@ function fakePorts() {
     approvals: proxyFor('approvals'),
     agentRelay: proxyFor('agentRelay'),
     updates: proxyFor('updates'),
+    logs: proxyFor('logs'),
   } as unknown as DaemonFeaturePorts
   return { ports, calls }
 }

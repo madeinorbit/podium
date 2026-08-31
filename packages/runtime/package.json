@@ -26,6 +26,7 @@
     "./auth-store": "./src/auth-store.ts",
     "./session-mint": "./src/session-mint.ts",
     "./logging": "./src/logging.ts",
+    "./log-forward": "./src/log-forward.ts",
     "./process-safety": "./src/process-safety.ts",
     "./sd-notify": "./src/sd-notify.ts",
     "./supervisor": "./src/supervisor.ts",

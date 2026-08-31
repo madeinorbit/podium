@@ -245,6 +245,9 @@ export const CONTROL_PLANE_CLASS = {
   shippingJobRequest: 'control.command',
   shippingEvidenceRequest: 'control.command',
   shippingRepairApplyRequest: 'control.command',
+  // FLEET DAEMON LOG CAPTURE (POD-3156). A command, not a stream: it is one
+  // frame that changes what the daemon does, and it carries no records.
+  setDaemonLogLevel: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**
@@ -330,6 +333,12 @@ export const DAEMON_PLANE_CLASS = {
   shippingJobResult: 'control.command',
   shippingEvidenceResult: 'control.command',
   shippingRepairApplyResult: 'control.command',
+  // FLEET DAEMON LOG CAPTURE (POD-3156). `control.command` rather than
+  // `stream.live` deliberately: these records are RELIABLE-OR-COUNTED, never
+  // lossy-under-pressure. The daemon's own bounded queue decides what is
+  // dropped and says how many on the next batch, so a transport that silently
+  // shed frames would put a second, invisible drop point behind the counted one.
+  daemonLogBatch: 'control.command',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

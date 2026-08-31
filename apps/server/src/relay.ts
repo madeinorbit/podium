@@ -98,6 +98,8 @@ import { IssueService } from './modules/issues/service'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
+import { FleetLogLevelDirector } from './modules/logs/fleet-director'
+import { FleetLogStore } from './modules/logs/fleet-store'
 import { ClientLogLevelDirector } from './modules/logs/level-director'
 import { LogIngestService } from './modules/logs/service'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
@@ -311,6 +313,13 @@ export interface RegistryModules {
    *  service behind `logs.setLevel` (POD-1920). Holds no state: it selects
    *  connections and pushes a frame. */
   clientLogLevels: ClientLogLevelDirector
+  /** Where a raised REMOTE DAEMON's records land (POD-3156). A separate store
+   *  from `logs` above, deliberately — see `modules/logs/fleet-store.ts`. */
+  fleetLogs: FleetLogStore
+  /** The operator's runtime log-level control over connected DAEMONS — the
+   *  service behind `logs.setDaemonLevel` (POD-3156). Stateless, like its client
+   *  sibling: it selects live machines and pushes a control frame. */
+  fleetLogLevels: FleetLogLevelDirector
   /** Framework idempotency (POD-382) — the ONE mutationId dedup, exposed on the
    *  module seam so a transport wires the framework's implementation rather than
    *  reaching into a service for it. */
@@ -480,6 +489,10 @@ export class SessionRegistry {
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
     const clientLogLevels = new ClientLogLevelDirector(clientRegistry)
+    // FLEET DAEMON LOG CAPTURE (POD-3156). The store's file sinks open lazily on
+    // the first batch, and a daemon forwards nothing until it is raised, so a
+    // server whose fleet nobody has turned up opens no files at all.
+    const fleetLogs = new FleetLogStore()
 
     const issueAccess = new DurableIssueAccessIndex(
       this.store.issues,
@@ -531,6 +544,19 @@ export class SessionRegistry {
     // again with the real hostname and the loopback bootstrap secret; that call is
     // an idempotent UPDATE of this row, not a rival insert.
     machines.ensureHostMachine(hostname())
+    // The fleet's log-level valve (POD-3156), built after the machine registry
+    // it selects over. It reaches the registry through a PORT (online set, name,
+    // one send) rather than holding the service: which machines a raise is for
+    // is the logs feature's decision, and touching a daemon socket stays the
+    // machines module's.
+    const fleetLogLevels = new FleetLogLevelDirector(
+      {
+        onlineMachineIds: () => machines.onlineMachineIds(),
+        machineName: (id) => machines.machineName(id),
+        toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      },
+      fleetLogs,
+    )
     const updatesService = new UpdatesService({
       machines: () =>
         machines.listMachines().map((machine) => ({
@@ -2460,6 +2486,8 @@ export class SessionRegistry {
       perf,
       logs,
       clientLogLevels,
+      fleetLogs,
+      fleetLogLevels,
       mutations,
     }
     const agentRelayGate = new AgentRelayGate({
@@ -2674,6 +2702,18 @@ export class SessionRegistry {
         approvals,
         agentRelay: {
           run: (machineId, msg) => void agentRelayGate.run(machineId, msg),
+        },
+        // FLEET DAEMON LOG CAPTURE (POD-3156). The machine comes from the mux's
+        // authenticated principal, never from the frame — which carries no
+        // machine field for it to disagree with.
+        logs: {
+          onDaemonLogBatch: (machineId, msg) => {
+            fleetLogs.append(machineId, {
+              records: msg.records,
+              ...(msg.dropped !== undefined ? { dropped: msg.dropped } : {}),
+              ...(msg.v !== undefined ? { v: msg.v } : {}),
+            })
+          },
         },
         updates: {
           onUpdateStatus: (machineId, msg) => {

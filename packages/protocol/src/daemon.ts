@@ -14,6 +14,7 @@ import { DaemonMessage } from './messages/daemon'
 import type { ServerMessage } from './messages/server'
 
 export * from './messages/control'
+export * from './messages/fleet-logs'
 export * from './messages/daemon'
 export * from './messages/shipping'
 

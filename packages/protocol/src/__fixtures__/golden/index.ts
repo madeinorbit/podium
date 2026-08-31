@@ -12,6 +12,7 @@ import discovery from './discovery.json' with { type: 'json' }
 import featureState from './feature-state.json' with { type: 'json' }
 import feed from './feed.json' with { type: 'json' }
 import files from './files.json' with { type: 'json' }
+import fleetLogs from './fleet-logs.json' with { type: 'json' }
 import github from './github.json' with { type: 'json' }
 import handoff from './handoff.json' with { type: 'json' }
 import harness from './harness.json' with { type: 'json' }
@@ -48,6 +49,7 @@ export const GOLDEN: Record<string, unknown> = {
   'feature-state': featureState,
   feed: feed,
   files: files,
+  'fleet-logs': fleetLogs,
   github: github,
   handoff: handoff,
   harness: harness,

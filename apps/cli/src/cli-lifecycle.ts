@@ -283,7 +283,15 @@ export function logFilesFor(components: string[], dir: string = logDir()): strin
     .flatMap((role) => [
       join(dir, `${role}.ndjson`),
       join(dir, `${role}.log`),
-      ...(named ? [join(dir, 'clients', `${role}.ndjson`)] : []),
+      ...(named
+        ? [
+            join(dir, 'clients', `${role}.ndjson`),
+            // …and the fleet store, for the same reason and by the same rule
+            // (POD-3156). `podium logs fleet-<machine>` reads what a raised
+            // remote daemon sent; the bare `podium logs` still means this host.
+            join(dir, 'fleet', `${role.replace(/^fleet-/, '')}.ndjson`),
+          ]
+        : []),
     ])
     .filter((f) => existsSync(f))
 }
@@ -420,8 +428,9 @@ export function logsHelpText(): string {
   return [
     'podium logs [component…] [-f] [--pretty]',
     '',
-    `Tail this host's own NDJSON logs. Components: ${LOG_COMPONENTS.join(', ')}, or a`,
-    'client origin (`web-<machine>`) for records a client forwarded here.',
+    `Tail this host's own NDJSON logs. Components: ${LOG_COMPONENTS.join(', ')}, a`,
+    'client origin (`web-<machine>`) for records a client forwarded here, or',
+    '`fleet-<machine>` for records a raised remote daemon forwarded here.',
     '',
     '  -f, --follow          Follow the files as they are written (and across rotation)',
     '  --pretty              Render each record as a readable line instead of NDJSON',
@@ -431,6 +440,12 @@ export function logsHelpText(): string {
     '  logs level <level|reset> [--role R] [--machine M] [--client C] [--for 30m]',
     '                        Raise or restore what a connected client records',
     '                        (`podium logs level --help` for the full selector)',
+    '',
+    'Remote daemons (a daemon forwards NOTHING until it is raised):',
+    '  logs daemons          List the machines with a live daemon — and reset them',
+    '  logs daemon-level <level|reset> [--machine M] [--for 30m]',
+    '                        Raise or restore what a remote daemon records, and',
+    '                        keep those records here as `fleet-<machine>`',
     '',
     'Crash events:',
     '  logs export-crash [--limit N] [--out FILE]',
@@ -455,6 +470,15 @@ export async function logsCommand(argv: string[]): Promise<void> {
   if (argv[0] === 'clients' || argv[0] === 'level') {
     const { logsLevelCliMain } = await import('./logs-level-cli')
     await logsLevelCliMain(argv)
+    return
+  }
+  // `daemons` / `daemon-level` are the same pair one plane over (POD-3156):
+  // raising a remote machine's daemon is what fills `logs/fleet/<machine>.ndjson`,
+  // and the verb that reads those files is where an operator looks for the verb
+  // that fills them. Lazily imported for the same reason.
+  if (argv[0] === 'daemons' || argv[0] === 'daemon-level') {
+    const { logsDaemonCliMain } = await import('./logs-daemon-cli')
+    await logsDaemonCliMain(argv)
     return
   }
   if (argv[0] === '--help' || argv[0] === '-h' || argv[0] === 'help') {

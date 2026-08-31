@@ -9,6 +9,7 @@ import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
 import { headlessHandlers } from './headless'
 import { inventoryHandlers } from './inventory'
+import { logHandlers } from './logs'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
 import { transcriptHandlers } from './transcripts'
@@ -35,6 +36,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...approvalHandlers,
   ...credentialHandlers,
   ...inventoryHandlers,
+  ...logHandlers,
   ...updateHandlers,
   ...serverTransferHandlers,
   ...shippingHandlers,

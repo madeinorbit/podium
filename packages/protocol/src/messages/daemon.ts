@@ -18,6 +18,7 @@ import {
   FileWriteResultMessage,
   ImageUploadResultMessage,
 } from './files'
+import { DaemonLogBatchMessage } from './fleet-logs'
 import { GitHubCliResultMessage } from './github'
 import {
   HandoffBindingFinalizeResultMessage,
@@ -222,5 +223,6 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ShippingJobResultMessage,
   ShippingEvidenceResultMessage,
   ShippingRepairApplyResultMessage,
+  DaemonLogBatchMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

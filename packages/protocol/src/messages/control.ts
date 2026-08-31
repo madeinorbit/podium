@@ -16,6 +16,7 @@ import {
   FileWriteRequestMessage,
   ImageUploadRequestMessage,
 } from './files'
+import { SetDaemonLogLevelMessage } from './fleet-logs'
 import { GitHubCliRequestMessage } from './github'
 import {
   HandoffBindingFinalizeRequestMessage,
@@ -142,5 +143,6 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ShippingJobRequestMessage,
   ShippingEvidenceRequestMessage,
   ShippingRepairApplyRequestMessage,
+  SetDaemonLogLevelMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
