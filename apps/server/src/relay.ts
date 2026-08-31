@@ -509,9 +509,11 @@ export class SessionRegistry {
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
     const clientLogLevels = new ClientLogLevelDirector(clientRegistry)
-    // FLEET DAEMON LOG CAPTURE (POD-3156). The store's file sinks open lazily on
-    // the first batch, and a daemon forwards nothing until it is raised, so a
-    // server whose fleet nobody has turned up opens no files at all.
+    // FLEET DAEMON LOG CAPTURE (POD-3156, POD-3184). The store's file sinks open
+    // lazily on the first batch, and a daemon now forwards `warn`+ without being
+    // asked — so a server with a healthy remote fleet opens a file per machine
+    // and writes very little to it, and one whose only daemon is its own process
+    // still opens nothing (that daemon does not forward outside a raise).
     const fleetLogs = new FleetLogStore()
 
     const issueAccess = new DurableIssueAccessIndex(

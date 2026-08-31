@@ -704,8 +704,9 @@ export async function createDaemonHostRuntime(args: {
    * Installed here rather than in `connected()` because its entire value is
    * having been running when the thing an operator later asks about happened —
    * a recorder armed at first connect is a recorder that missed every boot
-   * problem there is. Nothing leaves the host until a raise arrives; see
-   * `@podium/runtime/log-forward`.
+   * problem there is. `warn`+ leaves the host continuously from this point on,
+   * and an `error` takes the recorder's unsent tail with it; see
+   * `@podium/runtime/log-forward` (POD-3184).
    *
    * `boot` is READ, not assumed: it is whatever this process's own logging
    * composition root settled on (env, defaults, supervision mode), so a reset
@@ -714,6 +715,16 @@ export async function createDaemonHostRuntime(args: {
    */
   const logForwarding = installDaemonLogForwarding({
     boot: resolveLevel('daemon'),
+    /**
+     * A LOCAL LINK MEANS THIS DAEMON IS THE SERVER'S OWN PROCESS (POD-3184).
+     *
+     * It is the same fact the boot record reports as `topology: 'local-link'`,
+     * read from the same option. There the steady stream would file a second
+     * copy of records this process's own file sink has already written to this
+     * machine's disk, so it is off — and a raise still forwards, which is what
+     * makes an all-in-one install answer a raise with its whole process.
+     */
+    coResident: opts.localLink !== undefined,
     // The socket DROPS rather than queues when the link is down
     // (`connection-state.ts`), so this reports whether the frame went out and
     // the sink keeps the batch when it did not.

@@ -1,10 +1,12 @@
 /**
- * The daemon half of fleet log capture (POD-3156) — the promises, not the
- * plumbing:
+ * The daemon half of fleet log capture (POD-3156, POD-3184) — the promises, not
+ * the plumbing:
  *
- *  - nothing leaves a daemon until an operator raises it;
+ *  - `warn`+ leaves a daemon continuously, and nothing below it does;
+ *  - an `error` brings the recorder's unsent tail with it, once per burst;
+ *  - a daemon co-resident with its server stays silent until it is raised;
  *  - a raise ships the minute BEFORE it, from the flight recorder;
- *  - the raise expires by itself, and expiry stops the stream;
+ *  - the raise expires by itself, and expiry stops the DETAIL, not the stream;
  *  - a link that is down costs records at a bounded rate, and says how many;
  *  - the sink cannot feed itself through the socket it is describing.
  */
@@ -55,17 +57,117 @@ afterEach(() => {
 })
 
 describe('daemon log forwarding', () => {
-  /** THE DEFAULT POSTURE. A daemon's records are another host's contents; they
-   *  do not cross a network because somebody started a server. */
-  it('forwards nothing until it is raised', () => {
+  /** THE DEFAULT POSTURE (POD-3184). A machine with a problem must not be silent
+   *  just because nobody knew to ask it a question. */
+  it('forwards warn and above with nobody having asked', () => {
     const t = transport()
     const forwarding = installDaemonLogForwarding({ boot: 'info', send: t.send })
 
-    log.warn('before anyone asked')
+    log.warn('nobody asked, and it still went out')
+    vi.advanceTimersByTime(10_000)
+
+    expect(messages(t.batches)).toContain('nobody asked, and it still went out')
+    expect(forwarding.status()).toMatchObject({ forwarding: true, raised: false })
+    forwarding.dispose()
+  })
+
+  /** LOW VOLUME BY CONSTRUCTION. `info` is what a healthy daemon spends all day
+   *  emitting, and it is exactly what does not cross the network for free. */
+  it('forwards nothing below warn until a raise says otherwise', () => {
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({ boot: 'info', send: t.send })
+
+    log.info('routine')
+    log.debug('detail')
     vi.advanceTimersByTime(10_000)
 
     expect(t.batches).toEqual([])
+    forwarding.dispose()
+  })
+
+  /**
+   * THE BIGGEST GAIN. The recorder already runs at `trace` on every daemon; an
+   * error that shipped alone said THAT something broke and threw away the minute
+   * saying WHY.
+   */
+  it('an error brings the recorder tail that explains it', () => {
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({ boot: 'info', send: t.send })
+
+    log.debug('opened the repository')
+    log.info('started the fetch')
+    log.error('the fetch failed')
+    vi.advanceTimersByTime(10_000)
+
+    // In emission order, with the error last: the payload reads as a narrative.
+    expect(messages(t.batches)).toEqual([
+      'opened the repository',
+      'started the fetch',
+      'the fetch failed',
+    ])
+    forwarding.dispose()
+  })
+
+  /** ONE WINDOW PER BURST, not one window each. A failure that fires twenty
+   *  times must not put the same minute on the wire twenty times. */
+  it('does not re-send a window a previous error already shipped', () => {
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({ boot: 'info', send: t.send })
+
+    log.debug('the context')
+    log.error('first')
+    log.error('second')
+    vi.advanceTimersByTime(10_000)
+
+    expect(messages(t.batches).filter((m) => m === 'the context')).toHaveLength(1)
+    forwarding.dispose()
+  })
+
+  /** The tail is BOUNDED. The ring holds 500; an error must not put ten frames
+   *  on the wire for one failure. */
+  it('caps how far back an error reaches', () => {
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({
+      boot: 'info',
+      send: t.send,
+      errorContext: 3,
+    })
+
+    for (let i = 0; i < 20; i++) log.debug(`step ${i}`)
+    log.error('broke')
+    vi.advanceTimersByTime(10_000)
+
+    const sent = messages(t.batches)
+    expect(sent).toEqual(['step 17', 'step 18', 'step 19', 'broke'])
+    forwarding.dispose()
+  })
+
+  /**
+   * THE CO-RESIDENT EXCEPTION. These records are already on this machine's disk,
+   * written by this same process; the steady stream would file a second copy.
+   */
+  it('a daemon co-resident with its server stays silent until raised', () => {
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({
+      boot: 'info',
+      send: t.send,
+      coResident: true,
+    })
+
+    log.warn('already on this disk')
+    log.error('and so is this')
+    vi.advanceTimersByTime(10_000)
+    expect(t.batches).toEqual([])
     expect(forwarding.status().forwarding).toBe(false)
+
+    // A RAISE STILL FORWARDS THERE, which is what makes an all-in-one install
+    // answerable — and it is bounded, so the duplicate is too.
+    forwarding.raise({ level: 'debug', ttlMs: 60_000 })
+    log.debug('under the raise')
+    vi.advanceTimersByTime(10_000)
+
+    expect(messages(t.batches)).toContain('under the raise')
+    expect(messages(t.batches)).toContain('already on this disk')
     forwarding.dispose()
   })
 
@@ -135,21 +237,44 @@ describe('daemon log forwarding', () => {
     forwarding.dispose()
   })
 
-  /** THE WAY BACK THAT DOES NOT DEPEND ON ANYBODY REMEMBERING. A daemon runs for
-   *  weeks; nothing reloads it. */
-  it('the raise expires by itself and the stream stops', () => {
+  /**
+   * THE WAY BACK THAT DOES NOT DEPEND ON ANYBODY REMEMBERING. A daemon runs for
+   * weeks; nothing reloads it.
+   *
+   * Since POD-3184 expiry puts the DETAIL back, not the stream: `warn`+ keeps
+   * flowing afterwards, and `debug` stops.
+   */
+  it('the raise expires by itself and the detail stops', () => {
     const t = transport()
     const forwarding = installDaemonLogForwarding({ boot: 'info', send: t.send })
 
     forwarding.raise({ level: 'debug', ttlMs: 60_000 })
     vi.advanceTimersByTime(60_000)
-    const afterExpiry = t.batches.length
-    log.warn('long after the window')
+    t.batches.length = 0
+    log.debug('long after the window')
+    log.warn('still watching, though')
     vi.advanceTimersByTime(10_000)
 
-    expect(forwarding.status()).toMatchObject({ forwarding: false, level: 'info', expiresAt: null })
-    expect(t.batches.length).toBe(afterExpiry)
-    // The explanation for why the central file goes quiet is IN the central file.
+    expect(forwarding.status()).toMatchObject({
+      forwarding: true,
+      raised: false,
+      level: 'info',
+      expiresAt: null,
+    })
+    expect(messages(t.batches)).not.toContain('long after the window')
+    expect(messages(t.batches)).toContain('still watching, though')
+    forwarding.dispose()
+  })
+
+  /** The explanation for why the detail stops is IN the central file, not only
+   *  in the daemon's own journal. */
+  it('forwards the expiry notice', () => {
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({ boot: 'info', send: t.send })
+
+    forwarding.raise({ level: 'debug', ttlMs: 60_000 })
+    vi.advanceTimersByTime(70_000)
+
     expect(messages(t.batches)).toContain('daemon log level restored')
     forwarding.dispose()
   })
@@ -160,11 +285,32 @@ describe('daemon log forwarding', () => {
 
     forwarding.raise({ level: 'trace', ttlMs: 60_000 })
     forwarding.raise({ level: null })
-    log.warn('after the reset')
+    log.debug('after the reset')
     vi.advanceTimersByTime(10_000)
 
-    expect(forwarding.status()).toMatchObject({ forwarding: false, level: 'warn' })
+    expect(forwarding.status()).toMatchObject({ raised: false, level: 'warn' })
     expect(messages(t.batches)).not.toContain('after the reset')
+    forwarding.dispose()
+  })
+
+  /** A CO-RESIDENT DAEMON DOES go quiet again — there the raise was the only
+   *  reason anything was leaving the process. */
+  it('a co-resident daemon stops forwarding when its raise expires', () => {
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({
+      boot: 'info',
+      send: t.send,
+      coResident: true,
+    })
+
+    forwarding.raise({ level: 'debug', ttlMs: 60_000 })
+    vi.advanceTimersByTime(60_000)
+    const afterExpiry = t.batches.length
+    log.warn('long after the window')
+    vi.advanceTimersByTime(10_000)
+
+    expect(forwarding.status()).toMatchObject({ forwarding: false, raised: false })
+    expect(t.batches.length).toBe(afterExpiry)
     forwarding.dispose()
   })
 

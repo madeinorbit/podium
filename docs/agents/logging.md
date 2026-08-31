@@ -213,16 +213,20 @@ Everything the client verbs promise holds here — the listing is also a reset, 
 raise that matched nothing exits non-zero, `--for` defaults to 30 minutes and is
 capped at 24h — plus three differences that are the whole design:
 
-- **A daemon forwards nothing until it is raised.** A browser forwards `warn`+
-  continuously because its records are the user's own data moving between the
-  user's own processes. A remote daemon's records are *another host's* paths,
-  branch names and command output crossing a network, so the default is closed
-  and every raise expires. An empty `fleet-<id>.ndjson` before you raise is
-  correct, not a broken pipeline.
+- **A daemon forwards `warn`+ without being asked** (POD-3184), the same as a
+  browser, and a raise turns it *up* rather than *on*. An `error` also brings the
+  recorder's recent unsent records with it, so a forwarded failure arrives with
+  the minute that explains it rather than on its own. What a raise adds is
+  `debug`/`trace` for a bounded window.
+  The exception is a daemon sharing a process with the server — an all-in-one
+  install, or your own machine. Its records are already in that machine's own
+  log files, so it forwards nothing until you raise it, and an empty
+  `fleet-<your own machine>.ndjson` there is correct rather than a broken
+  pipeline.
 - **The raise ships the recent past.** The daemon keeps a `trace` flight recorder
-  in memory at all times and sends it as the first batch, so the central file
-  starts *before* the moment you typed the command — including records below the
-  level the daemon was running at.
+  in memory at all times and sends what it has not already forwarded as the first
+  batch, so the central file starts *before* the moment you typed the command —
+  including records below the level the daemon was running at.
 - **The machine is not self-reported.** The daemon frame carries no machine
   field. The server files the records under the machine the daemon socket
   *authenticated as*, so `fleet-<id>.ndjson` is a claim the server made, where

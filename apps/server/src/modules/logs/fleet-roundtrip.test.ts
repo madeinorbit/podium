@@ -71,9 +71,15 @@ const read = (file: string): Record<string, unknown>[] =>
  * One host: a daemon with the real forwarding module, wired to a `send` that
  * encodes, re-parses and routes the frame exactly as the socket pair does.
  */
-function host(machine: MachineId, mux: DaemonMux, boot: 'info' | 'warn' = 'info') {
+function host(
+  machine: MachineId,
+  mux: DaemonMux,
+  boot: 'info' | 'warn' = 'info',
+  coResident = false,
+) {
   const forwarding = installDaemonLogForwarding({
     boot,
+    coResident,
     send: (batch) => {
       // ENCODE AND RE-PARSE. This is the whole point of the seam: a record the
       // daemon clamped incorrectly would be refused HERE, exactly as the server
@@ -175,12 +181,39 @@ describe('raising a remote daemon and reading its records centrally', () => {
 
     flatblock.forwarding.raise({ level: 'debug', ttlMs: 60_000 })
     vi.advanceTimersByTime(60_000)
-    log.warn('long after the window closed')
+    log.debug('long after the window closed')
+    log.warn('but this machine is still being watched')
     vi.advanceTimersByTime(30_000)
 
     const messages = read('flatblock.ndjson').map((l) => l.msg)
     expect(messages).toContain('daemon log level restored')
+    // Expiry puts the DETAIL back, not the stream (POD-3184).
     expect(messages).not.toContain('long after the window closed')
+    expect(messages).toContain('but this machine is still being watched')
+    flatblock.forwarding.dispose()
+  })
+
+  /** THE DEFAULT, END TO END: a remote machine that nobody touched is legible
+   *  centrally, and its error arrives with the minute that explains it. */
+  it('files a remote daemon’s warnings and errors with nobody having raised it', () => {
+    const store = new FleetLogStore({ dir })
+    const mux = server(store)
+    const flatblock = host(FLATBLOCK, mux)
+    const log = createLogger('daemon:git')
+
+    log.debug('fetching origin')
+    log.warn('remote is slow')
+    log.error('fetch failed', { err: new Error('timed out') })
+    vi.advanceTimersByTime(10_000)
+
+    const lines = read('flatblock.ndjson')
+    const messages = lines.map((l) => l.msg)
+    expect(messages).toContain('remote is slow')
+    expect(messages).toContain('fetch failed')
+    // The context the error dragged with it — below the forwarding threshold,
+    // and the reason the failure is diagnosable at all.
+    expect(messages).toContain('fetching origin')
+    expect(lines[0]).toMatchObject({ machineId: 'flatblock', role: 'daemon' })
     flatblock.forwarding.dispose()
   })
 
@@ -210,7 +243,9 @@ describe('raising a remote daemon and reading its records centrally', () => {
     const store = new FleetLogStore({ dir })
     const mux = server(store)
     const flatblock = host(FLATBLOCK, mux)
-    const ludovico = host(asMachineId('ludovico'), mux)
+    // The SERVER'S OWN daemon: co-resident, so its records stay where they
+    // already are — this machine's own log files — until somebody raises it.
+    const ludovico = host(asMachineId('ludovico'), mux, 'info', true)
     const log = createLogger('daemon:pty')
 
     flatblock.forwarding.raise({ level: 'info', ttlMs: 60_000 })
@@ -220,7 +255,8 @@ describe('raising a remote daemon and reading its records centrally', () => {
     expect(read('flatblock.ndjson').map((l) => l.msg)).toContain(
       'from whichever daemon is forwarding',
     )
-    // Ludovico was never raised, so it has no file at all.
+    // A file per machine is filed on FIRST BATCH, and the co-resident daemon
+    // sent none — so it has no file at all.
     expect(() => read('ludovico.ndjson')).toThrow()
     flatblock.forwarding.dispose()
     ludovico.forwarding.dispose()
