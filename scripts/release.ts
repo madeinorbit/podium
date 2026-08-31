@@ -46,6 +46,8 @@ import {
   CLIENT_ROOT_DIGEST_FILE,
 } from './client-build-root-digest'
 import { validateReferencedDesktopManifest } from './desktop-release'
+// Via the scripts/ re-export, per the relative-import convention noted above.
+import { timeReleaseBuildSync } from './release-build-timing'
 import { verifyCandidateSnapshot } from './release-candidate-snapshot'
 import { buildManifest } from './release-manifest'
 
@@ -294,8 +296,18 @@ function stagePrepared(p: {
     throw new Error(`headless build did not produce signed artifact ${built}`)
   }
   mkdirSync(p.outDir, { recursive: true })
-  cpSync(built, join(p.outDir, asset))
-  cpSync(builtSig, join(p.outDir, `${asset}.sig`))
+  // The tarball's SECOND copy — build root into the staging dir the publisher reads.
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'artifact-publication', target: p.platform },
+    () =>
+      timeReleaseBuildSync(
+        { granularity: 'task', phase: 'artifact-publication', task: 'stage', target: p.platform },
+        () => {
+          cpSync(built, join(p.outDir, asset))
+          cpSync(builtSig, join(p.outDir, `${asset}.sig`))
+        },
+      ),
+  )
   const prepared: PreparedHeadless = {
     version,
     target: p.platform,

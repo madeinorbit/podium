@@ -2292,6 +2292,41 @@ describe('the dev feed manifest the publisher writes', () => {
     ])
   })
 
+  it('times the pre-snapshot source check that runs before any build phase opens', async () => {
+    const store = memoryFs()
+    const records: ReleaseBuildTimingRecord[] = []
+    let tick = 0
+    const timing: ReleaseBuildTimingDeps = {
+      enabled: true,
+      now: () => ++tick,
+      emit: (record) => records.push(record),
+    }
+    const publisher = publisherFor(
+      store,
+      () => 'aaaaaaa',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      timing,
+    )
+
+    await publisher.requestBuild(true)
+
+    const tasks = records.filter((record) => record.granularity === 'task')
+    expect(tasks).toContainEqual(
+      expect.objectContaining({
+        phase: 'validation',
+        task: 'live-source-inputs',
+        outcome: 'success',
+        sourceSha: 'aaaaaaa',
+      }),
+    )
+    // It runs on the LIVE checkout, before the snapshot exists, so it must be the
+    // first task of the attempt — the 18s cold walk the envelope used to hide.
+    expect(tasks[0]?.task).toBe('live-source-inputs')
+  })
+
   it('records feed activation failure without relabeling desktop resolution', async () => {
     const store = memoryFs()
     const records: ReleaseBuildTimingRecord[] = []

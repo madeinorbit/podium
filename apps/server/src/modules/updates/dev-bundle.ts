@@ -2172,11 +2172,26 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       // Fail closed BEFORE restoring or compiling: a dirty checkout cannot
       // produce a dev+<sha> build of that commit, and a recorded build must not be
       // restored under a tree that has since diverged.
-      await assertSourceMatchesHead(
-        deps.root ?? SOURCE_ROOT,
-        headSha,
-        deps.readSourceStatus,
-        deps.readIgnoredSourceInputs,
+      //
+      // Timed as its own task: on a cold ignored-source walk this is the single
+      // largest step of the whole approval-to-publish envelope, and it runs before
+      // the snapshot exists, so nothing downstream can account for it.
+      await timeReleaseBuildTask(
+        {
+          phase: 'validation',
+          task: 'live-source-inputs',
+          channel: 'dev',
+          ...(approved?.version ? { version: approved.version } : {}),
+          sourceSha: headSha,
+        },
+        () =>
+          assertSourceMatchesHead(
+            deps.root ?? SOURCE_ROOT,
+            headSha,
+            deps.readSourceStatus,
+            deps.readIgnoredSourceInputs,
+          ),
+        deps.timing,
       )
       // A restart loses only the in-memory descriptor, not the signed bytes.
       // Restore an exact-HEAD build from the ledger first; compile only when it
