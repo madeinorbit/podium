@@ -1,17 +1,25 @@
+import {
+  connectedDeviceViews,
+  type MachineOperationsView,
+  visibleFleetOperations,
+} from '@podium/client-core/viewmodels'
 import { useRouter } from 'expo-router'
-import { Monitor } from '../components/icons'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { logout } from '../client/auth'
+import { useConnectedDevices } from '../client/connected-devices'
+import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
 import { useConnected, useMobileStore } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
+import { Monitor } from '../components/icons'
 import { OutboxRecoveryPanel } from '../components/OutboxRecoveryPanel'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
+import { useBuildStamp } from '../lib/build-stamp'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 
 function openDesktop() {
@@ -27,8 +35,17 @@ export function SettingsScreen() {
   // The modal sheet reaches the physical bottom edge, so the last row still has
   // to clear the home indicator (the hook is the plain safe-area inset here).
   const bottomInset = useContentBottomInset()
-  const { conversations, issues, outboxDeadLetters, outboxSize, replica, sessions, httpOrigin } =
-    useMobileStore()
+  const {
+    conversations,
+    hostMetrics,
+    issues,
+    machines,
+    outboxDeadLetters,
+    outboxSize,
+    replica,
+    sessions,
+    httpOrigin,
+  } = useMobileStore()
   const connected = useConnected()
   const { eraseLocalData } = useMobileShell()
   const {
@@ -45,6 +62,21 @@ export function SettingsScreen() {
   const [loggedOut, setLoggedOut] = useState(false)
   const [profileName, setProfileName] = useState(profile.name)
   const [accountBusy, setAccountBusy] = useState(false)
+  const deviceFeed = useConnectedDevices()
+  const buildStamp = useBuildStamp()
+  const demo = demoEnabled()
+  const fleet = useMemo(
+    () =>
+      visibleFleetOperations({
+        machines: demo ? DEMO_MACHINES : machines,
+        hosts: demo ? DEMO_HOST_METRICS : hostMetrics,
+      }),
+    [demo, hostMetrics, machines],
+  )
+  const devices = useMemo(
+    () => connectedDeviceViews(deviceFeed.sessions ?? [], Date.now()),
+    [deviceFeed.sessions],
+  )
 
   const finishLocalLogout = async () => {
     await eraseLocalData()
@@ -182,6 +214,55 @@ export function SettingsScreen() {
           <Row label="Sync cursor" value={String(replica.getCursor() ?? 'none')} />
         </View>
 
+        <SectionHeader label="Operations" />
+        <View style={styles.panel}>
+          <Row label="Server build" value={buildStamp.text.replace(/\n/g, ' · ')} />
+          <Row label="Visible fleet" value={fleet.fleetLabel} />
+          <Row label="Updates" value={fleet.updateLabel} />
+          {fleet.machines.slice(0, 12).map((machine) => (
+            <MachineStatusRow key={machine.id} machine={machine} />
+          ))}
+          {fleet.machines.length > 12 ? (
+            <Row label="More machines" value={`${fleet.machines.length - 12} · see Pulse`} />
+          ) : null}
+        </View>
+        <Text style={styles.hintCompact}>
+          This phone shows status only. Fleet, network, host, and update changes stay on authorized
+          desktop or server surfaces.
+        </Text>
+
+        <SectionHeader label="Connected devices" />
+        <View style={styles.panel}>
+          {deviceFeed.loading && devices.length === 0 ? (
+            <Row label="Devices" value="loading…" />
+          ) : deviceFeed.failed && devices.length === 0 ? (
+            <Row label="Devices" value="unavailable" />
+          ) : devices.length === 0 ? (
+            <Row label="Devices" value="none" />
+          ) : (
+            devices.map((device) => (
+              <View key={device.sessionId} style={styles.deviceRow}>
+                <View style={styles.deviceIdentity}>
+                  <Text style={styles.deviceName} numberOfLines={1}>
+                    {device.name}
+                  </Text>
+                  <Text style={styles.deviceDetail} numberOfLines={1}>
+                    {device.platform} · {device.activityLabel}
+                  </Text>
+                </View>
+                {device.current ? <Text style={styles.currentDevice}>CURRENT</Text> : null}
+              </View>
+            ))
+          )}
+          {deviceFeed.failed && devices.length > 0 ? (
+            <Row label="Refresh" value="failed · showing prior list" />
+          ) : null}
+        </View>
+        <Text style={styles.hintCompact}>
+          This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay
+          in Connected devices on the desktop.
+        </Text>
+
         {Platform.OS !== 'web' ? (
           <>
             <SectionHeader label="Servers" />
@@ -298,6 +379,32 @@ export function SettingsScreen() {
   )
 }
 
+function MachineStatusRow({ machine }: { machine: MachineOperationsView }) {
+  return (
+    <View style={styles.machineStatusRow}>
+      <View style={styles.machineStatusIdentity}>
+        <View
+          style={[
+            styles.serverDot,
+            machine.online ? styles.serverDotActive : styles.serverDotOffline,
+          ]}
+        />
+        <View style={styles.serverDetails}>
+          <Text style={styles.serverTitle} numberOfLines={1}>
+            {machine.name}
+          </Text>
+          <Text style={styles.serverHost} numberOfLines={1}>
+            {machine.updateLabel}
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.serverMode}>
+        {`${machine.statusLabel}${machine.updateChannel ? ` · ${machine.updateChannel}` : ''}`.toUpperCase()}
+      </Text>
+    </View>
+  )
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.row}>
@@ -354,6 +461,34 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     flexShrink: 1,
   },
+  machineStatusRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.border,
+  },
+  machineStatusIdentity: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  serverDotOffline: { backgroundColor: color.idle },
+  deviceRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.border,
+  },
+  deviceIdentity: { flex: 1, minWidth: 0, gap: 3 },
+  deviceName: { color: color.text, ...sans(600), fontSize: font.small },
+  deviceDetail: { color: color.textFaint, fontSize: font.tiny },
+  currentDevice: { color: color.successText, ...sans(700), fontSize: font.micro },
   serverRow: {
     minHeight: 62,
     flexDirection: 'row',
@@ -423,5 +558,11 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small, 'prose'),
     marginTop: space.lg,
+  },
+  hintCompact: {
+    color: color.textFaint,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
+    marginTop: space.sm,
   },
 })
