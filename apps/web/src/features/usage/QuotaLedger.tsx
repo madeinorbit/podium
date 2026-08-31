@@ -60,9 +60,9 @@ function Column({ column }: { column: QuotaLedgerColumn }): JSX.Element {
       // one day. `--days` feeds a flex-basis, so the ratio survives the strip
       // being squeezed — flex shrinks in proportion to basis.
       //
-      // A window with no reported duration gets the nominal week and says so
-      // through `data-unknown-length`, rather than defaulting to something short
-      // and inventing a fact the provider never gave us.
+      // A window with no observed or reported duration gets the nominal week
+      // and says so through `data-unknown-length`, rather than defaulting to
+      // something short and inventing a fact the history never gave us.
       data-unknown-length={days === undefined || undefined}
       style={{ '--days': days ?? UNKNOWN_DAYS } as React.CSSProperties}
       title={title}

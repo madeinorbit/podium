@@ -219,6 +219,38 @@ describe('window length', () => {
     // Linear: the seven-day column is drawn seven times the one-day column.
     expect((days?.[1] as number) / (days?.[0] as number)).toBe(7)
   })
+
+  it('uses the observed successor when a nominal week ended after two days', () => {
+    const view = quotaLedger([
+      // The successor arrives first and advertises an earlier reset. Observation
+      // order, not provider reset order or input order, defines the succession.
+      row({
+        resetsAt: '2026-09-09T07:00:00Z',
+        firstSeenAt: '2026-09-02T07:00:00Z',
+        windowMinutes: 10080,
+        peakPercent: 32,
+        closed: false,
+      }),
+      row({
+        resetsAt: '2026-09-10T07:00:00Z',
+        firstSeenAt: '2026-08-31T07:00:00Z',
+        windowMinutes: 10080,
+        peakPercent: 71,
+        closed: false,
+      }),
+    ])
+    expect(view.strips[0]?.columns.map((column) => column.peakPercent)).toEqual([71, 32])
+    expect(view.strips[0]?.columns.map((column) => column.durationDays)).toEqual([2, 7])
+    expect(view.strips[0]?.columns.map((column) => column.closed)).toEqual([true, false])
+    expect(view.strips[0]?.columns[0]?.endLabel).toMatch(/Sep 2/)
+    expect(view.completedCount).toBe(1)
+  })
+
+  it('does not mistake an offline observation gap for a longer-than-plan window', () => {
+    const current = row({ firstSeenAt: '2026-08-01T07:00:00Z', windowMinutes: 10080 })
+    const successor = row({ firstSeenAt: '2026-08-20T07:00:00Z' })
+    expect(windowDurationDays(current, successor)).toBe(7)
+  })
 })
 
 describe('cadence label', () => {
@@ -252,6 +284,16 @@ describe('cadence label', () => {
       row({ resetsAt: '2026-08-20T07:00:00Z', windowMinutes: 1440, label: 'Weekly' }),
       row({ resetsAt: '2026-08-22T07:00:00Z', windowMinutes: 2880, label: 'Weekly' }),
     ])
+    expect(view.strips[0]?.windowLabel).toBe('1–2 days')
+  })
+
+  it('derives cadence from observed handoffs when every provider duration says weekly', () => {
+    const view = quotaLedger([
+      row({ firstSeenAt: '2026-08-20T07:00:00Z', closed: false }),
+      row({ firstSeenAt: '2026-08-21T07:00:00Z', closed: false }),
+      row({ firstSeenAt: '2026-08-23T07:00:00Z', closed: false }),
+    ])
+    expect(view.strips[0]?.columns.map((column) => column.durationDays)).toEqual([1, 2, 7])
     expect(view.strips[0]?.windowLabel).toBe('1–2 days')
   })
 

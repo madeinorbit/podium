@@ -55,9 +55,9 @@ export interface QuotaLedgerColumn extends QuotaWindowHistoryWire {
    * rather than a ranking. (Claude's 5-hour window would have made that a 33:1
    * ratio and forced a compressed scale — it is filtered out well before here.)
    *
-   * `undefined` when the provider reported no duration: that is a legitimate
-   * "it did not say", and a column that cannot claim a length must not be drawn
-   * as a measured short one.
+   * `undefined` when neither an observed successor nor the provider gives us a
+   * duration. A column that cannot claim a length must not be drawn as a
+   * measured short one.
    */
   durationDays: number | undefined
 }
@@ -137,9 +137,30 @@ export function formatLedgerSpan(startedAt: string | undefined, resetsAt: string
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/** A window's length in days, or undefined when the provider reported none. */
-export function windowDurationDays(row: QuotaWindowHistoryWire): number | undefined {
-  if (row.windowMinutes > 0) return row.windowMinutes / (24 * 60)
+/**
+ * A window's length in days.
+ *
+ * A successor is stronger evidence than the provider's nominal duration: it
+ * records when this observed period actually yielded to the next one. This is
+ * how a nominal seven-day Codex pool that rolled after two days remains a
+ * two-day column. It is capped at the provider duration because a long sampling
+ * gap cannot prove the same period survived past its advertised maximum. The
+ * provider duration is the fallback for the current row and for a history with
+ * only one observation.
+ */
+export function windowDurationDays(
+  row: QuotaWindowHistoryWire,
+  successor?: QuotaWindowHistoryWire,
+): number | undefined {
+  const reported = row.windowMinutes > 0 ? row.windowMinutes / (24 * 60) : undefined
+  if (successor) {
+    const observed = Date.parse(successor.firstSeenAt) - Date.parse(row.firstSeenAt)
+    if (Number.isFinite(observed) && observed > 0) {
+      const observedDays = observed / DAY_MS
+      return reported === undefined ? observedDays : Math.min(observedDays, reported)
+    }
+  }
+  if (reported !== undefined) return reported
   if (!row.startedAt) return undefined
   const span = Date.parse(row.resetsAt) - Date.parse(row.startedAt)
   return Number.isFinite(span) && span > 0 ? span / DAY_MS : undefined
@@ -192,8 +213,10 @@ function mean(values: number[]): number | undefined {
 /**
  * Build the ledger.
  *
- * Rows arrive oldest-first per series from the store; this groups them into one
- * strip per (account, window) and marks where the plan changed underneath.
+ * Rows arrive ordered by advertised reset time, which rolling providers can
+ * move independently of the observed succession. This groups them into one
+ * strip per (account, window), restores observation order, and marks where the
+ * plan changed underneath.
  */
 export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
   const byStrip = new Map<string, QuotaWindowHistoryWire[]>()
@@ -207,18 +230,31 @@ export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
 
   const strips: QuotaLedgerStrip[] = []
   for (const [key, list] of byStrip) {
-    const ordered = [...list].sort((a, b) => Date.parse(a.resetsAt) - Date.parse(b.resetsAt))
+    const ordered = [...list].sort(
+      (a, b) =>
+        Date.parse(a.firstSeenAt) - Date.parse(b.firstSeenAt) ||
+        Date.parse(a.resetsAt) - Date.parse(b.resetsAt),
+    )
     const first = ordered[0]
     if (!first) continue
     const columns: QuotaLedgerColumn[] = ordered.map((row, i) => {
       const prev = ordered[i - 1]
-      const span = formatLedgerSpan(row.startedAt, row.resetsAt)
+      const next = ordered[i + 1]
+      // A successor is the observed closing boundary for this row. Rolling
+      // providers may advertise a later reset even after the pool has emptied.
+      const observedEnd = next?.firstSeenAt ?? row.resetsAt
+      const observedStart = next ? row.firstSeenAt : row.startedAt
+      const span = formatLedgerSpan(observedStart, observedEnd)
+      const closed = row.closed || next !== undefined
       return {
         ...row,
-        spanLabel: row.closed ? span : span ? `${span} · now` : 'now',
-        endLabel: row.closed ? MONTH_DAY.format(new Date(row.resetsAt)) : 'now',
+        // The endpoint's `closed` bit only says whether wall-clock time passed
+        // the advertised reset. A successor also finalizes this observed period.
+        closed,
+        spanLabel: closed ? span : span ? `${span} · now` : 'now',
+        endLabel: closed ? MONTH_DAY.format(new Date(observedEnd)) : 'now',
         planBreak: prev !== undefined && prev.plan !== undefined && prev.plan !== row.plan,
-        durationDays: windowDurationDays(row),
+        durationDays: windowDurationDays(row, next),
       }
     })
     const completed = columns.filter((c) => c.closed)

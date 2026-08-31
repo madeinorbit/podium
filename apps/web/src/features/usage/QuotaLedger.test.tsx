@@ -161,6 +161,43 @@ describe('width shows length', () => {
     expect(widths()).toEqual(['1', '7'])
   })
 
+  it('draws a nominal week at the shorter time it actually remained active', () => {
+    render(
+      <QuotaLedger
+        ledger={quotaLedger([
+          row({
+            resetsAt: '2026-09-07T07:00:00Z',
+            firstSeenAt: '2026-08-31T07:00:00Z',
+            closed: false,
+          }),
+          row({
+            resetsAt: '2026-09-09T07:00:00Z',
+            firstSeenAt: '2026-09-02T07:00:00Z',
+            closed: false,
+          }),
+        ])}
+        cold={false}
+      />,
+    )
+    expect(widths()).toEqual(['2', '7'])
+    expect(figure().querySelectorAll('.quota-groove[data-now]')).toHaveLength(1)
+    expect(screen.getByText('1 window · avg 71%')).toBeTruthy()
+    expect(screen.queryByText('no completed window yet')).toBeNull()
+  })
+
+  it('caps an offline observation gap at the provider duration', () => {
+    render(
+      <QuotaLedger
+        ledger={quotaLedger([
+          row({ firstSeenAt: '2026-08-01T07:00:00Z', closed: false }),
+          row({ firstSeenAt: '2026-08-20T07:00:00Z', closed: false }),
+        ])}
+        cold={false}
+      />,
+    )
+    expect(widths()).toEqual(['7', '7'])
+  })
+
   it('keeps the day labels on the same scale as their columns', () => {
     // Mismatched bases and the dates stop sitting under the columns they name.
     render(
