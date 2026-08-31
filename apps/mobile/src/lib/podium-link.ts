@@ -21,6 +21,7 @@ import {
   type PodiumLink,
   type PodiumTarget,
   canonicalPodiumOrigin,
+  formatExternalHttpLink,
   formatPodiumLinkFallback,
   parseIssueRef,
   parsePodiumLink,
@@ -180,21 +181,6 @@ export function followPodiumLink(href: string): void {
     void Linking.openURL(formatPodiumLinkFallback(fallbackOrigin, href, link)).catch(() => {})
     return
   }
-  let externalHref = link.href
-  if (/^[\\/][\\/]/.test(externalHref)) {
-    let protocol = 'https:'
-    try {
-      if (activeOrigin) protocol = new URL(activeOrigin).protocol
-    } catch {
-      // A malformed active origin cannot make a protocol-relative URL unsafe;
-      // HTTPS remains the conservative OS handoff.
-    }
-    const query = externalHref.indexOf('?')
-    const fragment = externalHref.indexOf('#')
-    const detailAt = query === -1 ? fragment : fragment === -1 ? query : Math.min(query, fragment)
-    const address = detailAt === -1 ? externalHref : externalHref.slice(0, detailAt)
-    const detail = detailAt === -1 ? '' : externalHref.slice(detailAt)
-    externalHref = `${protocol}${address.replace(/\\/g, '/')}${detail}`
-  }
+  const externalHref = formatExternalHttpLink(link.href, activeOrigin) ?? link.href
   void Linking.openURL(externalHref).catch(() => {})
 }

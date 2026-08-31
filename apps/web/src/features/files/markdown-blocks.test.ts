@@ -76,4 +76,15 @@ describe('renderMarkdownBlocks', () => {
       `${HOME}/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy`,
     )
   })
+
+  it('derives resolver markers from the href even when raw HTML contains a quoted >', () => {
+    setKnownPodiumOrigins([HOME])
+    document.body.innerHTML = renderMarkdownBlocks(
+      '<a title=">" href="https://example.com/guide" data-podium-link-source="/issues/POD-1606" data-podium-link-candidate data-podium-link>guide</a>',
+    )
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('data-podium-link-source')).toBe('https://example.com/guide')
+    expect(link.hasAttribute('data-podium-link-candidate')).toBe(true)
+    expect(link.hasAttribute('data-podium-link')).toBe(false)
+  })
 })

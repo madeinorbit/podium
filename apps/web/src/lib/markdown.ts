@@ -24,40 +24,40 @@ import { classifyPodiumLink, internalPodiumTarget, systemBrowserPodiumHref } fro
  * recognized internal hrefs to the active server origin.
  */
 export function externalizeLinks(html: string): string {
-  return html.replace(/<a\b([^>]*)>/g, (_full, attrs: string) => {
+  const template = document.createElement('template')
+  template.innerHTML = html
+  for (const anchor of template.content.querySelectorAll('a')) {
     // `data-*` survives DOMPurify. Remove every resolver-owned attribute before
     // stamping trusted values so raw Markdown HTML cannot substitute a target
     // that differs from its visible href.
-    const cleanAttrs = attrs.replace(
-      /\sdata-podium-link[\w.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi,
-      '',
-    )
-    const cleanFull = `<a${cleanAttrs}>`
-    const hrefMatch = /\bhref="([^"]*)"/.exec(cleanAttrs)
-    const href = hrefMatch?.[1]
-    if (!hrefMatch || href === undefined) return cleanFull // internal file-link (no href)
-    if (/\bclass="[^"]*\bref-link\b/.test(cleanAttrs)) return cleanFull // internal ref activation
-    const alreadyTargeted = /\btarget=/.test(cleanAttrs)
-    // The href is HTML-escaped inside the attribute; the resolver reads a URL.
-    const decodedHref = decodeHtmlEntities(href)
-    const link = classifyPodiumLink(decodedHref)
-    const browserHref = link?.kind === 'internal' ? systemBrowserPodiumHref(decodedHref) : null
-    const rewrittenAttrs = browserHref
-      ? cleanAttrs.replace(hrefMatch[0], `href="${escapeHtml(browserHref)}"`)
-      : cleanAttrs
-    const candidateAttrs = ` data-podium-link-candidate="" data-podium-link-source="${escapeHtml(decodedHref)}"`
-    if (internalPodiumTarget(decodedHref)) {
-      return `<a${rewrittenAttrs}${candidateAttrs} data-podium-link="">`
+    for (const attribute of Array.from(anchor.attributes)) {
+      if (attribute.name.toLowerCase().startsWith('data-podium-link')) {
+        anchor.removeAttribute(attribute.name)
+      }
     }
+    const href = anchor.getAttribute('href')
+    if (href === null || anchor.classList.contains('ref-link')) continue
+    const alreadyTargeted = anchor.hasAttribute('target')
+    const link = classifyPodiumLink(href)
+    const browserHref = link?.kind === 'internal' ? systemBrowserPodiumHref(href) : null
+    if (browserHref) anchor.setAttribute('href', browserHref)
+    anchor.setAttribute('data-podium-link-candidate', '')
+    anchor.setAttribute('data-podium-link-source', href)
+    if (link?.kind === 'internal') anchor.setAttribute('data-podium-link', '')
+    if (internalPodiumTarget(href)) continue
     if (link?.kind === 'internal') {
-      return alreadyTargeted
-        ? `<a${rewrittenAttrs}${candidateAttrs} data-podium-link="">`
-        : `<a${rewrittenAttrs}${candidateAttrs} data-podium-link="" target="_blank" rel="noopener noreferrer">`
+      if (!alreadyTargeted) {
+        anchor.setAttribute('target', '_blank')
+        anchor.setAttribute('rel', 'noopener noreferrer')
+      }
+      continue
     }
-    return alreadyTargeted
-      ? `<a${rewrittenAttrs}${candidateAttrs}>`
-      : `<a${rewrittenAttrs}${candidateAttrs} target="_blank" rel="noopener noreferrer">`
-  })
+    if (!alreadyTargeted) {
+      anchor.setAttribute('target', '_blank')
+      anchor.setAttribute('rel', 'noopener noreferrer')
+    }
+  }
+  return template.innerHTML
 }
 
 /**
@@ -83,24 +83,6 @@ export function sanitizeMarkdownHtml(html: string): string {
   } finally {
     DOMPurify.removeHook('uponSanitizeAttribute', keepPodiumHref)
   }
-}
-
-/** The five entities DOMPurify may have written into an attribute value. */
-function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 // A token looks like a file path if it has a directory separator or a known
