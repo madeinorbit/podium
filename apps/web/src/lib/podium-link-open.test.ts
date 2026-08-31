@@ -104,13 +104,13 @@ describe('resolvePodiumTarget', () => {
     ).toBeNull()
   })
 
-  it('opens a file against the worktree the address names', () => {
+  it('opens a file against the worktree the address names and retains its fragment', () => {
     expect(
       resolvePodiumTarget(
-        { kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' },
+        { kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1', hash: '#L42' },
         context,
       ),
-    ).toEqual({ kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' })
+    ).toEqual({ kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1', hash: '#L42' })
   })
 
   it('refuses a file with no worktree rather than guessing one', () => {
@@ -131,7 +131,7 @@ describe('resolvePodiumTarget', () => {
     ).toEqual({ kind: 'view', path: '/usage', search: '', hash: '' })
   })
 
-  it('leaves route detail to the anchor instead of dropping it', () => {
+  it('retains detail on typed targets but declines lossy plain views', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'view', path: '/settings/general', search: '', hash: '#advanced' },
@@ -143,7 +143,12 @@ describe('resolvePodiumTarget', () => {
         { kind: 'issue', issue: 'POD-1606', search: '?tab=activity', hash: '#latest' },
         context,
       ),
-    ).toBeNull()
+    ).toEqual({
+      kind: 'issue',
+      issueId: 'iss_abc',
+      search: '?tab=activity',
+      hash: '#latest',
+    })
     expect(
       resolvePodiumTarget(
         { kind: 'view', path: '/workspace', search: '?wt=%2Fw', hash: '' },
