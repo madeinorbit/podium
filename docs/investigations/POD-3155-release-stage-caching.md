@@ -837,3 +837,70 @@ Both publisher-side spans that the child run cannot reach are covered
 structurally instead: `validation / live-source-inputs` is asserted to be
 `tasks[0]` — it fires before any build phase opens — and
 `checkout / snapshot-teardown` is asserted in `dev-build-snapshot.test.ts`.
+
+---
+
+# Addendum 5 — corrections, and one new finding
+
+Two claims in Addendum 4 and in the POD-3164 brief were wrong. Both were caught
+by the implementer, not by me, and both are corrected here.
+
+## Correction 1 — `artifact-route.test.ts` does not drive the real publisher
+
+Addendum 4 and my guidance to POD-3164 said `artifact-route.test.ts` "drives the
+REAL publisher end to end with only `spawnBuild` stubbed". It does not. All
+three of its timing tests pass `createPublisher: () => publisherFor() as never`
+— a stub object — and the file never mentions `spawnBuild`.
+
+The real-publisher-with-`spawnBuild`-stub harness is `publisherFor` in
+`dev-bundle.test.ts`, which is where the structural proof correctly went:
+
+- `validation / live-source-inputs` is pinned by an **exact ordered** task-list
+  assertion as the first task of an attempt.
+- `checkout / snapshot-teardown` gets the same exact-ordered treatment in
+  `dev-build-snapshot.test.ts`.
+
+Verified armed: mutating the `live-source-inputs` label kills exactly that test
+(1 failed / 103 passed).
+
+## Correction 2 — a missing dev key aborts the run, it does not warn
+
+I told POD-3164 that without `scripts/.podium-update-dev.key`, `build-bun`
+"will warn and skip the `.sig`; that is expected for a standalone run and does
+not affect timing." Wrong on both counts. `stagePrepared` **throws** on the
+absent `.sig` (`release.ts:296`), which aborts before the `stage` wrapper and
+before the second platform builds. I hit this myself and should have corrected
+it rather than leave the bad guidance standing.
+
+The right way to drive a standalone build is a throwaway in-memory
+`PODIUM_UPDATE_SIGNING_KEY`: nothing is written to disk and nothing is
+published.
+
+## Refined measurements, warm, both platforms
+
+| span | Q2 estimate | measured |
+|---|---:|---:|
+| client-preparation, all three | 3.51 s | **2.86 s** |
+| — of which `stampClients` | ~3 s | **0.70 s** |
+| assemble-bundle | ~1.70 s | 0.80 s |
+| stage | 0.62 s | **0.17 s** |
+| archive-proof | 2.76 s | **4.33 s** |
+
+**Addendum 2's "`stampClients`'s ~3 s is a real, separable target" was
+overstated.** Warm, the two Bun starts cost 0.70 s. That optimisation is worth
+well under a second; it should not be filed on the strength of the old number.
+
+## The new finding: `archive-proof` is now nearly as expensive as archiving
+
+`validation / archive-proof` — the `tar -xzf` re-extract and re-digest at
+`build-bun.ts:826` — measures **1.66 s linux + 2.67 s darwin = 4.33 s**, against
+**2.95 + 2.10 = 5.05 s** for the archives themselves now that pigz has landed.
+It is also platform-dependent in the opposite direction to archiving.
+
+Compressing in parallel while still verifying with a single-threaded
+decompression pass has made the *proof* the co-equal cost. That is a real
+follow-up candidate and it did not exist before POD-3161: at dev.30's 12.12 s of
+archiving, a 2.76 s proof was noise. It is worth a look now — but note what the
+step is for (§4: it catches stale paths, partial copies, corruption and
+substitution between build and packaging), so the answer is to make it cheaper,
+not to drop it. **Deferred, not filed.**
