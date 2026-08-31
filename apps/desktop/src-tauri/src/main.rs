@@ -440,7 +440,11 @@ fn exit_status_details(status: Option<&std::process::ExitStatus>) -> String {
     let Some(status) = status else {
         return "status=unavailable code=None signal=None".to_string();
     };
-    let signal = {
+    // Annotated because the `#[cfg(not(unix))]` arm is a bare `None` with nothing to infer from:
+    // on Windows this block is the ONLY definition of `signal`, and inference has no other site
+    // to take the parameter from. Unix compiles either way, so the mistake is invisible until a
+    // Windows build runs.
+    let signal: Option<i32> = {
         #[cfg(unix)]
         {
             std::os::unix::process::ExitStatusExt::signal(status)
