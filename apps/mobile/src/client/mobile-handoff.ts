@@ -45,6 +45,11 @@ export function consumePendingMobileHandoff(id: number): void {
   if (pendingSnapshot.id === id && pendingSnapshot.request !== null) publish(null)
 }
 
+/** A newer non-handoff intent retires every pending handoff generation. */
+export function retirePendingMobileHandoff(): void {
+  if (pendingSnapshot.request !== null) publish(null)
+}
+
 /** Release one exact generation to the authenticated host after profile selection settles. */
 export function markPendingMobileHandoffProfileSelected(id: number): void {
   if (pendingSnapshot.id !== id || !pendingSnapshot.request || pendingSnapshot.profileSelected) {

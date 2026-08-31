@@ -215,6 +215,7 @@ export async function preflightServer(httpOrigin: string): Promise<ServerPreflig
   }
   try {
     const versionResponse = await fetch(`${origin}/version`, {
+      cache: 'no-store',
       credentials: 'omit',
       signal: timeoutSignal(),
     })

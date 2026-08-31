@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router'
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { StyleSheet, Text } from 'react-native'
+import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native'
 import { useAuthStatus } from '../client/auth-context'
 import { useBooting, useHttpOrigin, useIssues, useSessions } from '../client/hooks'
 import {
@@ -46,6 +46,12 @@ export function PodiumLinkHost() {
     pendingMobileHandoffSnapshot,
   )
   const [handoffStatus, setHandoffStatus] = useState('')
+
+  useEffect(() => {
+    if (Platform.OS === 'ios' && handoffStatus) {
+      AccessibilityInfo.announceForAccessibility(handoffStatus)
+    }
+  }, [handoffStatus])
 
   useEffect(() => {
     setPodiumTargetActivator((target) => {

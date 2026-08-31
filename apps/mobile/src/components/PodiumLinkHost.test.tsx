@@ -6,6 +6,7 @@ import type { ServerProfileContextValue } from '../client/server-profile-context
 import type { ServerProfile } from '../client/server-profiles'
 
 const seams = vi.hoisted(() => ({
+  announce: vi.fn(),
   router: { replace: vi.fn(), push: vi.fn() },
   httpOrigin: 'https://current.example',
   issues: [] as Array<{ id: string }>,
@@ -20,6 +21,17 @@ const seams = vi.hoisted(() => ({
 }))
 
 vi.mock('expo-router', () => ({ useRouter: () => seams.router }))
+vi.mock('react-native', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-native')>()
+  return {
+    ...actual,
+    Platform: { ...actual.Platform, OS: 'ios' },
+    AccessibilityInfo: {
+      ...actual.AccessibilityInfo,
+      announceForAccessibility: seams.announce,
+    },
+  }
+})
 vi.mock('../client/auth-context', () => ({ useAuthStatus: () => seams.authStatus }))
 vi.mock('../client/hooks', () => ({
   useHttpOrigin: () => seams.httpOrigin,
@@ -92,6 +104,7 @@ function context(
 }
 
 beforeEach(() => {
+  seams.announce.mockReset()
   seams.router.replace.mockReset()
   seams.router.push.mockReset()
   seams.sessions = []
@@ -157,5 +170,8 @@ describe('PodiumLinkHost mobile handoff integration', () => {
     const status = screen.getByRole('status').textContent ?? ''
     expect(status).toContain('not available to this profile')
     expect(status).not.toContain(SESSION_ID)
+    expect(seams.announce).toHaveBeenCalledWith(
+      'Opened Work because this session is not available to this profile.',
+    )
   })
 })

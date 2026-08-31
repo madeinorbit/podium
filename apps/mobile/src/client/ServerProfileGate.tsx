@@ -12,6 +12,7 @@ import {
 } from 'react'
 import {
   ActivityIndicator,
+  AccessibilityInfo,
   Linking,
   Platform,
   ScrollView,
@@ -39,6 +40,7 @@ import {
   matchingMobileHandoffProfile,
   mobileHandoffFallbackStatus,
   pendingMobileHandoffSnapshot,
+  retirePendingMobileHandoff,
   subscribePendingMobileHandoff,
 } from './mobile-handoff'
 import {
@@ -160,6 +162,25 @@ interface ActivationFailure {
   detail: string
 }
 
+/** Keeps AsyncStorage profile ownership changes in one durable order. */
+class ProfileWriteQueue {
+  private tail = Promise.resolve()
+
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    const previous = this.tail
+    let release = () => {}
+    this.tail = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous
+    try {
+      return await work()
+    } finally {
+      release()
+    }
+  }
+}
+
 function profileReplacementFailure(profile: ServerProfile): ActivationFailure {
   return {
     title: 'This server was replaced',
@@ -175,6 +196,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   // run's `alive` before setReady(true) landed, leaving the launch splash up
   // forever on any cold start that raced a render (found 2026-08-27).
   const credentialWrites = useMemo(() => new CredentialWriteQueue(), [])
+  const profileWrites = useMemo(() => new ProfileWriteQueue(), [])
   const consumedInitialPairing = initialWebPairing
   const initialWeb = Platform.OS === 'web' ? webProfile() : null
   const [profileState, setProfileState] = useState<ServerProfileState>(() =>
@@ -218,8 +240,12 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const [profileSwitchSettled, setProfileSwitchSettled] = useState(0)
   const switchOperation = useRef(0)
   const switchInFlight = useRef(false)
+  const savedProfileRestartPending = useRef(false)
   const revalidationInFlight = useRef(false)
   const handoffSwitchingRequest = useRef<number | null>(null)
+  const startupLinkGeneration = useRef(0)
+  const nativeLinkIntent = useRef<'handoff' | 'pairing' | null>(null)
+  const initialNativeUrlConsumed = useRef(false)
   const activeProfileIdRef = useRef(profileState.activeProfileId)
   const bearerRef = useRef<string | null>(null)
   const nativeOverrideActiveRef = useRef(false)
@@ -243,6 +269,18 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       },
       markCredentialUnreleased: () => setCredentialReleased(false),
     })
+  }, [])
+
+  const restartSavedProfile = useCallback(() => {
+    if (Platform.OS === 'web') return
+    nativeLinkIntent.current = null
+    startupLinkGeneration.current += 1
+    setActivationFailure(null)
+    setBearer(null)
+    setCredentialReleased(false)
+    setReady(false)
+    if (switchInFlight.current) savedProfileRestartPending.current = true
+    else setActivationRetry((value) => value + 1)
   }, [])
 
   useEffect(
@@ -271,10 +309,18 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       }
     }
     if (Platform.OS !== 'web' && captureMobileHandoffUrl(raw)) {
+      startupLinkGeneration.current += 1
+      nativeLinkIntent.current = 'handoff'
       setIncoming(null)
       setLinkError(null)
       setSetupOpen(false)
       return
+    }
+    if (Platform.OS !== 'web') {
+      startupLinkGeneration.current += 1
+      nativeLinkIntent.current = 'pairing'
+      retirePendingMobileHandoff()
+      switchOperation.current += 1
     }
     try {
       const parsed = parsePairingLink(raw)
@@ -300,119 +346,165 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     }
     let alive = true
     void (async () => {
-      const initialUrl = await Linking.getInitialURL()
-      const isPairingLink = Boolean(
+      const initialUrl =
+        initialNativePairingConsumed || initialNativeUrlConsumed.current
+          ? null
+          : await Linking.getInitialURL()
+      initialNativeUrlConsumed.current = true
+      if (!alive) return
+      const isNativeLink = Boolean(
         initialUrl && (initialUrl.startsWith('podium:') || initialUrl.includes('#pair=')),
       )
-      if (isPairingLink) {
-        try {
-          router.replace('/')
-        } catch {
-          // router not mounted yet — the pair route's own <Redirect> covers it
-        }
+      if (isNativeLink && initialUrl) {
+        initialNativePairingConsumed = true
+        handleLink(initialUrl)
       }
       const buildOverride =
         (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ ?? envServer()
       const override =
-        overrideFromUrl(initialUrl) ?? (buildOverride ? normalizeManualServer(buildOverride) : null)
+        nativeLinkIntent.current === null
+          ? (overrideFromUrl(initialUrl) ??
+            (buildOverride ? normalizeManualServer(buildOverride) : null))
+          : null
       if (override) {
+        const generation = startupLinkGeneration.current
         nativeOverrideActiveRef.current = true
         const result = await preflightNativeOverride({
           clearLocalCredentials: clearUntrustedNativeCredentials,
           preflight: () => preflightServer(override),
         })
-        const now = new Date().toISOString()
-        const profile: ServerProfile = {
-          id: createProfileId(),
-          name: 'Server override',
-          httpOrigin: result.ok ? result.httpOrigin : override,
-          ...(result.ok ? { instanceId: result.instanceId } : {}),
-          mode: result.ok ? result.mode : 'protected',
-          transport: result.transport,
-          createdAt: now,
-          updatedAt: now,
-        }
-        if (alive) {
+        if (!alive) return
+        // A native link that arrived during override preflight owns startup.
+        // Do not publish the override runtime before resolving that newer link.
+        if (generation !== startupLinkGeneration.current) {
+          nativeOverrideActiveRef.current = false
+        } else {
+          const now = new Date().toISOString()
+          const profile: ServerProfile = {
+            id: createProfileId(),
+            name: 'Server override',
+            httpOrigin: result.ok ? result.httpOrigin : override,
+            ...(result.ok ? { instanceId: result.instanceId } : {}),
+            mode: result.ok ? result.mode : 'protected',
+            transport: result.transport,
+            createdAt: now,
+            updatedAt: now,
+          }
           setProfileState({ activeProfileId: profile.id, profiles: [profile] })
           setEphemeralConfig(configFor(override, true))
           setCredentialReleased(result.ok)
           setActivationFailure(result.ok ? null : { title: result.title, detail: result.detail })
           setReady(true)
-        }
-      } else {
-        nativeOverrideActiveRef.current = false
-        const stored = await loadServerProfiles()
-        await purgeOrphanedProfileCredentials(stored.profiles.map((row) => row.id))
-        const active = stored.profiles.find((profile) => profile.id === stored.activeProfileId)
-        if (!active) {
-          if (alive) {
-            setProfileState(stored)
-            setCredentialReleased(false)
-            setReady(true)
-          }
-        } else {
-          // Preflight is credential-free. A positive answer must revalidate
-          // identity, wire support, and transport policy before SecureStore is
-          // opened. The narrow unreachable arm below may instead reuse the
-          // trust boundary from a previously verified profile.
-          const result = await preflightServer(active.httpOrigin)
-          if (!alive) return
-          setProfileState(stored)
-          if (!result.ok) {
-            if (canOpenProfileOffline(active, result.kind)) {
-              // Absence of a network answer does not invalidate the immutable
-              // local profile boundary established by the last verified boot.
-              // Let only the profileId + userId SQLite namespace paint. Do not
-              // release the saved bearer yet. A later network return
-              // must prove the same instance still answers at this origin
-              // before transport or the outbox can use it.
-              setBearer(null)
-              setActivation('offline-cache')
-              setActivationFailure(null)
-              setCredentialReleased(true)
-              setReady(true)
-            } else {
-              setActivationFailure({ title: result.title, detail: result.detail })
-              setCredentialReleased(false)
-              setReady(true)
-            }
-          } else if (active.instanceId && active.instanceId !== result.instanceId) {
-            setActivationFailure(profileReplacementFailure(active))
-            setCredentialReleased(false)
-            setReady(true)
-          } else {
-            const validated: ServerProfile = {
-              ...active,
-              httpOrigin: result.httpOrigin,
-              instanceId: result.instanceId,
-              mode: result.mode,
-              transport: result.transport,
-              updatedAt: new Date().toISOString(),
-            }
-            const next = {
-              ...stored,
-              profiles: stored.profiles.map((row) => (row.id === active.id ? validated : row)),
-            }
-            await saveServerProfiles(next)
-            const credential = await getProfileCredential(active.id)
-            if (!alive) return
-            setProfileState(next)
-            setBearer(credential)
-            setActivation('verified')
-            setCredentialReleased(true)
-            setReady(true)
-          }
+          return
         }
       }
-      // ONCE PER PROCESS, module-level like web's `initialWebPairing`:
-      // `getInitialURL()` answers the same pairing URL for the app's whole
-      // lifetime, and `handleLink`'s router.replace('/') mid-init remounts the
-      // root layout — which remounts this gate, wiping any per-mount guard and
-      // re-handling the same URL in a remount storm that kept the launch splash
-      // up forever (~75 remounts/s, found 2026-08-27 chasing pairing links).
-      if (isPairingLink && initialUrl && !initialNativePairingConsumed) {
-        initialNativePairingConsumed = true
-        handleLink(initialUrl)
+      nativeOverrideActiveRef.current = false
+      const stored = await loadServerProfiles()
+      await purgeOrphanedProfileCredentials(stored.profiles.map((row) => row.id))
+      if (!alive) return
+      while (alive) {
+        const generation = startupLinkGeneration.current
+        const intent = nativeLinkIntent.current
+        const pending = pendingMobileHandoffSnapshot()
+        let startupState = stored
+        let active = stored.profiles.find((profile) => profile.id === stored.activeProfileId)
+
+        if (intent === 'pairing') {
+          setProfileState(stored)
+          setBearer(null)
+          setCredentialReleased(false)
+          setReady(true)
+          return
+        }
+        if (intent === 'handoff' && pending.request) {
+          const selected =
+            pending.request.kind === 'destination'
+              ? matchingMobileHandoffProfile(
+                  pending.request,
+                  stored.profiles,
+                  stored.activeProfileId,
+                )
+              : null
+          if (!selected) {
+            setProfileState(stored)
+            setBearer(null)
+            setCredentialReleased(false)
+            setReady(true)
+            return
+          }
+          startupState = { ...stored, activeProfileId: selected.id }
+          active = selected
+        }
+
+        if (!active) {
+          setProfileState(startupState)
+          setCredentialReleased(false)
+          setReady(true)
+          return
+        }
+
+        // Preflight is credential-free. A positive answer must revalidate
+        // identity, wire support, and transport policy before SecureStore is
+        // opened. A newer link restarts selection before any result or bearer
+        // can publish the old active profile.
+        const result = await preflightServer(active.httpOrigin)
+        if (!alive) return
+        if (generation !== startupLinkGeneration.current) continue
+        setProfileState(startupState)
+        if (!result.ok) {
+          if (canOpenProfileOffline(active, result.kind) && intent === null) {
+            setBearer(null)
+            setActivation('offline-cache')
+            setActivationFailure(null)
+            setCredentialReleased(true)
+            setReady(true)
+          } else {
+            setActivationFailure({ title: result.title, detail: result.detail })
+            setCredentialReleased(false)
+            setReady(true)
+          }
+          return
+        }
+        if (active.instanceId && active.instanceId !== result.instanceId) {
+          setActivationFailure(profileReplacementFailure(active))
+          setCredentialReleased(false)
+          setReady(true)
+          return
+        }
+        const validated: ServerProfile = {
+          ...active,
+          httpOrigin: result.httpOrigin,
+          instanceId: result.instanceId,
+          mode: result.mode,
+          transport: result.transport,
+          updatedAt: new Date().toISOString(),
+        }
+        const next = {
+          ...startupState,
+          profiles: startupState.profiles.map((row) => (row.id === active.id ? validated : row)),
+        }
+        const credential = await profileWrites.run(async () => {
+          await saveServerProfiles(next)
+          if (!alive || generation !== startupLinkGeneration.current) {
+            await saveServerProfiles(stored)
+            return null
+          }
+          const savedCredential = await getProfileCredential(active.id)
+          if (!alive || generation !== startupLinkGeneration.current) {
+            await saveServerProfiles(stored)
+            return null
+          }
+          return savedCredential
+        })
+        if (!alive) return
+        if (generation !== startupLinkGeneration.current) continue
+        setProfileState(next)
+        setBearer(credential)
+        setActivation('verified')
+        setActivationFailure(null)
+        setCredentialReleased(true)
+        setReady(true)
+        return
       }
     })().catch((error) => {
       if (alive) {
@@ -429,7 +521,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       alive = false
       subscription.remove()
     }
-  }, [activationRetry, clearUntrustedNativeCredentials, handleLink])
+  }, [activationRetry, clearUntrustedNativeCredentials, handleLink, profileWrites])
 
   const profile =
     profileState.profiles.find((row) => row.id === profileState.activeProfileId) ?? null
@@ -445,10 +537,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     credentialReleased ? bearer : null,
   )
 
-  const persistState = useCallback(async (next: ServerProfileState) => {
-    await saveServerProfiles(next)
-    setProfileState(next)
-  }, [])
+  const persistState = useCallback(
+    async (next: ServerProfileState) => {
+      await profileWrites.run(() => saveServerProfiles(next))
+      setProfileState(next)
+    },
+    [profileWrites],
+  )
 
   const finishSetup = useCallback(
     async (
@@ -458,7 +553,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     ) => {
       // Invalidate an offline identity probe before any pairing write can race
       // it into restoring the previous profile or credential.
-      switchOperation.current += 1
+      const operation = ++switchOperation.current
       if (Platform.OS === 'web') {
         setIncoming(null)
         setSetupOpen(false)
@@ -503,12 +598,19 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       try {
         // Metadata first, then the secure value. If either store refuses the
         // issuance, restore the prior state and revoke the just-minted session.
-        await saveServerProfiles(next)
+        await profileWrites.run(async () => {
+          if (operation !== switchOperation.current) {
+            throw new Error('This server setup was replaced by a newer link.')
+          }
+          await saveServerProfiles(next)
+        })
         if (token) {
           await credentialWrites.run(() => setProfileCredential(nextProfile.id, token))
         }
       } catch (cause) {
-        await saveServerProfiles(profileState).catch(() => {})
+        if (operation === switchOperation.current) {
+          await profileWrites.run(() => saveServerProfiles(profileState)).catch(() => {})
+        }
         if (token) {
           if (priorCredential && existing) {
             await credentialWrites
@@ -547,7 +649,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       setActivationFailure(null)
       setRevision((value) => value + 1)
     },
-    [credentialWrites, profileState],
+    [credentialWrites, profileState, profileWrites],
   )
 
   const saveOfflineProfile = useCallback(
@@ -578,7 +680,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           ? profileState.profiles.map((row) => (row.id === existing.id ? nextProfile : row))
           : [...profileState.profiles, nextProfile],
       }
-      await saveServerProfiles(next)
+      await profileWrites.run(() => saveServerProfiles(next))
       setBearer(null)
       setProfileState(next)
       setSetupOpen(false)
@@ -589,7 +691,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           'No credential was stored or sent. Retry when this phone can reach the secure server.',
       })
     },
-    [profileState],
+    [profileState, profileWrites],
   )
 
   const context = useMemo<ServerProfileContextValue | null>(() => {
@@ -627,8 +729,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               throw new Error(`${result.title}: ${result.detail}`)
             }
             const next = { activeProfileId: selected.id, profiles: profileState.profiles }
-            await saveServerProfiles(next)
-            if (operation !== switchOperation.current) return
+            const saved = await profileWrites.run(async () => {
+              await saveServerProfiles(next)
+              if (operation === switchOperation.current) return true
+              await saveServerProfiles(profileState)
+              return false
+            })
+            if (!saved) return
             setProfileState(next)
             setBearer(null)
             setActivation('offline-cache')
@@ -656,8 +763,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               row.id === selected.id ? validated : row,
             ),
           }
-          await saveServerProfiles(next)
-          if (operation !== switchOperation.current) return
+          const saved = await profileWrites.run(async () => {
+            await saveServerProfiles(next)
+            if (operation === switchOperation.current) return true
+            await saveServerProfiles(profileState)
+            return false
+          })
+          if (!saved) return
           setProfileState(next)
           setBearer(credential)
           setActivation('verified')
@@ -672,6 +784,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           throw cause
         } finally {
           switchInFlight.current = false
+          if (savedProfileRestartPending.current) {
+            savedProfileRestartPending.current = false
+            setActivationRetry((value) => value + 1)
+          }
           setProfileSwitchSettled((value) => value + 1)
         }
       },
@@ -697,7 +813,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             : profileState.activeProfileId
         let next: ServerProfileState = { profiles, activeProfileId: nextId }
         if (profileState.activeProfileId !== profileId) {
-          await saveServerProfiles(next)
+          await profileWrites.run(() => saveServerProfiles(next))
           setProfileState(next)
           return
         }
@@ -711,7 +827,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           const result = await preflightServer(selected.httpOrigin)
           if (!result.ok) {
             if (canOpenProfileOffline(selected, result.kind)) {
-              await saveServerProfiles(next)
+              await profileWrites.run(() => saveServerProfiles(next))
               setProfileState(next)
               setBearer(null)
               setActivation('offline-cache')
@@ -719,13 +835,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               setRevision((value) => value + 1)
               return
             }
-            await saveServerProfiles(next)
+            await profileWrites.run(() => saveServerProfiles(next))
             setProfileState(next)
             setActivationFailure({ title: result.title, detail: result.detail })
             return
           }
           if (selected.instanceId && selected.instanceId !== result.instanceId) {
-            await saveServerProfiles(next)
+            await profileWrites.run(() => saveServerProfiles(next))
             setProfileState(next)
             setActivationFailure(profileReplacementFailure(selected))
             return
@@ -743,9 +859,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             activeProfileId: validated.id,
             profiles: profiles.map((row) => (row.id === validated.id ? validated : row)),
           }
-          await saveServerProfiles(next)
+          await profileWrites.run(() => saveServerProfiles(next))
         } else {
-          await saveServerProfiles(next)
+          await profileWrites.run(() => saveServerProfiles(next))
         }
         setProfileState(next)
         setBearer(nextCredential)
@@ -832,7 +948,17 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         }
       },
     }
-  }, [activation, bearer, config, credentialWrites, persistState, profile, profileState, revision])
+  }, [
+    activation,
+    bearer,
+    config,
+    credentialWrites,
+    persistState,
+    profile,
+    profileState,
+    profileWrites,
+    revision,
+  ])
 
   // Profile selection must happen OUTSIDE AuthGate: the requested saved profile
   // may be signed out, so its authenticated client tree cannot mount until this
@@ -845,6 +971,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       consumePendingMobileHandoff(pendingHandoff.id)
       setHandoffStatus(mobileHandoffFallbackStatus(reason))
       router.replace('/work')
+      if (!credentialReleased) restartSavedProfile()
     }
     if (pendingHandoff.request.kind === 'unscoped') {
       fallback('unscoped')
@@ -891,11 +1018,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   }, [
     activationFailure,
     context,
+    credentialReleased,
     pendingHandoff,
     profile?.id,
     profileSwitchSettled,
     profileState.profiles,
     ready,
+    restartSavedProfile,
     router,
   ])
 
@@ -935,7 +1064,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               // profile or its credential unreachable. A failure leaves the
               // saved profile intact and the tombstone retryable.
               await enqueuePendingProfileCleanup(profile.id, profile.userId)
-              await saveServerProfiles(next)
+              await profileWrites.run(() => saveServerProfiles(next))
             }
             // This recovery path deliberately does not call logout: identity
             // preflight failed, so the saved bearer must never reach whatever
@@ -975,6 +1104,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             setIncoming(null)
             setSetupOpen(false)
             setLinkError(null)
+            if (Platform.OS !== 'web' && !credentialReleased) restartSavedProfile()
           }}
           onComplete={finishSetup}
           onSaveOffline={saveOfflineProfile}
@@ -998,6 +1128,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
 }
 
 function HandoffStatus({ text }: { text: string }) {
+  useEffect(() => {
+    if (Platform.OS === 'ios' && text) AccessibilityInfo.announceForAccessibility(text)
+  }, [text])
   return text ? (
     <Text role="status" accessibilityLiveRegion="polite" style={styles.srStatus}>
       {text}
