@@ -53,8 +53,10 @@ import {
   continuationPresenceLine as sharedContinuationPresenceLine,
   spawnIssueAgent,
   subtreeUnread,
+  treeGuides,
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
+import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -111,9 +113,10 @@ import {
 } from '@/lib/agent-capability'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
-import { PhaseTimer, WorkingMark } from '@/lib/motion'
+import { PhaseTimer, useArrivals, WorkingMark } from '@/lib/motion'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
+import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
@@ -144,11 +147,14 @@ import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
  * asking agents: busy and stuck-on-you are different facts, and a tab that held
  * both left `Needs you` looking like it had done nothing.
  */
-const MODES: Array<{ id: FlightDeckMode; label: string }> = [
+type FlightDeckView = FlightDeckMode | 'waterfall'
+
+const MODES: Array<{ id: FlightDeckView; label: string }> = [
   { id: 'full', label: 'Full spine' },
   { id: 'working', label: 'Working' },
   { id: 'needs-you', label: 'Needs you' },
 ]
+const WATERFALL_MODE = { id: 'waterfall', label: 'Waterfall' } as const
 
 /**
  * `Add agent` — one more agent onto the mission root.
@@ -434,9 +440,13 @@ const railFor = (tone: RailTone): Rail =>
 
 /** `active` is `working`'s old id (POD-1452), still read so an operator who had
  *  chosen that view does not silently land back on `Full spine`. */
-const readMode = (raw: string | null): FlightDeckMode =>
-  raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
-const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
+const readMode = (raw: string | null): FlightDeckView =>
+  raw === 'active'
+    ? 'working'
+    : raw === 'working' || raw === 'needs-you' || raw === 'waterfall'
+      ? raw
+      : 'full'
+const writeMode = (mode: FlightDeckView): string | null => (mode === 'full' ? null : mode)
 
 /**
  * THE FOLD IS THREE-VALUED (POD-710).
@@ -2961,11 +2971,22 @@ export function FlightDeck({
   // Device-local DISPLAY preference, subscribed rather than seeded (POD-540):
   // which view you left the deck in and which branches you folded survive a
   // remount. Neither ever touches issue stage or agent state.
-  const [mode, setMode] = usePersistedUiState<FlightDeckMode>(
+  const waterfallEnabled = useFeature('podium-development')
+  const [preferredView, setPreferredView] = usePersistedUiState<FlightDeckView>(
     FLIGHT_DECK_MODE_KEY,
     readMode,
     writeMode,
   )
+  // Keep an experimental choice dormant while its gate is off. Re-enabling the
+  // gate restores the operator's last view without making unfinished UI leak
+  // into an ordinary install.
+  const view: FlightDeckView =
+    preferredView === 'waterfall' && !waterfallEnabled ? 'full' : preferredView
+  const mode: FlightDeckMode = view === 'waterfall' ? 'full' : view
+  const modes = waterfallEnabled ? [...MODES, WATERFALL_MODE] : MODES
+  useLayoutEffect(() => {
+    if (view !== 'waterfall' && display === 'expanded') onDisplayChange('compact')
+  }, [display, onDisplayChange, view])
   const [folds, setFolds] = usePersistedUiState<FoldMap>(
     FLIGHT_DECK_FOLDS_KEY,
     readFolds,
@@ -3041,6 +3062,20 @@ export function FlightDeck({
   // one agent, so the roll-up had nothing to roll up: it was a boolean printed as
   // a number, and the "1" it printed was the same fact the row's own amber mark
   // already carries. The view bar names the view; the tree says how much.
+  // Every session anywhere in the mission, so a spawn edge can be named ("by
+  // Spine designer") and one pointing outside the mission is left unnamed rather
+  // than rendered as a raw id.
+  const missionSessionNames = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const row of rows) {
+      for (const session of row.sessions) names.set(session.sessionId, sessionDisplayName(session))
+    }
+    return names
+  }, [rows])
+  const nameOf = useCallback(
+    (sessionId: SessionId): string | undefined => missionSessionNames.get(sessionId),
+    [missionSessionNames],
+  )
   /**
    * The mission's own row, which the SPINE NO LONGER PRINTS (round 3 §4).
    *
@@ -3124,10 +3159,20 @@ export function FlightDeck({
    * out would leave its children hanging off a parent that is no longer there,
    * which is worse than a proposal in the spine.
    */
-  // The waterfall's vertical unit is the formal issue. Proposed children stay
-  // in their depth-first position and render as duration-free future labels;
-  // moving them to a tail would break both spatial memory and the time axis.
-  const proposalIds = useMemo(() => new Set<string>(), [])
+  const proposalIds = useMemo(() => {
+    // The waterfall's vertical unit is the formal issue. Proposed children stay
+    // in depth-first position as duration-free future labels. The list keeps its
+    // old proposal tail, where unaccepted work cannot be mistaken for execution.
+    if (view === 'waterfall') return new Set<string>()
+    return new Set(
+      rows
+        .filter(
+          (row) =>
+            row.depth > 0 && row.issue.stage === 'proposed' && row.descendantIds.length === 0,
+        )
+        .map((row) => row.issue.id),
+    )
+  }, [rows, view])
   // Search keeps a match's ANCESTORS as context, the same rule the mode filters
   // follow — an exception that loses its path is an exception you cannot place.
   const visibleRows = useMemo(() => {
@@ -3157,6 +3202,50 @@ export function FlightDeck({
     const needle = query.trim().toLowerCase()
     return needle ? proposals.filter((row) => matchesQuery(row, needle)) : proposals
   }, [rows, proposalIds, query])
+  // Computed over the rows that ACTUALLY render: a fold or a filter changes which
+  // strip is the last child of its branch, and a rail that outlives its last
+  // child is the tell that the tree was drawn from data rather than from layout.
+  const guides = useMemo(() => treeGuides(visibleRows), [visibleRows])
+  /** The tasks with a live designated lead, which is what earns a coloured rail. */
+  const ledIssueIds = useMemo(() => {
+    const led = new Set<string>()
+    for (const row of rows) {
+      const hasLead = row.sessions.some(
+        (session) =>
+          !session.archived &&
+          session.status !== 'exited' &&
+          isCoordinatorSession(row.issue, session.sessionId),
+      )
+      if (hasLead) led.add(row.issue.id)
+    }
+    return led
+  }, [rows])
+  const leadTone = useCallback(
+    (issueId: IssueId | undefined): RailTone =>
+      issueId === undefined || !ledIssueIds.has(issueId)
+        ? null
+        : issueId === root?.id
+          ? 'mission'
+          : 'task',
+    [ledIssueIds, root],
+  )
+  /** The owning task for every ancestor rail crossing each rendered row. */
+  const rails = useMemo(() => {
+    const trail: (string | undefined)[] = [root?.id]
+    return visibleRows.map((row) => {
+      trail.length = row.depth
+      trail[row.depth] = row.issue.id
+      const tones: RailTone[] = []
+      for (let level = 1; level <= row.depth; level += 1) {
+        tones.push(
+          leadTone(
+            trail[level - 1] === undefined ? undefined : asIssueId(trail[level - 1] as string),
+          ),
+        )
+      }
+      return tones
+    })
+  }, [visibleRows, root, leadTone])
   /** A proposal names the session that filed it, because the ref is how you go
    *  and ask it why. Unresolvable (a human create, or an agent long gone) means
    *  no author line rather than a raw session id. */
@@ -3190,6 +3279,11 @@ export function FlightDeck({
     return found
   }, [rows, sessions, allWorktreePaths])
   const [archivedOpen, setArchivedOpen] = useState(false)
+  const missionSessionIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const row of rows) for (const session of row.sessions) ids.add(session.sessionId)
+    return ids
+  }, [rows])
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
   const draftFilling = Boolean(root?.draft && rootSession)
   // Naming and lifecycle answer different questions. `draftFilling` governs
@@ -3224,6 +3318,12 @@ export function FlightDeck({
   )
   const anyFoldable = foldable.length > 0
   const allFolded = anyFoldable && foldable.every((row) => isFolded(row, folds))
+  /** Session arrivals animate once across the whole mission, never per row. */
+  const sessionKeys = useMemo(
+    () => rows.flatMap((row) => row.sessions.map((session) => session.sessionId)),
+    [rows],
+  )
+  const { arrivals, settle } = useArrivals(sessionKeys)
 
   /** A fold the operator performed is always written EXPLICITLY, whichever way
    *  it went — that is what stops the default rule from re-closing a branch the
@@ -3465,7 +3565,7 @@ export function FlightDeck({
     session: SessionMeta,
     opts: { permanent: boolean; native?: boolean },
   ): void => {
-    if (!opts.native) {
+    if (view === 'waterfall' && !opts.native) {
       const nextDisplay = nextFlightDeckDisplayForSessionPick(
         display,
         activeSessionId,
@@ -3489,6 +3589,19 @@ export function FlightDeck({
     void markSessionRead(session.sessionId)
     setView('workspace')
   }
+
+  /**
+   * The list spine is one line, resolved once so its width and tone cannot jog
+   * between the root roster and the nested task rows.
+   */
+  const spineRail = railFor(leadTone(root?.id))
+  const spineSegment = (className: string, style?: CSSProperties): JSX.Element => (
+    <span
+      aria-hidden
+      className={cn('pointer-events-none absolute', spineRail.className, className)}
+      style={{ left: ROOT_RAIL, width: spineRail.width, ...style }}
+    />
+  )
 
   /**
    * THE COLLAPSE CHEVRON IS A MEMBER OF THE EYEBROW ROW (POD-1146).
@@ -3673,12 +3786,12 @@ export function FlightDeck({
               className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
               style={{ paddingLeft: GUTTER }}
             >
-              {MODES.map((option) => (
+              {modes.map((option) => (
                 <button
                   data-pressable
                   type="button"
                   key={option.id}
-                  aria-pressed={mode === option.id}
+                  aria-pressed={view === option.id}
                   // THE ACTIVE VIEW IS UNDERLINED IN THE MISSION'S OWN COLOUR, and
                   // the underline runs the bar's full height rather than a pill's.
                   // A filled pill here read as one more raised object competing
@@ -3686,34 +3799,37 @@ export function FlightDeck({
                   // device the selected strip wears on its left edge, turned
                   // through ninety degrees, so both say "this one" in one voice.
                   className={cn(
-                    'shell-type-micro inline-flex items-center self-stretch px-2 font-medium text-text-faint hover:text-text-strong',
-                    mode === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
+                    'shell-type-micro inline-flex flex-none items-center self-stretch whitespace-nowrap font-medium text-text-faint hover:text-text-strong',
+                    view === 'waterfall' ? 'px-1' : 'px-2',
+                    view === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
                   )}
-                  onClick={() => setMode(option.id)}
+                  onClick={() => setPreferredView(option.id)}
                 >
                   {option.label}
                 </button>
               ))}
               <div className="ml-auto flex flex-none items-center gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-6 text-text-faint"
-                  aria-label={
-                    display === 'expanded' ? 'Use compact Flight Deck' : 'Expand mission overview'
-                  }
-                  aria-pressed={display === 'expanded'}
-                  title={
-                    display === 'expanded' ? 'Use compact Flight Deck' : 'Expand mission overview'
-                  }
-                  onClick={() => onDisplayChange(display === 'expanded' ? 'compact' : 'expanded')}
-                >
-                  {display === 'expanded' ? (
-                    <Minimize2 size={13} aria-hidden="true" />
-                  ) : (
-                    <Maximize2 size={13} aria-hidden="true" />
-                  )}
-                </Button>
+                {view === 'waterfall' && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-6 text-text-faint"
+                    aria-label={
+                      display === 'expanded' ? 'Use compact Flight Deck' : 'Expand mission overview'
+                    }
+                    aria-pressed={display === 'expanded'}
+                    title={
+                      display === 'expanded' ? 'Use compact Flight Deck' : 'Expand mission overview'
+                    }
+                    onClick={() => onDisplayChange(display === 'expanded' ? 'compact' : 'expanded')}
+                  >
+                    {display === 'expanded' ? (
+                      <Minimize2 size={13} aria-hidden="true" />
+                    ) : (
+                      <Maximize2 size={13} aria-hidden="true" />
+                    )}
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -3787,93 +3903,183 @@ export function FlightDeck({
               </div>
             )}
           </div>
-          {rootRow && (
-            <FlightDeckWaterfall
-              rootRow={rootRow}
-              rows={visibleRows}
-              displayTitles={rowDisplayTitles}
-              mode={mode}
-              display={display}
-              focusedIssueId={focused ?? null}
-              activeSessionId={activeSessionId}
-              renameTarget={renameTarget}
-              isFolded={(row) => isFolded(row, folds)}
-              onToggle={toggleFold}
-              onSelectIssue={(row, permanent) => {
-                if (!permanent && row.depth > 0 && hasPayload(row)) toggleFold(row)
-                selectIssue(row, permanent)
-              }}
-              onSelectSession={(issueId, session, options) =>
-                selectSession(issueId, session, options)
-              }
-              onIssueMenu={openIssueMenu}
-              onStatusPick={pickRowStatus}
-              onRenameIssue={renameIssue}
-              onRenameDone={() => setRenameTarget(null)}
-            />
-          )}
-          <div className="flex-none pb-1.5" data-testid="flight-deck-tail">
-            {visibleRows.length === 0 &&
-              proposedRows.length === 0 &&
-              (query ? (
-                <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                  Nothing in this mission matches that.
-                </p>
-              ) : // A vacated root is not an empty spine — the region below says
-              // where the work went, and it says it once. This branch used to
-              // draw the continuation card itself, which is half of why the same
-              // destination appeared twice.
-              rootContinuation || rootSessions.length > 0 ? null : rootRetired ? (
-                // THE MISSION ENDED HERE — a card, not a caption (POD-1268).
-                // Every other note below is a state the operator reads and
-                // leaves alone; this one is the only one still asking for a
-                // decision, and the decision is the fold.
-                <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
-                  <RetiredSignpost abandoned={issueAbandoned(root)} onTuck={tuckResolvedRoot} />
-                </div>
-              ) : (
-                <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                  {/* WHICH VIEW EMPTIED IT (POD-1356). `rootEmptyNote` is about
+          <div
+            className={view === 'waterfall' ? 'contents' : 'deck-rows flex-none pb-1.5 pr-2'}
+            data-testid={view === 'waterfall' ? undefined : 'flight-deck-rows'}
+          >
+            {view === 'waterfall' ? (
+              rootRow && (
+                <FlightDeckWaterfall
+                  rootRow={rootRow}
+                  rows={visibleRows}
+                  displayTitles={rowDisplayTitles}
+                  mode={mode}
+                  display={display}
+                  focusedIssueId={focused ?? null}
+                  activeSessionId={activeSessionId}
+                  renameTarget={renameTarget}
+                  isFolded={(row) => isFolded(row, folds)}
+                  onToggle={toggleFold}
+                  onSelectIssue={(row, permanent) => {
+                    if (!permanent && row.depth > 0 && hasPayload(row)) toggleFold(row)
+                    selectIssue(row, permanent)
+                  }}
+                  onSelectSession={(issueId, session, options) =>
+                    selectSession(issueId, session, options)
+                  }
+                  onIssueMenu={openIssueMenu}
+                  onStatusPick={pickRowStatus}
+                  onRenameIssue={renameIssue}
+                  onRenameDone={() => setRenameTarget(null)}
+                />
+              )
+            ) : (
+              <>
+                <div className="relative h-1.5">{spineSegment('inset-y-0')}</div>
+                {rootRow && (
+                  <>
+                    <HungRows
+                      issue={rootRow.issue}
+                      sessions={rootSessions}
+                      rootId={root.id}
+                      inMission={missionSessionIds}
+                      nameOf={nameOf}
+                      activeSessionId={activeSessionId}
+                      arrivals={arrivals}
+                      settle={settle}
+                      inset={ROOT_BLOCK_INSET}
+                      rail={spineRail}
+                      tail={visibleRows.length > 0}
+                      onSelectSession={(session, permanent) =>
+                        selectSession(rootRow.issue.id, session, { permanent })
+                      }
+                      onSelectNative={(session) =>
+                        selectSession(rootRow.issue.id, session, {
+                          permanent: false,
+                          native: true,
+                        })
+                      }
+                    />
+                    {rootSessions.length > 0 && visibleRows.length > 0 && (
+                      <div className="relative h-2" aria-hidden>
+                        {spineSegment('inset-y-0')}
+                      </div>
+                    )}
+                  </>
+                )}
+                {visibleRows.map((row, index) => (
+                  <TaskRow
+                    key={row.issue.id}
+                    row={row}
+                    displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
+                    renameSeed={renameTarget?.id === row.issue.id ? renameTarget.seed : null}
+                    byId={byId}
+                    carries={guides[index] ?? []}
+                    rails={rails[index] ?? []}
+                    agentRail={railFor(leadTone(row.issue.id))}
+                    childFollows={(visibleRows[index + 1]?.depth ?? 0) > row.depth}
+                    mode={mode}
+                    rootId={root.id}
+                    inMission={missionSessionIds}
+                    nameOf={nameOf}
+                    selected={focused === row.issue.id}
+                    activeSessionId={activeSessionId}
+                    arrivals={arrivals}
+                    settle={settle}
+                    collapsed={isFolded(row, folds)}
+                    folds={folds}
+                    onToggle={() => toggleFold(row)}
+                    onSelectIssue={(permanent) => {
+                      if (!permanent && hasPayload(row)) toggleFold(row)
+                      selectIssue(row, permanent)
+                    }}
+                    onSelectSession={(session, permanent) =>
+                      selectSession(row.issue.id, session, { permanent })
+                    }
+                    onSelectNative={(session) =>
+                      selectSession(row.issue.id, session, { permanent: false, native: true })
+                    }
+                    onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                    onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
+                    onRenameIssue={(title) =>
+                      renameIssue(
+                        row.issue.id,
+                        title,
+                        renameTarget?.id === row.issue.id
+                          ? renameTarget.seed
+                          : (rowDisplayTitles.get(row.issue.id) ?? row.issue.title),
+                      )
+                    }
+                    onRenameDone={() => setRenameTarget(null)}
+                  />
+                ))}
+              </>
+            )}
+            <div
+              className={cn('flex-none', view === 'waterfall' && 'pb-1.5')}
+              data-testid="flight-deck-tail"
+            >
+              {visibleRows.length === 0 &&
+                proposedRows.length === 0 &&
+                (query ? (
+                  <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                    Nothing in this mission matches that.
+                  </p>
+                ) : // A vacated root is not an empty spine — the region below says
+                // where the work went, and it says it once. This branch used to
+                // draw the continuation card itself, which is half of why the same
+                // destination appeared twice.
+                rootContinuation || rootSessions.length > 0 ? null : rootRetired ? (
+                  // THE MISSION ENDED HERE — a card, not a caption (POD-1268).
+                  // Every other note below is a state the operator reads and
+                  // leaves alone; this one is the only one still asking for a
+                  // decision, and the decision is the fold.
+                  <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
+                    <RetiredSignpost abandoned={issueAbandoned(root)} onTuck={tuckResolvedRoot} />
+                  </div>
+                ) : (
+                  <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                    {/* WHICH VIEW EMPTIED IT (POD-1356). `rootEmptyNote` is about
                       the mission — "nobody is on this" — and printing it under a
                       narrowed view says that about a task with a live agent on
                       it. The view's own sentence comes first, and only `full`
                       falls through to the note. */}
-                  {deckViewEmptyLine(mode, rows[0]?.waitingAgentCount ?? 0) ??
-                    rootEmptyNote?.text ??
-                    'No sessions or sub-tasks are attached.'}
-                </p>
-              ))}
-            {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the
+                    {deckViewEmptyLine(mode, rows[0]?.waitingAgentCount ?? 0) ??
+                      rootEmptyNote?.text ??
+                      'No sessions or sub-tasks are attached.'}
+                  </p>
+                ))}
+              {/* THE SECTIONS BELOW THE TREE. Siblings, in a flat stack, so the
                 next one (POD-679's departure ticks) sits here beside these two
                 rather than being threaded through the spine. */}
-            {/* PROPOSALS SINK. They leave the sibling order and collect in a
+              {/* PROPOSALS SINK. They leave the sibling order and collect in a
                 tail at the bottom of the spine, under a divider carrying their
                 count — work being offered to the operator is not part of the
                 mission's shape, and interleaving it with the shape is what made
                 a proposal read as a task somebody had started. */}
-            {proposedRows.length > 0 && (
-              <DeckSection
-                label="Proposed"
-                count={proposedRows.length}
-                tone="text-fuchsia-500"
-                testId="flight-proposed"
-              >
-                <div className="flex flex-col gap-1">
-                  {proposedRows.map((row) => (
-                    <ProposalRow
-                      key={row.issue.id}
-                      issue={row.issue}
-                      author={authorOf(row.issue)}
-                      selected={focused === row.issue.id}
-                      onSelect={(permanent) => selectIssue(row, permanent)}
-                      onMenu={(event) => openIssueMenu(row.issue.id, event)}
-                      onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
-                    />
-                  ))}
-                </div>
-              </DeckSection>
-            )}
-            {/* No count on this divider: the disclosure under it already carries
+              {proposedRows.length > 0 && (
+                <DeckSection
+                  label="Proposed"
+                  count={proposedRows.length}
+                  tone="text-fuchsia-500"
+                  testId="flight-proposed"
+                >
+                  <div className="flex flex-col gap-1">
+                    {proposedRows.map((row) => (
+                      <ProposalRow
+                        key={row.issue.id}
+                        issue={row.issue}
+                        author={authorOf(row.issue)}
+                        selected={focused === row.issue.id}
+                        onSelect={(permanent) => selectIssue(row, permanent)}
+                        onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                        onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
+                      />
+                    ))}
+                  </div>
+                </DeckSection>
+              )}
+              {/* No count on this divider: the disclosure under it already carries
                 one, and a region that states its size twice reads as two
                 different numbers that happen to agree.
                 A WIDER BREAK THAN THE OTHER DIVIDERS, TOO (POD-1461). Every
@@ -3882,50 +4088,50 @@ export function FlightDeck({
                 the roster STOPS: it opened 10px under the last agent, which read
                 as a fifth row in the same list rather than as the end of it. The
                 extra 14px is the whole distinction. */}
-            {archivedSessions.length > 0 && (
-              <DeckSection label="Archived" className="mt-6" testId="flight-archived">
-                <button
-                  data-pressable
-                  type="button"
-                  data-testid="flight-archived-toggle"
-                  aria-expanded={archivedOpen}
-                  className="shell-type-micro flex min-h-6 w-full items-center gap-1.5 rounded-md text-left font-mono text-text-faint hover:text-text-dim"
-                  onClick={() => setArchivedOpen((open) => !open)}
-                >
-                  <Archive size={11} aria-hidden className="flex-none" />
-                  <span className="truncate">
-                    {archivedOpen
-                      ? 'Hide archived'
-                      : `${archivedSessions.length} archived session${
-                          archivedSessions.length === 1 ? '' : 's'
-                        }`}
-                  </span>
-                </button>
-                {archivedOpen && (
-                  <div className="mt-1 flex flex-col gap-0.5">
-                    {archivedSessions.map((session) => (
-                      <SessionRow
-                        key={session.sessionId}
-                        session={session}
-                        active={activeSessionId === session.sessionId}
-                        last
-                        flat
-                        onOpen={(permanent) =>
-                          selectSession(session.issueId ?? null, session, { permanent })
-                        }
-                        onOpenNative={() =>
-                          selectSession(session.issueId ?? null, session, {
-                            permanent: false,
-                            native: true,
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-              </DeckSection>
-            )}
-            {/* POD-679's departures, the third sibling section — and deliberately
+              {archivedSessions.length > 0 && (
+                <DeckSection label="Archived" className="mt-6" testId="flight-archived">
+                  <button
+                    data-pressable
+                    type="button"
+                    data-testid="flight-archived-toggle"
+                    aria-expanded={archivedOpen}
+                    className="shell-type-micro flex min-h-6 w-full items-center gap-1.5 rounded-md text-left font-mono text-text-faint hover:text-text-dim"
+                    onClick={() => setArchivedOpen((open) => !open)}
+                  >
+                    <Archive size={11} aria-hidden className="flex-none" />
+                    <span className="truncate">
+                      {archivedOpen
+                        ? 'Hide archived'
+                        : `${archivedSessions.length} archived session${
+                            archivedSessions.length === 1 ? '' : 's'
+                          }`}
+                    </span>
+                  </button>
+                  {archivedOpen && (
+                    <div className="mt-1 flex flex-col gap-0.5">
+                      {archivedSessions.map((session) => (
+                        <SessionRow
+                          key={session.sessionId}
+                          session={session}
+                          active={activeSessionId === session.sessionId}
+                          last
+                          flat
+                          onOpen={(permanent) =>
+                            selectSession(session.issueId ?? null, session, { permanent })
+                          }
+                          onOpenNative={() =>
+                            selectSession(session.issueId ?? null, session, {
+                              permanent: false,
+                              native: true,
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </DeckSection>
+              )}
+              {/* POD-679's departures, the third sibling section — and deliberately
                 NOT folded into PROPOSED ACTIONS above. A proposal is work nobody
                 has triaged yet; a departure is work that is already gone. Same
                 place on the screen, opposite meanings, so they stay two lists.
@@ -3934,19 +4140,20 @@ export function FlightDeck({
                 controls narrow the spine.
                 The continuation card lives HERE now rather than in the tree's
                 empty branch above — one region, one heading, one sentence. */}
-            <WhereTheWorkWent
-              continuation={rootContinuation}
-              continuationState={continuationState}
-              continuationFinished={rootFinished}
-              // `rootRow.sessions`, NOT `rootSessions`: the latter is
-              // `deckSessions(row, mode)`, which the view bar narrows. A card
-              // that said "nobody is here" because you filtered the spine down
-              // to working agents would be the same bug in a new costume.
-              continuationSessions={rootRow?.sessions ?? []}
-              departures={departures}
-              onOpen={openDeparture}
-              onTuck={tuckResolvedRoot}
-            />
+              <WhereTheWorkWent
+                continuation={rootContinuation}
+                continuationState={continuationState}
+                continuationFinished={rootFinished}
+                // `rootRow.sessions`, NOT `rootSessions`: the latter is
+                // `deckSessions(row, mode)`, which the view bar narrows. A card
+                // that said "nobody is here" because you filtered the spine down
+                // to working agents would be the same bug in a new costume.
+                continuationSessions={rootRow?.sessions ?? []}
+                departures={departures}
+                onOpen={openDeparture}
+                onTuck={tuckResolvedRoot}
+              />
+            </div>
           </div>
         </>
       ) : focusedSession?.agentKind === 'shell' ? (

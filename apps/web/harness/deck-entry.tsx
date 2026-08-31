@@ -14,7 +14,7 @@
  * different ladder than the one that ships.
  */
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { FlightDeck } from '@/app/FlightDeck'
 import { OperatorFocusProvider } from '@/app/operator-focus'
@@ -30,7 +30,8 @@ declare global {
       setWidth: (px: number) => void
       /** Swap the fixture; `bump` re-renders against the new one. */
       setMission: (name: keyof typeof MISSIONS) => void
-      setMode: (mode: 'full' | 'working' | 'needs-you') => void
+      setMode: (mode: 'full' | 'working' | 'needs-you' | 'waterfall') => void
+      setDisplay: (display: 'compact' | 'expanded') => void
       setIssueColor: (hex: string | null) => void
       setTheme: (mode: 'light' | 'dark') => void
       point: (sessionId: string | null) => void
@@ -139,7 +140,7 @@ const MISSIONS = {
         title: 'Spine designer',
         agentState: {
           phase: 'working',
-          since: '2026-01-01T00:28:00.000Z',
+          since: new Date(Date.now() - 125_000).toISOString(),
           workingMsTotal: 900_000,
         },
       }),
@@ -148,7 +149,10 @@ const MISSIONS = {
         displayRef: 'POD-1211-B',
         name: 'JSON panel UX direction',
         title: 'JSON panel UX direction',
-        agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
+        agentState: {
+          phase: 'needs_user',
+          since: new Date(Date.now() - 640_000).toISOString(),
+        },
       }),
       session('s3', {
         issueId: 't1',
@@ -188,8 +192,7 @@ const MISSIONS = {
         id: 'root',
         displayRef: 'MRD-2',
         title: 'Migrate sessions store from SQLite to Postgres',
-        description:
-          'Dual-write behind a flag, backfill, then cut over. Needs a rollback plan.',
+        description: 'Dual-write behind a flag, backfill, then cut over. Needs a rollback plan.',
         stage: 'in_progress',
         memberSessionIds: ['s1', 's2', 's3', 's4', 'a1', 'a2', 'a3'],
       }),
@@ -737,11 +740,17 @@ document.documentElement.classList.add('dark')
 
 function Harness(): JSX.Element {
   const [width, setWidth] = useState(366)
+  const [display, setDisplay] = useState<'compact' | 'expanded'>('compact')
   const [mission, setMission] = useState<keyof typeof MISSIONS>('asking')
   const [color, setColor] = useState<string | null>(null)
   const [, bump] = useState(0)
 
   MISSIONS[mission]()
+
+  const changeDisplay = useCallback((next: 'compact' | 'expanded'): void => {
+    setDisplay(next)
+    setWidth(next === 'expanded' ? 680 : 366)
+  }, [])
 
   useEffect(() => {
     window.deck = {
@@ -756,6 +765,7 @@ function Harness(): JSX.Element {
         state.ui.set('podium.flightDeck.mode', mode === 'full' ? null : mode)
         bump((v) => v + 1)
       },
+      setDisplay: changeDisplay,
       setIssueColor: (hex) => setColor(hex),
       setTheme: (mode) => {
         document.documentElement.classList.toggle('dark', mode === 'dark')
@@ -764,7 +774,7 @@ function Harness(): JSX.Element {
       // guarded form a row uses on pointer-out and needs its own id.
       point: (id) => setHoveredSession(id as never),
     }
-  }, [])
+  }, [changeDisplay])
 
   return (
     <div
@@ -783,13 +793,20 @@ function Harness(): JSX.Element {
           style={{ width }}
         >
           <div
-            className="relative flex max-w-[45vw] min-w-0 flex-[0_1_auto]"
+            className={`relative flex min-w-0 flex-[0_1_auto] ${
+              display === 'expanded' ? 'max-w-[62vw]' : 'max-w-[45vw]'
+            }`}
+            data-flight-deck-display={display}
             data-resizable-column="podium:superagent:width"
             style={{ width }}
           >
             <OperatorFocusProvider missionId="root">
               <ConfirmProvider>
-                <FlightDeck onCollapse={() => {}} />
+                <FlightDeck
+                  onCollapse={() => {}}
+                  display={display}
+                  onDisplayChange={changeDisplay}
+                />
               </ConfirmProvider>
             </OperatorFocusProvider>
           </div>

@@ -82,7 +82,26 @@ const uiState = {
 }
 
 const trpc = {
-  features: { state: { query: async () => null } },
+  features: {
+    state: {
+      query: async () => ({
+        devMode: true,
+        channel: 'stable' as const,
+        flags: [
+          {
+            id: 'podium-development',
+            name: 'Podium development',
+            description: 'Show controls for developing Podium itself.',
+            visibility: 'stable' as const,
+            listed: true,
+            enabled: true,
+            source: 'user' as const,
+            locked: false,
+          },
+        ],
+      }),
+    },
+  },
   issues: {
     setPlacement: { mutate: noop },
     start: { mutate: noop },

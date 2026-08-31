@@ -124,6 +124,11 @@ vi.mock('./store', () => ({
   useSessionDraft: () => '',
 }))
 
+const developerFeature = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: () => developerFeature.enabled,
+}))
+
 type Issue = Record<string, unknown>
 
 const issue = (id: string, over: Issue = {}): Issue => ({
@@ -189,6 +194,12 @@ function DeckHarness() {
 
 const deck = (): ReturnType<typeof render> => render(<DeckHarness />)
 
+const waterfallDeck = (): ReturnType<typeof render> => {
+  developerFeature.enabled = true
+  harness.ui.set('podium.flightDeck.mode', 'waterfall')
+  return deck()
+}
+
 /** The single-click action is deferred by the double-click window. */
 const settle = (): void => {
   act(() => {
@@ -205,6 +216,7 @@ beforeEach(() => {
   harness.selectedIssueId = 'root'
   harness.paneA = null
   harness.coarseNow = Date.parse('2026-01-01T00:10:00.000Z')
+  developerFeature.enabled = false
   harness.display = 'compact'
   harness.onDisplayChange.mockClear()
   harness.openSessionTab.mockClear()
@@ -508,6 +520,36 @@ describe('the cold deck (POD-1112)', () => {
   })
 })
 
+describe('the developer Waterfall view', () => {
+  it('keeps the original list as Full spine and hides Waterfall when development is off', () => {
+    harness.ui.set('podium.flightDeck.mode', 'waterfall')
+    deck()
+
+    expect(screen.queryByRole('button', { name: 'Waterfall' })).toBeNull()
+    expect(screen.getByTestId('flight-deck-rows').className).toContain('deck-rows')
+    expect(screen.queryByTestId('flight-deck-waterfall')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Full spine' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+  })
+
+  it('adds Waterfall as the fourth view when Podium development is enabled', () => {
+    developerFeature.enabled = true
+    deck()
+
+    const views = ['Full spine', 'Working', 'Needs you', 'Waterfall'].map((name) =>
+      screen.getByRole('button', { name }),
+    )
+    fireEvent.click(views[3] as HTMLElement)
+
+    expect(harness.ui.get('podium.flightDeck.mode')).toBe('waterfall')
+    expect(screen.getByTestId('flight-deck-waterfall')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Waterfall' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+  })
+})
+
 describe("the mission's brief (POD-1455)", () => {
   const brief = (): HTMLElement => screen.getByTestId('deck-brief')
 
@@ -801,7 +843,7 @@ describe('flight deck unread (POD-912)', () => {
       session('s2', { issueId: 't2', unread: true, lastActiveAt: '2026-01-01T00:20:00.000Z' }),
       session('s3', { issueId: 't2', unread: false }),
     ]
-    deck()
+    waterfallDeck()
     const task = document.querySelector('[data-flight-issue="t2"]') as HTMLElement
     expect(task.querySelector('.waterfall-issue-cell .waterfall-unread-dot')).toBeNull()
     const unreadSession = document.querySelector('[data-flight-session="s2"]') as HTMLElement
@@ -831,6 +873,11 @@ describe('flight deck unread (POD-912)', () => {
 })
 
 describe('flight deck click semantics (POD-710 §4.1)', () => {
+  beforeEach(() => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'waterfall')
+  })
+
   const sessionRow = (id: string): HTMLElement => {
     const container = document.querySelector(`[data-flight-session="${id}"]`)
     const row = container?.matches('button') ? container : container?.querySelector('button')
