@@ -71,7 +71,12 @@ describe('fleet daemon log ingestion', () => {
     // store's note on why the FINAL drain is the one that is not sliced.
     await store.close()
 
-    expect(result).toEqual({ accepted: 2, file: 'logs/fleet/flatblock.ndjson', dropped: 0 })
+    expect(result).toEqual({
+      accepted: 2,
+      file: 'logs/fleet/flatblock.ndjson',
+      dropped: 0,
+      serverDropped: 0,
+    })
     const lines = read('flatblock.ndjson')
     expect(lines.map((l) => l.msg)).toEqual(['one', 'two'])
     expect(lines[0]).toMatchObject({ role: 'daemon', machineId: 'flatblock', v: '0.1.3' })

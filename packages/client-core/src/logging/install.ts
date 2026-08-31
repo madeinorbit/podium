@@ -144,7 +144,10 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
 
   const ring = createRingBufferSink({ capacity: options.ringCapacity ?? RING_CAPACITY })
   const forwarding = createForwardingSink({
-    send: (records) => options.transport.forward({ origin: origin(), records }),
+    // The sink's drop report rides along with the batch it precedes, so the
+    // server can mark the gap in the per-origin file at the place the gap is,
+    // and count it apart from its own drops (POD-3167).
+    send: (records, meta) => options.transport.forward({ origin: origin(), records, ...meta }),
     ...(options.batchSize !== undefined ? { batchSize: options.batchSize } : {}),
     ...(options.flushIntervalMs !== undefined ? { flushIntervalMs: options.flushIntervalMs } : {}),
   })

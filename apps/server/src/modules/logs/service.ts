@@ -19,6 +19,24 @@
  * telemetry signature is an anonymous aggregate that may be switched off. A
  * failure in the optional half must never cost the mandatory one.
  *
+ * ---------------------------------------------------------------------------
+ * `forward` DOES NOT WRITE INSIDE THE REQUEST (POD-3167)
+ * ---------------------------------------------------------------------------
+ * It used to. The argument for it was that the cost lands on the request that
+ * carried the batch and on nobody else — which is true of the CPU accounting and
+ * false of the latency. The file sink writes SYNCHRONOUSLY and deliberately (a
+ * buffered async sink loses precisely the records worth having, and `Sink.write`
+ * may not reject), so a 500-record batch — the contract's cap — blocked the one
+ * event loop this process serves everything on, and the request that paid for it
+ * was whichever one happened to arrive next.
+ *
+ * So `forward` TAGS and QUEUES, and the writes happen in bounded slices between
+ * event-loop turns, through `QueuedRecordWriter` — the same primitive the fleet
+ * daemon store uses, with this file's policy: `logs/clients`, a 64-file budget,
+ * and the queue budget below. `accepted` is therefore a queue admission rather
+ * than a completed write; the records reach disk within a few turns, and all of
+ * them reach it before `close()` returns.
+ *
  * NOTHING HERE THROWS AT THE ENDPOINT for a storage failure. This is the
  * logging layer: a full disk must not turn a client's crash report into a 500,
  * and a client whose crash report failed cannot do anything useful with the
@@ -29,9 +47,10 @@
 import { join } from 'node:path'
 import type { LogOrigin, LogsCrashInput, LogsForwardInput } from '@podium/commands'
 import { createLogger, type LogRecord } from '@podium/logger'
-import { createFileSink, type FileSink } from '@podium/logger/node'
+import type { FileSink } from '@podium/logger/node'
 import { type CrashStore, createCrashStore } from '@podium/runtime/crash-store'
 import { logDir } from '@podium/runtime/run-registry'
+import { QueuedRecordWriter } from './queued-writer'
 
 const log = createLogger('server:logs')
 
@@ -52,8 +71,17 @@ const log = createLogger('server:logs')
  */
 export const MAX_ORIGIN_FILES = 64
 
-/** Where records from an origin we have stopped opening files for go. */
-const OVERFLOW_ORIGIN = 'other'
+/**
+ * Records held across all origins before drop-oldest begins.
+ *
+ * Ten batches at the contract's cap (`MAX_FORWARDED_RECORDS` is 500), which is
+ * the same shape of answer the fleet store gives and for the same reason: a
+ * server can be slow at disk or busy at everything, and the answer to either has
+ * to be a bound rather than a heap that grows until something else fails. It is
+ * stated here rather than shared because it is POLICY — a household of browsers
+ * and a fleet of daemons have no reason to spend the same allowance.
+ */
+const MAX_PENDING_RECORDS = 5000
 
 /** The telemetry surface this service uses — the crash tier's entry point, and
  *  nothing else. Narrow on purpose: the ingestion path has no business reading
@@ -72,10 +100,20 @@ export interface LogIngestDeps {
 }
 
 export interface ForwardResult {
-  /** Records written. Less than the batch only when the sink is unavailable. */
+  /** Records ACCEPTED for writing. Not "written": the writes are deferred off
+   *  the request, so this is a queue admission and the only way to be short of
+   *  the batch is a service that is already closed. */
   accepted: number
   /** The file they were filed under, so a client can be told where to look. */
   origin: string
+  /** Drops the CLIENT reported in this batch — its own bounded queue overflowed,
+   *  or a batch went unsendable. A SENDER-side loss. */
+  dropped: number
+  /** Drops THIS SERVER made for this origin since boot, under its own
+   *  backpressure. Reported apart from {@link dropped} because a client that
+   *  cannot reach the server and a server that cannot keep up are different
+   *  problems with different fixes, and one number would answer neither. */
+  serverDropped: number
 }
 
 export interface CrashResult {
@@ -121,68 +159,74 @@ export function taggedRecord(record: Record<string, unknown>, origin: LogOrigin)
 }
 
 export class LogIngestService {
-  private readonly dir: string
   private readonly crashStore: CrashStore
-  private readonly makeSink: (path: string) => FileSink
-  private readonly maxOriginFiles: number
-  private readonly sinks = new Map<string, FileSink>()
+  /**
+   * THE SHARED PRIMITIVE, configured with this service's policy. Everything
+   * about WHEN and HOW MUCH gets written lives there; everything about WHERE and
+   * under WHOSE NAME lives here.
+   */
+  private readonly writer: QueuedRecordWriter
 
   constructor(deps: LogIngestDeps = {}) {
-    this.dir = deps.dir ?? join(logDir(), 'clients')
     this.crashStore = deps.crashStore ?? createCrashStore()
-    this.maxOriginFiles = deps.maxOriginFiles ?? MAX_ORIGIN_FILES
-    this.makeSink =
-      deps.createSink ??
-      ((path) =>
-        createFileSink({
-          path,
-          // ALL LEVELS: the client already applied its own threshold before
-          // forwarding (default `warn`+), so a gate here would silently discard
-          // the `debug` records an operator turned on for one user's client.
-          //
-          // WHAT ACTUALLY GUARANTEES THAT is `write()` being called directly
-          // below — `minLevel` is only ever consulted by the logger's dispatch
-          // (packages/logger/src/sinks.ts), which these ingestion sinks are
-          // never registered with, so the field is inert here. It is set anyway,
-          // and honestly: it states the intended threshold for the day one of
-          // these sinks IS handed to dispatch, and `trace` is the answer that
-          // keeps the no-second-gate property when that happens.
-          minLevel: 'trace',
-        }))
+    this.writer = new QueuedRecordWriter({
+      dir: deps.dir ?? join(logDir(), 'clients'),
+      kind: 'client',
+      maxFiles: deps.maxOriginFiles ?? MAX_ORIGIN_FILES,
+      maxPending: MAX_PENDING_RECORDS,
+      // ALL LEVELS: the client already applied its own threshold before
+      // forwarding (default `warn`+), so a gate here would silently discard the
+      // `debug` records an operator turned on for one user's client. The writer
+      // sets `minLevel: 'trace'` on the sinks it opens for exactly that reason.
+      ...(deps.createSink ? { createSink: deps.createSink } : {}),
+    })
   }
 
-  /** The rotating file for an origin, opened on first use. */
-  private sinkFor(key: string): FileSink | undefined {
-    const existing = this.sinks.get(key)
-    if (existing) return existing
-    const name = this.sinks.size >= this.maxOriginFiles ? OVERFLOW_ORIGIN : key
-    const shared = this.sinks.get(name)
-    if (shared) return shared
-    try {
-      const sink = this.makeSink(join(this.dir, `${name}.ndjson`))
-      this.sinks.set(name, sink)
-      return sink
-    } catch (err) {
-      // A sink that cannot even be constructed (unwritable log dir) is reported
-      // once per batch by the caller; there is nothing to retry here.
-      log.warn('client log sink unavailable', { origin: name, err })
-      return undefined
-    }
-  }
-
+  /**
+   * Accept one client's batch.
+   *
+   * NOTHING IS WRITTEN HERE (POD-3167). The records are tagged with the origin
+   * the server files them under and queued; the writes happen in bounded slices
+   * between event-loop turns, so a 500-record batch costs the next request a
+   * slice rather than the batch.
+   *
+   * THE CLIENT'S DROP COUNT IS WRITTEN INTO THE FILE, not just returned. A gap
+   * in a log is ambiguous — a quiet client and an overflowing forwarding queue
+   * look identical — and the reader of `clients/web-m1.ndjson` is not holding
+   * this process's counters.
+   */
   forward(input: LogsForwardInput): ForwardResult {
     const key = originKey(input.origin)
-    const sink = this.sinkFor(key)
-    if (!sink) return { accepted: 0, origin: key }
+    const dropped = input.dropped ?? 0
+    if (this.writer.closed) {
+      return { accepted: 0, origin: key, dropped, serverDropped: this.writer.droppedFor(key) }
+    }
+    if (dropped > 0) {
+      this.writer.enqueue(
+        key,
+        taggedRecord(
+          {
+            ts: new Date().toISOString(),
+            level: 'warn',
+            ns: 'server:logs',
+            msg: 'client dropped records before this batch',
+            dropped,
+          },
+          input.origin,
+        ),
+      )
+    }
     let accepted = 0
     for (const record of input.records) {
-      // The sink owns its own failures and never throws (fail-open, chunk 1),
-      // so a degraded sink still counts as accepted: the records went
-      // somewhere, and the sink emitted its own one-time warning about where.
-      sink.write(taggedRecord(record, input.origin))
+      this.writer.enqueue(key, taggedRecord(record, input.origin))
       accepted += 1
     }
-    return { accepted, origin: key }
+    return { accepted, origin: key, dropped, serverDropped: this.writer.droppedFor(key) }
+  }
+
+  /** Drops THIS SERVER made under its own backpressure, for this origin. */
+  serverDroppedFor(origin: LogOrigin): number {
+    return this.writer.droppedFor(originKey(origin))
   }
 
   /**
@@ -237,10 +281,16 @@ export class LogIngestService {
     return stored ? { id: stored.id } : {}
   }
 
-  /** Release the per-origin file descriptors. Called from the shutdown drain. */
+  /**
+   * Drain what is queued and release the per-origin file descriptors. Called
+   * from the shutdown drain.
+   *
+   * The final drain is UNSLICED (see `QueuedRecordWriter.close`): slicing exists
+   * to keep a running server's request latency flat, and at shutdown there are
+   * no requests left to protect while the tail is the part of a log that
+   * explains why the process is stopping.
+   */
   async close(): Promise<void> {
-    const open = [...this.sinks.values()]
-    this.sinks.clear()
-    await Promise.all(open.map((sink) => sink.close().catch(() => undefined)))
+    await this.writer.close()
   }
 }

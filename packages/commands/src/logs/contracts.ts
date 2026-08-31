@@ -229,9 +229,36 @@ export const MAX_FORWARDED_RECORDS = 500
  *  is that, doubled, for a client configured with a deeper recorder. */
 export const MAX_CRASH_SNAPSHOT_RECORDS = 1000
 
+/** Ceiling on a client's self-reported drop count. See `logsForwardInput.dropped`:
+ *  a bound low enough to refuse a real report would wedge a returning client's
+ *  queue, so this one exists only to keep the field a number. */
+export const MAX_REPORTED_DROPS = 1_000_000
+
 export const logsForwardInput = z.object({
   origin: logOrigin,
   records: z.array(forwardedLogRecord).min(1).max(MAX_FORWARDED_RECORDS),
+  /**
+   * Records the CLIENT lost before this batch — its own bounded queue overflowed,
+   * or a batch went unsendable and was discarded rather than retried forever.
+   *
+   * OPTIONAL, and counted apart from anything the server drops (POD-3167). A gap
+   * in a per-origin file is otherwise ambiguous: a quiet client and a client
+   * whose forwarding queue is overflowing look identical to whoever reads the
+   * file, and the two have different fixes. The server writes this count into
+   * the file as a marker record and reports its OWN drops separately, so neither
+   * number can be mistaken for the other. Absent means "none to report", which
+   * is what a healthy client sends and what every client sent before this field
+   * existed — so an older client is not misread as a lossless one, it simply
+   * makes no claim.
+   *
+   * The cap is DELIBERATELY FAR above anything a client should report, and it is
+   * not the batch cap. Unreported drops accumulate across an outage, so a bound
+   * near the batch size would make a long-offline client's first batch back
+   * SCHEMA-INVALID — and a batch the server refuses is a batch that fails
+   * identically on every retry, at the head of a FIFO queue. The client clamps
+   * its own report to the same number for the same reason.
+   */
+  dropped: z.number().int().nonnegative().max(MAX_REPORTED_DROPS).optional(),
 })
 
 export const logsCrashInput = z.object({
