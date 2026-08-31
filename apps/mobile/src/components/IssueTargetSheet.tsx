@@ -71,7 +71,6 @@ export function IssueTargetSheet({
           initialNumToRender={14}
           maxToRenderPerBatch={12}
           windowSize={7}
-          getItemLayout={(_data, index) => ({ length: 52, offset: 52 * index, index })}
           scrollEnabled={scrollEnabled}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"

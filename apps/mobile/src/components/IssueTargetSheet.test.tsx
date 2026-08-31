@@ -56,7 +56,7 @@ const candidate = (index: number): IssueWire =>
   }) as IssueWire
 
 describe('IssueTargetSheet scale boundary', () => {
-  it('hands hundreds of candidates to a stable, fixed-layout virtualized list', () => {
+  it('hands hundreds of variable-height candidates to a bounded virtualized list', () => {
     const issues = Array.from({ length: 600 }, (_, index) => candidate(index))
     render(
       <IssueTargetSheet
@@ -71,13 +71,10 @@ describe('IssueTargetSheet scale boundary', () => {
     expect(captured?.data).toHaveLength(600)
     expect(captured?.initialNumToRender).toBeLessThan(600)
     expect(captured?.maxToRenderPerBatch).toBeLessThan(600)
+    expect(captured?.windowSize).toBeLessThan(600)
     expect(captured?.scrollEnabled).toBe(true)
     expect(captured?.keyExtractor?.(issues[417]!, 417)).toBe('issue-417')
-    expect(captured?.getItemLayout?.(issues, 417)).toEqual({
-      length: 52,
-      offset: 52 * 417,
-      index: 417,
-    })
+    expect(captured?.getItemLayout).toBeUndefined()
   })
 
   it('filters the large candidate set by safe title and display ref text', () => {
