@@ -52,6 +52,15 @@ type TargetBundle = {
   // alone is ambiguous. Tauri stamps the arch into the path (x86_64-apple-darwin target dir,
   // _x64 in DMG names); this predicate scopes a bundle to its own architecture's files.
   matches?: (path: string) => boolean
+  /**
+   * Publish this target when its bundle is present, and carry on without it when it is not.
+   *
+   * Every target here is otherwise mandatory, and should stay that way: a platform we ship
+   * that silently vanishes from a manifest is a fleet that can never update. Optional is for
+   * a platform that is not built by default, where demanding the artifact would withhold the
+   * whole release — including the platforms that DID build — over one nobody is waiting on.
+   */
+  optional?: boolean
 }
 
 const macIntelMarker = /x86_64|_x64/
@@ -62,6 +71,11 @@ const targetBundles: TargetBundle[] = [
     target: 'windows-x86_64',
     updaterSuffix: '-setup.exe',
     requiredDownloadSuffixes: [],
+    // Windows is experimental and is not in the desktop-release build matrix, so no run
+    // produces this bundle right now. Kept in the table rather than deleted so the asset
+    // suffixes below still prune stale installers, and so re-adding the matrix leg is all
+    // it takes to publish Windows again.
+    optional: true,
   },
   {
     target: 'darwin-aarch64',
@@ -321,6 +335,15 @@ export function prepareDesktopRelease(input: {
 
   for (const bundle of targetBundles) {
     const bundleFiles = files.filter((path) => bundle.matches?.(path) ?? true)
+    // An optional target contributes nothing when it did not build. Checked before
+    // `exactlyOne` so that "absent" stays distinct from "ambiguous": two candidate
+    // installers is still a packaging mistake and must still fail, optional or not.
+    if (
+      bundle.optional &&
+      !bundleFiles.some((path) => !path.endsWith('.sig') && path.endsWith(bundle.updaterSuffix))
+    ) {
+      continue
+    }
     const updaterSource = exactlyOne(
       bundleFiles.filter((path) => !path.endsWith('.sig')),
       bundle.updaterSuffix,
