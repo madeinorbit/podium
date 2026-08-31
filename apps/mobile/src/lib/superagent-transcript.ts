@@ -25,6 +25,7 @@ import type { TranscriptItem } from '@podium/model'
  *  stays free of the component graph. */
 interface EchoableTurn {
   text: string
+  files?: readonly { path: string }[]
 }
 
 /** Structural twin of `PendingTurn`'s failure marking (POD-346): a rejected or
@@ -57,8 +58,17 @@ export function dropEchoedTurns<T extends EchoableTurn>(
   items: readonly TranscriptItem[],
 ): readonly T[] {
   if (pending.length === 0) return pending
-  const echoed = new Set(items.filter((i) => i.role === 'user').map((i) => i.text.trim()))
-  const next = pending.filter((turn) => !echoed.has(turn.text.trim()))
+  const echoed = items.filter((item) => item.role === 'user')
+  const next = pending.filter((turn) => {
+    const paths = (turn.files ?? []).map((file) => file.path)
+    return !echoed.some((item) => {
+      const itemPaths = item.toolPaths ?? []
+      if (paths.length > 0) {
+        return itemPaths.length === paths.length && paths.every((path, i) => itemPaths[i] === path)
+      }
+      return item.text.trim() === turn.text.trim()
+    })
+  })
   return next.length === pending.length ? pending : next
 }
 

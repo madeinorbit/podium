@@ -239,6 +239,9 @@ const DISPATCH: Dispatcher = {
   headlessTurnResult: (ports, _p, msg) => ports.headless.onTurnResult(msg),
   headlessBindResult: (ports, _p, msg) => ports.headless.onBindResult(msg),
 
+  // ---- fleet daemon logs: filed under the AUTHENTICATED machine (POD-3156) ----
+  daemonLogBatch: (ports, principal, msg) => ports.logs.onDaemonLogBatch(principal.machine, msg),
+
   // ---- approvals ----
   approvalExecResult: (ports, _p, msg) => ports.approvals.onExecResult(msg),
 

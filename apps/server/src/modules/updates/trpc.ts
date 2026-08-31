@@ -730,7 +730,10 @@ export function updateProcedures() {
       .mutation(({ ctx, input }) => {
         const state = familyState(ctx)
         const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
-        const outcome = state.modules.updates.repairMachine(machineId)
+        const outcome = state.modules.updates.repairMachine(machineId, {
+          initiator: { kind: 'operator-repair' },
+          eligibility: 'a person asked for this machine\'s payload to be re-delivered',
+        })
         const machineName =
           state.modules.updates.fleet().find((machine) => machine.id === machineId)?.name ??
           machineId

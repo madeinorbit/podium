@@ -6,6 +6,7 @@ import { useTrpc } from '../client/hooks'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { color, font, radius, sans, space } from '../theme/theme'
 
 const TYPES: IssueType[] = ['task', 'bug', 'feature', 'chore']
@@ -13,6 +14,10 @@ const PRIORITIES = [0, 1, 2, 3, 4]
 
 export function NewIssueScreen() {
   const router = useRouter()
+  // The modal sheet reaches the physical bottom edge, so the Create button
+  // still has to clear the home indicator (the hook is the plain safe-area
+  // inset here).
+  const bottomInset = useContentBottomInset()
   const trpc = useTrpc()
   const [repos, setRepos] = useState<string[]>([])
   const [repoPath, setRepoPath] = useState('')
@@ -58,7 +63,10 @@ export function NewIssueScreen() {
 
   return (
     <Screen title="New task" onBack={() => router.back()} backAs="text">
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: bottomInset + space.xl }}
+        keyboardShouldPersistTaps="handled"
+      >
         <SectionHeader label="Repository" />
         <View style={styles.chipWrap}>
           {repos.map((repo) => {
@@ -160,9 +168,6 @@ export function NewIssueScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: {
-    paddingBottom: space.xxl,
-  },
   chipWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -235,7 +240,7 @@ const styles = StyleSheet.create({
     fontSize: font.small,
   },
   error: {
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingTop: space.md,

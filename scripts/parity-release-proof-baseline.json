@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "candidate": {
+    "commit": "baseline-not-a-release-candidate",
+    "version": "unreleased",
+    "createdAt": "2026-08-30T00:00:00.000Z"
+  },
+  "checks": {
+    "shared-client-contracts": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "The owned shared-client lane exists but has not been run for a release candidate."
+    },
+    "ios-minimum-simulator-smoke": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "This Linux host has no iOS 16.4 simulator. EAS Simulator is paid and remains approval-gated."
+    },
+    "ios-current-simulator-smoke": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "This Linux host has no current iOS simulator. EAS Simulator is paid and remains approval-gated."
+    },
+    "ios-minimum-device": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "No iPhone SE (2nd generation) on iOS 16.4 evidence has been attached."
+    },
+    "ios-current-device": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "No iPhone 16 Pro on the current stable iOS evidence has been attached."
+    },
+    "ios-native-performance-floor": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "POD-1767 owns the minimum-device native performance run. Import its candidate-matched evidence here when available."
+    },
+    "ios-native-performance-promotion": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "POD-1767 owns the ProMotion native performance run. Import its candidate-matched evidence here when available."
+    },
+    "desktop-macos-apple-silicon-package": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "No signed and notarized Apple Silicon macOS package has completed the acceptance checklist for this candidate."
+    },
+    "desktop-macos-intel-package": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "No signed and notarized Intel macOS package has completed the acceptance checklist for this candidate."
+    },
+    "desktop-windows-package": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "Windows stays preview until a candidate NSIS installer completes packaged acceptance."
+    },
+    "desktop-linux-package": {
+      "status": "unavailable",
+      "source": "unavailable",
+      "notes": "Linux stays preview until a candidate AppImage completes packaged acceptance."
+    }
+  }
+}

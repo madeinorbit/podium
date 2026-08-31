@@ -102,6 +102,8 @@ import { IssueService } from './modules/issues/service'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
+import { FleetLogLevelDirector } from './modules/logs/fleet-director'
+import { FleetLogStore } from './modules/logs/fleet-store'
 import { ClientLogLevelDirector } from './modules/logs/level-director'
 import { LogIngestService } from './modules/logs/service'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
@@ -158,6 +160,7 @@ import {
   LIFECYCLE_EXCLUSION_GROUP,
   updateOperationKind,
 } from './modules/updates/operation'
+import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
 import { UpdateReconciler } from './modules/updates/reconciler'
 import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
@@ -318,6 +321,13 @@ export interface RegistryModules {
    *  service behind `logs.setLevel` (POD-1920). Holds no state: it selects
    *  connections and pushes a frame. */
   clientLogLevels: ClientLogLevelDirector
+  /** Where a raised REMOTE DAEMON's records land (POD-3156). A separate store
+   *  from `logs` above, deliberately — see `modules/logs/fleet-store.ts`. */
+  fleetLogs: FleetLogStore
+  /** The operator's runtime log-level control over connected DAEMONS — the
+   *  service behind `logs.setDaemonLevel` (POD-3156). Stateless, like its client
+   *  sibling: it selects live machines and pushes a control frame. */
+  fleetLogLevels: FleetLogLevelDirector
   /** Framework idempotency (POD-382) — the ONE mutationId dedup, exposed on the
    *  module seam so a transport wires the framework's implementation rather than
    *  reaching into a service for it. */
@@ -490,6 +500,10 @@ export class SessionRegistry {
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
     const clientLogLevels = new ClientLogLevelDirector(clientRegistry)
+    // FLEET DAEMON LOG CAPTURE (POD-3156). The store's file sinks open lazily on
+    // the first batch, and a daemon forwards nothing until it is raised, so a
+    // server whose fleet nobody has turned up opens no files at all.
+    const fleetLogs = new FleetLogStore()
 
     const issueAccess = new DurableIssueAccessIndex(
       this.store.issues,
@@ -541,6 +555,19 @@ export class SessionRegistry {
     // again with the real hostname and the loopback bootstrap secret; that call is
     // an idempotent UPDATE of this row, not a rival insert.
     machines.ensureHostMachine(hostname())
+    // The fleet's log-level valve (POD-3156), built after the machine registry
+    // it selects over. It reaches the registry through a PORT (online set, name,
+    // one send) rather than holding the service: which machines a raise is for
+    // is the logs feature's decision, and touching a daemon socket stays the
+    // machines module's.
+    const fleetLogLevels = new FleetLogLevelDirector(
+      {
+        onlineMachineIds: () => machines.onlineMachineIds(),
+        machineName: (id) => machines.machineName(id),
+        toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      },
+      fleetLogs,
+    )
     const updatesService = new UpdatesService({
       machines: () =>
         machines.listMachines().map((machine) => ({
@@ -555,6 +582,13 @@ export class SessionRegistry {
           state: 'current',
           online: machine.online,
           busy: false,
+          // THIS SERVER'S OWN HOST (POD-3170), so the planner can grant it last
+          // rather than restarting itself out from under a fleet mid-delivery.
+          // The host machine is the right answer in every topology: when a
+          // local participant owns it the parent hands over, and when the
+          // machine's own daemon owns it the process being replaced is this
+          // all-in-one. Both take this server with them.
+          ...(machine.id === machines.hostMachineId ? { coordinator: true } : {}),
           // Explicit source checkouts are visible machines, but they are not
           // package rollout targets. Unknown stays absent and therefore fails
           // toward visibility for older daemons.
@@ -612,6 +646,26 @@ export class SessionRegistry {
       exclusiveOperationVersion: (channel) =>
         exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       onTargetChanged: (channel) => targetChanged?.(channel),
+      /**
+       * WHY EVERY GRANT WENT OUT, WHERE IT SURVIVES THE PROCESS (POD-2907).
+       *
+       * The durable event log, not the process log: a grant to this host's own
+       * machine ends this process, and the answer to "what authorized that"
+       * must not depend on the log level somebody was running. `announce:
+       * false` keeps it out of the live activity feed — this is a forensic
+       * row, not an event anybody subscribed to.
+       */
+      recordGrant: (record) => {
+        this.store.events.appendEvent(
+          {
+            ts: new Date(record.at).toISOString(),
+            kind: GRANT_EVENT_KIND,
+            subject: record.machineId,
+            payload: record,
+          },
+          { announce: false },
+        )
+      },
     })
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({
@@ -1024,6 +1078,8 @@ export class SessionRegistry {
         turnIds: readonly string[]
         reason: QueueDrainAbandonedReason
       }) => void
+      interrupted?: (messageId: string) => void
+      interruptedPending?: (sessionId: SessionId, messageId?: string) => void
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
@@ -1046,6 +1102,9 @@ export class SessionRegistry {
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
       queueDrainAbandoned: (input) => queuedApplyHooks.abandoned?.(input),
+      interruptQueuedMessage: (messageId) => queuedApplyHooks.interrupted?.(messageId),
+      interruptPendingMessage: (sessionId, messageId) =>
+        queuedApplyHooks.interruptedPending?.(sessionId, messageId),
       sessions: liveSessions,
       funnel,
       clients: clientRegistry,
@@ -1547,6 +1606,21 @@ export class SessionRegistry {
     // A live busy send can be in the message ledger without a SessionInbox row.
     // The exit event is the real boundary that hands that row to the durable FIFO.
     this.bus.on('session.exited', ({ sessionId }) => messagesSvc.onSessionExited(sessionId))
+    queuedApplyHooks.interrupted = (messageId) => {
+      try {
+        messagesSvc.cancel(messageId)
+      } catch {
+        // A concurrent echo or explicit retraction already made the row final.
+      }
+    }
+    queuedApplyHooks.interruptedPending = (sessionId, messageId) => {
+      try {
+        messagesSvc.cancelPendingOperatorMessage(sessionId, messageId)
+      } catch {
+        // A concurrent boundary delivery or explicit retraction already made
+        // the row final.
+      }
+    }
     this.bus.on('message.deadLettered', ({ messageId, reason }) =>
       messagesSvc.notifyQueuedInputRejected(messageId, reason),
     )
@@ -2699,6 +2773,8 @@ export class SessionRegistry {
       perf,
       logs,
       clientLogLevels,
+      fleetLogs,
+      fleetLogLevels,
       mutations,
     }
     const agentRelayGate = new AgentRelayGate({
@@ -2864,7 +2940,10 @@ export class SessionRegistry {
     // typed into a PTY reappears as a user turn carrying its `[podium message
     // <id>]` frame — seeing that echo is what flips the ledger queued → delivered
     // (an honest "the agent has it", never the old enqueue-time lie).
-    this.bus.on('transcript.delta', ({ sessionId, items }) => {
+    this.bus.on('transcript.delta', ({ sessionId, items, reset }) => {
+      // A reset can replay an old interrupt marker while a new prompt is queued.
+      // Only a fresh tail event is evidence about the current delivery.
+      if (reset !== true) sessionsSvc.inbox.onTranscriptDelta(sessionId, items)
       messagesSvc.onTranscriptDelta(sessionId, items)
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
@@ -2947,6 +3026,18 @@ export class SessionRegistry {
         approvals,
         agentRelay: {
           run: (machineId, msg) => void agentRelayGate.run(machineId, msg),
+        },
+        // FLEET DAEMON LOG CAPTURE (POD-3156). The machine comes from the mux's
+        // authenticated principal, never from the frame — which carries no
+        // machine field for it to disagree with.
+        logs: {
+          onDaemonLogBatch: (machineId, msg) => {
+            fleetLogs.append(machineId, {
+              records: msg.records,
+              ...(msg.dropped !== undefined ? { dropped: msg.dropped } : {}),
+              ...(msg.v !== undefined ? { v: msg.v } : {}),
+            })
+          },
         },
         updates: {
           onUpdateStatus: (machineId, msg) => {

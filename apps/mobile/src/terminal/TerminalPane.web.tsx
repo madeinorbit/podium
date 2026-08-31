@@ -1,49 +1,21 @@
 import { resolveIssueReference } from '@podium/client-core/viewmodels'
-import type { SessionId, IssueId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'
-import { Mic } from 'lucide-react-native'
+import { Mic } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import { useConnected, useHub, useIssues, useSpawnPending } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { color, font, mono, sans, space } from '../theme/theme'
-import { type TerminalControlState, terminalControlCopy } from './terminal-control'
-
-// This accessory intentionally retains the pre-redesign mobile-web SURFACES:
-// parity includes its contrast hierarchy, not only its controls and gestures.
-// The accent is not part of that parity — it is the brand mark on the one lit
-// key, so it tracks `color.accent` (POD-1436) rather than staying a generation
-// behind on the pre-redesign amber.
-const LEGACY_MOBILE_KEYBOARD_THEME = {
-  bar: '#08080c',
-  card: '#16161c',
-  border: '#2a2a34',
-  secondary: '#25252f',
-  hairlineSoft: '#25252f',
-  hairlineBar: '#2e2e38',
-  muted: '#9a9aa8',
-  accent: '#d9b477',
-  onAccent: '#191308',
-  danger: '#f87171',
-  fontFamily: 'GeistMono_400Regular, ui-monospace, Menlo, monospace',
-} as const
-
-/**
- * Mobile default appearance for the native agent view [POD-131]: a much
- * smaller mono size than the desktop default (13px) so agent TUI frames fit a
- * phone width crisply on retina screens. Applied via the terminal-client
- * appearance channel — the same one the web's terminal themability settings
- * use — so a future mobile settings surface can override it live.
- */
-const MOBILE_APPEARANCE = {
-  fontSize: 10,
-  // Expo registers this exact static-face name. The shared desktop stack starts
-  // with `Geist Mono Variable`, which this bundle does not ship; leaving it in
-  // place made xterm measure/rasterize a browser fallback instead.
-  fontFamily: 'GeistMono_400Regular, ui-monospace, Menlo, monospace',
-  lineHeight: 1.12,
-} as const
+import { LEGACY_MOBILE_KEYBOARD_THEME, MOBILE_APPEARANCE } from './terminal-appearance'
+import {
+  type TerminalControlState,
+  type TerminalControlView,
+  terminalControlCopy,
+  terminalControlView,
+} from './terminal-control'
+import { terminalStatusLine } from './terminal-status'
 
 export interface TerminalPaneProps {
   sessionId: SessionId
@@ -121,9 +93,12 @@ export function TerminalPane({
   // per-MOUNT state and the mount is per session (the route carries the id in
   // its path), so there is no reuse that could carry "in control" across to a
   // PTY this phone has never attached to.
-  const [controlView, setControlView] = useState<
-    Pick<TerminalControlState, 'role' | 'phase' | 'cols' | 'rows'>
-  >({ role: 'spectator', phase: 'spectating', cols: 80, rows: 24 })
+  const [controlView, setControlView] = useState<TerminalControlView>({
+    role: 'spectator',
+    phase: 'spectating',
+    cols: 80,
+    rows: 24,
+  })
   // HOLD THE MOUNT UNTIL THE SPAWN IS CONFIRMED (POD-1613). The create path
   // lands here with an OPTIMISTIC session: the row is painted, so the screen
   // renders, but the server has not created the session and there is no PTY to
@@ -162,17 +137,7 @@ export function TerminalPane({
       onMounted: (mounted) => {
         mounted.view.setRefLinks(refLinks)
       },
-      onState: (state) =>
-        setControlView({
-          role: state.role,
-          phase: state.requestedGeometry
-            ? 'fitting'
-            : state.role === 'controller'
-              ? 'controlling'
-              : 'spectating',
-          cols: state.cols,
-          rows: state.rows,
-        }),
+      onState: (state) => setControlView(terminalControlView(state)),
     })
 
   // Re-arm on every projection change, exactly as the desktop effect does: the
@@ -196,31 +161,14 @@ export function TerminalPane({
   }, [controlView, ready, takeControl])
 
   const controlCopy = terminalControlCopy({ ...controlView, ready, takeControl })
+  // Four waits, four sentences, at most one on screen at a time — the decision
+  // (and each sentence's reason for existing) lives in ./terminal-status so the
+  // native pane's DOM component speaks the identical words.
+  const status = terminalStatusLine({ connected, spawnPending, ready, outputSeen })
 
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-      {!connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
-      {/* Four waits, four sentences, at most one on screen at a time.
-          "Attaching" while the spawn is still
-          pending would name a step that has not begun — the create path waits
-          on the SERVER, not on the socket. */}
-      {connected && spawnPending ? <Text style={statusStyle}>Starting agent…</Text> : null}
-      {connected && !spawnPending && !ready ? (
-        <Text style={statusStyle}>Attaching terminal…</Text>
-      ) : null}
-      {/* A FOURTH WAIT, WHICH IS THE CHILD'S AND NOT OURS (POD-393). The three
-          above end at the attach; a CLI that prints nothing on launch (first-run
-          setup, a self-update — grok held its PTY silent for four measured
-          minutes) then leaves an empty grid that looks exactly like a dead
-          session. `outputSeen` is the server's durable "has this PTY ever
-          spoken", carried on the attach [POD-385], so this is a fact rather than
-          a guess from an empty screen — a session idling at a prompt whose
-          scrollback we simply don't hold has it true and shows nothing here.
-          Naming the attach first is the point: the reassurance is that we ARE
-          connected, so the quiet belongs to the CLI. */}
-      {connected && !spawnPending && ready && !outputSeen ? (
-        <Text style={statusStyle}>Attached — no output yet…</Text>
-      ) : null}
+      {status !== null ? <Text style={statusStyle}>{status}</Text> : null}
       {/* WHY THE FRAME IS TOO WIDE, AND WHO CAN CHANGE THAT (POD-724). A
           spectator is looking at the DESK's grid, cropped to this screen —
           without a word for it the operator reads a broken layout rather than a

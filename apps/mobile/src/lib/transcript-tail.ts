@@ -82,3 +82,27 @@ export function shouldFollowContentGrowth(args: {
 export function tailOffset(contentHeight: number, viewportHeight: number): number {
   return Math.max(0, contentHeight - Math.max(0, viewportHeight))
 }
+
+/**
+ * What the jump-to-newest press asks the scroller for.
+ *
+ * NOT `scrollToEnd`. Without `getItemLayout`, VirtualizedList approximates the
+ * end from average measured cell lengths, and its target also omits the content
+ * container's own `paddingBottom` — which on this feed carries the floating
+ * composer's height. Both errors point the same way, so "Newest" reliably
+ * stopped a composer-height short of the last message (2026-08-28 device
+ * feedback). The same class of bug — an async scroll target computed from a
+ * stale maximum — is what the web transcript fixed in POD-1160.
+ *
+ * The two heights here are the ones the list just HANDED us
+ * (`onContentSizeChange` / `onLayout`), so the target is exact: the content
+ * box's bottom edge — last message, then its padding — lands on the viewport's
+ * bottom edge.
+ */
+export function newestJump(
+  contentHeight: number,
+  viewportHeight: number,
+  reduceMotion: boolean,
+): { offset: number; animated: boolean } {
+  return { offset: tailOffset(contentHeight, viewportHeight), animated: !reduceMotion }
+}

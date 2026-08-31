@@ -1,6 +1,12 @@
 import type { QuotaWindowHistoryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { formatLedgerSpan, isLedgerWindow, quotaLedger } from './quota-history'
+import {
+  cadenceLabel,
+  formatLedgerSpan,
+  isLedgerWindow,
+  quotaLedger,
+  windowDurationDays,
+} from './quota-history'
 
 function row(over: Partial<QuotaWindowHistoryWire> = {}): QuotaWindowHistoryWire {
   return {
@@ -175,5 +181,85 @@ describe('formatLedgerSpan', () => {
 
   it('returns nothing rather than "Invalid Date" for an unparsable reset', () => {
     expect(formatLedgerSpan(undefined, '')).toBe('')
+  })
+})
+
+describe('window length', () => {
+  it('reads the duration the provider reported', () => {
+    expect(windowDurationDays(row({ windowMinutes: 10080 }))).toBe(7)
+    expect(windowDurationDays(row({ windowMinutes: 1440 }))).toBe(1)
+  })
+
+  it('falls back to the observed span when no duration was reported', () => {
+    const derived = windowDurationDays(
+      row({
+        windowMinutes: 0,
+        startedAt: '2026-08-22T07:00:00.000Z',
+        resetsAt: '2026-08-24T07:00:00.000Z',
+      }),
+    )
+    expect(derived).toBe(2)
+  })
+
+  it('says nothing when neither a duration nor a start is known', () => {
+    // `windowMinutes: 0` is a legitimate "the provider did not say". A column
+    // that cannot claim a length must not be drawn as a measured short one.
+    const r = row({ windowMinutes: 0 })
+    delete (r as { startedAt?: string }).startedAt
+    expect(windowDurationDays(r)).toBeUndefined()
+  })
+
+  it('carries the length onto every column, for the width', () => {
+    const view = quotaLedger([
+      row({ resetsAt: '2026-08-17T07:00:00Z', windowMinutes: 1440 }),
+      row({ resetsAt: '2026-08-24T07:00:00Z', windowMinutes: 10080 }),
+    ])
+    const days = view.strips[0]?.columns.map((c) => c.durationDays)
+    expect(days).toEqual([1, 7])
+    // Linear: the seven-day column is drawn seven times the one-day column.
+    expect((days?.[1] as number) / (days?.[0] as number)).toBe(7)
+  })
+})
+
+describe('cadence label', () => {
+  it('says Weekly plainly when every window really was a week', () => {
+    expect(cadenceLabel([7, 7, 6.9, 7.1])).toBe('Weekly')
+  })
+
+  it('softens to a tendency when the windows vary around a week', () => {
+    expect(cadenceLabel([7, 5, 8, 7])).toBe('typically weekly')
+  })
+
+  it('gives the observed range when the rhythm is not weekly at all', () => {
+    expect(cadenceLabel([1, 2, 3])).toBe('1–3 days')
+    expect(cadenceLabel([2, 2])).toBe('2 days')
+  })
+
+  it('says NOTHING from a single observation', () => {
+    // One window cannot establish a rhythm, and a hedge would still be a claim.
+    expect(cadenceLabel([7])).toBeUndefined()
+    expect(cadenceLabel([])).toBeUndefined()
+  })
+
+  it('ignores lengths that were never reported', () => {
+    expect(cadenceLabel([7, Number.NaN, 0, 7])).toBe('Weekly')
+  })
+
+  it('never repeats the provider label when the data disagrees', () => {
+    // Every harness calls its big pool "Weekly". Codex was measured emptying
+    // its pool several times in an afternoon; the strip must not echo the word.
+    const view = quotaLedger([
+      row({ resetsAt: '2026-08-20T07:00:00Z', windowMinutes: 1440, label: 'Weekly' }),
+      row({ resetsAt: '2026-08-22T07:00:00Z', windowMinutes: 2880, label: 'Weekly' }),
+    ])
+    expect(view.strips[0]?.windowLabel).toBe('1–2 days')
+  })
+
+  it('withholds the cadence until a second window has closed', () => {
+    const view = quotaLedger([
+      row({ resetsAt: '2026-08-24T07:00:00Z' }),
+      row({ resetsAt: '2026-08-31T07:00:00Z', closed: false }),
+    ])
+    expect(view.strips[0]?.windowLabel).toBeUndefined()
   })
 })

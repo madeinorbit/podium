@@ -19,13 +19,6 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-vi.mock('lucide-react-native', () => ({
-  ChevronDown: () => null,
-  ChevronLeft: () => null,
-  ChevronRight: () => null,
-  Plus: () => null,
-  Search: () => null,
-}))
 vi.mock('./BottomSheet', () => ({
   BottomSheet: ({
     visible,

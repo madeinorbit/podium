@@ -7,15 +7,25 @@ import type { ReactNode } from 'react'
 import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
+import type { ComposerAttachmentsApi } from '../components/useComposerAttachments'
+import type { PickedFile } from '../lib/composer-media'
 
 const transcriptProps = vi.hoisted(
   () => [] as { items: { text: string }[]; liveItem?: { text: string } }[],
+)
+const composerProps = vi.hoisted(
+  () =>
+    [] as {
+      attachments?: ComposerAttachmentsApi
+      onSend: (text: string) => void
+    }[],
 )
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   transcriptProps.length = 0
+  composerProps.length = 0
 })
 
 vi.mock('expo-haptics', () => ({
@@ -29,13 +39,6 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-vi.mock('lucide-react-native', () => ({
-  ArrowUp: () => null,
-  ChevronLeft: () => null,
-  Cpu: () => null,
-  Eraser: () => null,
-  Gauge: () => null,
-}))
 vi.mock('expo-blur', async () => {
   const { View } = await import('react-native')
   return { BlurView: (props: object) => <View {...props} /> }
@@ -83,14 +86,25 @@ vi.mock('../components/TranscriptList', () => ({
   },
 }))
 vi.mock('../components/Composer', () => ({
-  Composer: ({ leading, onSend }: { leading?: ReactNode; onSend: (text: string) => void }) => (
-    <div>
-      {leading}
-      <button type="button" onClick={() => onSend('hello')}>
-        send
-      </button>
-    </div>
-  ),
+  Composer: ({
+    leading,
+    onSend,
+    attachments,
+  }: {
+    leading?: ReactNode
+    onSend: (text: string) => void
+    attachments?: ComposerAttachmentsApi
+  }) => {
+    composerProps.push({ onSend, ...(attachments ? { attachments } : {}) })
+    return (
+      <div>
+        {leading}
+        <button type="button" onClick={() => onSend('hello')}>
+          send
+        </button>
+      </div>
+    )
+  },
 }))
 vi.mock('../components/LaunchPlaceholders', () => ({
   BootstrapCrossfade: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -112,6 +126,121 @@ describe('SuperagentScreen chrome', () => {
     expect(screen.queryByText('OVERARCHING')).toBeNull()
     expect(screen.getByLabelText('Clear context — start the chat fresh')).toBeTruthy()
     expect(screen.getByLabelText('Model')).toBeTruthy()
+  })
+
+  it('does not create an attachment session when the screen opens', async () => {
+    const ensureSession = vi.fn(async () => ({ podiumSessionId: 'session:unused' }))
+    await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
+          ensureSession: { mutate: ensureSession },
+          sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+          clear: { mutate: async () => {} },
+          interruptTurn: { mutate: async () => {} },
+        },
+      },
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(ensureSession).not.toHaveBeenCalled()
+  })
+
+  it('creates one session for concurrent first attachments and uploads each once', async () => {
+    const ensureSession = vi.fn(async () => ({ podiumSessionId: 'session:attachments' }))
+    const uploadImage = vi.fn(async ({ filename }: { filename: string; sessionId: string }) => ({
+      path: `/uploads/${filename}`,
+    }))
+    await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
+          ensureSession: { mutate: ensureSession },
+          sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+          clear: { mutate: async () => {} },
+          interruptTurn: { mutate: async () => {} },
+        },
+        sessions: {
+          uploadImage: { mutate: uploadImage },
+          transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+          answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+        },
+      },
+    })
+    const attachments = composerProps.at(-1)?.attachments
+    if (!attachments) throw new Error('Superagent attachment controls were not rendered')
+    const picked = (name: string): PickedFile => ({
+      name,
+      mimeType: 'image/png',
+      previewUri: `file:///${name}`,
+      dataBase64: `bytes:${name}`,
+    })
+
+    act(() => attachments.accept([]))
+    expect(ensureSession).not.toHaveBeenCalled()
+    act(() => {
+      attachments.accept([picked('one.png')])
+      attachments.accept([picked('two.png')])
+    })
+
+    await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(2))
+    expect(ensureSession).toHaveBeenCalledOnce()
+    expect(ensureSession).toHaveBeenCalledWith({ threadId: 'global' })
+    expect(uploadImage.mock.calls.map(([input]) => [input.sessionId, input.filename])).toEqual([
+      ['session:attachments', 'one.png'],
+      ['session:attachments', 'two.png'],
+    ])
+  })
+
+  it('prepares a fresh attachment session after clearing the bound Superagent', async () => {
+    const ensureSession = vi
+      .fn()
+      .mockResolvedValueOnce({ podiumSessionId: 'session:first' })
+      .mockResolvedValueOnce({ podiumSessionId: 'session:second' })
+    const clear = vi.fn(async () => {})
+    const uploadImage = vi.fn(async ({ filename }: { filename: string; sessionId: string }) => ({
+      path: `/uploads/${filename}`,
+    }))
+    await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
+          ensureSession: { mutate: ensureSession },
+          sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+          clear: { mutate: clear },
+          interruptTurn: { mutate: async () => {} },
+        },
+        sessions: {
+          uploadImage: { mutate: uploadImage },
+          transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+          answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+        },
+      },
+    })
+    const picked = (name: string): PickedFile => ({
+      name,
+      mimeType: 'image/png',
+      previewUri: `file:///${name}`,
+      dataBase64: `bytes:${name}`,
+    })
+
+    act(() => composerProps.at(-1)?.attachments?.accept([picked('before.png')]))
+    await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(1))
+    expect(uploadImage.mock.calls[0]?.[0].sessionId).toBe('session:first')
+
+    fireEvent.click(screen.getByLabelText('Clear context — start the chat fresh'))
+    await waitFor(() => expect(clear).toHaveBeenCalledOnce())
+    await waitFor(() => expect(composerProps.at(-1)?.attachments?.attachments).toEqual([]))
+
+    act(() => composerProps.at(-1)?.attachments?.accept([picked('after.png')]))
+    await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(2))
+    expect(ensureSession).toHaveBeenCalledTimes(2)
+    expect(uploadImage.mock.calls.map(([input]) => input.sessionId)).toEqual([
+      'session:first',
+      'session:second',
+    ])
   })
 
   it('sends the picked model and effort with the turn', async () => {

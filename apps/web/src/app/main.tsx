@@ -5,6 +5,7 @@ import { LoginGate } from '@/features/setup/LoginGate'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { startWebLogging } from '@/lib/logging'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { startupPodiumHref, startupPodiumRouteHref } from '@/lib/podium-link'
 import { AppShell } from './AppShell'
 import { AppStarted } from './AppStarted'
 import { BootScreen } from './BootScreen'
@@ -102,6 +103,10 @@ const payloadStartupError = (globalThis as { __PODIUM_PAYLOAD_ERROR__?: string }
 // A phone reaching the desktop shell means a cached service worker beat the
 // server's redirect to it (POD-359) — send it on before mounting anything.
 if (!redirectPhoneToMobileApp()) {
+  const initialPodiumHref = startupPodiumHref(window.location)
+  if (initialPodiumHref) {
+    window.history.replaceState(null, '', startupPodiumRouteHref(window.location))
+  }
   createRoot(root).render(
     <StrictMode>
       <AppStarted />
@@ -129,7 +134,9 @@ if (!redirectPhoneToMobileApp()) {
                 <MotionDemo />
               </Suspense>
             ) : (
-              <LoginGate>{(auth) => <AppShell auth={auth} />}</LoginGate>
+              <LoginGate>
+                {(auth) => <AppShell auth={auth} initialPodiumHref={initialPodiumHref} />}
+              </LoginGate>
             )}
           </>
         )}

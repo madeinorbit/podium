@@ -1,7 +1,7 @@
-import type { ForwardedLogRecord } from '@podium/commands'
+import { type ForwardedLogRecord, MAX_REPORTED_DROPS } from '@podium/commands'
 import { addSink, clearSinks, type LogRecord, resetLogging } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createForwardingSink } from './forward-sink'
+import { createForwardingSink, REPORTED_DROPS_CAP } from './forward-sink'
 
 function record(msg: string, level: LogRecord['level'] = 'warn'): LogRecord {
   return { ts: '2026-08-12T00:00:00.000Z', level, ns: 'web', msg }
@@ -223,6 +223,94 @@ describe('forwarding sink', () => {
 
     expect(sent).toEqual([[expect.objectContaining({ msg: 'pending' })]])
     expect(sink.pending()).toBe(0)
+  })
+
+  /**
+   * A GAP IN THE SERVER'S FILE IS AMBIGUOUS UNLESS THE CLIENT SAYS SO
+   * (POD-3167). A quiet client and a client whose forwarding queue is
+   * overflowing look identical to whoever reads `clients/web-m1.ndjson`, and the
+   * two have different fixes — so the count rides along with the next batch.
+   */
+  it('reports what it dropped on the next batch it sends', async () => {
+    const meta: Array<{ dropped?: number }> = []
+    const sink = createForwardingSink({
+      send: async (_records, m) => {
+        meta.push(m)
+      },
+      batchSize: 50,
+      maxQueue: 2,
+      flushIntervalMs: 5000,
+    })
+
+    // Three records into a queue of two, with the flush held off: one is lost.
+    sink.write(record('one'))
+    sink.write(record('two'))
+    sink.write(record('three'))
+    expect(sink.dropped()).toBe(1)
+
+    await sink.flush()
+    expect(meta[0]).toEqual({ dropped: 1 })
+
+    // Reported ONCE. A count that repeated on every subsequent batch would read
+    // as a client dropping records continuously when it dropped one.
+    sink.write(record('four'))
+    await sink.flush()
+    expect(meta[1]).toEqual({})
+  })
+
+  it('says nothing when it has dropped nothing', async () => {
+    const meta: Array<{ dropped?: number }> = []
+    const sink = createForwardingSink({
+      send: async (_records, m) => {
+        meta.push(m)
+      },
+      batchSize: 50,
+      flushIntervalMs: 5000,
+    })
+
+    sink.write(record('one'))
+    await sink.flush()
+
+    expect(meta).toEqual([{}])
+  })
+
+  /** A failed send must not lose the REPORT along with the batch: the drops
+   *  stay unreported until a batch carrying them actually goes out. */
+  it('keeps the drop report when the send that would have carried it fails', async () => {
+    const meta: Array<{ dropped?: number }> = []
+    let fail = true
+    const sink = createForwardingSink({
+      send: async (_records, m) => {
+        meta.push(m)
+        if (fail) throw new Error('offline')
+      },
+      batchSize: 50,
+      maxQueue: 1,
+      flushIntervalMs: 5000,
+      retryBaseMs: 10,
+      jitter: () => 0.5,
+    })
+
+    sink.write(record('one'))
+    sink.write(record('two'))
+    expect(sink.dropped()).toBe(1)
+    await sink.flush()
+    expect(meta[0]).toEqual({ dropped: 1 })
+
+    fail = false
+    await vi.advanceTimersByTimeAsync(100)
+    await sink.flush()
+
+    // The retry carried the same report, because the first attempt never landed.
+    expect(meta[1]).toEqual({ dropped: 1 })
+  })
+
+  /** The cap is restated in the sink rather than imported, so that a browser
+   *  bundle does not drag the whole contract table in behind a value import. A
+   *  restatement that drifts is worse than no restatement, so it is CHECKED
+   *  against the contract here — a test file may import both. */
+  it('reports no more than the contract accepts', () => {
+    expect(REPORTED_DROPS_CAP).toBe(MAX_REPORTED_DROPS)
   })
 
   it('clamps an oversized message so one huge record cannot poison the batch', async () => {

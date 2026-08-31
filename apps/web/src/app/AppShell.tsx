@@ -5,6 +5,7 @@ import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
+import { PodiumLinkHost } from '@/components/PodiumLinkHost'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { WaitingForServer } from '@/components/WaitingForServer'
@@ -20,7 +21,7 @@ import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
-import { loadAgentPanel } from '@/features/terminal/AgentPanelLazy'
+import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
@@ -247,7 +248,13 @@ function KernelHubAttach({
   return null
 }
 
-export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
+export function AppShell({
+  auth,
+  initialPodiumHref = null,
+}: {
+  auth: AuthBootstrap
+  initialPodiumHref?: string | null
+}): JSX.Element {
   // Whole-window, and mounted at the top so it also covers the boot and error
   // screens — a drag released over a loading app would navigate it away too.
   useFileDropGuard()
@@ -334,7 +341,10 @@ export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
                     {/* Above both TopBar and the view outlet: the command bar's centre
                     is a portal target the active mode fills (POD-365). */}
                     <ToolbarSlotProvider>
-                      <AppBody syncProgress={kernel.assembly.progress} />
+                      <AppBody
+                        syncProgress={kernel.assembly.progress}
+                        initialPodiumHref={initialPodiumHref}
+                      />
                     </ToolbarSlotProvider>
                   </ConfirmProvider>
                 </RoutedDensityProvider>
@@ -377,7 +387,13 @@ function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Eleme
  *  arrow would hand `RightRail` a new callback every render (POD-540). */
 const writeRightPanel = (panel: RightPanelTab | null): string => panel ?? ''
 
-function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Element {
+function AppBody({
+  syncProgress,
+  initialPodiumHref,
+}: {
+  syncProgress: SyncProgressStore
+  initialPodiumHref: string | null
+}): JSX.Element {
   const {
     repos,
     reposLoaded,
@@ -1044,6 +1060,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
           <RefPrefixSync />
           <RefMiniviewHost />
         </Suspense>
+        <PodiumLinkHost initialHref={initialPodiumHref} />
       </IssueExplorerProvider>
     </OperatorFocusProvider>
   )

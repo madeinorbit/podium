@@ -10,7 +10,7 @@ import {
   type HarnessEnvironment,
   resolvedHarnessPath,
 } from '@podium/harness'
-import { createLogger } from '@podium/logger'
+import { createLogger, resolveLevel } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -29,6 +29,7 @@ import {
   stateDir,
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
+import { installDaemonLogForwarding } from '@podium/runtime/log-forward'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
@@ -213,6 +214,16 @@ export async function createDaemonHostRuntime(args: {
   testAgentRuntime?: CloseAgentRuntime
   /** Test-only server-child process effects; production uses real process probes. */
   testServerReapIo?: ServerReapIo
+  /**
+   * Whether the server link is up RIGHT NOW (POD-3156).
+   *
+   * `send` above cannot answer this: it drops silently when the socket is down
+   * (`connection-state.ts`), so a caller that needs to know whether a frame went
+   * out has to ask separately. The log forwarder is the one caller that does —
+   * it keeps the batch when the answer is no, rather than losing the window an
+   * operator raised the daemon to see.
+   */
+  isConnected: () => boolean
 }): Promise<DaemonHostRuntime> {
   const { options: opts, instance, build, installDir, send: sendUpstream, sendOutput } = args
   /**
@@ -664,6 +675,10 @@ export async function createDaemonHostRuntime(args: {
         exit: process.exit,
       }),
     report: (status) => send(status),
+    // THE FLIGHT RECORDER FOR AN UPDATE (POD-3170). `send` drops when the link
+    // is down, and a coordinator applying its own grant takes the link down —
+    // so the phases of a lost delivery are only ever knowable from here.
+    log: (event, fields) => log.info(event, fields),
     now: Date.now,
   })
   const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) => {
@@ -681,10 +696,45 @@ export async function createDaemonHostRuntime(args: {
     return Promise.resolve()
   }
 
+  /**
+   * THE FLIGHT RECORDER STARTS BEFORE THE SERVER LINK DOES (POD-3156).
+   *
+   * Installed here rather than in `connected()` because its entire value is
+   * having been running when the thing an operator later asks about happened —
+   * a recorder armed at first connect is a recorder that missed every boot
+   * problem there is. Nothing leaves the host until a raise arrives; see
+   * `@podium/runtime/log-forward`.
+   *
+   * `boot` is READ, not assumed: it is whatever this process's own logging
+   * composition root settled on (env, defaults, supervision mode), so a reset
+   * puts the daemon back where it started rather than at a level written down
+   * here that could disagree with it.
+   */
+  const logForwarding = installDaemonLogForwarding({
+    boot: resolveLevel('daemon'),
+    // The socket DROPS rather than queues when the link is down
+    // (`connection-state.ts`), so this reports whether the frame went out and
+    // the sink keeps the batch when it did not.
+    send: (batch) => {
+      if (!args.isConnected()) return false
+      send({
+        type: 'daemonLogBatch',
+        records: batch.records,
+        ...(batch.dropped !== undefined ? { dropped: batch.dropped } : {}),
+        // The BUILD that wrote these records, on the batch: a daemon can
+        // self-update under a live socket, and the records either side of that
+        // came out of two different programs.
+        ...(build.appVersion ? { v: build.appVersion } : {}),
+      })
+      return true
+    },
+  })
+
   const ctx: DaemonContext = {
     send,
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
+    logForwarding,
     machineId,
     instanceId: instance.instanceId,
     durableLabels: new Map<SessionId, string>(),
@@ -1022,6 +1072,9 @@ export async function createDaemonHostRuntime(args: {
       log.warn('Codex identity receipt replay failed', { err: error }),
     )
     browserOpen.replay()
+    // A raise survives a reconnect (the TTL is the daemon's, not the link's),
+    // so whatever the sink held while the socket was down goes out now.
+    logForwarding.flush()
     return convergedVersion ? { convergedVersion } : {}
   }
 
@@ -1029,6 +1082,7 @@ export async function createDaemonHostRuntime(args: {
     if (disposed) return
     disposed = true
     observers.stopAllTails()
+    logForwarding.dispose()
     await ingest.close()
     await agentRelay.close()
     discoveryLoop.stop()

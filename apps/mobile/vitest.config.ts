@@ -33,7 +33,7 @@ import { sharedVitestConfig } from '../../vitest.config'
  *     There are two ways out, and which one is right depends on whether the
  *     package belongs in the graph at all. A package the app genuinely renders
  *     comes back INSIDE vite — `server.deps.inline` plus an alias onto its web
- *     entry, as `react-native-svg` and `lucide-react-native` do below. A package
+ *     entry, as `react-native-svg` does below. A package
  *     that is only there because a leaf imported a composition root to read one
  *     context should not be in the graph in the first place: the context moves
  *     to its own module (`./launch-ready`, `./server-profile-context`) and the
@@ -42,10 +42,9 @@ import { sharedVitestConfig } from '../../vitest.config'
  *
  *   `happy-dom` — react-native-web touches `document` at import time.
  *
- *   the `expo-sqlite` alias — it pulls `expo-modules-core`, which reads the
- *     native `globalThis.expo` at module scope. Nothing under test reaches it
- *     (`openMobileReplica` takes the database as an argument), and the stub
- *     throws so that stops being true loudly rather than quietly.
+ *   the `expo-symbols` alias — glyph rendering is a native boundary while these
+ *   tests exercise the controls around it. A fixed-size View preserves layout
+ *   without loading Expo's native module or its web font.
  *
  *   `__DEV__` — expo's runtime reads Metro's global at module scope. `false` is
  *     the honest value: a test run is not a Metro dev server.
@@ -83,8 +82,8 @@ export default defineConfig({
       ...sharedAliases,
       { find: 'react-native', replacement: 'react-native-web' },
       {
-        find: 'expo-sqlite',
-        replacement: fileURLToPath(new URL('./test/expo-sqlite-absent.ts', import.meta.url)),
+        find: /^expo-symbols$/,
+        replacement: fileURLToPath(new URL('./test/expo-symbols.tsx', import.meta.url)),
       },
       // react-native-svg publishes native CJS as its Node entrypoint. Its web
       // build is the same implementation Expo's web bundler selects, and an
@@ -132,7 +131,7 @@ export default defineConfig({
         // alias and `.web.*` resolution above apply transitively. Otherwise
         // react-native-svg reaches RN's Flow-typed index.js and Node fails on
         // its `import typeof` declaration.
-        inline: ['lucide-react-native', 'react-native-svg'],
+        inline: ['react-native-svg'],
       },
     },
     // `one-react.ts` last: it turns a drifted checkout into a message that names the
@@ -142,7 +141,7 @@ export default defineConfig({
       fileURLToPath(new URL('./test/one-react.ts', import.meta.url)),
     ],
     environment: 'happy-dom',
-    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts', 'plugins/**/*.test.ts'],
     passWithNoTests: false,
   },
 })

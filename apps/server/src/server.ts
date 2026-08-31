@@ -1541,6 +1541,8 @@ export async function startServer(
               // synchronously, so nothing is buffered and this loses no records —
               // it closes fds a long-lived process would otherwise hold.
               ['logs.close', () => registry.modules.logs.close()],
+              // The same, for the per-machine fleet descriptors (POD-3156).
+              ['fleetLogs.close', () => registry.modules.fleetLogs.close()],
               [
                 'janitorHost.close',
                 () => {

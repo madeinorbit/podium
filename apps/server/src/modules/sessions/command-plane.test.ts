@@ -536,6 +536,35 @@ describe('invisible fails exactly like nonexistent', () => {
   })
 })
 
+describe('chat interrupt ordering', () => {
+  it('reserves a stopped message id so a send arriving later cannot recreate it', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const ctx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
+    vi.spyOn(o.reg.modules.sessions, 'interruptTurn').mockReturnValue({
+      ok: false,
+      reason: 'no active turn',
+    })
+
+    expect(
+      dispatchSessionCommand(ctx, 'interrupt', { sessionId, messageId: 'msg_stopped' }),
+    ).toEqual({ ok: true })
+
+    expect(
+      await dispatchSessionCommand(ctx, 'sendText', {
+        sessionId,
+        text: 'must stay stopped',
+        mutationId: 'msg_stopped',
+      }),
+    ).toEqual({
+      ok: false,
+      reason: 'interaction interrupted',
+      disposition: 'dead_letter',
+    })
+    expect(o.store.messages.getMessage('msg_stopped')).toBeNull()
+  })
+})
+
 describe('attribution and ownership come from the principal', () => {
   it('derives binding spawn authority from each authenticated principal arm', () => {
     expect(bindingPrincipalFor(human(COLLEAGUE))).toEqual({

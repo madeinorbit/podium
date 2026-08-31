@@ -10,6 +10,7 @@ import {
 import type { IssueWire } from '@podium/model'
 import {
   ArrowRight,
+  type AppIcon,
   CheckCircle2,
   ChevronRight,
   Circle,
@@ -18,13 +19,12 @@ import {
   FlagOff,
   GitMerge,
   Link2,
-  type LucideIcon,
   Mail,
   Play,
   RefreshCw,
   Trash2,
   Unlock,
-} from 'lucide-react-native'
+} from '../icons'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
@@ -90,7 +90,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }) {
 /** Glyph per event-line kind. The pure formatter returns a stable `icon` KEY so
  *  it stays renderer-free; this is the phone's mapping of those keys, and the
  *  desktop has its own over the same set. */
-const EVENT_ICONS: Record<IssueEventIcon, LucideIcon> = {
+const EVENT_ICONS: Record<IssueEventIcon, AppIcon> = {
   created: CircleDot,
   moved: ArrowRight,
   closed: CheckCircle2,

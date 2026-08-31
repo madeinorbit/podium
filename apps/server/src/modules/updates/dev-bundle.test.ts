@@ -16,6 +16,7 @@ import {
   type BuildRecord,
   buildBundlesDir,
   buildRecordDir,
+  buildTimingPath,
   listBuildRecords,
   mintBuildId,
   prepareBuildRecordDir,
@@ -44,6 +45,7 @@ import {
   devTarget,
   fleetHeadlessPlatforms,
   listDevBundles,
+  finalizeTimingIntoRecord,
   nodeDevBundleFs,
   parseDevBundleName,
   requireDefinedMigrations,
@@ -732,6 +734,30 @@ describe('devBuildPlatforms', () => {
       'linux-x86_64',
       'darwin-aarch64',
     ])
+  })
+})
+
+describe('finalizeTimingIntoRecord', () => {
+  it("moves timing staged under a '+' version into the build record", () => {
+    const stateDirectory = publisherDir()
+    const staging = join(stateDirectory, 'builds', '.timing')
+    const buildId = '20260830T151539Z-421a3ae'
+    const stagedPath = join(staging, '0.1.1-dev.24-421a3ae.jsonl')
+    mkdirSync(staging, { recursive: true })
+    mkdirSync(buildRecordDir(stateDirectory, buildId), { recursive: true })
+    writeFileSync(stagedPath, '{"evidence":"release-build-timing"}\n')
+
+    finalizeTimingIntoRecord(
+      { outputDirectory: staging },
+      stateDirectory,
+      buildId,
+      '0.1.1-dev.24+421a3ae',
+    )
+
+    expect(existsSync(stagedPath)).toBe(false)
+    expect(readFileSync(buildTimingPath(stateDirectory, buildId), 'utf8')).toBe(
+      '{"evidence":"release-build-timing"}\n',
+    )
   })
 })
 

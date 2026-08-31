@@ -3,6 +3,7 @@ import {
   parseMarkdown,
   resetMarkdownTokenCache,
   safeExternalUrl,
+  safeLinkUrl,
   splitPodiumRefs,
 } from './markdown'
 
@@ -98,5 +99,18 @@ describe('safeExternalUrl', () => {
     expect(safeExternalUrl('javascript:alert(1)')).toBeNull()
     expect(safeExternalUrl('data:text/html,bad')).toBeNull()
     expect(safeExternalUrl('../secret')).toBeNull()
+  })
+})
+
+describe('safeLinkUrl', () => {
+  it('admits every safe address form the shared resolver understands', () => {
+    expect(safeLinkUrl('https://example.com/issues/POD-1')).toBe('https://example.com/issues/POD-1')
+    expect(safeLinkUrl('/issues/POD-1')).toBe('/issues/POD-1')
+    expect(safeLinkUrl('podium://sessions/POD-1-A')).toBe('podium://sessions/POD-1-A')
+  })
+
+  it('still rejects executable and data schemes', () => {
+    expect(safeLinkUrl('javascript:alert(1)')).toBeNull()
+    expect(safeLinkUrl('data:text/html,bad')).toBeNull()
   })
 })

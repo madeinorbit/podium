@@ -475,3 +475,114 @@ describe('decideWave platform eligibility', () => {
     expect(decision.selected).toEqual(['vps'])
   })
 })
+
+/**
+ * POD-3170: THE COORDINATOR GOES LAST, AND WHY THAT IS A CORRECTNESS RULE.
+ *
+ * Measured on the live fleet twice in one morning (dev.30→31 and dev.32→33).
+ * One widen round selected `flatblock` and `ludovico` together; `ludovico` runs
+ * the coordinator, so 2.8 s later it swapped and handed over. That restart took
+ * down the socket the remote grant had just gone out on, the HTTPS artifact
+ * route the remote daemon was downloading from, and the in-memory `pendingGrants`
+ * that would have let the successor notice. The remote machine ended up back at
+ * its old version with nothing recorded on either side, and only the machines
+ * step's silence deadline eventually re-granted it — 394 s and 399 s later, in
+ * updates whose actual work took 13.5 s and 12.4 s.
+ *
+ * So this is not a preference about ordering. Granting the coordinator alongside
+ * a machine that still has work to do destroys that machine's delivery.
+ */
+describe('the coordinator this server runs on', () => {
+  const coordinator = (over: Partial<WaveMachine> = {}) =>
+    m({ id: 'z-coordinator', coordinator: true, ...over })
+
+  it('is held back while another machine still has to converge', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      machines: [m({ id: 'a' }), coordinator()],
+    })
+    expect(decision.selected).toEqual(['a'])
+    expect(decision.held).toEqual([{ id: 'z-coordinator', reason: 'coordinator-last' }])
+  })
+
+  it('is never granted in the same round as a remote machine', () => {
+    // The exact shape of the measured failure: concurrency 3, two eligible
+    // machines, the widen gate open. Before this rule both went out at once.
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      machines: [m({ id: 'c2ba', name: 'flatblock' }), coordinator({ name: 'ludovico' })],
+    })
+    expect(decision.selected).not.toContain('z-coordinator')
+  })
+
+  it('is granted once every other machine has reached the target', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      machines: [m({ id: 'a', version: '0.4.2' }), coordinator()],
+    })
+    expect(decision.selected).toEqual(['z-coordinator'])
+  })
+
+  it('converges on a fleet where it is the only machine', () => {
+    expect(
+      decideWave({ ...base, canaryHealthy: false, machines: [coordinator()] }).selected,
+    ).toEqual(['z-coordinator'])
+  })
+
+  /**
+   * THE HOLD DRAINS, which is what keeps it from being a deadlock. Only a
+   * machine that could actually be granted right now holds the coordinator
+   * back; every way of being permanently unable to converge — offline, a
+   * verdict a human has to clear, a release with no bytes for it — is already
+   * an ineligibility, and an ineligible machine is not converging for anyone to
+   * wait on.
+   */
+  it('is not held back by a machine that cannot converge anyway', () => {
+    for (const blocked of [
+      m({ id: 'a', online: false }),
+      m({ id: 'a', state: 'rejected' }),
+      m({ id: 'a', state: 'stuck' }),
+      m({ id: 'a', installKind: 'source' }),
+    ]) {
+      expect(
+        decideWave({ ...base, canaryHealthy: true, machines: [blocked, coordinator()] }).selected,
+      ).toEqual(['z-coordinator'])
+    }
+  })
+
+  /** A remote machine mid-delivery is exactly what must not be interrupted. */
+  it('is held back while a remote machine is still in flight', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      machines: [m({ id: 'a', state: 'downloading' }), coordinator()],
+    })
+    expect(decision.selected).toEqual([])
+    expect(decision.held).toContainEqual({ id: 'z-coordinator', reason: 'coordinator-last' })
+  })
+
+  /**
+   * The canary is better proved somewhere a failure does not also take down the
+   * server watching for it.
+   */
+  it('is not chosen as the canary while a remote machine is eligible', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: false,
+      machines: [coordinator({ id: 'a-coordinator' }), m({ id: 'b' })],
+    })
+    expect(decision.selected).toEqual(['b'])
+  })
+
+  it('agrees with planWave about the selection', () => {
+    const ctx = {
+      ...base,
+      canaryHealthy: true,
+      machines: [m({ id: 'a' }), coordinator()],
+    }
+    expect(planWave(ctx)).toEqual(decideWave(ctx).selected)
+  })
+})

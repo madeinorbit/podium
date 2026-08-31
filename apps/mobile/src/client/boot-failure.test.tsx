@@ -18,6 +18,7 @@
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
+import { Platform } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // AsyncStorage's native CommonJS entry bypasses Vite's source alias and loads
@@ -156,5 +157,36 @@ describe('mobile boot failure surface', () => {
     await waitFor(() => expect(fetchCalls).toBeGreaterThan(1))
     expect(screen.getByText(/^RETRYING/)).toBeTruthy()
     expect(screen.queryByText('app')).toBeNull()
+  })
+
+  it('boots on native, where `window` exists but has no DOM listener methods', async () => {
+    // Hermes aliases `window` to the JS global, so `typeof window` is 'object'
+    // on a phone — but none of the DOM listener methods exist there. The first
+    // Release build on-device died exactly here: an SSR-style existence guard
+    // passed and `window.addEventListener('pagehide', …)` was the app's last
+    // act. Native's hide/show answers come from the AppState/NetInfo
+    // controller instead, so the boot must not touch DOM listeners at all.
+    withUnreachableServer()
+    const win = window as unknown as Record<string, unknown>
+    const originalOS = Platform.OS
+    const originalAdd = win.addEventListener
+    const originalRemove = win.removeEventListener
+    ;(Platform as { OS: string }).OS = 'ios'
+    win.addEventListener = undefined
+    win.removeEventListener = undefined
+    try {
+      render(
+        <MobileClientProvider>
+          <div>app</div>
+        </MobileClientProvider>,
+      )
+      // The mount survives, and the unreachable server surfaces as the ordinary
+      // boot failure — not as an unhandled TypeError before the boot even ran.
+      expect(await screen.findByText('CANNOT START')).toBeTruthy()
+    } finally {
+      win.addEventListener = originalAdd
+      win.removeEventListener = originalRemove
+      ;(Platform as { OS: string }).OS = originalOS
+    }
   })
 })

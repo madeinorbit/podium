@@ -15,17 +15,9 @@
  *
  * See `./composer-media.ts` for the native half.
  */
+import type { PickedFile } from './composer-media-types'
 
-export interface PickedFile {
-  name: string
-  mimeType: string
-  /** Base64 WITHOUT the `data:` prefix — the upload mutation's own shape. */
-  dataBase64: string
-  /** Something `<Image source>` can render while the upload is in flight, or ''
-   *  when the file has no preview (a PDF, a spec, a log). */
-  previewUri: string
-  size?: number
-}
+export type { PickedFile } from './composer-media-types'
 
 async function readFile(file: File): Promise<PickedFile> {
   const dataUrl = await new Promise<string>((resolve, reject) => {

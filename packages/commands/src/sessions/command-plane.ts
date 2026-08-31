@@ -72,6 +72,9 @@ const mutationId = z.string().max(128).optional()
 /** Every existing-target lifecycle command takes exactly this. */
 const targetInput = z.object({ sessionId: SessionIdField })
 
+/** Stop may also name the exact queued chat message that prompted it. */
+const interruptInput = targetInput.extend({ messageId: z.string().max(128).optional() })
+
 /** Both chat sends take this shape. A staged attachment may be the whole turn,
  * so emptiness is checked across text + refs rather than on text alone. */
 const sendInput = z
@@ -287,7 +290,7 @@ const resurrect: CommandDef = {
 }
 
 const interrupt: CommandDef = {
-  input: targetInput,
+  input: interruptInput,
   action: 'write',
   policy: executes,
   visibility: PERSONAL,
@@ -296,7 +299,7 @@ const interrupt: CommandDef = {
   redaction: { fields: [] },
   conflict: 'cmd',
   decision:
-    "Stops the running turn without injecting a replacement prompt. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work. TWO DELIVERIES, because there are two kinds of session (POD-2792). A terminal-family session is sent the native CLI interrupt key, and WHICH key is the harness manifest's answer rather than a constant (POD-1214): Esc cancels claude-code and grok, while codex ignores Esc entirely and cancels on Ctrl-C; a harness whose key exits the CLI when no turn is running (codex) is REFUSED with a reason rather than sent the key, so a stop can never be the thing that kills the session. A server-family session has no terminal to type into — the daemon discards `input` bytes for a session with no bridge — so its stop goes through the runtime contract to the driver's own `interrupt()`, and the driver's refusal comes back as the reason. WHAT `ok` MEANS EITHER WAY: the interrupt was REQUESTED, and `requested` names which delivery carried it. It never means the turn stopped — the fence is a provider-confirmed terminal turn event that arrives later on the causal stream, and reporting acceptance as a stop is the defect this wording exists to prevent.",
+    "Stops the running turn without injecting a replacement prompt. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work. TWO DELIVERIES, because there are two kinds of session (POD-2792). A terminal-family session is sent the native CLI interrupt key, and WHICH key is the harness manifest's answer rather than a constant (POD-1214): the current Codex, Claude Code and Grok manifests use Esc, and each manifest separately records whether its key exits the CLI when no turn is running — a harness whose key does is REFUSED with a reason rather than sent the key, so a stop can never be the thing that kills the session. A server-family session has no terminal to type into — the daemon discards `input` bytes for a session with no bridge — so its stop goes through the runtime contract to the driver's own `interrupt()`, and the driver's refusal comes back as the reason. An optional messageId retracts the exact queued chat send associated with this stop. WHAT `ok` MEANS EITHER WAY: the interrupt was REQUESTED, and `requested` names which delivery carried it. It never means the turn stopped — the fence is a provider-confirmed terminal turn event that arrives later on the causal stream, and reporting acceptance as a stop is the defect this wording exists to prevent.",
 }
 
 const sendText: CommandDef = {
@@ -616,7 +619,7 @@ export const sessionCommandPlaneInputs = {
   continue: targetInput,
   create: createInput,
   hibernate: targetInput,
-  interrupt: targetInput,
+  interrupt: interruptInput,
   kill: targetInput,
   resume: resumeInput,
   resumeAndSend: sendInput,

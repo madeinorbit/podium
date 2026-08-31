@@ -1,6 +1,8 @@
+import { asIssueId, asSessionId, type SessionMeta } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
 import { makeIssue as issue } from '@/lib/test-issue'
 import {
+  confirmedWorkingAgentCount,
   computeEpicProgress,
   computeEpicProgressMap,
   DEFAULT_DISPLAY,
@@ -8,6 +10,32 @@ import {
   readIssuesDisplay,
   writeIssuesDisplay,
 } from './issues-display'
+
+const NOW = Date.parse('2026-08-28T12:00:00.000Z')
+const ACTIVE_AT = new Date(NOW).toISOString()
+
+function session(id: string, issueId: string, over: Partial<SessionMeta> = {}): SessionMeta {
+  return {
+    sessionId: asSessionId(id),
+    issueId: asIssueId(issueId),
+    agentKind: 'claude-code',
+    title: id,
+    cwd: '/r/wt',
+    status: 'live',
+    agentState: {
+      phase: 'working',
+      since: ACTIVE_AT,
+      stateObservedAt: ACTIVE_AT,
+      nativeSubagentCount: 0,
+    },
+    lastActiveAt: ACTIVE_AT,
+    createdAt: ACTIVE_AT,
+    updatedAt: ACTIVE_AT,
+    unread: false,
+    archived: false,
+    ...over,
+  } as SessionMeta
+}
 
 describe('readIssuesDisplay', () => {
   it('defaults on null/garbage/partial input', () => {
@@ -89,15 +117,56 @@ describe('computeEpicProgress (#198)', () => {
     const p = computeEpicProgress([epic, c1, c2, grandchild], 'e')
     expect(p).toEqual({ total: 3, done: 2, liveAgents: 0 })
   })
-  it('counts descendants with a live session', () => {
+  it('counts confirmed working agents, not descendant tasks with attached sessions', () => {
     const epic = issue({ id: 'e' })
-    const busy = issue({
+    const child = issue({
       id: 'c',
       parentId: 'e',
-      memberSessionIds: ['s1'],
-      sessionSummary: { total: 1, byPhase: { working: 1 } },
+      memberSessionIds: [
+        'working',
+        'compacting',
+        'idle',
+        'parked',
+        'exited',
+        'stale',
+        'shell',
+        'headless',
+      ],
+      sessionSummary: { total: 8, byPhase: { working: 6, compacting: 1, idle: 1 } },
     })
-    expect(computeEpicProgress([epic, busy], 'e')?.liveAgents).toBe(1)
+    const staleAt = new Date(NOW - 16 * 60_000).toISOString()
+    const sessions = [
+      session('working', 'c'),
+      session('compacting', 'c', {
+        agentState: {
+          phase: 'compacting',
+          since: ACTIVE_AT,
+          stateObservedAt: ACTIVE_AT,
+          nativeSubagentCount: 0,
+        },
+      }),
+      session('idle', 'c', {
+        agentState: { phase: 'idle', since: ACTIVE_AT, nativeSubagentCount: 0 },
+      }),
+      session('parked', 'c', { status: 'hibernated' }),
+      session('exited', 'c', { status: 'exited' }),
+      session('stale', 'c', {
+        lastActiveAt: staleAt,
+        agentState: {
+          phase: 'working',
+          since: staleAt,
+          stateObservedAt: staleAt,
+          nativeSubagentCount: 0,
+        },
+      }),
+      session('shell', 'c', { agentKind: 'shell' }),
+      session('headless', 'c', { headless: true }),
+    ]
+
+    // Generic issue surfaces exclude terminal shells and embedded headless
+    // harness sessions before applying the shared confirmed-computing rule.
+    expect(confirmedWorkingAgentCount(sessions, NOW)).toBe(2)
+    expect(computeEpicProgress([epic, child], 'e', sessions, NOW)?.liveAgents).toBe(2)
   })
   it('map form computes every root over one shared index', () => {
     const list = [

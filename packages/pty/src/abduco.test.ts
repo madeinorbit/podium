@@ -140,6 +140,7 @@ describe('abduco command builders', () => {
       kill: () => {},
     }
     const backend: PtyBackend = {
+      name: 'bun-terminal',
       spawn: () => proc,
     }
 

@@ -273,6 +273,8 @@ export {
   layoutSetInput,
 } from './layout/contracts'
 export {
+  type DaemonLogLevelTarget,
+  daemonLogLevelTarget,
   type ForwardedLogRecord,
   forwardedError,
   forwardedLogLevel,
@@ -283,16 +285,20 @@ export {
   type LogsContractName,
   type LogsCrashInput,
   type LogsForwardInput,
+  type LogsSetDaemonLevelInput,
   type LogsSetLevelInput,
   logOrigin,
   logsCrashContract,
   logsCrashInput,
   logsForwardContract,
   logsForwardInput,
+  logsSetDaemonLevelContract,
+  logsSetDaemonLevelInput,
   logsSetLevelContract,
   logsSetLevelInput,
   MAX_CRASH_SNAPSHOT_RECORDS,
   MAX_FORWARDED_RECORDS,
+  MAX_REPORTED_DROPS,
 } from './logs/contracts'
 export {
   type AddressDeps,

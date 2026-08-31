@@ -86,16 +86,19 @@ const routerRecord = (name: string): Record<string, unknown> =>
 describe('the derived families, against the RUNNING appRouter', () => {
   /**
    * THE NON-VACUITY PIN. Every assertion below is `it.each`-driven, and a table
-   * that quietly shrank would report green by running fewer cases. Twenty-eight
-   * is the current contract-table count — twenty-seven from POD-314's families
-   * plus `interactions.answer` (POD-2020) — so a
+   * that quietly shrank would report green by running fewer cases. Thirty-one
+   * is the current contract-table count — dev/mw's thirty plus
+   * `interactions.answer` (POD-2020) — so a
    * family dropping out of the derivation fails HERE rather than silently
    * reducing the coverage of everything after it.
+   *
+   * 29 -> 30: `logs.setDaemonLevel` (POD-3156). The 27 -> 29 before it was
+   * pre-existing drift, repaired separately in POD-3168.
    */
-  it('governs thirteen families and twenty-eight derived writes', () => {
+  it('governs thirteen families and thirty-one derived writes', () => {
     expect(FAMILIES).toHaveLength(13)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(28)
+    expect(total).toBe(31)
   })
 
   it.each(

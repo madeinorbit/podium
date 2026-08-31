@@ -28,20 +28,20 @@
  */
 import {
   DRAFT_ISSUE_TITLE,
+  type IssueWire,
   isHeadlessSession,
   issueStatusOf,
   issueStatusOutcome,
-  type IssueWire,
   type SessionMeta,
 } from '@podium/model'
-import { panelLabel } from '../session-status'
 import {
+  type ReferentExit,
+  type ReferentResolution,
   resolveReferent,
   sessionsForIssueNav,
   sessionsForIssueWorktree,
-  type ReferentExit,
-  type ReferentResolution,
 } from '../session-ownership'
+import { panelLabel } from '../session-status'
 import { sortSessionsForSidebar } from '../session-urgency'
 
 // ---------------------------------------------------------------------------
@@ -212,8 +212,8 @@ export function filterIssueNav(list: IssueNavView[], query: string): IssueNavVie
  *  advertise work the user never started here. Wait for the real name instead. */
 export function draftIssueLabel(
   issue: IssueNavigationModel,
-  sessions: SessionMeta[],
-  allWorktreePaths: string[],
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: readonly string[],
 ): string {
   const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
   if (!first) return 'New agent'
@@ -235,8 +235,8 @@ export function draftIssueLabel(
  *  untouched: their title IS their name. */
 export function issueDisplayTitle(
   issue: IssueNavigationModel,
-  sessions: SessionMeta[],
-  allWorktreePaths: string[],
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: readonly string[],
 ): string {
   return isUnnamedDraft(issue) ? draftIssueLabel(issue, sessions, allWorktreePaths) : issue.title
 }
@@ -347,7 +347,9 @@ export function issueAbandoned(
  *  Unknown/computing git state stays conservative (not actionable). */
 function issueHasUnmergedDelivery(issue: IssueWire): boolean {
   const git = issue.gitState
-  return Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
+  return (
+    Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
+  )
 }
 
 /**

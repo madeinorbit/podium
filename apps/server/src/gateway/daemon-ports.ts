@@ -80,6 +80,18 @@ export interface MachinesDaemonPort {
   recordDiagnostic(machineId: MachineId, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 
+/**
+ * FLEET DAEMON LOGS (POD-3156). A batch of one daemon's own records.
+ *
+ * The machine is an ARGUMENT, from the authenticated transport, and there is
+ * deliberately no machine field on the frame for it to disagree with: these
+ * records are FILED by machine, so a payload-supplied identity would be a
+ * caller naming the file it writes into.
+ */
+export interface LogsDaemonPort {
+  onDaemonLogBatch(machineId: MachineId, msg: DaemonFrame<'daemonLogBatch'>): void
+}
+
 /** UPDATES. Status is scoped by the authenticated daemon transport. */
 export interface UpdatesDaemonPort {
   onUpdateStatus(machineId: MachineId, message: DaemonFrame<'updateStatus'>): void
@@ -164,4 +176,5 @@ export interface DaemonFeaturePorts {
   approvals: ApprovalsDaemonPort
   agentRelay: AgentRelayDaemonPort
   updates: UpdatesDaemonPort
+  logs: LogsDaemonPort
 }

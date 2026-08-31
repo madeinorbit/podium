@@ -23,14 +23,6 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(() => Promise.resolve()),
 }))
-vi.mock('lucide-react-native', () => ({
-  ArrowUp: () => null,
-  ClipboardPaste: () => null,
-  Mic: () => null,
-  MicOff: () => null,
-  Paperclip: () => null,
-  Square: () => null,
-}))
 
 const { Composer, composerVoiceStatus } = await import('./Composer')
 

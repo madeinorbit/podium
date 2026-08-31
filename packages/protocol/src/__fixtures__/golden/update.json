@@ -3,6 +3,60 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
+      "schema": "DevArtifactProbeRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "devArtifactProbeRequest",
+        "requestId": "requestId",
+        "url": "https://example.test/url"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"devArtifactProbeRequest\",\"requestId\":\"requestId\",\"url\":\"https://example.test/url\"}"
+    },
+    {
+      "schema": "DevArtifactProbeRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "devArtifactProbeRequest",
+        "requestId": "requestId",
+        "url": "https://example.test/url"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"devArtifactProbeRequest\",\"requestId\":\"requestId\",\"url\":\"https://example.test/url\"}"
+    },
+    {
+      "schema": "DevArtifactProbeResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "devArtifactProbeResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"devArtifactProbeResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "DevArtifactProbeResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "devArtifactProbeResult",
+        "requestId": "requestId",
+        "ok": true,
+        "status": 100,
+        "detail": "detail"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"devArtifactProbeResult\",\"requestId\":\"requestId\",\"ok\":true,\"status\":100,\"detail\":\"detail\"}"
+    },
+    {
       "schema": "UpdateGrantMessage",
       "variant": "minimal",
       "wire": {
@@ -27,6 +81,7 @@
         "type": "updateGrant",
         "grantId": "grantId",
         "repair": true,
+        "updatePubkey": "updatePubkey",
         "target": {
           "version": "target.version",
           "trust": "release",
@@ -89,7 +144,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"repair\":true,\"target\":{\"version\":\"target.version\",\"trust\":\"release\",\"schema\":{\"migrations\":[\"target.schema.migrations[0]\"]},\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"desktopBridge\":1,\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headless.platforms.key\":{\"url\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url\",\"digest\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest\",\"signature\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature\"}}},\"headlessAlternatives\":[{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headlessAlternatives[0].platforms.key\":{\"url\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.url\",\"digest\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.digest\",\"signature\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.signature\"}}}],\"desktop\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.desktop.platforms.key\":{\"url\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url\",\"digest\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest\",\"signature\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature\"}}},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"repair\":true,\"updatePubkey\":\"updatePubkey\",\"target\":{\"version\":\"target.version\",\"trust\":\"release\",\"schema\":{\"migrations\":[\"target.schema.migrations[0]\"]},\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":true,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"desktopBridge\":1,\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headless.platforms.key\":{\"url\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url\",\"digest\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest\",\"signature\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature\"}}},\"headlessAlternatives\":[{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headlessAlternatives[0].platforms.key\":{\"url\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.url\",\"digest\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.digest\",\"signature\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.signature\"}}}],\"desktop\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.desktop.platforms.key\":{\"url\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url\",\"digest\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest\",\"signature\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature\"}}},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
     },
     {
       "schema": "UpdateStatusMessage",

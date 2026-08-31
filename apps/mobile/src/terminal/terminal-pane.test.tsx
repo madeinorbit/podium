@@ -132,12 +132,6 @@ vi.mock('@podium/terminal-client-react', async (orig: ImportOriginal) => {
   return { ...real, MobileTerminalKeyboard: () => null }
 })
 
-// `lucide-react-native` ships untransformed TypeScript that this lane's
-// transform rejects ("Unexpected token 'typeof'") — a harness limit, not a fact
-// about the pane. Only the pane's own icon is needed; naming it (rather than
-// blanket-stubbing the package) means a new icon import fails loudly here.
-vi.mock('lucide-react-native', () => ({ Mic: () => null }))
-
 const { TerminalPane } = await import('./TerminalPane')
 
 const TARGET = { path: '/repo/wt', repoPath: '/repo' }

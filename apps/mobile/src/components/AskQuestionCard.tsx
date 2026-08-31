@@ -5,7 +5,7 @@ import {
   parseAskQuestions,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
-import { Pencil } from 'lucide-react-native'
+import { Pencil } from './icons'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { alpha } from '../theme/mix'
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
   },
   metaError: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
   },
   questionBlock: {
@@ -404,12 +404,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  /**
+   * The suggested answer leads, but QUIETLY (2026-08-28 device feedback: the
+   * filled bisque chip read as a warning light over the composer). The band's
+   * header already spends the attention accent — dot, mono label, hairline —
+   * so the primary option earns its rank the way the app's accent language
+   * does everywhere else: a bisque keyline and tinted label over a soft wash,
+   * not a solid fill. Siblings keep the neutral border, so the ranking reads
+   * without either of them shouting.
+   */
   optionBandPrimary: {
-    borderColor: color.needsYou,
-    backgroundColor: color.needsYou,
+    borderColor: color.accentBorder,
+    backgroundColor: color.accentSoft,
   },
   optionBandPrimaryText: {
-    color: color.onAccent,
+    color: color.accentTint,
   },
   editAnswer: {
     width: 44,
@@ -460,9 +469,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
   },
+  // The same quiet-accent grammar as the band's primary option: keyline and
+  // tinted label, not a filled slab. Still unmistakably the commit — it is the
+  // only bordered-accent shape on the card.
   confirm: {
     flex: 1,
-    backgroundColor: color.accent,
+    backgroundColor: color.accentSoft,
+    borderWidth: 1,
+    borderColor: color.accentBorder,
     borderRadius: radius.md,
     alignItems: 'center',
     paddingVertical: space.md,
@@ -471,8 +485,8 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   confirmText: {
-    ...sans(700),
-    color: color.onAccent,
+    ...sans(600),
+    color: color.accentTint,
     fontSize: font.small,
   },
   // Bordered rather than bare text: alone on its row (the single-select case)

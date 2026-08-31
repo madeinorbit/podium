@@ -11,8 +11,14 @@ import { composeDeck, type DeckTab } from './panel-deck'
 // remount (that would dispose the xterm/WebGL + the POD-725 transcript window).
 const events: string[] = []
 
-vi.mock('@/features/terminal/AgentPanel', () => ({
-  AgentPanel: ({ sessionId, active }: { sessionId: SessionId; active?: boolean }): JSX.Element => {
+vi.mock('@/features/terminal/AgentPanelBoundary', () => ({
+  AgentPanelBoundary: ({
+    sessionId,
+    active,
+  }: {
+    sessionId: SessionId
+    active?: boolean
+  }): JSX.Element => {
     useEffect(() => {
       events.push(`mount:${sessionId}`)
       return () => {

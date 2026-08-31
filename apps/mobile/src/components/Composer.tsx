@@ -1,5 +1,5 @@
 import { BlurView } from 'expo-blur'
-import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from 'lucide-react-native'
+import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from './icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,
@@ -19,13 +19,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useReduceMotion } from '../hooks/useReduceMotion'
-import { type VoiceInput, useVoiceInput } from '../hooks/useVoiceInput'
+import { useVoiceInput, type VoiceInput } from '../hooks/useVoiceInput'
 import { onMediaPaste } from '../lib/composer-media'
 import { alpha } from '../theme/mix'
 import { color, font, leading, radius, sans, space, spring } from '../theme/theme'
 import { AttachmentStrip } from './AttachmentStrip'
 import {
   COMPOSER_LINE,
+  COMPOSER_MIN_HEIGHT,
   composerAtRest,
   composerFieldHeight,
   composerMaxHeight,
@@ -36,6 +37,10 @@ import { useComposerMeasure } from './composer-measure'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import type { ComposerAttachmentsApi, SentAttachment } from './useComposerAttachments'
+
+/** Who owns the field's height: the wrapper on web, the text itself on native.
+ *  See the comment at the field for what a height costs on native. */
+const CONTROLLED_HEIGHT = Platform.OS === 'web'
 
 const CONTROL_TARGET = 44
 /** The filled disc inside a control's 44pt target — send, and mic while live. */
@@ -105,6 +110,8 @@ export function composerVoiceStatus(
 export function Composer({
   placeholder,
   onSend,
+  value: controlledValue,
+  onChangeText: onDraftChange,
   disabled,
   caption,
   captionTone = 'working',
@@ -123,6 +130,9 @@ export function Composer({
    * composed prompt to recover the paths is how the two copies drift.
    */
   onSend: (text: string, files?: readonly SentAttachment[]) => void
+  /** Shared conversation draft. Omit both fields for a component-local draft. */
+  value?: string
+  onChangeText?: (text: string) => void
   disabled?: boolean
   /** Compact agent activity inside the composer chrome; absent takes no space. */
   caption?: string | null
@@ -164,7 +174,12 @@ export function Composer({
    */
   onRestingHeight?: (height: number) => void
 }) {
-  const [text, setText] = useState('')
+  const [localText, setLocalText] = useState('')
+  const text = controlledValue ?? localText
+  const writeText = (next: string): void => {
+    if (controlledValue === undefined) setLocalText(next)
+    onDraftChange?.(next)
+  }
   const [focused, setFocused] = useState(false)
   const [measured, setMeasured] = useState<number | null>(null)
   const [line, setLine] = useState(COMPOSER_LINE)
@@ -232,7 +247,7 @@ export function Composer({
     if (!draftInsertion) return
     clearVoiceRef.current()
     const current = committedTextRef.current
-    setText(`${current}${current && !current.endsWith('\n') ? '\n' : ''}${draftInsertion.text}`)
+    writeText(`${current}${current && !current.endsWith('\n') ? '\n' : ''}${draftInsertion.text}`)
     inputRef.current?.focus()
   }, [draftInsertion])
 
@@ -248,7 +263,7 @@ export function Composer({
     voice.clear()
     onSend(trimmed, files.length > 0 ? files : undefined)
     attachments?.clear()
-    setText('')
+    writeText('')
     setMeasured(null)
   }
 
@@ -275,20 +290,22 @@ export function Composer({
     if (atRest) onRestingHeight?.(e.nativeEvent.layout.height)
   }
 
-  // The keyboard covers the home indicator, so its inset stops existing the
-  // moment the keyboard is up; keeping it would float the composer in a gap.
-  const chrome = bottomInset > 0 ? bottomInset : keyboardVisible ? 0 : insets.bottom
+  // The keyboard covers the home indicator AND the floating tab bar, so both
+  // insets stop existing the moment the keyboard is up; keeping either would
+  // float the composer that far above the keyboard. (Web never reports a
+  // keyboard here — the visual-viewport root owns that geometry.)
+  const chrome = keyboardVisible ? 0 : bottomInset > 0 ? bottomInset : insets.bottom
   const voiceStatus = composerVoiceStatus(voice)
 
   const changeText = (next: string) => {
     if (voice.session || voice.starting || voice.listening || voice.error) voice.clear()
-    setText(next)
+    writeText(next)
   }
 
   const startVoice = () => {
     // A completed session remains visible until the next draft boundary. Move
     // its finalized text into the typed base before starting the new session.
-    setText(committedText)
+    writeText(committedText)
     voice.start()
   }
 
@@ -330,12 +347,20 @@ export function Composer({
         >
           {voiceStatus}
         </Text>
-        <View style={[styles.fieldWrap, { height }]}>
+        {/* THE FIELD SIZES ITSELF ON NATIVE, AND IS SIZED ON WEB.
+            A height here is a CEILING on what UIKit will report back through
+            `onContentSizeChange`: it answers with the height it was given, so
+            the field measured one line, stayed one line, and every prompt past
+            a few words was typed into a keyhole with the rest scrolled out of
+            sight (2026-08-29, device). Native grows from its own content and is
+            capped by `maxHeight`; react-native-web's <textarea> cannot do that,
+            so it keeps the measured height (see ./composer-measure.web). */}
+        <View style={[styles.fieldWrap, CONTROLLED_HEIGHT ? { height } : null]}>
           <TextInput
             ref={inputRef}
             {...composerFieldProps}
             accessibilityLabel={placeholder}
-            style={[styles.input, { maxHeight }]}
+            style={[styles.input, CONTROLLED_HEIGHT && styles.inputFill, { maxHeight }]}
             value={composedText}
             onChangeText={changeText}
             onFocus={() => setFocused(true)}
@@ -458,7 +483,7 @@ function VoiceButton({
       <Icon
         as={listening ? Square : failed ? MicOff : Mic}
         size={listening ? 14 : GLYPH}
-        color={listening ? color.bg : failed ? color.danger : color.textDim}
+        color={listening ? color.bg : failed ? color.dangerText : color.textDim}
       />
     </PressableScale>
   )
@@ -536,6 +561,9 @@ function SendButton({
       disabled={!ready}
       onPress={onPress}
       scaleTo={0.9}
+      // The one press in the capsule that commits something — it keeps the
+      // impact now that ordinary taps are silent (see PressableScale).
+      haptic
       style={styles.control}
     >
       <Animated.View
@@ -607,7 +635,7 @@ const styles = StyleSheet.create({
   },
   caption: {
     ...sans(500),
-    color: color.working,
+    color: color.workingText,
     fontSize: font.micro,
     lineHeight: leading(font.micro),
     paddingBottom: space.xs + 1,
@@ -625,7 +653,7 @@ const styles = StyleSheet.create({
     marginHorizontal: TEXT_INSET,
   },
   voiceStatusError: {
-    color: color.danger,
+    color: color.dangerText,
   },
   voiceStatusEmpty: {
     position: 'absolute',
@@ -651,11 +679,18 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({ outlineStyle: 'none', overflowY: 'auto', resize: 'none' } as object)
       : null),
-    flex: 1,
     color: color.text,
     fontSize: font.body,
     lineHeight: leading(font.body),
     padding: 0,
+    // A one-line field is exactly one line tall before any content has been
+    // measured — the floor the native path grows from.
+    minHeight: COMPOSER_MIN_HEIGHT,
+  },
+  /** Fills the height its wrapper was given — the web path only, where the
+   *  wrapper is the one that knows how tall the text is. */
+  inputFill: {
+    flex: 1,
   },
   /**
    * The control rail. The negative inset pulls the 44pt targets back out so the

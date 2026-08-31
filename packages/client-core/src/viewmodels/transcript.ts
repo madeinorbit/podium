@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
-import { insertInCursorOrder } from './cursor-order'
+import { mergeTranscriptFrame } from '../transcript/controller'
 
 /** Identity key for a transcript item: the opaque cursor when present (stable
  *  across re-reads), else the synthesized `id` (a few items have no cursor). */
@@ -22,16 +22,7 @@ export function mergeTranscriptItems(
   prev: TranscriptItem[],
   delta: TranscriptItem[],
 ): TranscriptItem[] {
-  if (delta.length === 0) return prev
-  const seen = new Set(prev.map(itemKey))
-  const merged = [...prev]
-  for (const item of delta) {
-    const key = itemKey(item)
-    if (seen.has(key)) continue
-    seen.add(key)
-    insertInCursorOrder(merged, item)
-  }
-  return merged
+  return mergeTranscriptFrame(prev, delta)
 }
 
 /** Prepend an OLDER page (scroll-back paging); dedupes against what's loaded. */

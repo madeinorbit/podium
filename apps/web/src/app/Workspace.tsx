@@ -40,7 +40,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
-import { AgentPanel } from '@/features/terminal/AgentPanelLazy'
+import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
@@ -969,9 +969,7 @@ export function Workspace({
     if (orphan)
       return (
         <div className="flex min-w-0 flex-1">
-          <Suspense fallback={null}>
-            <AgentPanel sessionId={orphan.sessionId} active />
-          </Suspense>
+          <AgentPanelBoundary sessionId={orphan.sessionId} active />
         </div>
       )
     return (

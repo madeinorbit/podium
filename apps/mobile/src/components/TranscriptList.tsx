@@ -12,11 +12,11 @@ import {
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react-native'
+import { ChevronDown, ChevronRight, ChevronUp, X } from './icons'
 import {
+  memo,
   type ReactElement,
   type ReactNode,
-  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -26,9 +26,11 @@ import {
 } from 'react'
 import {
   Animated,
+  AppState,
   FlatList,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Platform,
   Pressable,
   type RefreshControlProps,
   ScrollView,
@@ -45,8 +47,8 @@ import {
   buildMobileTranscript,
   envelopePrincipal,
   isChosenOption,
-  type MobileTranscriptRow,
   liveAssistantRow,
+  type MobileTranscriptRow,
   machineContextLabel,
   parseAskQuestions,
   quoteTranscriptText,
@@ -56,6 +58,7 @@ import {
 import {
   atTail as atTailRule,
   measureAtTail,
+  newestJump,
   shouldFollowContentGrowth,
   tailOffset,
 } from '../lib/transcript-tail'
@@ -117,6 +120,11 @@ export interface PendingTurn {
    *  broken and the words are lost. The row goes red, names the reason, and
    *  offers the send again. */
   failed?: string
+  /** The operator stopped this interaction after sending it. */
+  interrupted?: boolean
+  /** Durable ledger identity. Present rows can be retracted across remounts. */
+  queuedId?: string
+  queued?: boolean
 }
 
 function shortTime(ts: string | undefined): string | undefined {
@@ -336,11 +344,35 @@ function elapsedSince(since: string | undefined, now: number): string | null {
 
 function TranscriptTail({ state }: { state?: TranscriptTailState }) {
   const [now, setNow] = useState(Date.now())
+  const tone = state?.tone
+  const since = state?.since
   useEffect(() => {
-    if (!state?.since) return
-    const timer = setInterval(() => setNow(Date.now()), state.tone === 'working' ? 1000 : 20_000)
-    return () => clearInterval(timer)
-  }, [state?.since, state?.tone])
+    if (!since) return
+    // The heartbeat pauses while the app is not on screen — the same fix the
+    // web transcript made for its hidden-tab heartbeat. A working tail ticks
+    // every second; ticking a backgrounded surface spends renderer work on a
+    // number nobody can see. On return the first tick catches the clock up
+    // before the interval resumes.
+    let timer: ReturnType<typeof setInterval> | null = null
+    const start = () => {
+      if (timer !== null) return
+      setNow(Date.now())
+      timer = setInterval(() => setNow(Date.now()), tone === 'working' ? 1000 : 20_000)
+    }
+    const stop = () => {
+      if (timer === null) return
+      clearInterval(timer)
+      timer = null
+    }
+    if (AppState.currentState !== 'background' && AppState.currentState !== 'inactive') start()
+    const subscription = AppState.addEventListener('change', (next) =>
+      next === 'active' ? start() : stop(),
+    )
+    return () => {
+      stop()
+      subscription.remove()
+    }
+  }, [since, tone])
 
   if (!state) return null
   const elapsed = elapsedSince(state.since, now)
@@ -466,6 +498,7 @@ interface TranscriptFeedRowProps {
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   onRefPress?: (ref: string) => void
   onRetryPending?: (turn: PendingTurn) => void
+  onRetractPending?: (id: string) => void
   onHold: (text: string) => void
 }
 
@@ -518,6 +551,7 @@ const TranscriptFeedRow = memo(
     onAnswer,
     onRefPress,
     onRetryPending,
+    onRetractPending,
     onHold,
   }: TranscriptFeedRowProps) {
     const message = (text: string, child: ReactNode) => (
@@ -571,10 +605,26 @@ const TranscriptFeedRow = memo(
                     </PressableScale>
                   ) : null}
                 </>
+              ) : turn.queuedId && onRetractPending ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel="Retract this queued message"
+                  onPress={() => onRetractPending(turn.queuedId as string)}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
+                >
+                  <Text style={styles.retryText}>Retract</Text>
+                </PressableScale>
               ) : null}
             </View>
             <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
-              {failed ? 'not sent' : 'sending…'}
+              {failed
+                ? 'not sent'
+                : turn.interrupted
+                  ? 'interrupted'
+                  : turn.queued
+                    ? 'waiting its turn'
+                    : 'sending…'}
             </Text>
           </View>
         )
@@ -689,6 +739,7 @@ const TranscriptFeedRow = memo(
     previous.onAnswer === next.onAnswer &&
     previous.onRefPress === next.onRefPress &&
     previous.onRetryPending === next.onRetryPending &&
+    previous.onRetractPending === next.onRetractPending &&
     previous.onHold === next.onHold,
 )
 
@@ -788,6 +839,7 @@ export function TranscriptList({
   pendingTurns,
   pendingAsk,
   onRetryPending,
+  onRetractPending,
   onQuote,
   tail,
   streaming = false,
@@ -798,6 +850,7 @@ export function TranscriptList({
   bottomInset = 0,
   hidePendingQuestion = false,
   findRequest = 0,
+  pinRequest = 0,
 }: {
   items: TranscriptItem[]
   /** In-progress assistant prose, kept outside the stable settled item array. */
@@ -824,6 +877,8 @@ export function TranscriptList({
   pendingAsk?: TranscriptItem | null
   /** Send a rejected turn again (only failed rows expose the affordance). */
   onRetryPending?: (turn: PendingTurn) => void
+  /** Retract a durable message before the agent begins its turn. */
+  onRetractPending?: (id: string) => void
   /** Insert quoted markdown into the screen's composer. */
   onQuote?: (markdown: string) => void
   /** Live/idle state rendered as the transcript's final line. */
@@ -846,6 +901,13 @@ export function TranscriptList({
   hidePendingQuestion?: boolean
   /** Incremented by header/menu chrome to reveal the find bar. */
   findRequest?: number
+  /**
+   * Incremented by the screen when the OPERATOR SENDS from it. A send is a
+   * statement of intent about the tail — the message just written must be
+   * visible even if the reader had scrolled up — so each bump re-pins the feed
+   * to its newest row, exactly as the web chat's send calls `pinToBottom`.
+   */
+  pinRequest?: number
 }) {
   const reduceMotion = useReduceMotion()
   const [findOpen, setFindOpen] = useState(false)
@@ -858,6 +920,7 @@ export function TranscriptList({
   const answerRef = useRef(onAnswer)
   const refPressRef = useRef(onRefPress)
   const retryPendingRef = useRef(onRetryPending)
+  const retractPendingRef = useRef(onRetractPending)
   // Memoized rows need stable wrappers, but their targets must advance only
   // after React commits. Render-time writes can leak handlers from a suspended
   // or abandoned concurrent render into the still-visible previous tree.
@@ -865,10 +928,12 @@ export function TranscriptList({
     answerRef.current = onAnswer
     refPressRef.current = onRefPress
     retryPendingRef.current = onRetryPending
-  }, [onAnswer, onRefPress, onRetryPending])
+    retractPendingRef.current = onRetractPending
+  }, [onAnswer, onRefPress, onRetractPending, onRetryPending])
   const answerRow = useCallback((answer: AskQuestionAnswer) => answerRef.current(answer), [])
   const pressRowRef = useCallback((ref: string) => refPressRef.current?.(ref), [])
   const retryPendingRow = useCallback((turn: PendingTurn) => retryPendingRef.current?.(turn), [])
+  const retractPendingRow = useCallback((id: string) => retractPendingRef.current?.(id), [])
 
   const model = useMemo(
     () => buildMobileTranscript(items, { collapseContext }),
@@ -1014,6 +1079,33 @@ export function TranscriptList({
     operatorMoved.current = true
   }, [])
 
+  /**
+   * Back to the tail as an INTENT, not just a scroll: the same regime the
+   * transcript opens in. Clearing `operatorMoved` matters as much as the scroll
+   * itself — while the travel animates (and while streaming keeps growing the
+   * content under it), every settling frame measures as "not at the bottom",
+   * and leaving the gesture flag up would let those frames drop the pin the
+   * press just declared. With the flag down, growth re-anchors until the
+   * operator's next real gesture.
+   */
+  const pinToNewest = useCallback((animated: boolean) => {
+    operatorMoved.current = false
+    pinned.current = true
+    setAtTail(true)
+    setUnread(0)
+    const jump = newestJump(contentHeight.current, viewportHeight.current, !animated)
+    listRef.current?.scrollToOffset(jump)
+  }, [])
+
+  const lastPinRequest = useRef(pinRequest)
+  useEffect(() => {
+    if (pinRequest === lastPinRequest.current) return
+    lastPinRequest.current = pinRequest
+    // A send re-pins without travel: the optimistic row is about to grow the
+    // content, and the follow-on growth pin lands the exact final offset.
+    pinToNewest(false)
+  }, [pinRequest, pinToNewest])
+
   // What landed while the operator was reading further up. `arrivedKeys` is
   // already derived for the row entrance, so the count costs nothing extra.
   useEffect(() => {
@@ -1095,6 +1187,13 @@ export function TranscriptList({
         {...refreshAccessibilityProps}
         ListEmptyComponent={suffixRows.length === 0 ? emptyComponent : undefined}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        // The iOS chat convention: dragging the transcript down slides the
+        // keyboard away with the finger (Messages, Mail, Slack). Android and
+        // web get the discrete on-drag dismissal. `handled` keeps a tap on a
+        // message/ref chip from being swallowed by keyboard dismissal while
+        // typing — taps outside interactive children still dismiss.
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        keyboardShouldPersistTaps="handled"
         onScroll={onScroll}
         // Four ways to learn that the OPERATOR moved, because no single one
         // covers both targets: native fires the drag/momentum pair, and
@@ -1155,6 +1254,7 @@ export function TranscriptList({
                 onAnswer={answerRow}
                 onRefPress={onRefPress ? pressRowRef : undefined}
                 onRetryPending={onRetryPending ? retryPendingRow : undefined}
+                onRetractPending={onRetractPending ? retractPendingRow : undefined}
                 onHold={setActionText}
               />
             ))}
@@ -1177,6 +1277,7 @@ export function TranscriptList({
             onAnswer={answerRow}
             onRefPress={onRefPress ? pressRowRef : undefined}
             onRetryPending={onRetryPending ? retryPendingRow : undefined}
+            onRetractPending={onRetractPending ? retractPendingRow : undefined}
             onHold={setActionText}
           />
         )}
@@ -1238,12 +1339,11 @@ export function TranscriptList({
         unread={unread}
         lift={bottomInset + space.md}
         reduceMotion={reduceMotion}
-        onPress={() => {
-          pinned.current = true
-          setAtTail(true)
-          setUnread(0)
-          listRef.current?.scrollToEnd({ animated: !reduceMotion })
-        }}
+        // NOT scrollToEnd: without getItemLayout its end is approximated from
+        // average cell lengths and omits the content container's paddingBottom
+        // (the composer's room), so it reliably stopped short of the last
+        // message. `pinToNewest` aims at the height the list itself reported.
+        onPress={() => pinToNewest(!reduceMotion)}
       />
 
       <ActionSheet
@@ -1431,7 +1531,7 @@ const styles = StyleSheet.create({
   pendingError: {
     ...mono(400),
     marginTop: space.sm,
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny),
   },
@@ -1449,7 +1549,7 @@ const styles = StyleSheet.create({
   },
   retryText: {
     ...sans(700),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
   },
   userMetaOutside: {
@@ -1460,7 +1560,7 @@ const styles = StyleSheet.create({
   },
   userTimeFailed: {
     ...mono(700),
-    color: color.danger,
+    color: color.dangerText,
   },
   userText: {
     ...sans(500),
@@ -1500,7 +1600,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   workDisclosureFailed: {
-    color: color.danger,
+    color: color.dangerText,
   },
   workTitle: {
     ...mono(500),
@@ -1527,10 +1627,10 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   toolGlyphOk: {
-    color: color.success,
+    color: color.successText,
   },
   toolGlyphErr: {
-    color: color.danger,
+    color: color.dangerText,
   },
   toolName: {
     ...mono(500),

@@ -49,14 +49,16 @@ export interface MobileStoreFixture {
 const CONFIG = { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client' }
 
 /**
- * A socket that never connects and never throws.
+ * A socket that opens silently and never reaches the network.
  *
  * The runtime opens one on start, and in this lane the real `ws` emits an
  * unhandled ErrorEvent that takes the whole worker down — a harness failure
  * that arrives as an unrelated crash. Nothing here tests the transport: entity
  * rows come from the replica (which is the cold-offline path anyway) and
- * machine lists are pushed through the hub's own event, so a dead socket is the
- * honest shape of these cases rather than a workaround.
+ * machine lists are pushed through the hub's own event. Opening the fake is an
+ * explicit statement that component fixtures have a live transport; before the
+ * exact `hub.connected` reader existed, the coarse initial health label made
+ * that same assumption implicitly even though this socket never opened.
  */
 class SilentSocket {
   static readonly CONNECTING = 0
@@ -68,6 +70,12 @@ class SilentSocket {
   onmessage: (() => void) | null = null
   onerror: (() => void) | null = null
   onclose: (() => void) | null = null
+  constructor() {
+    queueMicrotask(() => {
+      this.readyState = SilentSocket.OPEN
+      this.onopen?.()
+    })
+  }
   send(): void {}
   close(): void {}
   addEventListener(): void {}

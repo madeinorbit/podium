@@ -25,16 +25,17 @@
  * `branchRollup` note says the same thing about counts, since a count IS an
  * existence fact and §3.1.2 leaves that policy open.
  */
-import type { IssueId } from '@podium/model/browser'
+import type { IssueId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
-import type { JSX } from 'react'
+import { type JSX, useMemo } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { IssueStatusPicker } from '../IssueStatusPicker'
 import { issueIdTitle, issueStateWord } from '../issue-card'
+import { confirmedWorkingAgentCountsByIssue } from '../issues-display'
 import { useIssueStatusApply } from '../use-issue-status-apply'
 import { SectionHeading } from './chrome'
 
@@ -64,14 +65,16 @@ const STATE_TONE = {
  */
 function SubTaskRow({
   child,
+  workingAgents,
   onNavigate,
   onStatusPick,
 }: {
   child: IssueViewModel
+  workingAgents: number
   onNavigate: (id: IssueId) => void
   onStatusPick: (value: string) => void
 }): JSX.Element {
-  const state = issueStateWord(child)
+  const state = issueStateWord(child, workingAgents)
   const finished = isFinished(child)
   return (
     <button
@@ -119,6 +122,8 @@ function SubTaskRow({
 export function IssueSubIssues({
   issue,
   subIssues,
+  sessions,
+  now,
   busy,
   addingChild,
   childTitle,
@@ -132,6 +137,8 @@ export function IssueSubIssues({
    *  that does not render its React children is the one thing React's own
    *  vocabulary reserves, and biome's noChildrenProp is right to refuse it. */
   subIssues: IssueViewModel[]
+  sessions: SessionMeta[]
+  now: number
   busy: boolean
   addingChild: boolean
   childTitle: string
@@ -141,6 +148,10 @@ export function IssueSubIssues({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const status = useIssueStatusApply()
+  const workingByChild = useMemo(
+    () => confirmedWorkingAgentCountsByIssue(subIssues, sessions, now),
+    [now, sessions, subIssues],
+  )
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading
@@ -155,6 +166,7 @@ export function IssueSubIssues({
         <SubTaskRow
           key={child.id}
           child={child}
+          workingAgents={workingByChild.get(child.id) ?? 0}
           onNavigate={onNavigate}
           onStatusPick={(value) => status.pick(child, value)}
         />

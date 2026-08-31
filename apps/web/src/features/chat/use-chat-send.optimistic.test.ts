@@ -15,14 +15,23 @@
  * instant the daemon speaks — whatever the daemon says.
  */
 import { asSessionId, type TranscriptItem } from '@podium/model'
-import { act, renderHook } from '@testing-library/react'
+import { renderHook } from '@testing-library/react'
+import { act, createElement, StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
-import { type UseChatSendOptions, useChatSend } from './use-chat-send'
+import { type UseChatSendOptions, type UseChatSendResult, useChatSend } from './use-chat-send'
 
 const sendText = vi.fn(async () => ({ ok: true, disposition: 'accepted' }) as never)
 const REFUSED = new Error('offline')
 const ledger = vi.fn(async () => [] as never)
+
+let strictModeResult: UseChatSendResult | null = null
+
+function StrictModeProbe({ options }: { options: UseChatSendOptions }) {
+  strictModeResult = useChatSend(options)
+  return null
+}
 
 /** The one field these tests vary; everything else is inert scaffolding. */
 function opts(
@@ -39,6 +48,8 @@ function opts(
     resumeAndSend: vi.fn() as unknown as Store['resumeAndSend'],
     dismissOffer: vi.fn() as unknown as Store['dismissOffer'],
     setPanelMode: vi.fn() as unknown as Store['setPanelMode'],
+    setSessionDraft: vi.fn() as unknown as Store['setSessionDraft'],
+    initialDraft: '',
     getUserFocus: (() => ({})) as unknown as Store['getUserFocus'],
     attachedSessionId: null as unknown as Store['attachedSessionId'],
     clearAttachedSession: vi.fn() as unknown as Store['clearAttachedSession'],
@@ -50,8 +61,13 @@ function opts(
     composer: { sendable: true, canResume: false },
     ownThreadIds: undefined,
     blocks: [],
-    session: { agentState: { phase, since }, ...(offer ? { offer } : {}) },
-    headlessTurn: { sendTurn: vi.fn(async () => false) },
+    session: {
+      agentState: { phase, since },
+      ...(offer ? { offer: { message: 'Choose', actions: [], ...offer } } : {}),
+    },
+    headlessTurn: { sendTurn: vi.fn(async () => false), interrupt: vi.fn(async () => {}) },
+    canInterrupt: false,
+    latestOperatorPrompt: null,
     pinToBottom: () => {},
     initialPendingText: undefined,
   }
@@ -62,12 +78,57 @@ const IDLE_SINCE = '2026-08-24T10:00:00.000Z'
 beforeEach(() => {
   vi.useFakeTimers()
   sendText.mockClear()
+  ledger.mockClear()
+  ledger.mockResolvedValue([] as never)
+  strictModeResult = null
 })
 afterEach(() => {
   vi.useRealTimers()
 })
 
 describe('useChatSend optimistic window', () => {
+  it('keeps the conversation live after root StrictMode rehearses its effect', async () => {
+    ledger.mockResolvedValue([
+      {
+        id: 'msg_strict',
+        from: 'operator',
+        to: 'session:s-1',
+        status: 'queued',
+        body: 'still live',
+        createdAt: '2026-08-24T10:00:01.000Z',
+        injectedAt: null,
+      },
+    ] as never)
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    try {
+      act(() => {
+        root.render(
+          createElement(
+            StrictMode,
+            null,
+            createElement(StrictModeProbe, { options: opts(IDLE_SINCE) }),
+          ),
+        )
+      })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(ledger).toHaveBeenCalledTimes(2)
+      expect(strictModeResult?.queuedMessages.map((message) => message.id)).toEqual(['msg_strict'])
+      act(() => {
+        strictModeResult?.setDraft('after rehearsal')
+      })
+      expect(strictModeResult?.draft).toBe('after rehearsal')
+    } finally {
+      act(() => root.unmount())
+      container.remove()
+    }
+  })
+
   it('seeds a fresh task with its first prompt and the moving send marker', () => {
     const seeded: UseChatSendOptions = {
       ...opts(undefined),
@@ -134,6 +195,111 @@ describe('useChatSend optimistic window', () => {
       await result.current.send('hello')
     })
     expect(result.current.justSent).toBe(true)
+  })
+
+  it('marks only the stopped outgoing bubble when RPC and transcript both report it', async () => {
+    const initial = opts(IDLE_SINCE)
+    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: initial,
+    })
+    await act(async () => {
+      await result.current.send('keep this prompt')
+      await result.current.send('cancel this prompt')
+    })
+    const messageId = result.current.interruptMessageId
+    expect(messageId).not.toBeNull()
+
+    await act(async () => {
+      result.current.markInterrupted(messageId ?? undefined)
+    })
+
+    const interruptedAt = Date.now()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+      await result.current.send('sent after the interrupt')
+    })
+
+    await act(async () => {
+      rerender({
+        ...initial,
+        blocks: [
+          {
+            item: {
+              id: 'interrupt-1',
+              role: 'user',
+              text: 'Conversation interrupted',
+              event: 'interrupt',
+              ts: new Date(interruptedAt).toISOString(),
+            } as TranscriptItem,
+          },
+        ],
+      })
+    })
+
+    expect(result.current.pending).toEqual([
+      expect.objectContaining({ text: 'keep this prompt', state: 'queued' }),
+      expect.objectContaining({ text: 'cancel this prompt', state: 'interrupted' }),
+      expect.objectContaining({ text: 'sent after the interrupt', state: 'queued' }),
+    ])
+  })
+
+  it('keeps the interrupted state when a stopped send request rejects later', async () => {
+    let rejectSend: (reason: unknown) => void = () => {}
+    sendText.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectSend = reject
+        }) as never,
+    )
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+    })
+    let request: Promise<void> | undefined
+    await act(async () => {
+      request = result.current.send('cancel before send settles')
+      await Promise.resolve()
+    })
+
+    act(() => result.current.markInterrupted(result.current.interruptMessageId ?? undefined))
+    await act(async () => {
+      rejectSend(REFUSED)
+      await request
+    })
+
+    expect(result.current.pending.at(-1)?.state).toBe('interrupted')
+  })
+
+  it('keeps a restored durable message visible when it is interrupted', async () => {
+    ledger.mockResolvedValueOnce([
+      {
+        id: 'msg_restored',
+        from: 'operator',
+        to: 'session:s-1',
+        status: 'queued',
+        body: 'cancel after refresh',
+        createdAt: '2026-08-24T10:00:01.000Z',
+        injectedAt: null,
+      },
+    ] as never)
+    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+      initialProps: opts(IDLE_SINCE),
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result.current.interruptMessageId).toBe('msg_restored')
+    act(() => result.current.markInterrupted('msg_restored'))
+
+    expect(result.current.queuedMessages).toEqual([])
+    expect(result.current.pending).toEqual([
+      expect.objectContaining({
+        deliveryId: 'msg_restored',
+        text: 'cancel after refresh',
+        state: 'interrupted',
+      }),
+    ])
   })
 
   it('outlives the old 8s ceiling while the daemon stays silent', async () => {

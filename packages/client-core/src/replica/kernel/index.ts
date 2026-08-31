@@ -22,4 +22,9 @@ export {
   type KernelReplicaInit,
 } from './facade'
 export { entityForKind, type KernelEntity, kindForEntity, rowKey } from './kinds'
-export { createSideCache, type SideCache, type SideCacheInit } from './side-cache'
+export {
+  createSideCache,
+  isTranscriptWindowStorageKey,
+  type SideCache,
+  type SideCacheInit,
+} from './side-cache'

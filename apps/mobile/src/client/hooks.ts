@@ -21,18 +21,109 @@
  *  - every mutation (rename, snooze, tuck, mark-read, spawn) → store actions
  *  - fatal errors, storage notices, sign-out erase → `./shell`
  */
+import type { Store } from '@podium/client-core/engine'
 import { useStore, useStoreSelector } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type {
+  GitRepositoryWire,
+  HostMetricsWire,
+  IssueWire,
+  MachineWire,
+  SessionId,
+  SessionMeta,
+} from '@podium/model'
 import { useEffect, useState } from 'react'
 import { demoEnabled } from './demoData'
 import type { MobileTrpc, TranscriptPage } from './trpc'
 
+type MobileStore = Store<MobileTrpc>
+
 /** The whole snapshot, typed at the phone's tRPC surface. Use a narrower hook
- *  below when one field will do — this one re-renders on any store change. */
+ *  below when one field will do — this one re-renders on any store change.
+ *  Reserved for diagnostics-grade surfaces (Settings); hot screens select. */
 export function useMobileStore() {
   return useStore<MobileTrpc>()
+}
+
+/** Shallow equality for the picked-object hooks below. The picked fields are
+ *  the runtime's STATICS — built once and spread unchanged into every snapshot
+ *  (`{...state, ...statics}`) — so this always answers "equal" after the first
+ *  render and the subscriber never re-renders on a store publish. */
+function shallowEqualPick<T extends Record<string, unknown>>(a: T, b: T): boolean {
+  if (Object.is(a, b)) return true
+  const keys = Object.keys(a) as (keyof T)[]
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((key) => Object.is(a[key], b[key]))
+}
+
+/**
+ * THE MUTATION SURFACE the phone's screens use, picked once. Every field is an
+ * identity-stable engine action, so components that subscribe here — instead of
+ * `useMobileStore()` — stop re-rendering on hostMetrics frames (every 5s),
+ * outbox flips, the coarse clock and every feed delta. That whole-snapshot
+ * subscription in ~14 components was the round's biggest render multiplier.
+ */
+const pickActions = (s: MobileStore) => ({
+  markIssueRead: s.markIssueRead,
+  markIssueUnread: s.markIssueUnread,
+  setIssueTucked: s.setIssueTucked,
+  setIssuePlacement: s.setIssuePlacement,
+  updateIssue: s.updateIssue,
+  closeIssue: s.closeIssue,
+  deleteIssue: s.deleteIssue,
+  restoreIssue: s.restoreIssue,
+  deferIssue: s.deferIssue,
+  undeferIssue: s.undeferIssue,
+  setIssueLabels: s.setIssueLabels,
+  setSnooze: s.setSnooze,
+  clearSnooze: s.clearSnooze,
+  setWorkState: s.setWorkState,
+  resumeAndSend: s.resumeAndSend,
+  resurrectSession: s.resurrectSession,
+  continueSession: s.continueSession,
+  archiveSession: s.archiveSession,
+  killSession: s.killSession,
+  dismissOffer: s.dismissOffer,
+  spawnDraftAgent: s.spawnDraftAgent,
+  refreshSuperThreads: s.refreshSuperThreads,
+})
+
+export type StoreActions = ReturnType<typeof pickActions>
+
+export function useStoreActions(): StoreActions {
+  return useStoreSelector<StoreActions, MobileTrpc>(pickActions, shallowEqualPick)
+}
+
+/** The local replica handle — a static; subscribers never re-render for it. */
+export function useReplica(): MobileStore['replica'] {
+  return useStoreSelector<MobileStore['replica'], MobileTrpc>((s) => s.replica)
+}
+
+/** Connected machines. Array identity moves only on machinesChanged. */
+export function useMachines(): MachineWire[] {
+  return useStoreSelector<MachineWire[], MobileTrpc>((s) => s.machines)
+}
+
+/** Registered repos. Array identity moves only when the registry changes. */
+export function useRepos(): GitRepositoryWire[] {
+  return useStoreSelector<GitRepositoryWire[], MobileTrpc>((s) => s.repos)
+}
+
+/** Latest per-host health frames — the 5s daemon cadence. Only Pulse-grade
+ *  surfaces should subscribe to this. */
+export function useHostMetrics(): HostMetricsWire[] {
+  return useStoreSelector<HostMetricsWire[], MobileTrpc>((s) => s.hostMetrics)
+}
+
+/** Durable-outbox depth, for the inbox's pending badge. */
+export function useOutboxSize(): number {
+  return useStoreSelector<number, MobileTrpc>((s) => s.outboxSize)
+}
+
+/** The superagent thread the phone renders (in practice 'global'). */
+export function useSuperThreadId(): MobileStore['superThreadId'] {
+  return useStoreSelector<MobileStore['superThreadId'], MobileTrpc>((s) => s.superThreadId)
 }
 
 /** The server this app is talking to, e.g. `http://ludovico:18787`. */
@@ -79,6 +170,10 @@ export function useSession(id: SessionId | undefined): SessionMeta | undefined {
   )
 }
 
+export function useSessionDraft(id: SessionId): string {
+  return useStoreSelector<string, MobileTrpc>((state) => state.drafts[id] ?? '')
+}
+
 /**
  * True while this id names a session the server has NOT confirmed yet — an
  * optimistic spawn overlay (#119) with no row behind it.
@@ -103,6 +198,14 @@ export function useUiState(): RoutedUiState {
   return useStoreSelector<RoutedUiState, MobileTrpc>((s) => s.uiState)
 }
 
+function hubIsConnected(hub: SocketHub): boolean {
+  return typeof hub.connected === 'boolean'
+    ? hub.connected
+    : // Compatibility for narrow test/platform hubs that predate the exact
+      // connection bit. Production SocketHub always takes the first arm.
+      hub.connectionHealth().status !== 'down'
+}
+
 /**
  * Transport liveness, as six mobile surfaces ask for it.
  *
@@ -117,8 +220,8 @@ export function useUiState(): RoutedUiState {
  */
 export function useConnected(): boolean {
   const hub = useHub()
-  const [connected, setConnected] = useState(() => hub.connectionHealth().status !== 'down')
-  useEffect(() => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')), [hub])
+  const [connected, setConnected] = useState(() => hubIsConnected(hub))
+  useEffect(() => hub.onConnectionHealth(() => setConnected(hubIsConnected(hub))), [hub])
   return demoEnabled() ? true : connected
 }
 

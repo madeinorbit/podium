@@ -21,21 +21,6 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-// Flow-typed RN icon source never parses in this lane; every glyph is a no-op.
-// Named one by one because vitest validates a mock against the factory's OWN
-// keys — a Proxy's getter is never consulted — so when the deck's component
-// tree grows an icon, this list is what has to grow with it.
-vi.mock('lucide-react-native', () => ({
-  ArrowDown: () => null,
-  Check: () => null,
-  ChevronDown: () => null,
-  ChevronsDownUp: () => null,
-  ChevronsUpDown: () => null,
-  Plus: () => null,
-  SquareTerminal: () => null,
-  X: () => null,
-}))
-
 // The spine draws its rails with react-native-svg, whose RN source never parses
 // in this lane; the geometry is not what this file is about.
 vi.mock('react-native-svg', () => ({
@@ -84,7 +69,7 @@ const asking = issue({
   title: 'Asking subtask',
 })
 
-async function mount() {
+async function mount(onContentHeight: (height: number) => void = () => {}) {
   return renderWithMobileStore(
     <MissionDeck
       root={root}
@@ -99,6 +84,7 @@ async function mount() {
       onTuckRoot={() => {}}
       onFileRoot={() => {}}
       onOpenDeparture={() => {}}
+      onContentHeight={onContentHeight}
     />,
     { issues: [root, quiet, asking] },
   )
@@ -109,6 +95,17 @@ describe('MissionDeck view bar', () => {
     await mount()
     expect(screen.getByText('Quiet subtask')).toBeTruthy()
     expect(screen.getByText('Asking subtask')).toBeTruthy()
+  })
+
+  it('reports its natural height, and a narrower view reports a shorter one', async () => {
+    const heights: number[] = []
+    await mount((height) => heights.push(height))
+    const full = heights.at(-1)
+    expect(full).toBeGreaterThan(0)
+    // `Needs you` drops the quiet subtask, so the deck's own arithmetic must
+    // come back smaller — this is the wire the panel's dynamic height rides on.
+    fireEvent.click(screen.getByText('Needs you'))
+    expect(heights.at(-1)).toBeLessThan(full as number)
   })
 
   it('drops the tasks that are not asking when Needs you is chosen', async () => {
@@ -171,6 +168,7 @@ describe('MissionDeck view bar', () => {
           onTuckRoot={() => {}}
           onFileRoot={() => {}}
           onOpenDeparture={() => {}}
+          onContentHeight={() => {}}
         />,
         { issues: [solo], sessions: [session] },
       )

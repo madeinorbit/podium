@@ -1,10 +1,10 @@
 import type { IssueId, IssueWire } from '@podium/model'
 import { useRouter } from 'expo-router'
-import { Check, Inbox, Play, RotateCcw, SkipForward, X } from 'lucide-react-native'
+import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useBooting, useIssues, useMobileStore } from '../client/hooks'
+import { useBooting, useIssues, useStoreActions, useTrpc } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
@@ -55,7 +55,8 @@ const sameDeck = (a: Deck, b: Deck) =>
 export function ProposalScreeningScreen() {
   const router = useRouter()
   const issues = useIssues()
-  const { trpc, closeIssue } = useMobileStore()
+  const trpc = useTrpc()
+  const { closeIssue } = useStoreActions()
   const booting = useBooting()
   const issueById = useCallback((id: string) => issues.find((issue) => issue.id === id), [issues])
   const insets = useSafeAreaInsets()
@@ -316,7 +317,7 @@ export function ProposalScreeningScreen() {
               label="Decline"
               hint={`Close ${refOf(current)} as won't fix — same as swiping left`}
               icon={X}
-              tint={color.danger}
+              tint={color.dangerText}
               onPress={() => decide(current, 'declined')}
             />
             <ActionButton
@@ -467,7 +468,7 @@ const styles = StyleSheet.create({
   },
   failureTitle: {
     ...sans(600),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
   },
   failureBody: {

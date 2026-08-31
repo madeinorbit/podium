@@ -44,7 +44,6 @@ export function LaunchBoundary({
   const [routeReady, setRouteReady] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
   const [splashStatus, setSplashStatus] = useState<LaunchSplashStatus | null>(null)
-  const contentOpacity = useRef(new Animated.Value(0)).current
   const splashOpacity = useRef(new Animated.Value(1)).current
   const ready = fontsReady && routeReady
   const markRouteReady = useCallback(() => setRouteReady(true), [])
@@ -56,41 +55,39 @@ export function LaunchBoundary({
       if (Platform.OS !== 'web') await SplashScreen.hideAsync().catch(() => {})
       if (!alive) return
       if (reduceMotion) {
-        contentOpacity.setValue(1)
         splashOpacity.setValue(0)
         setShowSplash(false)
         return
       }
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 180,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(splashOpacity, {
-          toValue: 0,
-          duration: 180,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start(({ finished }) => {
+      Animated.timing(splashOpacity, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
         if (alive && finished) setShowSplash(false)
       })
     })()
     return () => {
       alive = false
     }
-  }, [contentOpacity, ready, reduceMotion, splashOpacity])
+  }, [ready, reduceMotion, splashOpacity])
 
   const context = useMemo(() => markRouteReady, [markRouteReady])
   return (
     <LaunchSplashStatusProvider value={setSplashStatus}>
       <LaunchReadyProvider value={context}>
         <View style={styles.root}>
-          <Animated.View style={[styles.content, { opacity: contentOpacity }]}>
-            {children}
-          </Animated.View>
+          {/* The content NEVER carries an animated opacity: a subtree under
+              one renders as an offscreen group, and UIKit disables backdrop
+              layers inside such groups — which blanked the iOS 26 Liquid
+              Glass tab-bar capsule for the app's whole life (root-caused
+              2026-08-28 by bisecting the shell against a minimal root; the
+              native-driver node keeps the group even after the value settles).
+              The reveal is carried entirely by the OPAQUE splash overlay
+              fading out above the already-final content — visually the same
+              crossfade, structurally inert. */}
+          <View style={styles.content}>{children}</View>
           {showSplash ? (
             <Animated.View
               pointerEvents="auto"

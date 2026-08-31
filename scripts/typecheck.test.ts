@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -11,6 +19,7 @@ import {
   readCensus,
   sharedTurboCacheDir,
 } from './typecheck'
+import { readInstallTopology } from './install-topology'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 describe('decideForce', () => {
@@ -311,6 +320,127 @@ describe('workspace resolution ownership', () => {
     expect(fingerprint({ ...environment, resolutions: after.records })).toBe(
       fingerprint({ ...environment, resolutions: before.records }),
     )
+  })
+})
+
+function executableTopologyFixture(): {
+  root: string
+  context: string
+  peerBin: string
+  rootBin: string
+  workspaceBin: string
+} {
+  const root = mkdtempSync(join(tmpdir(), 'podium-executable-topology-'))
+  cleanup.push(root)
+  writeJson(join(root, 'package.json'), { private: true, workspaces: ['packages/*'] })
+  writeJson(join(root, 'packages/a/package.json'), { name: '@fixture/a' })
+  const context = join(root, 'node_modules/.bun/consumer@1.0.0+aaaaaaaaaaaaaaaa/node_modules')
+  const tool = join(context, 'tool')
+  writeJson(join(tool, 'package.json'), { name: 'tool', bin: { tool: 'cli.js' } })
+  writeFileSync(join(tool, 'cli.js'), '#!/usr/bin/env bun\n')
+  writeFileSync(join(tool, 'other.js'), '#!/usr/bin/env bun\n')
+  chmodSync(join(tool, 'cli.js'), 0o755)
+  chmodSync(join(tool, 'other.js'), 0o755)
+
+  const peerBin = join(context, '.bin')
+  const rootBin = join(root, 'node_modules/.bin')
+  const workspaceBin = join(root, 'packages/a/node_modules/.bin')
+  for (const directory of [peerBin, rootBin, workspaceBin])
+    mkdirSync(directory, { recursive: true })
+  symlinkSync('../tool/cli.js', join(peerBin, 'tool'))
+  return { root, context, peerBin, rootBin, workspaceBin }
+}
+
+function topology(root: string) {
+  return readInstallTopology(root, join(root, '.fixture-home'))
+}
+
+describe('isolated peer-context executable shims', () => {
+  it('omits only a healthy uniquely declared nested shim from layout identity', () => {
+    const fixture = executableTopologyFixture()
+    const withShim = topology(fixture.root)
+    expect(withShim.errors).toEqual([])
+    expect(withShim.layout).not.toContainEqual(expect.stringContaining('.bin/tool\tl\t'))
+
+    rmSync(join(fixture.peerBin, 'tool'))
+    expect(topology(fixture.root)).toEqual(withShim)
+  })
+
+  it('still follows and refuses a dangling or wrong-target nested shim', () => {
+    const fixture = executableTopologyFixture()
+    const shim = join(fixture.peerBin, 'tool')
+
+    rmSync(shim)
+    symlinkSync('../tool/missing.js', shim)
+    expect(topology(fixture.root).errors).toContainEqual(
+      expect.stringContaining('dangling symlink'),
+    )
+
+    rmSync(shim)
+    symlinkSync('../tool/other.js', shim)
+    expect(topology(fixture.root).errors).toContainEqual(
+      expect.stringContaining('points to the wrong executable'),
+    )
+  })
+
+  it('keeps an ambiguous or installer-rewritten command identity-bearing', () => {
+    const fixture = executableTopologyFixture()
+    const alternative = join(fixture.context, 'alternative')
+    writeJson(join(alternative, 'package.json'), {
+      name: 'alternative',
+      bin: { tool: 'alternative.js' },
+    })
+    writeFileSync(join(alternative, 'alternative.js'), '#!/usr/bin/env bun\n')
+    chmodSync(join(alternative, 'alternative.js'), 0o755)
+
+    expect(topology(fixture.root).layout).toContainEqual(expect.stringContaining('.bin/tool\tl\t'))
+  })
+
+  it('keeps a metadata-opaque installer rewrite identity-bearing', () => {
+    const fixture = executableTopologyFixture()
+    const opaque = join(fixture.context, 'opaque-native')
+    writeJson(join(opaque, 'package.json'), { name: 'opaque-native' })
+    writeFileSync(join(opaque, 'native.js'), '#!/usr/bin/env bun\n')
+    chmodSync(join(opaque, 'native.js'), 0o755)
+    const shim = join(fixture.peerBin, 'tool')
+    rmSync(shim)
+    symlinkSync('../opaque-native/native.js', shim)
+
+    const census = topology(fixture.root)
+    expect(census.errors).toEqual([])
+    expect(census.layout).toContainEqual(expect.stringContaining('.bin/tool\tl\t'))
+  })
+
+  it('keeps root and workspace executable links identity-bearing', () => {
+    const fixture = executableTopologyFixture()
+    const clean = topology(fixture.root)
+    const executable = join(fixture.context, 'tool/cli.js')
+
+    symlinkSync(executable, join(fixture.rootBin, 'root-probe'))
+    const rootChanged = topology(fixture.root)
+    expect(rootChanged.errors).toEqual([])
+    expect(rootChanged.layout).not.toEqual(clean.layout)
+
+    rmSync(join(fixture.rootBin, 'root-probe'))
+    symlinkSync(executable, join(fixture.workspaceBin, 'workspace-probe'))
+    const workspaceChanged = topology(fixture.root)
+    expect(workspaceChanged.errors).toEqual([])
+    expect(workspaceChanged.layout).not.toEqual(clean.layout)
+  })
+
+  it('keeps package-link text identity-bearing even when resolution is unchanged', () => {
+    const fixture = executableTopologyFixture()
+    const link = join(fixture.root, 'node_modules/tool-link')
+    const target = join(fixture.context, 'tool')
+    symlinkSync('.bun/consumer@1.0.0+aaaaaaaaaaaaaaaa/node_modules/tool', link, 'dir')
+    const relativeLink = topology(fixture.root)
+
+    rmSync(link)
+    symlinkSync(target, link, 'dir')
+    const absoluteLink = topology(fixture.root)
+    expect(relativeLink.errors).toEqual([])
+    expect(absoluteLink.errors).toEqual([])
+    expect(absoluteLink.layout).not.toEqual(relativeLink.layout)
   })
 })
 

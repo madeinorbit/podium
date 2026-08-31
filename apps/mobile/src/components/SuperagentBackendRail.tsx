@@ -1,4 +1,3 @@
-import { ChevronLeft, Cpu, Gauge } from 'lucide-react-native'
 import type { ModelCatalog } from '@podium/client-core/react'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
@@ -6,18 +5,20 @@ import {
   AUTO,
   allConnectorModelLabel,
   allConnectorModelOptions,
+  type CatalogOption,
   decodeModelPick,
-  encodeModelPick,
   effortOptionsForModel,
+  encodeModelPick,
   groupedCatalogOptions,
   issueAgentKind,
-  type CatalogOption,
 } from '../lib/agent-models'
 import type { SuperagentBackend } from '../lib/superagent-backend'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { NativePicker } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
+import { ChevronLeft, Cpu, Gauge } from './icons'
 import { PressableScale } from './PressableScale'
 
 type PickerStep = 'model' | 'effort' | null
@@ -65,25 +66,51 @@ export function SuperagentBackendRail({
     setStep(null)
   }
 
+  const applyEffort = (value: string) => {
+    onEffortChange(value)
+    setStep(null)
+  }
+
   return (
     <>
       <View testID="composer-backend" style={styles.rail}>
-        <Pill
-          icon={Cpu}
-          label={modelLabel}
-          quiet={backend.model === AUTO}
-          accessibilityLabel="Model"
-          shrinks
-          onPress={() => setStep('model')}
-        />
+        <NativePicker
+          label="Model"
+          options={modelOptions}
+          selected={selectedModel}
+          onSelect={applyModel}
+          onOpenFallback={() => setStep('model')}
+          style={styles.modelPickerHost}
+        >
+          {(onPress) => (
+            <Pill
+              icon={Cpu}
+              label={modelLabel}
+              quiet={backend.model === AUTO}
+              accessibilityLabel="Model"
+              shrinks
+              onPress={onPress}
+            />
+          )}
+        </NativePicker>
         {agentKind && effortChoices.length > 0 ? (
-          <Pill
-            icon={Gauge}
-            label={effortLabel}
-            quiet={backend.effort === AUTO}
-            accessibilityLabel="Effort"
-            onPress={() => setStep('effort')}
-          />
+          <NativePicker
+            label="Effort"
+            options={effortChoices}
+            selected={backend.effort}
+            onSelect={applyEffort}
+            onOpenFallback={() => setStep('effort')}
+          >
+            {(onPress) => (
+              <Pill
+                icon={Gauge}
+                label={effortLabel}
+                quiet={backend.effort === AUTO}
+                accessibilityLabel="Effort"
+                onPress={onPress}
+              />
+            )}
+          </NativePicker>
         ) : null}
       </View>
       <BottomSheet
@@ -119,10 +146,7 @@ export function SuperagentBackendRail({
           <OptionList
             groups={[{ options: effortChoices }]}
             selected={backend.effort}
-            onPick={(value) => {
-              onEffortChange(value)
-              setStep(null)
-            }}
+            onPick={applyEffort}
           />
         ) : null}
       </BottomSheet>
@@ -144,7 +168,7 @@ function Pill({
   accessibilityLabel: string
   /** Gives up width when the row runs out — the model chip, not the effort one. */
   shrinks?: boolean
-  onPress: () => void
+  onPress?: () => void
 }) {
   return (
     <PressableScale
@@ -228,6 +252,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  modelPickerHost: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   pill: {
     minHeight: 30,

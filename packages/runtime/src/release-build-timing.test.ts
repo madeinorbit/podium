@@ -1,12 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   releaseBuildTimingEnvironment,
+  releaseBuildTimingFileName,
   timeReleaseBuild,
   timeReleaseBuildSync,
   type ReleaseBuildTimingRecord,
 } from './release-build-timing'
 
 describe('release build timing', () => {
+  it('gives development versions a filesystem-safe staging identity', () => {
+    expect(releaseBuildTimingFileName('0.1.1-dev.24+421a3ae')).toBe(
+      '0.1.1-dev.24-421a3ae.jsonl',
+    )
+  })
+
   it('is default-off and does not even read the clock', () => {
     const now = vi.fn(() => 1)
     const emit = vi.fn()

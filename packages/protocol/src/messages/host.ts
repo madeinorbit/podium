@@ -135,6 +135,10 @@ export const MemoryBreakdownResultMessage = z.object({
   // used − agents − projects: everything on the box we don't control.
   otherBytes: z.number().int().nonnegative(),
 })
+export type MemoryBreakdownResultMessage = z.infer<typeof MemoryBreakdownResultMessage>
+
+/** The typed tRPC answer after the server removes the daemon-frame plumbing. */
+export type HostMemoryBreakdown = Omit<MemoryBreakdownResultMessage, 'type' | 'requestId'>
 
 // A potentially multi-minute inode walk. The server derives both sets from
 // registered repositories plus git's worktree registry; a web caller cannot

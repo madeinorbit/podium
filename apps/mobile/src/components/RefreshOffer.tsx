@@ -1,8 +1,8 @@
-import { RefreshCw } from 'lucide-react-native'
 import { StyleSheet, Text, View } from 'react-native'
 import { useServedBuildRefresh } from '../lib/served-build'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { RefreshCw } from './icons'
 import { PressableScale } from './PressableScale'
 
 /**

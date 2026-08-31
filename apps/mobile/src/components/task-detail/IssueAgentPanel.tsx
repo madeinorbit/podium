@@ -1,12 +1,12 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire } from '@podium/model'
-import { FileText, Play } from 'lucide-react-native'
+import { FileText, Play } from '../icons'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
-import { useMobileStore } from '../../client/hooks'
-import { useServerProfile } from '../../client/ServerProfileGate'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
+import { useHttpOrigin } from '../../client/hooks'
+import { useServerProfile } from '../../client/ServerProfileGate'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { ArtifactViewer } from '../ArtifactViewer'
@@ -30,7 +30,7 @@ import { SectionHeading } from './chrome'
  * or mutate the checklist.
  */
 export function IssueAgentPanel({ issue }: { issue: IssueWire }) {
-  const store = useMobileStore()
+  const httpOrigin = useHttpOrigin()
 
   const artifacts = issue.panel?.artifacts ?? []
   const deferred = issue.panel?.deferred ?? []
@@ -45,7 +45,7 @@ export function IssueAgentPanel({ issue }: { issue: IssueWire }) {
             <ArtifactRow
               key={`${a.addedAt}:${a.path}`}
               artifact={a}
-              url={issueArtifactHref(issue, a, store.httpOrigin)}
+              url={issueArtifactHref(issue, a, httpOrigin)}
             />
           ))}
         </View>

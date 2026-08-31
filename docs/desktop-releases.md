@@ -1,5 +1,8 @@
 # Desktop releases
 
+macOS is supported on Apple Silicon and Intel. Windows and Linux packages remain previews until
+the packaged acceptance rows in [the parity release proof](parity-release-proof.md) pass.
+
 Podium desktop shells understand three update channels:
 
 - **stable** reads `releases/latest/download/latest.json`.
@@ -148,9 +151,9 @@ lets any unsigned dylib load into the process, so do not add it speculatively.
 The Developer ID certificate expires five years after issue. Expiry breaks *new* signing only;
 already-notarized releases keep working. Renew before it lapses — the certificate cap is 5 per team.
 
-Both macOS architectures are built: Apple Silicon natively on Blacksmith's arm64 fleet, and Intel
-natively on GitHub-hosted `macos-15-intel` runners (Blacksmith has no Intel macs, and
-cross-compiling would leave the Bun sidecar and abduco on the wrong architecture).
+Both macOS architectures are built natively on GitHub-hosted runners: Apple Silicon on `macos-15`
+and Intel on `macos-15-intel` (cross-compiling would leave the Bun sidecar and abduco on the wrong
+architecture).
 
 ## Cut a release
 

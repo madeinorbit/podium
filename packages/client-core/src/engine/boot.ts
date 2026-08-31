@@ -25,14 +25,52 @@ export interface BootFetchPorts<TApi extends PodiumClientApi> {
 export class BootFetches<TApi extends PodiumClientApi> {
   private readonly ports: BootFetchPorts<TApi>
   private refreshReposGeneration = 0
+  /** The repo refresh currently on the wire, if any — see {@link refreshRepos}. */
+  private reposInflight?: Promise<void>
+  /** The single follow-up run promised to triggers that landed mid-flight. */
+  private reposTrailing?: Promise<void>
 
   constructor(ports: BootFetchPorts<TApi>) {
     this.ports = ports
   }
 
-  /** Enrich the registered repos with branch/worktree metadata (fast — no
-   *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */
-  async refreshRepos(): Promise<void> {
+  /**
+   * Enrich the registered repos with branch/worktree metadata (fast — no
+   * filesystem walk). Discovery scanning happens explicitly via the scan flow.
+   *
+   * COALESCED. Three triggers overlap on a cold boot — the boot fan-out, the
+   * machines listener seeing the online count climb 0→N, and any
+   * worktreesChanged event — and each used to put its own server-side repo
+   * enrichment mutation on the wire concurrently. A call while one is in
+   * flight now joins ONE trailing follow-up instead: it runs after the current
+   * mutation settles, so the answer a mid-flight trigger gets is never staler
+   * than its cause (a worktreesChanged arriving mid-refresh still produces a
+   * post-change read), and N overlapping triggers cost at most two mutations.
+   */
+  refreshRepos(): Promise<void> {
+    if (this.reposInflight) {
+      this.reposTrailing ??= this.reposInflight
+        // The trailing run is owed regardless of how the current one ends; its
+        // own outcome is what this promise reports.
+        .catch(() => {})
+        .then(() => {
+          this.reposTrailing = undefined
+          return this.startRefreshRepos()
+        })
+      return this.reposTrailing
+    }
+    return this.startRefreshRepos()
+  }
+
+  private startRefreshRepos(): Promise<void> {
+    const run = this.doRefreshRepos().finally(() => {
+      if (this.reposInflight === run) this.reposInflight = undefined
+    })
+    this.reposInflight = run
+    return run
+  }
+
+  private async doRefreshRepos(): Promise<void> {
     const generation = ++this.refreshReposGeneration
     this.ports.publish({ reposLoading: true })
     try {

@@ -1,4 +1,4 @@
-import type { SessionId, IssueId, MachineId } from '@podium/model'
+import type { SessionId, IssueId, MachineId, TranscriptItem } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { harnessUsesPromptTitleFallback } from '../../harness-manifest'
@@ -39,6 +39,7 @@ export interface SessionDaemonProjectionPorts {
   persist(session: Session): void
   broadcastSessions(): void
   broadcastToClients(message: LiveServerMessage): void
+  transcriptDelta(sessionId: SessionId, items: TranscriptItem[], reset?: boolean): void
   adoptWorktree(
     issueId: IssueId,
     machineId: MachineId,
@@ -148,6 +149,7 @@ export class SessionDaemonProjection {
           this.ports.persist(session)
           this.ports.broadcastSessions()
         }
+        if (session) this.ports.transcriptDelta(message.sessionId, message.items, message.reset)
         if (session && harnessUsesPromptTitleFallback(session.agentKind) && !session.titleLocked) {
           const firstUser = session.terminal
             .transcriptItems()

@@ -1,4 +1,6 @@
+import { withoutShells } from '@podium/client-core/focus'
 import { orderIssues as coreOrderIssues, type IssuesOrdering } from '@podium/client-core/viewmodels'
+import { isAgentConfirmedComputing, type SessionMeta } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 
 export type IssuesLayout = 'board' | 'list'
@@ -81,8 +83,9 @@ export { boardIssues, filterBoardScope } from '@podium/client-core/viewmodels'
 /** Progress rollup for a human-audience epic (#198): counts across its full
  *  descendant subtree so the human tracks "how far along" without seeing the
  *  internal churn. `done` counts descendants at stage 'done'; `liveAgents` counts
- *  descendants with at least one live session. Returns null when the issue has no
- *  descendants (nothing to roll up — render nothing). Pure. */
+ *  agents whose process and harness activity Podium can confirm right now.
+ *  Returns null when the issue has no descendants (nothing to roll up — render
+ *  nothing). Pure. */
 export interface EpicProgress {
   total: number
   done: number
@@ -103,7 +106,11 @@ function buildChildrenIndex(issues: IssueViewModel[]): ChildrenIndex {
   return childrenOf
 }
 
-function progressFrom(childrenOf: ChildrenIndex, epicId: string): EpicProgress | null {
+function progressFrom(
+  childrenOf: ChildrenIndex,
+  epicId: string,
+  workingByIssue: ReadonlyMap<string, number>,
+): EpicProgress | null {
   let total = 0
   let done = 0
   let liveAgents = 0
@@ -115,14 +122,51 @@ function progressFrom(childrenOf: ChildrenIndex, epicId: string): EpicProgress |
     seen.add(node.id)
     total += 1
     if (node.stage === 'done') done += 1
-    if ((node.sessionSummary?.total ?? 0) > 0) liveAgents += 1
+    liveAgents += workingByIssue.get(node.id) ?? 0
     for (const child of childrenOf.get(node.id) ?? []) stack.push(child)
   }
   return total === 0 ? null : { total, done, liveAgents }
 }
 
-export function computeEpicProgress(issues: IssueViewModel[], epicId: string): EpicProgress | null {
-  return progressFrom(buildChildrenIndex(issues), epicId)
+/** The board's spelling of the shared confirmed-computing predicate. */
+export function confirmedWorkingAgentCount(
+  sessions: readonly SessionMeta[],
+  now: number,
+): number {
+  return withoutShells([...sessions]).reduce(
+    (count, session) => count + (isAgentConfirmedComputing(session, now) ? 1 : 0),
+    0,
+  )
+}
+
+/** Confirmed issue workers, keyed through canonical issue membership. */
+export function confirmedWorkingAgentCountsByIssue(
+  issues: readonly IssueViewModel[],
+  sessions: readonly SessionMeta[],
+  now: number,
+): Map<string, number> {
+  const sessionById = new Map(sessions.map((session) => [session.sessionId as string, session]))
+  const counts = new Map<string, number>()
+  for (const issue of issues) {
+    const members = (issue.memberSessionIds ?? [])
+      .map((id) => sessionById.get(id as string))
+      .filter((session): session is SessionMeta => session !== undefined)
+    counts.set(issue.id, confirmedWorkingAgentCount(members, now))
+  }
+  return counts
+}
+
+export function computeEpicProgress(
+  issues: IssueViewModel[],
+  epicId: string,
+  sessions: readonly SessionMeta[] = [],
+  now = Date.now(),
+): EpicProgress | null {
+  return progressFrom(
+    buildChildrenIndex(issues),
+    epicId,
+    confirmedWorkingAgentCountsByIssue(issues, sessions, now),
+  )
 }
 
 /** Batch rollup for many roots over one shared child index (see buildChildrenIndex) —
@@ -130,9 +174,12 @@ export function computeEpicProgress(issues: IssueViewModel[], epicId: string): E
 export function computeEpicProgressMap(
   issues: IssueViewModel[],
   rootIds: string[],
+  sessions: readonly SessionMeta[] = [],
+  now = Date.now(),
 ): Map<string, EpicProgress | null> {
   const childrenOf = buildChildrenIndex(issues)
-  return new Map(rootIds.map((id) => [id, progressFrom(childrenOf, id)]))
+  const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
+  return new Map(rootIds.map((id) => [id, progressFrom(childrenOf, id, workingByIssue)]))
 }
 
 /** Stable ordering for board columns and list groups. Pure — returns a copy.

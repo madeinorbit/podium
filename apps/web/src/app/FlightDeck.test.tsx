@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { FLIGHT_DECK_BRIEF_CUTOFF_KEY } from '@podium/client-core/ui-state'
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,12 +7,15 @@ import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-conte
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { DOUBLE_CLICK_MS } from './click-intent'
 import {
+  briefCutoffLayout,
   continuationPresenceLine,
   deckTaskUnread,
   defaultFolded,
   FlightDeck,
   isFolded,
+  readBriefCutoff,
   readFolds,
+  writeBriefCutoff,
   writeFolds,
 } from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
@@ -225,15 +229,216 @@ beforeEach(() => {
 
 /** Torn down after each test — a window listener outlives the render. */
 const afterEachListeners: Array<() => void> = []
+const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'scrollHeight',
+)
 
 afterEach(() => {
   for (const off of afterEachListeners.splice(0)) off()
   cleanup()
   vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  if (scrollHeightDescriptor)
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeightDescriptor)
+  else Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight')
 })
 
 const chevron = (title: string): HTMLElement =>
   screen.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${title}$`) })
+
+function briefRect(top: number, height: number, width = 320): DOMRect {
+  return {
+    x: 0,
+    y: top,
+    top,
+    right: width,
+    bottom: top + height,
+    left: 0,
+    width,
+    height,
+    toJSON: () => ({}),
+  }
+}
+
+/** Supply the handful of layout facts happy-dom cannot calculate. */
+function measuredBrief(): {
+  readonly observed: Set<Element>
+  readonly reflowHeader: (briefTop: number) => void
+} {
+  const deckHeight = 400
+  const contentHeight = 600
+  let briefTop = 80
+  let resize: ResizeObserverCallback | null = null
+  const observed = new Set<Element>()
+
+  class BriefResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      resize = callback
+    }
+    observe(target: Element): void {
+      observed.add(target)
+    }
+    unobserve(target: Element): void {
+      observed.delete(target)
+    }
+    disconnect(): void {
+      observed.clear()
+    }
+  }
+
+  vi.stubGlobal('ResizeObserver', BriefResizeObserver)
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.dataset.testid === 'deck-brief' ? contentHeight : 0
+    },
+  })
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element,
+  ): DOMRect {
+    const element = this as HTMLElement
+    if (element.dataset.testid === 'flight-deck-scroller') return briefRect(0, deckHeight)
+    if (element.dataset.testid === 'deck-brief') return briefRect(briefTop, 70)
+    if (element.classList.contains('deck-brief-end')) return briefRect(briefTop + 80, 1)
+    if (element.classList.contains('deck-brief-rule')) {
+      const ratio = Number(element.getAttribute('aria-valuenow') ?? 40) / 100
+      return briefRect(ratio * deckHeight, 1)
+    }
+    if (element.classList.contains('deck-header')) return briefRect(0, briefTop + 100)
+    return briefRect(0, 0)
+  })
+
+  deck()
+  return {
+    observed,
+    reflowHeader(nextTop: number): void {
+      briefTop = nextTop
+      const callback = resize
+      if (!callback) throw new Error('brief ResizeObserver was not installed')
+      act(() => callback([], {} as ResizeObserver))
+    },
+  }
+}
+
+describe('mission brief cutoff', () => {
+  const metrics = {
+    deckHeight: 800,
+    briefTop: 80,
+    endGap: 10,
+    contentHeight: 600,
+  }
+
+  it('uses the real deck height and keeps roster space on short screens', () => {
+    const tall = briefCutoffLayout(metrics, null)
+    const short = briefCutoffLayout({ ...metrics, deckHeight: 400 }, null)
+    const draggedLow = briefCutoffLayout({ ...metrics, deckHeight: 400 }, 0.9)
+
+    expect(tall).toMatchObject({ ratio: 0.4, limit: 230 })
+    expect(short).toMatchObject({ ratio: 0.4, limit: 70, maxLimit: 118 })
+    expect(draggedLow).toMatchObject({ ratio: 0.52, limit: 118, maxLimit: 118 })
+  })
+
+  it('round-trips one normalized device preference and rejects corrupt values', () => {
+    expect(readBriefCutoff(null)).toBeNull()
+    expect(readBriefCutoff('')).toBeNull()
+    expect(readBriefCutoff('not-a-number')).toBeNull()
+    expect(readBriefCutoff('1.5')).toBeNull()
+    expect(readBriefCutoff(writeBriefCutoff(0.43789))).toBe(0.4379)
+    expect(writeBriefCutoff(null)).toBeNull()
+  })
+})
+
+describe('mission brief cutoff interaction', () => {
+  const separator = (): HTMLElement =>
+    screen.getByRole('separator', { name: 'Resize mission brief' })
+
+  it('accepts only one primary-button drag and commits it on pointer up', () => {
+    measuredBrief()
+    const rule = separator()
+    const setPointerCapture = vi.fn()
+    rule.setPointerCapture = setPointerCapture
+
+    fireEvent.pointerDown(rule, { button: 1, isPrimary: true, pointerId: 1, clientY: 160 })
+    fireEvent.pointerDown(rule, { button: 0, isPrimary: false, pointerId: 2, clientY: 160 })
+    expect(setPointerCapture).not.toHaveBeenCalled()
+
+    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 3, clientY: 160 })
+    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 4, clientY: 160 })
+    expect(setPointerCapture).toHaveBeenCalledTimes(1)
+    expect(setPointerCapture).toHaveBeenCalledWith(3)
+
+    fireEvent.pointerMove(rule, { isPrimary: true, pointerId: 3, clientY: 200 })
+    expect(rule.getAttribute('aria-valuenow')).toBe('50')
+    fireEvent.pointerUp(rule, { isPrimary: true, pointerId: 3, clientY: 200 })
+    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.5000')
+    expect(rule.dataset.dragging).toBeUndefined()
+  })
+
+  it('rolls back cancelled and lost-capture drags and releases the active pointer', () => {
+    harness.ui.set(FLIGHT_DECK_BRIEF_CUTOFF_KEY, '0.4500')
+    measuredBrief()
+    const rule = separator()
+    const setPointerCapture = vi.fn()
+    rule.setPointerCapture = setPointerCapture
+
+    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 5, clientY: 180 })
+    fireEvent.pointerMove(rule, { isPrimary: true, pointerId: 5, clientY: 200 })
+    fireEvent.pointerCancel(rule, { isPrimary: true, pointerId: 5 })
+    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4500')
+    expect(rule.getAttribute('aria-valuenow')).toBe('45')
+
+    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 6, clientY: 180 })
+    fireEvent.pointerMove(rule, { isPrimary: true, pointerId: 6, clientY: 208 })
+    fireEvent(
+      rule,
+      new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 6, isPrimary: true }),
+    )
+    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4500')
+    expect(rule.getAttribute('aria-valuenow')).toBe('45')
+
+    fireEvent.pointerDown(rule, { button: 0, isPrimary: true, pointerId: 7, clientY: 180 })
+    expect(setPointerCapture).toHaveBeenLastCalledWith(7)
+    fireEvent.pointerCancel(rule, { isPrimary: true, pointerId: 7 })
+  })
+
+  it('supports Arrow, Home, End, and Escape without exceeding the short-screen bounds', () => {
+    measuredBrief()
+    const rule = separator()
+
+    fireEvent.keyDown(rule, { key: 'ArrowDown' })
+    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.4300')
+    fireEvent.keyDown(rule, { key: 'Home' })
+    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.3400')
+    fireEvent.keyDown(rule, { key: 'End' })
+    expect(harness.ui.get(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe('0.5200')
+    fireEvent.keyDown(rule, { key: 'Escape' })
+    expect(harness.ui.has(FLIGHT_DECK_BRIEF_CUTOFF_KEY)).toBe(false)
+    expect(rule.getAttribute('aria-valuetext')).toBe('Automatic cutoff at 40% of the Flight Deck')
+  })
+
+  it('keeps the expanded brief above the roster reserve on a short screen', () => {
+    measuredBrief()
+    const brief = screen.getByTestId('deck-brief')
+
+    expect(brief.style.maxHeight).toBe('70px')
+    fireEvent.click(screen.getByTestId('deck-brief-more'))
+    expect(brief.style.maxHeight).toBe('118px')
+  })
+
+  it('observes header wrapping and recomputes the brief height from its new top', () => {
+    const layout = measuredBrief()
+    const brief = screen.getByTestId('deck-brief')
+    const header = document.querySelector('.deck-header')
+    if (!header) throw new Error('mission header is missing')
+
+    expect(layout.observed.has(header)).toBe(true)
+    expect(brief.style.maxHeight).toBe('70px')
+    layout.reflowHeader(100)
+    expect(brief.style.maxHeight).toBe('50px')
+  })
+})
 
 describe('the cold deck (POD-1112)', () => {
   /** The composer's placeholder: a draft issue minted so a session has somewhere

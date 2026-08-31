@@ -7,9 +7,7 @@ const navigation = vi.hoisted(() => ({ isFocused: () => route.focused }))
 
 vi.mock('expo-router', () => ({ useNavigation: () => navigation }))
 
-const { tabBarScrollState, useMinimizeTabBarOnScroll } = await import(
-  './useMinimizeTabBarOnScroll'
-)
+const { tabBarScrollState, useMinimizeTabBarOnScroll } = await import('./useMinimizeTabBarOnScroll')
 type TabBarScrollState = import('./useMinimizeTabBarOnScroll').TabBarScrollState
 
 function scrollEvent(y: number) {
@@ -46,6 +44,9 @@ describe('tabBarScrollState', () => {
   it('ignores stale momentum from the tab that just lost focus', () => {
     const { result, rerender } = renderHook(() => useMinimizeTabBarOnScroll())
     const oldTabOnScroll = result.current.onScroll
+    // The suite runs on the web platform, where the JS capsule is real and the
+    // hook returns live scroll props (iOS is the platform that returns none).
+    if (!oldTabOnScroll) throw new Error('expected scroll props on web')
 
     act(() => oldTabOnScroll(scrollEvent(100)))
     expect(getTabBarMinimized()).toBe(true)

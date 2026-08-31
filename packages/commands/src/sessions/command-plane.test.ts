@@ -104,6 +104,15 @@ describe('the command-plane table', () => {
     )
   })
 
+  it('interrupt can identify the exact queued chat message it is stopping', () => {
+    expect(
+      sessionCommandPlaneInputs.interrupt.parse({
+        sessionId: asSessionId('session-1'),
+        messageId: 'msg_cancel_this_one',
+      }),
+    ).toEqual({ sessionId: 'session-1', messageId: 'msg_cancel_this_one' })
+  })
+
   it("the vocabularies are the MODEL's instances, not same-valued copies", () => {
     // `toBe`, never a comparison of accepted values. A forked z.enum with
     // identical members parses, encodes and passes every golden case

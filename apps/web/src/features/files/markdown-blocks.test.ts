@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { setKnownPodiumOrigins } from '@/lib/podium-link'
 import { assembleMarkdownBlocksUnsafe, renderMarkdownBlocks } from './markdown-blocks'
+
+const HOME = 'http://127.0.0.1:8787'
+
+afterEach(() => {
+  setKnownPodiumOrigins([])
+  document.body.innerHTML = ''
+})
 
 // The source-line map is asserted on assembleMarkdownBlocksUnsafe (pre-sanitize) — pure
 // and environment-independent. DOMPurify under happy-dom strips the FIRST top-level
@@ -48,5 +56,35 @@ describe('renderMarkdownBlocks', () => {
     const html = renderMarkdownBlocks('# ok\n\nParagraph content.\n')
     expect(html).toContain('<h1')
     expect(html).toContain('Paragraph content')
+  })
+
+  it('renders hostless Podium links against the active server', () => {
+    setKnownPodiumOrigins([HOME])
+    const html = renderMarkdownBlocks('[issue](/issues/POD-1606)')
+    expect(html).toContain(`href="${HOME}/issues/POD-1606"`)
+    expect(html).toContain('data-podium-link')
+  })
+
+  it('keeps a custom-scheme file href and exact fallback bytes in previews', () => {
+    setKnownPodiumOrigins([HOME])
+    const href =
+      'podium://file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy'
+    document.body.innerHTML = renderMarkdownBlocks(`[file](${href})`)
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('data-podium-link-source')).toBe(href)
+    expect(link.getAttribute('href')).toBe(
+      `${HOME}/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy`,
+    )
+  })
+
+  it('derives resolver markers from the href even when raw HTML contains a quoted >', () => {
+    setKnownPodiumOrigins([HOME])
+    document.body.innerHTML = renderMarkdownBlocks(
+      '<a title=">" href="https://example.com/guide" data-podium-link-source="/issues/POD-1606" data-podium-link-candidate data-podium-link>guide</a>',
+    )
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('data-podium-link-source')).toBe('https://example.com/guide')
+    expect(link.hasAttribute('data-podium-link-candidate')).toBe(true)
+    expect(link.hasAttribute('data-podium-link')).toBe(false)
   })
 })

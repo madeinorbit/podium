@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Podium Mobile",
+    "name": "Podium",
     "slug": "podium-mobile",
     "version": "1.0.0",
     "scheme": "podium",
@@ -11,15 +11,20 @@
       "resizeMode": "contain",
       "backgroundColor": "#16171a"
     },
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "experiments": {
       "baseUrl": "/mobile"
     },
     "ios": {
       "bundleIdentifier": "dev.podium.mobile",
-      "supportsTablet": true,
+      "appleTeamId": "Z5A2ZC8STN",
+      "buildNumber": "12",
+      "supportsTablet": false,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "MinimumOSVersion": "16.4",
+        "CADisableMinimumFrameDurationOnPhone": true,
         "NSCameraUsageDescription": "Scan a one-time code to connect this phone to your Podium server.",
         "NSMicrophoneUsageDescription": "Dictate prompts privately using Apple's on-device speech model.",
         "NSLocalNetworkUsageDescription": "Connect to a Podium server you run on your local network.",
@@ -55,7 +60,61 @@
       "name": "Podium"
     },
     "plugins": [
+      "./plugins/with-ios-release-contract",
       "expo-router",
+      [
+        "expo-font",
+        {
+          "ios": {
+            "fonts": [
+              "@expo-google-fonts/geist/400Regular/Geist_400Regular.ttf",
+              "@expo-google-fonts/geist/600SemiBold/Geist_600SemiBold.ttf",
+              "@expo-google-fonts/geist-mono/400Regular/GeistMono_400Regular.ttf",
+              "@expo-google-fonts/geist-mono/600SemiBold/GeistMono_600SemiBold.ttf"
+            ]
+          },
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Geist_400Regular",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/geist/400Regular/Geist_400Regular.ttf",
+                    "weight": 400
+                  }
+                ]
+              },
+              {
+                "fontFamily": "Geist_600SemiBold",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/geist/600SemiBold/Geist_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              },
+              {
+                "fontFamily": "GeistMono_400Regular",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/geist-mono/400Regular/GeistMono_400Regular.ttf",
+                    "weight": 400
+                  }
+                ]
+              },
+              {
+                "fontFamily": "GeistMono_600SemiBold",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/geist-mono/600SemiBold/GeistMono_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
       [
         "expo-camera",
         {
@@ -63,7 +122,14 @@
           "recordAudioAndroid": false
         }
       ],
-      "expo-secure-store"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach photos and screenshots to a Podium prompt."
+        }
+      ],
+      "expo-secure-store",
+      "./plugins/with-sqlite-header-link"
     ]
   }
 }

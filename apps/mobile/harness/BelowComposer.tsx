@@ -9,7 +9,7 @@
  * untouched.
  */
 import { BlurView } from 'expo-blur'
-import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from 'lucide-react-native'
+import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from '../src/components/icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,

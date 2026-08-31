@@ -2,12 +2,12 @@ import type { IssueRow } from '@podium/client-core/viewmodels'
 import type { IssueBoardStage, IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { ChevronDown, ChevronRight, Layers, Plus } from 'lucide-react-native'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
+import { ChevronDown, ChevronRight, Layers, Plus } from '../components/icons'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
@@ -17,10 +17,10 @@ import { StageGlyph } from '../components/StageGlyph'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState, Pill } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
-import { useTabBarInset } from '../hooks/useTabBarInset'
 import { stageFoldKey } from '../lib/fold-keys'
 import { buildScreeningQueue } from '../lib/screening'
 import { taskBoardSections } from '../lib/task-board'
@@ -44,13 +44,30 @@ export function IssuesScreen() {
   const router = useRouter()
   const issues = useIssues()
   const [showDone, setShowDone] = useState(false)
+  /**
+   * Which parents are showing their children — local, exactly as the desktop
+   * board holds it (`IssuesView`'s own `expanded` state). Not replicated
+   * ui-state: expanding an epic is a look, not a preference, and the desk and
+   * the phone are looking at different things at the same moment.
+   */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleExpanded = useCallback((id: string) => {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }, [])
   const booting = useBooting()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('issues')
-  const tabBarInset = useTabBarInset()
+  const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
 
-  const board = useMemo(() => taskBoardSections(issues, { showDone }), [issues, showDone])
+  const board = useMemo(
+    () => taskBoardSections(issues, { showDone, expanded }),
+    [issues, showDone, expanded],
+  )
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
   // flow is the fast way through them, so the board leads with it whenever any
@@ -77,10 +94,6 @@ export function IssuesScreen() {
         </>
       }
     >
-      {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
-          a log line. Outside the crossfade so the skeleton cannot hide it. */}
-      <StorageNoticeAlert />
-      <RefreshOffer />
       <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <StageSections
@@ -90,11 +103,12 @@ export function IssuesScreen() {
             refreshControl={refreshControl}
             refreshAccessibilityProps={refreshAccessibilityProps}
             minimizeOnScroll={minimizeOnScroll}
-            tabBarInset={tabBarInset}
+            bottomInset={bottomInset}
             booting={booting}
             proposals={proposals.length}
             onScreenProposals={() => router.push('/screen-proposed')}
             onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
+            onToggleExpanded={toggleExpanded}
           />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
@@ -129,11 +143,12 @@ function StageSections({
   refreshControl,
   refreshAccessibilityProps,
   minimizeOnScroll,
-  tabBarInset,
+  bottomInset,
   booting,
   proposals,
   onScreenProposals,
   onOpen,
+  onToggleExpanded,
 }: {
   board: { stage: IssueBoardStage; title: string; rows: IssueRow<IssueWire>[] }[]
   issues: readonly IssueWire[]
@@ -143,11 +158,12 @@ function StageSections({
   refreshControl: RefreshableTab['refreshControl']
   refreshAccessibilityProps: RefreshableTab['refreshAccessibilityProps']
   minimizeOnScroll: ReturnType<typeof useMinimizeTabBarOnScroll>
-  tabBarInset: number
+  bottomInset: number
   booting: boolean
   proposals: number
   onScreenProposals: () => void
   onOpen: (id: string) => void
+  onToggleExpanded: (id: string) => void
 }) {
   // Keys come from `../lib/fold-keys` — the ui-state classifier is default-closed
   // and THROWS on an unregistered key, so an invented `tasks.stage.<stage>` took
@@ -170,9 +186,10 @@ function StageSections({
     key: s.stage,
     stage: s.stage,
     title: s.title,
-    // Every row on this tab is a listed task (a root, or a promoted proposal).
-    // The count is the lane's work, not a tree of hidden children.
-    total: s.rows.length,
+    // The lane's own work — roots and promoted proposals. Revealed children are
+    // not counted here: they belong to the parent, and a count that grew when
+    // an epic was opened would read as new work arriving.
+    total: s.rows.filter((row) => row.depth === 0).length,
     // A folded section keeps its header (and therefore its count) and drops its
     // rows — the compression the operator asked for, with nothing hidden that
     // they did not choose to hide.
@@ -186,30 +203,34 @@ function StageSections({
       keyExtractor={(row) => row.issue.id}
       stickySectionHeadersEnabled
       refreshControl={refreshControl}
-      contentContainerStyle={[styles.listContent, { paddingBottom: tabBarInset + space.lg }]}
+      contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
       {...refreshAccessibilityProps}
       {...minimizeOnScroll}
       ListHeaderComponent={
-        proposals === 0 ? null : (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Screen proposed"
-            accessibilityHint={`Decide on ${proposals} proposal${proposals === 1 ? '' : 's'} one at a time`}
-            onPress={onScreenProposals}
-            style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
-          >
-            <View style={styles.screenIcon}>
-              <Icon as={Layers} size={16} color={color.accentTint} />
-            </View>
-            <View style={styles.screenText}>
-              <Text style={styles.screenTitle}>Screen proposed</Text>
-              <Text style={styles.screenSub}>
-                {`${proposals} proposal${proposals === 1 ? '' : 's'} waiting on your call`}
-              </Text>
-            </View>
-            <Icon as={ChevronRight} size={16} color={color.textFaint} />
-          </PressableScale>
-        )
+        <>
+          <StorageNoticeAlert />
+          <RefreshOffer />
+          {proposals === 0 ? null : (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Screen proposed"
+              accessibilityHint={`Decide on ${proposals} proposal${proposals === 1 ? '' : 's'} one at a time`}
+              onPress={onScreenProposals}
+              style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
+            >
+              <View style={styles.screenIcon}>
+                <Icon as={Layers} size={16} color={color.accentTint} />
+              </View>
+              <View style={styles.screenText}>
+                <Text style={styles.screenTitle}>Screen proposed</Text>
+                <Text style={styles.screenSub}>
+                  {`${proposals} proposal${proposals === 1 ? '' : 's'} waiting on your call`}
+                </Text>
+              </View>
+              <Icon as={ChevronRight} size={16} color={color.textFaint} />
+            </PressableScale>
+          )}
+        </>
       }
       renderSectionHeader={({ section }) => (
         <StageHeader
@@ -220,7 +241,13 @@ function StageSections({
           onToggle={folds[section.stage][1]}
         />
       )}
-      renderItem={({ item }) => <TaskRow row={item} issues={issues} onOpen={onOpen} />}
+      renderItem={({ item }) => (
+        <TaskRow row={item} issues={issues} onOpen={onOpen} onToggleExpanded={onToggleExpanded} />
+      )}
+      // The inter-stage breath the header's marginTop used to (incorrectly)
+      // provide — footer space scrolls away with its section instead of
+      // travelling with the pinned bar.
+      renderSectionFooter={() => <View style={styles.sectionGap} />}
       ListEmptyComponent={
         // Guarded on `booting` even though the crossfade covers this screen:
         // ListEmptyComponent is rendered whenever the data is empty, with no
@@ -310,31 +337,59 @@ function StageHeader({
 }
 
 /**
- * One board row. Flat — no expander, no indent. Children live on the task
- * page; a parent that has any says so with a quiet count so they do not look
- * vanished. A promoted proposal (a row that still has a parent) keeps a
- * "from POD-…" mark so the epic that spawned it is still in view.
+ * One board row, indented by its depth under an expanded parent.
+ *
+ * THE SUB-TASK COUNT IS THE DISCLOSURE. It used to be an inert pill, which is
+ * how children ended up reachable only from the task page — the desk could open
+ * the same epic in place and the two lists then held different work. Tapping the
+ * count now reveals them here, as it does on the board; the row itself still
+ * opens the task, so the pill takes the press and the card keeps its own.
+ *
+ * The count is the row's, not `issue.childCount`: the wire number counts every
+ * child, including the agent-internal decomposition the board scope drops, so a
+ * row would have offered to reveal children that are not on this list.
+ *
+ * A promoted proposal (a row that still has a parent) keeps a "from POD-…" mark
+ * so the epic that spawned it is still in view.
  */
 function TaskRow({
   row,
   issues,
   onOpen,
+  onToggleExpanded,
 }: {
   row: IssueRow<IssueWire>
   issues: readonly IssueWire[]
   onOpen: (id: string) => void
+  onToggleExpanded: (id: string) => void
 }) {
   const issue = row.issue
   const hex = issueColorHex(issue.color)
   const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? ''
   const parent = issue.parentId ? issues.find((item) => item.id === issue.parentId) : undefined
-  const childCount = issue.childCount
+  const childCount = row.childCount
   return (
-    <View style={styles.rowWrap}>
+    <View style={[styles.rowWrap, row.depth > 0 && { marginLeft: row.depth * CHILD_INDENT }]}>
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`Task ${issue.seq}: ${issue.title}`}
+        // THE DISCLOSURE IS AN ACTION ON THE ROW, not a button inside it. The
+        // card is one accessibility element (a nested pressable inside an
+        // `accessible` parent is never reachable on iOS), so the sub-task
+        // chevron would have been a control only a finger could find. As a
+        // rotor action it is available to both.
+        {...(childCount > 0
+          ? {
+              accessibilityState: { expanded: row.expanded },
+              accessibilityActions: [
+                { name: 'expand', label: row.expanded ? 'Hide sub-tasks' : 'Show sub-tasks' },
+              ],
+              onAccessibilityAction: (event: { nativeEvent: { actionName: string } }): void => {
+                if (event.nativeEvent.actionName === 'expand') onToggleExpanded(issue.id)
+              },
+            }
+          : {})}
         onPress={() => onOpen(issue.id)}
         style={({ pressed }) => [
           styles.card,
@@ -368,7 +423,24 @@ function TaskRow({
             <Pill label={`blocked by ${issue.blockedByNotes.length}`} toneKey="danger" />
           ) : null}
           {childCount > 0 ? (
-            <Pill label={`${childCount} sub-task${childCount === 1 ? '' : 's'}`} />
+            <PressableScale
+              // The row carries this control's accessibility (see its
+              // `accessibilityActions`); announcing it twice would put a second,
+              // unreachable button in the tree.
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              onPress={() => onToggleExpanded(issue.id)}
+              hitSlop={10}
+              scaleTo={0.94}
+              style={styles.subTasks}
+            >
+              <Icon
+                as={row.expanded ? ChevronDown : ChevronRight}
+                size={13}
+                color={color.textDim}
+              />
+              <Pill label={`${childCount} sub-task${childCount === 1 ? '' : 's'}`} />
+            </PressableScale>
           ) : null}
           {parent ? <Text style={styles.from}>from {issueDisplayRef(parent)}</Text> : null}
           <Text style={styles.repo} numberOfLines={1}>
@@ -380,9 +452,18 @@ function TaskRow({
   )
 }
 
+/** How far a revealed child sits in from its parent — one step, and only one:
+ *  deep decomposition is read on the task page, not at 390pt. */
+const CHILD_INDENT = space.md
+
 const styles = StyleSheet.create({
   listContent: {
     flexGrow: 1,
+  },
+  subTasks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
   },
   toggle: {
     ...sans(600),
@@ -397,6 +478,9 @@ const styles = StyleSheet.create({
     gap: space.sm + 2,
     marginHorizontal: space.sm + 2,
     marginTop: space.sm,
+    // Owns the gap below itself now that the sticky header cannot carry a
+    // marginTop of its own.
+    marginBottom: space.sm,
     paddingHorizontal: 9,
     paddingVertical: 9,
     borderRadius: radius.md,
@@ -439,7 +523,11 @@ const styles = StyleSheet.create({
     gap: space.sm,
     paddingLeft: space.md + 2,
     paddingRight: space.sm,
-    marginTop: space.sm,
+    // NO EXTERNAL MARGIN — sticky geometry. Native pins a sticky header by
+    // translating the view to the viewport top, and a margin is layout the
+    // translation cannot take along: the pinned bar floated 8pt low with rows
+    // scrolling through the see-through strip above it. The breath between
+    // stages is the previous section's footer spacer instead.
     // OPAQUE, and the darkest tier the theme has — a sticky header shares no
     // ground with the rows travelling behind it.
     backgroundColor: color.bar,
@@ -481,6 +569,9 @@ const styles = StyleSheet.create({
   headerChevron: {
     width: 24,
     alignItems: 'center',
+  },
+  sectionGap: {
+    height: space.sm,
   },
   rowWrap: {
     flexDirection: 'row',

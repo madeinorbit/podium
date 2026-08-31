@@ -140,7 +140,7 @@ export function compareRecency(a: SessionMeta, b: SessionMeta, now: number = Dat
  * out at the command-center boundary; the sidebar's worktree tree still lists
  * shells under their worktree.
  */
-export function withoutShells(sessions: SessionMeta[]): SessionMeta[] {
+export function withoutShells(sessions: readonly SessionMeta[]): SessionMeta[] {
   // Headless superagent sessions are equally out of place on the board — they
   // render only inside the superagent panel's embedded chat.
   return sessions.filter((s) => s.agentKind !== 'shell' && s.headless !== true)

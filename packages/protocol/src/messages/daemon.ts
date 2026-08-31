@@ -18,6 +18,7 @@ import {
   FileWriteResultMessage,
   ImageUploadResultMessage,
 } from './files'
+import { DaemonLogBatchMessage } from './fleet-logs'
 import { GitHubCliResultMessage } from './github'
 import {
   HandoffBindingFinalizeResultMessage,
@@ -256,5 +257,6 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   /** The outcome of a sticky configure (POD-3081), appended at the END so the
    *  golden corpus's index-sampled arms stay byte-identical. */
   RuntimeConfigureResultMessage,
+  DaemonLogBatchMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

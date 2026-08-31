@@ -424,7 +424,7 @@ describe('desktop release workflow', () => {
       'PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}',
     )
     expect(desktopWorkflow).toContain('libwebkit2gtk-4.1-dev')
-    expect(desktopWorkflow).toContain('blacksmith-6vcpu-macos-15')
+    expect(desktopWorkflow).toContain('runner: macos-15\n')
     expect(desktopWorkflow).toContain('target: darwin-aarch64')
     expect(desktopWorkflow).toContain('--target aarch64-apple-darwin')
     expect(desktopWorkflow).toContain('APPLE_SIGNING_IDENTITY:')

@@ -37,6 +37,7 @@ import {
   DevBundleProposalMovedError,
   DevBundleUnavailableError,
   developmentHeadSha,
+  finalizeTimingIntoRecord,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState } from './dev-web-build'
@@ -225,6 +226,8 @@ export function wireDevBundlePublisher(deps: {
    * installed and production release paths never enter this wiring.
    */
   readonly releaseTiming?: ReleaseBuildTimingDeps | false
+  /** Explicit state-directory seam shared by the publisher and timing finalizer. */
+  readonly publisherStateDir?: string
   /** Constructor seam for publication-boundary tests; production never supplies it. */
   readonly createPublisher?: (
     input: Parameters<typeof createDevBundlePublisher>[0],
@@ -233,15 +236,16 @@ export function wireDevBundlePublisher(deps: {
   const sourceRoot = deps.sourceRoot
   const artifactOrigin = deps.artifactOrigin
   const instanceId = deps.instanceId ?? 'default'
+  const publisherStateDirectory = deps.publisherStateDir ?? stateDir()
   const releaseTiming =
     sourceRoot && deps.releaseTiming !== false
       ? (deps.releaseTiming ?? {
           enabled: true,
           // Beside the ledger, not in the checkout. Each release's lines land in a
           // `<version>.jsonl` here and are moved into `builds/<buildId>/timing.jsonl`
-          // when that attempt's record is written, so how long a release took ends up
+          // after publication finishes, so how long a release took ends up
           // next to what it produced instead of in a directory a clean wipes.
-          outputDirectory: releaseTimingStagingDir(stateDir()),
+          outputDirectory: releaseTimingStagingDir(publisherStateDirectory),
         })
       : undefined
   /**
@@ -275,6 +279,7 @@ export function wireDevBundlePublisher(deps: {
         sourceCheckoutAvailable: true,
         root: sourceRoot,
         instanceId,
+        publisherStateDir: publisherStateDirectory,
         headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         ...(releaseTiming ? { timing: releaseTiming } : {}),
@@ -308,6 +313,17 @@ export function wireDevBundlePublisher(deps: {
         ...(deps.proposalRunningSha ? { proposalRunningSha: deps.proposalRunningSha } : {}),
       })
     : undefined
+
+  /**
+   * Join the version-keyed staging sink to the build ledger only after the release
+   * boundary has stopped emitting. Moving it inside the bundle build strands every
+   * later snapshot, publication, and outer approval record in a recreated staging file.
+   */
+  const finalizeReleaseTiming = (version: string): void => {
+    const candidate = publisher?.current()
+    if (!releaseTiming || !candidate || candidate.version !== version) return
+    finalizeTimingIntoRecord(releaseTiming, publisherStateDirectory, candidate.buildId, version)
+  }
 
   let unavailableDiagnostic: string | undefined
   let publishedVersion: string | undefined
@@ -500,39 +516,46 @@ export function wireDevBundlePublisher(deps: {
 
   const approval = createReleaseApprovalFlow({
     proposal: async () => publisher?.proposal(),
-    release: async (approved) =>
-      timeReleaseBuildTask(
-        {
-          phase: 'approval-to-publish',
-          task: 'approved-development-release',
-          channel: 'dev',
-          version: approved.version,
-          sourceSha: approved.headSha,
-        },
-        async () => {
-          if (!publisher) throw new Error('This server does not publish development releases.')
-          const blocked = artifactOriginFailure()
-          if (blocked) throw blocked
-          publishFailureDetail = undefined
-          headSha?.invalidate()
-          try {
-            await publisher.requestBuild(true, approved)
-          } catch (error) {
-            if (error instanceof DevBundleProposalMovedError) {
-              throw new ReleaseApprovalRefusal(error.publicReason)
+    release: async (approved) => {
+      try {
+        await timeReleaseBuildTask(
+          {
+            phase: 'approval-to-publish',
+            task: 'approved-development-release',
+            channel: 'dev',
+            version: approved.version,
+            sourceSha: approved.headSha,
+          },
+          async () => {
+            if (!publisher) throw new Error('This server does not publish development releases.')
+            const blocked = artifactOriginFailure()
+            if (blocked) throw blocked
+            publishFailureDetail = undefined
+            headSha?.invalidate()
+            try {
+              await publisher.requestBuild(true, approved)
+            } catch (error) {
+              if (error instanceof DevBundleProposalMovedError) {
+                throw new ReleaseApprovalRefusal(error.publicReason)
+              }
+              throw error
             }
-            throw error
-          }
-          await observeBundleReadiness()
-          publishedVersion = publisher.current()?.version
-          if (!(await publishToFeed())) {
-            throw new Error('the development feed manifest was not published')
-          }
-          unavailableDiagnostic = undefined
-          publishFailureDetail = undefined
-        },
-        releaseTiming,
-      ),
+            await observeBundleReadiness()
+            publishedVersion = publisher.current()?.version
+            if (!(await publishToFeed())) {
+              throw new Error('the development feed manifest was not published')
+            }
+            unavailableDiagnostic = undefined
+            publishFailureDetail = undefined
+          },
+          releaseTiming,
+        )
+      } finally {
+        // `timeReleaseBuildTask` emits its outer phase only as it returns. Finalizing
+        // inside its callback would still strand that total in a new staging tail.
+        finalizeReleaseTiming(approved.version)
+      }
+    },
     failureLogs: (error) =>
       publisher?.unavailable() ?? (error instanceof Error ? error.message : String(error)),
   })
@@ -597,14 +620,18 @@ export function wireDevBundlePublisher(deps: {
       // from here: this call returns before admission has been decided.
       return publisher.requestBuild(true).then(
         async (built) => {
-          await observeBundleReadiness()
-          publishedVersion = built?.version
-          // The order is the handoff: write the manifest into the feed, then
-          // ask the resolver to pull it. This legacy internal entry point is
-          // intentionally not composed into update operations any more; only
-          // proposal approval calls the release path above.
-          await publishToFeed()
-          return built
+          try {
+            await observeBundleReadiness()
+            publishedVersion = built?.version
+            // The order is the handoff: write the manifest into the feed, then
+            // ask the resolver to pull it. This legacy internal entry point is
+            // intentionally not composed into update operations any more; only
+            // proposal approval calls the release path above.
+            await publishToFeed()
+            return built
+          } finally {
+            if (built) finalizeReleaseTiming(built.version)
+          }
         },
         async (error: unknown) => {
           await observeBundleReadiness()

@@ -1790,10 +1790,18 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
    * also re-enters this runner and that is not a stall — the successor should
    * let the existing grants stand and watch them.
    */
-  if ((step.stalls ?? 0) > 0) context.updates.reissueGrants(details.channel)
+  if ((step.stalls ?? 0) > 0) {
+    context.updates.reissueGrants(details.channel, undefined, {
+      initiator: { kind: 'operation-retry', operationId: operation.id, step: UPDATE_STEP_MACHINES },
+      eligibility: 'a grant this operation issued went silent and the step stalled',
+    })
+  }
 
   context.updates.markAuthorized(details.channel)
-  context.updates.tick(details.channel)
+  context.updates.tick(details.channel, {
+    initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_MACHINES },
+    eligibility: `selected by this operation's wave for ${details.target.version}`,
+  })
   const progress = projectMachines(operation, step, context)
   return { state: 'running', ...progress }
 }

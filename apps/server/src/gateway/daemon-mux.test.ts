@@ -70,6 +70,7 @@ function fakePorts() {
     approvals: proxyFor('approvals'),
     agentRelay: proxyFor('agentRelay'),
     updates: proxyFor('updates'),
+    logs: proxyFor('logs'),
   } as unknown as DaemonFeaturePorts
   return { ports, calls }
 }
@@ -287,6 +288,11 @@ describe('machine scope and the writer class', () => {
     // refused it. It takes the same correlator as its five siblings for the same
     // reason: it is a correlated request/reply whose caller is waiting, not a
     // new port.
+    //
+    // Still 38 after merging dev/mw into the epic for the dev/mw landing: the
+    // number was re-derived by counting 'rpc' rows in the MERGED
+    // `DAEMON_FRAME_PORTS`, not carried over. dev/mw contributed no new rpc
+    // reply on top of what POD-3070 already absorbed.
     expect(rpcFrames.length).toBe(38)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()

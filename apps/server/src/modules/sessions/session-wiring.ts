@@ -182,6 +182,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     persist: (session) => bag.repository.persist(session),
     broadcastSessions: () => bag.broadcastSessions(),
     broadcastToClients: (message) => bag.broadcastToClients(message),
+    transcriptDelta: (sessionId, items, reset) =>
+      bag.bus.emit('transcript.delta', {
+        sessionId,
+        items,
+        ...(reset !== undefined ? { reset } : {}),
+      }),
     adoptWorktree: (issueId, machineId, message) =>
       bag.bus.emit('issue.sessionDerived', { kind: 'adoptWorktree', issueId, machineId, message }),
   })
@@ -370,6 +376,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         bag.deps.confirmQueuedMessageApplied?.(sourceMessageId, sessionId),
       injected: ({ sourceMessageId, sessionId }) =>
         bag.deps.noteQueuedMessageInjected?.(sourceMessageId, sessionId),
+      interrupted: ({ sourceMessageId }) => {
+        if (sourceMessageId) bag.deps.interruptQueuedMessage?.(sourceMessageId)
+      },
+      interruptedPending: ({ sessionId, sourceMessageId }) =>
+        bag.deps.interruptPendingMessage?.(sessionId, sourceMessageId),
       rejected: ({ sourceMessageId, reason }) => {
         if (sourceMessageId) bag.deps.rejectQueuedMessage?.(sourceMessageId, reason)
       },

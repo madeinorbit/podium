@@ -99,7 +99,19 @@ function harness(
   const resurrect = vi.fn((sessionId: SessionId, principal: InboxPrincipalReference) => {
     resurrections.push({ sessionId, principal })
   })
+  const interrupted = vi.fn()
+  const interruptedPending = vi.fn()
   const handleInput = vi.fn()
+  // The real terminal takes PTY input as BYTES and keeps `handleInput` as the
+  // base64 spelling of the same call (terminal.ts). This fixture records the
+  // base64 one, so the bytes entry point has to fold back onto it — otherwise
+  // every test whose path reaches it dies on the TypeError this fixture's
+  // comment below predicts, rather than on anything it meant to assert.
+  const handleInputBytes = vi.fn(
+    (clientId: string, bytes: Uint8Array, attribution?: unknown): void => {
+      handleInput(clientId, Buffer.from(bytes).toString('base64'), attribution)
+    },
+  )
   const transcript: Array<{ id: string; role: 'user' | 'assistant'; text: string }> = Array.from(
     { length: options.userTurns ?? 0 },
     (_, index) => ({ id: `u${index}`, role: 'user' as const, text: `turn ${index}` }),
@@ -133,6 +145,7 @@ function harness(
     // here rather than a reimplementation of the class that computes it.
     setRequestedModel: vi.fn(() => options.requestedModelChanged ?? true),
     terminal: {
+      controllerId: 'client-1',
       lastOutputAtMs: 0,
       transcriptItems: () => transcript,
       recordInputActivity: vi.fn(),
@@ -142,6 +155,7 @@ function harness(
       // whichever line happens to be exercised. See POD-1459.
       noteInputAttribution: vi.fn(),
       handleInput,
+      handleInputBytes,
       requestControl: vi.fn(),
       handleResize: vi.fn(),
       reconcileGeometry: vi.fn(),
@@ -177,6 +191,8 @@ function harness(
         authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const),
       applied,
       injected,
+      interrupted,
+      interruptedPending,
       rejected: (input) => rejected.push(input),
     },
     attention: {
@@ -269,7 +285,10 @@ function harness(
     getDraft: () => draft,
     applied,
     injected,
+    interrupted,
+    interruptedPending,
     handleInput,
+    handleInputBytes,
     transcript,
     resurrect,
     revoke: () => {
@@ -310,7 +329,7 @@ const MAX_DELIVERY_ATTEMPTS_FOR_TEST = 5
 
 const typedTexts = (sent: unknown[]): string[] =>
   sent
-    .map((entry) => Buffer.from((entry as { data: string }).data, 'base64').toString())
+    .map((entry) => Buffer.from((entry as { bytes: Uint8Array }).bytes).toString())
     .filter((text) => text !== '\r')
     .map((text) =>
       text.startsWith(PASTE_OPEN) && text.endsWith(PASTE_CLOSE)
@@ -526,7 +545,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind: 'grok' })
     expect(h.inbox.sendText({ sessionId: SID, text: 'hello grok' })).toEqual({ ok: true })
     const decode = (entry: unknown) =>
-      Buffer.from((entry as { data: string }).data, 'base64').toString()
+      Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
     expect(decode(h.sent[0])).toBe('hello grok')
     vi.advanceTimersByTime(100)
     expect(decode(h.sent[1])).toBe('\r')
@@ -586,7 +605,7 @@ describe('SessionInbox authorization and identity', () => {
     const h = harness({ agentKind: 'grok', userTurns: 1 })
     expect(h.inbox.sendText({ sessionId: SID, text: 'follow up' })).toEqual({ ok: true })
     const decode = (entry: unknown) =>
-      Buffer.from((entry as { data: string }).data, 'base64').toString()
+      Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
     expect(decode(h.sent[0])).toBe('\x1b[200~follow up\x1b[201~')
     vi.advanceTimersByTime(100)
     expect(decode(h.sent[1])).toBe('\r')
@@ -820,7 +839,7 @@ describe('SessionInbox authorization and identity', () => {
       h.inbox.sendText({ sessionId: SID, text: 'mail', inputOrigin: 'mail', principal }),
     ).toEqual({ ok: true })
     const decode = (entry: unknown) =>
-      Buffer.from((entry as { data: string }).data, 'base64').toString()
+      Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
     expect(decode(h.sent[0])).toBe(
       String.fromCharCode(27) + '[200~mail' + String.fromCharCode(27) + '[201~',
     )
@@ -833,12 +852,64 @@ describe('SessionInbox authorization and identity', () => {
     const principal = testClientPrincipal('browser-1')
     const client = { id: 'client-1' } as ClientConn
 
-    h.inbox.handleControllerInput(principal, client, SID, 'x')
+    // Real base64: this path decodes to bytes now, and 'x' on its own is not a
+    // decodable payload — it would arrive as zero bytes and be dropped.
+    h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
 
-    expect(h.handleInput).toHaveBeenCalledWith('client-1', 'x', {
+    expect(h.handleInput).toHaveBeenCalledWith('client-1', Buffer.from('x').toString('base64'), {
       actor: { kind: 'user', id: principal.user },
       onBehalfOf: principal.user,
     })
+  })
+
+  it('cancels the delayed chat submit before forwarding native Codex Escape', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    const principal = testClientPrincipal('browser-1')
+    const client = { id: 'client-1' } as ClientConn
+
+    expect(h.inbox.sendText({ sessionId: SID, text: 'do not submit after Escape' })).toEqual({
+      ok: true,
+      queued: true,
+    })
+    h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(
+      h.sent
+        .map((message) => Buffer.from((message as { bytes: Uint8Array }).bytes).toString())
+        .filter((text) => text === '\r'),
+    ).toHaveLength(0)
+    expect(h.handleInput).toHaveBeenCalledWith(
+      'client-1',
+      Buffer.from('\x1b').toString('base64'),
+      expect.any(Object),
+    )
+    expect(h.interruptedPending).toHaveBeenCalledWith({ sessionId: SID })
+  })
+
+  it('does not cancel a chat send for Escape from a non-controlling terminal client', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    const principal = testClientPrincipal('browser-2')
+    const client = { id: 'client-2' } as ClientConn
+
+    h.inbox.sendText({ sessionId: SID, text: 'keep this queued' })
+    h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(h.rows).toHaveLength(1)
+    expect(h.interruptedPending).not.toHaveBeenCalled()
   })
 
   it('fails closed when a needs-human answer has no owner', () => {
@@ -869,7 +940,6 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.sent).toEqual([
       expect.objectContaining({
-        type: 'input',
         attribution: principal.attribution satisfies Attribution,
       }),
     ])
@@ -896,8 +966,7 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.sent).toEqual([
       expect.objectContaining({
-        type: 'input',
-        data: Buffer.from('\x1b').toString('base64'),
+        bytes: Buffer.from('\x1b'),
         attribution: principal.attribution,
       }),
     ])
@@ -911,12 +980,12 @@ describe('SessionInbox authorization and identity', () => {
   })
 
   // ONE keystroke, and WHICH keystroke is the harness's fact, not a constant
-  // (POD-1214). Measured on this host: claude-code and grok cancel on Esc and
-  // ignore Ctrl-C; codex ignores Esc entirely and cancels on Ctrl-C.
+  // (POD-1214). Codex moved from Ctrl-C in 0.147.0 to Esc in 0.150.1; keeping
+  // this table manifest-backed makes that provider change explicit.
   it.each([
     { agentKind: 'claude-code' as const, key: '\x1b' },
     { agentKind: 'grok' as const, key: '\x1b' },
-    { agentKind: 'codex' as const, key: '\x03' },
+    { agentKind: 'codex' as const, key: '\x1b' },
     { agentKind: 'shell' as const, key: '\x03' },
   ])('interrupt sends $agentKind its own abort key with the authenticated principal attribution', ({
     agentKind,
@@ -932,27 +1001,73 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.sent).toEqual([
       expect.objectContaining({
-        type: 'input',
-        data: Buffer.from(key).toString('base64'),
+        bytes: Buffer.from(key),
         attribution: principal.attribution,
       }),
     ])
     expect(h.answered).toEqual([])
   })
 
-  // The guard that keeps the fix from becoming a worse bug: one Ctrl-C at an
-  // IDLE codex prompt exits the CLI, so a stop aimed at a turn that already
-  // ended must refuse rather than kill the session.
-  it('refuses to interrupt an idle codex instead of sending the key that would quit it', async () => {
+  it('uses the safe Escape interrupt at an idle Codex prompt', async () => {
     const h = harness({ agentKind: 'codex', phase: 'idle' })
 
     // AWAITED because the verb now answers either way: the terminal path is
     // still synchronous, the contract path is not, and a caller reads one shape.
     const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
 
-    expect(result.ok).toBe(false)
-    expect(result.reason).toContain('only takes an interrupt while it is working')
-    expect(h.sent).toEqual([])
+    expect(result).toEqual({ ok: true, requested: 'keystroke' })
+    expect(h.sent).toHaveLength(1)
+  })
+
+  it('lets stop cancel a queued prompt even when idle codex has no turn to abort', () => {
+    const h = harness({ agentKind: 'codex', phase: 'idle' })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'cancel before delivery',
+      sourceMessageId: 'message-not-yet-injected',
+      principal: agentPrincipal(),
+    })
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+      requested: 'keystroke',
+    })
+    expect(h.sent).toHaveLength(1)
+    expect(h.rows).toEqual([])
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-not-yet-injected',
+      sessionId: SID,
+    })
+  })
+
+  it('cancels the named queued prompt without removing an earlier one', () => {
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'keep first',
+      sourceMessageId: 'message-keep',
+      principal: agentPrincipal(),
+    })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'cancel second',
+      sourceMessageId: 'message-cancel',
+      principal: agentPrincipal(),
+    })
+
+    expect(
+      h.inbox.interruptTurn({
+        sessionId: SID,
+        sourceMessageId: 'message-cancel',
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: true, requested: 'keystroke' })
+
+    expect(h.rows.map((row) => row.sourceMessageId)).toEqual(['message-keep'])
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-cancel',
+      sessionId: SID,
+    })
   })
 
   // Esc is inert at an idle prompt, so it needs no guard — and gating it would
@@ -967,9 +1082,50 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toHaveLength(1)
   })
 
-  // interruptText SKIPS the key rather than refusing: its job is to deliver the
-  // message, and an interrupt-urgency mail must never be what kills a session.
-  it('delivers interrupt-urgency text to an idle codex without the quit-when-idle key', async () => {
+  it('stops submit verification after the chat stop control interrupts the prompt', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+
+    h.inbox.sendText({ sessionId: SID, text: 'do not send this', principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(7_000)
+    expect(
+      h.sent
+        .map((message) => Buffer.from((message as { bytes: Uint8Array }).bytes).toString())
+        .filter((text) => text === '\r'),
+    ).toHaveLength(1)
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+      requested: 'keystroke',
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(
+      h.sent
+        .map((message) => Buffer.from((message as { bytes: Uint8Array }).bytes).toString())
+        .filter((text) => text === '\r'),
+    ).toHaveLength(1)
+  })
+
+  it('cancels the first delayed submit when stop wins the paste-to-Enter race', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+
+    h.inbox.sendText({ sessionId: SID, text: 'cancel immediately', principal: agentPrincipal() })
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+      requested: 'keystroke',
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    const decoded = h.sent.map((message) =>
+      Buffer.from((message as { bytes: Uint8Array }).bytes).toString(),
+    )
+    expect(decoded).toContain('\x1b')
+    expect(decoded).not.toContain('\r')
+  })
+
+  it('uses the current safe Escape before interrupt-urgency text at idle Codex', async () => {
     vi.useFakeTimers()
     try {
       const h = harness({ agentKind: 'codex', phase: 'idle' })
@@ -984,8 +1140,9 @@ describe('SessionInbox authorization and identity', () => {
       await vi.advanceTimersByTimeAsync(500)
 
       const decoded = h.sent.map((m) =>
-        Buffer.from((m as { data: string }).data, 'base64').toString(),
+        Buffer.from((m as { bytes: Uint8Array }).bytes).toString(),
       )
+      expect(decoded).toContain('\x1b')
       expect(decoded.some((d) => d.includes('\x03'))).toBe(false)
       expect(decoded.some((d) => d.includes('stop and read this'))).toBe(true)
     } finally {
@@ -1123,7 +1280,7 @@ describe('SessionInbox authorization and identity', () => {
       ).toEqual({ ok: true })
 
       const decoded = () =>
-        h.sent.map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+        h.sent.map((m) => Buffer.from((m as { bytes: Uint8Array }).bytes).toString())
 
       expect(decoded()).toEqual(['3'])
       await vi.advanceTimersByTimeAsync(120)
@@ -1570,6 +1727,34 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(typedTexts(h.sent)).toEqual(['ok'])
   })
 
+  it('cancels an injected row when the CLI transcript reports an interrupt', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true, phase: 'idle' })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      sourceMessageId: 'message-interrupted',
+      principal: agentPrincipal(),
+    })
+    await vi.advanceTimersByTimeAsync(6_500)
+    expect(h.rows[0]?.attempts).toBe(1)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    h.setPhase('working')
+    h.inbox.onTranscriptDelta(SID, [{ event: 'interrupt' }])
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-interrupted',
+      sessionId: SID,
+    })
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
+
   it('keeps the row queued when the typed prompt never becomes a turn', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
@@ -1768,13 +1953,12 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(typedTexts(h.sent)).toEqual([PROMPT])
   })
 
-  it('waits out a running turn instead of retyping into it', () => {
+  it('holds a queued chat send outside the CLI while its turn is running', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
-    // The state a queued send meets by definition: the agent is mid-turn, which
-    // is WHY the send was queued. The CLI takes the prompt into its own composer
-    // queue and writes no user turn until the turn ends, so the five-second
-    // confirmation can never succeed — and used to retype on that schedule.
+    // Podium keeps ownership until the turn boundary. If the prompt crossed
+    // into Codex's own queue, Escape would interrupt the current turn and then
+    // deliberately promote this prompt into the next one.
     const h = harness({ transcriptAvailable: true, phase: 'working' })
 
     h.inbox.queueText({
@@ -1786,10 +1970,9 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     })
     vi.advanceTimersByTime(240_000)
 
-    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(typedTexts(h.sent)).toEqual([])
     expect(h.rows).toHaveLength(1)
-    // Typed, not taken: the operator's bubble may settle, the ledger may not.
-    expect(h.injected).toHaveBeenCalledWith({ sourceMessageId: 'msg_busy', sessionId: SID })
+    expect(h.injected).not.toHaveBeenCalled()
     expect(h.applied).not.toHaveBeenCalled()
   })
 
@@ -1808,9 +1991,12 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     vi.advanceTimersByTime(600_000)
     expect(h.rows).toHaveLength(1)
 
-    // Ten minutes later the turn ends and the CLI submits what it was holding.
-    h.landTurn(PROMPT)
+    // Ten minutes later the turn ends. Only now does Podium hand over the row.
     h.setPhase('idle')
+    vi.advanceTimersByTime(1_100)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    h.landTurn(PROMPT)
     vi.advanceTimersByTime(1_100)
 
     expect(typedTexts(h.sent)).toEqual([PROMPT])
@@ -1830,10 +2016,10 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
       principal: agentPrincipal(),
     })
     vi.advanceTimersByTime(60_000)
-    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(typedTexts(h.sent)).toEqual([])
 
-    // The turn ended and took something else — our prompt is not in the
-    // transcript and nothing is holding it any more. NOW it was lost.
+    // The turn ended, so delivery starts. No matching user turn appears, which
+    // is the point at which retrying becomes valid.
     h.setPhase('idle')
     vi.advanceTimersByTime(9_000)
 
