@@ -2322,9 +2322,14 @@ describe('the dev feed manifest the publisher writes', () => {
         sourceSha: 'aaaaaaa',
       }),
     )
-    // It runs on the LIVE checkout, before the snapshot exists, so it must be the
-    // first task of the attempt — the 18s cold walk the envelope used to hide.
-    expect(tasks[0]?.task).toBe('live-source-inputs')
+    // Exact and ordered: it runs on the LIVE checkout, before the snapshot exists, so
+    // it must be the FIRST task of the attempt — the cold walk the envelope used to
+    // hide — and no wrapper may fire twice.
+    expect(tasks.map((record) => [record.phase, record.task])).toEqual([
+      ['validation', 'live-source-inputs'],
+      ['artifact-publication', 'describe-artifact'],
+      ['artifact-publication', 'retention'],
+    ])
   })
 
   it('records feed activation failure without relabeling desktop resolution', async () => {
