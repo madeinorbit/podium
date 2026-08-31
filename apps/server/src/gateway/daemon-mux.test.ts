@@ -239,7 +239,9 @@ describe('machine scope and the writer class', () => {
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    expect(rpcFrames.length).toBe(31)
+    // 32: the census had fallen one behind an rpc frame that landed without
+    // updating it, which is the drift a census exists to catch.
+    expect(rpcFrames.length).toBe(32)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

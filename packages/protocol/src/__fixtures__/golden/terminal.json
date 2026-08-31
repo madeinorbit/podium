@@ -1035,12 +1035,16 @@
       "variant": "full",
       "wire": {
         "type": "requestControl",
-        "sessionId": "sessionId"
+        "sessionId": "sessionId",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"requestControl\",\"sessionId\":\"sessionId\"}"
+      "encoded": "{\"type\":\"requestControl\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1}}"
     },
     {
       "schema": "ResizeMessage",
@@ -2046,12 +2050,13 @@
       "variant": "full",
       "wire": {
         "type": "welcome",
-        "clientId": "clientId"
+        "clientId": "clientId",
+        "caps": ["caps[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"welcome\",\"clientId\":\"clientId\"}"
+      "encoded": "{\"type\":\"welcome\",\"clientId\":\"clientId\",\"caps\":[\"caps[0]\"]}"
     }
   ]
 }
