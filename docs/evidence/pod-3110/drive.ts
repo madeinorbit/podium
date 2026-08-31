@@ -6,7 +6,7 @@
  * session is created. A missing positive control is BLOCKED, never a failure.
  */
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   AGENT_KIND,
@@ -67,10 +67,22 @@ interface SessionContext {
   cwd: string
   row: SessionRow
   chat: RichChat
+  providerPin: ProviderPinReceipt
 }
+interface ProviderPinReceipt {
+  pid: number
+  executable: string
+  declaredExecutable: string
+  version: string
+  sha256: string
+}
+
 
 const arm = (process.argv[2] ?? 'headless') as Arm
 if (arm !== 'headless' && arm !== 'terminal') throw new Error('usage: grok-drive.ts headless|terminal')
+const DECLARED_GROK_BIN = '/home/mgw/.grok/downloads/grok-linux-x86_64'
+const DECLARED_GROK_VERSION = 'grok 0.2.118 (1e1687c1cf) [stable]'
+const DECLARED_GROK_SHA256 = 'c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6'
 
 const INSTANCE = 'p3110-grok-paired-7ef8e42-r4'
 const PRODUCT_PIN = '7ef8e4268b8a2630cbb1e9a1adf09830f2e5f524'
@@ -580,7 +592,8 @@ async function openSession(id: string, suffix = ''): Promise<SessionContext> {
       const loggedOut = /log[ -]?in|sign[ -]?in|authenticate|api key|device code|browser|credential|unauthori[sz]ed/i.test(chat.screenTail(8_000))
       if (loggedOut && id !== 'A8') throw new Error('Grok terminal is logged out; authenticated acceptance control unavailable')
     }
-    return { arm, id, sid: made.sid, cwd: made.cwd, row, chat }
+    const providerPin = await liveProviderPin()
+    return { arm, id, sid: made.sid, cwd: made.cwd, row, chat, providerPin }
   } catch (error) {
     await chat?.close().catch(() => {})
     await mutate('sessions.kill', { sessionId: made.sid }).catch(() => {})
@@ -661,6 +674,46 @@ function ownedPids(): { pids: number[]; cmds: Map<number, string> } {
     } catch { /* process exited between /proc reads */ }
   }
   return { pids: pids.sort((a, b) => a - b), cmds }
+}
+
+function providerPinMatches(receipt: ProviderPinReceipt): boolean {
+  return receipt.executable === receipt.declaredExecutable
+    && receipt.version === DECLARED_GROK_VERSION
+    && receipt.sha256 === DECLARED_GROK_SHA256
+}
+
+async function liveProviderPin(ms = 20_000): Promise<ProviderPinReceipt> {
+  const declaredExecutable = realpathSync(DECLARED_GROK_BIN)
+  const started = now()
+  let last = 'no Grok executable candidate'
+  while (now() - started < ms) {
+    for (const pid of ownedPids().pids) {
+      try {
+        const executable = readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, '')
+        if (!executable.toLowerCase().includes('grok')) continue
+        const versionResult = spawnSync(executable, ['--version'], { encoding: 'utf8' })
+        const hashResult = spawnSync('sha256sum', [executable], { encoding: 'utf8' })
+        const receipt: ProviderPinReceipt = {
+          pid,
+          executable,
+          declaredExecutable,
+          version: `${versionResult.stdout ?? ''}${versionResult.stderr ?? ''}`.split(/\r?\n/, 1)[0] ?? '',
+          sha256: String(hashResult.stdout ?? '').trim().split(/\s+/, 1)[0] ?? '',
+        }
+        if (versionResult.status !== 0 || hashResult.status !== 0) {
+          last = `pid=${pid} executable=${executable} versionStatus=${versionResult.status} hashStatus=${hashResult.status}`
+          continue
+        }
+        if (!providerPinMatches(receipt)) throw new Error(`executed Grok pin mismatch: ${JSON.stringify(receipt)}`)
+        return receipt
+      } catch (error) {
+        if (String(error).includes('executed Grok pin mismatch')) throw error
+        last = String(error)
+      }
+    }
+    await wait(100)
+  }
+  throw new Error(`no executed Grok /proc pin receipt before timeout: ${last}`)
 }
 
 async function waitTurnActive(ctx: SessionContext, ms = 20_000): Promise<{
@@ -772,10 +825,11 @@ async function a1a(): Promise<void> {
         `REPLY LATENCY     ${r.ms}ms; reload observed after ${now() - started}ms`,
         `LIVE USER         count=${liveUser.count} items=${short(liveUser.itemIdentities)}`,
         `LIVE ASSISTANT    count=${liveAssistant.count} items=${short(liveAssistant.itemIdentities)}`,
+        `PROVIDER PIN      pid=${ctx.providerPin.pid} exe=${ctx.providerPin.executable} version=${ctx.providerPin.version} sha256=${ctx.providerPin.sha256}`,
         `RELOAD USER       count=${reloadedUser.count} items=${short(reloadedUser.itemIdentities)}`,
         `RELOAD ASSISTANT  count=${reloadedAssistant.count} items=${short(reloadedAssistant.itemIdentities)}`,
       ],
-      data: { disposition, sent, token: r.token, liveUser, liveAssistant, reloadedUser, reloadedAssistant },
+      data: { disposition, sent, token: r.token, liveUser, liveAssistant, reloadedUser, reloadedAssistant, providerPin: ctx.providerPin },
     }
   }))
 }
@@ -1501,6 +1555,15 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
   let selectorRefusals = 0
   for (const raw of ['A1a,A1a', 'UNKNOWN', 'A1a,,A1b', '', undefined]) {
     try { parseCellSelector(raw) } catch { selectorRefusals++ }
+  const providerGood: ProviderPinReceipt = { pid: 1, executable: '/declared/grok', declaredExecutable: '/declared/grok', version: DECLARED_GROK_VERSION, sha256: DECLARED_GROK_SHA256 }
+  if (!providerPinMatches(providerGood)) throw new Error('provider exact pin self-test rejected match')
+  for (const bad of [
+    { ...providerGood, executable: '/other/grok' },
+    { ...providerGood, version: 'grok 1.0.13 (5e9a58528b76) [stable]' },
+    { ...providerGood, sha256: '0'.repeat(64) },
+  ]) {
+    if (providerPinMatches(bad)) throw new Error(`provider exact pin self-test accepted mismatch: ${JSON.stringify(bad)}`)
+  }
   }
   if (selectorRefusals !== 5) throw new Error(`selector refusal coverage failed: ${selectorRefusals}`)
   const dispatched: CanonicalCellId[] = []
@@ -1523,7 +1586,7 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     if (!String(error).includes('STOP-FIRST')) throw error
   }
   if (rows !== 1 || later !== 0) throw new Error(`stop-first self-test failed rows=${rows} later=${later}`)
-  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} selectorOne=${oneSelected.length} selectorTwo=${twoSelected.length} selectorAll=${allSelected.length} selectorRefusals=${selectorRefusals} dispatch=${executed.join(',')} headedFields=${headedFields.length} headlessFields=${headlessFields.length} rigLinks=missing+escaping-refused unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
+  console.log(`STATIC_SELF_TEST_OK canonical=${cases.length} selectorOne=${oneSelected.length} selectorTwo=${twoSelected.length} selectorAll=${allSelected.length} selectorRefusals=${selectorRefusals} dispatch=${executed.join(',')} headedFields=${headedFields.length} headlessFields=${headlessFields.length} rigLinks=missing+escaping-refused providerPin=exact+mismatches-refused unknownRejected=${unknownRejected} blockedFired=yes blockedMissing=no a1aSingleUser=${userCount.count} a1aSingleAssistant=${singleCount.count} a1aDuplicateUser=${duplicateUserCount.count} a1aDuplicateAssistant=${duplicateCount.count} a1aMissingUser=BLOCKED stagedExact=5 foreignRejected=${foreignRejected} failRows=${rows} laterCells=${later}`)
   process.exit(0)
 }
 

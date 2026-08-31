@@ -27,7 +27,7 @@ Run arms sequentially, never concurrently. Before launch, run `bun run setup:wor
 5. The headless sequence requires its own explicit live release and equivalent atomic wrapper; it is not authorized by the headed wrapper.
 6. Validate candidate rows with `awk -F'\t' 'NF != 8 { print NR ":" NF; bad=1 } END { exit bad }'` before appending them once to the epic ledger.
 
-`rig.sh verify ARM CELL` gates every cell on checkout HEAD, server and daemon spawn stamps/PIDs/cwds/environments, served web stamp, provider-binary hash, instance identity, inherited HOME, absent forbidden variables, and available memory. A missing positive control records BLOCKED rather than inventing a product verdict.
+`rig.sh verify ARM CELL` gates every cell on checkout HEAD, server and daemon spawn stamps/PIDs/cwds/environments, served web stamp, declared provider-binary hash, instance identity, inherited HOME, absent forbidden variables, and available memory. After the session starts but before any prompt is sent, the runner additionally resolves the owned Grok PID's `/proc/<pid>/exe` and refuses unless that exact executed path, full `--version` line, and SHA-256 match the declared pin; the receipt is included in A1a evidence. A missing positive control records BLOCKED rather than inventing a product verdict.
 
 ## Covered journeys
 
