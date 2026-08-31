@@ -1,0 +1,54 @@
+{
+  "instance": "p3110-grok-paired-057755c-r3",
+  "arm": "terminal",
+  "results": [
+    {
+      "id": "A1a",
+      "arm": "terminal",
+      "verdict": "BLOCKED",
+      "summary": "durable user-prompt control was missing in the live or reloaded transcript",
+      "control": {
+        "fired": false,
+        "what": "the probe prompt exists as a durable user transcript item in both live and freshly reloaded viewers",
+        "detail": "liveUser=0 reloadedUser=0 liveItems=[] reloadedItems=[]"
+      },
+      "evidence": [
+        "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+        "DISPOSITION       delivered",
+        "REPLY LATENCY     120439ms; reload observed after 138839ms",
+        "LIVE USER         count=0 items=[]",
+        "LIVE ASSISTANT    count=0 items=[]",
+        "RELOAD USER       count=0 items=[]",
+        "RELOAD ASSISTANT  count=0 items=[]"
+      ],
+      "data": {
+        "disposition": "delivered",
+        "sent": true,
+        "token": "IDLE-DC53VW",
+        "liveUser": {
+          "count": 0,
+          "itemIdentities": []
+        },
+        "liveAssistant": {
+          "count": 0,
+          "itemIdentities": []
+        },
+        "reloadedUser": {
+          "count": 0,
+          "itemIdentities": []
+        },
+        "reloadedAssistant": {
+          "count": 0,
+          "itemIdentities": []
+        }
+      },
+      "cwd": "/tmp/pod-3110-grok-paired-057755c-r3/runs/20260831T001033.429457457Z-2695085/cells/terminal-a1a",
+      "memoryMb": 14364,
+      "pin": "PIN OK row=A1a arm=terminal instance=p3110-grok-paired-057755c-r3 serverPid=2695282 daemonPid=2695361 serverSha=057755c77a6bdfdf01aa526d968562b0316e78df webSourceSha=057755c driver=no-runtime-override grokVersion='grok 0.2.118 (1e1687c1cf) [stable]' grokBinSha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 state=/home/mgw/.local/state/podium/p3110-grok-paired-057755c-r3 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [
+        "a088bf2b-8b36-4b8c-a4cd-a84058e4a384"
+      ],
+      "at": "2026-08-31T00:13:07.561Z"
+    }
+  ]
+}
