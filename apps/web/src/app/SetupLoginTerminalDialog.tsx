@@ -1,7 +1,7 @@
 import type { SessionId } from '@podium/model'
 import type { JSX } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { AgentPanel } from '@/features/terminal/AgentPanel'
+import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 
 export function SetupLoginTerminalDialog({
   sessionId,
@@ -37,7 +37,7 @@ export function SetupLoginTerminalDialog({
           </p>
         </DialogHeader>
         <div className="min-h-0 flex-1">
-          {sessionId && <AgentPanel sessionId={sessionId} active showHeader={false} />}
+          {sessionId && <AgentPanelBoundary sessionId={sessionId} active showHeader={false} />}
         </div>
       </DialogContent>
     </Dialog>

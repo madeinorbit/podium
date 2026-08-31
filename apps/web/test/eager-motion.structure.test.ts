@@ -129,3 +129,19 @@ describe('eager shell Motion boundary', () => {
     expect(emitted.forbidden.map((moduleId) => relative(WEB_ROOT, moduleId))).toEqual([])
   })
 })
+
+describe('eager shell session boundary', () => {
+  const graph = eagerShellGraph()
+
+  it('loads the heavy session panel only when a session surface mounts', () => {
+    expect([...graph.files].map((file) => relative(SRC, file))).not.toContain(
+      'features/terminal/AgentPanel.tsx',
+    )
+    expect([...graph.files].map((file) => relative(SRC, file))).toContain(
+      'features/terminal/AgentPanelBoundary.tsx',
+    )
+
+    const boundary = readFileSync(resolve(SRC, 'features/terminal/AgentPanelBoundary.tsx'), 'utf8')
+    expect(boundary).toContain("import('./AgentPanel')")
+  })
+})

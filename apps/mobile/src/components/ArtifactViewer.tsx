@@ -1,6 +1,6 @@
 import type { IssuePanelArtifact } from '@podium/model'
-import { X } from 'lucide-react-native'
 import { type ComponentType, createElement, useEffect, useState } from 'react'
+import { X } from './icons'
 import {
   Image,
   Modal,
@@ -12,7 +12,11 @@ import {
   View,
   type ViewStyle,
 } from 'react-native'
-import { authenticatedImageSource, fetchAuthenticatedAsset } from '../client/authenticated-assets'
+import {
+  authenticatedImageSource,
+  fetchAuthenticatedAsset,
+  readAuthenticatedTextPreview,
+} from '../client/authenticated-assets'
 import { useServerProfile } from '../client/ServerProfileGate'
 import {
   endAtTagBoundary,
@@ -27,7 +31,6 @@ import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
 
-const TEXT_CAP = 512 * 1024
 const HTML_CAP = 2 * 1024 * 1024
 
 /**
@@ -55,7 +58,6 @@ function resolveDomWebView(): DomWebViewComponent | null {
   }
   return domWebViewCache
 }
-
 /**
  * In-app issue artifact viewer. Images and video stay in a lightbox; HTML
  * concepts render in a same-origin frame; markdown and text are fetched and
@@ -256,9 +258,7 @@ function FetchedText({
     void fetchAuthenticatedAsset(url, bearer)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Could not load (${res.status})`)
-        const buf = await res.arrayBuffer()
-        const slice = buf.byteLength > TEXT_CAP ? buf.slice(0, TEXT_CAP) : buf
-        const decoded = new TextDecoder().decode(slice)
+        const decoded = await readAuthenticatedTextPreview(res)
         if (alive) setText(decoded)
       })
       .catch((e: unknown) => {

@@ -1,8 +1,9 @@
 import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionOffer } from '@podium/model'
-import { Lightbulb, X } from 'lucide-react-native'
+import { Lightbulb, X } from './icons'
 import { useState } from 'react'
-import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
+import { AccessibilityInfo, StyleSheet, Text, TextInput, View } from 'react-native'
+import { followPodiumLink } from '../lib/podium-link'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
@@ -11,6 +12,11 @@ import { PressableScale } from './PressableScale'
 /** Compose an input action's prompt with the feedback collected in context. */
 export const composeOfferPrompt = (prompt: string, feedback: string): string =>
   `${prompt}\n\n${feedback.trim()}`
+
+function errorText(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message.trim() : String(error).trim()
+  return (message || fallback).replace(/[.!?]+$/, '')
+}
 
 /**
  * A session-owned offer, kept in the transcript flow. This is deliberately a
@@ -63,19 +69,21 @@ export function SessionActionCard({
   const [feedback, setFeedback] = useState('')
   const [sending, setSending] = useState(false)
   const [dismissing, setDismissing] = useState(false)
-  const [failed, setFailed] = useState(false)
-  const [dismissFailed, setDismissFailed] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [dismissFailed, setDismissFailed] = useState<string | null>(null)
   const [headline, ...rest] = offer.message.split('\n')
   const body = rest.join('\n').trim()
   const pending = inputAction === null ? undefined : offer.actions[inputAction]
 
   const send = async (prompt: string) => {
     setSending(true)
-    setFailed(false)
+    setFailed(null)
     try {
       await onAction(prompt)
-    } catch {
-      setFailed(true)
+    } catch (error) {
+      const detail = errorText(error, 'The action did not reach the agent')
+      setFailed(detail)
+      AccessibilityInfo.announceForAccessibility(`Not sent: ${detail}. Try again.`)
     } finally {
       setSending(false)
     }
@@ -84,14 +92,16 @@ export function SessionActionCard({
   const dismiss = async () => {
     if (!onDismiss || dismissing || sending) return
     setDismissing(true)
-    setDismissFailed(false)
+    setDismissFailed(null)
     try {
       await onDismiss(offer.createdAt)
-    } catch {
+    } catch (error) {
       // Only on the failure path does the flag come back down: a dismissal that
       // WORKED unmounts this card with the cleared session, and releasing it on
       // the way out would flash the control live again first.
-      setDismissFailed(true)
+      const detail = errorText(error, 'The offer is still active')
+      setDismissFailed(detail)
+      AccessibilityInfo.announceForAccessibility(`Not dismissed: ${detail}. Try again.`)
       setDismissing(false)
     }
   }
@@ -133,9 +143,10 @@ export function SessionActionCard({
       {body ? (
         <Text style={styles.body} numberOfLines={2}>
           {/* The URLs an agent wrote are the same links the desktop bar makes
-              clickable; here they open the phone's browser. Nested <Text> is
-              how React Native puts a tappable run inside a paragraph — an
-              overlaid Pressable would not follow the wrap. */}
+              clickable. One that names this phone's own Podium opens the screen
+              it names (POD-1606); everything else goes to the browser. Nested
+              <Text> is how React Native puts a tappable run inside a paragraph —
+              an overlaid Pressable would not follow the wrap. */}
           {segmentOfferText(body).map((segment, index) =>
             segment.kind === 'link' ? (
               <Text
@@ -143,7 +154,7 @@ export function SessionActionCard({
                 key={index}
                 accessibilityRole="link"
                 style={styles.link}
-                onPress={() => void Linking.openURL(segment.href).catch(() => {})}
+                onPress={() => followPodiumLink(segment.href)}
               >
                 {segment.text}
               </Text>
@@ -165,8 +176,16 @@ export function SessionActionCard({
       {/* Failures get their own line rather than a slot in the eyebrow: at 390pt
           "not dismissed — try again" beside the label wrapped the eyebrow onto
           two lines, and an error is not a thing to truncate. */}
-      {failed ? <Text style={styles.error}>Not sent — try again.</Text> : null}
-      {dismissFailed ? <Text style={styles.error}>Not dismissed — try again.</Text> : null}
+      {failed ? (
+        <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>
+          Not sent: {failed}. Try again.
+        </Text>
+      ) : null}
+      {dismissFailed ? (
+        <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>
+          Not dismissed: {dismissFailed}. Try again.
+        </Text>
+      ) : null}
       {pending ? (
         <View style={styles.inputBlock}>
           <TextInput
@@ -196,7 +215,7 @@ export function SessionActionCard({
               onPress={() => {
                 setInputAction(null)
                 setFeedback('')
-                setFailed(false)
+                setFailed(null)
               }}
               style={styles.linkButton}
             >
@@ -219,7 +238,7 @@ export function SessionActionCard({
               onPress={() => {
                 if (action.input) {
                   setInputAction(index)
-                  setFailed(false)
+                  setFailed(null)
                 } else {
                   void send(action.prompt)
                 }
@@ -265,7 +284,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   error: {
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny, 'prose'),
     marginTop: 6,

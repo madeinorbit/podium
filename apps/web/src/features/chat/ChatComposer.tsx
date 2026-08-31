@@ -1,6 +1,6 @@
 import type { SessionMeta } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
-import { ArrowUp, CloudOff, MessageSquareText, Paperclip, Square, X } from 'lucide-react'
+import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useReplicaIssues } from '@/app/store'
@@ -18,6 +18,7 @@ import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
 import type { UseAttachmentsResult } from './use-attachments'
 import { chordLabel, useComposerChord } from './use-composer-chord'
+import type { TranscriptFreshness } from './useTranscriptWindow'
 import { VoiceButton } from './VoiceButton'
 
 /**
@@ -125,6 +126,7 @@ export function ChatComposer({
   onOfferDismiss,
   session,
   turnError,
+  transcriptFreshness,
   offlineAsOf,
   attached,
   autoFocusKey,
@@ -160,6 +162,8 @@ export function ChatComposer({
   onOfferDismiss: (offerAt: string) => Promise<void>
   session: SessionMeta | undefined
   turnError: string | null
+  /** Whether the visible transcript is being checked, rendered, or remains saved-only. */
+  transcriptFreshness: TranscriptFreshness
   offlineAsOf: number | null
   /** "Ask superagent (BTW)" (POD-1069): the session the NEXT turn will carry a
    *  transcript digest of. Null on every composer but the superagent's. */
@@ -185,6 +189,30 @@ export function ChatComposer({
   // owns that accelerator and the focused panel already answers it.
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
   const [focused, setFocused] = useState(false)
+  const [transcriptAnnouncement, setTranscriptAnnouncement] = useState('')
+  const previousTranscriptStatus = useRef<{
+    freshness: TranscriptFreshness
+    offlineAsOf: number | null
+  }>({ freshness: null, offlineAsOf: null })
+
+  // Keep one polite region mounted from the first render. Screen readers often
+  // miss a live region inserted already populated, and they need the completion
+  // announcement as much as the initial warning.
+  useEffect(() => {
+    const previous = previousTranscriptStatus.current
+    if (offlineAsOf !== null) {
+      setTranscriptAnnouncement(
+        `Offline transcript copy, as of ${new Date(offlineAsOf).toLocaleString()}`,
+      )
+    } else if (transcriptFreshness === 'saved') {
+      setTranscriptAnnouncement('Transcript may be outdated. Waiting for current messages.')
+    } else if (transcriptFreshness !== null) {
+      setTranscriptAnnouncement('Updating transcript. Showing previous messages.')
+    } else if (previous.freshness !== null || previous.offlineAsOf !== null) {
+      setTranscriptAnnouncement('Transcript updated.')
+    }
+    previousTranscriptStatus.current = { freshness: transcriptFreshness, offlineAsOf }
+  }, [offlineAsOf, transcriptFreshness])
   const focusField = useCallback(() => {
     taRef.current?.focus()
   }, [taRef])
@@ -478,11 +506,15 @@ export function ChatComposer({
           />
         </div>
       )}
+      <div role="status" className="sr-only">
+        {transcriptAnnouncement}
+      </div>
       {(turnError !== null ||
         (interruptError !== null && interruptError !== undefined) ||
+        transcriptFreshness !== null ||
         offlineAsOf !== null ||
         attached) && (
-        <div className="composer-notices" aria-live="polite">
+        <div className="composer-notices">
           {/* The attachment leads: it is the only notice here that describes
               what the NEXT send will carry, and it is dismissible. */}
           {attached && (
@@ -524,6 +556,22 @@ export function ChatComposer({
             >
               <strong>Not stopped</strong>
               <span>{interruptError}</span>
+            </div>
+          )}
+          {offlineAsOf === null && transcriptFreshness !== null && (
+            <div className="composer-notice" data-notice="transcript-refreshing">
+              <RefreshCw size={12} aria-hidden="true" />
+              {transcriptFreshness === 'saved' ? (
+                <>
+                  <strong>Transcript may be outdated</strong>
+                  <span>waiting for current messages</span>
+                </>
+              ) : (
+                <>
+                  <strong>Updating transcript</strong>
+                  <span>showing previous messages</span>
+                </>
+              )}
             </div>
           )}
           {offlineAsOf !== null && (

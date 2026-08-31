@@ -146,7 +146,7 @@ export function MobileSyncBoundary({
             testID="warm-sync-status"
           >
             {sync.phase === 'offline' ? null : (
-              <ActivityIndicator size="small" color={color.working} />
+              <ActivityIndicator size="small" color={color.workingText} />
             )}
             <Text style={styles.statusText}>{warmLabel(sync.phase)}</Text>
           </View>

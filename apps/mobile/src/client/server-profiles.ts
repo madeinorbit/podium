@@ -23,9 +23,43 @@ export interface ServerProfile {
   updatedAt: string
 }
 
+/** Identity for process-local data that must not cross a replaced server instance. */
+export function serverProfileRequestKey(
+  profile: Pick<ServerProfile, 'id' | 'instanceId' | 'userId'>,
+): string {
+  return `${profile.id}\n${profile.userId ?? ''}\n${profile.instanceId ?? ''}`
+}
+
 export interface ServerProfileState {
   activeProfileId: string | null
   profiles: ServerProfile[]
+}
+
+/**
+ * A live preflight may be skipped only for a profile whose local trust boundary
+ * was completed by an earlier verified connection. `instanceId` proves the
+ * profile has seen Podium at this exact saved origin, while `userId` names the
+ * only principal whose replica may open. Other preflight failures remain hard
+ * failures because they carry positive evidence of replacement, skew, or an
+ * unsafe transport rather than an absence of network evidence.
+ */
+export function canOpenProfileOffline(
+  profile: ServerProfile,
+  failureKind:
+    | 'not-podium'
+    | 'version-mismatch'
+    | 'tls-untrusted'
+    | 'unreachable'
+    | 'cleartext-blocked',
+): boolean {
+  return (
+    failureKind === 'unreachable' &&
+    typeof profile.instanceId === 'string' &&
+    profile.instanceId.length > 0 &&
+    typeof profile.userId === 'string' &&
+    profile.userId.length > 0 &&
+    (profile.transport === 'trusted-https' || profile.transport === 'tailscale-serve')
+  )
 }
 
 /**
@@ -101,6 +135,12 @@ function isProfile(value: unknown): value is ServerProfile {
     (row.mode === 'open' || row.mode === 'protected') &&
     transportMatches &&
     credentialPolicyMatches &&
+    (row.instanceId === undefined ||
+      (typeof row.instanceId === 'string' &&
+        row.instanceId.length > 0 &&
+        row.instanceId.length <= 256)) &&
+    (row.userId === undefined ||
+      (typeof row.userId === 'string' && row.userId.length > 0 && row.userId.length <= 256)) &&
     typeof row.createdAt === 'string' &&
     typeof row.updatedAt === 'string'
   )

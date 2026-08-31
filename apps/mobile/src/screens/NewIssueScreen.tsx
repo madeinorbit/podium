@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     fontSize: font.small,
   },
   error: {
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingTop: space.md,

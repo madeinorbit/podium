@@ -1277,7 +1277,7 @@ describe('connection health', () => {
     expect(hub.connectionHealth()).toMatchObject({ status: 'ok', rttMs: 0 })
   })
 
-  it('notifies observers with a replay and only on change', () => {
+  it('notifies observers on exact connection boundaries and health changes', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()
     const seen: Array<{ status: string; rttMs: number | null }> = []
@@ -1288,6 +1288,10 @@ describe('connection health', () => {
     vi.advanceTimersByTime(2_500)
     sockets[0]?.recv({ type: 'pong' }) // rtt 0 again — no change, no emit
     expect(seen.map(({ status, rttMs }) => ({ status, rttMs }))).toEqual([
+      { status: 'ok', rttMs: null },
+      // The label is unchanged, but consumers can now read `hub.connected`
+      // against the exact open boundary instead of treating initial `ok` as a
+      // live socket during an offline cold start.
       { status: 'ok', rttMs: null },
       { status: 'ok', rttMs: 0 },
     ])

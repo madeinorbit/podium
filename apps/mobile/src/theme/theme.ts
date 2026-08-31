@@ -1,90 +1,89 @@
 import { Platform } from 'react-native'
+import { fontFaces } from './font-family'
+import { adaptiveColor, semanticColor } from './platform-colors'
+
+export { adaptiveColor } from './platform-colors'
+
+export const appearancePalette = {
+  light: {
+    bg: '#ffffff',
+    sunken: '#f2f2f7',
+    surface: '#ffffff',
+    raised: '#f2f2f7',
+    text: '#000000',
+    body: '#1c1c1e',
+    dim: '#3c3c43',
+  },
+  dark: {
+    bg: '#16171a',
+    sunken: '#191a1e',
+    surface: '#23262d',
+    raised: '#252830',
+    text: '#f2f3f5',
+    body: '#d7dae0',
+    dim: '#a8adb6',
+  },
+} as const
 
 /**
- * Podium mobile design language — "Dark Ink". [POD-784, mirrors
- * apps/web/DESIGN.md and the `[data-theme="podium"].dark` block of
- * apps/web/src/index.css]
+ * Podium's status and identity colors remain explicit while UIKit owns the
+ * structural chassis. The web/Android fallback stays on the established Dark
+ * Ink ramp, so this native migration does not repaint unsupported renderers.
  *
- * The chassis is NEUTRAL INK, not navy. It was a deep race navy (#0a0f1c
- * ground, #121b30 card) because the first Superade mock painted the chrome in
- * the brand's blue; POD-737 took the hue out of the web's neutrals and this
- * file follows it, value for value. Three rules carry over:
- *
- * 1. NEUTRAL, NOT NAVY. Every surface and every seam is a cool-neutral ink.
- *    A tinted ground competes with the issue-accent channel — the point of
- *    that channel is that a hue on a surface MEANS something, and navy chrome
- *    meant nothing while looking like it did.
- * 2. THE FRAME LIFTS. The tier order inverts the old navy ramp: `bg` #16171a
- *    is the darkest thing on screen and every surface steps UP from it, so the
- *    tab bar and section bars sit ABOVE the ground rather than below it.
- * 3. BISQUE FILLS AND WRITES. `accent` #d9b477 — the app icon's light-cut
- *    plane — is the fill (buttons, dots, spines, the active tab glyph) and
- *    every accent `color:` alike. This rule used to read YELLOW FILLS, GOLD
- *    WRITES: Superade Yellow #f5c518 could not be running text against neutral
- *    ink (a highlighter smear), so `accentTint` #e3ba52 existed for nothing but
- *    the `color:` cases. Bisque writes at 9.2:1 on the ground as well as it
- *    fills, so the two values collapse into one. `accentTint` survives as a
- *    NAME, not a second colour, so a call site still says which job it means.
- *
- * The swap [POD-1436] follows the web accent (POD-1431) and is a chroma cut,
- * not a repaint: bisque sits within a point of the yellow's lightness, so every
- * ./mix.ts recipe keeps the dose it was tuned at. The yellow is not softened,
- * it is retired from the phone — it survives on the web only as `--warning`,
- * and this app has no alarm surface to spend it on.
- *
- * Status semantics are otherwise unchanged and still strict: the accent means
- * "waiting on you" and marks the primary action (The Signal Rule); blue keeps
- * its two jobs — `working` #6f9dff is what is MOVING (spinners, live rings)
- * and `success`/`info` #2a62f0 the settled fill behind them, because Superade
- * has no green; Alert Red #e5303f is destructive/alerts only; terracotta
- * #d97757 is Claude. Issue accents come from the 10-colour palette in
- * ./issueColors.ts and are always tinted via ./mix.ts, never flat.
+ * Bisque is the primary action and attention signal, blue means active work,
+ * red is destructive, and terracotta identifies Claude. Issue accents remain
+ * distinct from those reserved signals and are derived in issueColors.ts.
  */
 export const color = {
-  // Canvas tiers — the ground is the DARKEST; every surface steps up (rule 2)
-  bg: '#16171a',
-  bgGradientTop: '#16171a',
-  bgSunken: '#191a1e',
+  // UIKit owns the structural chassis and resolves appearance and contrast.
+  bg: semanticColor('systemBackground', appearancePalette.dark.bg),
+  bgGradientTop: semanticColor('systemBackground', appearancePalette.dark.bg),
+  bgSunken: semanticColor('secondarySystemBackground', appearancePalette.dark.sunken),
   /** The work list and the conversation field — a flat surface that steps
    *  AWAY from the work. The name outlived the groove. */
-  engraved: '#191a1e',
+  engraved: semanticColor('secondarySystemBackground', appearancePalette.dark.sunken),
   /** Compact section bars, key-bar strip — lifted just above the ground. */
-  bar: '#1b1d21',
+  bar: semanticColor('secondarySystemBackground', '#1b1d21'),
   /** Agent-roster band tier. */
-  rail: '#1e2024',
+  rail: semanticColor('tertiarySystemBackground', '#1e2024'),
   // Legacy alias used by older components; same as surface.
-  bgRaised: '#23262d',
+  bgRaised: semanticColor('secondarySystemBackground', appearancePalette.dark.surface),
 
   // Surfaces
-  surface: '#23262d',
-  surfaceHigh: '#252830',
-  surfacePressed: '#2c3038',
+  surface: semanticColor('secondarySystemBackground', appearancePalette.dark.surface),
+  surfaceHigh: semanticColor('tertiarySystemBackground', appearancePalette.dark.raised),
+  surfacePressed: semanticColor('systemFill', '#2c3038'),
   /** Raised chips ("New Claude in podium"), neutral ID-square fill. */
-  elevated: '#252830',
-  glass: 'rgba(27, 29, 33, 0.78)',
+  elevated: semanticColor('tertiarySystemBackground', appearancePalette.dark.raised),
+  glass: semanticColor('secondarySystemBackground', 'rgba(27, 29, 33, 0.78)'),
   // Legacy aliases
-  card: '#23262d',
-  cardPressed: '#2c3038',
+  card: semanticColor('secondarySystemBackground', appearancePalette.dark.surface),
+  cardPressed: semanticColor('systemFill', '#2c3038'),
 
   // Seam / hairline tiers — row rules → panel/bar seams → chip rims
-  border: '#26292f',
-  borderStrong: '#3a3f48',
-  hairline: '#24272d',
+  border: semanticColor('separator', '#26292f'),
+  borderStrong: semanticColor('opaqueSeparator', '#3a3f48'),
+  hairline: semanticColor('separator', '#24272d'),
   /** Hairlines on the #1b1d21 bars. */
-  hairlineBar: '#26292f',
+  hairlineBar: semanticColor('separator', '#26292f'),
+  fill: semanticColor('systemFill', 'rgba(120, 120, 128, 0.36)'),
+  secondaryFill: semanticColor('secondarySystemFill', 'rgba(120, 120, 128, 0.32)'),
+  tertiaryFill: semanticColor('tertiarySystemFill', 'rgba(118, 118, 128, 0.24)'),
+  quaternaryFill: semanticColor('quaternarySystemFill', 'rgba(116, 116, 128, 0.18)'),
+  clear: 'transparent',
 
   // Ink — six steps, the web's whole ramp. By LIGHTNESS (contrast vs `bg`):
   // text 16.5 · body 13.1 · textDim 8.1 · label 6.5 · textFaint 5.3 ·
   // textMicro 3.9. The bottom two land LIGHTER than the navy theme's did:
   // metadata has to hold above 5:1 on a ground that is itself lighter now.
-  text: '#f2f3f5',
-  body: '#d7dae0',
-  textDim: '#a8adb6',
-  textFaint: '#848a94',
+  text: semanticColor('label', appearancePalette.dark.text),
+  body: semanticColor('label', appearancePalette.dark.body),
+  textDim: semanticColor('secondaryLabel', appearancePalette.dark.dim),
+  textFaint: semanticColor('tertiaryLabel', '#848a94'),
   /** Micro labels, hints. */
-  textMicro: '#6f7580',
+  textMicro: semanticColor('tertiaryLabel', '#6f7580'),
   /** Mono section labels (project names). */
-  label: '#949aa4',
+  label: semanticColor('secondaryLabel', '#949aa4'),
 
   // Accent = bisque. One signal everywhere (The Signal Rule).
   accent: '#d9b477',
@@ -98,7 +97,7 @@ export const color = {
   /** Every accent `color:` — tinted labels, the lit ⏎ key, attention text.
    *  Same value as {@link accent} since the swap (rule 3), kept under its own
    *  name because the call sites mean different things by it. */
-  accentTint: '#d9b477',
+  accentTint: adaptiveColor('#765114', '#d9b477'),
   // Legacy alias
   accentText: '#16171a',
 
@@ -110,24 +109,28 @@ export const color = {
   /** "Waiting on you" as a `color:` — the write of {@link accentTint}, kept
    *  under its own name so the SIGNAL stays legible at the call site.
    *  `needsYou` above remains the fill (dots, spines, bars). */
-  needsYouText: '#d9b477',
+  needsYouText: adaptiveColor('#765114', '#d9b477'),
   /** What is MOVING — spinners, live rings, meters. Superade has no green. */
   working: '#6f9dff',
+  workingText: adaptiveColor('#0057b8', '#6f9dff'),
   workingSoft: 'rgba(111, 157, 255, 0.13)',
   workingBg: 'rgba(111, 157, 255, 0.13)',
   /** Host/health dots, quota bars, done ✓ — the settled blue behind the
    *  moving one; blue is the calm "all good". */
   success: '#2a62f0',
+  successText: adaptiveColor('#1d4ed8', '#6f9dff'),
   idle: '#949aa4',
   idleSoft: 'rgba(148, 154, 164, 0.12)',
   idleBg: 'rgba(148, 154, 164, 0.12)',
   danger: '#e5303f',
+  dangerText: adaptiveColor('#b42318', '#ff6673'),
   dangerSoft: 'rgba(229, 48, 63, 0.12)',
   dangerBg: 'rgba(229, 48, 63, 0.12)',
   /** User / YOU rail blue. */
   info: '#2a62f0',
   /** Claude brand terracotta. */
   claude: '#d97757',
+  claudeText: adaptiveColor('#9f3e23', '#e58d70'),
   /** Neutral no-colour issue flow — a TRUE grey, not slate: a blue-grey
    *  default tint over neutral ink reads as an issue colour nobody chose. */
   flow: '#949aa4',
@@ -135,8 +138,8 @@ export const color = {
   // Chat
   userBubbleGradient: ['#2452c9', '#1c41a4'] as const,
   userBubble: '#1f47b0',
-  assistantBubble: '#23262d',
-  toolText: '#6f7580',
+  assistantBubble: semanticColor('secondarySystemBackground', '#23262d'),
+  toolText: semanticColor('tertiaryLabel', '#6f7580'),
 } as const
 
 export const space = {
@@ -243,29 +246,35 @@ export const spring = {
 } as const
 
 /**
- * Geist / Geist Mono, with regular and semibold static faces loaded in
- * app/_layout (POD-143). Medium and bold requests intentionally use semibold
- * so the app keeps its emphasis hierarchy without shipping near-identical
- * extra files. Use these instead of fontWeight — mixing a weight-specific
- * family with fontWeight makes Android synthesize fake bolds.
+ * Geist / Geist Mono, with regular and semibold static faces embedded on native
+ * and loaded by the web launch root. Medium and bold requests intentionally use
+ * semibold so the app keeps its emphasis hierarchy without shipping near-identical
+ * extra files. Use these instead of fontWeight — mixing a weight-specific family
+ * with fontWeight makes Android synthesize fake bolds.
  */
 export const sans = (weight: 400 | 500 | 600 | 700 = 400) =>
-  ({
-    fontFamily: {
-      400: 'Geist_400Regular',
-      500: 'Geist_600SemiBold',
-      600: 'Geist_600SemiBold',
-      700: 'Geist_600SemiBold',
-    }[weight],
-  }) as const
+  Platform.select({
+    ios: {
+      fontFamily: undefined,
+      fontWeight: String(weight) as '400' | '500' | '600' | '700',
+    },
+    default: {
+      fontFamily: {
+        400: fontFaces.sansRegular,
+        500: fontFaces.sansSemiBold,
+        600: fontFaces.sansSemiBold,
+        700: fontFaces.sansSemiBold,
+      }[weight],
+    },
+  })!
 
 export const mono = (weight: 400 | 500 | 600 | 700 = 400) =>
   ({
     fontFamily: {
-      400: 'GeistMono_400Regular',
-      500: 'GeistMono_600SemiBold',
-      600: 'GeistMono_600SemiBold',
-      700: 'GeistMono_600SemiBold',
+      400: fontFaces.monoRegular,
+      500: fontFaces.monoSemiBold,
+      600: fontFaces.monoSemiBold,
+      700: fontFaces.monoSemiBold,
     }[weight],
   }) as const
 
@@ -281,17 +290,39 @@ export const monoLabel = (size: number = font.micro) =>
 export type AttentionTone = 'needsYou' | 'working' | 'idle' | 'danger' | 'accent'
 
 export const tone: Record<AttentionTone, { fg: string; bg: string; border: string }> = {
-  needsYou: { fg: color.needsYou, bg: color.needsYouSoft, border: color.needsYouBorder },
-  working: { fg: color.working, bg: color.workingSoft, border: 'rgba(111, 157, 255, 0.35)' },
-  idle: { fg: color.idle, bg: color.idleSoft, border: 'rgba(148, 154, 164, 0.3)' },
-  danger: { fg: color.danger, bg: color.dangerSoft, border: 'rgba(229, 48, 63, 0.4)' },
-  accent: { fg: color.accent, bg: color.accentSoft, border: color.accentBorder },
+  needsYou: {
+    fg: color.needsYouText,
+    bg: color.needsYouSoft,
+    border: color.needsYouBorder,
+  },
+  working: {
+    fg: color.workingText,
+    bg: color.workingSoft,
+    border: 'rgba(111, 157, 255, 0.35)',
+  },
+  idle: {
+    fg: color.idle,
+    bg: color.idleSoft,
+    border: 'rgba(148, 154, 164, 0.3)',
+  },
+  danger: {
+    fg: color.dangerText,
+    bg: color.dangerSoft,
+    border: 'rgba(229, 48, 63, 0.4)',
+  },
+  accent: {
+    fg: color.accentTint,
+    bg: color.accentSoft,
+    border: color.accentBorder,
+  },
 }
 
 /** Depth: shadow + hairline border together (either alone reads flat). */
 export const elevation = {
   card: Platform.select({
-    web: { boxShadow: '0 2px 12px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.45)' },
+    web: {
+      boxShadow: '0 2px 12px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.45)',
+    },
     default: {
       shadowColor: '#000',
       shadowOpacity: 0.4,
@@ -301,7 +332,9 @@ export const elevation = {
     },
   }) as object,
   raised: Platform.select({
-    web: { boxShadow: '0 8px 24px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.45)' },
+    web: {
+      boxShadow: '0 8px 24px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.45)',
+    },
     default: {
       shadowColor: '#000',
       shadowOpacity: 0.55,

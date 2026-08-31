@@ -854,16 +854,80 @@ pub fn remote_injection_script(server_url: &str) -> String {
 /// the raw plugin invoke avoids adding a Tauri JS dependency to apps/web (same pattern
 /// as the __PODIUM_RESTART__ hook). `window.open` returns a stub WindowProxy-alike so
 /// callers that probe the return value (e.g. `opened.opener = null`) keep working.
+///
+/// EXTERNAL IS NOT "CROSS-ORIGIN" (POD-1606). This used to compare against
+/// `window.location.origin` alone, which in all-in-one mode is `tauri://localhost`
+/// while the server the app talks to is `http://127.0.0.1:<port>` — so a link to the
+/// reader's OWN Podium was cross-origin and left the app for Safari. In client mode the
+/// window already sits on the server origin, so the identical URL stayed in-app: same
+/// link, opposite behaviour, decided by how the app happened to launch. The shim now
+/// also counts the injected `__PODIUM_SERVER__` endpoint as ours, read lazily so a
+/// window that navigates to a transferred remote origin keeps agreeing with the page.
+///
+/// A link this shim declines is one the WEB APP must answer — the markdown pipeline and
+/// the offer renderer navigate known-Podium links in-page (apps/web/src/lib/markdown.ts,
+/// features/chat/OfferText.tsx) — and a caller that wants the OS browser for one of OUR
+/// urls asks for it explicitly through `openInSystemBrowser`, which is the mirror of
+/// this test (apps/web/src/lib/nativeDesktop.ts).
 pub fn opener_shim_script() -> &'static str {
     r#";(() => {
   const t = window.__TAURI_INTERNALS__;
   if (!t || typeof t.invoke !== 'function') return;
-  const externalHref = (raw) => {
+  const httpOrigin = (raw) => {
     try {
-      const u = new URL(raw, window.location.href);
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-      return u.origin === window.location.origin ? null : u.href;
+      const u = new URL(raw);
+      const p = u.protocol === 'ws:' ? 'http:' : u.protocol === 'wss:' ? 'https:' : u.protocol;
+      if ((p !== 'http:' && p !== 'https:') || !u.hostname) return null;
+      return p + '//' + u.hostname + (u.port ? ':' + u.port : '');
     } catch { return null; }
+  };
+  const activeOrigin = () => {
+    const server = window.__PODIUM_SERVER__;
+    if (typeof server === 'string') return httpOrigin(server);
+    return httpOrigin(window.location.href);
+  };
+  const isOurs = (origin) => {
+    if (origin === null) return false;
+    return activeOrigin() === origin;
+  };
+  const cleanedHref = (raw) => String(raw).replace(/[\t\n\r]/g, '').trim();
+  const handoffHref = (href, parsed) => {
+    if (/^[\\/][\\/]/.test(href)) {
+      const query = href.indexOf('?');
+      const fragment = href.indexOf('#');
+      const detailAt = query === -1 ? fragment : fragment === -1 ? query : Math.min(query, fragment);
+      const address = detailAt === -1 ? href : href.slice(0, detailAt);
+      const detail = detailAt === -1 ? '' : href.slice(detailAt);
+      return parsed.protocol + address.replace(/\\/g, '/') + detail;
+    }
+    return parsed.href;
+  };
+  const externalHref = (raw) => {
+    const href = cleanedHref(raw);
+    try {
+      const base = activeOrigin() || window.location.href;
+      const u = new URL(href, base);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      const outgoing = handoffHref(href, u);
+      // An authority-relative address is external by definition in the shared
+      // resolver, even when it happens to repeat the active server's host.
+      // Treating that spelling as ours leaves its target=_blank to WKWebView,
+      // which drops both clicks and window.open.
+      if (/^[\\/][\\/]/.test(href)) return outgoing;
+      // Userinfo is how a link disguises its real host. The protocol resolver
+      // refuses it outright, and the two halves have to answer alike: if this
+      // one called it ours it would decline, the page would have stamped
+      // target=_blank, and WKWebView would drop the click on the floor.
+      if (u.username || u.password) return outgoing;
+      // `server` is BOOT configuration, never detail for the active replica.
+      // The web resolver declines it so the destination can reboot against the
+      // selected server; this capture-phase half must therefore hand it out
+      // rather than swallowing the blank-target fallback as one of "ours".
+      if (u.searchParams.has('server')) return outgoing;
+      return isOurs(httpOrigin(u.href)) ? null : outgoing;
+    } catch {
+      return /^https?:\/\//i.test(href) ? href : null;
+    }
   };
   const openExternal = (href) => { t.invoke('plugin:opener|open_url', { url: href }).catch(() => {}); };
   const nativeOpen = window.open.bind(window);
@@ -877,7 +941,7 @@ pub fn opener_shim_script() -> &'static str {
     if (e.defaultPrevented) return;
     const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
     if (!a) return;
-    const href = externalHref(a.href);
+    const href = externalHref(a.getAttribute('href') || a.href);
     if (href === null) return;
     e.preventDefault();
     openExternal(href);

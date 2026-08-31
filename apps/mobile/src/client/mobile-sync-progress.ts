@@ -112,7 +112,10 @@ export class MobileSyncProgressStore {
       case 'stale':
         this.publish({
           ...this.snapshot,
-          phase: this.snapshot.failure === null ? 'reconnecting' : 'offline',
+          // `stale` is emitted at the transport disconnect boundary. Keep the
+          // cached world interactive, but name the fact that new server truth
+          // is unavailable instead of implying a connection exists.
+          phase: 'offline',
         })
         return
       case 'healing':

@@ -10,13 +10,16 @@ import type {
   IssueStage,
   IssueType,
   IssueWire,
+  MachineId,
   MutationId,
   SessionId,
   ThreadId,
   TranscriptItem,
 } from '@podium/model'
+import type { HostMemoryBreakdown } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { Platform } from 'react-native'
+import { MobileAuthExpiredError } from './auth'
 
 interface QueryProcedure<I, O> {
   query(input: I): Promise<O>
@@ -42,6 +45,14 @@ export interface TranscriptPage {
  * (@podium/client-core/api) — the intersection below is the full client type.
  */
 interface MobileTrpcExtras {
+  /**
+   * Live machine capacity detail. The shipped tRPC verb is a mutation, but the
+   * command stores nothing. Server policy classifies it as a read and requires
+   * the caller's live `use` grant for that machine.
+   */
+  hosts: {
+    memoryBreakdown: MutationProcedure<{ machineId?: MachineId } | void, HostMemoryBreakdown>
+  }
   sessions: {
     transcriptRead: QueryProcedure<
       { sessionId: SessionId; anchor?: string; direction: 'before' | 'after'; limit: number },
@@ -78,6 +89,14 @@ interface MobileTrpcExtras {
        *  the card must say so rather than settle into "sent" (POD-770). */
       { ok: boolean; reason?: string }
     >
+    interrupt: MutationProcedure<
+      { sessionId: SessionId; messageId?: string },
+      { ok?: boolean; reason?: string }
+    >
+  }
+  messages: {
+    ledger: QueryProcedure<{ sessionId: SessionId; limit: number }, unknown[]>
+    cancel: MutationProcedure<{ id: string }>
   }
   superagent: {
     // THE SHADOW TYPES ARE GONE (POD-332, audit item `superagent-shadow-types`).
@@ -234,17 +253,33 @@ export function bearerHeaders(bearer: string | null, headers?: HeadersInit): Hea
   return result
 }
 
-export function makeMobileTrpc(httpOrigin: string, bearer: string | null = null): MobileTrpc {
+export async function fetchMobileTransport(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  bearer: string | null,
+  onAuthExpired?: (error: MobileAuthExpiredError) => void,
+): Promise<Response> {
+  const response = await fetch(input, {
+    ...init,
+    credentials: Platform.OS === 'web' ? 'include' : 'omit',
+    headers: bearerHeaders(bearer, init?.headers),
+  })
+  if (bearer && response.status === 401) {
+    onAuthExpired?.(new MobileAuthExpiredError())
+  }
+  return response
+}
+
+export function makeMobileTrpc(
+  httpOrigin: string,
+  bearer: string | null = null,
+  onAuthExpired?: (error: MobileAuthExpiredError) => void,
+): MobileTrpc {
   return createTRPCClient<any>({
     links: [
       httpBatchLink({
         url: httpOrigin + '/trpc',
-        fetch: (url, opts) =>
-          fetch(url, {
-            ...opts,
-            credentials: Platform.OS === 'web' ? 'include' : 'omit',
-            headers: bearerHeaders(bearer, opts?.headers),
-          }),
+        fetch: (url, opts) => fetchMobileTransport(url, opts, bearer, onAuthExpired),
       }),
     ],
   }) as unknown as MobileTrpc

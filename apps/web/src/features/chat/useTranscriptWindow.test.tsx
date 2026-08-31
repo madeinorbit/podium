@@ -12,7 +12,7 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import type { JSX } from 'react'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -191,6 +191,32 @@ function lastTraceMarks(): string[] {
 }
 
 describe('useTranscriptWindow optimistic session boundary', () => {
+  it('keeps the transcript live after root StrictMode rehearses its effect', async () => {
+    act(() =>
+      root.render(
+        <StrictMode>
+          <Probe active />
+        </StrictMode>,
+      ),
+    )
+    expect(reads).toHaveLength(2)
+
+    await act(async () => {
+      reads[0]?.resolve({ items: [item('stale', 'c1', 'stale')], hasMore: false })
+      reads[1]?.resolve({
+        items: [item('mounted', 'c2', 'mounted')],
+        head: 'c2',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+
+    expect(captured?.initialLoaded).toBe(true)
+    expect(captured?.blocks.map((block) => block.item.id)).toEqual(['mounted'])
+    expect(fakeHub.subscribes).toHaveLength(1)
+  })
+
   it('waits for server truth before spending the initial read and subscription', async () => {
     act(() => root.render(<Probe active deferInitialRead />))
     expect(reads).toHaveLength(0)
@@ -951,6 +977,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     // The one-item probe, not the 200-item read POD-725 exists to avoid.
     expect(reads).toHaveLength(2)
     expect(reads[1]?.input.limit).toBe(1)
+    expect(captured?.transcriptFreshness).toBe('checking')
 
     // Disk really is ahead → the probe escalates and the missed item lands.
     await act(async () => {
@@ -962,6 +989,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     })
     await flush()
     expect(reads[2]?.input.limit).toBe(200)
+    expect(captured?.transcriptFreshness).toBe('checking')
     await act(async () => {
       reads[2]?.resolve({
         items: [item('a', 'c1', 'first'), item('b', 'c2', 'missed while hidden')],
@@ -972,6 +1000,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     })
     await flush()
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
+    expect(captured?.transcriptFreshness).toBeNull()
   })
 
   it('does not chase the same signal twice — the probe stands in for the 400ms reconcile', async () => {

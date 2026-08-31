@@ -1,5 +1,8 @@
 # Desktop releases
 
+macOS is supported on Apple Silicon and Intel. Windows and Linux packages remain previews until
+the packaged acceptance rows in [the parity release proof](parity-release-proof.md) pass.
+
 Podium desktop shells understand three update channels:
 
 - **stable** reads `releases/latest/download/latest.json`.

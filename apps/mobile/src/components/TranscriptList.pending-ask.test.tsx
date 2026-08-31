@@ -78,12 +78,6 @@ vi.mock('react-native-svg', async () => {
   const Svg = ({ children }: { children?: React.ReactNode }) => <View>{children}</View>
   return { default: Svg, Svg, Circle: () => null }
 })
-vi.mock('lucide-react-native', () => ({
-  ChevronDown: () => null,
-  ChevronUp: () => null,
-  Search: () => null,
-  X: () => null,
-}))
 
 const { TranscriptList } = await import('./TranscriptList')
 const { PENDING_ASK_ITEM_ID, pendingAskFromState } = await import('@podium/client-core/viewmodels')

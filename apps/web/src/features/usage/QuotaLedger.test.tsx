@@ -141,3 +141,84 @@ describe('identity without colour', () => {
     expect(html).not.toContain('data-tone')
   })
 })
+
+describe('width shows length', () => {
+  const widths = () =>
+    [...figure().querySelectorAll('.quota-groove')].map((el) =>
+      (el as HTMLElement).style.getPropertyValue('--days'),
+    )
+
+  it('draws a seven-day window seven times a one-day one', () => {
+    render(
+      <QuotaLedger
+        ledger={quotaLedger([
+          row({ resetsAt: '2026-08-17T07:00:00Z', windowMinutes: 1440 }),
+          row({ resetsAt: '2026-08-24T07:00:00Z', windowMinutes: 10080 }),
+        ])}
+        cold={false}
+      />,
+    )
+    expect(widths()).toEqual(['1', '7'])
+  })
+
+  it('keeps the day labels on the same scale as their columns', () => {
+    // Mismatched bases and the dates stop sitting under the columns they name.
+    render(
+      <QuotaLedger
+        ledger={quotaLedger([
+          row({ resetsAt: '2026-08-17T07:00:00Z', windowMinutes: 1440 }),
+          row({ resetsAt: '2026-08-24T07:00:00Z', windowMinutes: 10080 }),
+        ])}
+        cold={false}
+      />,
+    )
+    const labels = [...figure().querySelectorAll('.quota-strip-days span')].map((el) =>
+      (el as HTMLElement).style.getPropertyValue('--days'),
+    )
+    expect(labels).toEqual(widths())
+  })
+
+  it('marks a window whose length was never reported instead of faking a short one', () => {
+    const r = row({ windowMinutes: 0 })
+    delete (r as { startedAt?: string }).startedAt
+    render(<QuotaLedger ledger={quotaLedger([r])} cold={false} />)
+    expect(figure().querySelectorAll('.quota-groove[data-unknown-length]')).toHaveLength(1)
+    // Drawn at the nominal week — a placeholder, not a measurement.
+    expect(widths()).toEqual(['7'])
+  })
+
+  it('names the length in the column summary', () => {
+    render(<QuotaLedger ledger={quotaLedger([row({ windowMinutes: 2880 })])} cold={false} />)
+    const groove = figure().querySelector('.quota-groove') as HTMLElement
+    expect(groove.title).toMatch(/2 days long/)
+  })
+})
+
+describe('cadence heading', () => {
+  it('shows the rhythm the windows actually had', () => {
+    render(
+      <QuotaLedger
+        ledger={quotaLedger([
+          row({ resetsAt: '2026-08-20T07:00:00Z', windowMinutes: 1440 }),
+          row({ resetsAt: '2026-08-22T07:00:00Z', windowMinutes: 2880 }),
+        ])}
+        cold={false}
+      />,
+    )
+    expect(screen.getByText('1–2 days')).toBeTruthy()
+    expect(screen.queryByText('Weekly')).toBeNull()
+  })
+
+  it('omits the heading entirely when one window is all it has seen', () => {
+    render(
+      <QuotaLedger
+        ledger={quotaLedger([
+          row({ resetsAt: '2026-08-24T07:00:00Z' }),
+          row({ resetsAt: '2026-08-31T07:00:00Z', closed: false }),
+        ])}
+        cold={false}
+      />,
+    )
+    expect(figure().querySelectorAll('.quota-pool-window')).toHaveLength(0)
+  })
+})

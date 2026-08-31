@@ -271,6 +271,21 @@ export class MessagesRepository {
     return row ? { createdAt: row.created_at, id: row.id } : null
   }
 
+  /** Most recently inserted operator chat send still held for one session.
+   * `rowid` resolves sends accepted in the same clock tick; random message ids
+   * do not encode creation order. */
+  latestPendingOperatorForSession(sessionId: SessionId): MessageRow | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE to_kind = 'session' AND to_id = ?
+           AND from_kind = 'operator' AND status = 'queued'
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get(sessionId) as Record<string, unknown> | undefined
+    return row ? mapMessage(row) : undefined
+  }
+
   /** Complete queued-sender projection for nag/inbox aggregates. */
   listPendingSenders(to: MessagePrincipalRef): PendingMessageSender[] {
     const params: unknown[] = [to.kind]

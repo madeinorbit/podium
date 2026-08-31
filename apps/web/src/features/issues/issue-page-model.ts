@@ -68,6 +68,8 @@ export interface IssuePageModel {
    *  block and the rail's roster both render from this one list (POD-591), so
    *  they can never disagree about who is on the task. */
   memberSessions: SessionMeta[]
+  /** The visible session world, used to resolve canonical state for child rows. */
+  sessions: SessionMeta[]
   /** [spec:SP-a1c0] (#411) Route through the central action — never roll
    *  per-feature navigation (setPane+setView flips the URL then reverts). */
   openSession: (sessionId: SessionId) => void
@@ -255,6 +257,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     repoName: issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath,
     feed: buildActivityFeed(comments, events),
     mail,
+    sessions,
     memberSessions: (issue.memberSessionIds ?? [])
       .map((id) => (sessions ?? []).find((session) => session.sessionId === id))
       .filter((session): session is SessionMeta => session !== undefined),

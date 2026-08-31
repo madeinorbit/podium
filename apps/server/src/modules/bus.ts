@@ -71,7 +71,7 @@ export interface EventMap {
   /** A closed issue was reopened. */
   'issue.reopened': { issueId: IssueId }
   /** New transcript items were applied to a session's live delta buffer. */
-  'transcript.delta': { sessionId: SessionId; items: TranscriptItem[] }
+  'transcript.delta': { sessionId: SessionId; items: TranscriptItem[]; reset?: boolean }
   /** A machine's daemon socket attached. */
   'machine.connected': { machineId: MachineId }
   /** A machine's daemon socket detached. */

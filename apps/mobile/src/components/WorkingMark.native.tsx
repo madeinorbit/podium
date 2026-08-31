@@ -83,7 +83,7 @@ function WorkingDot({
 /** Native status mark. Reanimated updates only opacity on the UI runtime. */
 export function WorkingMark({
   size = 12,
-  tint = color.working,
+  tint = color.workingText,
   label = 'Working',
 }: WorkingMarkProps) {
   const reduceMotion = useReduceMotion()

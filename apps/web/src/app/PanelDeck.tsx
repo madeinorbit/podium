@@ -8,7 +8,7 @@ import {
   Suspense,
   useCallback,
 } from 'react'
-import { AgentPanel } from '@/features/terminal/AgentPanelLazy'
+import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
 import { type DeckItem, type PaneRect, panelBoxStyle } from './panel-deck'
@@ -160,17 +160,11 @@ export function PanelDeck({
                 clock is never painted at the value it stopped at. */}
             <PanelVisible visible={visible}>
               {item.kind === 'session' ? (
-                // `fallback={null}` renders the same empty pane box the warm-set
-                // guard above already renders for a pane that is not resident yet,
-                // so a not-yet-resolved chunk looks like a pane that has not been
-                // warmed rather than like a broken panel.
-                <Suspense fallback={null}>
-                  <AgentPanel
-                    sessionId={asSessionId(item.id)}
-                    active={visible}
-                    focused={visible && item.id === focusedTabId}
-                  />
-                </Suspense>
+                <AgentPanelBoundary
+                  sessionId={asSessionId(item.id)}
+                  active={visible}
+                  focused={visible && item.id === focusedTabId}
+                />
               ) : item.file ? (
                 <Suspense fallback={null}>
                   <FilePanel

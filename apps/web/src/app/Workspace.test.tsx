@@ -6,8 +6,8 @@ import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
 
-vi.mock('@/features/terminal/AgentPanel', () => ({
-  AgentPanel: ({ sessionId }: { sessionId: SessionId }): JSX.Element => (
+vi.mock('@/features/terminal/AgentPanelBoundary', () => ({
+  AgentPanelBoundary: ({ sessionId }: { sessionId: SessionId }): JSX.Element => (
     // A stand-in for the panel's real input surface (terminal / composer): the
     // promotion seam listens on the panel's SUBTREE, not on the wrapper itself.
     <textarea data-panel={sessionId} readOnly value="" />

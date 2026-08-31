@@ -5,7 +5,7 @@ import './WorkingMark.web.css'
 /** Mobile-web status mark. CSS keeps the wave on the browser compositor. */
 export function WorkingMark({
   size = 12,
-  tint = color.working,
+  tint = color.workingText,
   label = 'Working',
 }: WorkingMarkProps) {
   const radius = workingMarkRadius(size)

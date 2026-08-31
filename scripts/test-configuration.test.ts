@@ -37,6 +37,12 @@ import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { CLIENT_DIST_DIRS } from './build-clients'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
+import {
+  inspectProofContract,
+  parseEvidence,
+  PROOF_CHECKS,
+  validateEvidence,
+} from './parity-release-proof'
 import { runWithHeavyTestLease } from './test-heavy'
 import scriptsConfig from './vitest.config'
 import rearchConfig from './vitest.rearch.config'
@@ -1057,6 +1063,106 @@ describe('test lane configuration', () => {
     )
     const tests = rustSources.reduce((n, src) => n + (src.match(/#\[test\]/g)?.length ?? 0), 0)
     expect(tests, 'the rust lane would run no tests').toBeGreaterThan(10)
+  })
+
+  it('keeps parity release evidence fail-closed across native and packaged boundaries', () => {
+    expect(inspectProofContract(fileURLToPath(repoRoot))).toEqual([])
+
+    const baseline = parseEvidence(
+      JSON.parse(
+        readFileSync(new URL('./parity-release-proof-baseline.json', import.meta.url), 'utf8'),
+      ),
+    )
+    expect(Object.keys(baseline.checks).sort()).toEqual(
+      PROOF_CHECKS.map((check) => check.id).sort(),
+    )
+    expect(validateEvidence(baseline, { releaseReady: false })).toEqual([])
+    expect(validateEvidence(baseline, { releaseReady: true })).toHaveLength(PROOF_CHECKS.length)
+
+    const native = structuredClone(baseline)
+    native.checks['ios-minimum-simulator-smoke'] = {
+      status: 'passed',
+      source: 'automated',
+      artifacts: ['run://browser-emulation'],
+      notes: 'A browser device preset ran.',
+    }
+    expect(validateEvidence(native, { releaseReady: false })).toContain(
+      'ios-minimum-simulator-smoke: expected simulator evidence, found automated',
+    )
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'ios-minimum-simulator-smoke': {
+            status: 'passed',
+            source: 'browser-emulation',
+            notes: 'A browser device preset ran.',
+          },
+        },
+      }),
+    ).toThrow('browser emulation is never native proof')
+
+    const staleIos = structuredClone(baseline)
+    staleIos.checks['ios-current-device'] = {
+      status: 'passed',
+      source: 'physical-device',
+      device: 'iPhone 16 Pro',
+      osVersion: '26.6',
+      artifacts: ['device-run.mp4'],
+      notes: 'Ran on a stale current-device image.',
+    }
+    expect(validateEvidence(staleIos, { releaseReady: false })).toContain(
+      'ios-current-device: expected OS 26.6.1, found 26.6',
+    )
+
+    const wrongDevice = structuredClone(baseline)
+    wrongDevice.checks['ios-minimum-device'] = {
+      status: 'passed',
+      source: 'physical-device',
+      device: 'iPhone 8',
+      osVersion: '16.4',
+      artifacts: ['device-run.mp4'],
+      notes: 'Ran on the wrong minimum device.',
+    }
+    expect(validateEvidence(wrongDevice, { releaseReady: false })).toContain(
+      'ios-minimum-device: expected device iPhone SE (2nd generation), found iPhone 8',
+    )
+
+    const oneMacArchitecture = structuredClone(baseline)
+    oneMacArchitecture.checks['desktop-macos-apple-silicon-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'MacBook Pro (14-inch, M4 Pro, 2024)',
+      osVersion: 'macOS 26.6.2',
+      packageName: 'Podium_1.2.3_aarch64.dmg',
+      packageSha256: 'a'.repeat(64),
+      artifacts: ['apple-silicon-run.mp4'],
+      notes: 'Apple Silicon package passed.',
+    }
+    expect(
+      validateEvidence(oneMacArchitecture, { releaseReady: false }).filter((error) =>
+        error.startsWith('desktop-macos-apple-silicon-package:'),
+      ),
+    ).toEqual([])
+    expect(validateEvidence(oneMacArchitecture, { releaseReady: true })).toContain(
+      'desktop-macos-intel-package: unavailable evidence blocks release',
+    )
+
+    const wrongDesktopPackage = structuredClone(baseline)
+    wrongDesktopPackage.checks['desktop-windows-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'Dell XPS 13 9340',
+      osVersion: 'Windows 11 24H2',
+      packageName: 'desktop-notes.txt',
+      packageSha256: 'b'.repeat(64),
+      artifacts: ['windows-run.mp4'],
+      notes: 'The package label is not an NSIS installer.',
+    }
+    expect(validateEvidence(wrongDesktopPackage, { releaseReady: false })).toContain(
+      'desktop-windows-package: expected package Podium_<version>_x64-setup.exe, found desktop-notes.txt',
+    )
   })
 
   it('keeps the oracle lane set, its runner, and CI in sync [POD-295]', () => {

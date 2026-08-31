@@ -1,4 +1,18 @@
 import * as Clipboard from 'expo-clipboard'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system/legacy'
+import * as ImagePicker from 'expo-image-picker'
+import { ActionSheetIOS, Platform } from 'react-native'
+import {
+  checkedClipboardImage,
+  readAttachmentsSequentially,
+  type AttachmentReadSource,
+} from './composer-media-limits'
+import { openNativePicker } from './composer-picker-errors'
+import type { PickedFile } from './composer-media-types'
+import { ORIGINAL_PHOTO_PICKER_POLICY, photoUploadMetadata } from './composer-photo-policy'
+
+export type { PickedFile } from './composer-media-types'
 
 /**
  * WHERE MEDIA COMES FROM, PER PLATFORM.
@@ -17,23 +31,97 @@ import * as Clipboard from 'expo-clipboard'
  * absolute path the agent can read.
  */
 
-export interface PickedFile {
-  name: string
-  mimeType: string
-  /** Base64 WITHOUT the `data:` prefix — the upload mutation's own shape. */
-  dataBase64: string
-  /** Something `<Image source>` can render while the upload is in flight, or ''
-   *  when the file has no preview (a PDF, a spec, a log). */
-  previewUri: string
-  size?: number
+/** Native intake is a two-step system choice rather than a web-shaped file
+ * dialog. The paperclip first asks for Photos or Files, then hands control to
+ * the corresponding iOS picker. */
+export const canPickFiles = true
+
+async function readPicked(sources: readonly AttachmentReadSource[]): Promise<PickedFile[]> {
+  return readAttachmentsSequentially(sources, {
+    sizeOf: async (source) => {
+      try {
+        const info = await FileSystem.getInfoAsync(source.uri)
+        return info.exists ? info.size : undefined
+      } catch {
+        // Some document providers expose readable content without metadata.
+        // Treat that as unknown and enforce the encoded ceiling after reading.
+        return undefined
+      }
+    },
+    base64Of: (source) =>
+      FileSystem.readAsStringAsync(source.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      }),
+  })
 }
 
-/** A browser can open a file dialog. A native runtime, without a picker module
- *  linked in, cannot — and offering a paperclip that does nothing is worse than
- *  not offering one. */
-export const canPickFiles = false
+async function pickPhotos(): Promise<PickedFile[]> {
+  const assets = await openNativePicker('Photos', async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      ...ORIGINAL_PHOTO_PICKER_POLICY,
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+    })
+    return { cancelled: result.canceled, value: result.assets }
+  })
+  if (!assets) return []
+  return readPicked(
+    assets.map((asset, index) => {
+      const metadata = photoUploadMetadata(index, asset.fileName, asset.mimeType)
+      return {
+        uri: asset.uri,
+        ...metadata,
+        previewUri: asset.uri,
+        ...(asset.fileSize === undefined ? {} : { size: asset.fileSize }),
+      }
+    }),
+  )
+}
+
+async function pickDocuments(): Promise<PickedFile[]> {
+  const assets = await openNativePicker('Files', async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: '*/*',
+      multiple: true,
+      copyToCacheDirectory: true,
+    })
+    return { cancelled: result.canceled, value: result.assets }
+  })
+  if (!assets) return []
+  return readPicked(
+    assets.map((asset) => {
+      const mimeType = asset.mimeType || 'application/octet-stream'
+      return {
+        uri: asset.uri,
+        name: asset.name,
+        mimeType,
+        previewUri: mimeType.startsWith('image/') ? asset.uri : '',
+        ...(asset.size === undefined ? {} : { size: asset.size }),
+      }
+    }),
+  )
+}
+
+function chooseIosSource(): Promise<'photos' | 'files' | null> {
+  return new Promise((resolve) => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: 'Attach',
+        options: ['Photos', 'Files', 'Cancel'],
+        cancelButtonIndex: 2,
+      },
+      (index) => resolve(index === 0 ? 'photos' : index === 1 ? 'files' : null),
+    )
+  })
+}
 
 export async function pickFiles(): Promise<PickedFile[]> {
+  // The first supported native release is iPhone-only. Files remains a useful
+  // fallback if this module is exercised by another native runtime.
+  const source = Platform.OS === 'ios' ? await chooseIosSource() : 'files'
+  if (source === 'photos') return pickPhotos()
+  if (source === 'files') return pickDocuments()
   return []
 }
 
@@ -56,14 +144,5 @@ export async function pasteMedia(): Promise<PickedFile[]> {
   // `getImageAsync` answers a data URI; the upload wants the payload alone.
   const dataBase64 = image.data.includes(',') ? (image.data.split(',')[1] ?? '') : image.data
   if (!dataBase64) return []
-  return [
-    {
-      name: 'pasted-image.png',
-      mimeType: 'image/png',
-      dataBase64,
-      previewUri: image.data.startsWith('data:')
-        ? image.data
-        : `data:image/png;base64,${dataBase64}`,
-    },
-  ]
+  return [checkedClipboardImage(dataBase64)]
 }

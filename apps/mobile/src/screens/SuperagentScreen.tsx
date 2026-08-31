@@ -1,12 +1,13 @@
 import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
+  buildImagePrompt,
   mergeTranscriptItems,
   prependTranscriptItems,
   superagentSlice,
 } from '@podium/client-core/viewmodels'
 import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { Eraser } from 'lucide-react-native'
+import { Eraser } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import {
@@ -30,6 +31,10 @@ import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
+import {
+  type SentAttachment,
+  useComposerAttachments,
+} from '../components/useComposerAttachments'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { humanizeSendFailure } from '../lib/send-failure'
@@ -61,6 +66,8 @@ import { color, font, sans, space } from '../theme/theme'
  *    sit under the well, same contract as the desktop prompt-box rail.
  */
 const THREAD_ID = asThreadId('global')
+
+type LocalPendingTurn = PendingTurn & { wire: string }
 
 export function SuperagentScreen() {
   // Narrow subscriptions: everything this screen reads off the store is
@@ -112,7 +119,13 @@ export function SuperagentScreen() {
   // The thread's headless session: the slice's answer, until a turn's ack hands
   // back a fresher one (the FIRST turn learns its session from the ack alone).
   const [ackedSid, setAckedSid] = useState<SessionId | undefined>(undefined)
-  const podiumSid = ackedSid ?? superagent.activeSessionId
+  // A successful clear kills the old headless session before the store refresh
+  // necessarily removes its binding. Keep that stale id hidden locally so an
+  // immediate attachment cannot revive it during the refresh window.
+  const [clearedSid, setClearedSid] = useState<SessionId | undefined>(undefined)
+  const publishedSid =
+    superagent.activeSessionId === clearedSid ? undefined : superagent.activeSessionId
+  const podiumSid = ackedSid ?? publishedSid
   const transcriptSession = podiumSid
     ? sessions.find((session) => session.sessionId === podiumSid)
     : undefined
@@ -122,7 +135,17 @@ export function SuperagentScreen() {
     () => resolveSuperagentBackend(superagent.active, backendPick),
     [superagent.active, backendPick],
   )
-  const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
+  const [pendingTurns, setPendingTurns] = useState<LocalPendingTurn[]>([])
+  const prepareAttachmentSession = useCallback(async (): Promise<SessionId> => {
+    if (podiumSid) return podiumSid
+    const result = await trpc.superagent.ensureSession.mutate({ threadId: THREAD_ID })
+    if (!result.podiumSessionId) throw new Error('Superagent could not prepare this attachment.')
+    setAckedSid(result.podiumSessionId)
+    return result.podiumSessionId
+  }, [podiumSid, trpc.superagent.ensureSession])
+  const attachments = useComposerAttachments(podiumSid, {
+    prepareSession: prepareAttachmentSession,
+  })
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
   // Each send re-pins the feed to its tail so the just-written turn is on
@@ -296,7 +319,7 @@ export function SuperagentScreen() {
           // dropEchoedTurns to match. Without this the row says "sending…" for
           // ever. The writer lock is released at turn-end and the server refuses
           // a second concurrent turn, so anything still pending is this turn's.
-          setPendingTurns((prev) => markTurnsFailed(prev, reason) as PendingTurn[])
+          setPendingTurns((prev) => [...markTurnsFailed(prev, reason)])
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
         }
       } else if (event.kind === 'status') {
@@ -331,7 +354,7 @@ export function SuperagentScreen() {
   // Drop an optimistic turn once the transcript carries it.
   useEffect(() => {
     if (pendingTurns.length === 0) return
-    setPendingTurns((prev) => dropEchoedTurns(prev, settled) as PendingTurn[])
+    setPendingTurns((prev) => [...dropEchoedTurns(prev, settled)])
   }, [settled, pendingTurns.length])
 
   // Once the transcript has echoed the optimistic row, transport is complete.
@@ -346,11 +369,11 @@ export function SuperagentScreen() {
   // (POD-346) — the old path only set a banner, which reads as "nothing
   // happened" when the reason is a stuck turn or an offline server.
   const dispatch = useCallback(
-    (id: string, text: string) => {
+    (id: string, wire: string) => {
       setJustSent(true)
       setPinRequest((count) => count + 1)
       void trpc.superagent.sendTurn
-        .mutate({ threadId: THREAD_ID, text, ...superagentTurnChoice(backend) })
+        .mutate({ threadId: THREAD_ID, text: wire, ...superagentTurnChoice(backend) })
         .then((ack) => {
           if (ack?.podiumSessionId) setAckedSid(ack.podiumSessionId)
           void refreshSuperThreads().catch(() => {})
@@ -369,27 +392,46 @@ export function SuperagentScreen() {
   )
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, files?: readonly SentAttachment[]) => {
       const trimmed = text.trim()
-      if (!trimmed) return
+      const attached = files ?? []
+      if (!trimmed && attached.length === 0) return
       setError(null)
       // Counter, not text length: two identical messages inside one millisecond
       // would share an id, and `failed`/retry address a row BY id.
       const id = `${Date.now()}:${turnSeq.current++}`
-      setPendingTurns((prev) => [...prev, { id, text: trimmed }])
-      dispatch(id, trimmed)
+      const wire = buildImagePrompt(
+        attached.map((file) => file.path),
+        trimmed,
+      )
+      setPendingTurns((prev) => [
+        ...prev,
+        {
+          id,
+          text: trimmed,
+          wire,
+          ...(attached.length > 0 ? { files: attached } : {}),
+        },
+      ])
+      dispatch(id, wire)
     },
     [dispatch],
   )
 
   const retry = useCallback(
     (turn: PendingTurn) => {
+      const local = pendingTurns.find((candidate) => candidate.id === turn.id)
+      if (!local) return
       setPendingTurns((prev) =>
-        prev.map((t) => (t.id === turn.id ? { id: t.id, text: t.text } : t)),
+        prev.map((t) => {
+          if (t.id !== turn.id) return t
+          const { failed: _failed, ...retrying } = t
+          return retrying
+        }),
       )
-      dispatch(turn.id, turn.text)
+      dispatch(local.id, local.wire)
     },
-    [dispatch],
+    [dispatch, pendingTurns],
   )
 
   const interrupt = useCallback(async () => {
@@ -410,7 +452,9 @@ export function SuperagentScreen() {
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
       setItems([])
+      setClearedSid(podiumSid)
       setAckedSid(undefined)
+      attachments.clear()
       void refreshSuperThreads().catch(() => {})
       setPendingTurns([])
       clearLiveText()
@@ -420,7 +464,7 @@ export function SuperagentScreen() {
     } catch (e) {
       setError(humanizeSendFailure(e))
     }
-  }, [clearLiveText, trpc, refreshSuperThreads])
+  }, [attachments.clear, clearLiveText, podiumSid, refreshSuperThreads, trpc])
 
   // Keep the high-frequency live row outside the settled transcript. This
   // preserves the settled array's identity and its cached paired/row model.
@@ -530,6 +574,7 @@ export function SuperagentScreen() {
             placeholder="Delegate a task…"
             onSend={send}
             draftInsertion={draftInsertion}
+            attachments={attachments}
             bottomInset={tabBarInset}
             leading={
               <SuperagentBackendRail
@@ -560,12 +605,12 @@ const styles = StyleSheet.create({
   },
   stop: {
     ...sans(700),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
   },
   error: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingBottom: space.xs,

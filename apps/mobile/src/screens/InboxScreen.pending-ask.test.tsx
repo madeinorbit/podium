@@ -30,16 +30,6 @@ vi.mock('react-native-safe-area-context', () => ({
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 72 }))
-vi.mock('lucide-react-native', () => ({
-  AlertTriangle: () => null,
-  ChevronDown: () => null,
-  ChevronLeft: () => null,
-  ChevronRight: () => null,
-  Inbox: () => null,
-  Plus: () => null,
-  Settings: () => null,
-  X: () => null,
-}))
 vi.mock('react-native-svg', async () => {
   const { View } = await import('react-native')
   const Svg = ({ children }: { children?: ReactNode }) => <View>{children}</View>

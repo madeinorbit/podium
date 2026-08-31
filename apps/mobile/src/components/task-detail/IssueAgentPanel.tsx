@@ -1,7 +1,7 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire } from '@podium/model'
-import { FileText, Play } from 'lucide-react-native'
+import { FileText, Play } from '../icons'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'

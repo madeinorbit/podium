@@ -7,12 +7,15 @@ import {
   type IssueWire,
   type IssueWireInput,
   type MachineQuotaWire,
+  type MachineWire,
+  type QuotaWindowHistoryWire,
   type QuotaWindowWire,
   type SessionMeta,
   type SessionMetaInput,
   type TranscriptItem,
   type UsageBucketWire,
 } from '@podium/model'
+import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
 
 /**
  * Fixture metadata for demo mode (`?demo=1` on web): realistic sessions and
@@ -663,6 +666,60 @@ export const DEMO_HOST_METRICS: HostMetricsWire[] = [
   },
 ]
 
+export const DEMO_MACHINES: MachineWire[] = [
+  {
+    id: asMachineId('demo-machine'),
+    name: 'Studio',
+    hostname: 'studio',
+    online: true,
+    lastSeenAt: min(0),
+    use: 'granted',
+    owned: true,
+    updateChannel: 'stable',
+    updateChannelOverride: null,
+    appVersion: '0.4.8',
+    versionState: 'current',
+    targetVersion: '0.4.8',
+  },
+  {
+    id: asMachineId('demo-travel-machine'),
+    name: 'Travel Mac',
+    hostname: 'travel-mac',
+    online: false,
+    lastSeenAt: min(190),
+    use: 'granted',
+    owned: true,
+    updateChannel: 'stable',
+    updateChannelOverride: null,
+    appVersion: '0.4.7',
+    versionState: 'behind',
+    targetVersion: '0.4.8',
+  },
+]
+
+export const DEMO_MEMORY_BREAKDOWNS: Partial<Record<MachineWire['id'], HostMemoryBreakdown>> = {
+  [asMachineId('demo-machine')]: {
+    hostname: 'studio',
+    sampledAt: min(0),
+    supported: true,
+    memory: DEMO_HOST_METRICS[0]?.memory ?? {
+      totalBytes: 0,
+      availableBytes: 0,
+      swapTotalBytes: 0,
+      swapFreeBytes: 0,
+    },
+    disk: {
+      path: '/Users/dev',
+      totalBytes: 2 * 1024 ** 4,
+      usedBytes: Math.round(1.18 * 1024 ** 4),
+      availableBytes: Math.round(0.76 * 1024 ** 4),
+    },
+    agents: [],
+    projects: [],
+    otherBytes: 0,
+  },
+}
+
 const quotaWindow = (
   key: string,
   label: string,
@@ -698,6 +755,59 @@ export const DEMO_QUOTA: MachineQuotaWire[] = [
         fetchedAt: min(0),
       },
     ],
+  },
+]
+
+export const DEMO_QUOTA_HISTORY: QuotaWindowHistoryWire[] = Array.from(
+  { length: 6 },
+  (_, index) => {
+    const end = T0 - (5 - index) * 7 * 24 * 60 * 60_000
+    return {
+      accountKey: 'codex::dev@example.com',
+      agent: 'codex',
+      windowKey: 'weekly',
+      label: 'Weekly',
+      plan: 'Pro',
+      startedAt: new Date(end - 7 * 24 * 60 * 60_000).toISOString(),
+      resetsAt: new Date(end).toISOString(),
+      windowMinutes: 10_080,
+      firstSeenAt: new Date(end - 7 * 24 * 60 * 60_000).toISOString(),
+      lastSeenAt: new Date(end - 15 * 60_000).toISOString(),
+      firstPercent: 3,
+      peakPercent: [54, 72, 88, 61, 93, 38][index] ?? 0,
+      lastPercent: [54, 72, 88, 61, 93, 38][index] ?? 0,
+      sampleCount: 120,
+      closed: index < 5,
+      partial: false,
+      source: 'live',
+    }
+  },
+)
+
+export const DEMO_MOBILE_SESSIONS: MobileClientSession[] = [
+  {
+    sessionId: 'demo_current_mobile_session',
+    userId: 'demo',
+    label: 'mobile',
+    deviceId: 'demo-iphone',
+    deviceName: 'iPhone 16 Pro',
+    platform: 'ios',
+    createdAt: min(14 * 24 * 60),
+    expiresAt: new Date(T0 + 20 * 24 * 60 * 60_000).toISOString(),
+    lastSeenAt: min(0),
+    current: true,
+  },
+  {
+    sessionId: 'demo_other_mobile_session',
+    userId: 'demo',
+    label: 'mobile',
+    deviceId: 'demo-ipad',
+    deviceName: 'iPad mini',
+    platform: 'ios',
+    createdAt: min(32 * 24 * 60),
+    expiresAt: new Date(T0 + 8 * 24 * 60 * 60_000).toISOString(),
+    lastSeenAt: min(95),
+    current: false,
   },
 ]
 

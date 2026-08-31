@@ -261,6 +261,12 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
    *  agent state, and a phone has no business inheriting a desktop's folds. */
   'podium.flightDeck.mode',
   'podium.flightDeck.folds',
+  /**
+   * The mission-brief cutoff as a fraction of this screen's Flight Deck height.
+   * It applies to every mission on the device, but does not travel to a phone or
+   * another display whose useful vertical split is different.
+   */
+  'podium.flightDeck.briefCutoff',
   /** Editor-style tab workspaces (POD-710). Declared here rather than in the
    *  model's shared vocabulary because it is a client-only key; the routing
    *  table above states its home and this list is what `uiStateRoute` reads. */
@@ -315,6 +321,7 @@ export const NEW_WORK_MACHINE_KEY = 'podium.newWork.machine'
 export const NEW_WORK_REPO_KEY = 'podium.newWork.repo'
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
 export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
+export const FLIGHT_DECK_BRIEF_CUTOFF_KEY = 'podium.flightDeck.briefCutoff'
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const DIFF_SHEET_WRAP_KEY = 'podium:diff-sheet:wrap'

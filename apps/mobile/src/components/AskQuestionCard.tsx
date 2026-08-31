@@ -5,7 +5,7 @@ import {
   parseAskQuestions,
 } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/model'
-import { Pencil } from 'lucide-react-native'
+import { Pencil } from './icons'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { alpha } from '../theme/mix'
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
   },
   metaError: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
   },
   questionBlock: {

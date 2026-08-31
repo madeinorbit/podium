@@ -28,16 +28,7 @@ import {
   issueReturnedFromDefer,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useFocusEffect, useRouter } from 'expo-router'
-import {
-  AlarmClock,
-  ArrowDownToLine,
-  ChevronDown,
-  ChevronRight,
-  Pin,
-  Search,
-  X,
-} from 'lucide-react-native'
+import { Stack, useFocusEffect, useRouter } from 'expo-router'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -52,6 +43,16 @@ import {
 } from 'react-native'
 import { useBooting, useIssues, useSessions, useStoreActions } from '../client/hooks'
 import { Icon } from '../components/Icon'
+import {
+  AlarmClock,
+  ArrowDownToLine,
+  ChevronDown,
+  ChevronRight,
+  Pin,
+  Search,
+  Settings,
+  X,
+} from '../components/icons'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
@@ -63,6 +64,7 @@ import { EmptyState } from '../components/ui'
 import { WorkIssueMenu, type WorkIssueMenuTarget } from '../components/WorkIssueMenu'
 import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
+import { WorkspaceContinuityNotice } from '../components/WorkspaceContinuityNotice'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useCollapsedSet } from '../hooks/useCollapsedSet'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
@@ -81,6 +83,8 @@ import {
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
+
+const usesNativeHeader = process.env.EXPO_OS !== 'web'
 
 /**
  * Work — the desktop sidebar, on the phone [POD-338, POD-724].
@@ -344,25 +348,34 @@ export function WorkScreen() {
       }
       right={
         <>
-          <HeaderButton
-            label={searchOpen ? 'Close search' : 'Search work'}
-            size={34}
-            onPress={() => {
-              setSearchOpen((open) => !open)
-              if (searchOpen) setQuery('')
-            }}
-          >
-            <Icon as={searchOpen ? X : Search} size={17} color={color.textDim} />
-          </HeaderButton>
+          {usesNativeHeader ? null : (
+            <HeaderButton
+              label={searchOpen ? 'Close search' : 'Search work'}
+              size={34}
+              onPress={() => {
+                setSearchOpen((open) => !open)
+                if (searchOpen) setQuery('')
+              }}
+            >
+              <Icon as={searchOpen ? X : Search} size={17} color={color.textDim} />
+            </HeaderButton>
+          )}
           <NewWorkButton size={34} />
+          <HeaderButton label="Settings" size={34} onPress={() => router.push('/settings')}>
+            <Icon as={Settings} size={17} color={color.textDim} />
+          </HeaderButton>
         </>
       }
     >
-      {/* Never silent (ADR 6 D4.4): storage degradation is owed to the user, not
-          a log line. Outside the crossfade so the skeleton cannot hide it. */}
-      <StorageNoticeAlert />
-      <RefreshOffer />
-      {searchOpen ? (
+      {usesNativeHeader ? (
+        <Stack.SearchBar
+          placeholder="Search tasks"
+          hideWhenScrolling
+          onChangeText={(event) => setQuery(event.nativeEvent.text)}
+          onCancelButtonPress={() => setQuery('')}
+        />
+      ) : null}
+      {!usesNativeHeader && searchOpen ? (
         <View style={styles.searchBand}>
           <Icon as={Search} size={15} color={color.textFaint} />
           <TextInput
@@ -390,7 +403,17 @@ export function WorkScreen() {
             // when a pinned ask renders in both Pinned and Needs you.
             keyExtractor={workRowListKey}
             refreshControl={refreshControl}
+            contentInsetAdjustmentBehavior="automatic"
+            automaticallyAdjustKeyboardInsets
+            keyboardDismissMode="interactive"
             contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
+            ListHeaderComponent={
+              <View style={styles.listNotices}>
+                <StorageNoticeAlert />
+                <RefreshOffer />
+                <WorkspaceContinuityNotice />
+              </View>
+            }
             {...refreshAccessibilityProps}
             {...minimizeOnScroll}
             // STICKY, and the header style must stay margin-free for it: native
@@ -886,6 +909,10 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
   },
+  listNotices: {
+    gap: space.sm,
+    paddingVertical: space.sm,
+  },
   // A sticky FOLD CONTROL now, not a passive label: 44pt for the thumb, opaque
   // `color.bar` so rows travel BEHIND it, and — the sticky geometry rule — no
   // external margin, because native pins a sticky header by translating it to
@@ -1074,7 +1101,7 @@ const styles = StyleSheet.create({
     color: color.needsYouText,
   },
   statusWorking: {
-    color: color.working,
+    color: color.workingText,
   },
   statusDone: {
     color: color.textMicro,

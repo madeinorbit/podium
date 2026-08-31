@@ -337,7 +337,7 @@ describe('agent manifest registry', () => {
   // Ctrl-C into a CLI this build cannot name could kill an agent mid-turn.
   it('answers the abort chord per harness, and names both no-manifest cases', () => {
     expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessInterrupt(kind).key === 'ctrl-c')).toEqual(
-      ['codex'],
+      [],
     )
     expect(harnessInterrupt('claude-code')).toEqual({
       key: 'esc',
@@ -345,9 +345,9 @@ describe('agent manifest registry', () => {
       quitsWhenIdle: false,
     })
     expect(harnessInterrupt('codex')).toEqual({
-      key: 'ctrl-c',
-      bytes: '\x03',
-      quitsWhenIdle: true,
+      key: 'esc',
+      bytes: '\x1b',
+      quitsWhenIdle: false,
     })
     expect(harnessInterrupt('shell')).toEqual({
       key: 'ctrl-c',

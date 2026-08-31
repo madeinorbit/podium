@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react-native'
+import { ChevronRight } from '../icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Animated, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
   },
   error: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny),
   },

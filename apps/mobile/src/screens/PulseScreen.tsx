@@ -11,14 +11,21 @@ import {
   formatUsd,
   formatWindowSpan,
   groupQuotaByAccount,
+  type MachineOperationsView,
   modelLimitNote,
   percentTone,
+  type QuotaLedgerView,
   type QuotaTone,
+  quotaLedger,
   splitQuotaWindows,
   statusNote,
   type UsageDay,
   type UsageProvider,
   usageSummary,
+  useGrantedHostMetrics,
+  useGrantedMachineQuota,
+  useGrantedQuotaHistory,
+  visibleFleetOperations,
   windowElapsedPercent,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, QuotaWindowWire } from '@podium/model'
@@ -56,10 +63,9 @@ import { usePulseFeed } from './usePulseFeed'
  * previously existed on the phone at all — they lived in the desktop's 44px
  * instrument well, which does not exist here.
  *
- * ONE DESTINATION, TWO TIME SCALES. "Now" is capacity; "7 days" is where the
- * money went. They are the same subject at different distances, so they share a
- * tab and a switch rather than nesting sheets — a switch costs one tap and
- * keeps one mental model, and the alternative was a fourth tab plus a sheet.
+ * ONE DESTINATION, THREE READINGS. "Now" is capacity, "7 days" is where the
+ * money went, and "History" is how fully the paid quota windows were used.
+ * They share a tab and a switch rather than nesting sheets.
  *
  * COST IS ALWAYS API-EQUIVALENT. It is what these tokens would have cost off
  * subscription, not a bill anybody sent, and the caveat rides ON the number in
@@ -67,7 +73,7 @@ import { usePulseFeed } from './usePulseFeed'
  * invoice.
  */
 
-type Mode = 'now' | 'week'
+type Mode = 'now' | 'week' | 'history'
 
 export function PulseScreen() {
   const feed = usePulseFeed()
@@ -85,23 +91,41 @@ export function PulseScreen() {
     useRefreshableTab('pulse', onPull)
 
   const cold = feed.quota === null && feed.buckets === null
-  const { capacity, groups, summary } = useMemo(
-    () => ({
+  const { capacity, fleet, groups, ledger, summary } = useMemo(() => {
+    const grantedHosts = useGrantedHostMetrics(feed.machines, feed.hosts)
+    const grantedQuota = useGrantedMachineQuota(feed.machines, feed.quota ?? [])
+    const grantedHistory = useGrantedQuotaHistory(feed.machines, grantedQuota, feed.history ?? [])
+    return {
       capacity: capacityView({
-        machines: feed.quota,
-        hosts: feed.hosts,
+        machines: grantedQuota,
+        hosts: grantedHosts,
         loadPerCore: feed.loadPerCore,
         nowMs: feed.nowMs,
       }),
-      groups: groupQuotaByAccount([...(feed.quota ?? [])]),
+      fleet: visibleFleetOperations({
+        machines: feed.machines,
+        hosts: grantedHosts,
+        capacityReadings: feed.capacityReadings,
+        loadPerCore: feed.loadPerCore,
+        nowMs: feed.nowMs,
+      }),
+      groups: groupQuotaByAccount(grantedQuota),
+      ledger: quotaLedger(grantedHistory),
       summary: usageSummary(feed.buckets ?? [], feed.nowMs),
-    }),
-    [feed.quota, feed.buckets, feed.hosts, feed.loadPerCore, feed.nowMs],
-  )
+    }
+  }, [
+    feed.quota,
+    feed.buckets,
+    feed.history,
+    feed.hosts,
+    feed.machines,
+    feed.capacityReadings,
+    feed.loadPerCore,
+    feed.nowMs,
+  ])
 
   return (
     <Screen title="Pulse" large>
-      <ModeSwitch mode={mode} onChange={setMode} />
       <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
         <ScrollView
           ref={listRef as never}
@@ -110,6 +134,7 @@ export function PulseScreen() {
           {...refreshAccessibilityProps}
           {...minimizeOnScroll}
         >
+          <ModeSwitch mode={mode} onChange={setMode} />
           {cold && feed.failed ? (
             <Unreachable onRetry={feed.reload} />
           ) : mode === 'now' ? (
@@ -117,11 +142,18 @@ export function PulseScreen() {
               capacity={capacity}
               groups={groups}
               summary={summary}
+              fleet={fleet}
               cold={cold}
               feedNow={feed.nowMs}
             />
-          ) : (
+          ) : mode === 'week' ? (
             <WeekPanel summary={summary} cold={cold} />
+          ) : (
+            <QuotaHistoryPanel
+              ledger={ledger}
+              cold={feed.history === null}
+              failed={feed.historyFailed}
+            />
           )}
           {/* Which server, and what both ends are running — the question a
               redeploy leaves open and nothing else on the phone answers. Last
@@ -149,12 +181,14 @@ function NowPanel({
   capacity,
   groups,
   summary,
+  fleet,
   cold,
   feedNow,
 }: {
   capacity: CapacityView
   groups: AccountQuotaGroup[]
   summary: ReturnType<typeof usageSummary>
+  fleet: ReturnType<typeof visibleFleetOperations>
   cold: boolean
   feedNow: number
 }) {
@@ -228,6 +262,8 @@ function NowPanel({
         </View>
       </View>
 
+      <MachineCapacityPanel fleet={fleet} />
+
       <SectionHeader
         label="Quota windows"
         right={<Text style={styles.sectionNote}>live from providers</Text>}
@@ -272,6 +308,105 @@ function NowPanel({
         </View>
       </View>
     </>
+  )
+}
+
+function MachineCapacityPanel({ fleet }: { fleet: ReturnType<typeof visibleFleetOperations> }) {
+  const previewLimit = 12
+  const [visibleCount, setVisibleCount] = useState(previewLimit)
+  const machines = fleet.machines.slice(0, visibleCount)
+  const remaining = fleet.machines.length - machines.length
+  return (
+    <>
+      <SectionHeader
+        label="Machines"
+        right={<Text style={styles.sectionNote}>{fleet.fleetLabel}</Text>}
+      />
+      {fleet.machines.length === 0 ? (
+        <EmptyState
+          title="No visible machines"
+          body="Machine capacity appears here when this account can see a fleet member."
+        />
+      ) : (
+        <View style={styles.section}>
+          {machines.map((machine, index) => (
+            <MachineCapacityRow key={machine.id} machine={machine} first={index === 0} />
+          ))}
+          {remaining > 0 ? (
+            <PressableScale
+              style={styles.machineListToggle}
+              onPress={() => setVisibleCount((current) => current + previewLimit)}
+              accessibilityRole="button"
+              accessibilityLabel={`Show ${Math.min(previewLimit, remaining)} more machines`}
+            >
+              <Text style={styles.machineListToggleText}>
+                Show {Math.min(previewLimit, remaining)} more
+              </Text>
+            </PressableScale>
+          ) : null}
+        </View>
+      )}
+    </>
+  )
+}
+
+function diskStateLabel(machine: MachineOperationsView): string {
+  if (machine.capacityDetail === 'loading') return 'reading…'
+  if (machine.capacityDetail === 'stale') return 'last sample'
+  if (machine.capacityDetail === 'restricted') return 'requires machine access'
+  if (machine.capacityDetail === 'offline') return 'offline'
+  return 'not reported'
+}
+
+function MachineCapacityRow({
+  machine,
+  first,
+}: {
+  machine: MachineOperationsView
+  first: boolean
+}) {
+  return (
+    <View style={[styles.machineRow, !first && styles.rowDivided]}>
+      <View style={styles.machineHead}>
+        <View style={styles.machineIdentity}>
+          <View
+            style={[
+              styles.machineDot,
+              { backgroundColor: machine.online ? color.success : color.idle },
+            ]}
+          />
+          <Text style={styles.machineName} numberOfLines={1}>
+            {machine.name}
+          </Text>
+        </View>
+        <Text style={styles.sectionNote}>{machine.statusLabel}</Text>
+      </View>
+      <Text style={styles.machineCapacityNote}>{machine.capacityLabel}</Text>
+      <View style={styles.machineMetric}>
+        <Readout label="Memory" value={machine.memory?.label ?? 'not reported'} />
+        {machine.memory ? (
+          <Meter pct={machine.memory.pct} tone={SEVERITY_TONE[machine.memory.severity]} />
+        ) : null}
+      </View>
+      <View style={styles.machineMetric}>
+        <Readout label="Disk" value={machine.disk?.label ?? diskStateLabel(machine)} />
+        {machine.disk ? (
+          <>
+            <Meter pct={machine.disk.pct} tone={SEVERITY_TONE[machine.disk.severity]} />
+            <SubReadout left={machine.disk.freeLabel} />
+          </>
+        ) : null}
+      </View>
+      <View style={styles.machineMetric}>
+        <Readout
+          label="Load per core"
+          value={machine.load?.perCore == null ? 'not reported' : machine.load.label}
+        />
+        {machine.load?.perCore != null ? (
+          <Meter pct={machine.load.meterPct} tone={SEVERITY_TONE[machine.load.severity]} />
+        ) : null}
+      </View>
+    </View>
   )
 }
 
@@ -533,6 +668,136 @@ function WeekPanel({ summary, cold }: { summary: ReturnType<typeof usageSummary>
   )
 }
 
+// ---------------------------------------------------------------------------
+// Quota history — completed plan-window instances
+// ---------------------------------------------------------------------------
+
+function QuotaHistoryPanel({
+  ledger,
+  cold,
+  failed,
+}: {
+  ledger: QuotaLedgerView
+  cold: boolean
+  failed: boolean
+}) {
+  const average = ledger.averagePeak
+  return (
+    <>
+      <View style={styles.historyHero}>
+        <Text style={styles.microLabel}>Completed quota windows</Text>
+        <Text style={styles.historyFigure}>
+          {average === undefined ? '—' : `${Math.round(average)}%`}
+        </Text>
+        <Text style={styles.historySummary}>
+          {cold
+            ? 'Reading the quota ledger.'
+            : ledger.completedCount === 0
+              ? 'No completed weekly windows are recorded yet.'
+              : `${ledger.completedCount} completed ${ledger.completedCount === 1 ? 'window' : 'windows'} · ${ledger.unusedWindows?.toFixed(1).replace(/\.0$/, '') ?? '0'} windows of paid capacity went unused.`}
+        </Text>
+      </View>
+
+      {ledger.strips.length === 0 ? (
+        <EmptyState
+          title={failed ? 'History unavailable' : cold ? 'Reading history' : 'History starts here'}
+          body={
+            failed
+              ? 'Couldn’t read the quota ledger. Pull to try again.'
+              : cold
+                ? undefined
+                : 'Podium records each weekly plan window as it runs and keeps its peak after reset.'
+          }
+        />
+      ) : (
+        <View style={styles.section}>
+          {ledger.strips.map((strip, stripIndex) => {
+            const columns = strip.columns.slice(-8)
+            const label = columns
+              .map(
+                (column) =>
+                  `${column.spanLabel || column.endLabel}: ${Math.round(column.peakPercent)} percent${column.closed ? '' : ' so far'}`,
+              )
+              .join(', ')
+            return (
+              <View
+                key={strip.key}
+                style={[styles.historyStrip, stripIndex > 0 && styles.rowDivided]}
+              >
+                <View style={styles.historyStripHead}>
+                  <View style={styles.historyIdentity}>
+                    <View style={[styles.mark, { borderColor: markBorder(strip.agent) }]}>
+                      <Text style={[styles.markText, { color: markColor(strip.agent) }]}>
+                        {strip.mark}
+                      </Text>
+                    </View>
+                    <View>
+                      <Text style={styles.quotaName}>{strip.agentLabel}</Text>
+                      {strip.windowLabel ? (
+                        <Text style={styles.quotaDetail}>{strip.windowLabel}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <Text style={styles.historyAverage}>
+                    {strip.averagePeak === undefined
+                      ? 'in progress'
+                      : `${Math.round(strip.averagePeak)}% avg`}
+                  </Text>
+                </View>
+                <View
+                  style={styles.historyTrace}
+                  accessibilityRole="image"
+                  accessibilityLabel={`${strip.agentLabel} quota history. ${label}`}
+                >
+                  {columns.map((column) => (
+                    <View
+                      key={`${column.resetsAt}:${column.windowKey}`}
+                      style={[
+                        styles.historySlot,
+                        {
+                          flex: Math.max(0.25, column.durationDays ?? 1),
+                          marginLeft: column.planBreak ? 4 : 0,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.historyBar,
+                          {
+                            height: `${Math.max(2, Math.min(100, column.peakPercent))}%`,
+                            opacity: column.closed ? 1 : 0.48,
+                          },
+                        ]}
+                      />
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.historyAxis}>
+                  <Text style={styles.sectionNote}>{columns[0]?.endLabel ?? ''}</Text>
+                  <Text style={styles.sectionNote}>
+                    {columns.at(-1)?.closed ? columns.at(-1)?.endLabel : 'now'}
+                  </Text>
+                </View>
+                {strip.backfilledFrom ? (
+                  <Text style={styles.historyNote}>
+                    Includes history recovered from this machine.
+                  </Text>
+                ) : null}
+              </View>
+            )
+          })}
+        </View>
+      )}
+      {failed && ledger.strips.length > 0 ? (
+        <Text style={styles.note}>Couldn't refresh history. Showing the last saved ledger.</Text>
+      ) : null}
+      <Text style={styles.note}>
+        Weekly pools only. A running window stays translucent until its reset makes the peak final.
+      </Text>
+    </>
+  )
+}
+
 /** Six hours of the week, as the phone's trace plots it. */
 interface Block {
   startMs: number
@@ -599,6 +864,7 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
         [
           ['now', 'Now'],
           ['week', '7 days'],
+          ['history', 'History'],
         ] as const
       ).map(([key, label]) => {
         const active = mode === key
@@ -611,7 +877,13 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
             // here really is `tab`, so `aria-selected` is the right spelling. [POD-1664]
             accessibilityState={{ selected: active }}
             aria-selected={active}
-            accessibilityLabel={key === 'now' ? 'Now — capacity' : 'Seven days — usage'}
+            accessibilityLabel={
+              key === 'now'
+                ? 'Now — capacity'
+                : key === 'week'
+                  ? 'Seven days — usage'
+                  : 'Quota history'
+            }
             onPress={() => onChange(key)}
             style={[styles.tab, active && styles.tabActive]}
           >
@@ -643,9 +915,9 @@ function Unreachable({ onRetry }: { onRetry: () => void }) {
 // ---------------------------------------------------------------------------
 
 const TONE_COLOR: Record<QuotaTone, string> = {
-  ok: color.working,
+  ok: color.workingText,
   warn: color.accent,
-  crit: color.danger,
+  crit: color.dangerText,
 }
 
 const SEVERITY_TONE: Record<'ok' | 'warn' | 'critical', MeterTone> = {
@@ -657,9 +929,9 @@ const SEVERITY_TONE: Record<'ok' | 'warn' | 'critical', MeterTone> = {
 /** Claude's terracotta is a BRAND mark, not a status colour — it never competes
  *  with the tones the meters use. Every other harness stays neutral. */
 const markColor = (agent: AgentKind): string =>
-  agent === 'claude-code' ? color.claude : color.body
+  agent === 'claude-code' ? color.claudeText : color.body
 const markBorder = (agent: AgentKind): string =>
-  agent === 'claude-code' ? color.claude : color.border
+  agent === 'claude-code' ? color.claudeText : color.border
 
 const styles = StyleSheet.create({
   content: {
@@ -829,6 +1101,56 @@ const styles = StyleSheet.create({
     color: color.textFaint,
     marginTop: 3,
   },
+  machineRow: {
+    paddingVertical: space.md,
+  },
+  machineHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+    marginBottom: 2,
+  },
+  machineIdentity: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  machineDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  machineName: {
+    ...sans(600),
+    color: color.body,
+    fontSize: font.small,
+    flexShrink: 1,
+  },
+  machineCapacityNote: {
+    ...sans(400),
+    color: color.textFaint,
+    fontSize: font.micro,
+    lineHeight: leading(11, 'prose'),
+    marginTop: 3,
+  },
+  machineMetric: {
+    paddingTop: space.sm + 2,
+  },
+  machineListToggle: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.border,
+  },
+  machineListToggleText: {
+    ...sans(600),
+    color: color.accentText,
+    fontSize: font.small,
+  },
   weekGlance: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -906,6 +1228,81 @@ const styles = StyleSheet.create({
   savingsFigure: {
     ...sans(600),
     color: color.body,
+  },
+  historyHero: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.xl,
+    paddingBottom: space.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairline,
+  },
+  historyFigure: {
+    ...mono(600),
+    color: color.text,
+    fontSize: font.largeTitle,
+    letterSpacing: -1.4,
+    marginTop: space.sm,
+  },
+  historySummary: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
+    marginTop: 4,
+    maxWidth: 330,
+  },
+  historyStrip: {
+    paddingVertical: space.lg,
+  },
+  historyStripHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+    marginBottom: space.md,
+  },
+  historyIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    flex: 1,
+    minWidth: 0,
+  },
+  historyAverage: {
+    ...mono(600),
+    color: color.body,
+    fontSize: font.micro,
+  },
+  historyTrace: {
+    height: 88,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 3,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.border,
+  },
+  historySlot: {
+    height: '100%',
+    justifyContent: 'flex-end',
+    minWidth: 3,
+  },
+  historyBar: {
+    width: '100%',
+    minHeight: 2,
+    backgroundColor: color.working,
+    borderTopLeftRadius: 2,
+    borderTopRightRadius: 2,
+  },
+  historyAxis: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 7,
+  },
+  historyNote: {
+    ...sans(400),
+    color: color.textMicro,
+    fontSize: font.micro,
+    marginTop: space.sm,
   },
   trace: {
     paddingHorizontal: space.lg,

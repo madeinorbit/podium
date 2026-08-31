@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
 import { BottomTabBarHeightCallbackContext } from 'expo-router/build/react-navigation/bottom-tabs'
-import { Activity, KanbanSquare, MessagesSquare, Rows3 } from 'lucide-react-native'
+import { Activity, KanbanSquare, MessagesSquare, Rows3 } from './icons'
 import { useContext, useEffect, useState } from 'react'
 import { type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'

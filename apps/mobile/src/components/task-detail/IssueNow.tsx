@@ -1,6 +1,6 @@
 import { motionPhase, sessionTitle } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
-import { ChevronRight } from 'lucide-react-native'
+import { ChevronRight } from '../icons'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
   },
   live: {
-    color: color.working,
+    color: color.workingText,
   },
   attention: {
     color: color.needsYouText,

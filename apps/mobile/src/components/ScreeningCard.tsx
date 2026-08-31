@@ -124,8 +124,7 @@ export function ScreeningCard({
 
       const x = translateX.get()
       const distanceCommits = Math.abs(x) > COMMIT_PX
-      const velocityCommits =
-        !distanceCommits && Math.abs(event.velocityX) > FLICK_VELOCITY_X
+      const velocityCommits = !distanceCommits && Math.abs(event.velocityX) > FLICK_VELOCITY_X
       const commits = distanceCommits || velocityCommits
       if (!commits) {
         translateX.set(
@@ -246,7 +245,7 @@ export function ScreeningCard({
           pointerEvents="none"
           style={[styles.stamp, styles.stampRight, styles.stampDecline, declineStyle]}
         >
-          <Text style={[styles.stampText, { color: color.danger }]}>WON'T FIX</Text>
+          <Text style={[styles.stampText, { color: color.dangerText }]}>WON'T FIX</Text>
         </Animated.View>
 
         <View style={styles.identity}>

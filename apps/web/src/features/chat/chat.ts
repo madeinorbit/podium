@@ -1,4 +1,18 @@
-import { type ChatRow, insertInCursorOrder } from '@podium/client-core/viewmodels'
+import type { ChatRow } from '@podium/client-core/viewmodels'
+import {
+  freshOlderTranscriptPage,
+  mergeTranscriptFrame,
+  reconcileTranscriptSnapshot,
+  sameTranscriptItem,
+} from '@podium/client-core/transcript'
+import {
+  type ConversationPendingTurn,
+  pairPendingWithConversationQueue,
+  projectConversationQueue,
+  queuedConversationMessages,
+  reconcileConversationPending,
+  reconcileConversationQueue,
+} from '@podium/client-core/conversation'
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model/browser'
 
 /**
@@ -113,39 +127,7 @@ export function itemKey(item: TranscriptItem): string {
  * merge) keeps the held window in transcript order however the frames arrive.
  */
 export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
-  if (delta.length === 0) return prev
-  const indexByKey = new Map<string, number>()
-  prev.forEach((it, i) => {
-    indexByKey.set(itemKey(it), i)
-  })
-  let next: TranscriptItem[] | null = null // cloned lazily on the first real change
-  const additions: TranscriptItem[] = []
-  for (const it of delta) {
-    const key = itemKey(it)
-    const at = indexByKey.get(key)
-    if (at === -1) continue // a duplicate WITHIN this delta — already taken as an addition
-    if (at !== undefined) {
-      const existing = (next ?? prev)[at]
-      if (existing !== undefined && !sameItemContent(existing, it)) {
-        if (!next) next = [...prev]
-        next[at] = it
-      }
-    } else {
-      indexByKey.set(key, -1)
-      additions.push(it)
-    }
-  }
-  if (!next && additions.length === 0) return prev
-  if (additions.length === 0) return next ?? prev
-  const out = [...(next ?? prev)]
-  for (const item of additions) insertInCursorOrder(out, item)
-  return out
-}
-
-/** Cheap content equality for the fields a re-emitted (growing) record changes —
- *  lets mergeByCursor skip a re-render when a same-cursor re-emit is identical. */
-function sameItemContent(a: TranscriptItem, b: TranscriptItem): boolean {
-  return a.text === b.text && a.toolResult === b.toolResult && a.toolInput === b.toolInput
+  return mergeTranscriptFrame(prev, delta)
 }
 
 /**
@@ -167,7 +149,7 @@ export function sameItems(a: readonly TranscriptItem[], b: readonly TranscriptIt
     const x = a[i]
     const y = b[i]
     if (!x || !y) return false
-    if (itemKey(x) !== itemKey(y) || !sameItemContent(x, y)) return false
+    if (itemKey(x) !== itemKey(y) || !sameTranscriptItem(x, y)) return false
   }
   return true
 }
@@ -196,14 +178,7 @@ export function reconcileReset(
   snapshot: TranscriptItem[],
   snapshotTail: string | undefined,
 ): TranscriptItem[] {
-  if (snapshot.length === 0) return prev
-  const tailIdx =
-    snapshotTail !== undefined ? prev.findIndex((it) => itemKey(it) === snapshotTail) : -1
-  // Roll/replacement (tail not in the held window): adopt the snapshot verbatim.
-  if (tailIdx < 0) return snapshot
-  // Same conversation: keep items the held window has beyond the snapshot's tail.
-  const newerHeld = prev.slice(tailIdx + 1)
-  return newerHeld.length > 0 ? mergeByCursor(snapshot, newerHeld) : snapshot
+  return reconcileTranscriptSnapshot(prev, snapshot, snapshotTail)
 }
 
 /**
@@ -236,9 +211,7 @@ export function dedupeByCursor(items: TranscriptItem[]): TranscriptItem[] {
  * turns the fallback window into an empty page (the caller then stops paging).
  */
 export function freshOlderPage(page: TranscriptItem[], held: TranscriptItem[]): TranscriptItem[] {
-  if (page.length === 0) return page
-  const heldKeys = new Set(held.map(itemKey))
-  return page.filter((it) => !heldKeys.has(itemKey(it)))
+  return freshOlderTranscriptPage(page, held)
 }
 
 // Transcript SEARCH moved to the chat slice (`blockMatches` / `searchBlocks` in
@@ -329,7 +302,7 @@ export interface PendingItem {
   deliveryId?: string
   text: string
   at: number
-  state: 'sending' | 'queued' | 'sent' | 'failed'
+  state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted'
   tags?: TranscriptTag[]
   /** Uploaded paths encoded into the submitted prompt. Transcript providers
    * normalize those paths out of `text`, so they are the stable identity used
@@ -351,9 +324,9 @@ export interface QueuedChatMessage {
   /** THE CLI HAS IT (POD-1242). The ledger stamps this when the bytes cross into
    * the harness, which is BEFORE the agent takes them: a busy Claude Code parks
    * typed input in its own composer queue until the running turn ends, and shows
-   * it to that turn on the way. So an injected row is no longer waiting on us —
-   * it cannot be retracted, nothing more will be typed, and the agent may already
-   * be acting on it. Null while the row is still only promised. */
+   * it to that turn on the way. So an injected row is no longer waiting on us
+   * unless the harness reports an explicit interrupt. Null while the row is
+   * still only promised. */
   injectedAt: number | null
 }
 
@@ -363,8 +336,14 @@ export interface ProjectedPendingItem extends PendingItem {
   durable?: QueuedChatMessage
 }
 
-const QUEUE_CLOCK_SKEW_MS = 5_000
-const QUEUE_ACK_WINDOW_MS = 60_000
+function conversationPending(item: PendingItem): ConversationPendingTurn {
+  return {
+    ...item,
+    deliveryId: item.deliveryId ?? item.id,
+    wire: item.text,
+    kind: 'message',
+  }
+}
 
 /** Pair local bubbles with ledger rows once, using content plus the send-time
  * window. An older identical queued prompt is not the durable identity of a new
@@ -373,54 +352,19 @@ export function pairPendingWithQueued(
   pending: PendingItem[],
   queued: QueuedChatMessage[],
 ): { pending: ProjectedPendingItem[]; queued: QueuedChatMessage[] } {
-  const unmatched = [...queued]
-  const projected = pending.map((item): ProjectedPendingItem => {
-    if (item.state === 'failed') return item
-    if (item.deliveryId) {
-      const exactIndex = unmatched.findIndex((message) => message.id === item.deliveryId)
-      if (exactIndex === -1) return item
-      const [durable] = unmatched.splice(exactIndex, 1)
-      return durable ? { ...item, durable } : item
-    }
-    let bestIndex = -1
-    let bestDistance = Number.POSITIVE_INFINITY
-    for (const [index, message] of unmatched.entries()) {
-      if (message.text.trim() !== item.text.trim()) continue
-      if (message.at < item.at - QUEUE_CLOCK_SKEW_MS) continue
-      if (message.at > item.at + QUEUE_ACK_WINDOW_MS) continue
-      const distance = Math.abs(message.at - item.at)
-      if (distance < bestDistance) {
-        bestIndex = index
-        bestDistance = distance
-      }
-    }
-    if (bestIndex === -1) return item
-    const [durable] = unmatched.splice(bestIndex, 1)
-    return durable ? { ...item, durable } : item
-  })
-  return { pending: projected, queued: unmatched }
+  const projected = pairPendingWithConversationQueue(pending.map(conversationPending), queued)
+  const original = new Map(pending.map((item) => [item.id, item]))
+  return {
+    pending: projected.pending.map((item) => ({
+      ...(original.get(item.id) ?? item),
+      ...(item.durable ? { durable: item.durable } : {}),
+    })),
+    queued: projected.queued,
+  }
 }
 
 export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): QueuedChatMessage[] {
-  if (!Array.isArray(rows)) return []
-  return rows
-    .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
-    .filter(
-      (row) =>
-        row.from === 'operator' &&
-        row.to === `session:${sessionId}` &&
-        row.status === 'queued' &&
-        typeof row.id === 'string' &&
-        typeof row.body === 'string' &&
-        typeof row.createdAt === 'string',
-    )
-    .map((row) => ({
-      id: row.id as string,
-      text: row.body as string,
-      at: Date.parse(row.createdAt as string) || 0,
-      injectedAt: typeof row.injectedAt === 'string' ? Date.parse(row.injectedAt) || null : null,
-    }))
-    .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+  return queuedConversationMessages(rows, sessionId)
 }
 
 /** Collapse the optimistic bubble, durable ledger row, and transcript echo into
@@ -431,81 +375,15 @@ export function projectOptimisticMessages(
   queued: QueuedChatMessage[],
   transcript: TranscriptItem[],
 ): { pending: ProjectedPendingItem[]; queued: QueuedChatMessage[] } {
-  const paired = pairPendingWithQueued(pending, queued)
-  const logical: Array<{
-    pending?: ProjectedPendingItem
-    queued?: QueuedChatMessage
-    text: string
-    at: number
-    toolPaths?: string[]
-  }> = []
-
-  for (const item of paired.pending) {
-    logical.push({
-      pending: item,
-      queued: item.durable,
-      text: item.text.trim(),
-      at: item.at,
-      ...(item.toolPaths ? { toolPaths: item.toolPaths } : {}),
-    })
-  }
-  for (const message of paired.queued) {
-    logical.push({ queued: message, text: message.text.trim(), at: message.at })
-  }
-  logical.sort((a, b) => a.at - b.at)
-
-  const available = transcript.filter((item) => item.role === 'user')
-  const visible = logical.filter((message) => {
-    const index = available.findIndex((item) => {
-      const at = item.ts ? Date.parse(item.ts) : Number.NaN
-      // Unknown time cannot prove that a historical identical prompt is this
-      // send. Newly arrived ids are reconciled separately by useChatSend.
-      return Number.isFinite(at) && at >= message.at - 5_000 && messageMatchesItem(message, item)
-    })
-    if (index === -1) return true
-    available.splice(index, 1)
-    return false
-  })
-
+  const projected = projectConversationQueue(pending.map(conversationPending), queued, transcript)
+  const original = new Map(pending.map((item) => [item.id, item]))
   return {
-    pending: visible.flatMap((message) => (message.pending ? [message.pending] : [])),
-    queued: visible.flatMap((message) =>
-      !message.pending && message.queued ? [message.queued] : [],
-    ),
+    pending: projected.pending.map((item) => ({
+      ...(original.get(item.id) ?? item),
+      ...(item.durable ? { durable: item.durable } : {}),
+    })),
+    queued: projected.queued,
   }
-}
-
-function samePaths(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((path, index) => path === right[index])
-}
-
-function textCarriesPaths(text: string, paths: readonly string[]): boolean {
-  if (paths.length === 0) return false
-  const lines = new Set(text.split('\n').map((line) => line.trim()))
-  return paths.every((path) => lines.has(path))
-}
-
-/** One content matcher for local, ledger, and provider-normalized turns. */
-function messageMatchesItem(
-  message: Pick<PendingItem, 'text' | 'toolPaths' | 'acceptsAppendedBrief'>,
-  item: TranscriptItem,
-): boolean {
-  const itemText = item.text.trim()
-  const messageText = message.text.trim()
-  if (
-    message.acceptsAppendedBrief === true &&
-    (itemText === messageText || itemText.startsWith(`${messageText}\n\n`))
-  ) {
-    return true
-  }
-  const messagePaths = message.toolPaths ?? []
-  const itemPaths = item.toolPaths ?? []
-  if (messagePaths.length > 0) {
-    if (itemPaths.length > 0) return samePaths(messagePaths, itemPaths)
-    return textCarriesPaths(item.text, messagePaths)
-  }
-  if (itemPaths.length > 0) return textCarriesPaths(message.text, itemPaths)
-  return itemText === messageText
 }
 
 /**
@@ -520,14 +398,14 @@ export function reconcilePending(
   pending: PendingItem[],
   newUserItems: TranscriptItem[],
 ): PendingItem[] {
-  if (pending.length === 0) return pending
-  const remaining = [...newUserItems]
-  return pending.filter((p) => {
-    const i = remaining.findIndex((item) => messageMatchesItem(p, item))
-    if (i === -1) return true
-    remaining.splice(i, 1)
-    return false
-  })
+  const remaining = new Set(
+    reconcileConversationPending(pending.map(conversationPending), newUserItems).map(
+      (item) => item.id,
+    ),
+  )
+  return remaining.size === pending.length
+    ? pending
+    : pending.filter((item) => remaining.has(item.id))
 }
 
 /** Newly observed transcript ids are sufficient freshness proof even when a
@@ -537,14 +415,7 @@ export function reconcileQueued(
   queued: QueuedChatMessage[],
   newUserItems: TranscriptItem[],
 ): QueuedChatMessage[] {
-  if (queued.length === 0) return queued
-  const remaining = [...newUserItems]
-  return queued.filter((message) => {
-    const i = remaining.findIndex((item) => messageMatchesItem(message, item))
-    if (i === -1) return true
-    remaining.splice(i, 1)
-    return false
-  })
+  return reconcileConversationQueue(queued, newUserItems)
 }
 
 /** Return only user rows appended after the previously observed live tail.

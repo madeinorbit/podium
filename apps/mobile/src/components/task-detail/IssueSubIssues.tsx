@@ -1,6 +1,6 @@
 import type { IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { Plus } from 'lucide-react-native'
+import { Plus } from '../icons'
 import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'
@@ -130,7 +130,7 @@ function SubTaskRow({
   const state = child.needsHuman
     ? { text: 'needs you', tint: color.needsYou }
     : child.blocked
-      ? { text: 'blocked', tint: color.danger }
+      ? { text: 'blocked', tint: color.dangerText }
       : child.stage === 'proposed'
         ? { text: 'proposed', tint: stageColor('proposed') }
         : child.childCount > 0

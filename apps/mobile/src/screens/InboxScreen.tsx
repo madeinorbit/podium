@@ -2,7 +2,6 @@ import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
-import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import {
@@ -16,6 +15,7 @@ import {
 import { useMobileShell } from '../client/shell'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
+import { Inbox as InboxIcon, Settings } from '../components/icons'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   error: {
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.xl,
     paddingBottom: space.sm,

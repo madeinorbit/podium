@@ -51,6 +51,8 @@ function harness(
   let authorized = true
   const applied = vi.fn()
   const injected = vi.fn()
+  const interrupted = vi.fn()
+  const interruptedPending = vi.fn()
   const handleInput = vi.fn()
   const transcript: Array<{ id: string; role: 'user' | 'assistant'; text: string }> = Array.from(
     { length: options.userTurns ?? 0 },
@@ -70,6 +72,7 @@ function harness(
       ...(options.stateObservedAt ? { stateObservedAt: options.stateObservedAt } : {}),
     },
     terminal: {
+      controllerId: 'client-1',
       lastOutputAtMs: 0,
       transcriptItems: () => transcript,
       recordInputActivity: vi.fn(),
@@ -114,6 +117,8 @@ function harness(
         authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const),
       applied,
       injected,
+      interrupted,
+      interruptedPending,
       rejected: (input) => rejected.push(input),
     },
     attention: {
@@ -142,6 +147,8 @@ function harness(
     answered,
     applied,
     injected,
+    interrupted,
+    interruptedPending,
     handleInput,
     transcript,
     revoke: () => {
@@ -325,6 +332,56 @@ describe('SessionInbox authorization and identity', () => {
     })
   })
 
+  it('cancels the delayed chat submit before forwarding native Codex Escape', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    const principal = testClientPrincipal('browser-1')
+    const client = { id: 'client-1' } as ClientConn
+
+    expect(h.inbox.sendText({ sessionId: SID, text: 'do not submit after Escape' })).toEqual({
+      ok: true,
+      queued: true,
+    })
+    h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(
+      h.sent
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+        .filter((text) => text === '\r'),
+    ).toHaveLength(0)
+    expect(h.handleInput).toHaveBeenCalledWith(
+      'client-1',
+      Buffer.from('\x1b').toString('base64'),
+      expect.any(Object),
+    )
+    expect(h.interruptedPending).toHaveBeenCalledWith({ sessionId: SID })
+  })
+
+  it('does not cancel a chat send for Escape from a non-controlling terminal client', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    const principal = testClientPrincipal('browser-2')
+    const client = { id: 'client-2' } as ClientConn
+
+    h.inbox.sendText({ sessionId: SID, text: 'keep this queued' })
+    h.inbox.handleControllerInput(
+      principal,
+      client,
+      SID,
+      Buffer.from('\x1b').toString('base64'),
+    )
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(h.rows).toHaveLength(1)
+    expect(h.interruptedPending).not.toHaveBeenCalled()
+  })
+
   it('fails closed when a needs-human answer has no owner', () => {
     const h = harness({ owner: null })
 
@@ -395,12 +452,12 @@ describe('SessionInbox authorization and identity', () => {
   })
 
   // ONE keystroke, and WHICH keystroke is the harness's fact, not a constant
-  // (POD-1214). Measured on this host: claude-code and grok cancel on Esc and
-  // ignore Ctrl-C; codex ignores Esc entirely and cancels on Ctrl-C.
+  // (POD-1214). Codex moved from Ctrl-C in 0.147.0 to Esc in 0.150.1; keeping
+  // this table manifest-backed makes that provider change explicit.
   it.each([
     { agentKind: 'claude-code' as const, key: '\x1b' },
     { agentKind: 'grok' as const, key: '\x1b' },
-    { agentKind: 'codex' as const, key: '\x03' },
+    { agentKind: 'codex' as const, key: '\x1b' },
     { agentKind: 'shell' as const, key: '\x03' },
   ])('interrupt sends $agentKind its own abort key with the authenticated principal attribution', ({
     agentKind,
@@ -421,17 +478,63 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.answered).toEqual([])
   })
 
-  // The guard that keeps the fix from becoming a worse bug: one Ctrl-C at an
-  // IDLE codex prompt exits the CLI, so a stop aimed at a turn that already
-  // ended must refuse rather than kill the session.
-  it('refuses to interrupt an idle codex instead of sending the key that would quit it', () => {
+  it('uses the safe Escape interrupt at an idle Codex prompt', () => {
     const h = harness({ agentKind: 'codex', phase: 'idle' })
 
     const result = h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
 
-    expect(result.ok).toBe(false)
-    expect(result.reason).toContain('only takes an interrupt while it is working')
-    expect(h.sent).toEqual([])
+    expect(result).toEqual({ ok: true })
+    expect(h.sent).toHaveLength(1)
+  })
+
+  it('lets stop cancel a queued prompt even when idle codex has no turn to abort', () => {
+    const h = harness({ agentKind: 'codex', phase: 'idle' })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'cancel before delivery',
+      sourceMessageId: 'message-not-yet-injected',
+      principal: agentPrincipal(),
+    })
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+    })
+    expect(h.sent).toHaveLength(1)
+    expect(h.rows).toEqual([])
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-not-yet-injected',
+      sessionId: SID,
+    })
+  })
+
+  it('cancels the named queued prompt without removing an earlier one', () => {
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'keep first',
+      sourceMessageId: 'message-keep',
+      principal: agentPrincipal(),
+    })
+    h.inbox.queueText({
+      sessionId: SID,
+      text: 'cancel second',
+      sourceMessageId: 'message-cancel',
+      principal: agentPrincipal(),
+    })
+
+    expect(
+      h.inbox.interruptTurn({
+        sessionId: SID,
+        sourceMessageId: 'message-cancel',
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: true })
+
+    expect(h.rows.map((row) => row.sourceMessageId)).toEqual(['message-keep'])
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-cancel',
+      sessionId: SID,
+    })
   })
 
   // Esc is inert at an idle prompt, so it needs no guard — and gating it would
@@ -445,9 +548,48 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toHaveLength(1)
   })
 
-  // interruptText SKIPS the key rather than refusing: its job is to deliver the
-  // message, and an interrupt-urgency mail must never be what kills a session.
-  it('delivers interrupt-urgency text to an idle codex without the quit-when-idle key', async () => {
+  it('stops submit verification after the chat stop control interrupts the prompt', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+
+    h.inbox.sendText({ sessionId: SID, text: 'do not send this', principal: agentPrincipal() })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(
+      h.sent
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+        .filter((text) => text === '\r'),
+    ).toHaveLength(1)
+
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(
+      h.sent
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+        .filter((text) => text === '\r'),
+    ).toHaveLength(1)
+  })
+
+  it('cancels the first delayed submit when stop wins the paste-to-Enter race', async () => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+
+    h.inbox.sendText({ sessionId: SID, text: 'cancel immediately', principal: agentPrincipal() })
+    expect(h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    const decoded = h.sent.map((message) =>
+      Buffer.from((message as { data: string }).data, 'base64').toString(),
+    )
+    expect(decoded).toContain('\x1b')
+    expect(decoded).not.toContain('\r')
+  })
+
+  it('uses the current safe Escape before interrupt-urgency text at idle Codex', async () => {
     vi.useFakeTimers()
     try {
       const h = harness({ agentKind: 'codex', phase: 'idle' })
@@ -464,6 +606,7 @@ describe('SessionInbox authorization and identity', () => {
       const decoded = h.sent.map((m) =>
         Buffer.from((m as { data: string }).data, 'base64').toString(),
       )
+      expect(decoded).toContain('\x1b')
       expect(decoded.some((d) => d.includes('\x03'))).toBe(false)
       expect(decoded.some((d) => d.includes('stop and read this'))).toBe(true)
     } finally {
@@ -601,6 +744,34 @@ describe('SessionInbox authorization and identity', () => {
  */
 describe('SessionInbox queued delivery is confirmed, not assumed', () => {
   const PROMPT = 'merge the branch and close the issue'
+
+  it('cancels an injected row when the CLI transcript reports an interrupt', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const h = harness({ transcriptAvailable: true, phase: 'idle' })
+
+    h.inbox.queueText({
+      sessionId: SID,
+      text: PROMPT,
+      sourceMessageId: 'message-interrupted',
+      principal: agentPrincipal(),
+    })
+    await vi.advanceTimersByTimeAsync(6_500)
+    expect(h.rows[0]?.attempts).toBe(1)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    h.setPhase('working')
+    h.inbox.onTranscriptDelta(SID, [{ event: 'interrupt' }])
+    expect(h.rows).toEqual([])
+    expect(h.session.queuedMessageCount).toBe(0)
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'message-interrupted',
+      sessionId: SID,
+    })
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+  })
 
   it('keeps the row queued when the typed prompt never becomes a turn', () => {
     vi.useFakeTimers()
@@ -796,13 +967,12 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     expect(typedTexts(h.sent)).toEqual([PROMPT])
   })
 
-  it('waits out a running turn instead of retyping into it', () => {
+  it('holds a queued chat send outside the CLI while its turn is running', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
-    // The state a queued send meets by definition: the agent is mid-turn, which
-    // is WHY the send was queued. The CLI takes the prompt into its own composer
-    // queue and writes no user turn until the turn ends, so the five-second
-    // confirmation can never succeed — and used to retype on that schedule.
+    // Podium keeps ownership until the turn boundary. If the prompt crossed
+    // into Codex's own queue, Escape would interrupt the current turn and then
+    // deliberately promote this prompt into the next one.
     const h = harness({ transcriptAvailable: true, phase: 'working' })
 
     h.inbox.queueText({
@@ -814,10 +984,9 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     })
     vi.advanceTimersByTime(240_000)
 
-    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(typedTexts(h.sent)).toEqual([])
     expect(h.rows).toHaveLength(1)
-    // Typed, not taken: the operator's bubble may settle, the ledger may not.
-    expect(h.injected).toHaveBeenCalledWith({ sourceMessageId: 'msg_busy', sessionId: SID })
+    expect(h.injected).not.toHaveBeenCalled()
     expect(h.applied).not.toHaveBeenCalled()
   })
 
@@ -836,9 +1005,12 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
     vi.advanceTimersByTime(600_000)
     expect(h.rows).toHaveLength(1)
 
-    // Ten minutes later the turn ends and the CLI submits what it was holding.
-    h.landTurn(PROMPT)
+    // Ten minutes later the turn ends. Only now does Podium hand over the row.
     h.setPhase('idle')
+    vi.advanceTimersByTime(1_100)
+    expect(typedTexts(h.sent)).toEqual([PROMPT])
+
+    h.landTurn(PROMPT)
     vi.advanceTimersByTime(1_100)
 
     expect(typedTexts(h.sent)).toEqual([PROMPT])
@@ -858,10 +1030,10 @@ describe('SessionInbox queued delivery is confirmed, not assumed', () => {
       principal: agentPrincipal(),
     })
     vi.advanceTimersByTime(60_000)
-    expect(typedTexts(h.sent)).toEqual([PROMPT])
+    expect(typedTexts(h.sent)).toEqual([])
 
-    // The turn ended and took something else — our prompt is not in the
-    // transcript and nothing is holding it any more. NOW it was lost.
+    // The turn ended, so delivery starts. No matching user turn appears, which
+    // is the point at which retrying becomes valid.
     h.setPhase('idle')
     vi.advanceTimersByTime(9_000)
 
