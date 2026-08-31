@@ -67,7 +67,7 @@ describe('a transcript link that points at this Podium (POD-1606)', () => {
   it('replaces raw HTML resolver markers with values derived from the href', () => {
     setKnownPodiumOrigins([HOME])
     document.body.innerHTML = renderMarkdown(
-      '<a href="https://example.com/guide" data-podium-link-source="/issues/POD-1606" data-podium-link-candidate data-podium-link>guide</a>',
+      '<a title=">" href="https://example.com/guide" data-podium-link-source="/issues/POD-1606" data-podium-link-candidate data-podium-link>guide</a>',
     )
     const link = document.querySelector('a') as HTMLAnchorElement
     expect(link.getAttribute('data-podium-link-source')).toBe('https://example.com/guide')

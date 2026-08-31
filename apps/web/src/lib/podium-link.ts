@@ -21,6 +21,7 @@ import {
   type PodiumLink,
   type PodiumLinkOptions,
   type PodiumTarget,
+  formatExternalHttpLink,
   formatPodiumLinkFallback,
   parsePodiumLink,
   podiumTargetPath,
@@ -130,6 +131,14 @@ export function systemBrowserPodiumHref(href: string): string | null {
   return serverOrigin ? formatPodiumLinkFallback(serverOrigin, href, link) : null
 }
 
+/** A safe external HTTP address for native middle/context actions. Protocol-
+ * relative forms take only the active server's scheme, never its authority. */
+export function systemBrowserExternalHref(href: string): string | null {
+  const link = classifyPodiumLink(href)
+  if (link?.kind !== 'external') return null
+  return formatExternalHttpLink(link.href, serverOrigins[0])
+}
+
 /**
  * Rebase already-rendered Podium anchors after the active server becomes known.
  * Markdown can render during boot, before PodiumLinkHost registers httpOrigin,
@@ -156,12 +165,14 @@ export function canonicalizePodiumAnchor(target: EventTarget | null): void {
   const sourceHref = anchor.getAttribute('data-podium-link-source') ?? href
   const link = classifyPodiumLink(sourceHref)
   if (link?.kind !== 'internal') {
+    const externalHref = systemBrowserExternalHref(sourceHref)
+    if (externalHref) anchor.setAttribute('href', externalHref)
     // This candidate belonged to the previous active server. Restore the
     // renderer's external-link contract instead of navigating the current
     // tab or WebView away from the newly active replica.
     if (anchor.hasAttribute('data-podium-link')) {
       anchor.removeAttribute('data-podium-link')
-      anchor.setAttribute('href', sourceHref)
+      anchor.setAttribute('href', externalHref ?? sourceHref)
       anchor.setAttribute('target', '_blank')
       anchor.setAttribute('rel', 'noopener noreferrer')
     }

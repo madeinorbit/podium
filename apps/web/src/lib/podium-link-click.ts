@@ -20,8 +20,8 @@ import { nativeDesktopBridge, openInSystemBrowser } from './nativeDesktop'
 import {
   activatePodiumTarget,
   canonicalizePodiumAnchor,
-  classifyPodiumLink,
   internalPodiumTarget,
+  systemBrowserExternalHref,
   systemBrowserPodiumHref,
 } from './podium-link'
 
@@ -121,9 +121,7 @@ export function handlePodiumLinkAuxClick(e: PodiumLinkAuxClickEvent): boolean {
   const href = sourceHref(anchor)
   if (!href) return false
   const browserHref = systemBrowserPodiumHref(href)
-  const external = classifyPodiumLink(href)
-  const externalHref =
-    external?.kind === 'external' && /^https?:\/\//i.test(external.href) ? external.href : null
+  const externalHref = systemBrowserExternalHref(href)
   const handoff = browserHref
     ? openInSystemBrowser(browserHref)
     : externalHref

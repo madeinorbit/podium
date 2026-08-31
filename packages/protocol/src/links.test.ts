@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canonicalPodiumOrigin,
+  formatExternalHttpLink,
   formatPodiumLink,
   formatPodiumLinkFallback,
   isInternalPodiumLink,
@@ -212,6 +213,13 @@ describe('podiumTargetForPath', () => {
     if (link?.kind !== 'internal') throw new Error('expected internal link')
     expect(formatPodiumLinkFallback(HOME, href, link)).toBe(
       `${HOME}/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy`,
+    )
+  })
+
+  it('normalizes protocol-relative paths without touching query or fragment bytes', () => {
+    const href = String.raw`\\example.test\guide?q=C:\Users#x\y`
+    expect(formatExternalHttpLink(href, HOME)).toBe(
+      String.raw`http://example.test/guide?q=C:\Users#x\y`,
     )
   })
 

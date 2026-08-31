@@ -185,6 +185,55 @@ describe('handlePodiumLinkClick', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it('normalizes every protocol-relative spelling for desktop middle-click', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    for (const href of [
+      '//example.test/guide',
+      '/\\example.test/guide',
+      '\\/example.test/guide',
+      '\\\\example.test\\guide',
+    ]) {
+      document.body.innerHTML = '<a data-podium-link-candidate="">x</a>'
+      const anchor = document.querySelector('a') as HTMLAnchorElement
+      anchor.setAttribute('href', href)
+      anchor.setAttribute('data-podium-link-source', href)
+      const event = new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+      Object.defineProperty(event, 'target', { value: anchor })
+      expect(handlePodiumLinkAuxClick(event)).toBe(true)
+      expect(event.defaultPrevented).toBe(true)
+    }
+    expect(openExternal.mock.calls.map(([href]) => href)).toEqual([
+      'http://example.test/guide',
+      'http://example.test/guide',
+      'http://example.test/guide',
+      'http://example.test/guide',
+    ])
+  })
+
+  it('canonicalizes protocol-relative context actions without changing detail bytes', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    const href = String.raw`\\example.test\guide?q=C:\Users#x\y`
+    document.body.innerHTML = '<a data-podium-link-candidate="">x</a>'
+    const anchor = document.querySelector('a') as HTMLAnchorElement
+    anchor.setAttribute('href', href)
+    anchor.setAttribute('data-podium-link-source', href)
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'target', { value: anchor })
+
+    expect(handlePodiumLinkContextMenu(event)).toBe(false)
+    expect(event.defaultPrevented).toBe(false)
+    expect(anchor.getAttribute('href')).toBe(String.raw`http://example.test/guide?q=C:\Users#x\y`)
+    expect(openExternal).not.toHaveBeenCalled()
+  })
+
   it('hands an authored old-server middle-click out after the active server changes', () => {
     const openExternal = vi.fn(async () => undefined)
     ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {

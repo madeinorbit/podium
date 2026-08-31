@@ -365,8 +365,8 @@ export function formatPodiumLink(origin: string, target: PodiumTarget): string {
  * Preserve a validated href's original HTTP bytes for browser/OS fallback.
  * Rebuilding a file target is correct for a newly authored canonical link, but
  * wrong for fallback: it can reorder identity keys, normalize escape case, or
- * collapse duplicate and empty query segments. Custom-scheme links have no
- * HTTP href to preserve and still use the canonical formatter.
+ * collapse duplicate and empty query segments. Custom-scheme links preserve
+ * their validated raw path/query/hash while replacing only the scheme origin.
  */
 export function formatPodiumLinkFallback(
   origin: string,
@@ -387,4 +387,33 @@ export function formatPodiumLinkFallback(
     return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`
   }
   return formatPodiumLink(link.origin ?? base, link.target)
+}
+
+/**
+ * Give an absolute or protocol-relative external link an OS-openable HTTP URL.
+ * The shared parser accepts slash/backslash authority spellings because URL
+ * parsers do; normalize only the authority/path prefix so query and fragment
+ * backslashes remain byte-for-byte intact. The active Podium origin supplies
+ * the scheme inside a packaged `tauri:` page, never its host.
+ */
+export function formatExternalHttpLink(href: string, activeOrigin?: string | null): string | null {
+  const raw = cleanPodiumHref(href)
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw)
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null
+    } catch {
+      return null
+    }
+  }
+  if (!/^[/\\][/\\]/.test(raw)) return null
+  let protocol = 'https:'
+  const active = activeOrigin ? canonicalPodiumOrigin(activeOrigin) : null
+  if (active) protocol = new URL(active).protocol
+  const query = raw.indexOf('?')
+  const fragment = raw.indexOf('#')
+  const detailAt = query === -1 ? fragment : fragment === -1 ? query : Math.min(query, fragment)
+  const address = detailAt === -1 ? raw : raw.slice(0, detailAt)
+  const detail = detailAt === -1 ? '' : raw.slice(detailAt)
+  return `${protocol}${address.replace(/\\/g, '/')}${detail}`
 }
