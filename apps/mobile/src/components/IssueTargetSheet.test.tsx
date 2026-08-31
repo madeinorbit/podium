@@ -7,14 +7,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 type FlatListProps = NativeFlatListProps<IssueWire>
 let captured: FlatListProps | undefined
 
+vi.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
+}))
+
 vi.mock('./BottomSheet', () => ({
   BottomSheet: ({
     children,
+    footer,
     virtualizedContent,
   }: {
     children?: ReactNode
+    footer?: ReactNode
     virtualizedContent?: (scrollEnabled: boolean) => ReactNode
-  }) => virtualizedContent?.(true) ?? children,
+  }) => (
+    <>
+      {virtualizedContent?.(true) ?? children}
+      {footer}
+    </>
+  ),
 }))
 
 vi.mock('react-native', async (importOriginal) => {
@@ -84,5 +95,20 @@ describe('IssueTargetSheet scale boundary', () => {
     ])
     expect(filterIssueTargets(issues, '#599').map((issue) => issue.id)).toEqual(['issue-599'])
     expect(filterIssueTargets(issues, 'pod 417').map((issue) => issue.id)).toEqual(['issue-417'])
+  })
+
+  it('keeps the pinned Cancel control above the home indicator', () => {
+    const { getByRole } = render(
+      <IssueTargetSheet
+        visible
+        title="Parent"
+        issues={[]}
+        onPick={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    const cancel = getByRole('button', { name: 'Cancel' })
+    expect((cancel.parentElement as HTMLElement).style.paddingBottom).toBe('46px')
   })
 })

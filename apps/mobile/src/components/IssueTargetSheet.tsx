@@ -2,6 +2,8 @@ import type { IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useMemo, useState } from 'react'
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { BottomSheet } from './BottomSheet'
 import { PressableScale } from './PressableScale'
@@ -24,6 +26,8 @@ export function IssueTargetSheet({
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
+  const insets = useSafeAreaInsets()
+  const keyboardHeight = useKeyboardHeight()
   useEffect(() => {
     if (!visible) setQuery('')
   }, [visible])
@@ -54,14 +58,21 @@ export function IssueTargetSheet({
       }
       footerRule={false}
       footer={
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel="Cancel"
-          onPress={onClose}
-          style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}
+        <View
+          style={[
+            styles.footer,
+            { paddingBottom: keyboardHeight > 0 ? space.md : insets.bottom + space.md },
+          ]}
         >
-          <Text style={styles.cancelText}>Cancel</Text>
-        </PressableScale>
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
+            onPress={onClose}
+            style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}
+          >
+            <Text style={styles.cancelText}>Cancel</Text>
+          </PressableScale>
+        </View>
       }
       virtualizedContent={(scrollEnabled) => (
         <FlatList
@@ -181,12 +192,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   pressed: { opacity: 0.68 },
+  footer: {
+    paddingTop: space.sm,
+  },
   cancel: {
     minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: space.md,
-    marginTop: space.sm,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,

@@ -100,6 +100,11 @@ export function useReplica(): MobileStore['replica'] {
   return useStoreSelector<MobileStore['replica'], MobileTrpc>((s) => s.replica)
 }
 
+/** The coarse shared clock used for stable working/progress projections. */
+export function useCoarseNow(): number {
+  return useStoreSelector<number, MobileTrpc>((s) => s.coarseNow)
+}
+
 /** Connected machines. Array identity moves only on machinesChanged. */
 export function useMachines(): MachineWire[] {
   return useStoreSelector<MachineWire[], MobileTrpc>((s) => s.machines)

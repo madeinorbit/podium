@@ -17,9 +17,11 @@ import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import {
   useBooting,
+  useCoarseNow,
   useConnected,
   useIssue,
   useIssues,
+  useReplica,
   useSessions,
   useStoreActions,
   useTrpc,
@@ -189,6 +191,8 @@ function IssueContent({
   // field is identity-stable, so this subscription never re-renders the page.
   const actions = useStoreActions()
   const { resumeAndSend } = actions
+  const replica = useReplica()
+  const coarseNow = useCoarseNow()
   const issues = useIssues()
   const allSessions = useSessions()
 
@@ -278,9 +282,9 @@ function IssueContent({
         id,
         (targetId) => byId.get(targetId),
         'opaque',
-        (targetId) => store.replica.exitKind?.('issue', targetId),
+        (targetId) => replica.exitKind?.('issue', targetId),
       )
-  }, [issues, store.replica])
+  }, [issues, replica])
 
   const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const breadcrumb = parent
@@ -387,7 +391,7 @@ function IssueContent({
             busy={busy}
             commands={commands}
             sessions={allSessions}
-            now={store.coarseNow}
+            now={coarseNow}
             onOpen={openIssue}
             onStatus={(child) => setSheet({ kind: 'child-status', child })}
           />
@@ -565,7 +569,7 @@ function IssueContent({
         busy={busy}
         onConfirm={(reason) => {
           if (sheet?.kind === 'confirm-child-close') {
-            void run(() => store.closeIssue(sheet.child.id, reason))
+            void run(() => actions.closeIssue(sheet.child.id, reason))
             setSheet(null)
             return
           }
@@ -662,14 +666,14 @@ function IssueContent({
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'stage') {
-      void run(() => store.updateIssue(child.id, { stage: intent.stage }))
+      void run(() => actions.updateIssue(child.id, { stage: intent.stage }))
       return
     }
     if (issueCloseBlockers(child, allSessions).length > 0) {
       setSheet({ kind: 'confirm-child-close', child, reason: intent.reason })
       return
     }
-    void run(() => store.closeIssue(child.id, intent.reason))
+    void run(() => actions.closeIssue(child.id, intent.reason))
   }
 }
 
