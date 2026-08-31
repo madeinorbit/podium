@@ -87,6 +87,17 @@ describe('desktop opener shim', () => {
     })
   })
 
+  it('hands malformed explicit HTTP outward for clicks and window.open', () => {
+    const href = 'http://127.0.0.1:8787./issues/POD-1'
+    expect(clickOfferLink(href)).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: href })
+
+    invoke.mockClear()
+    window.open(href, '_blank')
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: href })
+    expect(nativeOpen).not.toHaveBeenCalled()
+  })
+
   it('leaves an in-app link to the webview', () => {
     expect(clickOfferLink(`${window.location.origin}/session/abc`)).toBe(false)
     expect(invoke).not.toHaveBeenCalled()

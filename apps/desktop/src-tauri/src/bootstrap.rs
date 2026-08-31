@@ -575,7 +575,10 @@ pub fn opener_shim_script() -> &'static str {
       // rather than swallowing the blank-target fallback as one of "ours".
       if (u.searchParams.has('server')) return u.href;
       return isOurs(httpOrigin(u.href)) ? null : u.href;
-    } catch { return null; }
+    } catch {
+      const href = String(raw).replace(/[\t\n\r]/g, '').trim();
+      return /^https?:\/\//i.test(href) ? href : null;
+    }
   };
   const openExternal = (href) => { t.invoke('plugin:opener|open_url', { url: href }).catch(() => {}); };
   const nativeOpen = window.open.bind(window);
