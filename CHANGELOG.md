@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1-edge.3] - 2026-08-31
-
 ### Added
 
 - Updates are now a first-class release pipeline rather than a one-shot script: every release
@@ -52,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interrupted chat sends are cancelled and targeted correctly instead of landing after the fact.
 - Mobile bounds its dictation audio buffering, transcript cache writes and artifact preview reads,
   and carries PTY frames across the webview seam as bytes.
+- Releasing works again on both halves. The desktop manifest builder demanded a Windows bundle
+  that is no longer built, which threw away the Linux and macOS shells that had built and signed
+  correctly; Windows is now optional there. The headless half could not fetch its Zig toolchain
+  after Zig changed its tarball naming, and its pinned action was too old to follow.
 
 ## [0.1.1-edge.2] - 2026-08-21
 
