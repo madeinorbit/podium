@@ -23,6 +23,7 @@ import {
   normalizeLaunchConfiguration,
   selectLaunchAgent,
   selectInheritedLaunchAgent,
+  selectLaunchEffort,
   selectLaunchMachine,
   selectLaunchModel,
 } from '../lib/launch-configuration'
@@ -159,7 +160,7 @@ export function LaunchConfigurationFields({
             options: effortOptions,
             valueLabel:
               effortOptions.find((option) => option.value === effective.effort)?.label ?? 'Auto',
-            select: (effort: string) => onChange({ ...value, effort }),
+            select: (effort: string) => onChange(selectLaunchEffort(value, effort)),
           },
         ]
       : []),

@@ -66,7 +66,23 @@ export function selectLaunchModel(
   value: LaunchConfiguration,
   modelPick: string,
 ): LaunchConfiguration {
-  return { ...value, modelPick, effort: AUTO }
+  return {
+    ...value,
+    inheritAgent: modelPick === AUTO ? value.inheritAgent : false,
+    modelPick,
+    effort: AUTO,
+  }
+}
+
+export function selectLaunchEffort(
+  value: LaunchConfiguration,
+  effort: string,
+): LaunchConfiguration {
+  return {
+    ...value,
+    inheritAgent: effort === AUTO ? value.inheritAgent : false,
+    effort,
+  }
 }
 
 export function selectLaunchMachine(
@@ -135,8 +151,13 @@ export function launchConfigurationPatch(configuration: LaunchConfiguration): {
   machineId: MachineId | null
 } {
   const decoded = decodeModelPick(configuration.modelPick)
+  // A model or effort belongs to the agent catalog shown when it was chosen.
+  // Pin that agent even if an older caller leaves inheritAgent set, otherwise a
+  // later settings read could pair the override with a different harness.
+  const pinsDisplayedAgent =
+    !configuration.inheritAgent || decoded.model !== AUTO || configuration.effort !== AUTO
   return {
-    ...(!configuration.inheritAgent ? { defaultAgent: configuration.agentKind } : {}),
+    ...(pinsDisplayedAgent ? { defaultAgent: configuration.agentKind } : {}),
     defaultModel: decoded.model === AUTO ? AUTO : decoded.model,
     defaultEffort: configuration.effort || AUTO,
     machineId: configuration.machineId ? (configuration.machineId as MachineId) : null,

@@ -8,7 +8,9 @@ import {
   normalizeLaunchConfiguration,
   selectLaunchAgent,
   selectInheritedLaunchAgent,
+  selectLaunchEffort,
   selectLaunchMachine,
+  selectLaunchModel,
 } from './launch-configuration'
 
 const selected: LaunchConfiguration = {
@@ -131,6 +133,37 @@ describe('normalizeLaunchConfiguration', () => {
     expect(launchConfigurationPatch(inherited)).not.toHaveProperty('defaultAgent')
     expect(launchConfigurationPatch(selectLaunchAgent(inherited, 'codex'))).toMatchObject({
       defaultAgent: 'codex',
+    })
+  })
+
+  it('binds explicit model and effort choices to the agent whose catalog was displayed', () => {
+    const inherited = selectInheritedLaunchAgent(selected)
+    const withModel = selectLaunchModel(inherited, encodeModelPick('codex', 'gpt-current'))
+    expect(withModel).toMatchObject({ inheritAgent: false, agentKind: 'codex' })
+    expect(launchConfigurationPatch(withModel)).toMatchObject({
+      defaultAgent: 'codex',
+      defaultModel: 'gpt-current',
+    })
+
+    const withEffort = selectLaunchEffort(inherited, 'high')
+    expect(withEffort).toMatchObject({ inheritAgent: false, agentKind: 'codex', effort: 'high' })
+    expect(launchConfigurationPatch(withEffort)).toMatchObject({
+      defaultAgent: 'codex',
+      defaultEffort: 'high',
+    })
+  })
+
+  it('defensively pins inherited state when an older caller supplies an explicit override', () => {
+    const inherited = selectInheritedLaunchAgent(selected)
+    expect(
+      launchConfigurationPatch({
+        ...inherited,
+        modelPick: encodeModelPick('codex', 'gpt-current'),
+      }),
+    ).toMatchObject({ defaultAgent: 'codex', defaultModel: 'gpt-current' })
+    expect(launchConfigurationPatch({ ...inherited, effort: 'high' })).toMatchObject({
+      defaultAgent: 'codex',
+      defaultEffort: 'high',
     })
   })
 })
