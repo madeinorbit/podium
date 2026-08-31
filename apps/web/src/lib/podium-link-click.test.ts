@@ -23,6 +23,7 @@ import {
 } from './podium-link-click'
 
 const HOME = 'http://127.0.0.1:8787'
+const OTHER = 'http://127.0.0.1:9898'
 
 function clickOn(html: string, init: MouseEventInit = {}): MouseEvent {
   document.body.innerHTML = html
@@ -167,7 +168,43 @@ describe('handlePodiumLinkClick', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
-  it('keeps browser context actions canonical but suppresses the shell dead menu', () => {
+  it('hands an external desktop middle-click to the OS browser', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    document.body.innerHTML =
+      '<a href="https://example.com/guide" data-podium-link-candidate="" data-podium-link-source="https://example.com/guide" target="_blank">x</a>'
+    const anchor = document.querySelector('a') as HTMLAnchorElement
+    const event = new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+    Object.defineProperty(event, 'target', { value: anchor })
+
+    expect(handlePodiumLinkAuxClick(event)).toBe(true)
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/guide')
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('hands an authored old-server middle-click out after the active server changes', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    setKnownPodiumOrigins([OTHER])
+    const href = `${HOME}/issues/POD-1606`
+    document.body.innerHTML = `<a href="${href}" data-podium-link-candidate="" data-podium-link-source="${href}" data-podium-link="">x</a>`
+    const anchor = document.querySelector('a') as HTMLAnchorElement
+    const event = new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+    Object.defineProperty(event, 'target', { value: anchor })
+
+    expect(handlePodiumLinkAuxClick(event)).toBe(true)
+    expect(openExternal).toHaveBeenCalledWith(href)
+    expect(anchor.hasAttribute('data-podium-link')).toBe(false)
+    expect(anchor.getAttribute('target')).toBe('_blank')
+  })
+
+  it('keeps browser and shell context actions canonical without suppressing the menu', () => {
     document.body.innerHTML =
       '<a href="/issues/POD-1606" data-podium-link-candidate="" data-podium-link-source="/issues/POD-1606">x</a>'
     const anchor = document.querySelector('a') as HTMLAnchorElement
@@ -185,8 +222,8 @@ describe('handlePodiumLinkClick', () => {
     }
     const shellEvent = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
     Object.defineProperty(shellEvent, 'target', { value: anchor })
-    expect(handlePodiumLinkContextMenu(shellEvent)).toBe(true)
-    expect(shellEvent.defaultPrevented).toBe(true)
+    expect(handlePodiumLinkContextMenu(shellEvent)).toBe(false)
+    expect(shellEvent.defaultPrevented).toBe(false)
     expect(openExternal).not.toHaveBeenCalled()
   })
 

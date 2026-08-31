@@ -20,6 +20,7 @@ import { nativeDesktopBridge, openInSystemBrowser } from './nativeDesktop'
 import {
   activatePodiumTarget,
   canonicalizePodiumAnchor,
+  classifyPodiumLink,
   internalPodiumTarget,
   systemBrowserPodiumHref,
 } from './podium-link'
@@ -120,8 +121,14 @@ export function handlePodiumLinkAuxClick(e: PodiumLinkAuxClickEvent): boolean {
   const href = sourceHref(anchor)
   if (!href) return false
   const browserHref = systemBrowserPodiumHref(href)
-  if (!browserHref) return false
-  const handoff = openInSystemBrowser(browserHref)
+  const external = classifyPodiumLink(href)
+  const externalHref =
+    external?.kind === 'external' && /^https?:\/\//i.test(external.href) ? external.href : null
+  const handoff = browserHref
+    ? openInSystemBrowser(browserHref)
+    : externalHref
+      ? nativeDesktopBridge()?.openExternal?.(externalHref) ?? null
+      : null
   if (!handoff) return false
   e.preventDefault()
   handoff.catch(() => {})
@@ -130,17 +137,14 @@ export function handlePodiumLinkAuxClick(e: PodiumLinkAuxClickEvent): boolean {
 
 /**
  * WebKit exposes context-menu display, but not which native menu item the user
- * later chose. In a browser, canonicalizing here makes Open/Copy use the active
- * server. In the packaged shell, suppress the menu only for links the shared
- * resolver owns: otherwise its unobservable Open in New Tab action can be
- * swallowed by WKWebView. Ordinary and middle clicks remain supported.
+ * later chose. Canonicalizing here makes Open/Copy use the active server. Keep
+ * the native menu itself: Copy Link Address and the platform's other actions
+ * remain useful. The shell cannot intercept a later Open in New Tab selection,
+ * so only ordinary, modifier, and middle-click browser handoff is claimed.
  */
 export function handlePodiumLinkContextMenu(e: PodiumLinkContextMenuEvent): boolean {
   const anchor = closestAnchor(e.target)
   if (!anchor || !isPodiumLinkCandidate(anchor)) return false
   canonicalizePodiumAnchor(anchor)
-  const href = sourceHref(anchor)
-  if (!href || !nativeDesktopBridge() || !systemBrowserPodiumHref(href)) return false
-  e.preventDefault()
-  return true
+  return false
 }

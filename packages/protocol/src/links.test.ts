@@ -204,6 +204,17 @@ describe('podiumTargetForPath', () => {
     expect(formatPodiumLinkFallback(HOME, href, link)).toBe(`${HOME}${href}`)
   })
 
+  it('preserves a custom-scheme file suffix byte-for-byte for HTTP fallback', () => {
+    const href =
+      'podium://file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy'
+    const link = parsePodiumLink(href)
+    expect(link?.kind).toBe('internal')
+    if (link?.kind !== 'internal') throw new Error('expected internal link')
+    expect(formatPodiumLinkFallback(HOME, href, link)).toBe(
+      `${HOME}/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy`,
+    )
+  })
+
   it('falls back to a plain view rather than failing', () => {
     expect(podiumTargetForPath('/settings/general')).toEqual({
       kind: 'view',
