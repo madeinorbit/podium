@@ -55,7 +55,8 @@ export function parseStatus(output: string): { header: StatusHeader; entries: St
     const x = line[0] ?? ' '
     const y = line[1] ?? ' '
     const rest = line.slice(3)
-    const arrow = x === 'R' || x === 'C' ? rest.indexOf(' -> ') : -1
+    const renamedOrCopied = x === 'R' || x === 'C' || y === 'R' || y === 'C'
+    const arrow = renamedOrCopied ? rest.indexOf(' -> ') : -1
     const entry: StatusEntry = {
       x,
       y,
@@ -133,6 +134,11 @@ export interface ParsedDiff {
   truncated: number
 }
 
+/** Keep the parent task ScrollView light; more rows are an explicit decision. */
+export const GIT_FILE_PAGE = 40
+export const GIT_DIFF_PAGE = 80
+export const GIT_DIFF_PARSE_CAP = 320
+
 const PREAMBLE = [
   'diff ',
   'index ',
@@ -151,9 +157,9 @@ const PREAMBLE = [
 ]
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)$/
 
-/** Phone reviews cap each open file at 600 visible rows. The omitted count is
- * always stated, so a generated file cannot freeze a short review session. */
-export function parseDiff(text: string, cap = 600): ParsedDiff {
+/** The parser still counts the full diff, but retains only a bounded phone
+ * window. Rendering progressively reveals smaller slices of this result. */
+export function parseDiff(text: string, cap = GIT_DIFF_PARSE_CAP): ParsedDiff {
   const rows: DiffRow[] = []
   let added = 0
   let removed = 0
@@ -199,4 +205,19 @@ export function parseDiff(text: string, cap = 600): ParsedDiff {
     push({ kind: 'ctx', text: line.startsWith(' ') ? line.slice(1) : line })
   }
   return { rows, added, removed, binary, truncated }
+}
+
+export function diffRowAccessibilityLabel(row: DiffRow): string {
+  switch (row.kind) {
+    case 'add':
+      return `Added line: ${row.text || 'blank line'}`
+    case 'del':
+      return `Deleted line: ${row.text || 'blank line'}`
+    case 'hunk':
+      return `Diff hunk: ${row.text}${row.context ? ` ${row.context}` : ''}`
+    case 'note':
+      return `Diff note: ${row.text}`
+    default:
+      return `Unchanged line: ${row.text || 'blank line'}`
+  }
 }

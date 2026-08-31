@@ -2,7 +2,7 @@ import { segmentOfferText } from '@podium/client-core/viewmodels'
 import type { SessionOffer } from '@podium/model'
 import { Lightbulb, X } from './icons'
 import { useState } from 'react'
-import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
+import { AccessibilityInfo, Linking, StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
@@ -67,7 +67,9 @@ export function SessionActionCard({
     try {
       await onAction(prompt)
     } catch (error) {
-      setFailed(errorText(error, 'The action did not reach the agent'))
+      const detail = errorText(error, 'The action did not reach the agent')
+      setFailed(detail)
+      AccessibilityInfo.announceForAccessibility(`Not sent: ${detail}. Try again.`)
     } finally {
       setSending(false)
     }
@@ -83,7 +85,9 @@ export function SessionActionCard({
       // Only on the failure path does the flag come back down: a dismissal that
       // WORKED unmounts this card with the cleared session, and releasing it on
       // the way out would flash the control live again first.
-      setDismissFailed(errorText(error, 'The offer is still active'))
+      const detail = errorText(error, 'The offer is still active')
+      setDismissFailed(detail)
+      AccessibilityInfo.announceForAccessibility(`Not dismissed: ${detail}. Try again.`)
       setDismissing(false)
     }
   }
@@ -149,9 +153,15 @@ export function SessionActionCard({
       {/* Failures get their own line rather than a slot in the eyebrow: at 390pt
           "not dismissed — try again" beside the label wrapped the eyebrow onto
           two lines, and an error is not a thing to truncate. */}
-      {failed ? <Text style={styles.error}>Not sent: {failed}. Try again.</Text> : null}
+      {failed ? (
+        <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>
+          Not sent: {failed}. Try again.
+        </Text>
+      ) : null}
       {dismissFailed ? (
-        <Text style={styles.error}>Not dismissed: {dismissFailed}. Try again.</Text>
+        <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>
+          Not dismissed: {dismissFailed}. Try again.
+        </Text>
       ) : null}
       {pending ? (
         <View style={styles.inputBlock}>

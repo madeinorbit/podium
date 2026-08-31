@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { AccessibilityInfo } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // This lane does not run testing-library's auto-cleanup, so an earlier render
@@ -88,6 +89,7 @@ describe('SessionActionCard', () => {
   })
 
   it('keeps the offer and says so when the dismissal does not reach the server', async () => {
+    const announce = vi.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {})
     const onDismiss = vi.fn(async () => {
       throw new Error('offline')
     })
@@ -99,12 +101,32 @@ describe('SessionActionCard', () => {
     await waitFor(() =>
       expect(screen.getByTestId('session-action-card').textContent).toContain('Not dismissed'),
     )
-    expect(screen.getByTestId('session-action-card').textContent).toContain('offline')
+    expect(screen.getByRole('alert').textContent).toContain('offline')
     // The control comes back rather than staying spent — the offer is still
     // standing on the server, so the operator must be able to try again.
     await waitFor(() =>
       expect(screen.getByLabelText('Dismiss offer').hasAttribute('disabled')).toBe(false),
     )
+    expect(announce).toHaveBeenCalledWith('Not dismissed: offline. Try again.')
+    announce.mockRestore()
+  })
+
+  it('announces a send failure with server detail and keeps the action retryable', async () => {
+    const announce = vi.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {})
+    const onAction = vi.fn(async () => {
+      throw new Error('agent unavailable')
+    })
+    render(<SessionActionCard offer={offer} onAction={onAction} />)
+
+    fireEvent.click(screen.getByLabelText('Merge'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('agent unavailable'))
+    expect(screen.getByRole('alert').textContent).toContain('Try again')
+    await waitFor(() => expect(screen.getByLabelText('Merge').hasAttribute('disabled')).toBe(false))
+
+    fireEvent.click(screen.getByLabelText('Merge'))
+    await waitFor(() => expect(onAction).toHaveBeenCalledTimes(2))
+    expect(announce).toHaveBeenCalledWith('Not sent: agent unavailable. Try again.')
+    announce.mockRestore()
   })
 
   it('offers no dismissal on a host that cannot write', () => {

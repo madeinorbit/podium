@@ -22,10 +22,7 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
-import {
-  type SentAttachment,
-  useComposerAttachments,
-} from '../components/useComposerAttachments'
+import { type SentAttachment, useComposerAttachments } from '../components/useComposerAttachments'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import {
@@ -104,7 +101,13 @@ export function SuperagentScreen() {
   // The thread's headless session: the slice's answer, until a turn's ack hands
   // back a fresher one (the FIRST turn learns its session from the ack alone).
   const [ackedSid, setAckedSid] = useState<SessionId | undefined>(undefined)
-  const podiumSid = ackedSid ?? superagent.activeSessionId
+  // A successful clear kills the old headless session before the store refresh
+  // necessarily removes its binding. Keep that stale id hidden locally so an
+  // immediate attachment cannot revive it during the refresh window.
+  const [clearedSid, setClearedSid] = useState<SessionId | undefined>(undefined)
+  const publishedSid =
+    superagent.activeSessionId === clearedSid ? undefined : superagent.activeSessionId
+  const podiumSid = ackedSid ?? publishedSid
   const transcriptSession = podiumSid
     ? store.sessions.find((session) => session.sessionId === podiumSid)
     : undefined
@@ -115,7 +118,16 @@ export function SuperagentScreen() {
     [superagent.active, backendPick],
   )
   const [pendingTurns, setPendingTurns] = useState<LocalPendingTurn[]>([])
-  const attachments = useComposerAttachments(podiumSid)
+  const prepareAttachmentSession = useCallback(async (): Promise<SessionId> => {
+    if (podiumSid) return podiumSid
+    const result = await trpc.superagent.ensureSession.mutate({ threadId: THREAD_ID })
+    if (!result.podiumSessionId) throw new Error('Superagent could not prepare this attachment.')
+    setAckedSid(result.podiumSessionId)
+    return result.podiumSessionId
+  }, [podiumSid, trpc.superagent.ensureSession])
+  const attachments = useComposerAttachments(podiumSid, {
+    prepareSession: prepareAttachmentSession,
+  })
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
   // Monotonic per-mount counter behind each optimistic row's id. Date.now()
@@ -127,26 +139,6 @@ export function SuperagentScreen() {
     hasMore: false,
     loading: false,
   })
-
-  // Mint the invisible, PTY-less headless session before the first prompt so
-  // Photos and Files have the same upload target on an empty Superagent thread
-  // that they have after the first turn. `ensureSession` is idempotent and does
-  // not invoke a harness.
-  useEffect(() => {
-    if (!superagent.active || podiumSid) return
-    let cancelled = false
-    void trpc.superagent.ensureSession
-      .mutate({ threadId: THREAD_ID })
-      .then((result) => {
-        if (!cancelled && result.podiumSessionId) setAckedSid(result.podiumSessionId)
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [podiumSid, superagent.active, trpc.superagent.ensureSession])
 
   const cancelLiveTextFrame = useCallback(() => {
     // A callback can already be dequeued when cancellation runs. Invalidate its
@@ -438,7 +430,9 @@ export function SuperagentScreen() {
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
       setItems([])
+      setClearedSid(podiumSid)
       setAckedSid(undefined)
+      attachments.clear()
       void store.refreshSuperThreads().catch(() => {})
       setPendingTurns([])
       clearLiveText()
@@ -448,7 +442,7 @@ export function SuperagentScreen() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [clearLiveText, trpc, store.refreshSuperThreads])
+  }, [attachments.clear, clearLiveText, podiumSid, trpc, store.refreshSuperThreads])
 
   // Keep the high-frequency live row outside the settled transcript. This
   // preserves the settled array's identity and its cached paired/row model.
@@ -559,7 +553,7 @@ export function SuperagentScreen() {
             placeholder="Delegate a task…"
             onSend={send}
             draftInsertion={draftInsertion}
-            attachments={podiumSid ? attachments : undefined}
+            attachments={attachments}
             bottomInset={tabBarInset}
             leading={
               <SuperagentBackendRail
