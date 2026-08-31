@@ -592,3 +592,170 @@ Two cautions the numbers make visible:
 
 Unconditional regardless: signing, digesting, the identity fences, retention,
 standing-shell resolution and feed activation.
+
+---
+
+# Addendum 3 — pre-filing questions
+
+## Q1 (again) — how does `pigz` actually get onto the machines?
+
+**It is a build-host tool, so it does not go through `install.sh`.** That
+installer's prerequisite pass (apt/apk/dnf/yum/zypper/pacman, already installing
+`tar gzip`) is for *end-user runtime* tools on a machine that only ever extracts
+a bundle. A release build never runs there.
+
+**There is already a table for exactly this**, and pigz is a fourth row in it —
+`docs/internal/headless-cross-compilation.md` §Prerequisites:
+
+| Where | Needs | How |
+|---|---|---|
+| CI release job | zig 0.16, rcodesign 0.29 | `mlugg/setup-zig`, `scripts/ci-install-rcodesign.sh` |
+| CI published-smoke | zig, rcodesign | same |
+| The dev host (ludovico) | zig, rcodesign | on PATH, or `PODIUM_ZIG` / `PODIUM_RCODESIGN` |
+| **→ add: any release host** | **pigz (optional)** | **package manager, or `PODIUM_PIGZ`; falls back to `gzip`** |
+
+So concretely, three places:
+
+1. **Dev hosts** — `apt-get install -y pigz` once, documented in that table. No
+   bootstrap script exists to hook into, and inventing one for a single optional
+   package is not worth it.
+2. **CI** — one step in `.github/workflows/release.yml` beside the existing
+   `mlugg/setup-zig` and `scripts/ci-install-rcodesign.sh` steps. The CI runner
+   is `blacksmith-4vcpu-ubuntu-2204` and builds **four** platforms rather than
+   the dev host's two, so the saving there is roughly double.
+3. **Code** — `resolvePigz()` following `resolveZig`'s `findTool` shape
+   (`PODIUM_PIGZ` → PATH → fallback), except that where `findTool` **throws**
+   for zig, pigz **returns `undefined` and the archive step uses `gzip`**,
+   logging which compressor ran.
+
+The point of the fallback is that nothing breaks on a host that never got the
+package — it is just slower. That is the whole reason to prefer a fallback over
+a hard prerequisite here, and it is why this does not need a provisioning story
+at all.
+
+*(Reminder from Addendum 2: the fallback is only safe while archives are not
+required to be reproducible. pigz and gzip produce different bytes. If §4's
+reproducible-archive work is ever done, pigz must become a hard requirement.)*
+
+## Q2 (again) — what is the `git ls-files` step, and do we cache it?
+
+**No. It is not a build step and it must never be cached** — but it also should
+not be slow, and the slowness is a one-line bug rather than a fact of life.
+
+**What it is for.** It is half of `assertSourceMatchesHead`, an *identity
+fence*. It asks one question:
+
+> Is there a gitignored-but-importable file — `.ts .tsx .js .json .wasm`, … —
+> under `apps packages scripts tooling` that a bundler could pull into a
+> `dev+<sha>` bundle even though it is not part of commit `<sha>`?
+
+The other half is `git status --porcelain` (uncommitted *tracked* changes,
+0.03 s). Together they are what makes a `dev+<sha>` label true. Caching the
+answer would be caching a freshness check — the result is only meaningful for
+the working tree as it is *right now*, and a cached "clean" is exactly the lie
+the fence exists to prevent.
+
+**Why it is slow: the pathspecs filter, they do not prune.** The call passes
+`:(exclude)**/node_modules/**`, `:(exclude)**/dist/**`, … but git applies those
+*after* walking. Measured on the live checkout: git emits **18,045 paths** to
+yield **227** after exclusion, having descended into every `node_modules`,
+`dist`, `.turbo` and `target` tree on disk. Cold, that walk is 18–29 s.
+
+**The tempting fix is wrong.** `--directory`, which collapses a fully-ignored
+directory into one entry, takes the same query from 29.16 s to **0.02 s**
+— and **blinds the fence.** Constructed repro, in a throwaway repo with
+`apps/secret/` gitignored:
+
+```
+without --directory:  apps/secret/sneaky.ts     ← fence sees it
+with    --directory:  apps/secret/              ← sneaky.ts collapsed away
+```
+
+`apps/secret/` has no file extension, so `classifyIgnoredSourceInputs` skips it
+and an ignored `.ts` sails through the exact check built to catch it.
+
+**The safe fix is two-step:** collapse with `--directory`, then descend *only*
+into collapsed directories whose basename is not a known non-source tree
+(`DEV_BUNDLE_NON_SOURCE_TREES`, which the classifier already knows). Prototyped
+against the live checkout: **same verdict as today (zero offending files)**, and
+the collapsed listing itself costs 0.02 s. On this repo every collapsed
+directory is on the allowlist, so nothing is descended into and the walk simply
+never happens — while a `apps/secret/` would still be opened and caught.
+
+**A second, orthogonal question worth answering before filing.** The expensive
+call runs on the **live checkout**, before the snapshot is taken. But the build
+happens *in the snapshot* — a fresh `git worktree add --detach`, which by
+construction cannot contain the live checkout's untracked-ignored files — and
+the snapshot's own copy of this fence (`validation / final-source-inputs`,
+0.22 s) is what actually gates publication. So the live-root call looks like a
+pre-flight UX gate: it refuses early, legibly, before spending 45 s.
+
+If that is all it is, it could simply be dropped in favour of the cheap
+`git status` and the snapshot check. **Do not assume that.** The Turbo cache is
+shared between the live checkout and the snapshot
+(`~/.cache/podium/turbo/<projectKey>`, keyed on the common git dir), and Turbo
+does not hash gitignored files — so a client build produced *in the live
+checkout* could in principle have been influenced by an ignored source file
+without that file changing the cache key, and the poisoned entry would then
+restore into the snapshot. That would make the live-root check genuinely
+load-bearing against cache poisoning. **This is the one thing to check before
+touching the call site.**
+
+**So the answer to "cache it or instrument the build?" is: instrument the
+build** — nine wrappers, cheap, and it is what turns every number in this report
+from an inference into a measurement — **and separately fix this call with the
+two-step pathspec change.** Neither is caching, and the fence keeps firing.
+
+## Q4 (again) — is abduco doing its own content addressing? Should it use Turbo?
+
+**Yes, it is its own — and it should stay its own.** Switching to Turbo would
+make the cache *less* correct, not cleaner.
+
+`abducoCachePath` keys on exactly one thing: the sha256 of
+`packages/pty/vendor/abduco/abduco.c`, plus the platform
+(`scripts/abduco-cross.ts:136–155`). That is the complete and precise input set
+— a single C translation unit compiled by `zig cc` for a fixed target triple.
+
+A Turbo task would inherit `turbo.json`'s **`globalDependencies`**:
+
+```
+tooling/tsconfig/**, package.json, bun.lock, vitest.config.ts,
+vitest.unit.config.ts, vitest.smoke-requirements.ts, test-hermetic-*.ts,
+scripts/package-vitest-config.ts
+```
+
+plus `globalEnv: [PODIUM_CHECK_ENV_HASH]`. **Bumping any npm dependency, or
+editing a vitest config, would invalidate the abduco helper** — a C file that
+depends on none of them. The bespoke key is strictly narrower and strictly more
+honest, and its narrowness is load-bearing: the header comment states that a
+touched `abduco.c` must invalidate all four platforms at once and that a
+restored CI cache "can never serve a helper built from different source". A
+coarser key does not break that guarantee, but it does destroy the hit rate the
+guarantee was bought for.
+
+Two smaller objections to Turbo here as well:
+
+- **Fit.** Turbo caches *workspace task outputs*, relative to the package
+  directory. The helper is consumed at the fixed repo-root path
+  `dist-bun/abduco.bin` (a static `with { type: 'file' }` import in the compiled
+  binary), and is built mid-packaging from `scripts/build-bun.ts`, not from a
+  workspace `build` script.
+- **Cost.** Entering Turbo means spawning it during packaging. The client lane's
+  entire *warm* Turbo run measured 453 ms; against 1.86 s of `zig cc` the margin
+  would be thin, where the existing cache's hit path is a single `existsSync`.
+
+**The actual bug is one line of path.** The cache is correct, atomic
+(pid-staged then `mv`) and race-safe; it just lives at
+`<root>/dist-bun/abduco-cache`, and the release `<root>` is a throwaway `/tmp`
+worktree where gitignored `dist-bun/` is created empty. Default
+`abducoCacheDir` to the durable per-host, per-repository path instead — the very
+`~/.cache/podium/<…>/<projectKey>` shape `sharedTurboCacheDir` already
+establishes, and the reason the client lane restores from the snapshot at all —
+with a `PODIUM_ABDUCO_CACHE_DIR` override, keeping the `{ root }` argument for
+tests.
+
+**That gets the one thing Turbo would have given (sharing across checkouts)
+without inheriting a cache key that has nothing to do with C.** Two shell
+callers reference the literal path and move with it:
+`scripts/assert-headless-bundle.sh:292` and
+`scripts/prove-headless-assertions-can-fail.sh:36–37`.
