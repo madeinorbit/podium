@@ -92,8 +92,8 @@ static_self_test() {
   if [ "${P3110_ATOMIC_TEST_MODE:-0}" = 1 ]; then
     [ -f "${P3110_ATOMIC_TEST_MARKER:?test marker is required}" ] || { printf '%s\n' "STATIC SELF TEST fixture file missing" >&2; return 1; }
   fi
-  old_instance=p3110-grok-paired-a4a209c-r8
   new_instance=p3110-grok-paired-2ac84c5-r9
+  old_instance=p3110-grok-2ac84c5-control
   new_state="${P3110_STATE_DIR:?P3110_STATE_DIR is required}"
   [ ! -e "$new_state" ] || { printf '%s\n' "STATIC SELF TEST new state root exists before derivations: $new_state" >&2; return 1; }
   [ "$old_instance" != "$new_instance" ] || { printf '%s\n' 'STATIC SELF TEST instance ids collide' >&2; return 1; }
