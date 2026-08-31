@@ -5,6 +5,7 @@ import type { TranscriptItem } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { decodeCursor } from './cursor-codec'
 import { fileIdFor } from './file-chain'
+import { grokRecordToItems } from './grok'
 import { type TranscriptTailOptions, tailTranscript } from './tailer'
 
 const dir = mkdtempSync(join(tmpdir(), 'podium-tailer-'))
@@ -246,6 +247,56 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
       const reset = emissions.find((e) => e.reset)
       expect(reset).toBeDefined()
       expect(textsOf(emissions)).toEqual(['small-after-truncate'])
+    } finally {
+      tailer.stop()
+    }
+  })
+})
+
+describe('tailTranscript — missing provider file', () => {
+  it('lets the shared tick observe a file created while the seed gate is held exactly once', async () => {
+    const path = join(dir, 'grok-created-after-bind.jsonl')
+    const emissions: Emission[] = []
+    let watcher = (): void => {}
+    const held = new Promise<void>(() => {})
+    const tailer = tailTranscript(
+      path,
+      (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
+      {
+        recordToItems: grokRecordToItems,
+        statTick: {
+          subscribe(next) {
+            watcher = next
+            return () => {
+              watcher = (): void => {}
+            }
+          },
+        },
+        seedGate: async () => held,
+      },
+    )
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      writeFileSync(
+        path,
+        [
+          JSON.stringify({ type: 'system', content: 'hidden' }),
+          JSON.stringify({ uuid: 'prompt-r4', type: 'user', content: 'IDLE-M6Z13Z' }),
+          JSON.stringify({ uuid: 'reply-r4', type: 'assistant', content: 'done IDLE-M6Z13Z' }),
+        ].join('\n') + '\n',
+      )
+      watcher()
+      await waitFor(() => itemsOf(emissions).length === 2)
+      expect(itemsOf(emissions).map((item) => [item.id, item.role, item.text])).toEqual([
+        ['prompt-r4', 'user', 'IDLE-M6Z13Z'],
+        ['reply-r4', 'assistant', 'done IDLE-M6Z13Z'],
+      ])
+      expect(emissions).toHaveLength(1)
+      expect(emissions[0]?.reset).toBe(true)
+
+      watcher()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(emissions).toHaveLength(1)
     } finally {
       tailer.stop()
     }

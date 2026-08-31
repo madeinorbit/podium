@@ -323,9 +323,20 @@ export function tailTranscript(
     { statTick: opts.statTick, pollMs: opts.pollMs ?? POLL_MS },
   )
   const seedGate = opts.seedGate ?? ((fn: () => Promise<void>) => fn())
-  void seedGate(() => readNew()).finally(() => {
-    seeded = true
-  })
+  // An observer can bind before its provider creates the transcript file. Do
+  // not park that missing-path retry behind the reattach seed queue: shared
+  // ticks are otherwise disabled for the lifetime of a delayed gate. Existing
+  // files still take the paced seed path; a later-created file gets the same
+  // bounded first-read window on the first shared tick that can stat it.
+  void stat(path).then(
+    () =>
+      seedGate(() => readNew()).finally(() => {
+        seeded = true
+      }),
+    () => {
+      seeded = true
+    },
+  )
 
   return {
     path,
