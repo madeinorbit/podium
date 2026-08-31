@@ -80,6 +80,15 @@ describe('mobilePodiumRoute', () => {
       mobilePodiumRoute({ kind: 'session', session: 'POD-9999-A' }, { issues, sessions }),
     ).toBeNull()
   })
+
+  it('does not claim a typed target when doing so would drop its detail', () => {
+    expect(
+      mobilePodiumRoute(
+        { kind: 'issue', issue: 'POD-1606', search: '?tab=activity', hash: '#latest' },
+        { issues, sessions },
+      ),
+    ).toBeNull()
+  })
 })
 
 describe('followPodiumLink', () => {
@@ -88,6 +97,7 @@ describe('followPodiumLink', () => {
     const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
     const activate = vi.fn(() => true)
     setKnownPodiumOrigins([PAIRED])
+    setActivePodiumOrigin(PAIRED)
     setPodiumTargetActivator(activate)
 
     followPodiumLink(`${PAIRED}/issues/POD-1606`)
@@ -124,6 +134,23 @@ describe('followPodiumLink', () => {
     expect(openURL).toHaveBeenCalledWith(
       'https://configured.example/issues/POD-1606/artifacts/art1',
     )
+
+    setPodiumTargetActivator(null)
+    openURL.mockRestore()
+  })
+
+  it('never resolves another paired server against the active replica', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    const activate = vi.fn(() => true)
+    const other = 'https://other-paired.example'
+    setKnownPodiumOrigins([PAIRED, other])
+    setActivePodiumOrigin(PAIRED)
+    setPodiumTargetActivator(activate)
+
+    followPodiumLink(`${other}/issues/POD-1606`)
+    expect(activate).not.toHaveBeenCalled()
+    expect(openURL).toHaveBeenCalledWith(`${other}/issues/POD-1606`)
 
     setPodiumTargetActivator(null)
     openURL.mockRestore()

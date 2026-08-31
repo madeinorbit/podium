@@ -2,10 +2,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { AccessibilityInfo } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// This lane does not run testing-library's auto-cleanup, so an earlier render
-// stays in the document and the next query finds two cards instead of one.
-afterEach(cleanup)
-
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(async () => {}),
@@ -15,6 +11,18 @@ vi.mock('expo-haptics', () => ({
 // covered by OfferArtifactStrip.test.tsx; these tests are about the card.
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 const { composeOfferPrompt, SessionActionCard } = await import('./SessionActionCard')
+const { setActivePodiumOrigin, setKnownPodiumOrigins, setPodiumTargetActivator } = await import(
+  '../lib/podium-link'
+)
+
+// This lane does not run testing-library's auto-cleanup, so an earlier render
+// stays in the document and the next query finds two cards instead of one.
+afterEach(() => {
+  cleanup()
+  setKnownPodiumOrigins([])
+  setActivePodiumOrigin(null)
+  setPodiumTargetActivator(null)
+})
 
 const offer = {
   message: 'Ready to merge\nAll focused checks are green.',
@@ -50,10 +58,10 @@ describe('SessionActionCard', () => {
     // THE BUG: a link to the server this phone is paired with went to Safari,
     // which would then ask the reader to pair all over again.
     const { Linking } = await import('react-native')
-    const { setKnownPodiumOrigins, setPodiumTargetActivator } = await import('../lib/podium-link')
     const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
     const activate = vi.fn(() => true)
     setKnownPodiumOrigins(['https://ludovico.example'])
+    setActivePodiumOrigin('https://ludovico.example')
     setPodiumTargetActivator(activate)
 
     render(
@@ -69,14 +77,11 @@ describe('SessionActionCard', () => {
     expect(activate).toHaveBeenCalledWith({ kind: 'issue', issue: 'POD-1606' })
     expect(openURL).not.toHaveBeenCalled()
 
-    setKnownPodiumOrigins([])
-    setPodiumTargetActivator(null)
     openURL.mockRestore()
   })
 
   it('still opens an unpaired server in the browser', async () => {
     const { Linking } = await import('react-native')
-    const { setKnownPodiumOrigins } = await import('../lib/podium-link')
     const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
     setKnownPodiumOrigins(['https://ludovico.example'])
     render(
@@ -89,7 +94,6 @@ describe('SessionActionCard', () => {
     await waitFor(() =>
       expect(openURL).toHaveBeenCalledWith('https://elsewhere.example/issues/POD-1606'),
     )
-    setKnownPodiumOrigins([])
     openURL.mockRestore()
   })
 

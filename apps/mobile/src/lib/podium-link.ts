@@ -19,6 +19,7 @@
 import {
   type PodiumLink,
   type PodiumTarget,
+  canonicalPodiumOrigin,
   formatPodiumLink,
   parseIssueRef,
   parsePodiumLink,
@@ -94,10 +95,12 @@ export function mobilePodiumRoute(
   context: { issues: readonly LinkIssueLike[]; sessions: readonly LinkSessionLike[] },
 ): string | null {
   if (target.kind === 'issue') {
+    if (target.search || target.hash) return null
     const issue = findLinkedIssue(target.issue, context.issues)
     return issue ? `/issue/${encodeURIComponent(issue.id)}` : null
   }
   if (target.kind === 'session') {
+    if (target.search || target.hash) return null
     const session = findLinkedSession(target.session, context.sessions)
     return session ? `/session/${encodeURIComponent(session.sessionId)}` : null
   }
@@ -154,19 +157,23 @@ export function setPodiumTargetActivator(fn: PodiumTargetActivator | null): void
 }
 
 /**
- * Follow one link the way the phone should: a Podium address on a paired server
- * opens a screen; everything else goes to the OS.
+ * Follow one link the way the phone should: a Podium address on the ACTIVE
+ * server opens a screen; everything else goes to the OS.
  *
  * A target this app cannot show — an artifact, a file, an issue that has not
- * arrived — falls back to the browser, which can at least render the bytes. A
- * host-less address (`podium://…`, a relative href) has nothing to fall back
- * TO, so it is dropped rather than handed to the OS as a broken URL.
+ * arrived — falls back to the browser. A host-less address (`podium://…`, a
+ * relative href) uses the active server for that fallback. An address on a
+ * different paired server must never be resolved against the active replica:
+ * refs are server-local and two servers can both have `POD-10`.
  */
 export function followPodiumLink(href: string): void {
   const link = classifyPodiumLink(href)
   if (!link) return
   if (link.kind === 'internal') {
-    if (activator?.(link.target)) return
+    const active = activeOrigin ? canonicalPodiumOrigin(activeOrigin) : null
+    const addressesActiveServer =
+      link.origin === null || (active !== null && link.origin === active)
+    if (addressesActiveServer && activator?.(link.target)) return
     const fallbackOrigin = link.origin ?? activeOrigin
     if (!fallbackOrigin) return
     void Linking.openURL(formatPodiumLink(fallbackOrigin, link.target)).catch(() => {})

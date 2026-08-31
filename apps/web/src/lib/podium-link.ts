@@ -23,6 +23,8 @@ import {
   parsePodiumLink,
 } from '@podium/protocol'
 
+export const PODIUM_NATIVE_OPEN_EVENT = 'podium:native-open'
+
 // --- Known origins ---------------------------------------------------------
 
 let serverOrigins: readonly string[] = []
@@ -57,6 +59,26 @@ export function classifyPodiumLink(href: string): PodiumLink | null {
 export function internalPodiumTarget(href: string): PodiumTarget | null {
   const link = classifyPodiumLink(href)
   return link?.kind === 'internal' ? link.target : null
+}
+
+/**
+ * Capture a canonical target before the ordinary web router sees startup URL.
+ * The router has no route for sessions, artifacts or files, and issue refs need
+ * replica resolution before they can become the opaque id its route expects.
+ * Detailed typed URLs stay with the browser because an activator cannot promise
+ * to preserve their query or fragment.
+ */
+export function startupPodiumHref(location: {
+  pathname: string
+  search: string
+  hash?: string
+}): string | null {
+  const href = `${location.pathname}${location.search}${location.hash ?? ''}`
+  const link = parsePodiumLink(href)
+  if (link?.kind !== 'internal' || link.target.kind === 'view') return null
+  if ('search' in link.target && link.target.search) return null
+  if ('hash' in link.target && link.target.hash) return null
+  return href
 }
 
 // --- Activator registry ----------------------------------------------------
@@ -98,4 +120,10 @@ export function activatePodiumTarget(
 ): boolean {
   if (!activator) return false
   return activator(target, { direct: Boolean(e.metaKey || e.ctrlKey) })
+}
+
+/** Classify and activate one raw address through the installed app resolver. */
+export function activatePodiumHref(href: string): boolean {
+  const target = internalPodiumTarget(href)
+  return target ? activatePodiumTarget(target) : false
 }
