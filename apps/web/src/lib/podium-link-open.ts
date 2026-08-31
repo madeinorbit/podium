@@ -32,7 +32,12 @@ export interface LinkIssueLike {
   displayRef?: string
   worktreePath?: string | null
   panel?: {
-    artifacts?: ReadonlyArray<{ path: string; artifactId?: string; entry?: string }>
+    artifacts?: ReadonlyArray<{
+      path: string
+      artifactId?: string
+      entry?: string
+      files?: ReadonlyArray<{ path: string; size: number }>
+    }>
   } | null
 }
 
@@ -101,11 +106,23 @@ export function resolvePodiumTarget(
       if (hasUnsupportedTypedDetail(target)) return null
       const issue = findLinkedIssue(target.issue, context.issues)
       if (!issue) return null
-      const entry = issue.panel?.artifacts?.find((a) => a.artifactId === target.artifactId)
-      if (!entry) return null
-      // The address may name the file inside the bundle; otherwise the panel
-      // entry says which file is the primary one.
-      const path = target.entry ?? entry.entry ?? basename(entry.path)
+      const artifact = issue.panel?.artifacts?.find(
+        (entry) => entry.artifactId === target.artifactId,
+      )
+      if (!artifact) return null
+      // A named bundle entry must exist in the issue's artifact manifest. An
+      // unchecked relpath would report success, suppress browser fallback, and
+      // create a tab whose first read can only 404.
+      const primaryEntry = artifact.entry ?? basename(artifact.path)
+      const namesPrimaryEntry = target.entry === primaryEntry
+      if (
+        target.entry &&
+        !namesPrimaryEntry &&
+        !artifact.files?.some((file) => file.path === target.entry)
+      ) {
+        return null
+      }
+      const path = target.entry ?? primaryEntry
       return {
         kind: 'artifact',
         issueId: issue.id,

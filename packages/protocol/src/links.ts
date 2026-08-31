@@ -153,6 +153,26 @@ function decodeSegment(segment: string): string {
   }
 }
 
+const FILE_IDENTITY_KEYS = new Set(['path', 'root', 'machineId'])
+
+/** Keep unconsumed file query segments byte-for-byte for browser fallback. */
+function fileExtraSearch(search: string): string {
+  const raw = search.startsWith('?') ? search.slice(1) : search
+  const extra = raw.split('&').filter((part) => {
+    if (!part) return false
+    const equals = part.indexOf('=')
+    const encodedName = equals === -1 ? part : part.slice(0, equals)
+    let name: string
+    try {
+      name = decodeURIComponent(encodedName.replace(/\+/g, ' '))
+    } catch {
+      return true
+    }
+    return !FILE_IDENTITY_KEYS.has(name)
+  })
+  return extra.length > 0 ? `?${extra.join('&')}` : ''
+}
+
 /**
  * Map a path + query onto the thing it names. Total: an unrecognised path is a
  * `view`, never a failure — an address this build does not know yet is still
@@ -190,16 +210,13 @@ export function podiumTargetForPath(pathname: string, search = '', hash = ''): P
     if (path) {
       const root = params.get('root')
       const machineId = params.get('machineId')
-      params.delete('path')
-      params.delete('root')
-      params.delete('machineId')
-      const extra = params.toString()
+      const extra = fileExtraSearch(search)
       return {
         kind: 'file',
         path,
         root,
         machineId,
-        ...(extra ? { search: `?${extra}` } : {}),
+        ...(extra ? { search: extra } : {}),
         ...(hash ? { hash } : {}),
       }
     }

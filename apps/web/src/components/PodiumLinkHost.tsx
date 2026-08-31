@@ -6,6 +6,8 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import {
   PODIUM_NATIVE_OPEN_EVENT,
   activatePodiumHref,
+  canonicalizePodiumAnchor,
+  canonicalizePodiumAnchors,
   classifyPodiumLink,
   hasServerSelector,
   hasUnsupportedTypedDetail,
@@ -56,7 +58,21 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
 
   useEffect(() => {
     setKnownPodiumOrigins(httpOrigin ? [httpOrigin] : [])
+    if (httpOrigin) canonicalizePodiumAnchors(document)
   }, [httpOrigin])
+
+  // Middle-click and context-menu Open/Copy do not dispatch an ordinary click.
+  // Prepare any boot-rendered relative anchor during their capture phase so
+  // the browser sees the active server before it performs its default action.
+  useEffect(() => {
+    const prepareAnchor = (event: Event): void => canonicalizePodiumAnchor(event.target)
+    document.addEventListener('auxclick', prepareAnchor, true)
+    document.addEventListener('contextmenu', prepareAnchor, true)
+    return () => {
+      document.removeEventListener('auxclick', prepareAnchor, true)
+      document.removeEventListener('contextmenu', prepareAnchor, true)
+    }
+  }, [])
 
   useEffect(() => {
     setPodiumTargetActivator((target) => {

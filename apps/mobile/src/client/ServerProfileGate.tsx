@@ -167,11 +167,12 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   )
 
   /**
-   * EVERY PAIRED SERVER IS "US" (POD-1606). A link into a Podium this phone has
-   * paired with must open a screen, not Safari — and the pairing list is the
-   * only place that knows which origins those are. Registered here rather than
-   * derived from the active profile alone: an agent on one server may hand the
-   * reader an address on another they have also paired.
+   * EVERY PAIRED SERVER IS RECOGNIZED (POD-1606). The pairing list is the only
+   * place that can classify an absolute Podium URL without guessing from the
+   * active page or replica. Activation remains stricter: this issue opens only
+   * targets on the active profile, and a different paired origin falls back to
+   * that exact origin in the browser so it can never resolve against the wrong
+   * replica. POD-1837 owns selecting that profile and retrying the target in-app.
    */
   useEffect(() => {
     setKnownPodiumOrigins(profileState.profiles.map((profile) => profile.httpOrigin))

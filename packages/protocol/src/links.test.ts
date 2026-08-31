@@ -171,6 +171,23 @@ describe('podiumTargetForPath', () => {
     })
   })
 
+  it('preserves unconsumed file query bytes instead of normalizing them', () => {
+    const target = podiumTargetForPath(
+      '/file',
+      '?path=%2Fw%2Fa.ts&root=%2Fw&label=hello%20world&signature=a%2Fb%3D',
+    )
+    expect(target).toEqual({
+      kind: 'file',
+      path: '/w/a.ts',
+      root: '/w',
+      machineId: null,
+      search: '?label=hello%20world&signature=a%2Fb%3D',
+    })
+    expect(podiumTargetPath(target)).toBe(
+      '/file?path=%2Fw%2Fa.ts&root=%2Fw&label=hello%20world&signature=a%2Fb%3D',
+    )
+  })
+
   it('falls back to a plain view rather than failing', () => {
     expect(podiumTargetForPath('/settings/general')).toEqual({
       kind: 'view',

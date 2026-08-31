@@ -17,7 +17,12 @@
  */
 
 import { openInSystemBrowser } from './nativeDesktop'
-import { activatePodiumTarget, internalPodiumTarget, systemBrowserPodiumHref } from './podium-link'
+import {
+  activatePodiumTarget,
+  canonicalizePodiumAnchor,
+  internalPodiumTarget,
+  systemBrowserPodiumHref,
+} from './podium-link'
 
 interface PodiumLinkClickEvent {
   target: EventTarget | null
@@ -36,6 +41,9 @@ interface PodiumLinkClickEvent {
 export function handlePodiumLinkClick(e: PodiumLinkClickEvent): boolean {
   const anchor = (e.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null
   if (!anchor) return false
+  // Late-mounted HTML may have been classified before httpOrigin existed. Fix
+  // its href and stale target=_blank before either the app or browser answers.
+  canonicalizePodiumAnchor(anchor)
   const href = anchor.getAttribute('href')
   if (!href) return false
   // CLASSIFIED AT CLICK TIME, not read off the render-time marking: the html may
