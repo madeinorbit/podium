@@ -24,6 +24,7 @@ import { resolvePodiumTarget } from '@/lib/podium-link-open'
 export function PodiumLinkHost(): null {
   const {
     httpOrigin,
+    sessions,
     setOpenIssueId,
     setView,
     navigateToSession,
@@ -32,6 +33,7 @@ export function PodiumLinkHost(): null {
   } = useStoreSelector(
     (s) => ({
       httpOrigin: s.httpOrigin,
+      sessions: s.sessions,
       setOpenIssueId: s.setOpenIssueId,
       setView: s.setView,
       navigateToSession: s.navigateToSession,
@@ -48,7 +50,7 @@ export function PodiumLinkHost(): null {
 
   useEffect(() => {
     setPodiumTargetActivator((target) => {
-      const open = resolvePodiumTarget(target, { issues })
+      const open = resolvePodiumTarget(target, { issues, sessions })
       // FALSE, NOT SILENCE. Everything below reports whether it opened
       // something; the caller cancels the anchor only on true, so an address
       // this client cannot answer falls back to an ordinary navigation.
@@ -85,7 +87,6 @@ export function PodiumLinkHost(): null {
           // page, and `routePath` has nowhere to put it — setView would land the
           // reader at the top of the right page and quietly lose what they
           // clicked. The browser honours it, so let the browser have it.
-          if (open.hash) return false
           const view = mainViewForPath(open.path)
           if (!view) return false
           setView(view)
@@ -103,7 +104,9 @@ export function PodiumLinkHost(): null {
  *  has none — which is the answer for every backend route and every file the
  *  server serves outside the SPA. */
 function mainViewForPath(path: string): MainView | null {
-  const head = path.split('/').filter(Boolean)[0]
+  const segments = path.split('/').filter(Boolean)
+  if (segments.length > 1) return null
+  const head = segments[0]
   if (head === undefined) return 'workspace'
   if (head === 'workspace') return 'workspace'
   if (head === 'settings') return 'settings'

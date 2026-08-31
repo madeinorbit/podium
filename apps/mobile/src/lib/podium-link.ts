@@ -19,6 +19,7 @@
 import {
   type PodiumLink,
   type PodiumTarget,
+  formatPodiumLink,
   parseIssueRef,
   parsePodiumLink,
   parseSessionRef,
@@ -166,7 +167,10 @@ export function followPodiumLink(href: string): void {
   if (!link) return
   if (link.kind === 'internal') {
     if (activator?.(link.target)) return
-    if (link.origin === null) return
+    const fallbackOrigin = link.origin ?? activeOrigin
+    if (!fallbackOrigin) return
+    void Linking.openURL(formatPodiumLink(fallbackOrigin, link.target)).catch(() => {})
+    return
   }
-  void Linking.openURL(href).catch(() => {})
+  void Linking.openURL(link.href).catch(() => {})
 }

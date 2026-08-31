@@ -1,4 +1,4 @@
-import type { IssueId } from '@podium/model/browser'
+import type { IssueId, SessionId } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
 import { findLinkedIssue, type LinkIssueLike, resolvePodiumTarget } from './podium-link-open'
 
@@ -13,6 +13,8 @@ const issue = (over: Partial<LinkIssueLike> = {}): LinkIssueLike => ({
 })
 
 const issues = [issue()]
+const sessions = [{ sessionId: 'sess_1' as SessionId, displayRef: 'POD-1606-A' }]
+const context = { issues, sessions }
 
 describe('findLinkedIssue', () => {
   it('takes the internal id the app writes into its own URLs', () => {
@@ -34,26 +36,28 @@ describe('findLinkedIssue', () => {
 
 describe('resolvePodiumTarget', () => {
   it('opens an issue as a view', () => {
-    expect(resolvePodiumTarget({ kind: 'issue', issue: 'POD-1606' }, { issues })).toEqual({
+    expect(resolvePodiumTarget({ kind: 'issue', issue: 'POD-1606' }, context)).toEqual({
       kind: 'issue',
       issueId: 'iss_abc',
     })
   })
 
-  it('hands a session identifier straight to navigateToSession', () => {
-    // Deliberately NOT resolved here: the store action already accepts an id or
-    // a birth ref, and a second lookup is a second thing to drift.
-    expect(resolvePodiumTarget({ kind: 'session', session: 'POD-1606-A' }, { issues })).toEqual({
+  it('resolves a known session before handing it to navigateToSession', () => {
+    expect(resolvePodiumTarget({ kind: 'session', session: 'POD-1606-A' }, context)).toEqual({
       kind: 'session',
-      sessionIdOrRef: 'POD-1606-A',
+      sessionIdOrRef: 'sess_1',
     })
+  })
+
+  it('does not claim an unknown session that navigateToSession would ignore', () => {
+    expect(resolvePodiumTarget({ kind: 'session', session: 'POD-9999-A' }, context)).toBeNull()
   })
 
   it('opens an artifact by its panel entry when the address names no file', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: null },
-        { issues },
+        context,
       ),
     ).toEqual({
       kind: 'artifact',
@@ -68,7 +72,7 @@ describe('resolvePodiumTarget', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'shots/a.png' },
-        { issues },
+        context,
       ),
     ).toMatchObject({ path: 'shots/a.png' })
   })
@@ -80,7 +84,7 @@ describe('resolvePodiumTarget', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: null },
-        { issues: rows },
+        { issues: rows, sessions },
       ),
     ).toMatchObject({ path: 'proof.html' })
   })
@@ -89,7 +93,7 @@ describe('resolvePodiumTarget', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'nope', entry: null },
-        { issues },
+        context,
       ),
     ).toBeNull()
   })
@@ -98,7 +102,7 @@ describe('resolvePodiumTarget', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' },
-        { issues },
+        context,
       ),
     ).toEqual({ kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' })
   })
@@ -109,24 +113,36 @@ describe('resolvePodiumTarget', () => {
       resolvePodiumTarget(
         { kind: 'file', path: '/w/src/a.ts', root: null, machineId: null },
         {
-          issues,
+          ...context,
         },
       ),
     ).toBeNull()
   })
 
-  it('passes a plain page through', () => {
+  it('passes a lossless top-level page through', () => {
+    expect(
+      resolvePodiumTarget({ kind: 'view', path: '/usage', search: '', hash: '' }, context),
+    ).toEqual({ kind: 'view', path: '/usage', search: '', hash: '' })
+  })
+
+  it('leaves route detail to the anchor instead of dropping it', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'view', path: '/settings/general', search: '', hash: '#advanced' },
-        { issues },
+        context,
       ),
-    ).toEqual({ kind: 'view', path: '/settings/general', search: '', hash: '#advanced' })
+    ).toBeNull()
+    expect(
+      resolvePodiumTarget(
+        { kind: 'view', path: '/workspace', search: '?wt=%2Fw', hash: '' },
+        context,
+      ),
+    ).toBeNull()
   })
 
   it('resolves nothing for an issue this replica has not seen', () => {
     // Null is what makes the anchor fall through to a real navigation instead of
     // becoming a dead click.
-    expect(resolvePodiumTarget({ kind: 'issue', issue: 'POD-9999' }, { issues })).toBeNull()
+    expect(resolvePodiumTarget({ kind: 'issue', issue: 'POD-9999' }, context)).toBeNull()
   })
 })
