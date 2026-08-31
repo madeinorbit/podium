@@ -66,7 +66,7 @@ static_self_test() {
 }
 
 validate_immutable_inputs() {
-  local want=0d180cc0455832ffe93edf2ac450a47f5f7c8137 web_want=057755c stamp hash
+  local want=0d180cc0455832ffe93edf2ac450a47f5f7c8137 web_want=5d7eb60 stamp hash
   git -C "$REPO" merge-base --is-ancestor "$want" HEAD || { log "PREFLIGHT FAIL product pin is not an ancestor" >&2; return 1; }
   git -C "$REPO" diff --quiet "$want" HEAD -- . ':(exclude)docs/**' || { log "PREFLIGHT FAIL product bytes differ from exact pin" >&2; return 1; }
   [ -f "$WEB/podium-build.json" ] || { log "PREFLIGHT FAIL web bundle missing" >&2; return 1; }
@@ -334,7 +334,7 @@ verify() {
 
   stamp="$(curl -fsS "http://127.0.0.1:$PORT/podium-build.json")"
   web_sha="$(printf '%s' "$stamp" | sed -n 's/.*"sourceSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-  [ "$web_sha" = 057755c ] || { log "PIN FAIL served web sourceSha=$web_sha want=057755c"; return 1; }
+  [ "$web_sha" = 5d7eb60 ] || { log "PIN FAIL served web sourceSha=$web_sha want=5d7eb60"; return 1; }
 
   local server_env daemon_env_text
   server_env="$(proc_env "$server_pid")"
