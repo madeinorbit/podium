@@ -345,7 +345,11 @@ export function prepareDesktopRelease(input: {
   const signatureSources: Array<{ source: string; name: string }> = []
   const downloadSources: string[] = []
 
-  for (const bundle of targetBundles) {
+  // Dev is the macOS/Linux proving channel. Windows remains mandatory for edge/stable, but a
+  // missing dev Windows artifact must not prevent publishing usable signed Mac/Linux builds.
+  const requiredBundles = input.channel === 'dev'
+    ? targetBundles.filter((bundle) => bundle.target !== 'windows-x86_64') : targetBundles
+  for (const bundle of requiredBundles) {
     const bundleFiles = files.filter((path) => bundle.matches?.(path) ?? true)
     const updaterSource = exactlyOne(
       bundleFiles.filter((path) => !path.endsWith('.sig')),

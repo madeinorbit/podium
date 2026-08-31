@@ -190,6 +190,9 @@ jobs:
               apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
               apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
     runs-on: ${{ matrix.runner }}
+    # Dev is the operator's macOS/Linux proving channel. A flaky Windows runner must not block
+    # those artifacts; edge and stable continue to require every platform.
+    continue-on-error: ${{ needs.validate.outputs.channel == 'dev' && matrix.target == 'windows-x86_64' }}
     steps:
       - uses: actions/checkout@v4
         with:
