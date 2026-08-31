@@ -29,9 +29,9 @@ import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
 import { EmptyState, SectionHeader } from '../components/ui'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
-import { useTabBarInset } from '../hooks/useTabBarInset'
 import { useBuildStamp } from '../lib/build-stamp'
 import {
   color,
@@ -72,7 +72,7 @@ type Mode = 'now' | 'week'
 export function PulseScreen() {
   const feed = usePulseFeed()
   const [mode, setMode] = useState<Mode>('now')
-  const tabBarInset = useTabBarInset()
+  const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   const reload = feed.reload
   const buildStamp = useBuildStamp()
@@ -106,7 +106,7 @@ export function PulseScreen() {
         <ScrollView
           ref={listRef as never}
           refreshControl={refreshControl}
-          contentContainerStyle={[styles.content, { paddingBottom: tabBarInset + space.lg }]}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomInset + space.lg }]}
           {...refreshAccessibilityProps}
           {...minimizeOnScroll}
         >

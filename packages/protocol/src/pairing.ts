@@ -243,6 +243,12 @@ export function parseMobilePairingUrl(
   let encoded: string
   let outerOrigin: string | undefined
   if (parsed.protocol === 'podium:') {
+    // iOS link delivery can collapse the authority into the path —
+    // podium://pair/… arrives as podium:///pair/… (empty hostname). Restore
+    // the canonical shape before validating, so both spellings parse alike.
+    if (parsed.hostname === '' && /^\/pair([/?#]|$)/.test(parsed.pathname + parsed.search)) {
+      parsed = new URL(`podium://${parsed.pathname.replace(/^\/+/, '')}${parsed.search}${parsed.hash}`)
+    }
     if (parsed.username || parsed.password || parsed.hostname !== 'pair') {
       throw new Error('invalid mobile pairing URL')
     }

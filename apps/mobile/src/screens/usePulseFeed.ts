@@ -2,7 +2,7 @@ import type { HostMetricsWire, MachineQuotaWire, UsageBucketWire } from '@podium
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
 import { DEMO_HOST_METRICS, DEMO_QUOTA, DEMO_USAGE_BUCKETS, demoEnabled } from '../client/demoData'
-import { useMobileStore } from '../client/hooks'
+import { useHostMetrics, useTrpc } from '../client/hooks'
 
 /**
  * The Pulse tab's three readings [POD-662].
@@ -61,8 +61,11 @@ export interface PulseFeed {
 }
 
 export function usePulseFeed(): PulseFeed {
-  const store = useMobileStore()
-  const { trpc, hostMetrics } = store
+  // Only what Pulse actually paints: trpc (static) and the 5s host frames.
+  // The whole-store subscription made every OTHER store publish re-render the
+  // Pulse tab too, even while it sat unfocused behind another tab.
+  const trpc = useTrpc()
+  const hostMetrics = useHostMetrics()
   const demo = demoEnabled()
   const [answer, setAnswer] = useState<{
     quota: MachineQuotaWire[] | null

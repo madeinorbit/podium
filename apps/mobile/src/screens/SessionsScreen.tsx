@@ -13,6 +13,7 @@ import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { sessionHref } from '../lib/session-route'
 import { color, font, mono, monoLabel, space } from '../theme/theme'
@@ -30,6 +31,7 @@ export function SessionsScreen() {
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const booting = useBooting()
+  const bottomInset = useContentBottomInset()
   const now = Date.now()
   const [peek, setPeek] = useState<{ issue: IssueWire; session: SessionMeta } | null>(null)
 
@@ -64,7 +66,7 @@ export function SessionsScreen() {
             sections={sections}
             keyExtractor={(session) => session.sessionId}
             stickySectionHeadersEnabled={false}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
             refreshControl={refreshControl}
             {...refreshAccessibilityProps}
             renderSectionHeader={({ section }) => (
@@ -92,6 +94,7 @@ export function SessionsScreen() {
                 <SessionCard
                   model={sessionCardModel(session, issue, now)}
                   issue={issue}
+                  session={session}
                   agentColor={session.agentColor}
                   onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
                   onLongPress={issue ? () => setPeek({ issue, session }) : undefined}
@@ -131,8 +134,10 @@ export function SessionsScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Bottom padding is paid inline from useContentBottomInset: the last card has
+  // to scroll clear of the tab bar, whose height is a runtime measurement, not
+  // a constant.
   listContent: {
-    paddingBottom: space.xl,
     flexGrow: 1,
   },
   sectionHeader: {

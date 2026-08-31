@@ -1,5 +1,5 @@
 import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/model'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -39,6 +39,29 @@ const SQUARE_STATE: Record<DotTone, IdSquareState> = {
 }
 
 /**
+ * A DRAFT chat that has never started has no liveness to report, so it earns
+ * no status dot at all: the ready-blue dot on a freshly minted, never-spoken-to
+ * draft read as "something is live here" when nothing was (round 2, item 4).
+ *
+ * Gated on the actual facts, not on the draft flag alone: the moment the agent
+ * reports ANY runtime state — a turn started (`working`), a question
+ * (`attention`), an error, or idle-after-a-turn — the dot comes back, because
+ * those states are live regardless of whether the vessel is still a draft.
+ * Non-live tones only, so an offer-carrying draft (attention with no
+ * agentState) keeps its amber dot.
+ */
+export function hidesDraftDot(
+  model: Pick<SessionCardModel, 'dotTone'>,
+  issue: Pick<IssueWire, 'draft'> | undefined,
+  session: Pick<SessionMeta, 'agentState' | 'busy'> | undefined,
+): boolean {
+  if (!issue?.draft || !session) return false
+  if (model.dotTone !== 'ready' && model.dotTone !== 'neutral') return false
+  const phase = session.agentState?.phase
+  return (phase === undefined || phase === 'unknown') && !session.busy
+}
+
+/**
  * One session row in the redesign's work-list grammar: the 26px ID square is
  * the identity mark, the row tints in the issue's colour (slate-quiet when
  * uncoloured), status lives as a glyph column on the right. Needs-you rows are
@@ -47,6 +70,7 @@ const SQUARE_STATE: Record<DotTone, IdSquareState> = {
 export function SessionCard({
   model,
   issue,
+  session,
   agentColor,
   onPress,
   onLongPress,
@@ -54,6 +78,9 @@ export function SessionCard({
 }: {
   model: SessionCardModel
   issue?: IssueWire
+  /** The row's session, for the draft-dot gate ({@link hidesDraftDot}).
+   *  Optional so existing call sites keep today's behaviour untouched. */
+  session?: SessionMeta
   agentColor?: string
   onPress: () => void
   /** Long-press peek (the task peek sheet) — forwarded to the pressable. */
@@ -103,7 +130,11 @@ export function SessionCard({
           </Text>
         </View>
         <View style={styles.status}>
-          {working ? <WorkingMark size={12} /> : <StatusDot toneKey={toneKey} />}
+          {working ? (
+            <WorkingMark size={12} />
+          ) : hidesDraftDot(model, issue, session) ? null : (
+            <StatusDot toneKey={toneKey} />
+          )}
           {model.queuedCount ? (
             <Pill label={`${model.queuedCount} queued`} toneKey="accent" />
           ) : null}

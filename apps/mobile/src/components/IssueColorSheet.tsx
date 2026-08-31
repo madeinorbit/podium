@@ -7,7 +7,7 @@ import {
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { StyleSheet, Text, View } from 'react-native'
-import { useMobileStore } from '../client/hooks'
+import { useStoreActions } from '../client/hooks'
 import { issueSquareFg } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -34,13 +34,13 @@ export function IssueColorSheet({
   issue: IssueWire | null
   onClose: () => void
 }) {
-  const store = useMobileStore()
+  const { updateIssue } = useStoreActions()
   const current = issue?.color as IssueColorSlot | undefined
 
   const pick = (slot: IssueColorSlot | null) => {
     if (!issue) return
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-    void store.updateIssue(issue.id, { color: slot }).catch(() => {})
+    void updateIssue(issue.id, { color: slot }).catch(() => {})
     onClose()
   }
 

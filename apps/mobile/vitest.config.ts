@@ -142,7 +142,7 @@ export default defineConfig({
       fileURLToPath(new URL('./test/one-react.ts', import.meta.url)),
     ],
     environment: 'happy-dom',
-    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts', 'plugins/**/*.test.ts'],
     passWithNoTests: false,
   },
 })

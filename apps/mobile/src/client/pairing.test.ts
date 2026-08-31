@@ -104,6 +104,65 @@ describe('server preflight', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('lets a DEV build preflight an open LAN server natively (the sim rig path)', async () => {
+    // Release keeps failing closed (the test above pins that: __DEV__ is unset
+    // there). A debug build is the one place cleartext LAN is useful — Metro,
+    // simulator, a localhost server — and ATS already allows local networking,
+    // so the JS gate deferring to the real preflight costs release nothing.
+    vi.stubGlobal('__DEV__', true)
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            wireVersion: 2,
+            minSupportedVersion: 1,
+            instanceId: 'lan',
+            appVersion: 'dev',
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ needsAuth: false, authed: true, userId: 'user:admin' }), {
+          status: 200,
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(preflightServer('http://localhost:18790')).resolves.toMatchObject({
+      ok: true,
+      mode: 'open',
+      transport: 'insecure-lan',
+    })
+  })
+
+  it('keeps a DEV build failing closed on a protected LAN server', async () => {
+    vi.stubGlobal('__DEV__', true)
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            wireVersion: 2,
+            minSupportedVersion: 1,
+            instanceId: 'lan',
+            appVersion: 'dev',
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ needsAuth: true, authed: false, userId: null }), {
+          status: 200,
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(preflightServer('http://localhost:18790')).resolves.toMatchObject({
+      ok: false,
+      kind: 'cleartext-blocked',
+    })
+  })
+
   it('allows an open HTTP origin only when web-mobile is already in the browser policy', async () => {
     runtimePlatform.OS = 'web'
     const fetchMock = vi

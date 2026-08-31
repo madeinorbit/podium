@@ -1,6 +1,6 @@
 import { parseServerOrigin, type ServerConfig } from '@podium/client-core/transport'
 import * as Haptics from 'expo-haptics'
-import { useRouter } from 'expo-router'
+import { router } from 'expo-router'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -16,6 +16,13 @@ import {
 import { PairingScanner } from '../components/PairingScanner'
 import { PressableScale } from '../components/PressableScale'
 import { color, font, radius, sans, space } from '../theme/theme'
+import { logout } from './auth'
+import { LaunchReadyView } from './launch-ready'
+import {
+  configureNativeWebSocketCredential,
+  installNativeWebSocketAuthentication,
+} from './native-websocket'
+import { clearLocalCredentialSurfaces, preflightNativeOverride } from './override-lifecycle'
 import {
   claimMobilePairing,
   type MobilePairingEnvelope,
@@ -32,26 +39,19 @@ import {
   purgeOrphanedProfileCredentials,
   setProfileCredential,
 } from './profile-credentials'
+import { ServerProfileContext, type ServerProfileContextValue } from './server-profile-context'
 import {
-  createProfileId,
   classifyServerTransport,
+  createProfileId,
   defaultProfileName,
   enqueuePendingProfileCleanup,
   loadServerProfiles,
   reusableProfileAtOrigin,
-  saveServerProfiles,
   type ServerProfile,
   type ServerProfileState,
+  saveServerProfiles,
 } from './server-profiles'
-import {
-  configureNativeWebSocketCredential,
-  installNativeWebSocketAuthentication,
-} from './native-websocket'
-import { clearLocalCredentialSurfaces, preflightNativeOverride } from './override-lifecycle'
 import { envServer, setActiveServerRuntime } from './trpc'
-import { logout } from './auth'
-import { LaunchReadyView } from './launch-ready'
-import { ServerProfileContext, type ServerProfileContextValue } from './server-profile-context'
 
 // The context and its two hooks live in `./server-profile-context`, which does
 // NOT import expo-router, expo-camera or expo-crypto — see the note there.
@@ -118,6 +118,9 @@ let initialWebPairing = (() => {
   }
 })()
 
+/** Native cold-start pairing link, consumed once per process — see the boot effect. */
+let initialNativePairingConsumed = false
+
 function overrideFromUrl(raw: string | null): string | null {
   if (!raw) return null
   try {
@@ -141,7 +144,12 @@ function profileReplacementFailure(profile: ServerProfile): ActivationFailure {
 }
 
 export function ServerProfileGate({ children }: { children: ReactNode }) {
-  const router = useRouter()
+  // Deliberately the static `router`, not `useRouter()`: that hook returns a
+  // NEW object every render, and it sat in the boot effect's dependency chain
+  // (via handleLink). Every state change re-ran the boot, whose own setStates
+  // re-rendered, whose new router re-ran the boot — a livelock that killed each
+  // run's `alive` before setReady(true) landed, leaving the launch splash up
+  // forever on any cold start that raced a render (found 2026-08-27).
   const consumedInitialPairing = initialWebPairing
   const initialWeb = Platform.OS === 'web' ? webProfile() : null
   const [profileState, setProfileState] = useState<ServerProfileState>(() =>
@@ -200,24 +208,31 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     [],
   )
 
-  const handleLink = useCallback(
-    (raw: string) => {
-      // Native app links can contain the one-time secret in router state. Drop
-      // that route before parsing, rendering, logging, or awaiting network I/O.
-      if (Platform.OS !== 'web') router.replace('/')
+  const handleLink = useCallback((raw: string) => {
+    // Native app links can contain the one-time secret in router state. Drop
+    // that route before parsing, rendering, logging, or awaiting network I/O.
+    // Best-effort: on a cold launch the router may not be mounted yet, and a
+    // throw here silently swallowed the whole pairing link (found 2026-08-27).
+    // The app/pair route also redirects itself, so a failed replace is safe.
+    if (Platform.OS !== 'web') {
       try {
-        const parsed = parsePairingLink(raw)
-        setIncoming(parsed.envelope)
-        setSetupOpen(true)
-        setLinkError(null)
-      } catch (error) {
-        setLinkError(error instanceof Error ? error.message : String(error))
-        setSetupOpen(true)
+        router.replace('/')
+      } catch {
+        // not mounted yet — the pair route's own <Redirect> covers it
       }
-    },
-    [router],
-  )
+    }
+    try {
+      const parsed = parsePairingLink(raw)
+      setIncoming(parsed.envelope)
+      setSetupOpen(true)
+      setLinkError(null)
+    } catch (error) {
+      setLinkError(error instanceof Error ? error.message : String(error))
+      setSetupOpen(true)
+    }
+  }, [])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activationRetry is a deliberate retrigger counter — bumping it re-runs activation from the retry buttons
   useEffect(() => {
     installNativeWebSocketAuthentication()
     if (Platform.OS === 'web') {
@@ -234,7 +249,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       const isPairingLink = Boolean(
         initialUrl && (initialUrl.startsWith('podium:') || initialUrl.includes('#pair=')),
       )
-      if (isPairingLink) router.replace('/')
+      if (isPairingLink) {
+        try {
+          router.replace('/')
+        } catch {
+          // router not mounted yet — the pair route's own <Redirect> covers it
+        }
+      }
       const buildOverride =
         (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ ?? envServer()
       const override =
@@ -312,7 +333,16 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           }
         }
       }
-      if (isPairingLink && initialUrl) handleLink(initialUrl)
+      // ONCE PER PROCESS, module-level like web's `initialWebPairing`:
+      // `getInitialURL()` answers the same pairing URL for the app's whole
+      // lifetime, and `handleLink`'s router.replace('/') mid-init remounts the
+      // root layout — which remounts this gate, wiping any per-mount guard and
+      // re-handling the same URL in a remount storm that kept the launch splash
+      // up forever (~75 remounts/s, found 2026-08-27 chasing pairing links).
+      if (isPairingLink && initialUrl && !initialNativePairingConsumed) {
+        initialNativePairingConsumed = true
+        handleLink(initialUrl)
+      }
     })().catch((error) => {
       if (alive) {
         setActivationFailure({
@@ -328,7 +358,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       alive = false
       subscription.remove()
     }
-  }, [activationRetry, clearUntrustedNativeCredentials, handleLink, router])
+  }, [activationRetry, clearUntrustedNativeCredentials, handleLink])
 
   const profile =
     profileState.profiles.find((row) => row.id === profileState.activeProfileId) ?? null
@@ -1105,6 +1135,7 @@ function PairingSetup({
               accessibilityLiveRegion="polite"
             >
               {claim.phrase.map((word, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: the phrase is a fixed, never-reordered word list, and words can repeat
                 <Text key={`${index}:${word}`} style={styles.phraseText}>
                   {word}
                 </Text>

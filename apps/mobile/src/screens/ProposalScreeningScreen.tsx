@@ -4,7 +4,7 @@ import { Check, Inbox, Play, RotateCcw, SkipForward, X } from 'lucide-react-nati
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useBooting, useIssues, useMobileStore } from '../client/hooks'
+import { useBooting, useIssues, useStoreActions, useTrpc } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
@@ -55,7 +55,8 @@ const sameDeck = (a: Deck, b: Deck) =>
 export function ProposalScreeningScreen() {
   const router = useRouter()
   const issues = useIssues()
-  const { trpc, closeIssue } = useMobileStore()
+  const trpc = useTrpc()
+  const { closeIssue } = useStoreActions()
   const booting = useBooting()
   const issueById = useCallback((id: string) => issues.find((issue) => issue.id === id), [issues])
   const insets = useSafeAreaInsets()

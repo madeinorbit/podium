@@ -1,4 +1,10 @@
 import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model'
+import {
+  type IssueArtifactPreview,
+  issueArtifactHref,
+  issueArtifactLabel,
+  issueArtifactPreview,
+} from './issue-artifacts'
 
 /**
  * Offer→artifact resolution [POD-120]: which of the issue's published artifacts
@@ -41,6 +47,79 @@ export function resolveOfferArtifacts(args: {
     .filter((a) => a.addedAt > since)
     .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
     .slice(0, 3)
+}
+
+/**
+ * How many artifacts the offer strip shows before the rest collapse into a
+ * "+N" chip — the desktop's cap [POD-120], and about what a 390pt column holds
+ * at one 72pt thumbnail plus a named chip.
+ */
+export const OFFER_STRIP_MAX = 3
+
+/** One tappable thing in the offer strip: what to draw, and what to open. */
+export type OfferArtifactRow = {
+  /** Stable across re-adds of the same path — `path@addedAt`, as the desktop keys. */
+  key: string
+  artifact: IssuePanelArtifact
+  label: string
+  preview: IssueArtifactPreview
+  /** The mono tag a non-image chip wears — the file's extension, else its kind. */
+  kind: string
+  /** Absent when the artifact lives on a machine this phone cannot reach; such
+   *  a row is still counted and drawn, but inert rather than a tap that fails. */
+  url: string | null
+}
+
+/**
+ * The offer strip's rows — {@link resolveOfferArtifacts} plus everything the
+ * view needs to draw and open each one, so the mapping is testable without a
+ * renderer, a store, or a server profile.
+ *
+ * Order and dedupe are the resolver's (offer order, newest entry per path);
+ * this only caps the list and reports the remainder as `extra`.
+ */
+export function offerArtifactRows(args: {
+  offer: SessionOffer
+  issue: IssueWire | undefined
+  /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
+  lastInputAt?: string
+  httpOrigin: string
+  max?: number
+}): { rows: OfferArtifactRow[]; extra: number } {
+  const resolved = resolveOfferArtifacts({
+    offer: args.offer,
+    issue: args.issue,
+    ...(args.lastInputAt ? { lastInputAt: args.lastInputAt } : {}),
+  })
+  const issue = args.issue
+  if (!issue || resolved.length === 0) return { rows: [], extra: 0 }
+
+  const max = args.max ?? OFFER_STRIP_MAX
+  const shown = resolved.slice(0, max)
+  return {
+    rows: shown.map((artifact) => {
+      const path = artifact.entry ?? artifact.path
+      const preview = issueArtifactPreview(path)
+      return {
+        key: `${artifact.path}@${artifact.addedAt}`,
+        artifact,
+        label: issueArtifactLabel(artifact),
+        preview,
+        kind: kindTag(path, preview),
+        url: issueArtifactHref(issue, artifact, args.httpOrigin),
+      }
+    }),
+    extra: resolved.length - shown.length,
+  }
+}
+
+/** `notes/plan.md` → `MD`; an extensionless file falls back to its preview
+ *  class, so the chip always says what kind of thing it is opening. */
+function kindTag(path: string, preview: IssueArtifactPreview): string {
+  const base = path.slice(path.lastIndexOf('/') + 1)
+  const dot = base.lastIndexOf('.')
+  const ext = dot > 0 ? base.slice(dot + 1) : ''
+  return (ext || preview).toUpperCase()
 }
 
 /** The newest panel entry matching an offered path — exact match, or an

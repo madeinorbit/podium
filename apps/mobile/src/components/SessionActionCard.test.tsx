@@ -11,7 +11,18 @@ vi.mock('expo-haptics', () => ({
 }))
 // Ships untranspiled Flow, which this environment cannot parse — the same stub
 // Composer.test.tsx uses. The dismiss control is found by its label, not its glyph.
-vi.mock('lucide-react-native', () => ({ X: () => null, Lightbulb: () => null }))
+vi.mock('lucide-react-native', () => ({
+  X: () => null,
+  Lightbulb: () => null,
+  FileText: () => null,
+  Globe: () => null,
+  Image: () => null,
+  Play: () => null,
+}))
+// The offer's artifact strip mounts the artifact viewer, which imports the boot
+// gate — a composition root this leaf lane cannot load. The strip itself is
+// covered by OfferArtifactStrip.test.tsx; these tests are about the card.
+vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 
 const { composeOfferPrompt, SessionActionCard } = await import('./SessionActionCard')
 
@@ -47,15 +58,7 @@ describe('SessionActionCard', () => {
 
   it('keeps direct and feedback actions executable in the session flow', async () => {
     const onAction = vi.fn(async () => {})
-    const onOpenEvidence = vi.fn()
-    render(
-      <SessionActionCard
-        offer={offer}
-        evidenceCount={2}
-        onAction={onAction}
-        onOpenEvidence={onOpenEvidence}
-      />,
-    )
+    render(<SessionActionCard offer={offer} onAction={onAction} />)
 
     expect(screen.getByTestId('session-action-card').textContent).toContain('Ready to merge')
     fireEvent.click(screen.getByLabelText('Merge'))
@@ -63,9 +66,6 @@ describe('SessionActionCard', () => {
     await waitFor(() =>
       expect(screen.getByLabelText('Send back').hasAttribute('disabled')).toBe(false),
     )
-
-    fireEvent.click(screen.getByLabelText('Open 2 offer artifacts'))
-    expect(onOpenEvidence).toHaveBeenCalledOnce()
 
     fireEvent.click(screen.getByLabelText('Send back'))
     fireEvent.change(screen.getByLabelText('Send back feedback'), {

@@ -84,7 +84,7 @@ const asking = issue({
   title: 'Asking subtask',
 })
 
-async function mount() {
+async function mount(onContentHeight: (height: number) => void = () => {}) {
   return renderWithMobileStore(
     <MissionDeck
       root={root}
@@ -99,6 +99,7 @@ async function mount() {
       onTuckRoot={() => {}}
       onFileRoot={() => {}}
       onOpenDeparture={() => {}}
+      onContentHeight={onContentHeight}
     />,
     { issues: [root, quiet, asking] },
   )
@@ -109,6 +110,17 @@ describe('MissionDeck view bar', () => {
     await mount()
     expect(screen.getByText('Quiet subtask')).toBeTruthy()
     expect(screen.getByText('Asking subtask')).toBeTruthy()
+  })
+
+  it('reports its natural height, and a narrower view reports a shorter one', async () => {
+    const heights: number[] = []
+    await mount((height) => heights.push(height))
+    const full = heights.at(-1)
+    expect(full).toBeGreaterThan(0)
+    // `Needs you` drops the quiet subtask, so the deck's own arithmetic must
+    // come back smaller — this is the wire the panel's dynamic height rides on.
+    fireEvent.click(screen.getByText('Needs you'))
+    expect(heights.at(-1)).toBeLessThan(full as number)
   })
 
   it('drops the tasks that are not asking when Needs you is chosen', async () => {
@@ -171,6 +183,7 @@ describe('MissionDeck view bar', () => {
           onTuckRoot={() => {}}
           onFileRoot={() => {}}
           onOpenDeparture={() => {}}
+          onContentHeight={() => {}}
         />,
         { issues: [solo], sessions: [session] },
       )

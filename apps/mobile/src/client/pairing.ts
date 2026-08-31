@@ -1,11 +1,11 @@
 import { parseServerOrigin } from '@podium/client-core/transport'
 import {
+  decodePairingEnvelope,
   MobilePairClaimResponse,
   MobilePairCompleteResponse,
-  decodePairingEnvelope,
+  type MobilePairingEnvelope,
   mobilePairingUrl,
   parseMobilePairingUrl,
-  type MobilePairingEnvelope,
   WIRE_VERSION,
 } from '@podium/protocol'
 import * as Crypto from 'expo-crypto'
@@ -187,10 +187,19 @@ function transportFailure(origin: string, cause: unknown): ServerPreflight {
 export async function preflightServer(httpOrigin: string): Promise<ServerPreflight> {
   const origin = normalizeManualServer(httpOrigin)
   const transport = classifyServerTransport(origin)
+  // A DEV build defers LAN HTTP to the real preflight below, which still fails
+  // closed unless the server is in open mode (no credentials to leak). That is
+  // the simulator/Metro rig path; release builds keep failing closed here.
+  // EXPO_PUBLIC_ALLOW_CLEARTEXT is inlined at BUNDLE time: it exists so a
+  // Release build made for the local simulator rig can reach the isolated
+  // test server — it is unset in every real build, and even when set the
+  // preflight below still requires the server to be in open mode.
+  const devBuild =
+    (typeof __DEV__ !== 'undefined' && __DEV__) || process.env.EXPO_PUBLIC_ALLOW_CLEARTEXT === '1'
   if (
     transport === 'tailscale-http' ||
     transport === 'insecure-http' ||
-    (Platform.OS !== 'web' && transport === 'insecure-lan')
+    (Platform.OS !== 'web' && !devBuild && transport === 'insecure-lan')
   ) {
     if (transport === 'insecure-lan') {
       return {
@@ -309,7 +318,7 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
   let result = ''
   for (let index = 0; index < bytes.length; index += 3) {
-    const a = bytes[index]!
+    const a = bytes[index] ?? 0
     const b = bytes[index + 1]
     const c = bytes[index + 2]
     result += alphabet[a >> 2]

@@ -44,7 +44,7 @@ const rowIds = (sections: ReturnType<typeof taskBoardSections>) =>
   sections.flatMap((s) => s.rows.map((r) => r.issue.id))
 
 describe('taskBoardSections', () => {
-  it('lists roots only — an epic\'s decomposition stays off the tab', () => {
+  it("lists roots only — an epic's decomposition stays off the tab", () => {
     const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 2 })
     const kid1 = issue({ id: 'k1', parentId: 'epic', stage: 'in_progress', seq: 2 })
     const kid2 = issue({ id: 'k2', parentId: 'epic', stage: 'done', seq: 3 })
@@ -53,6 +53,122 @@ describe('taskBoardSections', () => {
     expect(rowIds(sections)).toEqual(['epic'])
     expect(sections[0]?.rows[0]).toMatchObject({ depth: 0, childCount: 2, expanded: false })
     expect(sections.map((s) => s.stage)).toEqual(['in_progress'])
+  })
+
+  it("reveals an expanded parent's children under it, whatever stage they are in", () => {
+    // The defect: the phone passed an expanded set that could never grow, so a
+    // sub-task existed on this tab only as a number on its parent while the
+    // desktop board could open the same epic in place.
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 2 })
+    const kid1 = issue({ id: 'k1', parentId: 'epic', stage: 'backlog', seq: 2 })
+    const kid2 = issue({ id: 'k2', parentId: 'epic', stage: 'review', seq: 3 })
+
+    const sections = taskBoardSections([epic, kid1, kid2], {
+      showDone: false,
+      expanded: new Set(['epic']),
+    })
+
+    // Both children ride in the PARENT's section — their own stage is the row's
+    // glyph, not its lane — and they arrive indented.
+    expect(sections.map((s) => s.stage)).toEqual(['in_progress'])
+    expect(sections[0]?.rows.map((r) => [r.issue.id, r.depth])).toEqual([
+      ['epic', 0],
+      ['k1', 1],
+      ['k2', 1],
+    ])
+    expect(sections[0]?.rows[0]).toMatchObject({ expanded: true, childCount: 2 })
+  })
+
+  it('hides them again when the parent is collapsed', () => {
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const kid = issue({ id: 'k1', parentId: 'epic', stage: 'backlog', seq: 2 })
+    expect(
+      rowIds(taskBoardSections([epic, kid], { showDone: false, expanded: new Set() })),
+    ).toEqual(['epic'])
+  })
+
+  it('keeps a revealed child under its own parent when a promotion re-sorts the lane', () => {
+    // Found in review: the promotion re-ordered the Proposed section ROW by row,
+    // so an expanded root's children were sorted away from it and rendered
+    // indented under whichever unrelated row landed in front.
+    const first = issue({ id: 'first', stage: 'proposed', seq: 10 })
+    const child = issue({ id: 'child', parentId: 'first', stage: 'backlog', seq: 40 })
+    const second = issue({ id: 'second', stage: 'proposed', seq: 30 })
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const promoted = issue({ id: 'promoted', parentId: 'epic', stage: 'proposed', seq: 20 })
+
+    const sections = taskBoardSections([first, child, second, epic, promoted], {
+      showDone: false,
+      expanded: new Set(['first']),
+    })
+    const proposed = sections.find((s) => s.stage === 'proposed')
+    expect(proposed?.rows.map((r) => [r.issue.id, r.depth])).toEqual([
+      ['first', 0],
+      ['child', 1],
+      ['promoted', 0],
+      ['second', 0],
+    ])
+  })
+
+  it('expands a promoted proposal too — its chevron is not a dead control', () => {
+    // The shared derivation only ever emits a root's subtree, and a promoted
+    // proposal is not a root: its sub-task count was rendered with nothing
+    // behind it.
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const promoted = issue({ id: 'promoted', parentId: 'epic', stage: 'proposed', seq: 2 })
+    const under = issue({ id: 'under', parentId: 'promoted', stage: 'backlog', seq: 3 })
+
+    const collapsed = taskBoardSections([epic, promoted, under], { showDone: false })
+    expect(collapsed.find((s) => s.stage === 'proposed')?.rows[0]).toMatchObject({
+      childCount: 1,
+      expanded: false,
+    })
+
+    const open = taskBoardSections([epic, promoted, under], {
+      showDone: false,
+      expanded: new Set(['promoted']),
+    })
+    expect(
+      open.find((s) => s.stage === 'proposed')?.rows.map((r) => [r.issue.id, r.depth]),
+    ).toEqual([
+      ['promoted', 0],
+      ['under', 1],
+    ])
+  })
+
+  it('keeps done sub-tasks out of a reveal while Show done is off', () => {
+    // A child rides in its PARENT's section whatever its own stage, so hiding
+    // the Done section is not enough — the filter has to bind the population,
+    // or the count on the chevron promises rows it must not show.
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 2 })
+    const open = issue({ id: 'open', parentId: 'epic', stage: 'backlog', seq: 2 })
+    const finished = issue({ id: 'finished', parentId: 'epic', stage: 'done', seq: 3 })
+
+    const hidden = taskBoardSections([epic, open, finished], {
+      showDone: false,
+      expanded: new Set(['epic']),
+    })
+    expect(rowIds(hidden)).toEqual(['epic', 'open'])
+    expect(hidden[0]?.rows[0]).toMatchObject({ childCount: 1 })
+
+    const shown = taskBoardSections([epic, open, finished], {
+      showDone: true,
+      expanded: new Set(['epic']),
+    })
+    expect(rowIds(shown)).toEqual(['epic', 'open', 'finished'])
+  })
+
+  it('lists a promoted proposal once, even while its parent is expanded', () => {
+    // Both paths want the same row on screen: the promotion lifts screenable
+    // proposals into Proposed, and expansion reveals every child in place. A
+    // SectionList keyed by issue id cannot render the row twice.
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const proposal = issue({ id: 'prop', parentId: 'epic', stage: 'proposed', seq: 2 })
+
+    const ids = rowIds(
+      taskBoardSections([epic, proposal], { showDone: false, expanded: new Set(['epic']) }),
+    )
+    expect(ids).toEqual(['epic', 'prop'])
   })
 
   it('promotes a proposal parented under an approved epic into Proposed', () => {

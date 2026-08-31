@@ -1,21 +1,26 @@
-import { ChevronLeft, Cpu, Gauge } from 'lucide-react-native'
 import type { ModelCatalog } from '@podium/client-core/react'
+import { ChevronLeft, Cpu, Gauge } from 'lucide-react-native'
 import { useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+// Namespace access, not a named import: react-native-web exports no
+// ActionSheetIOS, and a named import would break the web bundle (see
+// ActionSheet.tsx, same pattern).
+import * as ReactNative from 'react-native'
+import { Platform, StyleSheet, Text, View } from 'react-native'
 import {
   AUTO,
   allConnectorModelLabel,
   allConnectorModelOptions,
+  type CatalogOption,
   decodeModelPick,
-  encodeModelPick,
   effortOptionsForModel,
+  encodeModelPick,
   groupedCatalogOptions,
   issueAgentKind,
-  type CatalogOption,
 } from '../lib/agent-models'
 import type { SuperagentBackend } from '../lib/superagent-backend'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { nativePickerSpec } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
@@ -65,6 +70,41 @@ export function SuperagentBackendRail({
     setStep(null)
   }
 
+  /** iOS presents the picker as the real UIKit sheet (2026-08-28 device
+   *  feedback: the JS pickers read as old-style beside the native menus);
+   *  everywhere else keeps the JS BottomSheet with its grouped headings. */
+  const openPicker = (next: 'model' | 'effort') => {
+    if (Platform.OS !== 'ios') {
+      setStep(next)
+      return
+    }
+    const picker =
+      next === 'model'
+        ? {
+            title: 'Model',
+            groups: groupedCatalogOptions(modelOptions),
+            selected: selectedModel,
+            onPick: applyModel,
+          }
+        : {
+            title: 'Effort',
+            groups: [{ options: effortChoices }],
+            selected: backend.effort,
+            onPick: onEffortChange,
+          }
+    const { spec, values } = nativePickerSpec(picker)
+    ReactNative.ActionSheetIOS.showActionSheetWithOptions(
+      { ...spec, tintColor: color.accent, userInterfaceStyle: 'dark' },
+      (buttonIndex) => {
+        const value = buttonIndex >= 0 ? values[buttonIndex] : undefined
+        if (value === undefined) return
+        // Deferred like every native-sheet action: a follow-up presentation
+        // during UIKit's dismissal tail is silently dropped.
+        setTimeout(() => picker.onPick(value), 0)
+      },
+    )
+  }
+
   return (
     <>
       <View testID="composer-backend" style={styles.rail}>
@@ -74,7 +114,7 @@ export function SuperagentBackendRail({
           quiet={backend.model === AUTO}
           accessibilityLabel="Model"
           shrinks
-          onPress={() => setStep('model')}
+          onPress={() => openPicker('model')}
         />
         {agentKind && effortChoices.length > 0 ? (
           <Pill
@@ -82,7 +122,7 @@ export function SuperagentBackendRail({
             label={effortLabel}
             quiet={backend.effort === AUTO}
             accessibilityLabel="Effort"
-            onPress={() => setStep('effort')}
+            onPress={() => openPicker('effort')}
           />
         ) : null}
       </View>
