@@ -69,10 +69,45 @@ export async function locateGrokChatHistory(opts: {
   sessionId: string
   pathHint?: string
   homeDir?: string
+  transcriptRoot?: string
 }): Promise<string | null> {
+  const authority = await locateCurrentTranscript(opts)
+  if (authority) return authority
   const paths = await locateGrokSessionPaths(opts)
   if (!paths || !(await isFile(paths.chatHistoryPath))) return null
   return paths.chatHistoryPath
+}
+
+/** Grok 0.2.118+ writes the chat authority outside its account HOME. */
+async function locateCurrentTranscript(opts: {
+  sessionId: string
+  pathHint?: string
+  transcriptRoot?: string
+}): Promise<string | null> {
+  if (opts.pathHint && basename(opts.pathHint) === opts.sessionId + '.jsonl') {
+    if (await isFile(opts.pathHint)) return opts.pathHint
+  }
+  if (!opts.transcriptRoot) return null
+  let projects: string[]
+  try {
+    projects = (await readdir(opts.transcriptRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+  } catch {
+    return null
+  }
+  const candidates: { path: string; mtimeMs: number }[] = []
+  for (const project of projects) {
+    const path = join(opts.transcriptRoot, project, opts.sessionId + '.jsonl')
+    try {
+      const stats = await stat(path)
+      if (stats.isFile()) candidates.push({ path, mtimeMs: stats.mtimeMs })
+    } catch {
+      // This project has no transcript for the requested native session.
+    }
+  }
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs)
+  return candidates[0]?.path ?? null
 }
 
 function pathsFromHint(pathHint: string, sessionId: string): GrokSessionPaths | null {

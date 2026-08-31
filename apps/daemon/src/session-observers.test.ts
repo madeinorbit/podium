@@ -2872,7 +2872,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
 
 
 describe('Grok accepted rebind transcript bridge', () => {
-  it('tails a late-created chat_history on the shared tick and replays it once after reload', async () => {
+  it('keeps legacy late-created chat_history live and exactly-once across reload', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-transcript-rebind-'))
     const cwd = '/repo/grok-transcript-rebind'
     const nativeId = 'grok-native-rebind'
@@ -2979,6 +2979,128 @@ describe('Grok accepted rebind transcript bridge', () => {
     )!
     expect(replay.reset).toBe(true)
     expect(replay.items.map((item) => item.id)).toEqual(['grok-user-token', 'grok-assistant-token'])
+
+    observers.clearSession(sessionId)
+    await rm(home, { recursive: true, force: true })
+  })
+
+  it('rebinds to a late-created product transcript on the shared tick and reloads once', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-current-transcript-'))
+    const cwd = '/repo/grok-current-transcript'
+    const nativeId = 'grok-current-native-id'
+    const sessionId = asSessionId('podium-grok-current-transcript')
+    const sessionDir = join(home, '.grok', 'sessions', encodeURIComponent(cwd), nativeId)
+    const transcriptRoot = join(home, 'product-transcripts')
+    const currentTranscript = join(transcriptRoot, 'project-native-id', `${nativeId}.jsonl`)
+    await mkdir(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'summary.json'), JSON.stringify({ info: { id: nativeId, cwd } }))
+    await writeFile(join(sessionDir, 'updates.jsonl'), '')
+
+    const statTick = new ManualStatTick()
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      homeDir: home,
+      transcriptRoot,
+      statTick,
+    })
+    const spawn = {
+      type: 'spawn' as const,
+      sessionId,
+      agentKind: 'grok' as const,
+      cwd,
+      geometry: G,
+      durableLabel: 'podium-grok-current-transcript',
+      observationGeneration: 1,
+      observationBindingVersion: 1,
+      observationProviderSessionId: null,
+    }
+    observers.initSessionObservers(
+      spawn,
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false, newSessionId: nativeId },
+    )
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === 'agentObservationRebind')).toBe(true)
+    })
+    const rebind = sent.find(
+      (message): message is Extract<DaemonMessage, { type: 'agentObservationRebind' }> =>
+        message.type === 'agentObservationRebind',
+    )!
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId,
+      provider: 'grok',
+      rebindId: rebind.rebindId,
+      priorObserverGeneration: 1,
+      priorBindingVersion: 1,
+      nextProviderSessionId: nativeId,
+      providerSessionId: nativeId,
+      result: 'accepted',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      checkpoint: null,
+    })
+
+    await mkdir(join(transcriptRoot, 'project-native-id'), { recursive: true })
+    await writeFile(
+      currentTranscript,
+      [
+        JSON.stringify({ type: 'system', content: 'hidden' }),
+        JSON.stringify({ uuid: 'current-user-token', type: 'user', content: 'user token' }),
+        JSON.stringify({
+          uuid: 'current-assistant-token',
+          type: 'assistant',
+          content: 'assistant token',
+        }),
+      ].join('\n') + '\n',
+    )
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+    })
+    const live = sent.find(
+      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+        message.type === 'transcriptDelta',
+    )!
+    expect(live.items.map((item) => [item.id, item.role, item.text])).toEqual([
+      ['current-user-token', 'user', 'user token'],
+      ['current-assistant-token', 'assistant', 'assistant token'],
+    ])
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+
+    observers.clearSession(sessionId)
+    const reloadStart = sent.length
+    observers.initSessionObservers(
+      {
+        ...spawn,
+        resume: { kind: 'grok-session', value: nativeId },
+        observationGeneration: 2,
+        observationBindingVersion: 2,
+        observationProviderSessionId: nativeId,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false },
+    )
+    await vi.waitFor(() => {
+      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(true)
+    })
+    const replay = sent.slice(reloadStart).find(
+      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+        message.type === 'transcriptDelta',
+    )!
+    expect(replay.reset).toBe(true)
+    expect(replay.items.map((item) => item.id)).toEqual([
+      'current-user-token',
+      'current-assistant-token',
+    ])
 
     observers.clearSession(sessionId)
     await rm(home, { recursive: true, force: true })

@@ -75,6 +75,8 @@ export interface SessionObserversDeps {
   statTick?: StatTick
   /** Discovery homeDir override (tests / isolated HOME). */
   homeDir?: string | undefined
+  /** Product-owned transcript authority root, distinct from the harness account home. */
+  transcriptRoot?: string | undefined
   /** A live transcript tail appended — mark the file dirty for the active index refresh. */
   onTranscriptDirty(path: string): void
   /** The hook payload's live cwd — feeds the session cwd tracker. */
@@ -1408,6 +1410,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             ? { resumeValue: init.newSessionId }
             : {}),
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+        ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
         ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
         // Reattach carries the session's original spawn time — the codex
         // lazy-rollout discovery floor (see HarnessObserveInput.createdAtMs).
@@ -1499,6 +1502,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       podiumSessionId: sessionId,
       resumeValue,
       ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+      ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
     })
   }
 

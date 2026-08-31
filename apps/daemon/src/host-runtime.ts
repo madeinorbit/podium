@@ -365,6 +365,7 @@ export async function createDaemonHostRuntime(args: {
     sessionBinding,
     send,
     homeDir,
+    transcriptRoot: join(identityStateDir, 'transcripts'),
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),

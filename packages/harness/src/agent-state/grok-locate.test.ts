@@ -20,6 +20,39 @@ describe('locateGrokSessionPaths', () => {
     return paths.chatHistoryPath
   }
 
+  it('prefers the current product transcript authority over a legacy chat_history', async () => {
+    const home = await seedHome()
+    await seedSession(home, '/repo/main', 'sess-current')
+    const transcriptRoot = join(home, 'product-transcripts')
+    const current = join(transcriptRoot, 'project-id', 'sess-current.jsonl')
+    await mkdir(join(transcriptRoot, 'project-id'), { recursive: true })
+    await writeFile(current, `${JSON.stringify({ type: 'user', content: 'current' })}\n`)
+
+    expect(
+      await locateGrokChatHistory({
+        cwd: '/repo/main',
+        sessionId: 'sess-current',
+        homeDir: home,
+        transcriptRoot,
+      }),
+    ).toBe(current)
+  })
+
+  it('accepts a recorded current-authority pathHint without scanning the root', async () => {
+    const home = await seedHome()
+    const current = join(home, 'recorded', 'sess-recorded.jsonl')
+    await mkdir(join(home, 'recorded'), { recursive: true })
+    await writeFile(current, `${JSON.stringify({ type: 'assistant', content: 'recorded' })}\n`)
+    expect(
+      await locateGrokChatHistory({
+        cwd: '/repo/main',
+        sessionId: 'sess-recorded',
+        pathHint: current,
+        homeDir: home,
+      }),
+    ).toBe(current)
+  })
+
   it('resolves the exact current-cwd bucket when the file is there', async () => {
     const home = await seedHome()
     const path = await seedSession(home, '/repo/main', 'sess-1')

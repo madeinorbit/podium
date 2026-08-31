@@ -364,6 +364,8 @@ export interface HarnessObserveInput {
   resumeValue?: string
   /** Discovery homeDir override (tests / isolated HOME). */
   homeDir?: string
+  /** Product-owned native transcript root, separate from the harness account home. */
+  transcriptRoot?: string
   /** Freshness floor for spawn-time session discovery, so a new pane can't
    *  latch onto an older sibling session in the same cwd. Omitted on reattach
    *  so discovery has no floor. */
@@ -459,6 +461,8 @@ export interface TranscriptSourceInput {
   /** Stable Podium row identity used by providers with a shared native store. */
   podiumSessionId?: SessionId
   homeDir?: string
+  /** Product-owned native transcript root, separate from the harness account home. */
+  transcriptRoot?: string
 }
 
 export interface HarnessTranscript {

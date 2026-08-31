@@ -22,6 +22,7 @@ export async function resolveFileChain(input: {
   resumeValue?: string
   pathHint?: string
   homeDir?: string
+  transcriptRoot?: string
 }): Promise<ChainEntry[]> {
   const manifest = manifestFor(input.agentKind)
   const transcript = manifest && declaredValue(manifest.transcript)
@@ -31,6 +32,7 @@ export async function resolveFileChain(input: {
     cwd: input.cwd,
     ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
+    ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
     homeDir: input.homeDir ?? homedir(),
   })
   return paths.map((p) => ({ path: p, fileId: fileIdFor(p) }))
@@ -55,6 +57,7 @@ export async function transcriptSourceFor(input: {
    *  cwd-derived location (conversation registry §3.3). */
   pathHint?: string
   homeDir?: string
+  transcriptRoot?: string
 }): Promise<TranscriptSource> {
   const manifest = manifestFor(input.agentKind)
   const transcript = manifest && declaredValue(manifest.transcript)
@@ -64,6 +67,7 @@ export async function transcriptSourceFor(input: {
     ...(input.podiumSessionId !== undefined ? { podiumSessionId: input.podiumSessionId } : {}),
     ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
+    ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
     homeDir: input.homeDir ?? homedir(),
   })
 }

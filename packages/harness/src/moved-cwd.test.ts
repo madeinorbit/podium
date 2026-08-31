@@ -119,4 +119,41 @@ describe('Grok transcript read when cwd and session bucket disagree', () => {
     expect(texts).toContain('please have a look at unread indicators')
     expect(texts).toContain('Unread stays off after you open an issue.')
   })
+
+  it('reads the current product transcript authority before legacy chat_history', async () => {
+    const { home } = await seed()
+    const nativeId = '67e48205-9b61-4c2e-a6de-250f50400142'
+    const transcriptRoot = join(home, 'product-transcripts')
+    const current = join(transcriptRoot, 'project-id', `${nativeId}.jsonl`)
+    await mkdir(join(transcriptRoot, 'project-id'), { recursive: true })
+    await writeFile(
+      current,
+      `${[
+        JSON.stringify({
+          uuid: 'current-user-id',
+          type: 'user',
+          timestamp: '2026-08-31T04:45:06.000Z',
+          content: 'current authority user',
+        }),
+        JSON.stringify({
+          uuid: 'current-assistant-id',
+          type: 'assistant',
+          timestamp: '2026-08-31T04:45:07.000Z',
+          content: 'current authority assistant',
+        }),
+      ].join('\n')}\n`,
+    )
+    const source = await transcriptSourceFor({
+      agentKind: 'grok',
+      cwd: '/repo/.worktrees/issue-3150-grok-headed-transcript-bridge',
+      resumeValue: nativeId,
+      homeDir: home,
+      transcriptRoot,
+    })
+    const page = await source.readSlice({ direction: 'before', limit: 50 })
+    expect(page.items.map((item) => [item.id, item.text])).toEqual([
+      ['current-user-id', 'current authority user'],
+      ['current-assistant-id', 'current authority assistant'],
+    ])
+  })
 })

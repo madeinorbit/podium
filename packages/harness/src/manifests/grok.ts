@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { grokRecordToItems, grokRuntime } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
-import { locateGrokChatHistory, locateGrokSessionPaths } from '../agent-state/grok-locate.js'
+import { locateGrokChatHistory } from '../agent-state/grok-locate.js'
 import { withStateChannel } from '../agent-state/types.js'
 import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
@@ -95,6 +95,7 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
     sessionId: input.resumeValue,
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
     ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
   })
   return path ? [path] : []
 }
@@ -331,6 +332,7 @@ export const grokManifest: AgentManifest = {
   observer: supported((input, host) => {
     let lease = input.observationLease
     let active: ReturnType<typeof observeGrokState> | undefined
+    let stopAuthorityPoll: (() => void) | undefined
     let stopped = false
     let pendingRebind:
       | {
@@ -346,6 +348,8 @@ export const grokManifest: AgentManifest = {
     const start = (resumeValue: string | undefined): void => {
       if (stopped) return
       active?.stop()
+      stopAuthorityPoll?.()
+      stopAuthorityPoll = undefined
       const causal =
         lease?.provider === 'grok' && lease.providerSessionId && input.podiumSessionId
           ? {
@@ -413,16 +417,24 @@ export const grokManifest: AgentManifest = {
             ...(input.homeDir ? { homeDir: input.homeDir } : {}),
           })
           host.tailFile(derived.chatHistoryPath)
-          void locateGrokSessionPaths({
-            cwd: input.cwd,
-            sessionId: grokSessionId,
-            ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-            ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-          }).then((located) => {
-            if (located && located.chatHistoryPath !== derived.chatHistoryPath) {
-              host.tailFile(located.chatHistoryPath)
-            }
-          })
+          const locateAuthority = (): void => {
+            void locateGrokChatHistory({
+              cwd: input.cwd,
+              sessionId: grokSessionId,
+              ...(input.pathHint ? { pathHint: input.pathHint } : {}),
+              ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+              ...(input.transcriptRoot ? { transcriptRoot: input.transcriptRoot } : {}),
+            }).then((path) => {
+              if (!path || path === derived.chatHistoryPath) return
+              host.tailFile(path)
+              stopAuthorityPoll?.()
+              stopAuthorityPoll = undefined
+            })
+          }
+          locateAuthority()
+          stopAuthorityPoll = input.transcriptRoot
+            ? input.statTick?.subscribe(locateAuthority)
+            : undefined
         },
         ...(causal
           ? { causal }
@@ -438,6 +450,7 @@ export const grokManifest: AgentManifest = {
     return {
       stop() {
         stopped = true
+        stopAuthorityPoll?.()
         active?.stop()
       },
       onObservationAck: (ack) => active?.onObservationAck?.(ack),
