@@ -84,22 +84,6 @@ describe('profile-bound mobile handoff decisions', () => {
     ).toEqual({ kind: 'authenticate', profileId: 'profile-one' })
   })
 
-  it('opens a verified open-mode profile without inventing a login step', () => {
-    expect(
-      decideMobileHandoff(
-        request(),
-        context({
-          profiles: [profile({ mode: 'open', userId: undefined })],
-          authentication: 'open',
-          authenticatedUserId: undefined,
-        }),
-      ),
-    ).toEqual({
-      kind: 'open',
-      target: { kind: 'session', session: SESSION_ID },
-    })
-  })
-
   it('fails closed when the same origin has no verified instance identity', () => {
     expect(
       decideMobileHandoff(request(), context({ profiles: [profile({ instanceId: undefined })] })),

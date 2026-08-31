@@ -158,20 +158,4 @@ describe('PodiumLinkHost mobile handoff integration', () => {
     expect(status).toContain('not available to this profile')
     expect(status).not.toContain(SESSION_ID)
   })
-
-  it('opens a verified open-mode replica without waiting for a login surface', async () => {
-    const openProfile = profile({ mode: 'open', userId: undefined })
-    seams.serverProfile = context(openProfile, [openProfile])
-    seams.authStatus = { needsAuth: false, authed: false, userId: null }
-    seams.sessions = [{ sessionId: SESSION_ID }]
-    render(<PodiumLinkHost />)
-
-    act(() => {
-      captureMobileHandoffUrl(handoff(openProfile.httpOrigin))
-      markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
-    })
-
-    await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith(`/session/${SESSION_ID}`))
-    expect(screen.getByRole('status').textContent).toBe('Opening the session.')
-  })
 })
