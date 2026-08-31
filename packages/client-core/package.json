@@ -138,15 +138,15 @@
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
-    "@tanstack/db": "^0.6.16",
+    "@tanstack/db": "^0.8.6",
     "@tanstack/db-sqlite-persistence-core": "^0.2.8",
-    "@tanstack/react-db": "^0.1.94"
+    "@tanstack/react-db": "^0.3.6"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6",
     "@types/react": "^19.0.0",
-    "react": "19.2.7",
+    "react": "19.2.8",
     "@types/node": "^24.0.0",
     "fake-indexeddb": "^6.2.5"
   },
