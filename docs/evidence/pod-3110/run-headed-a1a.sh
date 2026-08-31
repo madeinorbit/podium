@@ -106,8 +106,8 @@ static_self_test() {
   expected_protected="${HOME:?HOME must be inherited}/.podium/instance.json"
   [ "$PROTECTED_MARKER" = "$expected_protected" ] || { printf '%s\n' "STATIC SELF TEST protected path mismatch: $PROTECTED_MARKER" >&2; return 1; }
   [ -f "$PROTECTED_MARKER" ] || { printf '%s\n' "STATIC SELF TEST live protected marker missing: $PROTECTED_MARKER" >&2; return 1; }
-  old_instance=p3110-grok-paired-057755c-r2
-  new_instance=p3110-grok-paired-057755c-r3
+  old_instance=p3110-grok-paired-057755c-r3
+  new_instance=p3110-grok-paired-7ef8e42-r4
   [ "$old_instance" != "$new_instance" ] || { printf '%s\n' 'STATIC SELF TEST instance ids collide' >&2; return 1; }
   old_state="$(env -u PODIUM_STATE_DIR -u XDG_STATE_HOME PODIUM_INSTANCE="$old_instance" "$BUN" --conditions=@podium/source -e 'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())')"
   new_state="$(env -u PODIUM_STATE_DIR -u XDG_STATE_HOME PODIUM_INSTANCE="$new_instance" "$BUN" --conditions=@podium/source -e 'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())')"
