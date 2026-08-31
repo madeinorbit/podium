@@ -79,6 +79,8 @@ export interface TranscriptTailOptions {
   maxInitialItems?: number
   /** Chunk size for backfill reads (test seam); defaults to READ_CHUNK_BYTES. */
   readChunkBytes?: number
+  /** Test seam for the cheap pre-seed existence check. */
+  initialPathStat?: (path: string) => Promise<unknown>
   /** Test/attribution seam: fires only when a changed file requires a descriptor. */
   onReadOpen?: () => void
 }
@@ -328,13 +330,15 @@ export function tailTranscript(
   // ticks are otherwise disabled for the lifetime of a delayed gate. Existing
   // files still take the paced seed path; a later-created file gets the same
   // bounded first-read window on the first shared tick that can stat it.
-  void stat(path).then(
-    () =>
-      seedGate(() => readNew()).finally(() => {
-        seeded = true
-      }),
-    () => {
+  const pacedSeed = (): Promise<void> =>
+    seedGate(() => readNew()).finally(() => {
       seeded = true
+    })
+  void (opts.initialPathStat ?? stat)(path).then(
+    () => pacedSeed(),
+    (error: unknown) => {
+      if (isMissingPathError(error)) seeded = true
+      else void pacedSeed()
     },
   )
 
@@ -345,4 +349,10 @@ export function tailTranscript(
       stopPolling()
     },
   }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'ENOENT' || code === 'ENOTDIR'
 }

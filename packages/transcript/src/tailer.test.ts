@@ -254,6 +254,45 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
 })
 
 describe('tailTranscript — missing provider file', () => {
+  it('keeps non-missing stat failures on the paced seed path', async () => {
+    const path = join(dir, 'grok-stat-eacces.jsonl')
+    writeFileSync(path, JSON.stringify({ uuid: 'blocked', type: 'user', content: 'paced' }) + '\n')
+    const emissions: Emission[] = []
+    let watcher = (): void => {}
+    let gated = 0
+    const held = new Promise<void>(() => {})
+    const error = Object.assign(new Error('synthetic permission failure'), { code: 'EACCES' })
+    const tailer = tailTranscript(
+      path,
+      (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
+      {
+        recordToItems: grokRecordToItems,
+        initialPathStat: async () => Promise.reject(error),
+        statTick: {
+          subscribe(next) {
+            watcher = next
+            return () => {
+              watcher = (): void => {}
+            }
+          },
+        },
+        seedGate: async () => {
+          gated += 1
+          await held
+        },
+      },
+    )
+    try {
+      await waitFor(() => gated === 1)
+      watcher()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(gated).toBe(1)
+      expect(emissions).toEqual([])
+    } finally {
+      tailer.stop()
+    }
+  })
+
   it('lets the shared tick observe a file created while the seed gate is held exactly once', async () => {
     const path = join(dir, 'grok-created-after-bind.jsonl')
     const emissions: Emission[] = []
