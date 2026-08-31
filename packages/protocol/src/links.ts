@@ -403,7 +403,10 @@ export function formatExternalHttpLink(href: string, activeOrigin?: string | nul
       const parsed = new URL(raw)
       return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null
     } catch {
-      return null
+      // `parsePodiumLink` deliberately keeps malformed-but-explicit HTTP(S)
+      // input external so an OS/browser can make the final decision. Preserve
+      // that same fail-outward contract instead of turning a middle click dead.
+      return raw
     }
   }
   if (!/^[/\\][/\\]/.test(raw)) return null

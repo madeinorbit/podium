@@ -185,6 +185,25 @@ describe('handlePodiumLinkClick', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it('hands malformed explicit HTTP middle-clicks outward instead of dropping them', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    const href = 'http://127.0.0.1:8787./issues/POD-1'
+    document.body.innerHTML = '<a data-podium-link-candidate="">x</a>'
+    const anchor = document.querySelector('a') as HTMLAnchorElement
+    anchor.setAttribute('href', href)
+    anchor.setAttribute('data-podium-link-source', href)
+    const event = new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+    Object.defineProperty(event, 'target', { value: anchor })
+
+    expect(handlePodiumLinkAuxClick(event)).toBe(true)
+    expect(openExternal).toHaveBeenCalledWith(href)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
   it('normalizes every protocol-relative spelling for desktop middle-click', () => {
     const openExternal = vi.fn(async () => undefined)
     ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
