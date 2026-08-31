@@ -257,3 +257,258 @@ ledger and from measurements taken on this host on 2026-08-31 against the
 `f8e38a1` release artifacts. The build runs under `CPUQuota=200%`, so absolute
 timings are not comparable to an unconstrained run — the compression table
 above is unconstrained and is applied via its `-p2` ratio, not its raw time.*
+
+---
+
+# Addendum — five follow-up questions, answered with measurements
+
+Measured 2026-08-31 on this host (8 cores) against the real `f8e38a1`
+artifacts and the live checkout. Two of the answers below **correct** the main
+report above; they are called out where they do.
+
+## Q1 — Is `pigz` available everywhere? How do we guarantee it?
+
+**The blast radius is much smaller than it looks.** A release build is
+*linux-only by refusal* — `prepareHeadlessCross` throws unless
+`process.platform === 'linux'` (`scripts/release.ts:409`). It never runs on a
+user's machine, and it is not part of the update path: end users only ever
+*extract* the tarball. So the question is not "is pigz on every reasonable
+machine", it is **"is pigz on the two or three Linux hosts that cut
+releases"**.
+
+**It is not installed by default** on a minimal Debian/Ubuntu (or on most base
+images) — it is a separate package, not part of any base set. It is present on
+this host at `/usr/bin/pigz`. So it cannot simply be assumed.
+
+**The guarantee should be a fallback, not a dependency**, because the output is
+interchangeable. Measured:
+
+- A `pigz -n` tarball extracts with plain `tar -xzf`, and the extracted
+  `podium-cli` is byte-identical to the original. It is ordinary gzip.
+- `pigz -n` is **deterministic across runs**, and — importantly — **produces
+  identical bytes at `-p8` and `-p2`**. The artifact does not depend on how
+  many cores the host had, so a host with pigz and a host without still differ
+  only in *speed*, and two pigz hosts with different core counts agree exactly.
+
+Given that, the right shape is the one this repo already uses for external
+build tools: `resolveZig()` / `resolveRcodesign()` are
+`findTool('PODIUM_ZIG', 'zig', [fallback])` (`scripts/abduco-cross.ts:171`).
+Follow it with **one difference** — zig is mandatory and throws; pigz is an
+optimisation and must **fall back to `gzip` when absent**, logging which
+compressor it used. Implementation is a single `tar --use-compress-program`
+argument (verified working), with `PODIUM_PIGZ` as the override.
+
+Optionally add pigz to the machine provisioning notes so release hosts get the
+fast path — but nothing should *break* without it.
+
+## Q2 — Why is only 60 % attributed? What is missing?
+
+Every untimed step in the release path was identified and measured. The
+accounting against the **18.02 s** gap:
+
+| Untimed step | Where | Measured |
+|---|---|---:|
+| **Pre-snapshot `assertSourceMatchesHead` on the LIVE checkout** | `dev-bundle.ts` `admit()`, before `withDevBuildSnapshot` | **0.8 s warm / 18.7 s cold** |
+| Client Turbo lane + `stampClients` (warm restore) | `beginFreshClientPackagingSession` → `buildClients` | 3.51 s |
+| Archive re-extract proof, ×2 platforms | `build-bun.ts:826` | 2.76 s |
+| Bundle assembly: `syncBundleWeb` ×2 + 108 MB binary copy, ×2 platforms | `build-bun.ts:710,726` | ≈1.7 s |
+| `stagePrepared` — second copy of both tarballs (111 MB) | `release.ts:297` | 0.62 s |
+| `verifyClientBuild` (per-file hash of both dists) | `verify-client-build.ts:107` | 0.13 s |
+| Child launch: `systemd-run --user --scope` + `bun` start | `build-scope.ts` | 0.06 s |
+| `import` of `scripts/release.ts`'s module graph from source | — | 0.05 s |
+| **Sum, with the guard warm** | | **≈9.6 s** |
+
+**The dominant term, and the answer to the question, is the first row.** The
+publisher runs `git ls-files -z --others --ignored --exclude-standard` over
+`apps packages scripts tooling` on the **live checkout** before it takes the
+snapshot, and that call is untimed. Measured on the live checkout:
+
+- **cold: 18.66 s**
+- warm (runs 2–4): 0.74 / 0.81 / 0.80 s
+
+It enumerates only 235 files, but to do so it must walk every ignored tree the
+pathspecs exclude — `node_modules`, `dist`, `.turbo`, `target` — and on a cold
+page cache that walk is tens of seconds. Its snapshot-side twin
+(`final-source-inputs`, timed) costs 0.22 s precisely because a fresh worktree
+has almost nothing ignored in it.
+
+That single call has a **23× dynamic range** and is the only untimed step that
+does. It is the prime suspect for the whole gap, and dev.30's 18.02 s sits
+inside its measured range. It cannot be *confirmed* without instrumenting it —
+which is exactly the point.
+
+**Getting to 100 % attribution** is nine `timeReleaseBuildTask` wrappers at the
+call sites in the table, and the wrapper already exists. Suggested labels:
+
+- `validation / live-source-inputs` ← **do this one first**
+- `client-preparation / turbo-lane`, `client-preparation / stamp`,
+  `client-preparation / verify`
+- `headless-platform-build / assemble-bundle` (per target)
+- `validation / archive-proof` (per target)
+- `artifact-publication / stage`
+- `checkout / snapshot-teardown`
+
+With those in place the phase sum should reach the envelope to within tenths.
+
+### Correction to §1 of the main report
+
+The main report listed the client lane first among the gap's contributors. That
+is wrong: **the client lane is a warm Turbo restore costing 3.51 s.** Measured
+in an isolated worktree of this repo:
+
+- cold (cache MISS, both clients): **53.69 s** — more than the entire release,
+  which is itself proof dev.30 must have been a hit
+- warm (cache HIT, dists deleted first): **3.51 s**, of which Turbo itself is
+  **453 ms (FULL TURBO)**; the remaining ≈3 s is `stampClients` spawning two
+  `bun` processes that import `@podium/model`
+
+The restore works from the snapshot because the Turbo cache is **not** in the
+checkout: `turboEnv` sets `TURBO_CACHE_DIR` to
+`~/.cache/podium/turbo/<projectKey>` and `projectCacheIdentity` keys on the
+**common git dir** (`scripts/typecheck.ts:177–222`), so a detached worktree in
+`/tmp` shares the parent repository's cache. That design is the model for Q4.
+
+`stampClients`'s ≈3 s is a real, separable target — two Bun process starts that
+each pay for the `@podium/model` graph — but it is client-lane work and out of
+scope here.
+
+## Q3 — Should `compile-cli` stamp the version afterwards so it can be cached?
+
+**The step costs 3.45 s** — 1.85 s `linux-x86_64` + 1.60 s `darwin-aarch64`
+(dev.30). That is the entire prize.
+
+**Moving the version stamp out is necessary but not sufficient, and on its own
+buys nothing.** `build-bun.ts:585–592` bakes *two* values with `--define`:
+
+```
+process.env.PODIUM_APP_VERSION  = "0.1.1-dev.30+f8e38a1"   // per-publish
+process.env.PODIUM_SOURCE_SHA   = "f8e38a1"                // per-commit
+```
+
+Remove the first and the second still changes on **every commit**, so the hit
+rate stays ~0 for any release that follows a code change — which is every
+release. And even with both removed, the compile's real inputs are the whole
+`apps/server` + `apps/daemon` + `packages/**` TypeScript graph, which also
+changes on most commits. The only scenario that warms is **re-publishing a
+commit that was already published**, and the publisher already handles that
+case, better and at coarser grain, through `readExistingDevBundle`'s
+ledger restore.
+
+There is a third obstacle: on the dev channel `compiledSourceMapArgs(version)`
+adds `--sourcemap=inline`, so the version does not only key the output, it
+changes what is compiled.
+
+Making it work would mean the compiled binary learning its identity from the
+bundle at runtime rather than from `--define`. That is feasible in principle —
+`headless/VERSION` already ships beside the binary and
+`installed-restart.ts:143` already reads `installedVersionOnDisk(env)` — but it
+touches ~10 runtime read sites (`server.ts`, `features.ts`, `telemetry.ts`,
+`build-version.ts`, `frame-guards.ts`, `server-transfer.ts`, …), several of
+which carry comments explicitly requiring the *literal*
+`process.env.PODIUM_APP_VERSION` text so `--define` can inline it. It changes
+`/version` identity semantics, which is the fleet's answer to "what am I
+running".
+
+**Recommendation: no.** A high-risk change to build identity, across ten
+runtime sites, for **3.45 s at a hit rate near zero**. If it is ever done, do
+it because runtime version identity *should* come from the bundle — not as a
+caching optimisation. File it as a deferred design question, not as work.
+
+## Q4 — Cache abduco; simple change?
+
+**Yes — and simpler than expected, because the cache already exists.** This
+corrects the main report, which recommended "cache abduco-helper" as new work.
+
+`crossBuildAbduco` is already content-addressed: the key is the sha256 of the
+vendored `abduco.c`, entries live at
+`<root>/dist-bun/abduco-cache/<platform>-<hash16>`, writes are staged to a
+pid-suffixed path and `mv`'d into place so concurrent builds cannot embed a
+half-written helper, and a hit is logged and free
+(`scripts/abduco-cross.ts:136–230`).
+
+**It never hits during a release for one reason: the cache lives inside the
+checkout, and the release checkout is a throwaway `/tmp` worktree.**
+`build-bun.ts:550` calls `crossBuildAbduco(spec.platform, { root })` with the
+packaging root, which under `withDevBuildSnapshot` is the detached snapshot.
+`dist-bun/` is gitignored and untracked, so `git worktree add` creates it
+empty. Every release therefore pays two `zig cc` compiles (plus an `rcodesign`
+ad-hoc sign for darwin) that the cache was built to avoid — the measured
+**1.11 s + 0.75 s = 1.86 s**.
+
+**The fix is to relocate the cache, not to build one**: default `abducoCacheDir`
+to a durable per-host, per-repository path — exactly the
+`~/.cache/podium/<...>/<projectKey>` shape `sharedTurboCacheDir` already
+establishes — with a `PODIUM_ABDUCO_CACHE_DIR` override and the existing
+`{ root }` argument retained for tests. Content addressing, atomicity and race
+safety all carry over untouched; the correctness surface does not change,
+because a hit is only ever returned for a byte-identical source hash.
+
+Two callers reference the literal path and must move with it:
+`scripts/assert-headless-bundle.sh:292` and
+`scripts/prove-headless-assertions-can-fail.sh:36–37`.
+
+**Saving ≈1.86 s (4 % of the release) for what is essentially a path change.**
+This is the cheapest real win after pigz, and yes — it is wasteful not to.
+
+## Q5 — How big is keying the ledger by run?
+
+**Small, with one wrinkle that decides the shape.**
+
+Today the *destination* is already per-build:
+`builds/<buildId>/timing.jsonl` (`build-record.ts:119`). Only the **staging
+filename** is version-keyed — `emitReleaseBuildTiming` picks
+`record.version ?? record.sourceSha ?? 'development-release'`
+(`release-build-timing.ts:81`) — and `finalizeTimingIntoRecord` renames
+`<version>.jsonl` into place (`dev-bundle.ts:1242`). Two attempts at one
+version append to one staging file, and whichever finalizes moves the
+concatenation. That is exactly the dev.29 ledger.
+
+The wrinkle: the staging sink is deliberately version-keyed **because it spans
+more than the bundle build**. `finalizeReleaseTiming`'s own comment
+(`dev-publisher-wiring.ts:317–322`) records that moving it inside the build
+"strands every later snapshot, publication, and outer approval record". The
+`buildId` is minted *mid-flight* (`mintBuildId`, `dev-bundle.ts`), so keying
+directly on it would strand every line emitted before that point — including
+the `approval-to-publish` envelope.
+
+So the correct change is **mint a run id at the approval boundary**, where the
+envelope starts, and carry it down:
+
+1. `ReleaseBuildTimingRecord` gains `runId?: string` — **`version`,
+   `sourceSha` and `channel` all stay**, so nothing is lost from the record.
+2. New `PODIUM_RELEASE_TIMING_RUN` env, added to
+   `releaseBuildTimingEnvironment` alongside the version and sha it already
+   passes to child processes.
+3. `emitReleaseBuildTiming`'s identity becomes
+   `record.runId ?? record.version ?? record.sourceSha ?? …` — one line, and
+   `releaseBuildTimingFileName` needs no signature change since it already
+   takes an arbitrary identity.
+4. `finalizeTimingIntoRecord` renames `<runId>.jsonl`; it already receives the
+   `buildId` for the destination.
+5. The publisher mints the run id where it opens the `approval-to-publish`
+   span and threads it into `releaseTiming`.
+
+Then `buildDevBundle`'s `timingEnv` — currently computed before `mintBuildId`
+— simply inherits the run id, so no reordering is required.
+
+**Size: one optional record field, one env var, five call sites, no data
+loss, no behaviour change outside the evidence sink.** Roughly a day with the
+tests (`release-build-timing.test.ts`, `dev-bundle.test.ts:740`,
+`artifact-route.test.ts:441` all assert the version-keyed staging name and
+would be updated to the run key).
+
+Worth doing **before** any of the performance changes: it is what makes a
+before/after comparison honest, and every claim in this report currently rests
+on a ledger that can silently merge two runs.
+
+## Summary of the five
+
+| | Answer | Value | Size |
+|---|---|---:|---|
+| Q1 pigz | Linux release hosts only; not default-installed; resolve like zig but **fall back to gzip**. Output is plain gzip, deterministic, thread-count-independent. | ≈7.8 s | small |
+| Q2 attribution | Nine untimed steps identified and measured; the dominant one is the **untimed live-checkout ignored-source scan, 0.8 s warm / 18.7 s cold**. Client lane is only 3.5 s (warm restore). | — | 9 wrappers |
+| Q3 compile-cli stamp | **No.** 3.45 s, hit rate ~0 even after the change (`PODIUM_SOURCE_SHA` also baked), ~10 runtime sites, changes `/version` identity. | 3.45 s at ~0 % hit | large, risky |
+| Q4 abduco | Cache **already exists and is correct**; it just lives in the throwaway snapshot. Relocate it. | ≈1.86 s | very small |
+| Q5 run-keyed ledger | Mint a run id at the approval boundary; version stays on every record. | correctness | ≈1 day |
+
+Recommended order: **Q5 → Q2 → Q1 → Q4**, and file Q3 as deferred.
