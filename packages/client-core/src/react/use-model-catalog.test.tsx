@@ -8,9 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const catalog = vi.fn()
 const refresh = vi.fn()
 const trpc = { models: { catalog: { query: catalog }, refresh: { mutate: refresh } } }
+let activeTrpc: unknown = trpc
 
 vi.mock('./provider', () => ({
-  useStoreSelector: (select: (store: { trpc: unknown }) => unknown) => select({ trpc }),
+  useStoreSelector: (select: (store: { trpc: unknown }) => unknown) => select({ trpc: activeTrpc }),
 }))
 
 const { useModelCatalog, useModelCatalogState } = await import('./use-model-catalog')
@@ -33,6 +34,7 @@ function StatusProbe({ machineId }: { machineId: ReturnType<typeof asMachineId> 
 describe('useModelCatalog', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    activeTrpc = trpc
     catalog.mockReset()
     refresh.mockReset()
   })
@@ -142,5 +144,47 @@ describe('useModelCatalog', () => {
     })
     expect(screen.getByText('ready')).toBeTruthy()
     expect(screen.getByText('Current')).toBeTruthy()
+  })
+
+  it('starts loading from an empty scope when the API identity changes', async () => {
+    const machineId = asMachineId('b156e096-031e-4fcc-8557-cc09652b8260')
+    catalog.mockResolvedValue({
+      machineId,
+      byAgent: { codex: [{ value: 'old-server', label: 'Old server' }] },
+      fetchedAt: Date.now(),
+    })
+    const secondCatalog = vi.fn()
+    const secondRefresh = vi.fn()
+    let resolveSecond: ((snapshot: unknown) => void) | undefined
+    secondCatalog.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSecond = resolve
+      }),
+    )
+    const secondTrpc = {
+      models: { catalog: { query: secondCatalog }, refresh: { mutate: secondRefresh } },
+    }
+
+    const view = render(<StatusProbe machineId={machineId} />)
+    await act(async () => {})
+    expect(screen.getByText('ready')).toBeTruthy()
+    expect(screen.getByText('Old server')).toBeTruthy()
+
+    activeTrpc = secondTrpc
+    view.rerender(<StatusProbe machineId={machineId} />)
+    expect(screen.getByText('loading')).toBeTruthy()
+    expect(screen.queryByText('Old server')).toBeNull()
+    expect(secondCatalog).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      resolveSecond?.({
+        machineId,
+        byAgent: { codex: [{ value: 'new-server', label: 'New server' }] },
+        fetchedAt: Date.now(),
+      })
+    })
+    expect(screen.getByText('ready')).toBeTruthy()
+    expect(screen.getByText('New server')).toBeTruthy()
+    expect(secondRefresh).not.toHaveBeenCalled()
   })
 })
