@@ -13,6 +13,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { resolveLoggingMode } from './config'
+import { configureProcessLogging } from './logging'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
   PARENT_HANDOVER_EXPECTED_VERSION_ENV,
@@ -225,6 +227,49 @@ describe('ParentProcess', () => {
 
     expect(daemonEnv?.[PARENT_HAS_SERVER_ENV]).toBe('1')
     expect(finalized).toEqual(['2.0.0'])
+  })
+
+  it('a child of a systemd parent still picks the journald sink (POD-3177)', async () => {
+    // The parent deletes NOTIFY_SOCKET from the child env — only the parent may
+    // pet the watchdog — and `resolveLoggingMode` used to read that same variable
+    // to choose a sink. So server and daemon wrote pretty console text into
+    // journald beside a parent writing NDJSON, and `podium logs`' own jq recipe
+    // failed to parse it. THE CHILD'S OWN ENV IS THE SUBJECT: this asserts what
+    // the child will resolve from the env it is actually handed.
+    const childEnvs = new Map<string, NodeJS.ProcessEnv>()
+    let nextPid = 300
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/run/systemd/notify' },
+        spawn: ((_cmd, args, options) => {
+          childEnvs.set(String(args[0]), options.env as NodeJS.ProcessEnv)
+          return new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy('2.0.0'),
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+      }),
+    )
+
+    await parent.start()
+
+    for (const child of ['server', 'daemon']) {
+      const childEnv = childEnvs.get(child)
+      expect(childEnv, `${child} was spawned`).toBeDefined()
+      // The delete this bug rode in on is still in force.
+      expect(childEnv?.NOTIFY_SOCKET).toBeUndefined()
+      expect(resolveLoggingMode(childEnv ?? {})).toBe('systemd')
+      const handle = configureProcessLogging({ role: child, env: childEnv })
+      try {
+        expect(handle.sink.name, `${child} sink`).toBe('stdout')
+      } finally {
+        await handle.close()
+      }
+    }
   })
 
   it('starts a daemon-only fleet member with its configured remote credential', async () => {

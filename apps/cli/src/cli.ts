@@ -1358,8 +1358,19 @@ export async function main(
   // human running one command, and their output is the command's own, not the
   // logger's. A long-lived component re-configures below once the plan says
   // which one it is — configureProcessLogging replaces rather than stacks.
+  //
+  // The parent's `PODIUM_LOGGING_MODE` is deliberately NOT honoured here: it is
+  // addressed to the server and daemon it spawns, and env reaches every
+  // descendant, so an agent's `podium issue …` under the daemon would otherwise
+  // take the journald sink and print NDJSON onto the stdout its caller parses.
+  // The component that IS the addressee re-configures below from `logSinkMode`,
+  // which does honour it.
   const { configureProcessLogging } = await import('@podium/runtime/logging')
-  configureProcessLogging({ role: 'cli', defaultLevel: 'warn' })
+  configureProcessLogging({
+    role: 'cli',
+    defaultLevel: 'warn',
+    mode: resolveLoggingMode(process.env, { honourParentDeclaration: false }),
+  })
   const { installProcessSafetyNet } = await import('@podium/runtime/process-safety')
   installProcessSafetyNet('podium')
 

@@ -45,6 +45,7 @@
  * | PODIUM_RUN_MODE               | — (env-only)            | `resolveRunRecordMode()` ('detached' set by cli-spawn) |
  * | NOTIFY_SOCKET (systemd's)     | — (env-only)            | `resolveRunRecordMode()`, sd-notify                    |
  * | PODIUM_DESKTOP_SUPERVISED     | — (env-only flag)       | `resolveLoggingMode()` (desktop sidecar → file sink)   |
+ * | PODIUM_LOGGING_MODE           | — (env-only)            | `resolveLoggingMode()` (parent states it for children) |
  * | PODIUM_AGENT_RELAY            | — (env-only)            | `resolveAgentRelay()` (daemon-injected per AGENT)      |
  * | PODIUM_SESSION_RELAY          | — (env-only)            | `resolveSessionRelay()` (per SESSION, shells included) |
  * | PODIUM_NO_RELAY               | — (env-only flag)       | both resolvers (shed inherited relay; escape hatch)    |
@@ -1331,6 +1332,21 @@ export function resolveRunRecordMode(
 }
 
 /**
+ * Set by the parent on every child it spawns (see `spawnChild` in
+ * ./parent-process): the logging mode the PARENT resolved for itself, stated
+ * explicitly because the child cannot re-derive it.
+ *
+ * The child's environment has had `NOTIFY_SOCKET` deleted — only the parent may
+ * pet the systemd watchdog — and that deletion used to answer a second, unrelated
+ * question by accident: every child under systemd resolved `foreground` and wrote
+ * pretty console text into journald, beside a parent writing NDJSON (POD-3177).
+ * The child's stdio IS the parent's (`childStdio` returns `inherit` under
+ * systemd), so its sink has to follow the parent's mode rather than the child's
+ * own reading of an env the parent deliberately truncated.
+ */
+export const LOGGING_MODE_ENV = 'PODIUM_LOGGING_MODE'
+
+/**
  * WHICH SINK this process's records go to, as opposed to how it is supervised.
  *
  * The two questions usually have one answer, and `resolveRunRecordMode` is it.
@@ -1343,10 +1359,27 @@ export function resolveRunRecordMode(
  *
  * NOTIFY_SOCKET still wins: a sidecar under systemd is journald's, and writing
  * a file as well is the double-writing @podium/runtime/logging exists to avoid.
+ *
+ * `PODIUM_LOGGING_MODE` wins over BOTH, because it is the only one of the three
+ * that answers THIS question rather than being evidence about a different one: a
+ * supervising parent states the mode outright for a child whose env it has
+ * edited. Only a valid value is honoured — a typo falls through to the evidence
+ * instead of silently pinning `foreground`.
+ *
+ * `honourParentDeclaration: false` is for a process that inherited the variable
+ * without being the child it was set for. Env travels down the whole tree, and
+ * an agent's `podium issue …` under the daemon is a grandchild whose stdout is
+ * its OWN output: taking the systemd sink there would move the CLI's warnings
+ * from the console onto the stdout a caller parses.
  */
 export function resolveLoggingMode(
   env: EnvSource = process.env,
+  options: { honourParentDeclaration?: boolean } = {},
 ): 'systemd' | 'detached' | 'foreground' {
+  const declared = options.honourParentDeclaration === false ? undefined : env[LOGGING_MODE_ENV]
+  if (declared === 'systemd' || declared === 'detached' || declared === 'foreground') {
+    return declared
+  }
   const supervised = resolveRunRecordMode(env)
   if (supervised === 'foreground' && env.PODIUM_DESKTOP_SUPERVISED === '1') return 'detached'
   return supervised

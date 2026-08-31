@@ -32,6 +32,13 @@
  * foreground, which is what it is: how a process is SUPERVISED and where its
  * records can land are two questions, and they only usually have one answer.
  *
+ * A SUPERVISED CHILD IS TOLD ITS MODE RATHER THAN INFERRING IT. The parent hands
+ * server and daemon its own stdio under systemd, but deletes `NOTIFY_SOCKET` from
+ * their env — only the parent may pet the watchdog — so each child read the wrong
+ * answer out of the truncated env and wrote pretty console text into journald,
+ * beside a parent writing NDJSON (POD-3177). `PODIUM_LOGGING_MODE` is the parent
+ * stating the answer; see `resolveLoggingMode` in ./config.
+ *
  * Level control is untouched by any of this: `PODIUM_LOG_LEVEL` / `PODIUM_LOG`
  * move whichever sink is registered, because none of them pins its own
  * threshold.

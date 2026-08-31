@@ -27,7 +27,7 @@ import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { resolveInstallDir } from './config'
+import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode } from './config'
 import { readConnectivity } from './connectivity'
 import {
   clearParentRequest,
@@ -675,6 +675,11 @@ export class ParentProcess {
       PODIUM_HOME: this.installDir,
       PODIUM_UNDER_PARENT: '1',
       [PARENT_HAS_SERVER_ENV]: this.childOrder.includes('server') ? '1' : '0',
+      // A child's stdio is ours (see childStdio), so its records belong in the
+      // same sink as ours. It cannot work that out for itself: the deletes below
+      // remove the very evidence `resolveLoggingMode` reads, so state the answer
+      // rather than leaving the child to infer it from a truncated env (POD-3177).
+      [LOGGING_MODE_ENV]: resolveLoggingMode(this.env),
     }
     // Children must not inherit the parent's notify socket — the parent pets systemd.
     delete childEnv.NOTIFY_SOCKET

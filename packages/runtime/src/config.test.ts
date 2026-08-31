@@ -7,6 +7,7 @@ import {
   assertAppUrlCompatible,
   CONFIG_MIGRATIONS,
   CURRENT_CONFIG_VERSION,
+  LOGGING_MODE_ENV,
   configPath,
   inspectConfig,
   LAYERED_ENV,
@@ -427,6 +428,41 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     expect(resolveLoggingMode({})).toBe('foreground')
     expect(resolveLoggingMode({ PODIUM_RUN_MODE: 'detached' })).toBe('detached')
     expect(resolveLoggingMode({ PODIUM_DESKTOP_SUPERVISED: '0' })).toBe('foreground')
+  })
+  it('resolveLoggingMode: a parent-declared mode outranks the evidence (POD-3177)', () => {
+    // The parent deletes NOTIFY_SOCKET from a child's env — only the parent pets
+    // the watchdog — which left the child inferring `foreground` and writing
+    // pretty text into journald. The declaration is the child's only true source.
+    expect(resolveLoggingMode({ [LOGGING_MODE_ENV]: 'systemd' })).toBe('systemd')
+    expect(
+      resolveLoggingMode({ [LOGGING_MODE_ENV]: 'detached', NOTIFY_SOCKET: '/run/x' }),
+    ).toBe('detached')
+    expect(
+      resolveLoggingMode({ [LOGGING_MODE_ENV]: 'foreground', PODIUM_DESKTOP_SUPERVISED: '1' }),
+    ).toBe('foreground')
+    // The run-registry label is untouched: how it is supervised is still its own question.
+    expect(resolveRunRecordMode({ [LOGGING_MODE_ENV]: 'systemd' })).toBe('foreground')
+  })
+  it('resolveLoggingMode: a value that is not a mode falls through to the evidence', () => {
+    // Silently pinning `foreground` on a typo is the failure this variable exists
+    // to end; an unreadable declaration must leave the old answer in place.
+    expect(resolveLoggingMode({ [LOGGING_MODE_ENV]: 'journald' })).toBe('foreground')
+    expect(resolveLoggingMode({ [LOGGING_MODE_ENV]: '', NOTIFY_SOCKET: '/run/x' })).toBe('systemd')
+  })
+  it('resolveLoggingMode: a grandchild can decline a declaration addressed to its parent', () => {
+    // Env reaches the whole tree. An agent's `podium issue …` under the daemon
+    // inherits the marker the parent set for the daemon, and its stdout is its
+    // own output — NDJSON there would corrupt what the caller parses.
+    expect(
+      resolveLoggingMode({ [LOGGING_MODE_ENV]: 'systemd' }, { honourParentDeclaration: false }),
+    ).toBe('foreground')
+    // Declining the declaration does not decline the evidence.
+    expect(
+      resolveLoggingMode(
+        { [LOGGING_MODE_ENV]: 'foreground', PODIUM_RUN_MODE: 'detached' },
+        { honourParentDeclaration: false },
+      ),
+    ).toBe('detached')
   })
 })
 
