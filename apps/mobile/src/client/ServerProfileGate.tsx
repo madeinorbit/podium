@@ -189,6 +189,13 @@ function profileReplacementFailure(profile: ServerProfile): ActivationFailure {
   }
 }
 
+function alertUnrevokedPhoneSession(): void {
+  Alert.alert(
+    'Phone session still active',
+    'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
+  )
+}
+
 export function ServerProfileGate({ children }: { children: ReactNode }) {
   // Deliberately the static `router`, not `useRouter()`: that hook returns a
   // NEW object every render, and it sat in the boot effect's dependency chain
@@ -662,12 +669,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             const revoked = await logout(result.httpOrigin, token)
               .then(() => true)
               .catch(() => false)
-            if (!revoked) {
-              Alert.alert(
-                'Phone session still active',
-                'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
-              )
-            }
+            if (!revoked) alertUnrevokedPhoneSession()
           }
           return
         }
@@ -676,6 +678,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           const revoked = await logout(result.httpOrigin, token)
             .then(() => true)
             .catch(() => false)
+          if (!revoked) alertUnrevokedPhoneSession()
           const detail = cause instanceof Error ? cause.message : String(cause)
           throw new Error(
             revoked
@@ -965,25 +968,38 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       },
       recordUser: async (userId) => {
         if (Platform.OS === 'web' || profile.userId === userId || config.override) return
-        const isCurrentOwner = () =>
-          switchOperation.current === credentialOwnerOperation &&
-          activeProfileIdRef.current === profile.id
-        if (!isCurrentOwner()) return
-        const next: ServerProfileState = {
-          ...profileState,
-          profiles: profileState.profiles.map((row) =>
-            row.id === profile.id ? { ...row, userId, updatedAt: new Date().toISOString() } : row,
-          ),
+        if (
+          switchOperation.current !== credentialOwnerOperation ||
+          activeProfileIdRef.current !== profile.id
+        ) {
+          return
         }
-        const committed = await profileWrites.run(async () => {
-          if (!isCurrentOwner()) return false
-          await saveServerProfiles(next)
-          if (isCurrentOwner()) return true
-          await saveServerProfiles(profileState)
-          return false
+        const next = await profileWrites.run(async () => {
+          // Merge only this principal into the latest durable profile list.
+          // A handoff or pairing write may have changed the active owner while
+          // this call waited; its activeProfileId must never be restored from
+          // this context's older closure.
+          const current = await loadServerProfiles()
+          const currentProfile = current.profiles.find((row) => row.id === profile.id)
+          if (
+            !currentProfile ||
+            currentProfile.httpOrigin !== profile.httpOrigin ||
+            currentProfile.instanceId !== profile.instanceId
+          ) {
+            return null
+          }
+          const merged: ServerProfileState = {
+            ...current,
+            profiles: current.profiles.map((row) =>
+              row.id === profile.id ? { ...row, userId, updatedAt: new Date().toISOString() } : row,
+            ),
+          }
+          await saveServerProfiles(merged)
+          return merged
         })
-        if (!committed || !isCurrentOwner()) return
-        setProfileState(next)
+        if (next?.activeProfileId === profile.id && activeProfileIdRef.current === profile.id) {
+          setProfileState(next)
+        }
       },
       revalidateOfflineProfile: async () => {
         if (activation !== 'offline-cache' || revalidationInFlight.current) return

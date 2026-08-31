@@ -604,7 +604,7 @@ describe('pairing supersedes handoff intent', () => {
         seams.durableProfiles = state
         reportPairingSaveStarted()
         await pairingSaveReleased
-        return
+        throw new Error('pair profile storage failed')
       }
       seams.durableProfiles = state
     })
@@ -1043,7 +1043,7 @@ describe('profile credential completion races', () => {
     expect(seams.durableProfiles?.activeProfileId).toBe('profile-b')
     expect(
       seams.durableProfiles?.profiles.find((profile) => profile.id === 'profile-a')?.userId,
-    ).toBe('user:a')
+    ).toBe('user:a-late')
     expect([...seams.runtime, ...seams.socket]).not.toContainEqual({
       origin: 'https://a.example',
       bearer: 'token-b',
@@ -1091,7 +1091,8 @@ describe('profile credential completion races', () => {
     })
     expect(
       seams.durableProfiles?.profiles.find((profile) => profile.id === 'profile-a')?.userId,
-    ).toBe('user:a')
+    ).toBe('user:a-late')
+    expect(seams.activeContext?.profile.userId).toBe('user:a-late')
     await act(async () => {
       await seams.activeContext!.updateCredential('post-handoff-token-a')
     })
