@@ -119,6 +119,12 @@
           "recordAudioAndroid": false
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach photos and screenshots to a Podium prompt."
+        }
+      ],
       "expo-secure-store"
     ]
   }
