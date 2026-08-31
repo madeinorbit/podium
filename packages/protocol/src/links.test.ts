@@ -223,6 +223,12 @@ describe('podiumTargetForPath', () => {
     )
   })
 
+  it('keeps malformed explicit HTTP input available for OS fallback', () => {
+    const href = 'http://127.0.0.1:8787./issues/POD-1'
+    expect(parsePodiumLink(href, known)).toEqual({ kind: 'external', href })
+    expect(formatExternalHttpLink(href, HOME)).toBe(href)
+  })
+
   it('falls back to a plain view rather than failing', () => {
     expect(podiumTargetForPath('/settings/general')).toEqual({
       kind: 'view',
