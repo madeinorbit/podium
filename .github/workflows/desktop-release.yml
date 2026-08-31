@@ -203,7 +203,12 @@ jobs:
             ~/.bun/install/cache
             packages/agent-bridge/src/abduco.bin
           key: desktop-build-${{ matrix.target }}-${{ hashFiles('bun.lock', 'apps/desktop/src-tauri/Cargo.lock') }}
-      - run: bun install --frozen-lockfile --ignore-scripts
+      # Windows overrides bunfig's isolated linker: that linker builds node_modules out of
+      # symlinks into the shared global store, which a windows-latest runner cannot make, so
+      # Bun falls back to copyfile and fails ENOENT for most of the graph. A failing Windows
+      # leg is not a missing installer — `publish` needs every leg, so it would mean no
+      # latest.json at all, and no channel would receive the release. See windows-smoke.
+      - run: bun install --frozen-lockfile --ignore-scripts ${{ matrix.target == 'windows-x86_64' && '--linker=hoisted' || '' }}
       # The Developer ID lives in a throwaway keychain rather than being handed to Tauri via
       # APPLE_CERTIFICATE, because stage-sidecar.ts signs the bundled sidecar BEFORE `tauri build`
       # runs — Tauri's own import happens too late for that step to find the identity.
