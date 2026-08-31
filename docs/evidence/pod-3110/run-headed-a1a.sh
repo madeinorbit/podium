@@ -53,10 +53,11 @@ real_run() {
   source "$HERE/rig-env.sh"
   [ "${P3110_CELLS:-}" = A1a ] || { printf '%s\n' 'ATOMIC REFUSAL P3110_CELLS must equal A1a' >&2; return 2; }
   [ -z "${PODIUM_RUNTIME_DRIVER:-}" ] || { printf '%s\n' 'ATOMIC REFUSAL PODIUM_RUNTIME_DRIVER is set' >&2; return 2; }
-  case "$P3110_STATE_DIR" in
-    "$HOME"/.podium/instances/"$P3110_INSTANCE") ;;
-    *) printf '%s\n' "ATOMIC REFUSAL noncanonical named state root: $P3110_STATE_DIR" >&2; return 2 ;;
-  esac
+  local derived_state
+  derived_state="$(env -u PODIUM_PORT -u PODIUM_STATE_DIR -u PODIUM_AGENT_HOME -u PODIUM_HOME -u PODIUM_RUNTIME_DRIVER -u ABDUCO_SOCKET_DIR -u XDG_STATE_HOME PODIUM_INSTANCE="$P3110_INSTANCE" PODIUM_NO_RELAY=1 "$BUN" --conditions=@podium/source -e 'import { instanceStateDir } from "@podium/runtime/instance"; console.log(instanceStateDir())')"
+  [ "$P3110_STATE_DIR" = "$derived_state" ] || {
+    printf '%s\n' "ATOMIC REFUSAL noncanonical named state root: got=$P3110_STATE_DIR want=$derived_state" >&2; return 2
+  }
   [ ! -e "$P3110_STATE_DIR" ] || { printf '%s\n' "ATOMIC REFUSAL fresh r9 whole state root already exists: $P3110_STATE_DIR" >&2; return 2; }
   cleanup_armed=1
   trap finish EXIT
@@ -114,7 +115,7 @@ static_self_test() {
     fi
   done
   [ ! -e "$new_state" ] || { printf '%s\n' "STATIC SELF TEST new state root exists after helpers: $new_state" >&2; return 1; }
-  printf '%s\n' "ATOMIC_STATIC_SELF_TEST_OK protected-path=exact live-marker=exists old-new-instance=distinct old-new-state=distinct whole-root-before=absent whole-root-after=absent old-new-ports=distinct new-ports-pairwise=distinct new-ports-nonreserved=yes new-ports-listeners=zero ports=$new_ports"
+  printf '%s\n' "ATOMIC_STATIC_SELF_TEST_OK canonical-state=resolver-equal old-new-instance=distinct old-new-state=distinct whole-root-before=absent whole-root-after=absent old-new-ports=distinct new-ports-pairwise=distinct new-ports-nonreserved=yes new-ports-listeners=zero ports=$new_ports"
 }
 
 case "${1:-}" in

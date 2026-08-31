@@ -22,7 +22,7 @@ Run arms sequentially, never concurrently. Before launch, run `bun run setup:wor
 
 1. Source `rig-env.sh`; confirm derived ports are unique and not 19797/32090.
 2. Revalidate the prepared child's exact web stamp and manifest; do not rebuild during launch.
-3. For a released headed A1a cell, set `P3110_CELLS=A1a` and run `run-headed-a1a.sh`. This atomic wrapper keeps server, daemon, drive, and targeted teardown inside one shell/tool lifetime; it refuses dead child PIDs or missing derived listeners and proves the inherited-home operator marker's hash, size, inode, and mtime unchanged after its EXIT-trap teardown.
+3. For a released headed A1a cell, set `P3110_CELLS=A1a` and run `run-headed-a1a.sh`. This atomic wrapper keeps server, daemon, drive, and targeted teardown inside one shell/tool lifetime; it independently derives and requires the exact fresh named whole-state root, refuses reserved or missing derived listeners, and never accesses operator/default `instance.json`.
 4. Never split `rig.sh up`, the headed drive, and `rig.sh down` across tool invocations: the tool boundary reaps those children when the `up` shell returns. Never use `setsid` or detached children as proof.
 5. The headless sequence requires its own explicit live release and equivalent atomic wrapper; it is not authorized by the headed wrapper.
 6. Validate candidate rows with `awk -F'\t' 'NF != 8 { print NR ":" NF; bad=1 } END { exit bad }'` before appending them once to the epic ledger.
@@ -51,4 +51,3 @@ Every JSON result carries an ISO timestamp, measured latency, pin transcript, ce
 ## Targeted cleanup
 
 The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-2ac84c5-r9`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
-The atomic headed wrapper is the sole exception to the no-access statement: it reads only `$HOME/.podium/instance.json` metadata and bytes before and after the isolated run, never writes that marker, and refuses a missing or changed marker.
