@@ -174,7 +174,9 @@ describe('incoming handoff scope', () => {
       '?origin=https%3A%2F%2Fpodium.example',
       '?origin=https%3A%2F%2Fpodium.example&instance=',
       '?origin=https%3A%2F%2Fpodium.example&instance=instance-one&instance=instance-two',
-      `?origin=https%3A%2F%2Fpodium.example&instance=${'x'.repeat(257)}`,
+      '?origin=https%3A%2F%2Fpodium.example&instance=Instance_One',
+      '?origin=https%3A%2F%2Fpodium.example&instance=1instance',
+      `?origin=https%3A%2F%2Fpodium.example&instance=${'x'.repeat(33)}`,
     ]) {
       expect(
         parseMobileHandoffUrl(

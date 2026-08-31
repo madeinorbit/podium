@@ -26,7 +26,7 @@ import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
 const HANDOFF_ORIGIN_PARAM = 'origin'
 const HANDOFF_INSTANCE_PARAM = 'instance'
-const MAX_INSTANCE_ID_LENGTH = 256
+const INSTANCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
 
 /**
  * A native app address containing only canonical server origin + instance
@@ -40,12 +40,7 @@ export function mobileHandoffUrl(
   sessionId: string,
 ): string | null {
   const canonicalOrigin = canonicalPodiumOrigin(origin)
-  if (
-    !canonicalOrigin ||
-    !sessionId ||
-    instanceId.length === 0 ||
-    instanceId.length > MAX_INSTANCE_ID_LENGTH
-  ) {
+  if (!canonicalOrigin || !sessionId || !INSTANCE_ID_PATTERN.test(instanceId)) {
     return null
   }
   const scope = new URLSearchParams({
@@ -94,10 +89,11 @@ export function useMobileHandoffUrl(
           trpc.setup.info.query(),
           fetch(`${httpOrigin}/version`, { credentials: 'omit', signal: controller.signal }),
         ])
+        if (!versionResponse.ok) return
         const version = parseServerVersion(await versionResponse.json())
         if (cancelled) return
         const instanceId = version.instanceId
-        if (typeof instanceId !== 'string' || instanceId.length === 0) return
+        if (typeof instanceId !== 'string' || !INSTANCE_ID_PATTERN.test(instanceId)) return
         const destinationOrigin =
           typeof info.publicUrl === 'string' && info.publicUrl !== '' ? info.publicUrl : httpOrigin
         setUrl(mobileHandoffUrl(destinationOrigin, instanceId, sessionId))

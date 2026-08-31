@@ -78,6 +78,7 @@ beforeEach(() => {
   fixture.infoQuery.mockResolvedValue({ publicUrl: null })
   fixture.versionFetch.mockReset()
   fixture.versionFetch.mockResolvedValue({
+    ok: true,
     json: async () => ({ instanceId: 'instance-one' }),
   })
   vi.stubGlobal('fetch', fixture.versionFetch)
@@ -119,7 +120,18 @@ describe('the first task is the gate', () => {
 
   it('shows no destination when the credential-free version response has no instance id', async () => {
     withOneTask()
-    fixture.versionFetch.mockResolvedValue({ json: async () => ({}) })
+    fixture.versionFetch.mockResolvedValue({ ok: true, json: async () => ({}) })
+    render(<MobileHandoffChip />)
+    await waitFor(() => expect(fixture.versionFetch).toHaveBeenCalledOnce())
+    expect(screen.queryByTestId('mobile-handoff-chip')).toBeNull()
+  })
+
+  it('shows no destination when the credential-free version response is not OK', async () => {
+    withOneTask()
+    fixture.versionFetch.mockResolvedValue({
+      ok: false,
+      json: async () => ({ instanceId: 'instance-one' }),
+    })
     render(<MobileHandoffChip />)
     await waitFor(() => expect(fixture.versionFetch).toHaveBeenCalledOnce())
     expect(screen.queryByTestId('mobile-handoff-chip')).toBeNull()
@@ -128,14 +140,14 @@ describe('the first task is the gate', () => {
 
 describe('handoff identity loading', () => {
   it('aborts and fences an old session probe before publishing the replacement session', async () => {
-    let resolveOld: ((response: { json(): Promise<unknown> }) => void) | undefined
+    let resolveOld: ((response: { ok: boolean; json(): Promise<unknown> }) => void) | undefined
     fixture.versionFetch
       .mockReturnValueOnce(
         new Promise((resolve) => {
           resolveOld = resolve
         }),
       )
-      .mockResolvedValue({ json: async () => ({ instanceId: 'instance-one' }) })
+      .mockResolvedValue({ ok: true, json: async () => ({ instanceId: 'instance-one' }) })
     const trpc = { setup: { info: { query: fixture.infoQuery } } } as never
     const { result, rerender } = renderHook(
       ({ sessionId }) => useMobileHandoffUrl(trpc, 'https://local.example', sessionId),
@@ -154,7 +166,7 @@ describe('handoff identity loading', () => {
     )
 
     await act(async () => {
-      resolveOld?.({ json: async () => ({ instanceId: 'old-instance' }) })
+      resolveOld?.({ ok: true, json: async () => ({ instanceId: 'old-instance' }) })
       await Promise.resolve()
     })
     expect(result.current).toBe(
@@ -271,6 +283,9 @@ describe('the URL both surfaces point at', () => {
   it('refuses a destination without a canonical server origin or session', () => {
     expect(mobileHandoffUrl('tauri://localhost', 'instance-one', 'session-private-id')).toBeNull()
     expect(mobileHandoffUrl('https://podium.example.com', '', 'session-private-id')).toBeNull()
+    expect(
+      mobileHandoffUrl('https://podium.example.com', 'Instance_One', 'session-private-id'),
+    ).toBeNull()
     expect(mobileHandoffUrl('https://podium.example.com', 'instance-one', '')).toBeNull()
   })
 })

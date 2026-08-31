@@ -3,7 +3,7 @@ import type { ServerProfile } from './server-profiles'
 
 const HANDOFF_ORIGIN_PARAM = 'origin'
 const HANDOFF_INSTANCE_PARAM = 'instance'
-const MAX_INSTANCE_ID_LENGTH = 256
+const INSTANCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
 
 export interface MobileHandoffDestination {
   origin: string
@@ -64,7 +64,7 @@ export function parseMobileHandoffUrl(raw: string): MobileHandoffRequest | null 
     instances.length !== 1 ||
     keys.length !== 2 ||
     !instanceId ||
-    instanceId.length > MAX_INSTANCE_ID_LENGTH ||
+    !INSTANCE_ID_PATTERN.test(instanceId) ||
     !link.target.session
   ) {
     return { kind: 'unscoped' }
