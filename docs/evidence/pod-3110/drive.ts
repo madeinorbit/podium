@@ -7,7 +7,7 @@
  */
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import {
   AGENT_KIND,
   BASE,
@@ -693,8 +693,8 @@ function providerPinMatches(receipt: ProviderPinReceipt): boolean {
     && receipt.version === DECLARED_GROK_VERSION
     && receipt.sha256 === DECLARED_GROK_SHA256
     && receipt.home === EXPECTED_AGENT_HOME
-    && resolve(receipt.grokHome) === resolve(EXPECTED_GROK_HOME)
-    && resolve(receipt.abducoSocketDir) === resolve(EXPECTED_ABDUCO_SOCKET_DIR)
+    && receipt.grokHome === EXPECTED_GROK_HOME
+    && receipt.abducoSocketDir === EXPECTED_ABDUCO_SOCKET_DIR
     && receipt.ambientOverrides.length === 0
 }
 
@@ -1593,6 +1593,8 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
     { ...providerGood, grokHome: '/home/mgw/.grok' },
     { ...providerGood, abducoSocketDir: '/tmp/escaped-abduco' },
     { ...providerGood, ambientOverrides: ['PODIUM_AGENT_HOME'] },
+    { ...providerGood, grokHome: `${EXPECTED_AGENT_HOME}/escape/../.grok` },
+    { ...providerGood, abducoSocketDir: `${EXPECTED_STATE_DIR}/escape/../runtime/abduco` },
   ]) {
     if (providerPinMatches(bad)) throw new Error(`provider exact pin self-test accepted mismatch: ${JSON.stringify(bad)}`)
   }
