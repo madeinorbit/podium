@@ -1,3 +1,4 @@
+import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import {
   deckSessions,
   type FlightDeckMode,
@@ -9,16 +10,26 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { ChevronDown, ChevronRight, Crosshair, Ellipsis, Maximize, Minus, Plus } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Crosshair,
+  Ellipsis,
+  Maximize,
+  Minus,
+  Plus,
+} from 'lucide-react'
 import type {
   CSSProperties,
   JSX,
   MouseEvent as ReactMouseEvent,
+  ReactNode,
   PointerEvent as ReactPointerEvent,
 } from 'react'
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -37,6 +48,7 @@ import {
   type WaterfallActivitySample,
   type WaterfallSegment,
   type WaterfallSessionState,
+  type WaterfallTick,
   type WaterfallViewport,
   waterfallBarGeometry,
   waterfallLabelPlacement,
@@ -153,6 +165,10 @@ function useWaterfallActivity(
   const [samples, setSamples] = useState<ReadonlyMap<string, WaterfallActivitySample[]>>(
     () => new Map(),
   )
+  // The 60s poll usually returns exactly what it returned last time; replacing
+  // the Map identity anyway would re-render every bar for nothing. A cheap
+  // signature (id : count : last transition) catches the no-op case.
+  const signatureRef = useRef('')
   const query = trpc.sessions?.activityHistory?.query
   // biome-ignore lint/correctness/useExhaustiveDependencies(fingerprint): a phase flip anywhere in the crew must refetch even though the ids are unchanged.
   useEffect(() => {
@@ -169,6 +185,12 @@ function useWaterfallActivity(
             .filter((sample) => Number.isFinite(sample.at))
           if (parsed.length > 0) next.set(sessionId, parsed)
         }
+        const signature = [...next.entries()]
+          .map(([id, list]) => `${id}:${list.length}:${list[list.length - 1]?.at ?? 0}`)
+          .sort()
+          .join('|')
+        if (signature === signatureRef.current) return
+        signatureRef.current = signature
         setSamples(next)
       } catch {
         // History is an enhancement; the solid bar remains truthful without it.
@@ -186,28 +208,20 @@ function useWaterfallActivity(
 
 const WaterfallAxis = memo(function WaterfallAxis({
   frame,
+  ticks,
   following,
   onZoom,
   onFit,
   onLive,
 }: {
   frame: WaterfallFrame
+  ticks: readonly WaterfallTick[]
   following: boolean
   onZoom: (factor: number) => void
   onFit: () => void
   onLive: () => void
 }): JSX.Element {
   const nowVisible = frame.nowPct >= 0 && frame.nowPct <= 100
-  // Half a label of clearance at either edge; centred labels clip otherwise.
-  const edgePct = (1_500 / Math.max(1, frame.trackPx)) * 1
-  const ticks = useMemo(() => {
-    const all = waterfallTicks(frame.viewport, frame.trackPx).filter(
-      (tick) => tick.pct > edgePct && tick.pct < 100 - edgePct,
-    )
-    if (!nowVisible) return all
-    // The NOW chip outranks any wall-clock label it would sit on.
-    return all.filter((tick) => (Math.abs(tick.pct - frame.nowPct) / 100) * frame.trackPx > 26)
-  }, [edgePct, frame.nowPct, frame.trackPx, frame.viewport, nowVisible])
   const nowAtEdge = (frame.nowPct / 100) * frame.trackPx > frame.trackPx - 26
   return (
     <div className="waterfall-axis">
@@ -289,6 +303,23 @@ function segmentSpans(
   }))
 }
 
+/**
+ * The bar's hover surface on Podium's own popover material — panel ink, seam
+ * border, the transient-tier shadow — rather than the generic tooltip's
+ * inverted slab, which reads as a foreign object inside this instrument.
+ */
+function WaterfallHoverPopup({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Positioner side="top" sideOffset={6} className="isolate z-50">
+        <TooltipPrimitive.Popup className="waterfall-hover-content">
+          {children}
+        </TooltipPrimitive.Popup>
+      </TooltipPrimitive.Positioner>
+    </TooltipPrimitive.Portal>
+  )
+}
+
 function WaterfallHoverCard({
   session,
   state,
@@ -336,12 +367,13 @@ function WaterfallHoverCard({
         {coordinator ? ' · coordinator' : ''}
         {unread ? ' · unread' : ''}
       </div>
-      <div className="waterfall-hover-line">
+      {/* Machine facts speak in the machine voice: mono, tabular digits. */}
+      <div className="waterfall-hover-line waterfall-hover-mono">
         {formatWaterfallClock(startMs)} → {live ? 'now' : formatWaterfallClock(endMs)} ·{' '}
         {formatWaterfallDuration(endMs - startMs)} elapsed
       </div>
       {segments.length > 0 ? (
-        <div className="waterfall-hover-line">
+        <div className="waterfall-hover-line waterfall-hover-mono">
           {summary.workingStretches} work stretch{summary.workingStretches === 1 ? '' : 'es'} ·{' '}
           {formatWaterfallDuration(summary.workingMs)} working
           {summary.idleMs > 60_000 ? ` · ${formatWaterfallDuration(summary.idleMs)} waiting` : ''}
@@ -350,13 +382,13 @@ function WaterfallHoverCard({
             : ''}
         </div>
       ) : totalWorked && totalWorked > 0 ? (
-        <div className="waterfall-hover-line">
+        <div className="waterfall-hover-line waterfall-hover-mono">
           {formatWaterfallDuration(totalWorked)} worked in total
         </div>
       ) : null}
       {reason ? <div className="waterfall-hover-reason">{reason}</div> : null}
       {workers > 0 ? (
-        <div className="waterfall-hover-line">
+        <div className="waterfall-hover-line waterfall-hover-mono">
           {workers} native worker{workers === 1 ? '' : 's'} active
         </div>
       ) : null}
@@ -461,7 +493,11 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
             onOpen(false)
           }}
         >
-          {side ? '‹' : '›'}
+          {side ? (
+            <ChevronLeft size={10} aria-hidden="true" />
+          ) : (
+            <ChevronRight size={10} aria-hidden="true" />
+          )}
         </button>
       </div>
     )
@@ -563,7 +599,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                 </>
               ) : null}
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={6} className="waterfall-hover-content">
+            <WaterfallHoverPopup>
               <WaterfallHoverCard
                 session={session}
                 state={state}
@@ -576,7 +612,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                 coordinator={coordinator}
                 unread={unread}
               />
-            </TooltipContent>
+            </WaterfallHoverPopup>
           </Tooltip>
           {labelPlacementFinal === 'after' || labelPlacementFinal === 'before' ? (
             <span
@@ -1015,6 +1051,45 @@ export function FlightDeckWaterfall({
   // Refs for the stable wheel listener (non-passive, so it can preventDefault).
   const frameRef = useRef(frame)
   frameRef.current = frame
+
+  // GESTURE COMMITS ARE FRAME-PACED. Wheel and pointermove fire far faster
+  // than the display refreshes; a setState per event re-renders every lane per
+  // mouse step. Streamed gestures coalesce into one commit per animation
+  // frame, and while a gesture streams the root carries `data-interacting` so
+  // the bars' settle transitions don't fight the live geometry.
+  const pendingViewportRef = useRef<WaterfallViewport | null>(null)
+  const gestureRafRef = useRef<number | null>(null)
+  const interactingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const liveViewport = useCallback(
+    (): WaterfallViewport => pendingViewportRef.current ?? frameRef.current.viewport,
+    [],
+  )
+  const commitGestureViewport = useCallback((next: WaterfallViewport): void => {
+    pendingViewportRef.current = next
+    const root = rootRef.current
+    if (root) {
+      root.setAttribute('data-interacting', 'true')
+      if (interactingTimerRef.current) clearTimeout(interactingTimerRef.current)
+      interactingTimerRef.current = setTimeout(() => {
+        root.removeAttribute('data-interacting')
+      }, 180)
+    }
+    if (gestureRafRef.current !== null) return
+    gestureRafRef.current = requestAnimationFrame(() => {
+      gestureRafRef.current = null
+      const pending = pendingViewportRef.current
+      pendingViewportRef.current = null
+      if (pending) setManual(pending)
+    })
+  }, [])
+  useEffect(
+    () => () => {
+      if (gestureRafRef.current !== null) cancelAnimationFrame(gestureRafRef.current)
+      if (interactingTimerRef.current) clearTimeout(interactingTimerRef.current)
+    },
+    [],
+  )
+
   useEffect(() => {
     const node = rootRef.current
     if (!node) return
@@ -1028,7 +1103,7 @@ export function FlightDeckWaterfall({
           ? Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)))
           : 0.5
         const factor = Math.exp(event.deltaY * 0.002)
-        setManual(zoomWaterfallViewport(current.viewport, factor, fraction, current.now))
+        commitGestureViewport(zoomWaterfallViewport(liveViewport(), factor, fraction, current.now))
         return
       }
       const horizontal = event.shiftKey
@@ -1038,12 +1113,14 @@ export function FlightDeckWaterfall({
           : 0
       if (horizontal !== 0) {
         event.preventDefault()
-        setManual(panWaterfallViewport(current.viewport, horizontal * current.msPerPx, current.now))
+        commitGestureViewport(
+          panWaterfallViewport(liveViewport(), horizontal * current.msPerPx, current.now),
+        )
       }
     }
     node.addEventListener('wheel', onWheel, { passive: false })
     return () => node.removeEventListener('wheel', onWheel)
-  }, [])
+  }, [commitGestureViewport, liveViewport])
 
   // Drag-to-pan on empty track space; clicks on bars and buttons stay clicks.
   const dragRef = useRef<{ x: number; viewport: WaterfallViewport; moved: boolean } | null>(null)
@@ -1054,17 +1131,20 @@ export function FlightDeckWaterfall({
     if (target.closest('button, input, a, [data-pressable]')) return
     dragRef.current = { x: event.clientX, viewport: frameRef.current.viewport, moved: false }
   }, [])
-  const onTrackPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>): void => {
-    const drag = dragRef.current
-    if (!drag) return
-    const dx = event.clientX - drag.x
-    if (!drag.moved && Math.abs(dx) < 4) return
-    drag.moved = true
-    event.currentTarget.setPointerCapture(event.pointerId)
-    setManual(
-      panWaterfallViewport(drag.viewport, -dx * frameRef.current.msPerPx, frameRef.current.now),
-    )
-  }, [])
+  const onTrackPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): void => {
+      const drag = dragRef.current
+      if (!drag) return
+      const dx = event.clientX - drag.x
+      if (!drag.moved && Math.abs(dx) < 4) return
+      drag.moved = true
+      event.currentTarget.setPointerCapture(event.pointerId)
+      commitGestureViewport(
+        panWaterfallViewport(drag.viewport, -dx * frameRef.current.msPerPx, frameRef.current.now),
+      )
+    },
+    [commitGestureViewport],
+  )
   const onTrackPointerUp = useCallback((): void => {
     dragRef.current = null
   }, [])
@@ -1169,6 +1249,19 @@ export function FlightDeckWaterfall({
   }, [focusedIssueId])
 
   const nowInFrame = frame.nowPct >= 0 && frame.nowPct <= 100
+  // Ticks live at the root so the axis labels and the gridlines running down
+  // the rows come from the same array — a ruler whose lines drift from its
+  // labels is worse than no lines at all.
+  const ticks = useMemo(() => {
+    // Half a label of clearance at either edge; centred labels clip otherwise.
+    const edgePct = 1_500 / Math.max(1, frame.trackPx)
+    const all = waterfallTicks(frame.viewport, frame.trackPx).filter(
+      (tick) => tick.pct > edgePct && tick.pct < 100 - edgePct,
+    )
+    if (!nowInFrame) return all
+    // The NOW chip outranks any wall-clock label it would sit on.
+    return all.filter((tick) => (Math.abs(tick.pct - frame.nowPct) / 100) * frame.trackPx > 26)
+  }, [frame.nowPct, frame.trackPx, frame.viewport, nowInFrame])
   return (
     <TooltipProvider delay={140}>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: zoom/pan gesture surface; every action here also has a real button or key. */}
@@ -1188,11 +1281,19 @@ export function FlightDeckWaterfall({
       >
         <WaterfallAxis
           frame={frame}
+          ticks={ticks}
           following={manual === null}
           onZoom={zoomBy}
           onFit={() => setManual(null)}
           onLive={() => setManual(null)}
         />
+        <div className="waterfall-gridlines" aria-hidden="true">
+          <div className="waterfall-gridlines-track">
+            {ticks.map((tick) => (
+              <span key={tick.at} style={{ left: `${tick.pct}%` }} />
+            ))}
+          </div>
+        </div>
         {nowInFrame ? <div className="waterfall-now-line" aria-hidden="true" /> : null}
         <div className="waterfall-rows" data-testid="flight-deck-rows">
           {projected.map((item) => (
