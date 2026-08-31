@@ -18,9 +18,10 @@
  * dead click.
  */
 
-import type { IssueId, MachineId } from '@podium/model/browser'
+import { parseRoute } from '@podium/client-core/ui-state'
+import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import type { PodiumTarget } from '@podium/protocol'
-import { parseIssueRef } from '@podium/protocol'
+import { parseIssueRef, resolveSessionIdentifier } from '@podium/protocol'
 
 /** The fields of an issue this module needs; the replica's rows satisfy it. */
 export interface LinkIssueLike {
@@ -32,6 +33,11 @@ export interface LinkIssueLike {
   panel?: {
     artifacts?: ReadonlyArray<{ path: string; artifactId?: string; entry?: string }>
   } | null
+}
+
+export interface LinkSessionLike {
+  sessionId: SessionId
+  displayRef?: string
 }
 
 export type PodiumOpen =
@@ -74,17 +80,20 @@ export function findLinkedIssue(
 
 export function resolvePodiumTarget(
   target: PodiumTarget,
-  context: { issues: readonly LinkIssueLike[] },
+  context: { issues: readonly LinkIssueLike[]; sessions: readonly LinkSessionLike[] },
 ): PodiumOpen | null {
   switch (target.kind) {
     case 'issue': {
       const issue = findLinkedIssue(target.issue, context.issues)
       return issue ? { kind: 'issue', issueId: issue.id } : null
     }
-    case 'session':
-      // Ids and birth refs are both accepted by `navigateToSession`, which owns
-      // the lookup — duplicating it here would let the two drift.
-      return { kind: 'session', sessionIdOrRef: target.session }
+    case 'session': {
+      // `navigateToSession` is deliberately inert for an unknown row. Resolve
+      // with the same shared helper first so the activator reports false when
+      // no navigation will happen and the anchor keeps its fallback behavior.
+      const session = resolveSessionIdentifier(target.session, context.sessions)
+      return session ? { kind: 'session', sessionIdOrRef: session.sessionId } : null
+    }
     case 'artifact': {
       const issue = findLinkedIssue(target.issue, context.issues)
       if (!issue) return null
@@ -112,7 +121,14 @@ export function resolvePodiumTarget(
         ...(target.machineId ? { machineId: target.machineId as MachineId } : {}),
       }
     }
-    default:
-      return { kind: 'view', path: target.path, search: target.search, hash: target.hash }
+    default: {
+      // The host can losslessly activate only a top-level view. Queries,
+      // fragments, settings tabs and workspace selection belong to the router;
+      // claiming them through setView would silently discard part of the URL.
+      if (target.search || target.hash) return null
+      const route = parseRoute(target.path, '')
+      if (!route || route.issueId || route.settingsTab || route.worktree || route.pane) return null
+      return { kind: 'view', path: target.path, search: '', hash: '' }
+    }
   }
 }

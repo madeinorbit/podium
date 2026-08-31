@@ -113,6 +113,21 @@ describe('followPodiumLink', () => {
     setPodiumTargetActivator(null)
     openURL.mockRestore()
   })
+
+  it('uses the active server when a host-less address needs browser fallback', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    setActivePodiumOrigin('https://configured.example')
+    setPodiumTargetActivator(() => false)
+
+    followPodiumLink('podium://issues/POD-1606/artifacts/art1')
+    expect(openURL).toHaveBeenCalledWith(
+      'https://configured.example/issues/POD-1606/artifacts/art1',
+    )
+
+    setPodiumTargetActivator(null)
+    openURL.mockRestore()
+  })
 })
 
 describe('the two origin slots (POD-1606 finding 4)', () => {

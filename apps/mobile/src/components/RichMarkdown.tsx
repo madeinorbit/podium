@@ -6,6 +6,7 @@ import {
   type MarkdownToken,
   parseMarkdown,
   safeExternalUrl,
+  safeLinkUrl,
   splitPodiumRefs,
 } from '../lib/markdown'
 import { followPodiumLink } from '../lib/podium-link'
@@ -31,9 +32,9 @@ function plainText(token: MarkdownToken): string {
 }
 
 /** A Podium address opens the screen it names; everything else goes to the OS
- *  (POD-1606). `safeExternalUrl` still gates the scheme. */
+ *  (POD-1606). `safeLinkUrl` rejects executable and data schemes first. */
 function followLink(href: string | undefined): void {
-  const safe = safeExternalUrl(href)
+  const safe = safeLinkUrl(href)
   if (safe) followPodiumLink(safe)
 }
 
@@ -89,7 +90,7 @@ function renderInline(
           </Text>
         )
       case 'link': {
-        const safe = safeExternalUrl(token.href)
+        const safe = safeLinkUrl(token.href)
         return (
           <Text
             key={tokenKey}
