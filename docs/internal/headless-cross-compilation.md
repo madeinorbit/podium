@@ -227,6 +227,7 @@ build-time stand-in for the JIT failure.
 | CI release job | zig 0.16, rcodesign 0.29 | `mlugg/setup-zig`, `scripts/ci-install-rcodesign.sh` |
 | CI published-smoke | zig, rcodesign | same (it opens Darwin bundles it cannot execute) |
 | The dev host (ludovico) | zig, rcodesign | on PATH, or `PODIUM_ZIG` / `PODIUM_RCODESIGN` |
+| Any release host | pigz (optional) | package manager, or `PODIUM_PIGZ`; falls back to gzip |
 
 The dev host needs them because it takes the **same** build path: every dev
 build passes `--target`, this host's own included. That is the point — the dev

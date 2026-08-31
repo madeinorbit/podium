@@ -43,6 +43,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { timeReleaseBuildSync } from '@podium/runtime/release-build-timing'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
 import { JANITOR_WORKER_ENTRY } from '../apps/janitor/src/janitor-worker-embed.js'
@@ -68,12 +69,12 @@ import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigestFromSites,
 } from './client-build-root-digest'
+import { resolvePigz, tarCompressArgs } from './parallel-gzip'
 import {
   type ClientBuildEvidence,
   isClientBuildEvidence,
   verifyClientBuild,
 } from './verify-client-build'
-import { timeReleaseBuildSync } from '@podium/runtime/release-build-timing'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -759,6 +760,13 @@ export function packageHeadlessForFreshClients(
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).
   const tarball = updateArtifactPath(bundleRoot, version, argv, env)
+  // Compress in parallel where pigz is installed — archiving is the slowest single step of a
+  // release and gzip only ever uses one of the build scope's two cores. See scripts/parallel-gzip.ts
+  // for the measurements, the -p2 thread pin, and why pigz stays optional.
+  const pigz = resolvePigz()
+  console.log(
+    `build-bun: archiving ${tarball} with ${pigz ? `${pigz} -p2` : 'gzip (pigz not found)'}`,
+  )
   timeReleaseBuildSync(
     { granularity: 'phase', phase: 'headless-platform-build', target: spec?.platform ?? 'local' },
     () =>
@@ -770,7 +778,7 @@ export function packageHeadlessForFreshClients(
           target: spec?.platform ?? 'local',
         },
         () =>
-          execFileSync('tar', ['-czf', tarball, '-C', bundleRoot, 'headless'], {
+          execFileSync('tar', tarCompressArgs(tarball, bundleRoot, 'headless', pigz), {
             cwd: root,
             stdio: 'inherit',
           }),

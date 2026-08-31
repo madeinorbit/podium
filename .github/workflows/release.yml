@@ -40,6 +40,11 @@ jobs:
         with: { version: '0.16.0' }
       - name: Install rcodesign
         run: sudo -E bash scripts/ci-install-rcodesign.sh
+      # pigz compresses the release tarballs in parallel — the slowest single build step,
+      # and this runner archives four platforms. Optional at build time (scripts/parallel-gzip.ts
+      # falls back to gzip), installed here because the saving is real.
+      - name: Install pigz
+        run: command -v pigz || (sudo apt-get update && sudo apt-get install -y pigz)
       # The abduco cache is content-addressed on the vendored source, so this key is the
       # honest one: touch abduco.c and every platform's helper is rebuilt.
       - uses: actions/cache@v4
