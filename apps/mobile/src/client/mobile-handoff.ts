@@ -125,17 +125,19 @@ export interface MobileHandoffContext {
 export function matchingMobileHandoffProfile(
   request: Extract<MobileHandoffRequest, { kind: 'destination' }>,
   profiles: readonly ServerProfile[],
+  activeProfileId: string | null,
 ): ServerProfile | null {
   const { destination } = request
-  return (
-    profiles.find(
-      (candidate) =>
-        canonicalPodiumOrigin(candidate.httpOrigin) === destination.origin &&
-        typeof candidate.instanceId === 'string' &&
-        candidate.instanceId.length > 0 &&
-        candidate.instanceId === destination.instanceId,
-    ) ?? null
+  const matches = profiles.filter(
+    (candidate) =>
+      canonicalPodiumOrigin(candidate.httpOrigin) === destination.origin &&
+      typeof candidate.instanceId === 'string' &&
+      candidate.instanceId.length > 0 &&
+      candidate.instanceId === destination.instanceId,
   )
+  const active = matches.find((candidate) => candidate.id === activeProfileId)
+  if (active) return active
+  return matches.length === 1 ? (matches[0] ?? null) : null
 }
 
 /** Pure trust-boundary decision used by the native host and focused tests. */
@@ -145,7 +147,7 @@ export function decideMobileHandoff(
 ): MobileHandoffDecision {
   if (request.kind === 'unscoped') return { kind: 'fallback', reason: 'unscoped' }
   const { destination } = request
-  const profile = matchingMobileHandoffProfile(request, context.profiles)
+  const profile = matchingMobileHandoffProfile(request, context.profiles, context.activeProfileId)
   if (!profile) return { kind: 'fallback', reason: 'profile-unavailable' }
   if (profile.id !== context.activeProfileId) {
     return { kind: 'switch-profile', profileId: profile.id }

@@ -850,7 +850,11 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       fallback('unscoped')
       return
     }
-    const selected = matchingMobileHandoffProfile(pendingHandoff.request, profileState.profiles)
+    const selected = matchingMobileHandoffProfile(
+      pendingHandoff.request,
+      profileState.profiles,
+      profile?.id ?? profileState.activeProfileId,
+    )
     if (!selected) {
       fallback('profile-unavailable')
       return

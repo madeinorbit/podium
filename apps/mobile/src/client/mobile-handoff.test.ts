@@ -114,6 +114,36 @@ describe('profile-bound mobile handoff decisions', () => {
     ).toEqual({ kind: 'switch-profile', profileId: 'profile-other' })
   })
 
+  it('prefers the active exact profile when two users share one server instance', () => {
+    const otherUser = profile({ id: 'profile-two', userId: 'user-two' })
+    expect(
+      decideMobileHandoff(
+        request(),
+        context({
+          profiles: [otherUser, profile()],
+          activeProfileId: 'profile-one',
+        }),
+      ),
+    ).toEqual({
+      kind: 'open',
+      target: { kind: 'session', session: SESSION_ID },
+    })
+  })
+
+  it('fails closed instead of choosing array order between inactive matching users', () => {
+    const firstUser = profile({ id: 'profile-one' })
+    const secondUser = profile({ id: 'profile-two', userId: 'user-two' })
+    expect(
+      decideMobileHandoff(
+        request(),
+        context({
+          profiles: [firstUser, secondUser],
+          activeProfileId: 'profile-unrelated',
+        }),
+      ),
+    ).toEqual({ kind: 'fallback', reason: 'profile-unavailable' })
+  })
+
   it('falls back when the requested profile is unavailable', () => {
     expect(
       decideMobileHandoff(request('https://missing.example', 'missing-instance'), context()),
