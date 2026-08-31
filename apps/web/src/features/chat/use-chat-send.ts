@@ -327,13 +327,21 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
    * wording is the web ledger's (`deadLetterDeliveryLine`).
    */
   const [failedMessages, setFailedMessages] = useState<DeadLetteredChatMessage[]>([])
+  // Cleared only when the ADDRESSED CONVERSATION changes. Clearing on every
+  // re-read would blank the list on each queue movement and flicker a terminal
+  // row out and back; a stale row is the better wrong answer for the moment a
+  // read is in flight, because it is the one that was true.
+  const failedFor = useRef<SessionId | null>(null)
+  if (failedFor.current !== sessionId) {
+    failedFor.current = sessionId
+    if (failedMessages.length > 0) setFailedMessages([])
+  }
   useEffect(() => {
     if (headless) {
       setFailedMessages([])
       return
     }
     let live = true
-    setFailedMessages([])
     void trpc.messages.ledger
       .query({ sessionId, limit: 100 })
       .then((rows) => {

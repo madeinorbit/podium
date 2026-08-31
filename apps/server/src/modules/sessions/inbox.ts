@@ -57,7 +57,12 @@ import type { Session } from './session'
  * `reason` is user-facing: the chat composer prints it verbatim.
  */
 export type InterruptOutcome =
-  | { ok: true; requested: 'keystroke' | 'protocol'; reason?: undefined }
+  /** WHICH delivery carried the stop (POD-2792). `retraction` is the third one
+   *  the merge with dev/mw added: the operator's stop was completed by pulling
+   *  the queued send back before it ever reached the agent, so no key was typed
+   *  and no driver was called — and saying `keystroke` there would name a
+   *  delivery that did not happen. */
+  | { ok: true; requested: 'keystroke' | 'protocol' | 'retraction'; reason?: undefined }
   | { ok: false; reason: string; requested?: undefined }
 
 const SUBMIT_CR_DELAY_MS = 90
@@ -875,7 +880,7 @@ export class SessionInbox {
     // the operator pressed stop and would be told it worked. The reason is
     // user-facing (the chat composer prints it verbatim).
     if (!abort) {
-      if (cancelledDelivery) return { ok: true }
+      if (cancelledDelivery) return { ok: true, requested: 'retraction' }
       return {
         ok: false,
         reason: `${this.deps.harnessName(session.agentKind)} only takes an interrupt while it is working, and it is not working right now`,

@@ -655,14 +655,20 @@ export const SESSION_COMMAND_HANDLERS = {
           ...INTERRUPTED_SEND,
         })).outcome === 'applied'
       : false
-    const result = ctx.sessions.interruptTurn({
-      sessionId: input.sessionId,
-      ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
-      principal: inboxPrincipalFromCommand(ctx.principal),
-    })
-    // The CLI may have no safe idle abort key, but reserving the not-yet-arrived
-    // send still completed the operator's stop request.
-    return reserved && !result.ok ? { ok: true } : result
+    // AWAITED: a server-family session's stop goes down the runtime contract and
+    // answers asynchronously, so reading `.ok` off the return value would be
+    // reading it off a Promise (POD-2792).
+    return Promise.resolve(
+      ctx.sessions.interruptTurn({
+        sessionId: input.sessionId,
+        ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
+        principal: inboxPrincipalFromCommand(ctx.principal),
+      }),
+    ).then((result) =>
+      // The CLI may have no safe idle abort key, but reserving the not-yet-arrived
+      // send still completed the operator's stop request.
+      reserved && !result.ok ? ({ ok: true, requested: 'retraction' } as const) : result,
+    )
   },
 
   /**
