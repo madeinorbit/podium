@@ -379,5 +379,12 @@ export function formatPodiumLinkFallback(
   if (link.origin === null && raw.startsWith('/') && !/^[/\\][/\\]/.test(raw)) {
     return `${base}${raw}`
   }
+  if (link.origin === null && /^podium:/i.test(raw)) {
+    // The parser already validated the custom-scheme address. Translate its
+    // raw suffix instead of reformatting the target so fallback preserves key
+    // order, escape case, duplicates, empty separators, and opaque signatures.
+    const suffix = raw.replace(/^podium:(?:\/\/)?/i, '')
+    return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`
+  }
   return formatPodiumLink(link.origin ?? base, link.target)
 }

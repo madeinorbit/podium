@@ -166,6 +166,22 @@ describe('followPodiumLink', () => {
     openURL.mockRestore()
   })
 
+  it('keeps custom-scheme file fallback query bytes exact', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    const active = 'https://active-a.example'
+    const href =
+      'podium://file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy'
+    setActivePodiumOrigin(active)
+
+    followPodiumLink(href)
+    expect(openURL).toHaveBeenCalledWith(
+      `${active}/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy`,
+    )
+
+    openURL.mockRestore()
+  })
+
   it('never resolves another paired server against the active replica', async () => {
     const { Linking } = await import('react-native')
     const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
