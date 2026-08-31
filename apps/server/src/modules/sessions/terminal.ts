@@ -37,9 +37,10 @@ function transcriptItemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
 }
 
-function mergeTranscriptCache(
+export function mergeTranscriptItems(
   previous: TranscriptItem[],
   delta: TranscriptItem[],
+  limit = MAX_TRANSCRIPT_ITEMS,
 ): TranscriptItem[] {
   if (delta.length === 0) return previous
   const next = [...previous]
@@ -54,7 +55,7 @@ function mergeTranscriptCache(
       next[existingIndex] = item
     }
   }
-  return next
+  return next.length > limit ? next.slice(-limit) : next
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
@@ -405,7 +406,7 @@ export class SessionTerminal {
   }
 
   applyRuntimeDelta(items: TranscriptItem[]): boolean {
-    this.runtimeTranscript = mergeTranscriptCache(this.runtimeTranscript, items)
+    this.runtimeTranscript = mergeTranscriptItems(this.runtimeTranscript, items)
     return this.applyDelta(items, {})
   }
 
@@ -416,11 +417,8 @@ export class SessionTerminal {
       this.transcriptAvailable = true
       this.init.onTranscriptAvailable?.()
     }
-    const deltaItems = opts.reset ? mergeTranscriptCache(items, this.runtimeTranscript) : items
-    this.transcript = mergeTranscriptCache(opts.reset ? [] : this.transcript, deltaItems)
-    if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
-      this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)
-    }
+    const deltaItems = opts.reset ? mergeTranscriptItems(items, this.runtimeTranscript) : items
+    this.transcript = mergeTranscriptItems(opts.reset ? [] : this.transcript, deltaItems)
     const delta: ServerMessage = {
       type: 'transcriptDelta',
       sessionId: this.init.sessionId,

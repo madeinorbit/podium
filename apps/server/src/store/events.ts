@@ -156,11 +156,13 @@ export class EventsRepository {
   listRuntimeTranscriptEvents(sessionId: SessionId, limit = 12_000): RuntimeEvent[] {
     const rows = this.db
       .prepare(
-        `SELECT payload FROM podium_events
-           WHERE kind = ? AND subject = ?
-             AND json_extract(payload, '$.t') = 'item'
-             AND json_extract(payload, '$.item.kind') = 'complete'
-           ORDER BY id ASC LIMIT ?`,
+        `SELECT payload FROM (
+           SELECT id, payload FROM podium_events
+             WHERE kind = ? AND subject = ?
+               AND json_extract(payload, '$.t') = 'item'
+               AND json_extract(payload, '$.item.kind') = 'complete'
+             ORDER BY id DESC LIMIT ?
+         ) ORDER BY id ASC`,
       )
       .all(RUNTIME_EVENT_LOG_KIND, sessionId, limit) as { payload: unknown }[]
     const events: RuntimeEvent[] = []

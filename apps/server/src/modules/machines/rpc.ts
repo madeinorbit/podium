@@ -78,6 +78,7 @@ import {
 import type { LakeReadSession, MemoryService } from '../memory/service'
 import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
+import { mergeTranscriptItems } from '../sessions/terminal'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
 
@@ -168,16 +169,13 @@ function withRuntimeTranscriptItems(
   if (input.anchor || input.direction !== 'before') return slice
   const runtimeItems = session.runtimeTranscriptItems?.() ?? []
   if (runtimeItems.length === 0) return slice
-  const seen = new Set(slice.items.map((item) => item.id))
-  const additional = runtimeItems.filter((item) => !seen.has(item.id))
-  if (additional.length === 0) return slice
-  const combined = [...slice.items, ...additional]
   const limit = Math.max(0, input.limit)
-  const items = limit === 0 ? [] : combined.length > limit ? combined.slice(-limit) : combined
+  const allCombined = mergeTranscriptItems(slice.items, runtimeItems, Number.MAX_SAFE_INTEGER)
+  const items = limit === 0 ? [] : allCombined.slice(-limit)
   return {
     ...slice,
     items,
-    hasMore: slice.hasMore || combined.length > limit,
+    hasMore: slice.hasMore || allCombined.length > limit,
   }
 }
 

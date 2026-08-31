@@ -5,6 +5,7 @@ import {
   RuntimeEventGate,
   type RuntimeEventGatePorts,
 } from '../modules/sessions/runtime-event-gate'
+import { mergeTranscriptItems } from '../modules/sessions/terminal'
 import { SessionRegistry } from '../relay'
 import { SessionStore } from '../store'
 import type { RuntimeEventLogRecord } from './events'
@@ -181,6 +182,24 @@ describe('durable runtime observation gate', () => {
         ts: '2026-08-23T00:00:02.000Z',
       },
     ]
+    // Cursor is the stable identity when provider-derived ids drift. The
+    // runtime item replaces the provider slice row instead of duplicating it.
+    expect(
+      mergeTranscriptItems([{ ...items[0], id: 'derived-user-id' }], [items[0]], 50),
+    ).toEqual([items[0]])
+    // The same shared merge bounds both the visible transcript and the runtime
+    // overlay; the oldest row falls away while the newest rows survive.
+    expect(
+      mergeTranscriptItems(
+        [],
+        [
+          { ...items[0], id: 'oldest', cursor: 'grok:0' },
+          items[0],
+          items[1],
+        ],
+        2,
+      ),
+    ).toEqual(items)
     for (const [index, item] of items.entries()) {
       const event = terminalItemEvent({ at: item.ts, seq: index + 2, item })
       registry.gateway.routeDaemonFrame(store.hostMachineId, {
@@ -221,6 +240,12 @@ describe('durable runtime observation gate', () => {
       registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId),
     ).toMatchObject({ transcriptAvailable: true })
     expect(store.events.listRuntimeTranscriptEvents(sessionId)).toHaveLength(2)
+    const newest = store.events.listRuntimeTranscriptEvents(sessionId, 1)
+    expect(newest).toHaveLength(1)
+    expect(newest[0]).toMatchObject({
+      t: 'item',
+      item: { kind: 'complete', item: items[1] },
+    })
 
     registry.dispose()
     const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
