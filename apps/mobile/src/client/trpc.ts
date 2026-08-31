@@ -10,11 +10,13 @@ import type {
   IssueStage,
   IssueType,
   IssueWire,
+  MachineId,
   MutationId,
   SessionId,
   ThreadId,
   TranscriptItem,
 } from '@podium/model'
+import type { HostMemoryBreakdown } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { Platform } from 'react-native'
 import { MobileAuthExpiredError } from './auth'
@@ -43,6 +45,14 @@ export interface TranscriptPage {
  * (@podium/client-core/api) — the intersection below is the full client type.
  */
 interface MobileTrpcExtras {
+  /**
+   * Live machine capacity detail. The shipped tRPC verb is a mutation, but the
+   * command stores nothing. Server policy classifies it as a read and requires
+   * the caller's live `use` grant for that machine.
+   */
+  hosts: {
+    memoryBreakdown: MutationProcedure<{ machineId?: MachineId } | void, HostMemoryBreakdown>
+  }
   sessions: {
     transcriptRead: QueryProcedure<
       { sessionId: SessionId; anchor?: string; direction: 'before' | 'after'; limit: number },

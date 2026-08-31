@@ -23,6 +23,13 @@ export interface ServerProfile {
   updatedAt: string
 }
 
+/** Identity for process-local data that must not cross a replaced server instance. */
+export function serverProfileRequestKey(
+  profile: Pick<ServerProfile, 'id' | 'instanceId' | 'userId'>,
+): string {
+  return `${profile.id}\n${profile.userId ?? ''}\n${profile.instanceId ?? ''}`
+}
+
 export interface ServerProfileState {
   activeProfileId: string | null
   profiles: ServerProfile[]
