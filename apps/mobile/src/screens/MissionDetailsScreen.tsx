@@ -14,6 +14,8 @@ import { Screen } from '../components/Screen'
 import { EmptyState } from '../components/ui'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 
+const ignoreContentHeight = (_height: number): void => undefined
+
 export function MissionDetailsScreen() {
   const params = useLocalSearchParams<{
     missionId: string | string[]
@@ -66,6 +68,7 @@ export function MissionDetailsScreen() {
           onOpenDeparture={(issueId) =>
             router.replace(`/mission/${encodeURIComponent(issueId)}/details`)
           }
+          onContentHeight={ignoreContentHeight}
         />
       ) : (
         <EmptyState fill title="Mission not found." />
