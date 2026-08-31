@@ -1,25 +1,14 @@
 import {
-  agentFleetStatus,
-  candidateFromAvailability,
   isSessionWorking,
-  machineViewsFromWire,
   type MissionProgress,
   missionCrewLabel,
   missionProgress,
   panelLabel,
   missionRootFor,
   missionSessions as missionSessionsOf,
-  reposToViews,
   sessionNeedsHuman,
-  spawnIssueAgent,
 } from '@podium/client-core/viewmodels'
-import {
-  type AgentKind,
-  asIssueId,
-  type IssueWire,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model'
+import { asIssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -29,6 +18,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
+import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
 import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
@@ -127,50 +117,6 @@ export function MissionScreen() {
     setPinnedSessionId(session.sessionId)
     void Haptics.selectionAsync().catch(() => {})
   }, [])
-
-  const launch = useCallback(
-    (agentKind?: AgentKind) => {
-      if (!root) return
-      const input = agentKind ? { id: root.id, agentKind } : { id: root.id }
-      void spawnIssueAgent(store.trpc.issues, input).catch(() => {})
-    },
-    [root, store.trpc],
-  )
-
-  /** The same host-capability reading as the desktop deck. This launch sheet
-   * cannot become a login pane after the pick, so its signed-out warning is a
-   * disabled row here; the visible hint still says how to repair it. */
-  const launchHosts = useMemo(() => {
-    if (!root) return []
-    const views = machineViewsFromWire(store.machines)
-    if (root.machineId) return views.filter((view) => view.machine.id === root.machineId)
-    const repo = reposToViews(store.repos).find((candidate) => candidate.path === root.repoPath)
-    const ids = new Set((repo?.machines ?? []).map((machine) => machine.machineId))
-    return views.filter((view) => ids.has(view.machine.id))
-  }, [root, store.machines, store.repos])
-  const launchActions = useMemo<SheetAction[]>(
-    () =>
-      LAUNCHABLE.map(({ kind, label }) => {
-        // No recorded hosts means inventory has not arrived; keep the option
-        // offered, matching the desktop's fail-open rule for unknown inventory.
-        const status =
-          launchHosts.length === 0
-            ? {}
-            : agentFleetStatus(
-                launchHosts.map((view) =>
-                  candidateFromAvailability(view.machine, view.availability, kind),
-                ),
-                label,
-              )
-        return {
-          label,
-          ...(status.hint ? { hint: status.hint } : {}),
-          disabled: status.reason !== undefined || status.warning !== undefined,
-          onPress: () => launch(kind),
-        }
-      }),
-    [launch, launchHosts],
-  )
 
   const closeAndTuckRoot = useCallback(() => {
     if (!root) return
@@ -310,17 +256,8 @@ export function MissionScreen() {
         actions={menuActions}
         onClose={() => setMenuOpen(false)}
       />
-      <ActionSheet
-        visible={launchOpen}
-        title="Launch an agent"
-        subtitle={
-          root?.worktreePath
-            ? 'Joins this task’s existing worktree.'
-            : root?.branch
-              ? 'Restores this task’s worktree first.'
-              : 'Creates the task’s branch and worktree first.'
-        }
-        actions={launchActions}
+      <ConfiguredIssueLaunchSheet
+        issue={launchOpen ? (root ?? null) : null}
         onClose={() => setLaunchOpen(false)}
       />
       <IssueColorSheet
@@ -339,15 +276,6 @@ export function MissionScreen() {
     </Screen>
   )
 }
-
-const LAUNCHABLE: { kind: AgentKind; label: string }[] = [
-  { kind: 'claude-code', label: 'Claude Code' },
-  { kind: 'codex', label: 'Codex' },
-  { kind: 'grok', label: 'Grok' },
-  { kind: 'opencode', label: 'OpenCode' },
-  { kind: 'cursor', label: 'Cursor' },
-  { kind: 'shell', label: 'Shell' },
-]
 
 function MissionBody({
   current,

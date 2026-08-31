@@ -1,4 +1,9 @@
-import { ISSUE_STAGE_LABELS } from '@podium/client-core/viewmodels'
+import {
+  ISSUE_STAGE_LABELS,
+  rankedTaskStateSlots,
+  taskAheadCount,
+  taskStateWord,
+} from '@podium/client-core/viewmodels'
 import type { IssueStage } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
@@ -106,7 +111,7 @@ export const CARD_LABEL_DOTS = 3
  * `?? 0` is the correct reading of that absence, not a missing value.
  */
 export function aheadCount(issue: IssueViewModel): number {
-  return issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
+  return taskAheadCount(issue)
 }
 
 export function issueCardStateSlots(
@@ -125,25 +130,7 @@ export function issueCardStateSlots(
   },
 ): CardStateSlot[] {
   const model = issueCardModel(issue)
-  const slots: CardStateSlot[] = []
-  if (issue.deletedAt) slots.push({ kind: 'deleted' })
-  if (model.needsHuman) slots.push({ kind: 'needs-human' })
-  if (model.isBlocked) slots.push({ kind: 'blocked' })
-  if (model.isBlocking) slots.push({ kind: 'blocking' })
-
-  // An epic reports every confirmed worker on itself and in its descendant
-  // subtree. The two sets cannot overlap: `progress` deliberately excludes the
-  // root issue, while `workingAgents` contains only the root's member sessions.
-  const live = workingAgents + (progress?.liveAgents ?? 0)
-  if (live > 0) slots.push({ kind: 'live', count: live })
-
-  const ahead = aheadCount(issue)
-  if (ahead > 0) slots.push({ kind: 'merge', ahead })
-
-  const subtree = progress ?? (model.subProgress ? { ...model.subProgress, liveAgents: 0 } : null)
-  if (subtree && subtree.total > 0) {
-    slots.push({ kind: 'subtree', done: subtree.done, total: subtree.total })
-  }
+  const slots: CardStateSlot[] = [...rankedTaskStateSlots(issue, { workingAgents, progress })]
   if (stageCounts && stageCounts.length > 0) slots.push({ kind: 'stages', counts: stageCounts })
 
   if (badges.labels && model.labels.length > 0) {
@@ -173,29 +160,7 @@ export function issueStateWord(
   issue: IssueViewModel,
   workingAgents: number,
 ): { text: string; tone: 'attention' | 'alert' | 'live' | 'quiet' } | null {
-  const [top] = issueCardStateSlots(issue, {
-    badges: { labels: false, type: false, estimate: false, due: false, sessions: false },
-    workingAgents,
-  })
-  if (!top) return null
-  switch (top.kind) {
-    case 'deleted':
-      return { text: 'deleted', tone: 'alert' }
-    case 'needs-human':
-      return { text: 'needs you', tone: 'attention' }
-    case 'blocked':
-      return { text: 'blocked', tone: 'alert' }
-    case 'blocking':
-      return { text: 'blocking', tone: 'alert' }
-    case 'live':
-      return { text: `${top.count} working`, tone: 'live' }
-    case 'merge':
-      return { text: `↑${top.ahead} to land`, tone: 'attention' }
-    case 'subtree':
-      return { text: `${top.done}/${top.total}`, tone: 'quiet' }
-    default:
-      return null
-  }
+  return taskStateWord(issue, workingAgents)
 }
 
 /** A short, stable age stamp for the card's top row (`12h`, `3d`, `6w`). The

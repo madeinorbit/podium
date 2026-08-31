@@ -1,11 +1,11 @@
-import type { IssueWire } from '@podium/model'
+import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/viewmodels'
+import type { IssueWire, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from '../icons'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
-import { stageColor } from '../../theme/stage'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { PressableScale } from '../PressableScale'
@@ -28,27 +28,35 @@ import { SectionHeading } from './chrome'
  * existence fact, and the policy on those is settled the same way here as on the
  * desktop: say nothing rather than leak a number.
  *
- * The trailing word is derived from the WIRE alone — needs you, blocked,
- * proposed, or a subtree fraction. The desktop additionally ranks "N working"
- * from the child's live sessions; the phone leaves that slot out rather than
- * joining the session world per child row, and the row stays honest about what
- * it does say.
+ * The trailing word uses the same ranked selector as desktop cards. Confirmed
+ * computing sessions are joined by issue membership before the selector ranks
+ * them against needs-human, blocking, merge and subtree state.
  */
 export function IssueSubIssues({
   issue,
   subIssues,
   busy,
   commands,
+  sessions,
+  now,
   onOpen,
+  onStatus,
 }: {
   issue: IssueWire
   subIssues: IssueWire[]
   busy: boolean
   commands: IssueCommands
+  sessions: readonly SessionMeta[]
+  now: number
   onOpen: (id: string) => void
+  onStatus: (issue: IssueWire) => void
 }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
+  const workingByIssue = useMemo(
+    () => confirmedWorkingAgentCountsByIssue(subIssues, sessions, now),
+    [now, sessions, subIssues],
+  )
 
   const finished = (c: IssueWire) => c.stage === 'done' || c.closedReason != null
 
@@ -66,7 +74,14 @@ export function IssueSubIssues({
         count={issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined}
       />
       {subIssues.map((child) => (
-        <SubTaskRow key={child.id} child={child} onOpen={onOpen} muted={finished(child)} />
+        <SubTaskRow
+          key={child.id}
+          child={child}
+          workingAgents={workingByIssue.get(child.id) ?? 0}
+          onOpen={onOpen}
+          onStatus={onStatus}
+          muted={finished(child)}
+        />
       ))}
       {subIssues.length === 0 ? (
         <Text style={styles.empty}>No sub-tasks. Break the work down as it becomes clear.</Text>
@@ -120,42 +135,53 @@ export function IssueSubIssues({
 /** One sub-task, in the board row's grammar: stage glyph, ref, title, state. */
 function SubTaskRow({
   child,
+  workingAgents,
   onOpen,
+  onStatus,
   muted,
 }: {
   child: IssueWire
+  workingAgents: number
   onOpen: (id: string) => void
+  onStatus: (issue: IssueWire) => void
   muted?: boolean
 }) {
-  const state = child.needsHuman
-    ? { text: 'needs you', tint: color.needsYou }
-    : child.blocked
-      ? { text: 'blocked', tint: color.dangerText }
-      : child.stage === 'proposed'
-        ? { text: 'proposed', tint: stageColor('proposed') }
-        : child.childCount > 0
-          ? { text: `${child.childDoneCount}/${child.childCount}`, tint: color.textFaint }
-          : null
+  const state = taskStateWord(child, workingAgents)
+  const stateTint =
+    state?.tone === 'attention'
+      ? color.needsYouText
+      : state?.tone === 'alert'
+        ? color.dangerText
+        : state?.tone === 'live'
+          ? color.workingText
+          : color.textFaint
   return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`${issueDisplayRef(child)} ${child.title}`}
-      onPress={() => onOpen(child.id)}
-      scaleTo={0.995}
-      style={({ pressed }) => [
-        styles.row,
-        (muted || child.archived) && styles.rowMuted,
-        pressed && styles.rowPressed,
-      ]}
-    >
-      <StageGlyph stage={child.stage} size={13} ground={color.bg} />
-      <Text style={styles.ref}>{issueDisplayRef(child)}</Text>
-      <Text style={styles.title} numberOfLines={1}>
-        {child.title}
-      </Text>
-      {child.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
-      {state ? <Text style={[styles.state, { color: state.tint }]}>{state.text}</Text> : null}
-    </PressableScale>
+    <View style={[styles.row, (muted || child.archived) && styles.rowMuted]}>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={`Change status for ${issueDisplayRef(child)}`}
+        accessibilityHint="Opens the status picker"
+        onPress={() => onStatus(child)}
+        hitSlop={4}
+        style={({ pressed }) => [styles.statusButton, pressed && styles.rowPressed]}
+      >
+        <StageGlyph stage={child.stage} size={14} ground={color.bg} />
+      </PressableScale>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={`${issueDisplayRef(child)} ${child.title}`}
+        onPress={() => onOpen(child.id)}
+        scaleTo={0.995}
+        style={({ pressed }) => [styles.rowBody, pressed && styles.rowPressed]}
+      >
+        <Text style={styles.ref}>{issueDisplayRef(child)}</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {child.title}
+        </Text>
+        {child.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
+        {state ? <Text style={[styles.state, { color: stateTint }]}>{state.text}</Text> : null}
+      </PressableScale>
+    </View>
   )
 }
 
@@ -164,12 +190,27 @@ const styles = StyleSheet.create({
     paddingBottom: space.xl,
   },
   row: {
-    minHeight: 40,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: -space.sm,
+    borderRadius: radius.md,
+  },
+  statusButton: {
+    width: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+  },
+  rowBody: {
+    minHeight: 44,
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.sm,
-    marginHorizontal: -space.sm,
+    paddingRight: space.sm,
     borderRadius: radius.md,
   },
   rowMuted: {

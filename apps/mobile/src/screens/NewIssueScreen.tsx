@@ -1,16 +1,31 @@
-import type { IssueType } from '@podium/model'
+import { ISSUE_STAGE_LABELS, reposToViews, repoUsageAt } from '@podium/client-core/viewmodels'
+import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { useRouter } from 'expo-router'
-import { useEffect, useState } from 'react'
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useTrpc } from '../client/hooks'
+import { useEffect, useMemo, useState } from 'react'
+import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { useMobileStore, useSessions } from '../client/hooks'
+import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
+import {
+  type LaunchConfiguration,
+  type LaunchPlan,
+  launchConfigurationPatch,
+  launchPlanCanSubmit,
+} from '../lib/launch-configuration'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
+import { AUTO } from '../lib/agent-models'
+import { newTaskInput } from '../lib/new-task'
 import { color, font, radius, sans, space } from '../theme/theme'
 
-const TYPES: IssueType[] = ['task', 'bug', 'feature', 'chore']
 const PRIORITIES = [0, 1, 2, 3, 4]
+const DEFAULT_LAUNCH: LaunchConfiguration = {
+  agentKind: 'claude-code',
+  modelPick: AUTO,
+  effort: AUTO,
+  machineId: '',
+}
 
 export function NewIssueScreen() {
   const router = useRouter()
@@ -18,46 +33,72 @@ export function NewIssueScreen() {
   // still has to clear the home indicator (the hook is the plain safe-area
   // inset here).
   const bottomInset = useContentBottomInset()
-  const trpc = useTrpc()
-  const [repos, setRepos] = useState<string[]>([])
+  const store = useMobileStore()
+  const sessions = useSessions()
+  const [fallbackRepos, setFallbackRepos] = useState<string[]>([])
+  const repos = useMemo(() => {
+    if (store.repos.length === 0) return fallbackRepos
+    return reposToViews(store.repos)
+      .sort(
+        (a, b) =>
+          repoUsageAt(b, sessions) - repoUsageAt(a, sessions) ||
+          a.path.localeCompare(b.path, undefined, { sensitivity: 'base' }),
+      )
+      .map((repo) => repo.path)
+  }, [fallbackRepos, sessions, store.repos])
   const [repoPath, setRepoPath] = useState('')
   const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [type, setType] = useState<IssueType>('task')
+  const [prompt, setPrompt] = useState('')
+  const [stage, setStage] = useState<IssueStage>('backlog')
   const [priority, setPriority] = useState(2)
   const [startNow, setStartNow] = useState(true)
+  const [launch, setLaunch] = useState<LaunchConfiguration>(DEFAULT_LAUNCH)
+  const [launchPlan, setLaunchPlan] = useState<LaunchPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    trpc.repos.list
+    if (store.repos.length > 0) return
+    store.trpc.repos.list
       .query()
-      .then((list) => {
-        setRepos(list)
-        setRepoPath((prev) => prev || list[0] || '')
-      })
-      .catch(() => setRepos([]))
-  }, [trpc])
+      .then(setFallbackRepos)
+      .catch(() => setFallbackRepos([]))
+  }, [store.repos.length, store.trpc])
 
-  const canCreate = repoPath.trim().length > 0 && title.trim().length > 0 && !busy
+  useEffect(() => {
+    if (!repoPath || !repos.includes(repoPath)) setRepoPath(repos[0] ?? '')
+  }, [repoPath, repos])
+
+  const canCreate =
+    repoPath.trim().length > 0 &&
+    title.trim().length > 0 &&
+    !busy &&
+    (!startNow || launchPlanCanSubmit(launchPlan))
 
   const create = async () => {
     if (!canCreate) return
     setBusy(true)
     setError(null)
     try {
-      const issue = await trpc.issues.create.mutate({
-        repoPath: repoPath.trim(),
-        title: title.trim(),
-        ...(description.trim() ? { description: description.trim() } : {}),
-        type,
-        priority,
-        startNow,
-      })
+      const configured = launchConfigurationPatch(launchPlan?.configuration ?? launch)
+      const issue = await store.trpc.issues.create.mutate(
+        newTaskInput({
+          repoPath: repoPath.trim(),
+          title: title.trim(),
+          prompt,
+          type: 'task',
+          priority,
+          startNow,
+          launch: configured,
+        }),
+      )
+      if (stage !== 'backlog') {
+        await store.trpc.issues.update.mutate({ id: issue.id, patch: { stage } })
+      }
       router.replace(`/issue/${encodeURIComponent(issue.id)}`)
-    } catch (e) {
+    } catch (cause) {
       setBusy(false)
-      setError(e instanceof Error ? e.message : String(e))
+      setError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
@@ -67,17 +108,22 @@ export function NewIssueScreen() {
         contentContainerStyle={{ paddingBottom: bottomInset + space.xl }}
         keyboardShouldPersistTaps="handled"
       >
-        <SectionHeader label="Repository" />
-        <View style={styles.chipWrap}>
+        <SectionHeader label="Where" />
+        <View style={styles.chipWrap} accessibilityRole="radiogroup">
           {repos.map((repo) => {
             const name = repo.split('/').filter(Boolean).pop() ?? repo
             const active = repoPath === repo
             return (
               <PressableScale
                 key={repo}
-                accessibilityRole="button"
+                accessibilityRole="radio"
                 accessibilityLabel={`Repository ${name}`}
-                onPress={() => setRepoPath(repo)}
+                accessibilityState={{ checked: active }}
+                onPress={() => {
+                  setRepoPath(repo)
+                  setLaunchPlan(null)
+                  setLaunch((current) => ({ ...current, machineId: '' }))
+                }}
                 style={[styles.chip, active && styles.chipActive]}
               >
                 <Text style={[styles.chipText, active && styles.chipTextActive]}>{name}</Text>
@@ -85,9 +131,20 @@ export function NewIssueScreen() {
             )
           })}
         </View>
+        <View style={styles.chipWrap} accessibilityRole="radiogroup">
+          {HUMAN_SETTABLE_ISSUE_STAGES.map((value) => (
+            <Choice
+              key={value}
+              label={ISSUE_STAGE_LABELS[value]}
+              selected={stage === value}
+              onPress={() => setStage(value)}
+            />
+          ))}
+        </View>
 
-        <SectionHeader label="Title" />
+        <SectionHeader label="What" />
         <TextInput
+          autoFocus
           accessibilityLabel="Task title"
           style={styles.input}
           value={title}
@@ -95,75 +152,98 @@ export function NewIssueScreen() {
           placeholder="What needs doing?"
           placeholderTextColor={color.textFaint}
         />
-
-        <SectionHeader label="Description (optional)" />
         <TextInput
-          accessibilityLabel="Task description"
+          accessibilityLabel="First prompt and task context"
           style={[styles.input, styles.multiline]}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Context, constraints, acceptance criteria…"
+          value={prompt}
+          onChangeText={setPrompt}
+          placeholder="First prompt, context, constraints, acceptance criteria…"
           placeholderTextColor={color.textFaint}
           multiline
         />
-
-        <SectionHeader label="Type" />
-        <View style={styles.chipWrap}>
-          {TYPES.map((t) => (
-            <PressableScale
-              key={t}
-              accessibilityRole="button"
-              accessibilityLabel={`Type ${t}`}
-              onPress={() => setType(t)}
-              style={[styles.chip, type === t && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, type === t && styles.chipTextActive]}>{t}</Text>
-            </PressableScale>
+        <View style={styles.chipWrap} accessibilityRole="radiogroup">
+          {PRIORITIES.map((value) => (
+            <Choice
+              key={value}
+              label={`P${value}`}
+              selected={priority === value}
+              onPress={() => setPriority(value)}
+            />
           ))}
         </View>
 
-        <SectionHeader label="Priority" />
-        <View style={styles.chipWrap}>
-          {PRIORITIES.map((p) => (
-            <PressableScale
-              key={p}
-              accessibilityRole="button"
-              accessibilityLabel={`Priority ${p}`}
-              onPress={() => setPriority(p)}
-              style={[styles.chip, priority === p && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, priority === p && styles.chipTextActive]}>P{p}</Text>
-            </PressableScale>
-          ))}
-        </View>
-
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={startNow ? 'Agent will start now' : 'File without starting'}
-          onPress={() => setStartNow((v) => !v)}
-          style={styles.toggleRow}
-        >
-          <View style={[styles.checkbox, startNow && styles.checkboxOn]}>
-            {startNow ? <Text style={styles.checkmark}>✓</Text> : null}
+        <SectionHeader label="How" />
+        <View style={styles.startRow}>
+          <View style={styles.startCopy}>
+            <Text style={styles.startTitle}>Start work now</Text>
+            <Text style={styles.startHint}>
+              {startNow
+                ? 'The task context becomes the agent’s first prompt.'
+                : 'Agent, model, effort, and machine are chosen when you start it.'}
+            </Text>
           </View>
-          <Text style={styles.toggleLabel}>Start an agent on it right away</Text>
-        </PressableScale>
+          <Switch
+            accessibilityLabel="Start work now"
+            value={startNow}
+            onValueChange={setStartNow}
+            trackColor={{ false: color.fill, true: color.accent }}
+          />
+        </View>
+        {startNow ? (
+          <View style={styles.launchFields}>
+            <LaunchConfigurationFields
+              repoPath={repoPath}
+              value={launch}
+              onChange={(next) => {
+                setLaunchPlan(null)
+                setLaunch(next)
+              }}
+              onPlan={setLaunchPlan}
+            />
+          </View>
+        ) : null}
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
+        {error ? (
+          <Text accessibilityLiveRegion="assertive" style={styles.error}>
+            {error}
+          </Text>
+        ) : null}
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Create task"
+          accessibilityState={{ disabled: !canCreate }}
           disabled={!canCreate}
           onPress={() => void create()}
           style={[styles.createBtn, !canCreate && styles.createBtnDisabled]}
         >
           <Text style={styles.createText}>
-            {busy ? 'Creating…' : startNow ? 'Create & start agent' : 'Create task'}
+            {busy ? 'Creating…' : startNow ? 'Create and start' : 'Create task'}
           </Text>
         </PressableScale>
       </ScrollView>
     </Screen>
+  )
+}
+
+function Choice({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string
+  selected: boolean
+  onPress: () => void
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="radio"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      style={[styles.chip, selected && styles.chipActive]}
+    >
+      <Text style={[styles.chipText, selected && styles.chipTextActive]}>{label}</Text>
+    </PressableScale>
   )
 }
 
@@ -176,27 +256,20 @@ const styles = StyleSheet.create({
     paddingBottom: space.sm,
   },
   chip: {
+    minHeight: 40,
+    justifyContent: 'center',
     borderRadius: radius.full,
     paddingHorizontal: space.md,
-    paddingVertical: space.xs + 2,
     backgroundColor: color.card,
     borderColor: color.border,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  chipActive: {
-    backgroundColor: color.accent,
-    borderColor: color.accent,
-  },
-  chipText: {
-    color: color.textDim,
-    fontSize: font.small,
-    ...sans(600),
-  },
-  chipTextActive: {
-    color: color.accentText,
-  },
+  chipActive: { backgroundColor: color.accent, borderColor: color.accent },
+  chipText: { ...sans(600), color: color.textDim, fontSize: font.small },
+  chipTextActive: { color: color.accentText },
   input: {
     marginHorizontal: space.lg,
+    marginBottom: space.md,
     color: color.text,
     fontSize: font.body,
     backgroundColor: color.bgSunken,
@@ -206,59 +279,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm + 2,
   },
-  multiline: {
-    minHeight: 88,
-    textAlignVertical: 'top',
-  },
-  toggleRow: {
+  multiline: { minHeight: 104, textAlignVertical: 'top' },
+  startRow: {
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.md,
     paddingHorizontal: space.lg,
-    paddingTop: space.lg,
   },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxOn: {
-    backgroundColor: color.accent,
-    borderColor: color.accent,
-  },
-  checkmark: {
-    color: color.accentText,
-    fontSize: 13,
-    ...sans(700),
-  },
-  toggleLabel: {
-    color: color.text,
-    fontSize: font.small,
-  },
+  startCopy: { flex: 1, gap: 2 },
+  startTitle: { ...sans(600), color: color.body, fontSize: font.small },
+  startHint: { ...sans(400), color: color.textFaint, fontSize: font.tiny },
+  launchFields: { paddingHorizontal: space.lg, paddingTop: space.sm },
   error: {
+    ...sans(400),
     color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingTop: space.md,
   },
   createBtn: {
+    minHeight: 50,
+    justifyContent: 'center',
     marginHorizontal: space.lg,
     marginTop: space.xl,
     backgroundColor: color.accent,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     alignItems: 'center',
-    paddingVertical: space.md,
   },
-  createBtnDisabled: {
-    opacity: 0.4,
-  },
-  createText: {
-    color: color.accentText,
-    fontSize: font.body,
-    ...sans(700),
-  },
+  createBtnDisabled: { opacity: 0.4 },
+  createText: { ...sans(700), color: color.accentText, fontSize: font.body },
 })

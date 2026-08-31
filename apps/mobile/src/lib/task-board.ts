@@ -1,10 +1,14 @@
 import {
   boardIssues,
+  type BoardFilter,
+  filterBoardIssues,
+  filterBoardScope,
   flattenRowGroups,
   type IssueRow,
   issueRowsByStage,
   orderIssues,
   partitionIssueTree,
+  type IssuesOrdering,
 } from '@podium/client-core/viewmodels'
 import type { IssueBoardStage, IssueWire } from '@podium/model'
 import { STAGE_LABEL } from '../theme/stage'
@@ -92,24 +96,36 @@ export interface TaskBoardSection {
  */
 export function taskBoardSections(
   issues: IssueWire[],
-  opts: { showDone: boolean; expanded?: ReadonlySet<string> },
+  opts: {
+    showDone: boolean
+    expanded?: ReadonlySet<string>
+    filter?: BoardFilter
+    ordering?: IssuesOrdering
+    showAgentTasks?: boolean
+  },
 ): TaskBoardSection[] {
   const expanded = opts.expanded ?? EMPTY_EXPANDED
-  // "Show done" filters the POPULATION, not the sections. It used to drop the
-  // Done section at the end, which was the same thing while children could not
-  // be revealed — now a done sub-task would ride into view under an expanded
-  // parent (children sit in the PARENT's section whatever their own stage) and
-  // walk straight past the operator's filter, with the parent's sub-task count
-  // disagreeing about how many rows the chevron owes.
-  const scoped = boardIssues(issues).filter((issue) => opts.showDone || issue.stage !== 'done')
-  const groups = issueRowsByStage(scoped, TASK_BOARD_ORDERING, { flatten: false, expanded })
+  // "Show done" filters the population so a revealed done child cannot bypass
+  // the phone's fold merely because children render in their parent's section.
+  const scoped = filterBoardIssues(
+    filterBoardScope(issues, opts.showAgentTasks ?? false).filter(
+      (issue) => opts.showDone || issue.stage !== 'done',
+    ),
+    opts.filter ?? {},
+  )
+  const ordering = opts.ordering ?? TASK_BOARD_ORDERING
+  const groups = issueRowsByStage(scoped, ordering, {
+    flatten: false,
+    expanded,
+  })
   const byStage = new Map(groups.map((g) => [g.stage, [...g.rows]]))
-  promoteScreenableProposals(scoped, byStage, expanded)
+  promoteScreenableProposals(scoped, byStage, expanded, ordering)
   return TASK_STAGE_ORDER.map((stage) => ({
     stage,
     title: STAGE_LABEL[stage],
     rows: byStage.get(stage) ?? [],
-  })).filter((section) => section.rows.length > 0)
+  }))
+    .filter((section) => section.rows.length > 0)
 }
 
 /**
@@ -133,6 +149,7 @@ function promoteScreenableProposals(
   scoped: IssueWire[],
   byStage: Map<IssueBoardStage, IssueRow<IssueWire>[]>,
   expanded: ReadonlySet<string>,
+  ordering: IssuesOrdering,
 ): void {
   const listed = new Set([...byStage.values()].flatMap((rows) => rows.map((row) => row.issue.id)))
   const { childrenByParent } = partitionIssueTree(scoped)
@@ -146,7 +163,7 @@ function promoteScreenableProposals(
     const open = children.length > 0 && expanded.has(issue.id)
     out.push({ issue, depth, childCount: children.length, expanded: open })
     if (!open) return
-    for (const child of orderIssues(children, TASK_BOARD_ORDERING)) emit(child, depth + 1, out)
+    for (const child of orderIssues(children, ordering)) emit(child, depth + 1, out)
   }
 
   const blocks = rootBlocks(byStage.get('proposed') ?? [])
@@ -162,7 +179,7 @@ function promoteScreenableProposals(
     'proposed',
     orderIssues(
       blocks.map((block) => (block[0] as IssueRow<IssueWire>).issue),
-      TASK_BOARD_ORDERING,
+      ordering,
     ).flatMap((issue) => byRootId.get(issue.id) ?? []),
   )
 }

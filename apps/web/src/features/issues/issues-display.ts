@@ -1,6 +1,10 @@
-import { withoutShells } from '@podium/client-core/focus'
-import { orderIssues as coreOrderIssues, type IssuesOrdering } from '@podium/client-core/viewmodels'
-import { isAgentConfirmedComputing, type SessionMeta } from '@podium/model/browser'
+import {
+  confirmedWorkingAgentCount as coreConfirmedWorkingAgentCount,
+  confirmedWorkingAgentCountsByIssue as coreConfirmedWorkingAgentCountsByIssue,
+  orderIssues as coreOrderIssues,
+  type IssuesOrdering,
+} from '@podium/client-core/viewmodels'
+import type { SessionMeta } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 
 export type IssuesLayout = 'board' | 'list'
@@ -129,14 +133,8 @@ function progressFrom(
 }
 
 /** The board's spelling of the shared confirmed-computing predicate. */
-export function confirmedWorkingAgentCount(
-  sessions: readonly SessionMeta[],
-  now: number,
-): number {
-  return withoutShells([...sessions]).reduce(
-    (count, session) => count + (isAgentConfirmedComputing(session, now) ? 1 : 0),
-    0,
-  )
+export function confirmedWorkingAgentCount(sessions: readonly SessionMeta[], now: number): number {
+  return coreConfirmedWorkingAgentCount(sessions, now)
 }
 
 /** Confirmed issue workers, keyed through canonical issue membership. */
@@ -145,15 +143,7 @@ export function confirmedWorkingAgentCountsByIssue(
   sessions: readonly SessionMeta[],
   now: number,
 ): Map<string, number> {
-  const sessionById = new Map(sessions.map((session) => [session.sessionId as string, session]))
-  const counts = new Map<string, number>()
-  for (const issue of issues) {
-    const members = (issue.memberSessionIds ?? [])
-      .map((id) => sessionById.get(id as string))
-      .filter((session): session is SessionMeta => session !== undefined)
-    counts.set(issue.id, confirmedWorkingAgentCount(members, now))
-  }
-  return counts
+  return coreConfirmedWorkingAgentCountsByIssue(issues, sessions, now)
 }
 
 export function computeEpicProgress(

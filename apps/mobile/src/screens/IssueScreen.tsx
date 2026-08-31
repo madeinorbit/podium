@@ -1,5 +1,5 @@
 import { withoutShells } from '@podium/client-core/focus'
-import { subIssuesOf } from '@podium/client-core/viewmodels'
+import { resolveIssueEdge, subIssuesOf } from '@podium/client-core/viewmodels'
 import {
   type IssueCloseReason,
   type IssueId,
@@ -7,6 +7,7 @@ import {
   type IssueWire,
   issueStatusMenuEntries,
   issueStatusValueOf,
+  parseIssueStatusValue,
   type SessionId,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -25,11 +26,14 @@ import {
 } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
+import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
+import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
+import { IssueTargetSheet } from '../components/IssueTargetSheet'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -55,6 +59,7 @@ import { useCollapsed } from '../hooks/useCollapsed'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
+import { issueCloseBlockers } from '../lib/issue-close'
 import { sessionHref } from '../lib/session-route'
 import { useIssueActivity } from '../lib/use-issue-detail'
 import { issueColorHex } from '../theme/issueColors'
@@ -157,8 +162,11 @@ type OpenSheet =
   /** Carries the ending being recorded — the guard is raised BY a close, so it
    *  has to remember which one it is guarding (POD-1129). */
   | { kind: 'confirm-close'; reason: IssueCloseReason }
+  | { kind: 'child-status'; child: IssueWire }
+  | { kind: 'confirm-child-close'; child: IssueWire; reason: IssueCloseReason }
   | { kind: 'flag' }
   | { kind: 'colour' }
+  | { kind: 'launch' }
 
 /** The relation kinds the phone offers. `parent-child` and `supersedes` are
  *  deliberately absent: parentage has its own row and supersede/duplicate are
@@ -263,12 +271,16 @@ function IssueContent({
    */
   const closeIf = (kind: NonNullable<OpenSheet>['kind']) => () =>
     setSheet((cur) => (cur?.kind === kind ? null : cur))
-  const mateActions = (onPick: (id: string) => void): SheetAction[] =>
-    mates.map((m) => ({
-      label: m.title,
-      meta: issueDisplayRef(m),
-      onPress: () => onPick(m.id),
-    }))
+  const resolveEdge = useMemo(() => {
+    const byId = new Map(issues.map((candidate) => [candidate.id, candidate]))
+    return (id: string | undefined | null) =>
+      resolveIssueEdge(
+        id,
+        (targetId) => byId.get(targetId),
+        'opaque',
+        (targetId) => store.replica.exitKind?.('issue', targetId),
+      )
+  }, [issues, store.replica])
 
   const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const breadcrumb = parent
@@ -374,13 +386,17 @@ function IssueContent({
             subIssues={children}
             busy={busy}
             commands={commands}
+            sessions={allSessions}
+            now={store.coarseNow}
             onOpen={openIssue}
+            onStatus={(child) => setSheet({ kind: 'child-status', child })}
           />
           <MailSection mail={mail} />
           <IssueProperties
             issue={issue}
             sessions={sessions}
             parent={parent}
+            resolveEdge={resolveEdge}
             busy={busy}
             commands={commands}
             open={detailsOpen}
@@ -451,11 +467,12 @@ function IssueContent({
         onClose={closeIf('type')}
       />
 
-      <ActionSheet
+      <IssueTargetSheet
         visible={sheet?.kind === 'parent'}
         title="Parent"
         subtitle={mates.length === 0 ? 'No other task in this repo to nest under.' : undefined}
-        actions={mateActions((id) => commands.setParent(id))}
+        issues={mates}
+        onPick={(target) => commands.setParent(target.id)}
         onClose={closeIf('parent')}
       />
 
@@ -469,21 +486,40 @@ function IssueContent({
         onClose={closeIf('relation-type')}
       />
 
-      <ActionSheet
+      <IssueTargetSheet
         visible={sheet?.kind === 'relation-target'}
         title={sheet?.kind === 'relation-target' ? sheet.type : ''}
-        actions={mateActions((id) => {
-          if (sheet?.kind === 'relation-target') commands.addRelation(sheet.type, id)
-        })}
+        issues={mates}
+        onPick={(target) => {
+          if (sheet?.kind === 'relation-target') commands.addRelation(sheet.type, target.id)
+        }}
         onClose={closeIf('relation-target')}
       />
 
-      <ActionSheet
+      <IssueTargetSheet
         visible={sheet?.kind === 'supersede'}
         title="Supersede with"
         subtitle="This task is closed as replaced by the one you pick."
-        actions={mateActions((id) => commands.supersedeWith(id))}
+        issues={mates}
+        onPick={(target) => commands.supersedeWith(target.id)}
         onClose={closeIf('supersede')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'child-status'}
+        title={sheet?.kind === 'child-status' ? `${issueDisplayRef(sheet.child)} status` : 'Status'}
+        actions={
+          sheet?.kind === 'child-status'
+            ? issueStatusMenuEntries().map((entry) => ({
+                label: entry.label,
+                ...(entry.hint ? { hint: entry.hint } : {}),
+                icon: <StageGlyph stage={entry.status} size={15} ground={color.surface} />,
+                selected: entry.value === issueStatusValueOf(sheet.child),
+                onPress: () => selectChildStatus(sheet.child, entry.value),
+              }))
+            : []
+        }
+        onClose={closeIf('child-status')}
       />
 
       <ActionSheet
@@ -519,12 +555,29 @@ function IssueContent({
           — a count of retired decisions, a count of dirty files, each with its
           own consequence — and a two-line subtitle can hold none of it. */}
       <IssueCloseSheet
-        issue={issue}
+        issue={sheet?.kind === 'confirm-child-close' ? sheet.child : issue}
         sessions={allSessions}
-        reason={sheet?.kind === 'confirm-close' ? sheet.reason : null}
+        reason={
+          sheet?.kind === 'confirm-close' || sheet?.kind === 'confirm-child-close'
+            ? sheet.reason
+            : null
+        }
         busy={busy}
-        onConfirm={commands.closeNow}
-        onClose={closeIf('confirm-close')}
+        onConfirm={(reason) => {
+          if (sheet?.kind === 'confirm-child-close') {
+            void run(() => store.closeIssue(sheet.child.id, reason))
+            setSheet(null)
+            return
+          }
+          commands.closeNow(reason)
+        }}
+        onClose={() =>
+          setSheet((current) =>
+            current?.kind === 'confirm-close' || current?.kind === 'confirm-child-close'
+              ? null
+              : current,
+          )
+        }
       />
 
       <PromptSheet
@@ -540,6 +593,10 @@ function IssueContent({
       <IssueColorSheet
         issue={sheet?.kind === 'colour' ? issue : null}
         onClose={closeIf('colour')}
+      />
+      <ConfiguredIssueLaunchSheet
+        issue={sheet?.kind === 'launch' ? issue : null}
+        onClose={closeIf('launch')}
       />
     </Screen>
   )
@@ -557,8 +614,8 @@ function IssueContent({
     if (agents.length === 0 && live) {
       actions.push({
         label: 'Start an agent',
-        hint: 'Spawns this task’s default agent on its own checkout.',
-        onPress: commands.startWork,
+        hint: 'Choose agent, model, effort, and machine before starting.',
+        onPress: () => setSheet({ kind: 'launch' }),
       })
     }
     // No "Add an agent" once one is running (2026-08-27 device review): a
@@ -599,6 +656,20 @@ function IssueContent({
       })
     }
     return actions
+  }
+
+  function selectChildStatus(child: IssueWire, value: string): void {
+    const intent = parseIssueStatusValue(value)
+    if (!intent) return
+    if (intent.kind === 'stage') {
+      void run(() => store.updateIssue(child.id, { stage: intent.stage }))
+      return
+    }
+    if (issueCloseBlockers(child, allSessions).length > 0) {
+      setSheet({ kind: 'confirm-child-close', child, reason: intent.reason })
+      return
+    }
+    void run(() => store.closeIssue(child.id, intent.reason))
   }
 }
 

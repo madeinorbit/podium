@@ -117,6 +117,10 @@ interface MobileTrpcExtras {
         repoPath: string
         title: string
         description?: string
+        defaultAgent?: string
+        defaultModel?: string
+        defaultEffort?: string
+        machineId?: MachineId
         priority?: number
         type?: IssueType
         startNow: boolean
@@ -159,6 +163,10 @@ interface MobileTrpcExtras {
          *  through every row, header and pane on both platforms, and it used to
          *  be settable only at the desk. */
         color?: IssueColorSlot | null
+        defaultAgent?: string
+        defaultModel?: string
+        defaultEffort?: string
+        machineId?: MachineId | null
       }
       mutationId?: MutationId
     }>

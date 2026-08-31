@@ -109,6 +109,7 @@ export const MissionDeck = memo(function MissionDeck({
   currentSessionId,
   onOpenSession,
   onOpenTask,
+  onOpenTaskMenu,
   onLaunchAgent,
   onTuckRoot,
   onFileRoot,
@@ -126,6 +127,7 @@ export const MissionDeck = memo(function MissionDeck({
   currentSessionId: SessionId | undefined
   onOpenSession: (session: SessionMeta) => void
   onOpenTask: (issue: IssueWire) => void
+  onOpenTaskMenu?: (issue: IssueWire) => void
   onLaunchAgent: () => void
   onTuckRoot: () => void
   onFileRoot: () => void
@@ -477,6 +479,7 @@ export const MissionDeck = memo(function MissionDeck({
             currentSessionId={currentSessionId}
             onToggleFold={() => toggleFold(row)}
             onOpenTask={onOpenTask}
+            onOpenTaskMenu={onOpenTaskMenu}
             onOpenSession={onOpenSession}
           />
         ))}
@@ -542,6 +545,7 @@ function SpineRow({
   currentSessionId,
   onToggleFold,
   onOpenTask,
+  onOpenTaskMenu,
   onOpenSession,
 }: {
   row: FlightDeckRow
@@ -560,6 +564,7 @@ function SpineRow({
   currentSessionId: SessionId | undefined
   onToggleFold: () => void
   onOpenTask: (i: IssueWire) => void
+  onOpenTaskMenu?: (i: IssueWire) => void
   onOpenSession: (s: SessionMeta) => void
 }) {
   const state = deckIssueState(row.issue, row.sessions, byId)
@@ -608,6 +613,7 @@ function SpineRow({
         context={context}
         foldable={hasPayload(row)}
         onPress={() => onOpenTask(row.issue)}
+        onLongPress={context ? undefined : () => onOpenTaskMenu?.(row.issue)}
         onToggleFold={onToggleFold}
       />
       {bands.map((session, i) => (

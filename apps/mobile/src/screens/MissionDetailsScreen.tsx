@@ -2,16 +2,17 @@ import { useSlice } from '@podium/client-core/react'
 import {
   missionRootFor,
   missionSessions as missionSessionsOf,
-  spawnIssueAgent,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { MissionDeck } from '../components/MissionDeck'
+import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Screen } from '../components/Screen'
 import { EmptyState } from '../components/ui'
+import { WorkIssueMenu } from '../components/WorkIssueMenu'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 
 const ignoreContentHeight = (_height: number): void => undefined
@@ -29,6 +30,8 @@ export function MissionDetailsScreen() {
   const store = useMobileStore()
   const router = useRouter()
   const { allWorktreePaths } = useSlice(worklistSlice)
+  const [menuIssue, setMenuIssue] = useState<(typeof issues)[number] | null>(null)
+  const [launchIssue, setLaunchIssue] = useState<(typeof issues)[number] | null>(null)
   const root = useMemo(() => missionRootFor(issues, missionId), [issues, missionId])
   const missionSessions = useMemo(
     () => (root ? missionSessionsOf(issues, sessions, root.id) : []),
@@ -53,9 +56,8 @@ export function MissionDetailsScreen() {
             )
           }
           onOpenTask={(issue) => router.replace(`/inspect/${encodeURIComponent(issue.id)}`)}
-          onLaunchAgent={() => {
-            void spawnIssueAgent(store.trpc.issues, { id: root.id }).catch(() => {})
-          }}
+          onOpenTaskMenu={setMenuIssue}
+          onLaunchAgent={() => setLaunchIssue(root)}
           onTuckRoot={() => {
             void store.setIssueTucked(root.id, true).catch(() => {})
           }}
@@ -73,6 +75,15 @@ export function MissionDetailsScreen() {
       ) : (
         <EmptyState fill title="Mission not found." />
       )}
+      {menuIssue ? (
+        <WorkIssueMenu
+          target={{ issue: menuIssue, lane: 'live' }}
+          issues={issues}
+          sessions={sessions}
+          onClose={() => setMenuIssue(null)}
+        />
+      ) : null}
+      <ConfiguredIssueLaunchSheet issue={launchIssue} onClose={() => setLaunchIssue(null)} />
     </Screen>
   )
 }

@@ -14,6 +14,16 @@ describe('spawnIssueAgent', () => {
     expect(start).not.toHaveBeenCalled()
   })
 
+  it('uses addSession for a freed previously-started issue with no live checkout', async () => {
+    const addSession = vi.fn(async () => 'rebuilt-and-added')
+    const start = vi.fn(async () => 'silent-no-op')
+    await expect(
+      spawnIssueAgent({ addSession: { mutate: addSession }, start: { mutate: start } }, input),
+    ).resolves.toBe('rebuilt-and-added')
+    expect(addSession).toHaveBeenCalledWith(input)
+    expect(start).not.toHaveBeenCalled()
+  })
+
   it('starts only when the server says the issue has never been started', async () => {
     const addSession = vi.fn(async () => {
       throw new Error('issue not started')
@@ -43,7 +53,9 @@ describe('isIssueNotStartedError', () => {
     expect(isIssueNotStartedError(new Error('TRPCClientError: issue not started'))).toBe(true)
     expect(isIssueNotStartedError(new Error('no repo registered'))).toBe(false)
     expect(
-      isIssueNotStartedError(new Error('TRPCClientError', { cause: new Error('issue not started') })),
+      isIssueNotStartedError(
+        new Error('TRPCClientError', { cause: new Error('issue not started') }),
+      ),
     ).toBe(true)
   })
 })

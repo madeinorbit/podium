@@ -78,6 +78,7 @@ export function BottomSheet({
   footer,
   footerRule = true,
   scrollable,
+  virtualizedContent,
   contentStyle,
   testID,
   accessibilityLabel,
@@ -93,7 +94,7 @@ export function BottomSheet({
    * data-sized belongs here.
    */
   head?: ReactNode
-  children: ReactNode
+  children?: ReactNode
   /** Pinned below the scroll. In `detented` mode it appears only at large,
    *  where the surface it acts on is actually readable. */
   footer?: ReactNode
@@ -102,6 +103,8 @@ export function BottomSheet({
   footerRule?: boolean
   /** `fit` mode: put the content in a scroll view capped at 60% of the screen. */
   scrollable?: boolean
+  /** `detented` mode: let a virtualized child own scrolling once the sheet is large. */
+  virtualizedContent?: (scrollEnabled: boolean) => ReactNode
   contentStyle?: object
   testID?: string
   accessibilityLabel?: string
@@ -338,16 +341,20 @@ export function BottomSheet({
       userSelect="none"
     >
       <View style={styles.flex}>
-        <ScrollView
-          style={styles.flex}
-          scrollEnabled={atLarge}
-          contentContainerStyle={[{ paddingBottom: space.xl }, contentStyle]}
-          automaticallyAdjustKeyboardInsets
-          contentInsetAdjustmentBehavior="automatic"
-          keyboardDismissMode="interactive"
-        >
-          {children}
-        </ScrollView>
+        {virtualizedContent ? (
+          virtualizedContent(atLarge)
+        ) : (
+          <ScrollView
+            style={styles.flex}
+            scrollEnabled={atLarge}
+            contentContainerStyle={[{ paddingBottom: space.xl }, contentStyle]}
+            automaticallyAdjustKeyboardInsets
+            contentInsetAdjustmentBehavior="automatic"
+            keyboardDismissMode="interactive"
+          >
+            {children}
+          </ScrollView>
+        )}
       </View>
     </GestureDetector>
   ) : (

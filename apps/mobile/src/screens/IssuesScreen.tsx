@@ -1,13 +1,31 @@
-import type { IssueRow } from '@podium/client-core/viewmodels'
-import type { IssueBoardStage, IssueWire } from '@podium/model'
+import {
+  type BoardFilter,
+  clearChip,
+  confirmedWorkingAgentCountsByIssue,
+  filterChips,
+  type IssueRow,
+  taskStateWord,
+} from '@podium/client-core/viewmodels'
+import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
+import {
+  type IssueBoardStage,
+  type IssueCloseReason,
+  type IssueWire,
+  issueStatusLabel,
+  issueStatusMenuEntries,
+  issueStatusValueOf,
+  parseIssueStatusValue,
+} from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useRouter } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, SectionList, StyleSheet, Text, View } from 'react-native'
-import { useBooting, useIssues } from '../client/hooks'
+import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
+import { ActionSheet } from '../components/ActionSheet'
+import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
-import { ChevronDown, ChevronRight, Layers, Plus } from '../components/icons'
+import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
@@ -15,19 +33,26 @@ import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
 import { StageGlyph } from '../components/StageGlyph'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
+import { TaskFiltersSheet } from '../components/TaskFiltersSheet'
 import { EmptyState, Pill } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
+import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { stageFoldKey } from '../lib/fold-keys'
+import { issueCloseBlockers } from '../lib/issue-close'
 import { buildScreeningQueue } from '../lib/screening'
+import { readMobileTaskDisplay, writeMobileTaskDisplay } from '../lib/task-display'
 import { taskBoardSections } from '../lib/task-board'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { stageColor } from '../theme/stage'
 import { color, font, leading, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
+
+const usesNativeHeader = process.env.EXPO_OS !== 'web'
+const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded'])
 
 /**
  * THE TASKS TAB — high-level work, plus proposals that need a call [POD-947].
@@ -42,7 +67,9 @@ import { color, font, leading, mono, monoLabel, radius, sans, space, spring } fr
  */
 export function IssuesScreen() {
   const router = useRouter()
+  const store = useMobileStore()
   const issues = useIssues()
+  const sessions = useSessions()
   const [showDone, setShowDone] = useState(false)
   /**
    * Which parents are showing their children — local, exactly as the desktop
@@ -58,15 +85,69 @@ export function IssuesScreen() {
       return next
     })
   }, [])
+  const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [filter, setFilter] = useState<BoardFilter>({})
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [rowMenu, setRowMenu] = useState<{
+    issue: IssueWire
+    kind: 'actions' | 'status'
+  } | null>(null)
+  const [closeIntent, setCloseIntent] = useState<{
+    issue: IssueWire
+    reason: IssueCloseReason
+  } | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [display, setDisplay] = usePersistedUiState(
+    ISSUES_DISPLAY_KEY,
+    readMobileTaskDisplay,
+    writeMobileTaskDisplay,
+  )
   const booting = useBooting()
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('issues')
   const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
 
+  const effectiveFilter = useMemo<BoardFilter>(
+    () => ({ ...filter, ...(query.trim() ? { text: query } : {}) }),
+    [filter, query],
+  )
+  const filterShowsDone =
+    effectiveFilter.status === 'closed' ||
+    (effectiveFilter.stage !== undefined && CLOSED_STATUSES.has(effectiveFilter.stage))
   const board = useMemo(
-    () => taskBoardSections(issues, { showDone, expanded }),
-    [issues, showDone, expanded],
+    () =>
+      taskBoardSections(issues, {
+        showDone: showDone || filterShowsDone,
+        expanded,
+        filter: effectiveFilter,
+        ordering: display.ordering,
+        showAgentTasks: display.showAgentTasks,
+      }),
+    [
+      display.ordering,
+      display.showAgentTasks,
+      effectiveFilter,
+      expanded,
+      filterShowsDone,
+      issues,
+      showDone,
+    ],
+  )
+  const chips = useMemo(() => filterChips(filter), [filter])
+  const types = useMemo(() => [...new Set(issues.map((issue) => issue.type))].sort(), [issues])
+  const assignees = useMemo(
+    () => [...new Set(issues.map((issue) => issue.assignee).filter(Boolean))].sort() as string[],
+    [issues],
+  )
+  const labels = useMemo(
+    () => [...new Set(issues.flatMap((issue) => issue.labels))].sort(),
+    [issues],
+  )
+  const workingByIssue = useMemo(
+    () => confirmedWorkingAgentCountsByIssue(issues, sessions, store.coarseNow),
+    [issues, sessions, store.coarseNow],
   )
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
@@ -80,6 +161,23 @@ export function IssuesScreen() {
       title="Tasks"
       right={
         <>
+          {usesNativeHeader ? null : (
+            <HeaderButton
+              label={searchOpen ? 'Close task search' : 'Search tasks'}
+              onPress={() => {
+                setSearchOpen((open) => !open)
+                if (searchOpen) setQuery('')
+              }}
+            >
+              <Icon as={searchOpen ? X : Search} size={18} color={color.textDim} />
+            </HeaderButton>
+          )}
+          <HeaderButton
+            label={chips.length > 0 ? `Task filters, ${chips.length} active` : 'Task filters'}
+            onPress={() => setFiltersOpen(true)}
+          >
+            <Icon as={Filter} size={19} color={chips.length > 0 ? color.accentTint : color.text} />
+          </HeaderButton>
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel={showDone ? 'Hide done tasks' : 'Show done tasks'}
@@ -94,11 +192,35 @@ export function IssuesScreen() {
         </>
       }
     >
+      {usesNativeHeader ? (
+        <Stack.SearchBar
+          placeholder="Search tasks or ID"
+          hideWhenScrolling
+          onChangeText={(event) => setQuery(event.nativeEvent.text)}
+          onCancelButtonPress={() => setQuery('')}
+        />
+      ) : null}
+      {!usesNativeHeader && searchOpen ? (
+        <View style={styles.searchBand}>
+          <Icon as={Search} size={15} color={color.textFaint} />
+          <TextInput
+            autoFocus
+            accessibilityLabel="Search tasks"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search tasks or ID…"
+            placeholderTextColor={color.textFaint}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+        </View>
+      ) : null}
       <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <StageSections
             board={board}
             issues={issues}
+            workingByIssue={workingByIssue}
             listRef={listRef}
             refreshControl={refreshControl}
             refreshAccessibilityProps={refreshAccessibilityProps}
@@ -106,14 +228,121 @@ export function IssuesScreen() {
             bottomInset={bottomInset}
             booting={booting}
             proposals={proposals.length}
+            chips={chips}
             onScreenProposals={() => router.push('/screen-proposed')}
             onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
             onToggleExpanded={toggleExpanded}
+            onRemoveFilter={(key) => setFilter((current) => clearChip(current, key))}
+            onOpenActions={(issue) => setRowMenu({ issue, kind: 'actions' })}
           />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
+      <TaskFiltersSheet
+        visible={filtersOpen}
+        filter={filter}
+        ordering={display.ordering}
+        showAgentTasks={display.showAgentTasks}
+        types={types}
+        assignees={assignees}
+        labels={labels}
+        onFilter={setFilter}
+        onOrdering={(ordering) => setDisplay({ ...display, ordering })}
+        onShowAgentTasks={(showAgentTasks) => setDisplay({ ...display, showAgentTasks })}
+        onClose={() => setFiltersOpen(false)}
+      />
+      <ActionSheet
+        visible={rowMenu?.kind === 'actions'}
+        title={rowMenu ? `${issueDisplayRef(rowMenu.issue)} · ${rowMenu.issue.title}` : undefined}
+        actions={
+          rowMenu
+            ? [
+                {
+                  label: 'Open task',
+                  onPress: () => router.push(`/issue/${encodeURIComponent(rowMenu.issue.id)}`),
+                },
+                {
+                  label: 'Status…',
+                  meta: issueStatusLabel(rowMenu.issue),
+                  onPress: () => setRowMenu({ issue: rowMenu.issue, kind: 'status' }),
+                },
+                {
+                  label: rowMenu.issue.pinned ? 'Unpin' : 'Pin',
+                  onPress: () =>
+                    runAction(
+                      store.updateIssue(rowMenu.issue.id, { pinned: !rowMenu.issue.pinned }),
+                    ),
+                },
+                {
+                  label: rowMenu.issue.archived ? 'Unarchive task' : 'Archive task',
+                  onPress: () =>
+                    runAction(
+                      store.updateIssue(rowMenu.issue.id, { archived: !rowMenu.issue.archived }),
+                    ),
+                },
+              ]
+            : []
+        }
+        onClose={() => setRowMenu((current) => (current?.kind === 'actions' ? null : current))}
+      />
+      <ActionSheet
+        visible={rowMenu?.kind === 'status'}
+        title="Status"
+        actions={
+          rowMenu
+            ? issueStatusMenuEntries().map((entry) => ({
+                label: entry.label,
+                ...(entry.hint ? { hint: entry.hint } : {}),
+                selected: entry.value === issueStatusValueOf(rowMenu.issue),
+                disabled: entry.value === issueStatusValueOf(rowMenu.issue),
+                icon: <StageGlyph stage={entry.status} size={15} ground={color.surface} />,
+                onPress: () => selectStatus(rowMenu.issue, entry.value),
+              }))
+            : []
+        }
+        onClose={() => setRowMenu((current) => (current?.kind === 'status' ? null : current))}
+      />
+      {closeIntent ? (
+        <IssueCloseSheet
+          issue={closeIntent.issue}
+          sessions={sessions}
+          reason={closeIntent.reason}
+          busy={false}
+          onConfirm={(reason) => {
+            runAction(store.closeIssue(closeIntent.issue.id, reason))
+            setCloseIntent(null)
+          }}
+          onClose={() => setCloseIntent(null)}
+        />
+      ) : null}
+      {actionError ? (
+        <View style={styles.errorBand} accessibilityLiveRegion="assertive">
+          <Text selectable style={styles.errorText}>
+            {actionError}
+          </Text>
+        </View>
+      ) : null}
     </Screen>
   )
+
+  function runAction(action: Promise<unknown>): void {
+    setActionError(null)
+    void action.catch((error) =>
+      setActionError(error instanceof Error ? error.message : String(error)),
+    )
+  }
+
+  function selectStatus(issue: IssueWire, value: string): void {
+    const intent = parseIssueStatusValue(value)
+    if (!intent) return
+    if (intent.kind === 'stage') {
+      runAction(store.updateIssue(issue.id, { stage: intent.stage }))
+    } else if (issueCloseBlockers(issue, sessions).length > 0) {
+      setCloseIntent({ issue, reason: intent.reason })
+    } else {
+      runAction(store.closeIssue(issue.id, intent.reason))
+    }
+    setRowMenu(null)
+  }
 }
 
 /** The tab-wiring hook's own return shape — the list's ref, its pull-to-refresh
@@ -139,6 +368,7 @@ interface Section {
 function StageSections({
   board,
   issues,
+  workingByIssue,
   listRef,
   refreshControl,
   refreshAccessibilityProps,
@@ -146,12 +376,16 @@ function StageSections({
   bottomInset,
   booting,
   proposals,
+  chips,
   onScreenProposals,
   onOpen,
   onToggleExpanded,
+  onRemoveFilter,
+  onOpenActions,
 }: {
   board: { stage: IssueBoardStage; title: string; rows: IssueRow<IssueWire>[] }[]
   issues: readonly IssueWire[]
+  workingByIssue: ReadonlyMap<string, number>
   listRef: RefreshableTab['listRef']
   // Typed from the hook rather than restated: a hand-written `ReactElement` here
   // drops the RefreshControlProps generic the list actually requires.
@@ -161,9 +395,12 @@ function StageSections({
   bottomInset: number
   booting: boolean
   proposals: number
+  chips: ReturnType<typeof filterChips>
   onScreenProposals: () => void
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
+  onRemoveFilter: (key: keyof BoardFilter) => void
+  onOpenActions: (issue: IssueWire) => void
 }) {
   // Keys come from `../lib/fold-keys` — the ui-state classifier is default-closed
   // and THROWS on an unregistered key, so an invented `tasks.stage.<stage>` took
@@ -202,6 +439,8 @@ function StageSections({
       sections={sections}
       keyExtractor={(row) => row.issue.id}
       stickySectionHeadersEnabled
+      contentInsetAdjustmentBehavior="automatic"
+      keyboardDismissMode="interactive"
       refreshControl={refreshControl}
       contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
       {...refreshAccessibilityProps}
@@ -210,6 +449,22 @@ function StageSections({
         <>
           <StorageNoticeAlert />
           <RefreshOffer />
+          {chips.length > 0 ? (
+            <View style={styles.filterSummary} accessibilityRole="summary">
+              {chips.map((chip) => (
+                <PressableScale
+                  key={chip.key}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${chip.label} filter`}
+                  onPress={() => onRemoveFilter(chip.key)}
+                  style={({ pressed }) => [styles.filterChip, pressed && styles.filterChipPressed]}
+                >
+                  <Text style={styles.filterChipText}>{chip.label}</Text>
+                  <Icon as={X} size={11} color={color.textDim} />
+                </PressableScale>
+              ))}
+            </View>
+          ) : null}
           {proposals === 0 ? null : (
             <PressableScale
               accessibilityRole="button"
@@ -242,7 +497,14 @@ function StageSections({
         />
       )}
       renderItem={({ item }) => (
-        <TaskRow row={item} issues={issues} onOpen={onOpen} onToggleExpanded={onToggleExpanded} />
+        <TaskRow
+          row={item}
+          issues={issues}
+          workingAgents={workingByIssue.get(item.issue.id) ?? 0}
+          onOpen={onOpen}
+          onToggleExpanded={onToggleExpanded}
+          onOpenActions={onOpenActions}
+        />
       )}
       // The inter-stage breath the header's marginTop used to (incorrectly)
       // provide — footer space scrolls away with its section instead of
@@ -355,13 +617,17 @@ function StageHeader({
 function TaskRow({
   row,
   issues,
+  workingAgents,
   onOpen,
   onToggleExpanded,
+  onOpenActions,
 }: {
   row: IssueRow<IssueWire>
   issues: readonly IssueWire[]
+  workingAgents: number
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
+  onOpenActions: (issue: IssueWire) => void
 }) {
   const issue = row.issue
   const hex = issueColorHex(issue.color)
@@ -369,11 +635,21 @@ function TaskRow({
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? ''
   const parent = issue.parentId ? issues.find((item) => item.id === issue.parentId) : undefined
   const childCount = row.childCount
+  const state = taskStateWord(issue, workingAgents)
+  const stateColor =
+    state?.tone === 'attention'
+      ? color.needsYouText
+      : state?.tone === 'alert'
+        ? color.dangerText
+        : state?.tone === 'live'
+          ? color.workingText
+          : color.textFaint
   return (
     <View style={[styles.rowWrap, row.depth > 0 && { marginLeft: row.depth * CHILD_INDENT }]}>
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel={`Task ${issue.seq}: ${issue.title}`}
+        accessibilityLabel={`Task ${issue.seq}: ${issue.title}${state ? `, ${state.text}` : ''}`}
+        accessibilityHint="Open task. Long press for task actions."
         // THE DISCLOSURE IS AN ACTION ON THE ROW, not a button inside it. The
         // card is one accessibility element (a nested pressable inside an
         // `accessible` parent is never reachable on iOS), so the sub-task
@@ -391,6 +667,7 @@ function TaskRow({
             }
           : {})}
         onPress={() => onOpen(issue.id)}
+        onLongPress={() => onOpenActions(issue)}
         style={({ pressed }) => [
           styles.card,
           hex ? { backgroundColor: flow.rowBg(hex) } : null,
@@ -418,9 +695,8 @@ function TaskRow({
         <View style={styles.metaRow}>
           <Pill label={issue.type} />
           <Pill label={`P${issue.priority}`} />
-          {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
-          {issue.blockedByNotes.length > 0 ? (
-            <Pill label={`blocked by ${issue.blockedByNotes.length}`} toneKey="danger" />
+          {state ? (
+            <Text style={[styles.rowState, { color: stateColor }]}>{state.text}</Text>
           ) : null}
           {childCount > 0 ? (
             <PressableScale
@@ -465,6 +741,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
+  searchBand: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.border,
+    backgroundColor: color.bgSunken,
+  },
+  searchInput: {
+    ...sans(400),
+    flex: 1,
+    minHeight: 44,
+    color: color.text,
+    fontSize: font.body,
+  },
+  filterSummary: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+  },
+  filterChip: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: space.sm + 2,
+    borderRadius: radius.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.surface,
+  },
+  filterChipPressed: { backgroundColor: color.surfacePressed },
+  filterChipText: { ...sans(500), color: color.textDim, fontSize: font.tiny },
   toggle: {
     ...sans(600),
     // A view filter is not the primary action; it stopped competing with the
@@ -609,6 +922,11 @@ const styles = StyleSheet.create({
     gap: 6,
     flexWrap: 'wrap',
   },
+  rowState: {
+    ...mono(600),
+    fontSize: font.micro,
+    fontVariant: ['tabular-nums'],
+  },
   from: {
     ...mono(400),
     color: color.textDim,
@@ -620,4 +938,18 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
     marginLeft: 'auto',
   },
+  errorBand: {
+    position: 'absolute',
+    left: space.md,
+    right: space.md,
+    bottom: space.lg,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: space.md,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.danger,
+    backgroundColor: color.dangerSoft,
+  },
+  errorText: { ...sans(500), color: color.dangerText, fontSize: font.small },
 })

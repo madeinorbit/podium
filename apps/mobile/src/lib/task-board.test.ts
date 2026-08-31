@@ -1,4 +1,5 @@
 import type { IssueWire, IssueWireInput } from '@podium/model'
+import { filterBoardIssues } from '@podium/client-core/viewmodels'
 import { describe, expect, it } from 'vitest'
 import { taskBoardOrder, taskBoardSections, taskNeighbours } from './task-board'
 
@@ -261,6 +262,43 @@ describe('taskBoardSections', () => {
       'proposed',
       'done',
     ])
+  })
+
+  it('uses the exact shared desktop membership for native search and facets', () => {
+    const xs = [
+      issue({
+        id: 'a',
+        seq: 1234,
+        displayRef: 'POD-1234',
+        title: 'Login bug',
+        priority: 0,
+        type: 'bug',
+        labels: ['ui'],
+      }),
+      issue({
+        id: 'b',
+        seq: 7,
+        displayRef: 'POD-7',
+        title: 'Dark mode',
+        priority: 2,
+        type: 'feature',
+        stage: 'review',
+        blocked: true,
+        ready: false,
+      }),
+    ]
+    const filters = [
+      { text: 'pod 1234' },
+      { priority: 0 },
+      { type: 'feature' },
+      { label: 'ui' },
+      { status: 'blocked' as const },
+    ]
+    for (const filter of filters) {
+      expect(rowIds(taskBoardSections(xs, { showDone: false, filter }))).toEqual(
+        filterBoardIssues(xs, filter).map((candidate) => candidate.id),
+      )
+    }
   })
 })
 
