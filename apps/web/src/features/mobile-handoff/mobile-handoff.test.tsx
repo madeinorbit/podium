@@ -154,11 +154,14 @@ describe('handoff identity loading', () => {
       { initialProps: { sessionId: 'old-session' } },
     )
     await waitFor(() => expect(fixture.versionFetch).toHaveBeenCalledOnce())
-    const firstSignal = fixture.versionFetch.mock.calls[0]?.[1]?.signal as AbortSignal
+    const firstVersionSignal = fixture.versionFetch.mock.calls[0]?.[1]?.signal as AbortSignal
+    const firstSetupSignal = fixture.infoQuery.mock.calls[0]?.[1]?.signal as AbortSignal
+    expect(firstSetupSignal).toBe(firstVersionSignal)
 
     rerender({ sessionId: 'new-session' })
     await waitFor(() => expect(fixture.versionFetch).toHaveBeenCalledTimes(2))
-    expect(firstSignal.aborted).toBe(true)
+    expect(firstVersionSignal.aborted).toBe(true)
+    expect(firstSetupSignal.aborted).toBe(true)
     await waitFor(() =>
       expect(result.current).toBe(
         mobileHandoffUrl('https://local.example', 'instance-one', 'new-session'),
