@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, symlink, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { grokSessionPaths } from './grok.js'
-import { locateGrokChatHistory, locateGrokSessionPaths } from './grok-locate.js'
+import { confinedCurrentTranscript, locateGrokChatHistory, locateGrokSessionPaths } from './grok-locate.js'
 
 // The wrong-bucket bug: Grok buckets sessions by the cwd the conversation was
 // CREATED under, while session.cwd is the current worktree. The locator must
@@ -88,6 +88,34 @@ describe('locateGrokSessionPaths', () => {
         transcriptRoot,
       }),
     ).toBeNull()
+  })
+
+  it('rejects in-root symlink files and symlinked project directories', async () => {
+    const home = await seedHome()
+    const transcriptRoot = join(home, 'product-transcripts')
+    const realProject = join(transcriptRoot, 'real-project')
+    const linkedProject = join(transcriptRoot, 'linked-project')
+    const linkedFileProject = join(transcriptRoot, 'linked-file-project')
+    const target = join(realProject, 'sess-in-root.jsonl')
+    await mkdir(realProject, { recursive: true })
+    await mkdir(linkedFileProject, { recursive: true })
+    await writeFile(target, '{}\n')
+    await symlink(realProject, linkedProject)
+    const linkedFile = join(linkedFileProject, 'sess-in-root.jsonl')
+    await symlink(target, linkedFile)
+    const root = await realpath(transcriptRoot)
+
+    await expect(
+      confinedCurrentTranscript(root, root, linkedFile, 'sess-in-root'),
+    ).resolves.toBeNull()
+    await expect(
+      confinedCurrentTranscript(
+        root,
+        root,
+        join(linkedProject, 'sess-in-root.jsonl'),
+        'sess-in-root',
+      ),
+    ).resolves.toBeNull()
   })
 
   it('rejects a root-scanned transcript symlink that escapes transcriptRoot', async () => {

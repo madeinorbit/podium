@@ -1,4 +1,4 @@
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -120,7 +120,7 @@ async function locateCurrentTranscript(opts: {
   return candidates[0]?.path ?? null
 }
 
-async function confinedCurrentTranscript(
+export async function confinedCurrentTranscript(
   root: string,
   lexicalRoot: string,
   candidate: string,
@@ -139,6 +139,16 @@ async function confinedCurrentTranscript(
     ) {
       return null
     }
+    const projectStats = await lstat(dirname(candidate))
+    const candidateStats = await lstat(candidate)
+    if (
+      projectStats.isSymbolicLink() ||
+      !projectStats.isDirectory() ||
+      candidateStats.isSymbolicLink() ||
+      !candidateStats.isFile()
+    ) {
+      return null
+    }
     const path = await realpath(candidate)
     const withinRoot = relative(root, path)
     const parts = withinRoot.split(sep)
@@ -151,8 +161,7 @@ async function confinedCurrentTranscript(
     ) {
       return null
     }
-    const stats = await stat(path)
-    return stats.isFile() ? { path, mtimeMs: stats.mtimeMs } : null
+    return { path, mtimeMs: candidateStats.mtimeMs }
   } catch {
     return null
   }
