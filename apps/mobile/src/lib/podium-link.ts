@@ -181,6 +181,6 @@ export function followPodiumLink(href: string): void {
     void Linking.openURL(formatPodiumLinkFallback(fallbackOrigin, href, link)).catch(() => {})
     return
   }
-  const externalHref = formatExternalHttpLink(link.href, activeOrigin) ?? link.href
+  const externalHref = formatExternalHttpLink(href, activeOrigin) ?? link.href
   void Linking.openURL(externalHref).catch(() => {})
 }

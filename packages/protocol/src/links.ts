@@ -398,17 +398,12 @@ export function formatPodiumLinkFallback(
  */
 export function formatExternalHttpLink(href: string, activeOrigin?: string | null): string | null {
   const raw = cleanPodiumHref(href)
-  if (/^https?:\/\//i.test(raw)) {
-    try {
-      const parsed = new URL(raw)
-      return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null
-    } catch {
-      // `parsePodiumLink` deliberately keeps malformed-but-explicit HTTP(S)
-      // input external so an OS/browser can make the final decision. Preserve
-      // that same fail-outward contract instead of turning a middle click dead.
-      return raw
-    }
-  }
+  // Classification already established that this is an external link. The
+  // explicit scheme is the OS-handoff safety boundary; returning the authored
+  // bytes avoids lowercasing hosts, removing ports/dot segments, or rewriting
+  // opaque query/hash detail through URL serialization. It also preserves the
+  // parser's malformed-but-explicit HTTP fail-outward contract.
+  if (/^https?:\/\//i.test(raw)) return raw
   if (!/^[/\\][/\\]/.test(raw)) return null
   let protocol = 'https:'
   const active = activeOrigin ? canonicalPodiumOrigin(activeOrigin) : null

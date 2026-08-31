@@ -76,6 +76,20 @@ describe('a transcript link that points at this Podium (POD-1606)', () => {
     expect(link.getAttribute('target')).toBe('_blank')
   })
 
+  it('ignores harmless resolver lookalikes and preserves marker-looking accessible text', () => {
+    const label = 'guide data-podium-link-source=/issues/POD-1606'
+    document.body.innerHTML = renderMarkdown(
+      `<a href="https://example.com/guide" data-href="/issues/POD-1606" data-target="_self" aria-label="${label}">guide</a>`,
+    )
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('https://example.com/guide')
+    expect(link.getAttribute('data-podium-link-source')).toBe('https://example.com/guide')
+    expect(link.getAttribute('data-href')).toBe('/issues/POD-1606')
+    expect(link.getAttribute('data-target')).toBe('_self')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('aria-label')).toBe(label)
+  })
+
   it('rebases boot-rendered active-server anchors after the origin becomes known', () => {
     expect(window.location.origin).not.toBe(HOME)
     document.body.innerHTML = `${renderMarkdown(

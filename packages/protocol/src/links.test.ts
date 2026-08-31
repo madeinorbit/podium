@@ -229,6 +229,11 @@ describe('podiumTargetForPath', () => {
     expect(formatExternalHttpLink(href, HOME)).toBe(href)
   })
 
+  it('does not reserialize a well-formed explicit HTTP handoff', () => {
+    const href = 'HTTP://Example.COM:80/a/../b?q=hello world#x%2fy'
+    expect(formatExternalHttpLink(href, HOME)).toBe(href)
+  })
+
   it('falls back to a plain view rather than failing', () => {
     expect(podiumTargetForPath('/settings/general')).toEqual({
       kind: 'view',
