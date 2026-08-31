@@ -78,9 +78,14 @@ export function useMobileHandoffUrl(
   httpOrigin: string | undefined,
   sessionId: string | null,
 ): string | null {
-  const [url, setUrl] = useState<string | null>(null)
+  const [published, setPublished] = useState<{
+    trpc: Store['trpc']
+    httpOrigin: string
+    sessionId: string
+    url: string
+  } | null>(null)
   useEffect(() => {
-    setUrl(null)
+    setPublished(null)
     if (!trpc || !httpOrigin || !sessionId) return
     let cancelled = false
     const load = async (): Promise<void> => {
@@ -100,7 +105,9 @@ export function useMobileHandoffUrl(
         if (typeof instanceId !== 'string' || !INSTANCE_ID_PATTERN.test(instanceId)) return
         const destinationOrigin =
           typeof info.publicUrl === 'string' && info.publicUrl !== '' ? info.publicUrl : httpOrigin
-        setUrl(mobileHandoffUrl(destinationOrigin, instanceId, sessionId))
+        const url = mobileHandoffUrl(destinationOrigin, instanceId, sessionId)
+        if (!url) return
+        setPublished({ trpc, httpOrigin, sessionId, url })
       } catch {
         // A destination without canonical server identity cannot be checked on
         // the phone. Hide the QR instead of minting a guess from the page URL.
@@ -113,7 +120,11 @@ export function useMobileHandoffUrl(
       controller.abort()
     }
   }, [httpOrigin, sessionId, trpc])
-  return url
+  return published?.trpc === trpc &&
+    published.httpOrigin === httpOrigin &&
+    published.sessionId === sessionId
+    ? published.url
+    : null
 }
 
 /** The session in the pane the operator is actively using. */

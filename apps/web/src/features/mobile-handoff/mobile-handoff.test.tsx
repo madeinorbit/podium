@@ -176,6 +176,40 @@ describe('handoff identity loading', () => {
       mobileHandoffUrl('https://local.example', 'instance-one', 'new-session'),
     )
   })
+
+  it('hides a published URL on the first render of a new generation', async () => {
+    const observed: Array<string | null> = []
+    const trpc = fixture.trpc as never
+    const { result, rerender } = renderHook(
+      ({ httpOrigin, sessionId }) => {
+        const url = useMobileHandoffUrl(trpc, httpOrigin, sessionId)
+        observed.push(url)
+        return url
+      },
+      {
+        initialProps: {
+          httpOrigin: 'https://local.example',
+          sessionId: 'old-session',
+        },
+      },
+    )
+    await waitFor(() =>
+      expect(result.current).toBe(
+        mobileHandoffUrl('https://local.example', 'instance-one', 'old-session'),
+      ),
+    )
+
+    fixture.infoQuery.mockReturnValueOnce(new Promise(() => {}))
+    fixture.versionFetch.mockReturnValueOnce(new Promise(() => {}))
+    observed.length = 0
+    rerender({
+      httpOrigin: 'https://replacement.example',
+      sessionId: 'replacement-session',
+    })
+
+    expect(observed[0]).toBeNull()
+    expect(result.current).toBeNull()
+  })
 })
 
 describe('the footer chip', () => {
