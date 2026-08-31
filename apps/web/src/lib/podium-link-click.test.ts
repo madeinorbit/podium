@@ -8,7 +8,12 @@
  * navigated the SPA off the file in a preview.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setKnownPodiumOrigins, setPodiumTargetActivator, startupPodiumHref } from './podium-link'
+import {
+  appendPodiumAddressDetail,
+  setKnownPodiumOrigins,
+  setPodiumTargetActivator,
+  startupPodiumHref,
+} from './podium-link'
 import { handlePodiumLinkClick } from './podium-link-click'
 
 const HOME = 'http://127.0.0.1:8787'
@@ -109,10 +114,25 @@ describe('startupPodiumHref', () => {
     )
   })
 
-  it('leaves ordinary and detailed routes with the browser', () => {
+  it('leaves ordinary views with the browser and captures typed detail', () => {
     expect(startupPodiumHref({ pathname: '/settings/general', search: '' })).toBeNull()
     expect(
       startupPodiumHref({ pathname: '/issues/POD-1606', search: '?tab=activity', hash: '#latest' }),
-    ).toBeNull()
+    ).toBe('/issues/POD-1606?tab=activity#latest')
+  })
+})
+
+describe('appendPodiumAddressDetail', () => {
+  it('keeps the routed workspace selection before typed query and fragment detail', () => {
+    expect(
+      appendPodiumAddressDetail(
+        { pathname: '/workspace', search: '?wt=%2Fw&pane=sess_1' },
+        { search: '?from=offer', hash: '#latest' },
+      ),
+    ).toBe('/workspace?wt=%2Fw&pane=sess_1&from=offer#latest')
+  })
+
+  it('does not rewrite a route when the typed target has no detail', () => {
+    expect(appendPodiumAddressDetail({ pathname: '/issues/iss_abc', search: '' }, {})).toBeNull()
   })
 })

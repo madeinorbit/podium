@@ -41,16 +41,18 @@ export interface LinkSessionLike {
 }
 
 export type PodiumOpen =
-  | { kind: 'issue'; issueId: IssueId }
-  | { kind: 'session'; sessionIdOrRef: string }
+  | { kind: 'issue'; issueId: IssueId; search?: string; hash?: string }
+  | { kind: 'session'; sessionIdOrRef: string; search?: string; hash?: string }
   | {
       kind: 'artifact'
       issueId: IssueId
       artifactId: string
       path: string
       worktreePath?: string
+      search?: string
+      hash?: string
     }
-  | { kind: 'file'; path: string; root: string; machineId?: MachineId }
+  | { kind: 'file'; path: string; root: string; machineId?: MachineId; hash?: string }
   | { kind: 'view'; path: string; search: string; hash: string }
 
 /** Last path segment — an artifact whose panel entry is a bare path opens by name. */
@@ -84,20 +86,31 @@ export function resolvePodiumTarget(
 ): PodiumOpen | null {
   switch (target.kind) {
     case 'issue': {
-      if (target.search || target.hash) return null
       const issue = findLinkedIssue(target.issue, context.issues)
-      return issue ? { kind: 'issue', issueId: issue.id } : null
+      return issue
+        ? {
+            kind: 'issue',
+            issueId: issue.id,
+            ...(target.search ? { search: target.search } : {}),
+            ...(target.hash ? { hash: target.hash } : {}),
+          }
+        : null
     }
     case 'session': {
-      if (target.search || target.hash) return null
       // `navigateToSession` is deliberately inert for an unknown row. Resolve
       // with the same shared helper first so the activator reports false when
       // no navigation will happen and the anchor keeps its fallback behavior.
       const session = resolveSessionIdentifier(target.session, context.sessions)
-      return session ? { kind: 'session', sessionIdOrRef: session.sessionId } : null
+      return session
+        ? {
+            kind: 'session',
+            sessionIdOrRef: session.sessionId,
+            ...(target.search ? { search: target.search } : {}),
+            ...(target.hash ? { hash: target.hash } : {}),
+          }
+        : null
     }
     case 'artifact': {
-      if (target.search || target.hash) return null
       const issue = findLinkedIssue(target.issue, context.issues)
       if (!issue) return null
       const entry = issue.panel?.artifacts?.find((a) => a.artifactId === target.artifactId)
@@ -111,6 +124,8 @@ export function resolvePodiumTarget(
         artifactId: target.artifactId,
         path,
         ...(issue.worktreePath ? { worktreePath: issue.worktreePath } : {}),
+        ...(target.search ? { search: target.search } : {}),
+        ...(target.hash ? { hash: target.hash } : {}),
       }
     }
     case 'file': {
@@ -122,6 +137,7 @@ export function resolvePodiumTarget(
         path: target.path,
         root: target.root,
         ...(target.machineId ? { machineId: target.machineId as MachineId } : {}),
+        ...(target.hash ? { hash: target.hash } : {}),
       }
     }
     default: {

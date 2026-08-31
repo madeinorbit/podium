@@ -6,6 +6,7 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import {
   PODIUM_NATIVE_OPEN_EVENT,
   activatePodiumHref,
+  appendPodiumAddressDetail,
   classifyPodiumLink,
   setKnownPodiumOrigins,
   setPodiumTargetActivator,
@@ -63,13 +64,19 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
       // something; the caller cancels the anchor only on true, so an address
       // this client cannot answer falls back to an ordinary navigation.
       if (!open) return false
+      const preserveDetail = (): void => {
+        const href = appendPodiumAddressDetail(window.location, open)
+        if (href) window.history.replaceState(null, '', href)
+      }
       switch (open.kind) {
         case 'issue':
           setOpenIssueId(open.issueId)
           setView('issues')
+          preserveDetail()
           return true
         case 'session':
           navigateToSession(open.sessionIdOrRef)
+          preserveDetail()
           return true
         case 'artifact':
           openArtifact({
@@ -78,6 +85,7 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
             path: open.path,
             ...(open.worktreePath ? { worktreePath: open.worktreePath } : {}),
           })
+          preserveDetail()
           return true
         case 'file':
           openFileInWorktree({
@@ -85,6 +93,7 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
             path: open.path,
             ...(open.machineId ? { machineId: open.machineId } : {}),
           })
+          preserveDetail()
           return true
         default: {
           // A plain page, and only the ones this build actually routes. A

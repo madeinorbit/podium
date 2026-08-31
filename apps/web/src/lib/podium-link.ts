@@ -65,8 +65,8 @@ export function internalPodiumTarget(href: string): PodiumTarget | null {
  * Capture a canonical target before the ordinary web router sees startup URL.
  * The router has no route for sessions, artifacts or files, and issue refs need
  * replica resolution before they can become the opaque id its route expects.
- * Detailed typed URLs stay with the browser because an activator cannot promise
- * to preserve their query or fragment.
+ * The host activates the base target and retains any query or fragment on the
+ * routed URL.
  */
 export function startupPodiumHref(location: {
   pathname: string
@@ -76,9 +76,21 @@ export function startupPodiumHref(location: {
   const href = `${location.pathname}${location.search}${location.hash ?? ''}`
   const link = parsePodiumLink(href)
   if (link?.kind !== 'internal' || link.target.kind === 'view') return null
-  if ('search' in link.target && link.target.search) return null
-  if ('hash' in link.target && link.target.hash) return null
   return href
+}
+
+/** Add typed-target detail to the route an activator just produced. The
+ * router's own query stays first, so duplicate `wt` or `pane` keys cannot
+ * replace the workspace it selected. */
+export function appendPodiumAddressDetail(
+  current: { pathname: string; search: string },
+  detail: { search?: string; hash?: string },
+): string | null {
+  const extra = detail.search?.replace(/^\?/, '') ?? ''
+  const hash = detail.hash ?? ''
+  if (!extra && !hash) return null
+  const separator = extra ? (current.search ? '&' : '?') : ''
+  return `${current.pathname}${current.search}${separator}${extra}${hash}`
 }
 
 // --- Activator registry ----------------------------------------------------
