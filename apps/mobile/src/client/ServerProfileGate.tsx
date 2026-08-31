@@ -13,6 +13,7 @@ import {
 import {
   ActivityIndicator,
   AccessibilityInfo,
+  Alert,
   Linking,
   Platform,
   ScrollView,
@@ -657,7 +658,17 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           }
         })
         if (!committed) {
-          if (token) await logout(result.httpOrigin, token).catch(() => {})
+          if (token) {
+            const revoked = await logout(result.httpOrigin, token)
+              .then(() => true)
+              .catch(() => false)
+            if (!revoked) {
+              Alert.alert(
+                'Phone session still active',
+                'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
+              )
+            }
+          }
           return
         }
       } catch (cause) {
@@ -954,12 +965,25 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       },
       recordUser: async (userId) => {
         if (Platform.OS === 'web' || profile.userId === userId || config.override) return
-        await persistState({
+        const isCurrentOwner = () =>
+          switchOperation.current === credentialOwnerOperation &&
+          activeProfileIdRef.current === profile.id
+        if (!isCurrentOwner()) throw new StaleCredentialOwnerError()
+        const next: ServerProfileState = {
           ...profileState,
           profiles: profileState.profiles.map((row) =>
             row.id === profile.id ? { ...row, userId, updatedAt: new Date().toISOString() } : row,
           ),
+        }
+        const committed = await profileWrites.run(async () => {
+          if (!isCurrentOwner()) return false
+          await saveServerProfiles(next)
+          if (isCurrentOwner()) return true
+          await saveServerProfiles(profileState)
+          return false
         })
+        if (!committed || !isCurrentOwner()) throw new StaleCredentialOwnerError()
+        setProfileState(next)
       },
       revalidateOfflineProfile: async () => {
         if (activation !== 'offline-cache' || revalidationInFlight.current) return

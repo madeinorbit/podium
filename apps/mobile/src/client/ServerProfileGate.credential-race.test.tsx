@@ -7,6 +7,7 @@ import type { ServerProfileState } from './server-profiles'
 
 const seams = vi.hoisted(() => ({
   activeContext: null as ServerProfileContextValue | null,
+  alert: vi.fn(),
   announce: vi.fn(),
   claimPairing: vi.fn(),
   credentials: new Map<string, string>(),
@@ -16,6 +17,7 @@ const seams = vi.hoisted(() => ({
   getInitialUrl: vi.fn<() => Promise<string | null>>(),
   linkListener: null as ((event: { url: string }) => void) | null,
   loadProfiles: vi.fn<() => Promise<ServerProfileState>>(),
+  logout: vi.fn(),
   parsePairing: vi.fn(),
   pollPairing: vi.fn(),
   preflight: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock('react-native', async (importOriginal) => {
   return {
     ...actual,
     Platform: { ...actual.Platform, OS: 'ios' },
+    Alert: { ...actual.Alert, alert: seams.alert },
     AccessibilityInfo: {
       ...actual.AccessibilityInfo,
       announceForAccessibility: seams.announce,
@@ -125,7 +128,7 @@ vi.mock('./trpc', () => ({
     seams.runtime.push({ origin: config?.httpOrigin ?? null, bearer })
   },
 }))
-vi.mock('./auth', () => ({ logout: vi.fn() }))
+vi.mock('./auth', () => ({ logout: seams.logout }))
 
 import { ServerProfileGate, useServerProfile } from './ServerProfileGate'
 import {
@@ -218,6 +221,7 @@ async function mountActiveProfileA() {
 beforeEach(() => {
   consumePendingMobileHandoff(pendingMobileHandoffSnapshot().id)
   seams.activeContext = null
+  seams.alert.mockReset()
   seams.announce.mockReset()
   seams.getInitialUrl.mockReset()
   seams.getInitialUrl.mockResolvedValue(null)
@@ -257,6 +261,8 @@ beforeEach(() => {
     bearer: 'token-c',
     userId: 'user:c',
   })
+  seams.logout.mockReset()
+  seams.logout.mockResolvedValue(undefined)
   seams.saveProfiles.mockReset()
   seams.saveProfiles.mockImplementation(async (state) => {
     seams.durableProfiles = state
@@ -583,6 +589,7 @@ describe('pairing supersedes handoff intent', () => {
 
   it('does not publish a pairing completion superseded during its profile save', async () => {
     await mountActiveProfileA()
+    seams.logout.mockRejectedValueOnce(new Error('revocation unavailable'))
     let releasePairingSave = () => {}
     const pairingSaveReleased = new Promise<void>((resolve) => {
       releasePairingSave = resolve
@@ -609,7 +616,7 @@ describe('pairing supersedes handoff intent', () => {
 
     act(() => {
       seams.linkListener?.({
-        url: handoffLink('https://a.example', 'instance-a', 'newest-session-on-a'),
+        url: handoffLink('https://b.example', 'instance-b', 'newest-session-on-b'),
       })
     })
     await act(async () => {
@@ -618,15 +625,22 @@ describe('pairing supersedes handoff intent', () => {
     })
 
     await waitFor(() => {
-      expect(seams.activeContext?.profile.id).toBe('profile-a')
+      expect(seams.activeContext?.profile.id).toBe('profile-b')
+      expect(seams.activeContext?.bearer).toBe('token-b')
       expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true)
     })
-    expect(seams.durableProfiles?.activeProfileId).toBe('profile-a')
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-b')
     expect([...seams.credentials.values()]).not.toContain('token-c')
+    expect(seams.logout).toHaveBeenCalledWith('https://pair.example', 'token-c')
+    expect(seams.alert).toHaveBeenCalledWith(
+      'Phone session still active',
+      'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
+    )
+    expect(JSON.stringify(seams.alert.mock.calls)).not.toContain('token-c')
     expect(pendingMobileHandoffSnapshot()).toMatchObject({
       request: {
         kind: 'destination',
-        destination: { sessionId: 'newest-session-on-a' },
+        destination: { sessionId: 'newest-session-on-b' },
       },
     })
   })
@@ -983,6 +997,59 @@ describe('pairing supersedes handoff intent', () => {
 })
 
 describe('profile credential completion races', () => {
+  it('rolls back a delayed A principal record before handoff activates B', async () => {
+    await mountActiveProfileA()
+    const recordUserA = seams.activeContext!.recordUser
+    let releaseRecord = () => {}
+    const recordReleased = new Promise<void>((resolve) => {
+      releaseRecord = resolve
+    })
+    let reportRecordStarted = () => {}
+    const recordStarted = new Promise<void>((resolve) => {
+      reportRecordStarted = resolve
+    })
+    seams.saveProfiles.mockImplementation(async (state) => {
+      const profileA = state.profiles.find((profile) => profile.id === 'profile-a')
+      if (state.activeProfileId === 'profile-a' && profileA?.userId === 'user:a-late') {
+        seams.durableProfiles = state
+        reportRecordStarted()
+        await recordReleased
+        return
+      }
+      seams.durableProfiles = state
+    })
+    const recording = recordUserA('user:a-late').then(
+      () => null,
+      (error: unknown) => error,
+    )
+    await recordStarted
+
+    act(() => {
+      seams.linkListener?.({
+        url: handoffLink('https://b.example', 'instance-b', 'session-on-b'),
+      })
+    })
+    await act(async () => {
+      releaseRecord()
+      await recordReleased
+    })
+    const recordError = await recording
+
+    await waitFor(() => {
+      expect(seams.activeContext?.profile.id).toBe('profile-b')
+      expect(seams.activeContext?.bearer).toBe('token-b')
+    })
+    expect(recordError).toMatchObject({ name: 'StaleCredentialOwnerError' })
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-b')
+    expect(
+      seams.durableProfiles?.profiles.find((profile) => profile.id === 'profile-a')?.userId,
+    ).toBe('user:a')
+    expect([...seams.runtime, ...seams.socket]).not.toContainEqual({
+      origin: 'https://a.example',
+      bearer: 'token-b',
+    })
+  })
+
   it('rebinds credential ownership after a same-profile handoff', async () => {
     await mountActiveProfileA()
     const priorUpdateCredential = seams.activeContext!.updateCredential
