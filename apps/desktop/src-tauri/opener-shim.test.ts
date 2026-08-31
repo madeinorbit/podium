@@ -98,6 +98,30 @@ describe('desktop opener shim', () => {
     expect(nativeOpen).not.toHaveBeenCalled()
   })
 
+  it('preserves authored explicit HTTP bytes for clicks and window.open', () => {
+    const href = 'HTTP://Example.COM:80/a/../b?q=hello world#x%2fy'
+    expect(clickOfferLink(href)).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: href })
+
+    invoke.mockClear()
+    window.open(href, '_blank')
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: href })
+    expect(nativeOpen).not.toHaveBeenCalled()
+  })
+
+  it('normalizes only a protocol-relative prefix for clicks and window.open', () => {
+    injectServer('http://127.0.0.1:8787')
+    const href = String.raw`\\example.test\guide?q=C:\Users#x\y`
+    const expected = String.raw`http://example.test/guide?q=C:\Users#x\y`
+    expect(clickOfferLink(href)).toBe(true)
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: expected })
+
+    invoke.mockClear()
+    window.open(href, '_blank')
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: expected })
+    expect(nativeOpen).not.toHaveBeenCalled()
+  })
+
   it('leaves an in-app link to the webview', () => {
     expect(clickOfferLink(`${window.location.origin}/session/abc`)).toBe(false)
     expect(invoke).not.toHaveBeenCalled()

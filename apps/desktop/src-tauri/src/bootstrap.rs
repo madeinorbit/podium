@@ -559,24 +559,38 @@ pub fn opener_shim_script() -> &'static str {
     if (origin === null) return false;
     return activeOrigin() === origin;
   };
+  const cleanedHref = (raw) => String(raw).replace(/[\t\n\r]/g, '').trim();
+  const handoffHref = (href, parsed) => {
+    if (/^https?:\/\//i.test(href)) return href;
+    if (/^[\\/][\\/]/.test(href)) {
+      const query = href.indexOf('?');
+      const fragment = href.indexOf('#');
+      const detailAt = query === -1 ? fragment : fragment === -1 ? query : Math.min(query, fragment);
+      const address = detailAt === -1 ? href : href.slice(0, detailAt);
+      const detail = detailAt === -1 ? '' : href.slice(detailAt);
+      return parsed.protocol + address.replace(/\\/g, '/') + detail;
+    }
+    return parsed.href;
+  };
   const externalHref = (raw) => {
+    const href = cleanedHref(raw);
     try {
       const base = activeOrigin() || window.location.href;
-      const u = new URL(raw, base);
+      const u = new URL(href, base);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      const outgoing = handoffHref(href, u);
       // Userinfo is how a link disguises its real host. The protocol resolver
       // refuses it outright, and the two halves have to answer alike: if this
       // one called it ours it would decline, the page would have stamped
       // target=_blank, and WKWebView would drop the click on the floor.
-      if (u.username || u.password) return u.href;
+      if (u.username || u.password) return outgoing;
       // `server` is BOOT configuration, never detail for the active replica.
       // The web resolver declines it so the destination can reboot against the
       // selected server; this capture-phase half must therefore hand it out
       // rather than swallowing the blank-target fallback as one of "ours".
-      if (u.searchParams.has('server')) return u.href;
-      return isOurs(httpOrigin(u.href)) ? null : u.href;
+      if (u.searchParams.has('server')) return outgoing;
+      return isOurs(httpOrigin(u.href)) ? null : outgoing;
     } catch {
-      const href = String(raw).replace(/[\t\n\r]/g, '').trim();
       return /^https?:\/\//i.test(href) ? href : null;
     }
   };
