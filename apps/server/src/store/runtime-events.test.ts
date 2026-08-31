@@ -5,10 +5,7 @@ import {
   RuntimeEventGate,
   type RuntimeEventGatePorts,
 } from '../modules/sessions/runtime-event-gate'
-import {
-  mergeLatestTranscriptPage,
-  mergeTranscriptItems,
-} from '../modules/sessions/terminal'
+import { mergeLatestTranscriptPage, mergeTranscriptItems } from '../modules/sessions/terminal'
 import { SessionRegistry } from '../relay'
 import { SessionStore } from '../store'
 import type { RuntimeEventLogRecord } from './events'
@@ -150,7 +147,7 @@ describe('durable runtime observation gate', () => {
     store.close()
   })
 
-  it('bridges real terminal items live and after reload without duplicate replay', async () => {
+  it('keeps live-tail and completion-reconcile overlap exact after reload', async () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
@@ -187,9 +184,9 @@ describe('durable runtime observation gate', () => {
     ]
     // Either alias is sufficient: provider-derived ids can drift while cursors
     // stay stable, and a rewritten record can rotate its cursor under one id.
-    expect(
-      mergeTranscriptItems([{ ...items[0], id: 'derived-user-id' }], [items[0]], 50),
-    ).toEqual([items[0]])
+    expect(mergeTranscriptItems([{ ...items[0], id: 'derived-user-id' }], [items[0]], 50)).toEqual([
+      items[0],
+    ])
     expect(
       mergeTranscriptItems([{ ...items[0], cursor: 'grok:old-cursor' }], [items[0]], 50),
     ).toEqual([items[0]])
@@ -215,11 +212,7 @@ describe('durable runtime observation gate', () => {
     expect(
       mergeTranscriptItems(
         [],
-        [
-          { ...items[0], id: 'oldest', cursor: 'grok:0' },
-          items[0],
-          items[1],
-        ],
+        [{ ...items[0], id: 'oldest', cursor: 'grok:0' }, items[0], items[1]],
         2,
       ),
     ).toEqual(items)
@@ -274,6 +267,14 @@ describe('durable runtime observation gate', () => {
       text: 'replay through retained alias',
     }
     expect(mergeTranscriptItems(bridged, [replay], 50)).toEqual([replay])
+    // The real headed sequence: the tail seeds the user first; completion
+    // reconciliation then overlaps that user while adding the assistant.
+    registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [items[0]],
+      reset: true,
+    })
     for (const [index, item] of items.entries()) {
       const event = terminalItemEvent({ at: item.ts, seq: index + 2, item })
       registry.gateway.routeDaemonFrame(store.hostMachineId, {
@@ -290,20 +291,6 @@ describe('durable runtime observation gate', () => {
         event,
       })
     }
-    // Chat-originated sends can also arrive through the legacy transcript tail;
-    // identical cursor identity must upsert rather than duplicate.
-    registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'transcriptDelta',
-      sessionId,
-      items,
-    })
-    // A tail replay/reset must not erase the already committed runtime bridge.
-    registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'transcriptDelta',
-      sessionId,
-      items: [],
-      reset: true,
-    })
 
     const liveTranscript = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },

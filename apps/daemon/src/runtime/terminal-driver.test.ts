@@ -35,7 +35,7 @@ import {
 import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   RUNTIME_CONTRACT_ENV,
   runtimeContractEnabledByEnv,
@@ -161,7 +161,9 @@ interface World {
   now(): number
 }
 
-function makeWorld(): World {
+function makeWorld(
+  options: { readTranscript?: TerminalRuntimeHost['readTranscript'] } = {},
+): World {
   let clock = Date.UTC(2026, 7, 14)
   let timers: VirtualTimer[] = []
   let draining = false
@@ -272,7 +274,7 @@ function makeWorld(): World {
       }
       if (bindOnLaunch) bindFrame(msg.sessionId)
     },
-    readTranscript: async () => [],
+    readTranscript: options.readTranscript ?? (async () => []),
     archiveTranscript: async () => ({ path: '/tmp/session.jsonl' }),
     readFileBytes: async () => new TextEncoder().encode('{"role":"user"}'),
     resources: () => ({ memoryBytes: 1024, oomKills: 0 }),
@@ -1490,6 +1492,259 @@ describe('observation translation', () => {
       at: '2026-08-14T00:00:02.000Z',
       ev: { ev: 'completed', verdict: 'question' },
     })
+  })
+
+  it('reconciles a fenced Grok completion without replaying its live user item', async () => {
+    const user: TranscriptItem = {
+      id: 'grok-user-tucdyw',
+      cursor: 'grok:chat_history.jsonl:100:180',
+      role: 'user',
+      text: 'Return IDLE-L9L1Z8',
+    }
+    const assistant: TranscriptItem = {
+      id: 'grok-assistant-l9l1z8',
+      cursor: 'grok:chat_history.jsonl:181:260',
+      role: 'assistant',
+      text: 'IDLE-L9L1Z8',
+    }
+    const world = makeWorld({ readTranscript: async () => [user, assistant] })
+    const session = await world.runtime.driverFor('grok', GROK).create({
+      ...SPEC,
+      harness: 'grok',
+    })
+    const sessionId = session.binding.sessionId
+
+    world.runtime.observe({
+      type: 'transcriptDelta',
+      sessionId,
+      items: [user],
+      reset: true,
+    })
+    world.observe(sessionId, {
+      provider: 'grok',
+      providerSessionId: 'native-grok',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      state: {
+        phase: 'idle',
+        since: '2026-08-14T00:00:02.000Z',
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
+      },
+    })
+
+    await vi.waitFor(() => {
+      const items = world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' &&
+        frame.event.t === 'item' &&
+        frame.event.item.kind === 'complete'
+          ? [frame.event]
+          : [],
+      )
+      expect(items.map((event) => event.item.item.id)).toEqual([user.id, assistant.id])
+      expect(items[1]).toMatchObject({ observerGeneration: 2 })
+      expect(session.binding.bindingVersion).toBe(2)
+    })
+  })
+
+  it('drops a completion read when only its binding version advances', async () => {
+    const late: TranscriptItem = {
+      id: 'grok-stale-assistant',
+      cursor: 'grok:chat_history.jsonl:300:380',
+      role: 'assistant',
+      text: 'stale reply',
+    }
+    let resolveRead: (items: readonly TranscriptItem[]) => void = () => {}
+    const read = new Promise<readonly TranscriptItem[]>((resolve) => {
+      resolveRead = resolve
+    })
+    const world = makeWorld({ readTranscript: async () => await read })
+    const session = await world.runtime.driverFor('grok', GROK).create({
+      ...SPEC,
+      harness: 'grok',
+    })
+    const sessionId = session.binding.sessionId
+
+    world.observe(sessionId, {
+      provider: 'grok',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
+    world.observe(sessionId, {
+      provider: 'grok',
+      observerGeneration: 2,
+      bindingVersion: 3,
+      transitionKind: 'activity',
+      turnEpoch: 2,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+    })
+    resolveRead([late])
+    await read
+    await Promise.resolve()
+
+    const items = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' &&
+      frame.event.t === 'item' &&
+      frame.event.item.kind === 'complete'
+        ? [frame.event.item.item]
+        : [],
+    )
+    expect(items).toEqual([])
+    expect(session.binding.bindingVersion).toBe(3)
+  })
+
+  it('drops a completion read when only its observer generation advances', async () => {
+    const late: TranscriptItem = {
+      id: 'grok-stale-generation-assistant',
+      cursor: 'grok:chat_history.jsonl:381:399',
+      role: 'assistant',
+      text: 'stale generation reply',
+    }
+    let resolveRead: (items: readonly TranscriptItem[]) => void = () => {}
+    const read = new Promise<readonly TranscriptItem[]>((resolve) => {
+      resolveRead = resolve
+    })
+    const world = makeWorld({ readTranscript: async () => await read })
+    const session = await world.runtime.driverFor('grok', GROK).create({
+      ...SPEC,
+      harness: 'grok',
+    })
+    const sessionId = session.binding.sessionId
+    world.observe(sessionId, {
+      provider: 'grok',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
+    world.observe(sessionId, {
+      provider: 'grok',
+      observerGeneration: 3,
+      bindingVersion: 2,
+      transitionKind: 'activity',
+      turnEpoch: 2,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+    })
+    resolveRead([late])
+    await read
+    await Promise.resolve()
+
+    const items = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' &&
+      frame.event.t === 'item' &&
+      frame.event.item.kind === 'complete'
+        ? [frame.event.item.item]
+        : [],
+    )
+    expect(items).toEqual([])
+    expect(session.binding.bindingVersion).toBe(2)
+  })
+
+  it('drops a completion read after disposal and same-id replacement', async () => {
+    let inspected = 0
+    const late: TranscriptItem = {
+      id: 'grok-replaced-assistant',
+      cursor: 'grok:chat_history.jsonl:400:480',
+      role: 'assistant',
+      get text() {
+        inspected += 1
+        return 'replaced reply'
+      },
+    }
+    let resolveRead: (items: readonly TranscriptItem[]) => void = () => {}
+    const read = new Promise<readonly TranscriptItem[]>((resolve) => {
+      resolveRead = resolve
+    })
+    const world = makeWorld({ readTranscript: async () => await read })
+    const session = await world.runtime.driverFor('grok', GROK).create({
+      ...SPEC,
+      harness: 'grok',
+    })
+    const sessionId = session.binding.sessionId
+    world.observe(sessionId, {
+      provider: 'grok',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
+
+    world.runtime.clear(sessionId)
+    world.runtime.register({ sessionId, agentKind: 'grok', cwd: SPEC.workdir, resume: null }, GROK)
+    resolveRead([late])
+    await read
+    await Promise.resolve()
+
+    const items = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' &&
+      frame.event.t === 'item' &&
+      frame.event.item.kind === 'complete'
+        ? [frame.event.item.item]
+        : [],
+    )
+    expect(items).toEqual([])
+    expect(inspected).toBe(0)
+  })
+
+  it('drops a completion read after supervisor restart', async () => {
+    let inspected = 0
+    const late: TranscriptItem = {
+      id: 'grok-restarted-assistant',
+      cursor: 'grok:chat_history.jsonl:481:560',
+      role: 'assistant',
+      get text() {
+        inspected += 1
+        return 'restarted reply'
+      },
+    }
+    let resolveRead: (items: readonly TranscriptItem[]) => void = () => {}
+    const read = new Promise<readonly TranscriptItem[]>((resolve) => {
+      resolveRead = resolve
+    })
+    const world = makeWorld({ readTranscript: async () => await read })
+    const session = await world.runtime.driverFor('grok', GROK).create({
+      ...SPEC,
+      harness: 'grok',
+    })
+    const sessionId = session.binding.sessionId
+    world.observe(sessionId, {
+      provider: 'grok',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
+
+    world.runtime.control.restartSupervisor()
+    resolveRead([late])
+    await read
+    await Promise.resolve()
+
+    const items = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' &&
+      frame.event.t === 'item' &&
+      frame.event.item.kind === 'complete'
+        ? [frame.event.item.item]
+        : [],
+    )
+    expect(items).toEqual([])
+    expect(inspected).toBe(0)
   })
 
   it('takes the completion verdict from the provider, never from a guess', () => {

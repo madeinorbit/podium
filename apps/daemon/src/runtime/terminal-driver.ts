@@ -295,6 +295,7 @@ interface DriverSession {
   draft: string | undefined
   contextUsedPercent: number | undefined
   observedStatePhase: AgentRuntimeState['phase'] | undefined
+  transcriptVersions: Map<string, string>
   injection: TerminalInjectionMachine
   /** Open waiters for a causal accept, keyed by the prompt text they watch. */
   hookWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
@@ -779,6 +780,26 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     }
   }
 
+  /** One identity gate for ordinary tail deltas and lifecycle reconciliation. */
+  function emitTranscriptItems(
+    session: DriverSession,
+    items: readonly TranscriptItem[],
+    provenance: ObservationProvenance,
+  ): void {
+    for (const item of items) {
+      const identity = item.cursor ?? item.id
+      const version = JSON.stringify(item)
+      if (session.transcriptVersions.get(identity) === version) continue
+      session.transcriptVersions.set(identity, version)
+      emit(
+        session,
+        { t: 'item', item: { kind: 'complete', item } },
+        item.ts ?? new Date(host.now()).toISOString(),
+        provenance,
+      )
+    }
+  }
+
   function observe(msg: DaemonMessage): void {
     // `agentObservation` is keyed by `observation.podiumSessionId`, not by a
     // top-level `sessionId` — it is the one frame whose session id lives inside
@@ -802,17 +823,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // `DriverSession.userTurns` for what counting the other way costs.
         if (msg.reset) session.userTurns = 0
         session.userTurns += msg.items.filter((item) => item.role === 'user').length
-        for (const item of msg.items) {
-          emit(
-            session,
-            { t: 'item', item: { kind: 'complete', item } },
-            // EVENT time: the transcript record's own timestamp. A record without
-            // one is the only case where the driver has nothing better than the
-            // observation moment, and the fallback is stated rather than hidden.
-            item.ts ?? new Date(host.now()).toISOString(),
-            msg.reset ? 'bootstrap' : 'live',
-          )
-        }
+        emitTranscriptItems(session, msg.items, msg.reset ? 'bootstrap' : 'live')
         return
       }
       case 'bind': {
@@ -987,6 +998,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     if (observation.transitionKind === 'turn_terminal') {
       session.fencedTurnEpoch = Math.max(session.fencedTurnEpoch, observation.turnEpoch)
     }
+    const transcriptFence = {
+      observerGeneration: session.observerGeneration,
+      bindingVersion: session.bindingVersion,
+    }
 
     const at = observation.providerAt ?? observation.receivedAt
     const turn = turnEventForObservation(observation)
@@ -997,9 +1012,48 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       emit(session, { t: 'state', change }, at, observation.provenance, observation.providerCursor)
     }
 
+    // This boundary is the current causal envelope, after generation/binding adoption.
+    // Screen-classifier agentState frames are intentionally legacy and may be rejected
+    // by the server once this fenced observation stream exists; they do not authorize this read.
+    if (observation.transitionKind === 'turn_terminal') {
+      void reconcileTranscript(session, transcriptFence)
+    }
+
     if (observation.nextPhase === 'needs_user') askFromObservation(session, observation)
     else if (observation.priorPhase === 'needs_user') {
       closeOpenInteractions(session, at, observation.provenance, 'human')
+    }
+  }
+
+  async function reconcileTranscript(
+    session: DriverSession,
+    fence: { observerGeneration: number; bindingVersion: number },
+  ): Promise<void> {
+    const registration = registrations.get(session.sessionId)
+    if (!registration) return
+    try {
+      const items = await host.readTranscript(
+        {
+          sessionId: session.sessionId,
+          agentKind: session.agentKind,
+          cwd: registration.cwd,
+          ...(session.resume ? { resume: session.resume } : {}),
+        },
+        { limit: 2000 },
+      )
+      if (
+        sessions.get(session.sessionId) !== session ||
+        session.disposed ||
+        session.observerGeneration !== fence.observerGeneration ||
+        session.bindingVersion !== fence.bindingVersion
+      )
+        return
+      emitTranscriptItems(session, items, 'live')
+    } catch (error) {
+      log.warn('terminal transcript completion reconcile failed', {
+        err: error,
+        sessionId: session.sessionId,
+      })
     }
   }
 
@@ -1177,6 +1231,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       draft: undefined,
       contextUsedPercent: undefined,
       observedStatePhase: undefined,
+      transcriptVersions: new Map(),
       injection: undefined as unknown as TerminalInjectionMachine,
       hookWaiters: new Set(),
       userTurns: 0,
