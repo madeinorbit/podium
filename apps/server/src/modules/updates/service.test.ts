@@ -1808,3 +1808,60 @@ describe('a machine that predates channel-keyed trust', () => {
     expect(send).toHaveBeenCalledOnce()
   })
 })
+
+/**
+ * POD-3170. The wave planner's `coordinator-last` rule is only worth anything
+ * if the fact reaches it, and the fact is stated in a composition root
+ * (`relay.ts`) that no unit test constructs. So this asks the SERVICE — the
+ * projection the planner actually reads — rather than the pure planner again.
+ */
+describe('the machine this coordinator runs on', () => {
+  const target = {
+    version: '0.4.2',
+    critical: false,
+    artifacts: { headless: { delivery: 'feed', platforms: {} } },
+  } as never
+
+  /**
+   * IDS CHOSEN SO THE OLD BEHAVIOUR WOULD FAIL THESE. Both rounds sort by id,
+   * so a coordinator named `a-…` is the one the previous planner picked first —
+   * as the canary below, and alongside the remote machine in the widen round.
+   */
+  const coordinator = m('a-ludovico', { name: 'ludovico', coordinator: true })
+
+  it('is not the canary while a remote machine could prove the bundle instead', () => {
+    const { svc } = make([coordinator, m('b-flatblock', { name: 'flatblock' })])
+    svc.setTarget('dev', target)
+    svc.markAuthorized('dev')
+
+    expect(svc.tick('dev')).toEqual(['b-flatblock'])
+  })
+
+  /**
+   * THE MEASURED FAILURE, at the seam that produced it. A widen round on the
+   * live fleet selected `flatblock` and `ludovico` together, and `ludovico`
+   * restarted 2.8 s later on top of flatblock's delivery.
+   */
+  it('is not granted in the same widen round as a machine still behind', () => {
+    const { svc } = make([
+      coordinator,
+      m('b-flatblock', { name: 'flatblock' }),
+      // Already at the target, so the canary gate is proved and the round widens.
+      m('c-mac', { version: '0.4.2' }),
+    ])
+    svc.setTarget('dev', target)
+    svc.markAuthorized('dev')
+
+    const granted = svc.tick('dev')
+    expect(granted).toEqual(['b-flatblock'])
+    expect(granted).not.toContain('a-ludovico')
+  })
+
+  it('takes the update once the rest of the fleet is at the target', () => {
+    const { svc } = make([coordinator, m('b-flatblock', { version: '0.4.2' })])
+    svc.setTarget('dev', target)
+    svc.markAuthorized('dev')
+
+    expect(svc.tick('dev')).toEqual(['a-ludovico'])
+  })
+})

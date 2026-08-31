@@ -49,6 +49,19 @@ export interface WaveMachine {
    * said what it is must stay visible rather than be silently stranded.
    */
   platform?: string
+  /**
+   * DOES THIS SERVER'S OWN COORDINATOR RUN HERE (POD-3170)?
+   *
+   * True for exactly one machine — the host whose parent supervises the process
+   * planning this round. Replacing it is not one machine's update among several:
+   * it takes down the socket every other grant went out on, the artifact route
+   * every other machine is downloading from, and the in-memory grant bookkeeping
+   * that would let the successor notice. See {@link decideWave}.
+   *
+   * Absent means "not the coordinator", which is the safe direction: a fleet
+   * whose composition root never states this simply plans as it did before.
+   */
+  coordinator?: boolean
 }
 
 /** Explicit source checkouts are operators of their files, not package consumers. */
@@ -217,6 +230,8 @@ export type WaveExclusion =
   /** The release carries no bytes for this machine's platform, and never will. */
   | 'unsupported-platform'
   | 'canary-gated'
+  /** Eligible, and deliberately after the rest of the fleet — see {@link decideWave}. */
+  | 'coordinator-last'
   | 'wave-full'
 
 /** One machine this round did not grant, and the single reason it did not. */
@@ -322,11 +337,53 @@ export function decideWave(ctx: {
   const gate = ctx.canaryHealthy ? 'widen' : 'canary'
   const inFlight = ctx.machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
   const held: WaveHold[] = []
-  const eligible: WaveMachine[] = []
+  let eligible: WaveMachine[] = []
   for (const machine of ctx.machines) {
     const reason = ineligibility(machine, ctx)
     if (reason) held.push(hold(machine, reason))
     else eligible.push(machine)
+  }
+
+  /**
+   * THE COORDINATOR GOES LAST (POD-3170).
+   *
+   * Every other machine in a round takes its bytes over a socket this server
+   * holds, from an artifact route this server serves, and is tracked by a
+   * pending-grant map that lives in this process's memory. So granting the
+   * coordinator ALONGSIDE them is not one more machine converging in parallel:
+   * it is this server agreeing to disappear in the middle of their deliveries.
+   *
+   * MEASURED, TWICE, ON THE LIVE FLEET in one morning. A widen round selected
+   * `flatblock` and `ludovico` together at 09:54:17.058Z; `ludovico` runs the
+   * coordinator, so its parent completed the swap at 09:54:19.764Z and handed
+   * over at 09:54:19.897Z — 2.8 s after the remote grant went out, against a
+   * download that takes 4.3 s. `flatblock` reattached to the successor at
+   * 09:54:30.068Z still on the old version, with no grant recorded on either
+   * side, and nothing granted it again until the machines step's silence
+   * deadline fired at 10:00:51.241Z. 394 s of an update whose work took 13.5 s.
+   * The dev.30→31 round an hour earlier did the identical thing for 399 s.
+   *
+   * HOLDING DRAINS, so this cannot deadlock. Only a machine that could be
+   * granted RIGHT NOW holds the coordinator back — every permanent way of not
+   * converging (offline, a verdict a human must clear, a release with no bytes
+   * for that platform, a source checkout) is already an ineligibility above,
+   * and an ineligible machine is not a delivery anyone is waiting on. A fleet
+   * whose only machine is the coordinator is never held at all.
+   *
+   * It also puts the canary somewhere better: a bundle proved on a remote
+   * machine is proved without risking the server that has to watch the proof.
+   */
+  const withoutCoordinator = eligible.filter((machine) => machine.coordinator !== true)
+  if (withoutCoordinator.length !== eligible.length) {
+    const othersConverging =
+      withoutCoordinator.length > 0 ||
+      ctx.machines.some((machine) => machine.coordinator !== true && IN_FLIGHT.has(machine.state))
+    if (othersConverging) {
+      for (const machine of eligible) {
+        if (machine.coordinator === true) held.push(hold(machine, 'coordinator-last'))
+      }
+      eligible = withoutCoordinator
+    }
   }
 
   if (eligible.length === 0) return { gate, selected: [], held }

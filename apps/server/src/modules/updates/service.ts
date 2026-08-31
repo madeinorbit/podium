@@ -689,6 +689,16 @@ export class UpdatesService {
   }
 
   onStatus(machineId: MachineId, message: UpdateStatusMessage): void {
+    /** What the machine said, for every line below that has to quote it. */
+    const reported = {
+      state: message.state,
+      version: message.version,
+      ...(message.grantId ? { grantId: message.grantId } : {}),
+      ...(message.targetVersion ? { targetVersion: message.targetVersion } : {}),
+      ...(message.phaseDetail ? { phaseDetail: message.phaseDetail } : {}),
+      ...(message.percent !== undefined ? { percent: message.percent } : {}),
+      ...(message.detail ? { detail: message.detail } : {}),
+    }
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
     if (!machine) {
       if (
@@ -696,7 +706,9 @@ export class UpdatesService {
         message.targetVersion !== undefined
       ) {
         this.terminalStatusesBeforeMachine.set(machineId, message)
+        return
       }
+      log.warn('update status dropped', { machineId, because: 'unknown-machine', ...reported })
       return
     }
     const channel = this.channelOf(machine)
@@ -712,7 +724,15 @@ export class UpdatesService {
           this.terminalStatusesBeforeTarget.set(channel, deferred)
         }
         deferred.set(machineId, message)
+        return
       }
+      log.warn('update status dropped', {
+        machineId,
+        machine: machine.name,
+        because: 'no-target',
+        channel,
+        ...reported,
+      })
       return
     }
 
@@ -726,7 +746,28 @@ export class UpdatesService {
     const terminal = message.state === 'rejected' || message.state === 'stuck'
     const grantMismatch = message.grantId !== undefined && message.grantId !== pendingGrant?.grantId
     const recoveredTerminal = grantMismatch && terminal && message.targetVersion === target.version
-    if (grantMismatch && !recoveredTerminal) return
+    /**
+     * A REPORT THIS SERVER CANNOT PLACE IS THE THING TO SAY OUT LOUD (POD-3170).
+     *
+     * `pendingGrants` is in-memory, so a coordinator that replaces itself
+     * mid-wave comes back with none — and every frame the machines it granted
+     * send about that grant lands here as a mismatch and is dropped. That is
+     * the silence the flatblock investigation ran into: 6.5 minutes in which
+     * the server said nothing whatsoever about a machine its own operation was
+     * waiting on. Dropping the frame is still right; doing it without a trace
+     * was not.
+     */
+    if (grantMismatch && !recoveredTerminal) {
+      log.warn('update status dropped', {
+        machineId,
+        machine: machine.name,
+        because: 'grant-mismatch',
+        channel,
+        knownGrantId: pendingGrant?.grantId,
+        ...reported,
+      })
+      return
+    }
 
     const effectiveState =
       message.state === 'current' && pendingGrant !== undefined
@@ -746,6 +787,43 @@ export class UpdatesService {
      * `restarting` is worse than no number at all on a contract whose subject is
      * liveness.
      */
+    /**
+     * THE PHASE TIMELINE, DURABLY, AND ONLY WHERE IT MOVES (POD-3170).
+     *
+     * A machine's phases were visible only in the live panel, so once an update
+     * was over the question "how long did that machine spend downloading?" had
+     * no answer anywhere — which is why attributing a seven-minute update meant
+     * measuring an artifact route by hand.
+     *
+     * ON THE TRANSITION, not on the frame: the daemon heartbeats every two
+     * seconds whether or not anything moved, and a line per heartbeat per
+     * machine would bury the handful of instants that are the timeline. The
+     * percentage rides along on the transition it was current for; the panel
+     * remains where a live percentage is read.
+     *
+     * `sinceGrantMs` is the number the investigation actually needed, measured
+     * from the instant recorded by `update grant issued` above.
+     */
+    const previous = this.machineStates.get(machineId)
+    if (previous?.state !== effectiveState || previous?.version !== message.version) {
+      log.info('update machine phase', {
+        machineId,
+        machine: machine.name,
+        channel,
+        ...reported,
+        // AFTER the spread: `state` here is what this server RECORDED, which is
+        // not always what the machine said — a `current` report against an
+        // outstanding grant is read as `restarting`, and the difference between
+        // those two readings is the whole of how a wave decides it is finished.
+        state: effectiveState,
+        reportedState: message.state,
+        from: previous?.state,
+        targetVersion: target.version,
+        ...(pendingGrant
+          ? { grantId: pendingGrant.grantId, sinceGrantMs: this.deps.now() - pendingGrant.issuedAt }
+          : {}),
+      })
+    }
     this.machineStates.set(machineId, {
       channel,
       state: effectiveState,
@@ -1337,8 +1415,32 @@ export class UpdatesService {
         target,
         ...(this.deps.updatePubkey ? { updatePubkey: this.deps.updatePubkey() } : {}),
       }
-      this.deps.send(asMachineId(machineId), grant)
       const machine = machines.find((candidate) => candidate.id === machineId)
+      this.deps.send(asMachineId(machineId), grant)
+      /**
+       * THE MOMENT A GRANT LEFT THIS PROCESS (POD-3170).
+       *
+       * The only grant anything logged was the coordinator's own, because
+       * `local-participant.ts` logs on RECEIPT and a remote machine has no
+       * equivalent. So the one fact needed to attribute a slow update — when
+       * this machine was told to update, and under which grant id — existed
+       * nowhere. Reconstructing it afterwards took the wave-round records, and
+       * those are written AFTER the whole round, which is a different instant
+       * from the one a download is measured against.
+       *
+       * `coordinator` is on the line because granting it is the event that ends
+       * this server: every line after it belongs to a different process.
+       */
+      log.info('update grant issued', {
+        machineId,
+        ...(machine?.name ? { machine: machine.name } : {}),
+        grantId: grant.grantId,
+        channel,
+        targetVersion: target.version,
+        fromVersion: machine?.version,
+        ...(machine?.coordinator ? { coordinator: true } : {}),
+        ...(repair ? { repair: true } : {}),
+      })
       this.pendingGrants.set(machineId, {
         channel,
         grantId: grant.grantId,

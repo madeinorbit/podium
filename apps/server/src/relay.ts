@@ -571,6 +571,13 @@ export class SessionRegistry {
           state: 'current',
           online: machine.online,
           busy: false,
+          // THIS SERVER'S OWN HOST (POD-3170), so the planner can grant it last
+          // rather than restarting itself out from under a fleet mid-delivery.
+          // The host machine is the right answer in every topology: when a
+          // local participant owns it the parent hands over, and when the
+          // machine's own daemon owns it the process being replaced is this
+          // all-in-one. Both take this server with them.
+          ...(machine.id === machines.hostMachineId ? { coordinator: true } : {}),
           // Explicit source checkouts are visible machines, but they are not
           // package rollout targets. Unknown stays absent and therefore fails
           // toward visibility for older daemons.

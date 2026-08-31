@@ -93,6 +93,10 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
       })
       deps.updates.onStatus(deps.machineId, status)
     },
+    // The coordinator's own phase timings, on the same seam every other
+    // participant uses (POD-3170), so one update reads as one timeline whether
+    // the machine was this host or a remote daemon.
+    log: (event, fields) => log.info(event, fields),
     now,
   })
   // FOR THE LOG LINE ONLY — convergence is decided on the process identity
