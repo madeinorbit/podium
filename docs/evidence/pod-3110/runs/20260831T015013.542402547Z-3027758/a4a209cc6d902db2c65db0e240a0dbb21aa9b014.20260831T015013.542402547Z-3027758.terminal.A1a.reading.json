@@ -1,0 +1,21 @@
+{
+  "id": "A1a",
+  "arm": "terminal",
+  "verdict": "BLOCKED",
+  "summary": "probe threw before a positive control fired",
+  "control": {
+    "fired": false,
+    "what": "the cell-specific positive control",
+    "detail": "Error: executed Grok pin mismatch: {\"pid\":3028725,\"executable\":\"/home/mgw/.local/state/podium/p3110-grok-paired-a4a209c-r5/bin/abduco\",\"declaredExecutable\":\"/home/mgw/.grok/downloads/grok-linux-x86_64\",\"version\":\"grok 0.2.118 (1e1687c1cf) [stable]\",\"sha256\":\"0471e900b805328c7b4a122d784e15ea119a6445ed7e1d2f2ed58f9f99c968ae\",\"home\":\"/home/mgw/.local/state/podium/p3110-grok-paired-a4a209c-r5/agent-home\",\"forbiddenOverrides\":[\"GROK_HOME\",\"ABDUCO_SOCKET_DIR\"]}"
+  },
+  "evidence": [
+    "EXCEPTION         Error: executed Grok pin mismatch: {\"pid\":3028725,\"executable\":\"/home/mgw/.local/state/podium/p3110-grok-paired-a4a209c-r5/bin/abduco\",\"declaredExecutable\":\"/home/mgw/.grok/downloads/grok-linux-x86_64\",\"version\":\"grok 0.2.118 (1e1687c1cf) [stable]\",\"sha256\":\"0471e900b805328c7b4a122d784e15ea119a6445ed7e1d2f2ed58f9f99c968ae\",\"home\":\"/home/mgw/.local/state/podium/p3110-grok-paired-a4a209c-r5/agent-home\",\"forbiddenOverrides\":[\"GROK_HOME\",\"ABDUCO_SOCKET_DIR\"]}",
+    "PIN               PIN OK row=A1a arm=terminal instance=p3110-grok-paired-a4a209c-r5 serverPid=3027986 daemonPid=3028222 serverSha=a4a209cc6d902db2c65db0e240a0dbb21aa9b014 webSourceSha=057755c driver=no-runtime-override grokVersion='grok 0.2.118 (1e1687c1cf) [stable]' grokBinSha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 state=/home/mgw/.local/state/podium/p3110-grok-paired-a4a209c-r5 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+  ],
+  "data": {},
+  "cwd": "/tmp/pod-3110-grok-paired-a4a209c-r5/runs/20260831T015013.542402547Z-3027758/cells/terminal-a1a",
+  "memoryMb": 13726,
+  "pin": "PIN OK row=A1a arm=terminal instance=p3110-grok-paired-a4a209c-r5 serverPid=3027986 daemonPid=3028222 serverSha=a4a209cc6d902db2c65db0e240a0dbb21aa9b014 webSourceSha=057755c driver=no-runtime-override grokVersion='grok 0.2.118 (1e1687c1cf) [stable]' grokBinSha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 state=/home/mgw/.local/state/podium/p3110-grok-paired-a4a209c-r5 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [],
+  "at": "2026-08-31T01:50:30.367Z"
+}
