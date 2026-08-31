@@ -40,15 +40,10 @@ jobs:
         with: { bun-version: '1.3.14' }
       # zig cross-compiles the abduco helper. rcodesign re-signs Darwin Mach-Os with
       # Bun's JIT entitlements — it does not add the signature (Bun already did).
-      - uses: mlugg/setup-zig@v2
-        with: { version: '0.16.0' }
-      - name: Install rcodesign
-        run: sudo -E bash scripts/ci-install-rcodesign.sh
-      # pigz compresses the release tarballs in parallel — the slowest single build step,
-      # and this runner archives four platforms. Optional at build time (scripts/parallel-gzip.ts
-      # falls back to gzip), installed here because the saving is real.
-      - name: Install pigz
-        run: command -v pigz || (sudo apt-get update && sudo apt-get install -y pigz)
+      # All three versions come from mise.toml — the one pin site dev machines share.
+      # That includes pigz, the parallel compressor for the release tarballs (optional at
+      # build time; scripts/parallel-gzip.ts falls back to gzip if it is missing).
+      - uses: jdx/mise-action@v2
       # The abduco cache is content-addressed on the vendored source, so this key is the
       # honest one: touch abduco.c and every platform's helper is rebuilt. PODIUM_ABDUCO_CACHE_DIR
       # pins it back inside the checkout: locally the default is a durable per-repository
@@ -191,14 +186,10 @@ jobs:
       # prepared bytes. It skips the target build, but still packages the lane's
       # isolated coordinator and therefore needs the checkout-local release
       # toolchain. Edge never executes these setup steps or the proof.
-      - uses: mlugg/setup-zig@v2
+      - uses: jdx/mise-action@v2
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
-        with: { version: '0.16.0' }
       - uses: dtolnay/rust-toolchain@stable
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
-      - name: Install rcodesign for stable bridge proof
-        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
-        run: sudo -E bash scripts/ci-install-rcodesign.sh
       - name: Install checkout-local proof dependencies
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
         run: bun install --frozen-lockfile --ignore-scripts
@@ -282,10 +273,7 @@ jobs:
       # Mach-O signature reader — and zig, to rebuild the reference abduco helpers it
       # checks the published binaries against. Without those references the embedded-helper
       # check could only be waived, and a waived check reads as a pass.
-      - uses: mlugg/setup-zig@v2
-        with: { version: '0.16.0' }
-      - name: Install rcodesign
-        run: sudo -E bash scripts/ci-install-rcodesign.sh
+      - uses: jdx/mise-action@v2
       - uses: actions/cache@v4
         with:
           path: dist-bun/abduco-cache

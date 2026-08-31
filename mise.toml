@@ -1,0 +1,20 @@
+# Non-node build toolchain pins — the ONE place these versions are spelled.
+#
+# zig cross-compiles the abduco helper (scripts/abduco-cross.ts) and rcodesign re-signs
+# Darwin Mach-Os with Bun's JIT entitlements (scripts/build-bun.ts). Both change the bytes
+# a release ships, so they are pinned; scripts/tool-pins.ts reads this file and
+# resolveZig/resolveRcodesign refuse a mismatched local install. CI installs from this
+# file too (jdx/mise-action in .github/workflows/release.yml), so a bump here is the
+# whole bump — re-run the Darwin assertions when you make one.
+#
+# pigz is here for INSTALL convenience, not enforcement: it parallelises release-tarball
+# compression (scripts/parallel-gzip.ts) but stays optional at build time — a host without
+# it falls back to gzip, and resolvePigz never version-checks. The conda backend is used
+# because pigz publishes no binaries anywhere else; conda-forge ships it for linux and mac.
+#
+# Dev setup: `mise install` (https://mise.jdx.dev), or install the exact versions by hand.
+
+[tools]
+zig = "0.16.0"
+"github:indygreg/apple-platform-rs" = { version = "apple-codesign/0.29.0", exe = "rcodesign" }
+"conda:pigz" = "2.8"
