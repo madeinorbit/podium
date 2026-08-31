@@ -6,8 +6,8 @@
 # change to the signing step) without waiting for a physical Mac.
 #
 # The runner labels are the ones apps/desktop already releases on:
-#   blacksmith-6vcpu-macos-15  (Apple Silicon, macOS 15)
-#   macos-15-intel             (Intel, macOS 15)
+#   macos-15        (Apple Silicon, macOS 15)
+#   macos-15-intel  (Intel, macOS 15)
 #
 # Note: workflow_dispatch only resolves workflows that exist on the default branch, so
 # this file has to be merged to main before the Run-workflow button appears. Until then,
@@ -114,7 +114,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: blacksmith-6vcpu-macos-15
+          - runner: macos-15
             platform: darwin-arm64
             label: Apple Silicon (macOS 15)
           - runner: macos-15-intel
