@@ -92,8 +92,8 @@ const EXPECTED_STATE_DIR = process.env.P3110_STATE_DIR ?? (() => { throw new Err
 const EXPECTED_GROK_HOME = join(EXPECTED_AGENT_HOME, '.grok')
 const EXPECTED_ABDUCO_SOCKET_DIR = process.env.P3110_ABDUCO_SOCKET_DIR ?? (() => { throw new Error('P3110_ABDUCO_SOCKET_DIR is required') })()
 
-const INSTANCE = 'p3110-grok-paired-a4a209c-r8'
-const PRODUCT_PIN = 'a4a209cc6d902db2c65db0e240a0dbb21aa9b014'
+const INSTANCE = 'p3110-grok-paired-2ac84c5-r9'
+const PRODUCT_PIN = '2ac84c5086338d03a8d5bb5fc96a2f2dc3d95303'
 const RUN_TOKEN = process.env.P3110_RUN_TOKEN ?? (() => { throw new Error('P3110_RUN_TOKEN is required') })()
 const EVIDENCE_DIR = process.env.PODIUM_EVIDENCE_DIR ?? (() => { throw new Error('PODIUM_EVIDENCE_DIR is required') })()
 const CELL_ROOT = join(DRIVE_BASE, 'runs', RUN_TOKEN, 'cells')

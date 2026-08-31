@@ -1,6 +1,6 @@
 # POD-3110 Grok paired final-tip instrument
 
-Static preflight instrument for journey `grok-paired-final-tip`. Product/server/daemon are pinned to `a4a209cc6d902db2c65db0e240a0dbb21aa9b014`; the web artifact remains at `057755c77a6bdfdf01aa526d968562b0316e78df` because `git diff 057755c77..a4a209cc -- apps/web` is empty. Grok is pinned to `grok 0.2.118 (1e1687c1cf) [stable]`, binary SHA-256 `c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6`.
+Static preflight instrument for journey `grok-paired-final-tip`. Product/server/daemon are pinned to `2ac84c5086338d03a8d5bb5fc96a2f2dc3d95303`; the web artifact remains at `057755c77a6bdfdf01aa526d968562b0316e78df` because `git diff 057755c77..2ac84c5 -- apps/web` is empty. Grok is pinned to `grok 0.2.118 (1e1687c1cf) [stable]`, binary SHA-256 `c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6`.
 Product dependency provenance: `bun.lock` SHA-256 `a1acc741d62d99b4146d5989a06a50ce494a9e93219b59e49af3ac4307430791`; launch requires root `node_modules` to be a real checkout-local topology directory and verifies the server and daemon package-local `@podium` links actually consumed at launch resolve inside this checkout.
 
 The web artifact was prepared at `2026-08-31T01:06:47+02:00` from detached immutable checkout `057755c77a6bdfdf01aa526d968562b0316e78df`. The build stamp and manifest both name `057755c`; all 659 manifested payload hashes passed, and the complete 660-file, 38,601,248-byte copied tree matched the source tree byte-for-byte. The sorted complete-tree SHA-256 inventory digest is `7295f6c213957bf76c9fcc2dc2429a2e715c92d2c6a5c43434ceba02c059b952`. The initially inspected integration/32090 source was rejected without modification because its existing stamp named stale source `70fa13c`. The exact build held `test:heavy` only while installing checkout-local dependencies and building; its EXIT trap released the lease, which was confirmed free afterward.
@@ -9,7 +9,7 @@ This commit contains no live readings. Do not run it until POD-1761 explicitly r
 
 ## Isolation and arm contract
 
-The current named instance is `p3110-grok-paired-a4a209c-r8`; the product derives its isolated state root, agent home, and ports. The prior r1/r2/r3/r4/r5/r6/r7 state roots and run files are retained unchanged as refusal evidence and are never reused. The launch path inherits `HOME` and assigns none of `HOME`, `PODIUM_STATE_DIR`, `ABDUCO_SOCKET_DIR`, or `PODIUM_RUNTIME_DRIVER`. It scrubs inherited relay/default-instance variables, refuses ports 19797 and 32090 through the product-derived port check, and uses a unique cwd per cell.
+The current named instance is `p3110-grok-paired-2ac84c5-r9`; the product derives its isolated state root, agent home, and ports. The prior r1/r2/r3/r4/r5/r6/r7 state roots and run files are retained unchanged as refusal evidence and are never reused. The launch path inherits `HOME` and assigns none of `HOME`, `PODIUM_STATE_DIR`, `ABDUCO_SOCKET_DIR`, or `PODIUM_RUNTIME_DRIVER`. It scrubs inherited relay/default-instance variables, refuses ports 19797 and 32090 through the product-derived port check, and uses a unique cwd per cell.
 
 The terminal arm creates sessions without a runtime selection and refuses unless the observed binding is `generic-pty` / `terminal` with no requested driver. The experimental arm creates each session with explicit `runtimeContract: 'grok-acp'` and refuses unless requested and observed driver are both `grok-acp` / `server`.
 
@@ -50,5 +50,5 @@ Every JSON result carries an ISO timestamp, measured latency, pin transcript, ce
 
 ## Targeted cleanup
 
-The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-a4a209c-r8`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
+The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-2ac84c5-r9`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
 The atomic headed wrapper is the sole exception to the no-access statement: it reads only `$HOME/.podium/instance.json` metadata and bytes before and after the isolated run, never writes that marker, and refuses a missing or changed marker.

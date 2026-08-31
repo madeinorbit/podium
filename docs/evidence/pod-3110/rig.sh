@@ -11,14 +11,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-INSTANCE="p3110-grok-paired-a4a209c-r8"
-DRIVE_BASE="/tmp/pod-3110-grok-paired-a4a209c-r8"
+INSTANCE="p3110-grok-paired-2ac84c5-r9"
+DRIVE_BASE="/tmp/pod-3110-grok-paired-2ac84c5-r9"
 RUN_TOKEN="${P3110_RUN_TOKEN:?source rig-env.sh to set an immutable UTC run token}"
 RUN_DIR="$DRIVE_BASE/runs/$RUN_TOKEN"
 LOGS="$RUN_DIR/logs"
 WEB="$REPO/apps/web/dist"
 BUN="/home/mgw/.bun/bin/bun"
-PASSWORD="p3110-grok-paired-a4a209c-r8-proof"
+PASSWORD="p3110-grok-paired-2ac84c5-r9-proof"
 NORMAL_HOME="${HOME:?HOME must be inherited from the operator environment}"
 
 export PATH="/home/mgw/.bun/bin:/home/mgw/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
@@ -65,7 +65,7 @@ static_self_test() {
 }
 
 validate_immutable_inputs() {
-  local want=a4a209cc6d902db2c65db0e240a0dbb21aa9b014 web_want=057755c stamp hash
+  local want=2ac84c5086338d03a8d5bb5fc96a2f2dc3d95303 web_want=057755c stamp hash
   git -C "$REPO" merge-base --is-ancestor "$want" HEAD || { log "PREFLIGHT FAIL product pin is not an ancestor" >&2; return 1; }
   git -C "$REPO" diff --quiet "$want" HEAD -- . ':(exclude)docs/**' || { log "PREFLIGHT FAIL product bytes differ from exact pin" >&2; return 1; }
   [ -f "$WEB/podium-build.json" ] || { log "PREFLIGHT FAIL web bundle missing" >&2; return 1; }
@@ -185,7 +185,7 @@ start_component() {
   printf '%s\n' "$pid" >"$RUN_DIR/$name.pid"
   # This is the pin: record the checkout SHA at the same moment the process is
   # spawned.  Never infer it from /proc mtimes.
-  printf '%s\n' a4a209cc6d902db2c65db0e240a0dbb21aa9b014 >"$RUN_DIR/$name.sha"
+  printf '%s\n' 2ac84c5086338d03a8d5bb5fc96a2f2dc3d95303 >"$RUN_DIR/$name.sha"
   git -C "$REPO" rev-parse HEAD >"$RUN_DIR/$name.harness-sha"
   log "started $name pid=$pid at $(cut -c1-7 "$RUN_DIR/$name.sha")"
 }
@@ -313,7 +313,7 @@ verify() {
   local arm="${1:?verify arm row}"
   local row="${2:?verify arm row}"
   local want_sha want_short stamp web_sha server_pid daemon_pid
-  want_sha=a4a209cc6d902db2c65db0e240a0dbb21aa9b014
+  want_sha=2ac84c5086338d03a8d5bb5fc96a2f2dc3d95303
   git -C "$REPO" merge-base --is-ancestor "$want_sha" HEAD || { log "PIN FAIL ancestry"; return 1; }
   git -C "$REPO" diff --quiet "$want_sha" HEAD -- . ':(exclude)docs/**' || { log "PIN FAIL product bytes"; return 1; }
   [ "$(sha256sum /home/mgw/.grok/downloads/grok-linux-x86_64 | awk '{print $1}')" = c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 ] || { log "PIN FAIL grok binary"; return 1; }
