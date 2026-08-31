@@ -25,8 +25,10 @@ import type { FlightDeckDisplay } from './flight-deck-display'
 import {
   buildWaterfallTimelineFromStart,
   formatWaterfallDuration,
+  WATERFALL_NOW_PERCENT,
   waterfallAxisTicks,
   waterfallInterval,
+  waterfallSessionState,
   waterfallTimelineStart,
 } from './flight-deck-waterfall'
 
@@ -35,6 +37,12 @@ interface WaterfallIssueRow {
   displayTitle: string
   sessions: SessionMeta[]
   root: boolean
+}
+
+interface WaterfallFuture {
+  label: string
+  detail?: string
+  state: 'attention' | 'blocked' | 'future'
 }
 
 interface FlightDeckWaterfallProps {
@@ -60,16 +68,18 @@ interface FlightDeckWaterfallProps {
   onRenameDone: () => void
 }
 
-function issueFutureLabel(row: FlightDeckRow): string | null {
+function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
   const issue = row.issue
   const question = issue.humanQuestion?.trim()
-  if (question) return `Waiting for operator: ${question}`
+  if (question) return { label: 'Needs you', detail: question, state: 'attention' }
   const blocked = issue.blockedByNotes?.map((note) => note.trim()).find(Boolean)
-  if (blocked) return `Blocked: ${blocked}`
+  if (blocked) return { label: 'Blocked', detail: blocked, state: 'blocked' }
   const dependency = issue.dependencyNote?.trim()
-  if (dependency) return `Waiting: ${dependency}`
-  if (issue.stage === 'proposed') return 'Known next step · unassigned'
-  if (row.sessions.length === 0 && issue.stage !== 'done') return 'Unassigned'
+  if (dependency) return { label: 'Waiting', detail: dependency, state: 'blocked' }
+  if (issue.stage === 'proposed')
+    return { label: 'Known next step', detail: 'Unassigned', state: 'future' }
+  if (row.sessions.length === 0 && issue.stage !== 'done')
+    return { label: 'Unassigned', state: 'future' }
   return null
 }
 
@@ -94,7 +104,10 @@ const WaterfallAxis = memo(function WaterfallAxis({
   return (
     <>
       <div className="waterfall-axis">
-        <span className="waterfall-axis-title">Task / session</span>
+        <span className="waterfall-axis-title">
+          <span className="waterfall-axis-title-full">Task / accountable lead</span>
+          <span className="waterfall-axis-title-compact">Task</span>
+        </span>
         <div className="waterfall-axis-track" aria-hidden="true">
           {ticks.map((tick) => (
             <span key={tick.left} style={{ left: `${tick.left}%` }}>
@@ -103,6 +116,12 @@ const WaterfallAxis = memo(function WaterfallAxis({
           ))}
           <span className="waterfall-axis-now" style={{ left: `${timeline.nowPercent}%` }}>
             Now
+          </span>
+          <span
+            className="waterfall-axis-future"
+            style={{ left: `${timeline.nowPercent + (100 - timeline.nowPercent) / 2}%` }}
+          >
+            Known next
           </span>
         </div>
       </div>
@@ -178,6 +197,8 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
     '--waterfall-left': `${interval.left}%`,
     '--waterfall-width': `${interval.width}%`,
   } as CSSProperties
+  const tight = interval.width < 12
+  const showDuration = interval.width >= 22
   return (
     <div
       className="waterfall-session-lane"
@@ -209,6 +230,9 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
             data-clipped-start={interval.clippedStart || undefined}
             data-pointed={pointed || undefined}
             data-unread={unread || undefined}
+            data-coordinator={coordinator || undefined}
+            data-tight={tight || undefined}
+            data-show-duration={showDuration || undefined}
             aria-label={label}
             aria-pressed={selected}
             onClick={() =>
@@ -288,7 +312,12 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
           })}
         </div>
       ) : null}
-      {reason ? <span className="waterfall-wait-reason">{reason}</span> : null}
+      {reason ? (
+        <span className="waterfall-wait-reason" title={reason} aria-label={`Needs you: ${reason}`}>
+          <strong>Needs you</strong>
+          <span>{reason}</span>
+        </span>
+      ) : null}
       {menuAnchor ? (
         <SessionContextMenu
           session={session}
@@ -300,6 +329,76 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
           }}
         />
       ) : null}
+    </div>
+  )
+})
+
+const WaterfallHistorySummary = memo(function WaterfallHistorySummary({
+  sessions,
+  timelineStart,
+  expanded,
+  onToggle,
+}: {
+  sessions: readonly SessionMeta[]
+  timelineStart: number | null
+  expanded: boolean
+  onToggle: () => void
+}): JSX.Element {
+  const now = useStoreSelector((store) => store.coarseNow)
+  const timeline = useMemo(
+    () => buildWaterfallTimelineFromStart(timelineStart, now),
+    [now, timelineStart],
+  )
+  const bounds = useMemo(() => {
+    let left = timeline.nowPercent
+    let right = 0
+    let startedAt = timeline.now
+    let endedAt = timeline.start
+    for (const session of sessions) {
+      const interval = waterfallInterval(session, timeline)
+      left = Math.min(left, interval.left)
+      right = Math.max(right, interval.left + interval.width)
+      startedAt = Math.min(startedAt, interval.start)
+      endedAt = Math.max(endedAt, interval.end)
+    }
+    return {
+      left,
+      width: Math.max(1.25, right - left),
+      duration: Math.max(0, endedAt - startedAt),
+    }
+  }, [sessions, timeline])
+  const count = sessions.length
+  const label = `${count} completed session${count === 1 ? '' : 's'} · ${formatWaterfallDuration(bounds.duration)} span`
+  return (
+    <div
+      className="waterfall-session-lane waterfall-history-lane"
+      style={
+        {
+          '--waterfall-left': `${bounds.left}%`,
+          '--waterfall-width': `${bounds.width}%`,
+        } as CSSProperties
+      }
+    >
+      <button
+        data-pressable
+        type="button"
+        className="waterfall-session-bar waterfall-history-summary"
+        data-open={expanded || undefined}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
+        title={label}
+        onClick={onToggle}
+      >
+        {expanded ? (
+          <ChevronDown size={10} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={10} aria-hidden="true" />
+        )}
+        <span className="waterfall-session-name">{count} completed</span>
+        <span className="waterfall-session-time font-mono tabular-nums">
+          {formatWaterfallDuration(bounds.duration)}
+        </span>
+      </button>
     </div>
   )
 })
@@ -336,9 +435,43 @@ const WaterfallIssue = memo(function WaterfallIssue({
   onRenameDone: () => void
 }): JSX.Element {
   const intent = useClickIntent()
-  const future = issueFutureLabel(item.row)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const future = issueFuture(item.row)
   const foldable = !item.root && (item.row.descendantIds.length > 0 || item.row.sessions.length > 0)
   const indent = item.root ? 0 : Math.max(0, item.row.depth - 1)
+  const issueRef = issueDisplayRef(item.row.issue)
+  const coordinator = item.sessions.find((session) =>
+    isCoordinatorSession(item.row.issue, session.sessionId),
+  )
+  const sessionCount = item.sessions.length
+  const issueTitle =
+    item.root && item.row.descendantIds.length > 0 ? 'Mission coordination' : item.displayTitle
+  const issueMeta = [
+    issueRef,
+    sessionCount > 0 ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : null,
+    coordinator ? sessionDisplayName(coordinator) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const foldedHistory = useMemo(
+    () =>
+      item.sessions.filter(
+        (session) =>
+          waterfallSessionState(session) === 'finished' &&
+          !isCoordinatorSession(item.row.issue, session.sessionId) &&
+          session.sessionId !== activeSessionId,
+      ),
+    [activeSessionId, item.row.issue, item.sessions],
+  )
+  const historyCollapsed = foldedHistory.length > 3
+  const foldedIds = useMemo(
+    () => new Set(foldedHistory.map((session) => session.sessionId)),
+    [foldedHistory],
+  )
+  const visibleSessions =
+    historyCollapsed && !historyOpen
+      ? item.sessions.filter((session) => !foldedIds.has(session.sessionId))
+      : item.sessions
   return (
     <div
       className="waterfall-issue-row"
@@ -381,6 +514,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
             type="button"
             className="waterfall-issue-open"
             aria-current={focused ? 'true' : undefined}
+            title={`${issueRef} · ${item.displayTitle}`}
             onClick={() =>
               intent.press(
                 () => onSelectIssue(false),
@@ -393,8 +527,8 @@ const WaterfallIssue = memo(function WaterfallIssue({
               intent.commit(() => onSelectIssue(true))
             }}
           >
-            <span className="waterfall-issue-ref font-mono">{issueDisplayRef(item.row.issue)}</span>
-            <span className="waterfall-issue-title">{item.displayTitle}</span>
+            <span className="waterfall-issue-title">{issueTitle}</span>
+            <span className="waterfall-issue-meta font-mono">{issueMeta}</span>
           </button>
         )}
         <Button
@@ -409,22 +543,38 @@ const WaterfallIssue = memo(function WaterfallIssue({
       </div>
       <div className="waterfall-track-cell">
         {item.sessions.length > 0 ? (
-          item.sessions.map((session) => (
-            <WaterfallSessionBar
-              key={session.sessionId}
-              row={item.row}
-              session={session}
-              timelineStart={timelineStart}
-              selected={session.sessionId === activeSessionId}
-              onOpen={(permanent) => onSelectSession(session, permanent)}
-              onOpenNative={() => onSelectNative(session)}
-            />
-          ))
+          <>
+            {historyCollapsed ? (
+              <WaterfallHistorySummary
+                sessions={foldedHistory}
+                timelineStart={timelineStart}
+                expanded={historyOpen}
+                onToggle={() => setHistoryOpen((open) => !open)}
+              />
+            ) : null}
+            {visibleSessions.map((session) => (
+              <WaterfallSessionBar
+                key={session.sessionId}
+                row={item.row}
+                session={session}
+                timelineStart={timelineStart}
+                selected={session.sessionId === activeSessionId}
+                onOpen={(permanent) => onSelectSession(session, permanent)}
+                onOpenNative={() => onSelectNative(session)}
+              />
+            ))}
+          </>
         ) : future ? (
-          <span className="waterfall-future-label">{future}</span>
-        ) : (
-          <span className="waterfall-empty-label">No session</span>
-        )}
+          <span
+            className="waterfall-future-label"
+            data-state={future.state}
+            title={[future.label, future.detail].filter(Boolean).join(': ')}
+            aria-label={[future.label, future.detail].filter(Boolean).join(': ')}
+          >
+            <strong>{future.label}</strong>
+            {future.detail ? <span>{future.detail}</span> : null}
+          </span>
+        ) : null}
       </div>
     </div>
   )
@@ -472,6 +622,7 @@ export function FlightDeckWaterfall({
       className={cn('flight-waterfall', display === 'expanded' && 'flight-waterfall-expanded')}
       data-testid="flight-deck-waterfall"
       data-display={display}
+      style={{ '--waterfall-now': `${WATERFALL_NOW_PERCENT}%` } as CSSProperties}
     >
       <WaterfallAxis timelineStart={timelineStart} />
       <div className="waterfall-rows" data-testid="flight-deck-rows">

@@ -1,8 +1,8 @@
 import { motionPhase, sessionNeedsHuman, sessionSettled } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 
-export const WATERFALL_NOW_PERCENT = 78
-export const WATERFALL_MIN_WINDOW_MS = 30 * 60 * 1_000
+export const WATERFALL_NOW_PERCENT = 72
+export const WATERFALL_MIN_WINDOW_MS = 5 * 60 * 1_000
 export const WATERFALL_MAX_WINDOW_MS = 48 * 60 * 60 * 1_000
 
 export type WaterfallSessionState = 'finished' | 'live' | 'working' | 'attention'
@@ -47,7 +47,7 @@ export function waterfallSessionEnd(session: SessionMeta, now: number): number {
 /**
  * A bounded history window keeps the Now line fixed while a long-running epic
  * remains usable. Old spans clip at the left edge instead of compressing recent
- * work into a few pixels. The remaining 22 percent is reserved for dependency
+ * work into a few pixels. The remaining region is reserved for dependency
  * and waiting labels, never fabricated durations.
  */
 export function waterfallTimelineStart(sessions: readonly SessionMeta[]): number | null {

@@ -9602,10 +9602,10 @@ a.ref-link--session::before {
 
 /* ── MISSION WATERFALL ──────────────────────────────────────────────────────
    Formal issues keep the tree's stable vertical order. Sessions occupy real
-   elapsed spans within their owning issue, while the final 22% remains beyond
+   elapsed spans within their owning issue, while the remaining region sits beyond
    the single Now line for facts about known future work. */
 .flight-waterfall {
-  --waterfall-label-col: 138px;
+  --waterfall-label-col: 124px;
   position: relative;
   min-width: 0;
   border-bottom: 1px solid var(--hairline-soft);
@@ -9613,7 +9613,7 @@ a.ref-link--session::before {
   container-name: flight-waterfall;
 }
 .flight-waterfall-expanded {
-  --waterfall-label-col: 214px;
+  --waterfall-label-col: 150px;
 }
 .waterfall-axis,
 .waterfall-issue-row,
@@ -9625,7 +9625,7 @@ a.ref-link--session::before {
   position: sticky;
   top: var(--waterfall-chrome-offset, 0);
   z-index: 4;
-  min-height: 26px;
+  min-height: 28px;
   border-bottom: 1px solid var(--hairline-soft);
   background: color-mix(in srgb, var(--card) 94%, transparent);
   color: var(--text-faint);
@@ -9637,9 +9637,12 @@ a.ref-link--session::before {
 .waterfall-axis-title {
   display: flex;
   align-items: center;
-  padding-inline: 8px;
+  padding-inline: 9px;
   border-right: 1px solid var(--hairline-soft);
   text-transform: uppercase;
+}
+.waterfall-axis-title-compact {
+  display: none;
 }
 .waterfall-axis-track {
   position: relative;
@@ -9647,7 +9650,7 @@ a.ref-link--session::before {
 }
 .waterfall-axis-track > span {
   position: absolute;
-  top: 7px;
+  top: 8px;
   translate: -50% 0;
   white-space: nowrap;
 }
@@ -9661,10 +9664,15 @@ a.ref-link--session::before {
   text-transform: uppercase;
   translate: -50% 0;
 }
+.waterfall-axis-track .waterfall-axis-future {
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .waterfall-now-line {
   position: absolute;
   z-index: 1;
-  inset: 26px 0 0;
+  inset: 28px 0 0;
   pointer-events: none;
 }
 .waterfall-now-line::after {
@@ -9680,25 +9688,26 @@ a.ref-link--session::before {
   z-index: 2;
 }
 .waterfall-issue-row {
-  min-height: 36px;
+  min-height: 34px;
   border-bottom: 1px solid var(--hairline-soft);
   content-visibility: auto;
-  contain-intrinsic-size: auto 48px;
+  contain-intrinsic-size: auto 42px;
 }
 .waterfall-issue-row:last-child {
   border-bottom: 0;
-}
-.waterfall-issue-row[data-focused="true"] {
-  background: color-mix(in srgb, var(--issue) calc(8 * var(--issue-tint-scale, 1%)), transparent);
 }
 .waterfall-issue-cell {
   position: relative;
   display: flex;
   min-width: 0;
-  align-items: flex-start;
+  align-items: center;
   gap: 3px;
-  padding: 7px 4px 7px calc(5px + var(--waterfall-depth) * 12px);
+  padding: 5px 4px 5px calc(5px + var(--waterfall-depth) * 12px);
   border-right: 1px solid var(--hairline-soft);
+  background: color-mix(in srgb, var(--panel) 44%, transparent);
+}
+.waterfall-issue-row[data-focused="true"] .waterfall-issue-cell {
+  background: color-mix(in srgb, var(--issue) calc(12 * var(--issue-tint-scale, 1%)), var(--panel));
 }
 .waterfall-tree-guides {
   position: absolute;
@@ -9707,6 +9716,14 @@ a.ref-link--session::before {
   width: 1px;
   background: color-mix(in srgb, var(--issue) 38%, var(--hairline-soft));
   opacity: min(1, var(--waterfall-depth));
+}
+.waterfall-tree-guides::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--issue) 38%, var(--hairline-soft));
 }
 .waterfall-fold {
   display: inline-flex;
@@ -9726,23 +9743,26 @@ button.waterfall-fold:hover {
   flex: 1;
   flex-direction: column;
   align-items: flex-start;
-  gap: 1px;
-  padding-top: 1px;
+  gap: 2px;
   text-align: left;
 }
-.waterfall-issue-ref {
+.waterfall-issue-meta {
+  width: 100%;
+  overflow: hidden;
   color: var(--text-faint);
-  font-size: 8.5px;
+  font-size: 8px;
   font-variant-numeric: tabular-nums;
-  line-height: 1.15;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .waterfall-issue-title {
   width: 100%;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 500;
-  line-height: 1.25;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -9751,8 +9771,17 @@ button.waterfall-fold:hover {
   font-weight: 600;
 }
 .waterfall-issue-menu {
-  flex: none;
-  margin-top: -1px;
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  right: 2px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+}
+.waterfall-issue-cell:hover .waterfall-issue-menu,
+.waterfall-issue-cell:focus-within .waterfall-issue-menu {
+  opacity: 1;
 }
 .waterfall-track-cell {
   position: relative;
@@ -9760,8 +9789,8 @@ button.waterfall-fold:hover {
   min-width: 0;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
-  padding-block: 5px;
+  gap: 2px;
+  padding-block: 4px;
   overflow: hidden;
 }
 .waterfall-track-cell::before {
@@ -9781,13 +9810,13 @@ button.waterfall-fold:hover {
     var(--hairline-soft) 75%,
     transparent calc(75% + 0.5px)
   );
-  background-size: 78% 100%;
+  background-size: var(--waterfall-now) 100%;
   background-repeat: no-repeat;
   opacity: 0.55;
 }
 .waterfall-session-lane {
   position: relative;
-  min-height: 22px;
+  min-height: 20px;
 }
 .waterfall-session-bar {
   position: absolute;
@@ -9796,59 +9825,69 @@ button.waterfall-fold:hover {
   left: var(--waterfall-left);
   display: flex;
   width: var(--waterfall-width);
-  min-width: 24px;
-  max-width: calc(78% - var(--waterfall-left));
-  height: 22px;
+  min-width: 18px;
+  max-width: calc(var(--waterfall-now) - var(--waterfall-left));
+  height: 18px;
   align-items: center;
   gap: 4px;
   overflow: hidden;
-  padding: 0 24px 0 5px;
-  border: 1px solid var(--border-strong);
+  padding: 0 5px;
+  border: 0;
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--text-faint) 10%, var(--bar));
+  background: color-mix(in srgb, var(--text-faint) 12%, var(--bar));
   color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--hairline-bar);
   text-align: left;
   transition:
-    border-color 120ms ease-out,
-    background-color 120ms ease-out;
+    background-color 120ms ease-out,
+    box-shadow 120ms ease-out,
+    opacity 120ms ease-out;
 }
 .waterfall-session-lane[data-has-native="true"] .waterfall-session-bar {
-  padding-right: 43px;
+  padding-right: 24px;
 }
 .waterfall-session-bar[data-clipped-start="true"] {
-  border-left-style: dashed;
+  border-left: 1px dashed var(--text-faint);
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
 }
 .waterfall-session-bar[data-state="working"] {
-  border-color: color-mix(in srgb, var(--motion-working) 70%, var(--border-strong));
-  background: color-mix(in srgb, var(--motion-working) 18%, var(--bar));
+  background: color-mix(in srgb, var(--motion-working) 28%, var(--bar));
   color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--motion-working) 62%, transparent);
 }
 .waterfall-session-bar[data-state="live"] {
-  border-color: color-mix(in srgb, var(--motion-working) 38%, var(--border-strong));
-  background: color-mix(in srgb, var(--motion-working) 8%, var(--bar));
+  background: color-mix(in srgb, var(--motion-working) 14%, var(--bar));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--motion-working) 34%, transparent);
 }
 .waterfall-session-bar[data-state="attention"] {
-  border-color: color-mix(in srgb, var(--attention) 68%, var(--border-strong));
-  background: color-mix(in srgb, var(--attention) 13%, var(--bar));
+  background: color-mix(in srgb, var(--attention) 15%, var(--bar));
   color: var(--attention);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 66%, transparent);
 }
 .waterfall-session-bar[data-state="finished"] {
-  border-color: var(--hairline-bar);
-  background: color-mix(in srgb, var(--text-faint) 6%, var(--bar));
-  color: var(--text-dim);
+  background: color-mix(in srgb, var(--info) 48%, var(--bar));
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info) 60%, transparent);
+  opacity: 0.72;
 }
 .waterfall-session-bar:hover {
-  border-color: var(--text-dim);
   background: color-mix(in srgb, var(--text-muted) 12%, var(--bar));
+  box-shadow: inset 0 0 0 1px var(--text-dim);
+  opacity: 1;
 }
 .waterfall-session-bar[data-selected="true"] {
-  border-color: var(--issue);
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--issue) 72%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--issue),
+    inset 0 -2px 0 color-mix(in srgb, var(--issue) 72%, transparent);
+  opacity: 1;
+}
+.waterfall-session-bar[data-coordinator="true"]:not([data-selected="true"]) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--issue) 68%, transparent);
 }
 .waterfall-session-lane[data-pointed="true"] .waterfall-session-bar:not([data-selected="true"]) {
-  border-color: var(--flow);
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--flow) 56%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--flow),
+    inset 0 -2px 0 color-mix(in srgb, var(--flow) 56%, transparent);
 }
 .waterfall-session-lane[data-unread="true"] .waterfall-session-name {
   color: var(--text-strong);
@@ -9867,7 +9906,7 @@ button.waterfall-fold:hover {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: 9px;
   font-weight: 500;
   line-height: 1;
   text-overflow: ellipsis;
@@ -9875,8 +9914,30 @@ button.waterfall-fold:hover {
 }
 .waterfall-session-time {
   flex: none;
-  font-size: 8.5px;
+  display: none;
+  font-size: 8px;
   line-height: 1;
+}
+.waterfall-session-bar[data-show-duration="true"] .waterfall-session-time {
+  display: inline;
+}
+.waterfall-session-bar[data-tight="true"] > :first-child,
+.waterfall-session-bar[data-tight="true"] .waterfall-session-name,
+.waterfall-session-bar[data-tight="true"] .waterfall-session-time,
+.waterfall-session-bar[data-tight="true"] .waterfall-unread-dot {
+  display: none;
+}
+.waterfall-history-summary {
+  background: var(--chip);
+  color: var(--text-dim);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.waterfall-history-summary[data-open="true"] {
+  background: color-mix(in srgb, var(--info) 10%, var(--chip));
+  color: var(--text-muted);
+}
+.waterfall-history-summary .waterfall-session-time {
+  display: inline;
 }
 .waterfall-session-time {
   color: currentColor;
@@ -9892,21 +9953,21 @@ button.waterfall-fold:hover {
 .waterfall-session-tools {
   position: absolute;
   z-index: 4;
-  top: 1px;
+  top: 0;
   left: calc(var(--waterfall-left) + var(--waterfall-width));
   display: flex;
-  height: 20px;
+  height: 18px;
   align-items: center;
   gap: 1px;
   padding-inline: 1px;
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bar) 88%, transparent);
+  background: color-mix(in srgb, var(--bar) 92%, transparent);
   transform: translateX(-100%);
 }
 .waterfall-native-toggle,
 .waterfall-session-menu {
   display: inline-flex;
-  height: 18px;
+  height: 16px;
   flex: none;
   align-items: center;
   justify-content: center;
@@ -9914,15 +9975,21 @@ button.waterfall-fold:hover {
   color: var(--text-faint);
 }
 .waterfall-native-toggle {
-  min-width: 18px;
+  min-width: 16px;
   padding-inline: 3px;
   font-family: var(--font-mono);
   font-size: 8px;
   line-height: 1;
 }
 .waterfall-session-menu {
-  width: 18px;
-  min-width: 18px;
+  width: 16px;
+  min-width: 16px;
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+}
+.waterfall-session-lane:hover .waterfall-session-menu,
+.waterfall-session-lane:focus-within .waterfall-session-menu {
+  opacity: 1;
 }
 .waterfall-native-toggle[aria-expanded="true"],
 .waterfall-native-toggle:hover,
@@ -9937,8 +10004,8 @@ button.waterfall-fold:hover {
   left: var(--waterfall-left);
   width: var(--waterfall-width);
   min-width: 96px;
-  height: 22px;
-  padding: 2px 4px;
+  height: 20px;
+  padding: 1px 4px;
   border: 1px solid var(--issue);
   border-radius: var(--radius-md);
   background: var(--bar);
@@ -9947,12 +10014,12 @@ button.waterfall-fold:hover {
   position: relative;
   z-index: 2;
   display: flex;
-  width: calc(78% - var(--waterfall-left));
+  width: calc(var(--waterfall-now) - var(--waterfall-left));
   min-width: 120px;
   flex-direction: column;
   gap: 1px;
   margin-left: var(--waterfall-left);
-  padding-top: 25px;
+  padding-top: 21px;
   padding-left: 8px;
   border-left: 1px solid var(--hairline-soft);
 }
@@ -9985,50 +10052,133 @@ button.waterfall-fold:hover {
 .waterfall-wait-reason {
   position: absolute;
   z-index: 3;
-  top: 4px;
-  left: calc(var(--waterfall-left) + var(--waterfall-width) + 5px);
-  max-width: calc(78% - var(--waterfall-left) - var(--waterfall-width) - 8px);
+  top: 1px;
+  left: calc(var(--waterfall-left) + var(--waterfall-width) + 4px);
+  display: flex;
+  max-width: calc(100% - var(--waterfall-left) - var(--waterfall-width) - 8px);
+  height: 18px;
+  align-items: center;
+  gap: 4px;
   overflow: hidden;
+  padding-inline: 5px;
+  border: 1px solid color-mix(in srgb, var(--attention) 52%, var(--hairline-soft));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--attention) 9%, var(--bar));
   color: var(--attention);
-  font-size: 9px;
-  line-height: 1.4;
+  font-size: 8px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.waterfall-future-label,
-.waterfall-empty-label {
-  position: relative;
-  z-index: 2;
-  align-self: flex-start;
-  color: var(--text-faint);
+.waterfall-wait-reason strong {
+  flex: none;
   font-family: var(--font-mono);
-  font-size: 8.5px;
-  line-height: 1.35;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.waterfall-wait-reason span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+}
+.waterfall-session-lane:has(.waterfall-wait-reason)::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 9px;
+  left: calc(var(--waterfall-left) + var(--waterfall-width));
+  width: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--attention) 52%, transparent);
 }
 .waterfall-future-label {
-  max-width: 21%;
-  margin-left: 79%;
-  padding: 2px 4px;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  max-width: calc(100% - var(--waterfall-now) - 10px);
+  min-height: 18px;
+  align-items: center;
+  gap: 4px;
+  margin-left: calc(var(--waterfall-now) + 5px);
+  padding: 1px 5px;
+  overflow: hidden;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-md);
-  overflow-wrap: anywhere;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 14px;
+  white-space: nowrap;
 }
-.waterfall-empty-label {
-  margin-left: 5px;
+.waterfall-future-label strong {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+.waterfall-future-label span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.waterfall-future-label[data-state="attention"] {
+  border-color: color-mix(in srgb, var(--attention) 58%, var(--hairline-soft));
+  background: color-mix(in srgb, var(--attention) 8%, var(--bar));
+}
+.waterfall-future-label[data-state="attention"] strong {
+  color: var(--attention);
+}
+.waterfall-future-label[data-state="blocked"] strong {
+  color: var(--text-muted);
+}
+.waterfall-track-cell:has(.waterfall-future-label)::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: var(--waterfall-now);
+  width: 5px;
+  border-top: 1px dashed var(--border-strong);
 }
 
 @container flight-waterfall (max-width: 390px) {
   .flight-waterfall {
-    --waterfall-label-col: 118px;
+    --waterfall-label-col: 112px;
+  }
+  .waterfall-axis-title-full {
+    display: none;
+  }
+  .waterfall-axis-title-compact {
+    display: inline;
+  }
+  .waterfall-axis-future {
+    font-size: 0;
+  }
+  .waterfall-axis-future::after {
+    content: "NEXT";
+    font-size: 8px;
+  }
+  .waterfall-axis-track > span:nth-child(2),
+  .waterfall-axis-track > span:nth-child(4) {
+    display: none;
   }
   .waterfall-issue-title {
-    font-size: 10px;
+    font-size: 10.5px;
   }
   .waterfall-session-bar {
     gap: 2px;
-    padding: 0 24px 0 3px;
+    padding-inline: 3px;
   }
   .waterfall-session-bar > :first-child {
+    display: none;
+  }
+  .waterfall-session-time,
+  .waterfall-future-label span,
+  .waterfall-wait-reason span {
     display: none;
   }
   .waterfall-native-list {

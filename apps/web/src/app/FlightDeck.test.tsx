@@ -890,7 +890,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     const initialLeft = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-left'))
     const initialWidth = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-width'))
     const nowLine = document.querySelector('.waterfall-now-line') as HTMLElement
-    expect(nowLine.style.getPropertyValue('--waterfall-now')).toBe('78%')
+    expect(nowLine.style.getPropertyValue('--waterfall-now')).toBe('72%')
 
     harness.coarseNow += 10 * 60_000
     view.rerender(<DeckHarness />)
@@ -902,7 +902,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     )
     expect(advancedLeft).toBeLessThan(initialLeft)
     expect(advancedWidth).toBeGreaterThan(initialWidth)
-    expect(nowLine.style.getPropertyValue('--waterfall-now')).toBe('78%')
+    expect(nowLine.style.getPropertyValue('--waterfall-now')).toBe('72%')
   })
 
   it('opens a native worker through its owning session without overriding panel choice', () => {
@@ -1653,9 +1653,7 @@ describe('flight deck spine (POD-758)', () => {
     ).toBe(true)
   })
 
-  // Nothing in the spine is hidden by default any more: the roster's own
-  // "N finished agents" fold is gone, and the view bar does that job.
-  it('shows every root agent, with no roster fold', () => {
+  it('folds excess completed sessions into one truthful elapsed span', () => {
     harness.issues = harness.issues.map((raw) => {
       const candidate = raw as Issue
       return candidate.id === 'root'
@@ -1669,7 +1667,13 @@ describe('flight deck spine (POD-758)', () => {
       ),
     ]
     deck()
-    expect(screen.queryByTestId('flight-roster-fold')).toBeNull()
+    const summary = screen.getByRole('button', { name: /Expand 4 completed sessions/ })
+    for (const id of ['r1', 'r2', 'r3', 'r4']) {
+      expect(document.querySelector(`[data-flight-session="${id}"]`)).toBeNull()
+    }
+
+    fireEvent.click(summary)
+    expect(summary.getAttribute('aria-expanded')).toBe('true')
     for (const id of ['r1', 'r2', 'r3', 'r4']) {
       expect(document.querySelector(`[data-flight-session="${id}"]`)).not.toBeNull()
     }

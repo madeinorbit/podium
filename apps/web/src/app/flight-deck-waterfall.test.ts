@@ -5,6 +5,7 @@ import {
   buildWaterfallTimeline,
   buildWaterfallTimelineFromStart,
   WATERFALL_MAX_WINDOW_MS,
+  WATERFALL_MIN_WINDOW_MS,
   WATERFALL_NOW_PERCENT,
   waterfallInterval,
   waterfallSessionEnd,
@@ -119,6 +120,16 @@ describe('Flight Deck waterfall geometry', () => {
     expect(waterfallInterval(old, timeline).clippedStart).toBe(true)
     const active = waterfallInterval(live, timeline)
     expect(active.left + active.width).toBeCloseTo(WATERFALL_NOW_PERCENT)
+  })
+
+  it('uses a short truthful window for a newly started fleet', () => {
+    const fresh = session('fresh', { createdAt: '2026-08-31T11:59:00.000Z' })
+    const timeline = buildWaterfallTimeline([fresh], NOW)
+    const interval = waterfallInterval(fresh, timeline)
+
+    expect(timeline.duration).toBe(WATERFALL_MIN_WINDOW_MS)
+    expect(interval.width).toBeGreaterThan(10)
+    expect(interval.left + interval.width).toBeCloseTo(WATERFALL_NOW_PERCENT)
   })
 
   it('advances a live interval on the shared clock while the Now line stays fixed', () => {
