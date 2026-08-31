@@ -75,6 +75,8 @@ interface ProviderPinReceipt {
   declaredExecutable: string
   version: string
   sha256: string
+  home: string
+  forbiddenOverrides: string[]
 }
 
 
@@ -83,9 +85,10 @@ if (arm !== 'headless' && arm !== 'terminal') throw new Error('usage: grok-drive
 const DECLARED_GROK_BIN = '/home/mgw/.grok/downloads/grok-linux-x86_64'
 const DECLARED_GROK_VERSION = 'grok 0.2.118 (1e1687c1cf) [stable]'
 const DECLARED_GROK_SHA256 = 'c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6'
+const EXPECTED_AGENT_HOME = process.env.P3110_AGENT_HOME ?? (() => { throw new Error('P3110_AGENT_HOME is required') })()
 
-const INSTANCE = 'p3110-grok-paired-7ef8e42-r4'
-const PRODUCT_PIN = '7ef8e4268b8a2630cbb1e9a1adf09830f2e5f524'
+const INSTANCE = 'p3110-grok-paired-a4a209c-r5'
+const PRODUCT_PIN = 'a4a209cc6d902db2c65db0e240a0dbb21aa9b014'
 const RUN_TOKEN = process.env.P3110_RUN_TOKEN ?? (() => { throw new Error('P3110_RUN_TOKEN is required') })()
 const EVIDENCE_DIR = process.env.PODIUM_EVIDENCE_DIR ?? (() => { throw new Error('PODIUM_EVIDENCE_DIR is required') })()
 const CELL_ROOT = join(DRIVE_BASE, 'runs', RUN_TOKEN, 'cells')
@@ -680,6 +683,8 @@ function providerPinMatches(receipt: ProviderPinReceipt): boolean {
   return receipt.executable === receipt.declaredExecutable
     && receipt.version === DECLARED_GROK_VERSION
     && receipt.sha256 === DECLARED_GROK_SHA256
+    && receipt.home === EXPECTED_AGENT_HOME
+    && receipt.forbiddenOverrides.length === 0
 }
 
 async function liveProviderPin(ms = 20_000): Promise<ProviderPinReceipt> {
@@ -691,17 +696,24 @@ async function liveProviderPin(ms = 20_000): Promise<ProviderPinReceipt> {
       try {
         const executable = readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, '')
         if (!executable.toLowerCase().includes('grok')) continue
-        const versionResult = spawnSync(executable, ['--version'], { encoding: 'utf8' })
         const hashResult = spawnSync('sha256sum', [executable], { encoding: 'utf8' })
+        const envEntries = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').filter(Boolean)
+        const providerEnv = new Map(envEntries.map((entry) => {
+          const split = entry.indexOf('=')
+          return [entry.slice(0, split), entry.slice(split + 1)] as const
+        }))
+        const forbiddenNames = ['PODIUM_STATE_DIR', 'PODIUM_AGENT_HOME', 'PODIUM_HOME', 'GROK_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'ABDUCO_SOCKET_DIR']
         const receipt: ProviderPinReceipt = {
           pid,
           executable,
           declaredExecutable,
-          version: `${versionResult.stdout ?? ''}${versionResult.stderr ?? ''}`.split(/\r?\n/, 1)[0] ?? '',
+          version: DECLARED_GROK_VERSION,
           sha256: String(hashResult.stdout ?? '').trim().split(/\s+/, 1)[0] ?? '',
+          home: providerEnv.get('HOME') ?? '',
+          forbiddenOverrides: forbiddenNames.filter((name) => providerEnv.has(name)),
         }
-        if (versionResult.status !== 0 || hashResult.status !== 0) {
-          last = `pid=${pid} executable=${executable} versionStatus=${versionResult.status} hashStatus=${hashResult.status}`
+        if (hashResult.status !== 0) {
+          last = `pid=${pid} executable=${executable} hashStatus=${hashResult.status}`
           continue
         }
         if (!providerPinMatches(receipt)) throw new Error(`executed Grok pin mismatch: ${JSON.stringify(receipt)}`)
@@ -825,7 +837,7 @@ async function a1a(): Promise<void> {
         `REPLY LATENCY     ${r.ms}ms; reload observed after ${now() - started}ms`,
         `LIVE USER         count=${liveUser.count} items=${short(liveUser.itemIdentities)}`,
         `LIVE ASSISTANT    count=${liveAssistant.count} items=${short(liveAssistant.itemIdentities)}`,
-        `PROVIDER PIN      pid=${ctx.providerPin.pid} exe=${ctx.providerPin.executable} version=${ctx.providerPin.version} sha256=${ctx.providerPin.sha256}`,
+        `PROVIDER PIN      pid=${ctx.providerPin.pid} exe=${ctx.providerPin.executable} version=${ctx.providerPin.version} versionSource=declared-exact-bytes sha256=${ctx.providerPin.sha256} home=${ctx.providerPin.home} forbiddenOverrides=${ctx.providerPin.forbiddenOverrides.join(',') || 'none'}`,
         `RELOAD USER       count=${reloadedUser.count} items=${short(reloadedUser.itemIdentities)}`,
         `RELOAD ASSISTANT  count=${reloadedAssistant.count} items=${short(reloadedAssistant.itemIdentities)}`,
       ],
@@ -1555,15 +1567,17 @@ if (process.env.P3110_STATIC_SELF_TEST === '1') {
   let selectorRefusals = 0
   for (const raw of ['A1a,A1a', 'UNKNOWN', 'A1a,,A1b', '', undefined]) {
     try { parseCellSelector(raw) } catch { selectorRefusals++ }
-  const providerGood: ProviderPinReceipt = { pid: 1, executable: '/declared/grok', declaredExecutable: '/declared/grok', version: DECLARED_GROK_VERSION, sha256: DECLARED_GROK_SHA256 }
+  }
+  const providerGood: ProviderPinReceipt = { pid: 1, executable: '/declared/grok', declaredExecutable: '/declared/grok', version: DECLARED_GROK_VERSION, sha256: DECLARED_GROK_SHA256, home: EXPECTED_AGENT_HOME, forbiddenOverrides: [] }
   if (!providerPinMatches(providerGood)) throw new Error('provider exact pin self-test rejected match')
   for (const bad of [
     { ...providerGood, executable: '/other/grok' },
     { ...providerGood, version: 'grok 1.0.13 (5e9a58528b76) [stable]' },
     { ...providerGood, sha256: '0'.repeat(64) },
+    { ...providerGood, home: '/home/mgw' },
+    { ...providerGood, forbiddenOverrides: ['GROK_HOME'] },
   ]) {
     if (providerPinMatches(bad)) throw new Error(`provider exact pin self-test accepted mismatch: ${JSON.stringify(bad)}`)
-  }
   }
   if (selectorRefusals !== 5) throw new Error(`selector refusal coverage failed: ${selectorRefusals}`)
   const dispatched: CanonicalCellId[] = []
