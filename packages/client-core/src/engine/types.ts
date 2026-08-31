@@ -392,6 +392,9 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  if the create never lands. Returns the ids synchronously so the caller
    *  navigates without waiting on the round-trip. */
   spawnDraftAgent: (args: {
+    sessionId?: SessionId
+    issueId?: IssueId
+    mutationId?: MutationId
     target: SpawnTarget
     agentKind: AgentKind
     firstPrompt?: string

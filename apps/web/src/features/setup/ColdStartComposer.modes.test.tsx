@@ -11,8 +11,8 @@
  *   CLOSED  — always available; starts the chosen agent on the chosen machine
  *             with NO prompt, in a new tab. This is the action the sidebar's
  *             deleted `New <Agent> in <Repo>` chip used to be.
- *   OPEN    — refused while the prompt is empty; creates the mission and starts
- *             it, exactly as it always has.
+ *   OPEN    — refused while the prompt is empty; starts the chosen agent with
+ *             that prompt in a draft issue the agent will name.
  *
  * The fold is DERIVED, which is the part worth guarding: a persisted draft with
  * words in it has to come back open, or the sentence the operator was halfway
@@ -194,15 +194,15 @@ describe('the launch box unfolds', () => {
     expect(launch().disabled).toBe(false)
   })
 
-  it('creates the mission rather than a bare session once there is a prompt', () => {
+  it('starts a draft session with the written prompt', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
     fireEvent.click(launch())
 
-    expect(spawnIssueAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ description: 'Fix the flaky test' }),
+    expect(spawnDraftAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ firstPrompt: 'Fix the flaky test' }),
     )
-    expect(spawnDraftAgent).not.toHaveBeenCalled()
+    expect(spawnIssueAgent).not.toHaveBeenCalled()
   })
 
   it('closes by CLEARING, so a dismissed prompt cannot launch behind the placeholder', () => {

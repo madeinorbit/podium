@@ -95,7 +95,11 @@ const store = {
   // POD-1469: a promptless Launch starts the agent instead of creating a
   // mission, so the harness has to carry the four store writes that path makes
   // — otherwise the shot of the closed box is of a button that would throw.
-  spawnDraftAgent: () => ({ sessionId: 'session-harness', issueId: 'issue-harness' }),
+  spawnDraftAgent: () => ({
+    sessionId: 'session-harness',
+    issueId: 'issue-harness',
+    settled: Promise.resolve(true),
+  }),
   spawnIssueAgent: () => ({
     sessionId: 'session-task-harness',
     issueId: 'issue-task-harness',

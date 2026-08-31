@@ -23,6 +23,11 @@ const setSelectedIssueId = vi.fn()
 const setSelectedWorktree = vi.fn()
 const setPane = vi.fn()
 const setView = vi.fn()
+const spawnDraftAgent = vi.fn((_args: Record<string, unknown>) => ({
+  sessionId: asSessionId('optimistic-session'),
+  issueId: asIssueId('optimistic-issue'),
+  settled: Promise.resolve(true),
+}))
 const spawnIssueAgent = vi.fn((_args: Record<string, unknown>) => ({
   sessionId: asSessionId('optimistic-session'),
   issueId: asIssueId('optimistic-issue'),
@@ -79,6 +84,7 @@ const store = {
     },
   },
   focusIssueSession,
+  spawnDraftAgent,
   spawnIssueAgent,
   setPanelMode,
   setSelectedIssueId,
@@ -131,6 +137,12 @@ afterEach(() => {
   setSelectedWorktree.mockClear()
   setPane.mockClear()
   setView.mockClear()
+  spawnDraftAgent.mockReset()
+  spawnDraftAgent.mockReturnValue({
+    sessionId: asSessionId('optimistic-session'),
+    issueId: asIssueId('optimistic-issue'),
+    settled: Promise.resolve(true),
+  })
   spawnIssueAgent.mockReset()
   spawnIssueAgent.mockReturnValue({
     sessionId: asSessionId('optimistic-session'),
@@ -185,7 +197,7 @@ function recentSession(cwd: string): SessionMeta {
  * looks. The button keeps its own label when it is the focused thing, which is
  * where "Project:" is worth saying. */
 describe('ColdStartComposer', () => {
-  it('uses the reusable first-run wording and production task path', async () => {
+  it('starts the prompt in a draft issue for the agent to name', async () => {
     render(<ColdStartComposer first />)
 
     expect(screen.getByRole('heading', { name: /Give podium its first mission/ })).toBeTruthy()
@@ -197,7 +209,7 @@ describe('ColdStartComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
 
     await waitFor(() =>
-      expect(spawnIssueAgent).toHaveBeenCalledWith(
+      expect(spawnDraftAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           issueId: expect.any(String),
           sessionId: expect.any(String),
@@ -207,15 +219,14 @@ describe('ColdStartComposer', () => {
             repoPath: '/work/podium',
             machineId: 'machine-a',
           }),
-          title: 'Ship the new onboarding',
-          description: 'Ship the new onboarding\nKeep the empty state subtle.',
-          parentBranch: 'main',
+          firstPrompt: 'Ship the new onboarding\nKeep the empty state subtle.',
           agentKind: 'codex',
           model: 'gpt-5.6-sol',
           effort: 'high',
         }),
       ),
     )
+    expect(spawnIssueAgent).not.toHaveBeenCalled()
     expect(setPanelMode).toHaveBeenCalledWith(asSessionId('optimistic-session'), 'chat')
     expect(setPane).toHaveBeenCalledWith('A', asSessionId('optimistic-session'))
   })
@@ -224,7 +235,7 @@ describe('ColdStartComposer', () => {
    * the same click as the optimistic paint, without waiting for the create-and-
    * start response or for replica truth to publish the session row. */
   it('persists the reserved identities before dispatching create', () => {
-    spawnIssueAgent.mockImplementationOnce((input) => {
+    spawnDraftAgent.mockImplementationOnce((input) => {
       const saved = JSON.parse(uiValues.get('podium.firstTaskActivation.draft') ?? '{}') as Record<
         string,
         unknown
@@ -232,13 +243,12 @@ describe('ColdStartComposer', () => {
       expect(saved.createIssueId).toBe(input.issueId)
       expect(saved.createSessionId).toBe(input.sessionId)
       expect(saved.createMutationId).toBe(input.mutationId)
+      expect(saved.launchKind).toBe('draft')
       expect(saved.title).toBe('Crash-safe launch')
       return {
         issueId: asIssueId(String(input.issueId)),
         sessionId: asSessionId(String(input.sessionId)),
-        mutationId: asMutationId(String(input.mutationId)),
         settled: new Promise<boolean>(() => {}),
-        outcome: new Promise<'started' | 'issue-only' | 'failed'>(() => {}),
       }
     })
     render(<ColdStartComposer first={false} />)
@@ -248,20 +258,18 @@ describe('ColdStartComposer', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
 
-    expect(spawnIssueAgent).toHaveBeenCalledTimes(1)
+    expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
   })
 
   it('lands on the optimistic chat synchronously, without waiting for the server', () => {
-    let settle: (outcome: 'started' | 'issue-only' | 'failed') => void = () => {}
-    const outcome = new Promise<'started' | 'issue-only' | 'failed'>((resolve) => {
+    let settle: (started: boolean) => void = () => {}
+    const settled = new Promise<boolean>((resolve) => {
       settle = resolve
     })
-    spawnIssueAgent.mockReturnValue({
+    spawnDraftAgent.mockReturnValue({
       sessionId: asSessionId('instant-session'),
       issueId: asIssueId('instant-issue'),
-      mutationId: asMutationId('instant-mutation'),
-      settled: outcome.then((value) => value === 'started'),
-      outcome,
+      settled,
     })
     render(<ColdStartComposer first={false} />)
 
@@ -276,17 +284,15 @@ describe('ColdStartComposer', () => {
     expect(setView).toHaveBeenCalledWith('workspace')
     expect(focusIssueSession).not.toHaveBeenCalled()
     expect(uiValues.has('podium.firstTaskActivation.draft')).toBe(true)
-    settle('started')
+    settle(true)
   })
 
-  it('keeps the written prompt available when the optimistic task is rejected', async () => {
-    spawnIssueAgent.mockImplementation((input) => {
+  it('keeps the written prompt available when the optimistic agent is rejected', async () => {
+    spawnDraftAgent.mockImplementation((input) => {
       return {
         issueId: asIssueId(String(input.issueId)),
         sessionId: asSessionId(String(input.sessionId)),
-        mutationId: asMutationId(String(input.mutationId)),
         settled: Promise.resolve(false),
-        outcome: Promise.resolve('failed'),
       }
     })
     render(<ColdStartComposer first={false} />)
@@ -296,10 +302,10 @@ describe('ColdStartComposer', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
 
-    await waitFor(() => expect(screen.getByText(/Couldn't start the task/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy())
     const saved = uiValues.get('podium.firstTaskActivation.draft') ?? ''
     expect(saved).toContain('Do not lose this request')
-    const firstInput = spawnIssueAgent.mock.calls[0]?.[0]
+    const firstInput = spawnDraftAgent.mock.calls[0]?.[0]
     if (!firstInput) throw new Error('launch was not dispatched')
     expect(saved).toContain(String(firstInput.issueId))
     expect(saved).toContain(String(firstInput.sessionId))
@@ -307,17 +313,17 @@ describe('ColdStartComposer', () => {
 
     cleanup()
     render(<ColdStartComposer first={false} />)
-    expect(screen.getByText(/Couldn't start the task/)).toBeTruthy()
+    expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy()
     expect(
       (screen.getByLabelText('What do you want to work on?') as HTMLTextAreaElement).value,
     ).toBe('Do not lose this request')
     fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
-    expect(spawnIssueAgent).toHaveBeenLastCalledWith(
+    expect(spawnDraftAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({
         issueId: firstInput.issueId,
         sessionId: firstInput.sessionId,
         mutationId: firstInput.mutationId,
-        description: 'Do not lose this request',
+        firstPrompt: 'Do not lose this request',
       }),
     )
   })
@@ -331,6 +337,7 @@ describe('ColdStartComposer', () => {
       effort: 'auto',
       title: 'Keep the late failure visible',
       description: '',
+      launchKind: 'draft',
       pendingIssueId: '',
       createIssueId: 'iss_late-failure',
       createSessionId: 'late-failure-session',
@@ -363,11 +370,22 @@ describe('ColdStartComposer', () => {
       }
     })
     start.mockResolvedValue({ id: asIssueId('partial-issue') })
+    uiValues.set(
+      'podium.firstTaskActivation.draft',
+      JSON.stringify({
+        repoPath: '/work/podium',
+        machineId: 'machine-a',
+        agent: 'codex',
+        model: 'auto',
+        effort: 'auto',
+        title: 'Keep the saved task',
+        launchKind: 'issue',
+        createIssueId: 'legacy-issue',
+        createSessionId: 'legacy-session',
+        createMutationId: 'legacy-mutation',
+      }),
+    )
     render(<ColdStartComposer first={false} />)
-
-    fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
-      target: { value: 'Keep the saved task' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
     await waitFor(() =>
       expect(screen.getByText(/task was saved, but its agent couldn't start/i)).toBeTruthy(),
@@ -520,12 +538,12 @@ describe('ColdStartComposer', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
 
-    await waitFor(() => expect(spawnIssueAgent).toHaveBeenCalled())
-    const input = spawnIssueAgent.mock.calls[0]?.[0]
+    await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
+    const input = spawnDraftAgent.mock.calls[0]?.[0]
     if (!input) throw new Error('launch was not dispatched')
     expect(input.model).toBe('gpt-5.6-sol')
     expect(input.effort).toBe('high')
-    // …and the mission is created in the checkout the draft named, not in
+    // …and the draft session is created in the checkout the prompt named, not in
     // whichever clone the scan happened to list first.
     expect(input.target).toEqual(expect.objectContaining({ repoPath: '/srv/podium' }))
   })
@@ -602,7 +620,7 @@ describe('ColdStartComposer', () => {
       expect(uploadImage.mock.calls[0]?.[0].sessionId).toMatch(/^coldstart-/)
     })
 
-    it('carries the uploaded path into the started mission, in the brief', async () => {
+    it('carries the uploaded path in the agent prompt, not issue metadata', async () => {
       uploadImage.mockResolvedValue({ path: '/home/a/.podium/uploads/scope/1.png' })
       render(<ColdStartComposer first />)
 
@@ -613,25 +631,22 @@ describe('ColdStartComposer', () => {
       await waitFor(() => expect(uploadImage).toHaveBeenCalled())
       fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
 
-      await waitFor(() => expect(spawnIssueAgent).toHaveBeenCalled())
-      const input = spawnIssueAgent.mock.calls[0]?.[0]
+      await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
+      const input = spawnDraftAgent.mock.calls[0]?.[0]
       if (!input) throw new Error('launch was not dispatched')
-      // The description stays the prose a human reads on the issue card…
-      expect(input.description).toBe('Match this mock')
-      expect(input.title).toBe('Match this mock')
-      // …and the path rides in the brief, which the started session's first
-      // prompt joins onto it ([spec:SP-6144]).
-      expect(input.brief).toEqual(expect.stringContaining('/home/a/.podium/uploads/scope/1.png'))
+      expect(input.firstPrompt).toContain('Match this mock')
+      expect(input.firstPrompt).toContain('/home/a/.podium/uploads/scope/1.png')
+      expect(input).not.toHaveProperty('title')
+      expect(input).not.toHaveProperty('description')
+      expect(input).not.toHaveProperty('brief')
     })
 
     it('keeps uploaded paths in an ambiguous launch retry', async () => {
       uploadImage.mockResolvedValue({ path: '/home/a/.podium/uploads/scope/retry.png' })
-      spawnIssueAgent.mockReturnValue({
+      spawnDraftAgent.mockReturnValue({
         sessionId: asSessionId('attachment-session'),
         issueId: asIssueId('attachment-issue'),
-        mutationId: asMutationId('attachment-mutation'),
         settled: Promise.resolve(false),
-        outcome: Promise.resolve('failed'),
       })
       render(<ColdStartComposer first />)
 
@@ -641,13 +656,13 @@ describe('ColdStartComposer', () => {
       attach(new File(['bytes'], 'retry.png', { type: 'image/png' }))
       await waitFor(() => expect(uploadImage).toHaveBeenCalled())
       fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
-      await waitFor(() => expect(screen.getByText(/Couldn't start the task/)).toBeTruthy())
+      await waitFor(() => expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy())
 
       expect(uiValues.get('podium.firstTaskActivation.draft')).toContain(
         '/home/a/.podium/uploads/scope/retry.png',
       )
       fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
-      expect(spawnIssueAgent.mock.calls[1]?.[0]?.brief).toEqual(
+      expect(spawnDraftAgent.mock.calls[1]?.[0]?.firstPrompt).toEqual(
         expect.stringContaining('/home/a/.podium/uploads/scope/retry.png'),
       )
     })
@@ -669,7 +684,7 @@ describe('ColdStartComposer', () => {
       const launch = () => screen.getByRole('button', { name: 'Start work' }) as HTMLButtonElement
       await waitFor(() => expect(launch().disabled).toBe(true))
       fireEvent.click(launch())
-      expect(spawnIssueAgent).not.toHaveBeenCalled()
+      expect(spawnDraftAgent).not.toHaveBeenCalled()
 
       land({ path: '/home/a/.podium/uploads/scope/1.pdf' })
       await waitFor(() => expect(launch().disabled).toBe(false))
@@ -741,19 +756,17 @@ describe('ColdStartComposer', () => {
       })
 
       it('refuses files while a launch owns the box, and still swallows the drop', async () => {
-        spawnIssueAgent.mockReturnValue({
+        spawnDraftAgent.mockReturnValue({
           sessionId: asSessionId('busy-session'),
           issueId: asIssueId('busy-issue'),
-          mutationId: asMutationId('busy-mutation'),
           settled: new Promise<boolean>(() => {}),
-          outcome: new Promise(() => {}),
         })
         render(<ColdStartComposer first={false} />)
         fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
           target: { value: 'Ship the new onboarding' },
         })
         fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
-        await waitFor(() => expect(spawnIssueAgent).toHaveBeenCalled())
+        await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
 
         const file = new File(['bytes'], 'late.png', { type: 'image/png' })
         expect(fireEvent.drop(deck(), { dataTransfer: transfer([file]) })).toBe(false)

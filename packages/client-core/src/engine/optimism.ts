@@ -677,6 +677,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   /** The #119 placeholder pair: paint a starting session and its draft issue
    *  before the create round-trips, and settle them when it answers. */
   spawnDraftAgent(args: {
+    sessionId?: SessionId
+    issueId?: IssueId
+    mutationId?: MutationId
     target: SpawnTarget
     agentKind: AgentKind
     firstPrompt?: string
@@ -684,8 +687,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     effort?: string
   }): { sessionId: SessionId; issueId: IssueId; settled: Promise<boolean> } {
     assertSpawnPlacement(args.target)
-    const sessionId = asSessionId(randomUUID())
-    const issueId = asIssueId(`iss_${randomUUID()}`)
+    const sessionId = args.sessionId ?? asSessionId(randomUUID())
+    const issueId = args.issueId ?? asIssueId(`iss_${randomUUID()}`)
     const nowIso = new Date().toISOString()
     const sortKey = optimisticDraftSortKey(
       this.ports.paintedIssues(),
@@ -718,6 +721,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
           trpc: this.ports.api,
           sessionId,
           issueId,
+          ...(args.mutationId ? { mutationId: args.mutationId } : {}),
           target: args.target,
           agentKind: args.agentKind,
           firstPrompt: args.firstPrompt,

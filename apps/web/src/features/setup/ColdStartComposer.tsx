@@ -109,12 +109,10 @@ function promptTitle(prompt: string): string {
 /**
  * THE BRIEF IS WHERE THE ATTACHED PATHS GO (POD-1203).
  *
- * A started issue's first prompt is `description` then `brief`, joined
- * ([spec:SP-6144]) — so either field reaches the agent. The brief is the right
- * half: the description is prose a HUMAN reads, on the issue card, in the
- * sidebar and as the source of the title, and three absolute upload paths
- * stapled to the front of it would be the first thing they see about their own
- * mission. The brief is where technical detail belongs, and the agent reads both.
+ * A persisted legacy issue retry still stores paths in `brief`, while a fresh
+ * draft launch appends the same text to `firstPrompt`. In both cases the agent
+ * gets the file paths without the composer writing them into human-facing issue
+ * metadata.
  *
  * The chat composer's own convention is paths first, then prose; the ordering
  * differs here for the same reason the fields do — an issue leads with its
@@ -133,6 +131,7 @@ function attachmentBrief(paths: readonly string[]): string {
 function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
   return {
     ...draft,
+    launchKind: '',
     createIssueId: '',
     createSessionId: '',
     createMutationId: '',
@@ -590,6 +589,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       createIssueId: '',
       createSessionId: '',
       createMutationId: '',
+      launchKind: '',
       startMutationId: '',
       attachmentPaths: [],
       launchError: '',
@@ -698,8 +698,78 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         return
       }
 
+      // A pre-POD-1838 checkpoint may already name a real issue mutation. Finish
+      // that exact launch instead of changing its meaning during a retry.
+      const legacyIssueId = draft.createIssueId || undefined
+      const legacySessionId = draft.createSessionId || undefined
+      const legacyMutationId = draft.createMutationId || undefined
+      if (
+        draft.launchKind !== 'draft' &&
+        legacyIssueId !== undefined &&
+        legacySessionId !== undefined &&
+        legacyMutationId !== undefined
+      ) {
+        const launchDraft: FirstTaskDraft = {
+          ...draft,
+          launchKind: 'issue',
+          title: prompt,
+          attachmentPaths: [...attachmentPaths],
+          launchError: '',
+        }
+        setDraft(launchDraft)
+        const started = spawnIssueAgent({
+          issueId: legacyIssueId,
+          sessionId: legacySessionId,
+          mutationId: legacyMutationId,
+          target: {
+            path: selectedCheckout.path,
+            repoPath: selectedCheckout.path,
+            machineId: asMachineId(selectedMachine.id),
+            ...(selectedRepo.repoId !== undefined ? { repoId: selectedRepo.repoId } : {}),
+          },
+          title: promptTitle(prompt),
+          description: prompt,
+          ...(brief ? { brief } : {}),
+          ...(selectedCheckout.branch?.trim()
+            ? { parentBranch: selectedCheckout.branch.trim() }
+            : {}),
+          agentKind: agent,
+          ...(draft.model !== AUTO ? { model: draft.model } : {}),
+          ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
+        })
+        attachments.clear()
+        void started.outcome.then((outcome) => {
+          if (outcome === 'started') {
+            clearFirstTaskDraft(uiState)
+            return
+          }
+          if (outcome === 'issue-only') {
+            setDraft({
+              ...launchDraft,
+              pendingIssueId: started.issueId,
+              createIssueId: '',
+              createSessionId: '',
+              createMutationId: '',
+              launchError: "The task was saved, but its agent couldn't start.",
+            })
+          } else {
+            setDraft({ ...launchDraft, launchError: "Couldn't start the task." })
+          }
+          setBusy(false)
+        })
+        setSelectedIssueId(started.issueId)
+        setSelectedWorktree(selectedCheckout.path)
+        setPanelMode(started.sessionId, 'chat')
+        setPane('A', started.sessionId)
+        setView('workspace')
+        return
+      }
+
       const retryCreate =
-        draft.createIssueId && draft.createSessionId && draft.createMutationId
+        draft.launchKind === 'draft' &&
+        draft.createIssueId &&
+        draft.createSessionId &&
+        draft.createMutationId
           ? {
               issueId: draft.createIssueId,
               sessionId: draft.createSessionId,
@@ -712,6 +782,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             }
       const launchDraft: FirstTaskDraft = {
         ...draft,
+        launchKind: 'draft',
         title: prompt,
         pendingIssueId: '',
         createIssueId: retryCreate.issueId,
@@ -723,9 +794,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       }
       // Persist BEFORE dispatch. If this tab dies after the authority accepts
       // the mutation, the next Launch reuses these exact identities instead of
-      // minting a second task around a response it never saw.
+      // minting a second draft session around a response it never saw.
       setDraft(launchDraft)
-      const started = spawnIssueAgent({
+      const started = spawnDraftAgent({
         ...retryCreate,
         target: {
           path: selectedCheckout.path,
@@ -733,39 +804,21 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           machineId: asMachineId(selectedMachine.id),
           ...(selectedRepo.repoId !== undefined ? { repoId: selectedRepo.repoId } : {}),
         },
-        title: promptTitle(prompt),
-        description: prompt,
-        ...(brief ? { brief } : {}),
-        ...(selectedCheckout.branch?.trim()
-          ? { parentBranch: selectedCheckout.branch.trim() }
-          : {}),
+        firstPrompt: [prompt, brief].filter(Boolean).join('\n\n'),
         agentKind: agent,
         ...(draft.model !== AUTO ? { model: draft.model } : {}),
         ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
       })
       attachments.clear()
       // Keep prompt, attachments and ids until the authority has accepted the
-      // whole create+start. The same ids make an ambiguous retry duplicate-safe;
-      // an issue-only result moves onto the older, explicit start retry path.
-      void started.outcome.then((outcome) => {
-        if (outcome === 'started') {
+      // draft vessel and its first session. The mutation and client-minted ids
+      // make an ambiguous retry duplicate-safe.
+      void started.settled.then((settled) => {
+        if (settled) {
           clearFirstTaskDraft(uiState)
           return
         }
-        if (outcome === 'issue-only') {
-          const launchError = "The task was saved, but its agent couldn't start."
-          setDraft({
-            ...launchDraft,
-            pendingIssueId: started.issueId,
-            createIssueId: '',
-            createSessionId: '',
-            createMutationId: '',
-            launchError,
-          })
-        } else {
-          const launchError = "Couldn't start the task."
-          setDraft({ ...launchDraft, launchError })
-        }
+        setDraft({ ...launchDraft, launchError: "Couldn't start the agent." })
         setBusy(false)
       })
       setSelectedIssueId(started.issueId)

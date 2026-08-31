@@ -1379,6 +1379,37 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     return api
   }
 
+  it('reuses caller-reserved draft identities and mutation id', async () => {
+    const api = spawnApi()
+    let createInput: Record<string, unknown> | undefined
+    api.sessions.create = {
+      mutate: vi.fn(async (input: Record<string, unknown>) => {
+        createInput = input
+      }),
+    }
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+
+    const made = engine.getSnapshot().spawnDraftAgent({
+      issueId: asIssueId('reserved-issue'),
+      sessionId: asSessionId('reserved-session'),
+      mutationId: asMutationId('reserved-mutation'),
+      target: { path: '/w', repoPath: '/w' },
+      agentKind: 'codex',
+      firstPrompt: 'Name this work',
+    })
+
+    expect(made).toMatchObject({ issueId: 'reserved-issue', sessionId: 'reserved-session' })
+    expect(createInput).toMatchObject({
+      sessionId: 'reserved-session',
+      mutationId: 'reserved-mutation',
+      initialPrompt: 'Name this work',
+      draftIssue: { repoPath: '/w', issueId: 'reserved-issue' },
+    })
+    engine.dispose()
+  })
+
   it.each([
     'unauthorized',
     'unreachable',

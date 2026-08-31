@@ -1,5 +1,13 @@
 import { createLogger } from '@podium/logger'
-import type { AgentKind, IssueId, MachineId, MutationId, RepoId, SessionId } from '@podium/model'
+import {
+  asMutationId,
+  type AgentKind,
+  type IssueId,
+  type MachineId,
+  type MutationId,
+  type RepoId,
+  type SessionId,
+} from '@podium/model'
 import type { PodiumClientApi } from './api'
 
 const log = createLogger('client-core:spawn')
@@ -69,6 +77,7 @@ export async function createDraftAgent(args: {
   trpc: PodiumClientApi
   sessionId: SessionId
   issueId: IssueId
+  mutationId?: MutationId
   target: SpawnTarget
   agentKind: AgentKind
   firstPrompt?: string
@@ -79,6 +88,7 @@ export async function createDraftAgent(args: {
   const text = args.firstPrompt?.trim()
   await args.trpc.sessions.create.mutate({
     sessionId: args.sessionId,
+    ...(args.mutationId ? { mutationId: args.mutationId } : {}),
     agentKind: args.agentKind,
     cwd: args.target.path,
     draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
@@ -99,6 +109,12 @@ export async function createDraftAgent(args: {
       const result = await args.trpc.sessions.resumeAndSend.mutate({
         sessionId: args.sessionId,
         text,
+        // One launch spans two command procedures for non-argv harnesses. Give
+        // the fallback its own stable receipt while staying inside the wire's
+        // 128-character mutation-id bound.
+        ...(args.mutationId
+          ? { mutationId: asMutationId(`${args.mutationId.slice(0, 115)}:first-prompt`) }
+          : {}),
       })
       if (
         result !== null &&
