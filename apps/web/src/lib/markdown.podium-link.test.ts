@@ -69,6 +69,33 @@ describe('a transcript link that points at this Podium (POD-1606)', () => {
     expect(appChrome.hasAttribute('data-podium-link')).toBe(false)
   })
 
+  it('keeps a live server selector on its deliberate browser fallback after boot', () => {
+    document.body.innerHTML = renderMarkdown(
+      `[here](${HOME}/issues/POD-1606?server=https%3A%2F%2Fother.example)`,
+    )
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('target')).toBe('_blank')
+    setKnownPodiumOrigins([HOME])
+    canonicalizePodiumAnchors(document)
+    expect(link.hasAttribute('data-podium-link')).toBe(true)
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('rebases a hostless candidate when the active server changes', () => {
+    setKnownPodiumOrigins([HOME])
+    document.body.innerHTML = renderMarkdown('[here](/issues/POD-1606)')
+    const link = document.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('data-podium-link-source')).toBe('/issues/POD-1606')
+    expect(link.href).toBe(`${HOME}/issues/POD-1606`)
+
+    setKnownPodiumOrigins([OTHER])
+    canonicalizePodiumAnchors(document)
+    expect(link.href).toBe(`${OTHER}/issues/POD-1606`)
+    expect(link.hasAttribute('data-podium-link')).toBe(true)
+    expect(link.getAttribute('target')).toBeNull()
+  })
+
   it('restores external fallback when the active server changes', () => {
     setKnownPodiumOrigins([HOME])
     document.body.innerHTML = renderMarkdown(`[here](${HOME}/issues/POD-1606)`)

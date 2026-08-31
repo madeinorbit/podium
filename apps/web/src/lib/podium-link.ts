@@ -21,7 +21,7 @@ import {
   type PodiumLink,
   type PodiumLinkOptions,
   type PodiumTarget,
-  formatPodiumLink,
+  formatPodiumLinkFallback,
   parsePodiumLink,
   podiumTargetPath,
 } from '@podium/protocol'
@@ -107,8 +107,8 @@ export function hasUnsupportedTypedDetail(target: PodiumTarget): boolean {
  * the same-looking row on the wrong server. */
 export function hasServerSelector(href: string): boolean {
   const query = href.indexOf('?')
-  if (query === -1) return false
-  const fragment = href.indexOf('#', query)
+  const fragment = href.indexOf('#')
+  if (query === -1 || (fragment !== -1 && query > fragment)) return false
   const search = href.slice(query, fragment === -1 ? href.length : fragment)
   return new URLSearchParams(search).has('server')
 }
@@ -126,17 +126,16 @@ function withoutStartupServer(target: PodiumTarget): PodiumTarget {
 export function systemBrowserPodiumHref(href: string): string | null {
   const link = classifyPodiumLink(href)
   if (link?.kind !== 'internal') return null
-  if (link.origin) return formatPodiumLink(link.origin, link.target)
-  const serverOrigin = serverOrigins[0]
-  return serverOrigin ? formatPodiumLink(serverOrigin, link.target) : null
+  const serverOrigin = link.origin ?? serverOrigins[0]
+  return serverOrigin ? formatPodiumLinkFallback(serverOrigin, href, link) : null
 }
 
 /**
  * Rebase already-rendered Podium anchors after the active server becomes known.
  * Markdown can render during boot, before PodiumLinkHost registers httpOrigin,
  * and settled transcript HTML deliberately does not rerender afterward. A real
- * absolute href is required because middle-click, context-menu Open, and Copy
- * Link Address do not pass through the click resolver.
+ * absolute href is required because browser middle-click, context-menu Open,
+ * and Copy Link Address do not pass through the ordinary click resolver.
  */
 export function canonicalizePodiumAnchors(root: ParentNode): void {
   for (const anchor of root.querySelectorAll<HTMLAnchorElement>(
@@ -153,27 +152,29 @@ export function canonicalizePodiumAnchor(target: EventTarget | null): void {
     anchor?.hasAttribute('data-podium-link-candidate') || anchor?.hasAttribute('data-podium-link')
   if (!isLinkRendererCandidate) return
   const href = anchor?.getAttribute('href')
-  const link = href ? classifyPodiumLink(href) : null
   if (!anchor || !href) return
+  const sourceHref = anchor.getAttribute('data-podium-link-source') ?? href
+  const link = classifyPodiumLink(sourceHref)
   if (link?.kind !== 'internal') {
     // This candidate belonged to the previous active server. Restore the
     // renderer's external-link contract instead of navigating the current
     // tab or WebView away from the newly active replica.
     if (anchor.hasAttribute('data-podium-link')) {
       anchor.removeAttribute('data-podium-link')
+      anchor.setAttribute('href', sourceHref)
       anchor.setAttribute('target', '_blank')
       anchor.setAttribute('rel', 'noopener noreferrer')
     }
     return
   }
   const wasMarkedInternal = anchor.hasAttribute('data-podium-link')
-  const browserHref = systemBrowserPodiumHref(href)
+  const browserHref = systemBrowserPodiumHref(sourceHref)
   if (browserHref) anchor.setAttribute('href', browserHref)
   anchor.setAttribute('data-podium-link', '')
   // An anchor rendered before httpOrigin was registered looked external and
   // therefore received target=_blank. Once its origin is known to be ours,
   // leaving that target in place makes WKWebView drop an activator fallback.
-  if (!wasMarkedInternal) {
+  if (!wasMarkedInternal && internalPodiumTarget(sourceHref)) {
     anchor.removeAttribute('target')
     anchor.removeAttribute('rel')
   }

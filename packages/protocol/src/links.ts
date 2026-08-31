@@ -153,13 +153,19 @@ function decodeSegment(segment: string): string {
   }
 }
 
+function cleanPodiumHref(href: string): string {
+  return href.replace(/[\t\n\r]/g, '').trim()
+}
+
 const FILE_IDENTITY_KEYS = new Set(['path', 'root', 'machineId'])
 
 /** Keep unconsumed file query segments byte-for-byte for browser fallback. */
 function fileExtraSearch(search: string): string {
   const raw = search.startsWith('?') ? search.slice(1) : search
   const extra = raw.split('&').filter((part) => {
-    if (!part) return false
+    // Empty segments are real delimiter bytes. Dropping one changes `&&` to
+    // `&`, which can invalidate opaque or signature-sensitive fallback detail.
+    if (!part) return true
     const equals = part.indexOf('=')
     const encodedName = equals === -1 ? part : part.slice(0, equals)
     let name: string
@@ -241,7 +247,7 @@ export function parsePodiumLink(href: string, options: PodiumLinkOptions = {}): 
   // string, so `/<TAB>/evil.example` is `//evil.example` to a browser and would
   // be a relative path to a naive reader of the raw text. Removing them here
   // makes this function see what the browser will see.
-  const raw = href.replace(/[\t\n\r]/g, '').trim()
+  const raw = cleanPodiumHref(href)
   if (!raw) return null
 
   // Protocol-relative is a cross-origin address wearing a relative link's
@@ -353,4 +359,25 @@ export function podiumTargetPath(target: PodiumTarget): string {
  */
 export function formatPodiumLink(origin: string, target: PodiumTarget): string {
   return `${origin.replace(/\/+$/, '')}${podiumTargetPath(target)}`
+}
+
+/**
+ * Preserve a validated href's original HTTP bytes for browser/OS fallback.
+ * Rebuilding a file target is correct for a newly authored canonical link, but
+ * wrong for fallback: it can reorder identity keys, normalize escape case, or
+ * collapse duplicate and empty query segments. Custom-scheme links have no
+ * HTTP href to preserve and still use the canonical formatter.
+ */
+export function formatPodiumLinkFallback(
+  origin: string,
+  href: string,
+  link: Extract<PodiumLink, { kind: 'internal' }>,
+): string {
+  const raw = cleanPodiumHref(href)
+  if (link.origin !== null && /^https?:\/\//i.test(raw)) return raw
+  const base = origin.replace(/\/+$/, '')
+  if (link.origin === null && raw.startsWith('/') && !/^[/\\][/\\]/.test(raw)) {
+    return `${base}${raw}`
+  }
+  return formatPodiumLink(link.origin ?? base, link.target)
 }

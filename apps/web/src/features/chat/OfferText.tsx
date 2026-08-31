@@ -23,9 +23,10 @@ import { handlePodiumLinkClick } from '@/lib/podium-link-click'
  * the wrong answer twice over: it leaves the app for a page the app already is,
  * and in the packaged macOS app it used to leave for Safari entirely. Those
  * navigate in place, through the same handler the transcript uses, which also
- * owns what a held modifier means. The href stays real so ⌘-click, middle-click
- * and "copy link address" keep working, and an address this client cannot
- * resolve falls back to plain navigation rather than becoming a dead click.
+ * owns what a held modifier means. The href stays real so browser new-tab and
+ * copy actions use the active server; the desktop host explicitly handles
+ * modifier and middle clicks. An address this client cannot resolve falls back
+ * to plain navigation rather than becoming a dead click.
  *
  * The click is stopped from bubbling: the fold's own controls sit around this
  * prose, and following a link is not also a request to collapse the offer.
@@ -49,6 +50,7 @@ export function OfferText({ text, className }: { text: string; className?: strin
             key={index}
             href={href ?? segment.href}
             data-podium-link-candidate=""
+            data-podium-link-source={segment.href}
             data-podium-link={link?.kind === 'internal' ? '' : undefined}
             {...(target ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
             onClick={(event) => {

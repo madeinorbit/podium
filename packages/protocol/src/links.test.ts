@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   canonicalPodiumOrigin,
   formatPodiumLink,
+  formatPodiumLinkFallback,
   isInternalPodiumLink,
   parsePodiumLink,
   podiumTargetForPath,
@@ -186,6 +187,21 @@ describe('podiumTargetForPath', () => {
     expect(podiumTargetPath(target)).toBe(
       '/file?path=%2Fw%2Fa.ts&root=%2Fw&label=hello%20world&signature=a%2Fb%3D',
     )
+  })
+
+  it('preserves the complete validated root-relative href for fallback', () => {
+    const href =
+      '/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D'
+    const link = parsePodiumLink(href)
+    expect(link?.kind).toBe('internal')
+    if (link?.kind !== 'internal') throw new Error('expected internal link')
+    expect(link.target).toMatchObject({
+      kind: 'file',
+      path: '/w/a.ts',
+      root: '/w',
+      search: '?label=hello%20world&&signature=a%2Fb%3D',
+    })
+    expect(formatPodiumLinkFallback(HOME, href, link)).toBe(`${HOME}${href}`)
   })
 
   it('falls back to a plain view rather than failing', () => {

@@ -21,7 +21,7 @@ import {
   type PodiumLink,
   type PodiumTarget,
   canonicalPodiumOrigin,
-  formatPodiumLink,
+  formatPodiumLinkFallback,
   parseIssueRef,
   parsePodiumLink,
   parseSessionRef,
@@ -177,7 +177,7 @@ export function followPodiumLink(href: string): void {
     if (addressesActiveServer && activator?.(link.target)) return
     const fallbackOrigin = link.origin ?? activeOrigin
     if (!fallbackOrigin) return
-    void Linking.openURL(formatPodiumLink(fallbackOrigin, link.target)).catch(() => {})
+    void Linking.openURL(formatPodiumLinkFallback(fallbackOrigin, href, link)).catch(() => {})
     return
   }
   let externalHref = link.href

@@ -16,6 +16,7 @@ describe('OfferText', () => {
   it('sends an external URL to a new tab, as POD-1589 shipped it', () => {
     render(<OfferText text="Try https://preview.example.com/login now." />)
     const link = screen.getByRole('link')
+    expect(link.getAttribute('data-podium-link-source')).toBe('https://preview.example.com/login')
     expect(link.getAttribute('target')).toBe('_blank')
     expect(link.getAttribute('rel')).toBe('noopener noreferrer')
   })
