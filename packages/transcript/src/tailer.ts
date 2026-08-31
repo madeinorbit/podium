@@ -206,12 +206,20 @@ export function tailTranscript(
 
   let firstEmissionReported = false
   let lastErrorKey: string | undefined
+  const reportStatus = (status: TranscriptTailStatus): void => {
+    try {
+      opts.onStatus?.(status)
+    } catch {
+      // Diagnostics are observational only: they must never alter tail delivery,
+      // cursor advancement, retry, or recovery semantics.
+    }
+  }
   const reportError = (error: unknown): void => {
     const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined
     const key = code ?? (error instanceof Error ? error.message : String(error))
     if (key === lastErrorKey) return
     lastErrorKey = key
-    opts.onStatus?.({ kind: 'error', path, error })
+    reportStatus({ kind: 'error', path, error })
   }
 
   const readNew = async (): Promise<void> => {
@@ -225,8 +233,10 @@ export function tailTranscript(
       // one descriptor snapshot below so truncation and bounded reads stay
       // coherent if an append races this check.
       const observed = await stat(path)
-      lastErrorKey = undefined
-      if (!first && observed.size === offset + leftover.length) return
+      if (!first && observed.size === offset + leftover.length) {
+        lastErrorKey = undefined
+        return
+      }
       opts.onReadOpen?.()
       const handle = await open(path, 'r')
       try {
@@ -319,14 +329,15 @@ export function tailTranscript(
         }
         if (reset && items.length > maxInitialItems) items = items.slice(-maxInitialItems)
         if (items.length > 0 || reset) {
+          onItems(items, { reset, tail: items.at(-1)?.cursor })
           if (!firstEmissionReported) {
             firstEmissionReported = true
-            opts.onStatus?.({ kind: 'first-emission', path, items: items.length, reset })
+            reportStatus({ kind: 'first-emission', path, items: items.length, reset })
           }
-          onItems(items, { reset, tail: items.at(-1)?.cursor })
         }
       } finally {
         await handle.close()
+        lastErrorKey = undefined
       }
     } catch (error) {
       // File missing (not created yet / rotated away) remains retryable, but is no

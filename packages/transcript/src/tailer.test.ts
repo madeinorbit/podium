@@ -293,7 +293,7 @@ describe('tailTranscript — missing provider file', () => {
     }
   })
 
-  it('lets the shared tick observe a file created while the seed gate is held exactly once', async () => {
+  it('keeps delivery semantic when first-emission status reporting throws', async () => {
     const path = join(dir, 'grok-created-after-bind.jsonl')
     const emissions: Emission[] = []
     const statuses: { kind: string; path: string }[] = []
@@ -313,7 +313,10 @@ describe('tailTranscript — missing provider file', () => {
           },
         },
         seedGate: async () => held,
-        onStatus: (event) => statuses.push(event),
+        onStatus: (event) => {
+          statuses.push(event)
+          if (event.kind === 'first-emission') throw new Error('diagnostic sink failed')
+        },
       },
     )
     try {
@@ -343,6 +346,54 @@ describe('tailTranscript — missing provider file', () => {
       watcher()
       await new Promise((resolve) => setTimeout(resolve, 10))
       expect(emissions).toHaveLength(1)
+    } finally {
+      tailer.stop()
+    }
+  })
+
+  it('deduplicates stable post-stat failures until a successful cycle clears recovery', async () => {
+    const path = join(dir, 'grok-post-stat-failure.jsonl')
+    writeFileSync(path, JSON.stringify({ uuid: 'recover-1', type: 'user', content: 'seed' }) + '\n')
+    const emissions: Emission[] = []
+    const statuses: { kind: string; path: string }[] = []
+    const failure = Object.assign(new Error('stable open failure'), { code: 'EACCES' })
+    let watcher = (): void => {}
+    let failOpen = true
+    const tailer = tailTranscript(
+      path,
+      (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
+      {
+        recordToItems: grokRecordToItems,
+        statTick: {
+          subscribe(next) {
+            watcher = next
+            return () => { watcher = (): void => {} }
+          },
+        },
+        onReadOpen: () => {
+          if (failOpen) throw failure
+        },
+        onStatus: (event) => statuses.push(event),
+      },
+    )
+    try {
+      await waitFor(() => statuses.length === 1)
+      for (let i = 0; i < 3; i++) {
+        watcher()
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      expect(statuses).toEqual([expect.objectContaining({ kind: 'error', path })])
+
+      failOpen = false
+      watcher()
+      await waitFor(() => textsOf(emissions).includes('seed'))
+      expect(statuses.at(-1)).toEqual(expect.objectContaining({ kind: 'first-emission', path }))
+
+      failOpen = true
+      appendFileSync(path, JSON.stringify({ uuid: 'recover-2', type: 'user', content: 'next' }) + '\n')
+      watcher()
+      await waitFor(() => statuses.filter((event) => event.kind === 'error').length === 2)
+      expect(statuses.filter((event) => event.kind === 'error')).toHaveLength(2)
     } finally {
       tailer.stop()
     }
