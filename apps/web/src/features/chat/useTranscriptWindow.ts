@@ -60,6 +60,11 @@ const EMPTY_TRANSCRIPT_SEARCH: TranscriptSearchState = {
   filtering: false,
 }
 const EMPTY_MARKDOWN_HTML: ReadonlyMap<string, string> = new Map()
+// These arrays cross into effects and the conversation bridge. Keep their
+// identity stable while the worker is computing; a fresh empty array on every
+// parent render looks like a transcript change and can trigger an update loop.
+const EMPTY_CHAT_BLOCKS: ChatBlock[] = []
+const EMPTY_CHAT_ROWS: ChatRow[] = []
 
 export type { TranscriptFreshness } from '@podium/client-core/transcript'
 
@@ -503,8 +508,8 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     }
   }, [computeClient, computeInput, sessionId])
 
-  const blocks = computed?.result.blocks ?? []
-  const rows = computed?.result.rows ?? []
+  const blocks = computed?.result.blocks ?? EMPTY_CHAT_BLOCKS
+  const rows = computed?.result.rows ?? EMPTY_CHAT_ROWS
   const search = computed?.result.search ?? EMPTY_TRANSCRIPT_SEARCH
   const markdownHtml = computed?.result.markdownHtml ?? EMPTY_MARKDOWN_HTML
   // Keep the previous graph on screen while a fresher index/search result is in
