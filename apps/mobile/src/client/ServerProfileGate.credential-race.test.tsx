@@ -271,6 +271,42 @@ describe('handoff profile selection', () => {
       'https://a.example',
     ])
   })
+
+  it('clears a cold-start activation failure after the handoff profile verifies', async () => {
+    seams.preflight.mockImplementation(async (origin: string) => {
+      if (origin === 'https://a.example') {
+        return {
+          ok: false as const,
+          kind: 'not-podium' as const,
+          title: 'Not a Podium server',
+          detail: 'The saved server identity could not be verified.',
+          transport: 'trusted-https' as const,
+        }
+      }
+      return successfulPreflight(origin)
+    })
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await waitFor(() => expect(seams.preflight).toHaveBeenCalledWith('https://a.example'))
+    expect(seams.activeContext).toBeNull()
+
+    act(() => {
+      captureMobileHandoffUrl(
+        formatPodiumLink(PODIUM_SCHEME, {
+          kind: 'session',
+          session: 'session-on-b',
+          search: '?origin=https%3A%2F%2Fb.example&instance=instance-b',
+        }),
+      )
+    })
+
+    await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-b'))
+    expect(seams.activeContext?.bearer).toBe('token-b')
+    expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true)
+  })
 })
 
 describe('profile credential completion races', () => {

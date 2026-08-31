@@ -75,9 +75,11 @@ export function PodiumLinkHost() {
       authentication:
         authStatus === null
           ? 'unavailable'
-          : authStatus.authed && authStatus.userId
-            ? 'authenticated'
-            : 'unauthenticated',
+          : !authStatus.needsAuth
+            ? 'open'
+            : authStatus.authed && authStatus.userId
+              ? 'authenticated'
+              : 'unauthenticated',
       ...(authStatus?.authed && authStatus.userId
         ? { authenticatedUserId: authStatus.userId }
         : {}),

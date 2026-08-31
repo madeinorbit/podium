@@ -200,7 +200,7 @@ describe('the footer chip', () => {
     )
     expect(fixture.versionFetch).toHaveBeenCalledWith(
       'https://local.example/version',
-      expect.objectContaining({ credentials: 'omit' }),
+      expect.objectContaining({ cache: 'no-store', credentials: 'omit' }),
     )
   })
 })

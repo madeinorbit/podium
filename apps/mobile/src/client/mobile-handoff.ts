@@ -115,7 +115,7 @@ export interface MobileHandoffContext {
   profiles: readonly ServerProfile[]
   activeProfileId: string
   activation: 'verified' | 'offline-cache'
-  authentication: 'authenticated' | 'unauthenticated' | 'unavailable'
+  authentication: 'authenticated' | 'open' | 'unauthenticated' | 'unavailable'
   authenticatedUserId?: string
   replicaReady: boolean
   sessions: readonly { sessionId: string }[]
@@ -156,10 +156,20 @@ export function decideMobileHandoff(
   if (context.authentication === 'unavailable') {
     return { kind: 'fallback', reason: 'identity-unverified' }
   }
+  if (profile.mode === 'open') {
+    if (context.authentication !== 'open') {
+      return { kind: 'fallback', reason: 'identity-unverified' }
+    }
+  } else if (context.authentication === 'open') {
+    return { kind: 'fallback', reason: 'identity-unverified' }
+  }
   if (context.authentication === 'unauthenticated') {
     return { kind: 'authenticate', profileId: profile.id }
   }
-  if (profile.userId !== context.authenticatedUserId) {
+  if (
+    context.authentication === 'authenticated' &&
+    profile.userId !== context.authenticatedUserId
+  ) {
     return { kind: 'fallback', reason: 'profile-unavailable' }
   }
   if (!context.replicaReady) return { kind: 'wait-replica' }

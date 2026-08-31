@@ -661,6 +661,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           setProfileState(next)
           setBearer(credential)
           setActivation('verified')
+          setActivationFailure(null)
           setCredentialReleased(true)
           setRevision((value) => value + 1)
         } catch (cause) {

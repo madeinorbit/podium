@@ -87,7 +87,11 @@ export function useMobileHandoffUrl(
       try {
         const [info, versionResponse] = await Promise.all([
           trpc.setup.info.query(),
-          fetch(`${httpOrigin}/version`, { credentials: 'omit', signal: controller.signal }),
+          fetch(`${httpOrigin}/version`, {
+            cache: 'no-store',
+            credentials: 'omit',
+            signal: controller.signal,
+          }),
         ])
         if (!versionResponse.ok) return
         const version = parseServerVersion(await versionResponse.json())
