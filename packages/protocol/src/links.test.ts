@@ -156,6 +156,21 @@ describe('podiumTargetForPath', () => {
     })
   })
 
+  it('retains file query keys that are not part of its identity', () => {
+    expect(
+      podiumTargetForPath(
+        '/file',
+        '?path=%2Fw%2Fsrc%2Fa.ts&root=%2Fw&server=wss%3A%2F%2FB&line=42',
+      ),
+    ).toEqual({
+      kind: 'file',
+      path: '/w/src/a.ts',
+      root: '/w',
+      machineId: null,
+      search: '?server=wss%3A%2F%2FB&line=42',
+    })
+  })
+
   it('falls back to a plain view rather than failing', () => {
     expect(podiumTargetForPath('/settings/general')).toEqual({
       kind: 'view',
@@ -187,6 +202,7 @@ describe('podiumTargetPath / formatPodiumLink', () => {
       { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: null },
       { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'shots/a b.png' },
       { kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' },
+      { kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: null, search: '?line=42' },
       { kind: 'file', path: '/w/src/a.ts', root: null, machineId: null },
       { kind: 'view', path: '/settings/general', search: '?tab=x', hash: '#advanced' },
     ] as const

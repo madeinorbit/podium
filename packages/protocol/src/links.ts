@@ -57,7 +57,13 @@ declare const URL: {
   }
 }
 declare const URLSearchParams: {
-  new (init: string): { get(name: string): string | null }
+  new (
+    init: string,
+  ): {
+    delete(name: string): void
+    get(name: string): string | null
+    toString(): string
+  }
 }
 
 /** The custom scheme the OS hands back to the app (`podium://issues/POD-1606`). */
@@ -90,6 +96,9 @@ export type PodiumTarget =
       path: string
       root: string | null
       machineId: string | null
+      /** Query keys not consumed by the file identity (`path`, `root`,
+       * `machineId`). Clients must either interpret these or decline the open. */
+      search?: string
       hash?: string
     }
   /** An ordinary in-app page (`/settings/general`, `/usage`, `/`). The client's
@@ -179,11 +188,18 @@ export function podiumTargetForPath(pathname: string, search = '', hash = ''): P
     const params = new URLSearchParams(search)
     const path = params.get('path')
     if (path) {
+      const root = params.get('root')
+      const machineId = params.get('machineId')
+      params.delete('path')
+      params.delete('root')
+      params.delete('machineId')
+      const extra = params.toString()
       return {
         kind: 'file',
         path,
-        root: params.get('root'),
-        machineId: params.get('machineId'),
+        root,
+        machineId,
+        ...(extra ? { search: `?${extra}` } : {}),
         ...(hash ? { hash } : {}),
       }
     }
@@ -304,6 +320,8 @@ export function podiumTargetPath(target: PodiumTarget): string {
       const parts = [`path=${enc(target.path)}`]
       if (target.root) parts.push(`root=${enc(target.root)}`)
       if (target.machineId) parts.push(`machineId=${enc(target.machineId)}`)
+      const extra = target.search?.replace(/^\?/, '')
+      if (extra) parts.push(extra)
       return `/file?${parts.join('&')}${target.hash ?? ''}`
     }
     default:

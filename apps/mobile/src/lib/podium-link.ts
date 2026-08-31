@@ -180,7 +180,7 @@ export function followPodiumLink(href: string): void {
     return
   }
   let externalHref = link.href
-  if (/^\/\//.test(externalHref)) {
+  if (/^[\\/][\\/]/.test(externalHref)) {
     let protocol = 'https:'
     try {
       if (activeOrigin) protocol = new URL(activeOrigin).protocol
@@ -188,7 +188,7 @@ export function followPodiumLink(href: string): void {
       // A malformed active origin cannot make a protocol-relative URL unsafe;
       // HTTPS remains the conservative OS handoff.
     }
-    externalHref = `${protocol}${externalHref}`
+    externalHref = `${protocol}${externalHref.replace(/\\/g, '/')}`
   }
   void Linking.openURL(externalHref).catch(() => {})
 }

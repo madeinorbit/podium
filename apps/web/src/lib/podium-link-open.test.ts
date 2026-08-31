@@ -117,6 +117,18 @@ describe('resolvePodiumTarget', () => {
         context,
       ),
     ).toEqual({ kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' })
+    expect(
+      resolvePodiumTarget(
+        {
+          kind: 'file',
+          path: '/w/src/a.ts',
+          root: '/w',
+          machineId: 'm1',
+          search: '?line=42',
+        },
+        context,
+      ),
+    ).toBeNull()
   })
 
   it('refuses a file with no worktree rather than guessing one', () => {
