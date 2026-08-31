@@ -9,7 +9,7 @@ This commit contains no live readings. Do not run it until POD-1761 explicitly r
 
 ## Isolation and arm contract
 
-The current named instance is `p3110-grok-paired-a4a209c-r7`; the product derives its isolated state root, agent home, and ports. The prior r1/r2/r3/r4/r5/r6 state roots and run files are retained unchanged as refusal evidence and are never reused. The launch path inherits `HOME` and assigns none of `HOME`, `PODIUM_STATE_DIR`, `ABDUCO_SOCKET_DIR`, or `PODIUM_RUNTIME_DRIVER`. It scrubs inherited relay/default-instance variables, refuses ports 19797 and 32090 through the product-derived port check, and uses a unique cwd per cell.
+The current named instance is `p3110-grok-paired-a4a209c-r8`; the product derives its isolated state root, agent home, and ports. The prior r1/r2/r3/r4/r5/r6/r7 state roots and run files are retained unchanged as refusal evidence and are never reused. The launch path inherits `HOME` and assigns none of `HOME`, `PODIUM_STATE_DIR`, `ABDUCO_SOCKET_DIR`, or `PODIUM_RUNTIME_DRIVER`. It scrubs inherited relay/default-instance variables, refuses ports 19797 and 32090 through the product-derived port check, and uses a unique cwd per cell.
 
 The terminal arm creates sessions without a runtime selection and refuses unless the observed binding is `generic-pty` / `terminal` with no requested driver. The experimental arm creates each session with explicit `runtimeContract: 'grok-acp'` and refuses unless requested and observed driver are both `grok-acp` / `server`.
 
@@ -50,5 +50,5 @@ Every JSON result carries an ISO timestamp, measured latency, pin transcript, ce
 
 ## Targeted cleanup
 
-The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-a4a209c-r7`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
+The rig stops only server/daemon PIDs written beneath `/tmp/pod-3110-grok-paired-a4a209c-r8`, after pin checks identify their exact cwd and instance environment. The runner kills only session UUIDs it created. It never enumerates or stops the operator/default daemon, never uses substring `pgrep -f`, never accesses the default `instance.json`, and retains the isolated derived state for evidence review.
 The atomic headed wrapper is the sole exception to the no-access statement: it reads only `$HOME/.podium/instance.json` metadata and bytes before and after the isolated run, never writes that marker, and refuses a missing or changed marker.
