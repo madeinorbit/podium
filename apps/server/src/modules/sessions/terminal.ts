@@ -31,13 +31,23 @@ function submitsCommandLine(bytes: Uint8Array): boolean {
 /**
  * Merge logical transcript rows by either stable alias. Providers may preserve
  * an id while rotating a cursor, or preserve a cursor while deriving a new id;
- * either match identifies the same row. Rebuilding the alias match each round
- * also safely collapses the rare bridge item that joins two prior aliases.
+ * either match identifies the same row. A disjoint-set pass joins aliases in
+ * near-linear time, including a bridge item that connects two former roots.
  *
  * Complete rows are ordered by their real event timestamps. A missing/invalid
  * timestamp sorts before dated rows and keeps observed order as a deterministic
  * fallback, so it cannot masquerade as the newest item in a latest-page read.
+ * Alias history follows the winning item across calls so an old replay remains
+ * absorbed after an id or cursor rotates.
  */
+interface TranscriptAliases {
+  ids: Set<string>
+  cursors: Set<string>
+  order: number
+}
+
+const transcriptAliases = new WeakMap<TranscriptItem, TranscriptAliases>()
+
 function transcriptTimestamp(item: TranscriptItem): number | undefined {
   if (!item.ts) return undefined
   const parsed = Date.parse(item.ts)
@@ -50,26 +60,78 @@ export function mergeTranscriptItems(
   limit = MAX_TRANSCRIPT_ITEMS,
 ): TranscriptItem[] {
   if (delta.length === 0) return previous
-  let next = previous.map((item, order) => ({ item, order }))
-  let nextOrder = next.length
-  for (const item of delta) {
-    const matching = next.filter(
-      (candidate) =>
-        (item.cursor !== undefined &&
-          item.cursor.length > 0 &&
-          candidate.item.cursor === item.cursor) ||
-        (item.id.length > 0 && candidate.item.id === item.id),
-    )
-    if (matching.length === 0) {
-      next.push({ item, order: nextOrder++ })
-      continue
+  const items = [...previous, ...delta]
+  const parent = items.map((_, index) => index)
+  const find = (index: number): number => {
+    let root = index
+    while (parent[root] !== root) root = parent[root] ?? root
+    while (parent[index] !== index) {
+      const next = parent[index] ?? root
+      parent[index] = root
+      index = next
     }
-    const aliases = new Set(matching)
-    const order = Math.min(...matching.map((candidate) => candidate.order))
-    next = next.filter((candidate) => !aliases.has(candidate))
-    next.push({ item, order })
+    return root
   }
-  next.sort((a, b) => {
+  const union = (left: number, right: number): void => {
+    const leftRoot = find(left)
+    const rightRoot = find(right)
+    if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot
+  }
+  const byId = new Map<string, number>()
+  const byCursor = new Map<string, number>()
+  const aliasesFor = (item: TranscriptItem, fallbackOrder: number): TranscriptAliases => {
+    const retained = transcriptAliases.get(item)
+    return {
+      ids: new Set([...(retained?.ids ?? []), ...(item.id.length > 0 ? [item.id] : [])]),
+      cursors: new Set([
+        ...(retained?.cursors ?? []),
+        ...(item.cursor !== undefined && item.cursor.length > 0 ? [item.cursor] : []),
+      ]),
+      order: retained?.order ?? fallbackOrder,
+    }
+  }
+  const retainedOrders = previous.map((item, index) => aliasesFor(item, index).order)
+  let nextOrder = Math.max(-1, ...retainedOrders) + 1
+  const aliases = items.map((item, index) =>
+    aliasesFor(item, index < previous.length ? index : nextOrder++),
+  )
+  for (const [index, itemAliases] of aliases.entries()) {
+    for (const id of itemAliases.ids) {
+      const prior = byId.get(id)
+      if (prior !== undefined) union(index, prior)
+      byId.set(id, index)
+    }
+    for (const cursor of itemAliases.cursors) {
+      const prior = byCursor.get(cursor)
+      if (prior !== undefined) union(index, prior)
+      byCursor.set(cursor, index)
+    }
+  }
+  const roots = new Map<
+    number,
+    { winner: number; order: number; ids: Set<string>; cursors: Set<string> }
+  >()
+  for (const [index, itemAliases] of aliases.entries()) {
+    const root = find(index)
+    const aggregate = roots.get(root) ?? {
+      winner: index,
+      order: itemAliases.order,
+      ids: new Set<string>(),
+      cursors: new Set<string>(),
+    }
+    aggregate.winner = Math.max(aggregate.winner, index)
+    aggregate.order = Math.min(aggregate.order, itemAliases.order)
+    for (const id of itemAliases.ids) aggregate.ids.add(id)
+    for (const cursor of itemAliases.cursors) aggregate.cursors.add(cursor)
+    roots.set(root, aggregate)
+  }
+  const merged = [...roots.values()].map((root) => {
+    const item = items[root.winner]
+    if (!item) throw new Error('transcript alias root lost its winning item')
+    transcriptAliases.set(item, { ids: root.ids, cursors: root.cursors, order: root.order })
+    return { item, order: root.order }
+  })
+  merged.sort((a, b) => {
     const aTimestamp = transcriptTimestamp(a.item)
     const bTimestamp = transcriptTimestamp(b.item)
     if (aTimestamp !== undefined && bTimestamp !== undefined && aTimestamp !== bTimestamp) {
@@ -81,8 +143,8 @@ export function mergeTranscriptItems(
     const cursorOrder = (a.item.cursor ?? '').localeCompare(b.item.cursor ?? '')
     return cursorOrder !== 0 ? cursorOrder : a.item.id.localeCompare(b.item.id)
   })
-  const items = next.map(({ item }) => item)
-  return items.length > limit ? items.slice(-limit) : items
+  const result = merged.map(({ item }) => item)
+  return result.length > limit ? result.slice(-limit) : result
 }
 
 export function mergeLatestTranscriptPage(

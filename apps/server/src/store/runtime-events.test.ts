@@ -223,6 +223,57 @@ describe('durable runtime observation gate', () => {
         2,
       ),
     ).toEqual(items)
+    // The production restart bound is exercised functionally without a timing
+    // threshold: one over the cap retains exactly the newest 12,000 rows.
+    const bounded = mergeTranscriptItems(
+      [],
+      Array.from({ length: 12_001 }, (_, index) => ({
+        id: `bounded-${index}`,
+        cursor: `bounded-cursor-${index}`,
+        role: 'assistant' as const,
+        text: `bounded ${index}`,
+      })),
+      12_000,
+    )
+    expect(bounded).toHaveLength(12_000)
+    expect(bounded[0]?.id).toBe('bounded-1')
+    expect(bounded.at(-1)?.id).toBe('bounded-12000')
+
+    // A bridge can join two formerly separate alias roots. Both roots' old
+    // aliases survive on the winner, so a later replay through the retired id
+    // is absorbed rather than reopening a duplicate row.
+    const bridged = mergeTranscriptItems(
+      [
+        {
+          id: 'chain-left',
+          cursor: 'chain-cursor-left',
+          role: 'assistant' as const,
+          text: 'left',
+        },
+        {
+          id: 'chain-right',
+          cursor: 'chain-cursor-right',
+          role: 'assistant' as const,
+          text: 'right',
+        },
+      ],
+      [
+        {
+          id: 'chain-left',
+          cursor: 'chain-cursor-right',
+          role: 'assistant' as const,
+          text: 'bridge',
+        },
+      ],
+      50,
+    )
+    const replay = {
+      id: 'chain-right',
+      cursor: 'chain-cursor-new',
+      role: 'assistant' as const,
+      text: 'replay through retained alias',
+    }
+    expect(mergeTranscriptItems(bridged, [replay], 50)).toEqual([replay])
     for (const [index, item] of items.entries()) {
       const event = terminalItemEvent({ at: item.ts, seq: index + 2, item })
       registry.gateway.routeDaemonFrame(store.hostMachineId, {
