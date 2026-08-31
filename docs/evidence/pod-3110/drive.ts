@@ -72,7 +72,7 @@ interface SessionContext {
 const arm = (process.argv[2] ?? 'headless') as Arm
 if (arm !== 'headless' && arm !== 'terminal') throw new Error('usage: grok-drive.ts headless|terminal')
 
-const INSTANCE = 'p3110-grok-paired-057755c-r2'
+const INSTANCE = 'p3110-grok-paired-057755c-r3'
 const PRODUCT_PIN = '057755c77a6bdfdf01aa526d968562b0316e78df'
 const RUN_TOKEN = process.env.P3110_RUN_TOKEN ?? (() => { throw new Error('P3110_RUN_TOKEN is required') })()
 const EVIDENCE_DIR = process.env.PODIUM_EVIDENCE_DIR ?? (() => { throw new Error('PODIUM_EVIDENCE_DIR is required') })()

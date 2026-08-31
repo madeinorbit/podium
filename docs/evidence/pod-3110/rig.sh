@@ -11,14 +11,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-INSTANCE="p3110-grok-paired-057755c-r2"
-DRIVE_BASE="/tmp/pod-3110-grok-paired-057755c-r2"
+INSTANCE="p3110-grok-paired-057755c-r3"
+DRIVE_BASE="/tmp/pod-3110-grok-paired-057755c-r3"
 RUN_TOKEN="${P3110_RUN_TOKEN:?source rig-env.sh to set an immutable UTC run token}"
 RUN_DIR="$DRIVE_BASE/runs/$RUN_TOKEN"
 LOGS="$RUN_DIR/logs"
 WEB="$REPO/apps/web/dist"
 BUN="/home/mgw/.bun/bin/bun"
-PASSWORD="p3110-grok-paired-057755c-r2-proof"
+PASSWORD="p3110-grok-paired-057755c-r3-proof"
 NORMAL_HOME="${HOME:?HOME must be inherited from the operator environment}"
 
 export PATH="/home/mgw/.bun/bin:/home/mgw/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
