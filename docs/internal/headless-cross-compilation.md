@@ -36,12 +36,22 @@ and no reviewer would ever notice. Instead the build is content-addressed on
 the source hash:
 
 ```
-dist-bun/abduco-cache/<platform>-<sha256(abduco.c)[0:16]>
+~/.cache/podium/abduco/<projectKey>/<platform>-<sha256(abduco.c)[0:16]>
 ```
 
 Touch `abduco.c` and every platform's entry is invalidated at once. A CI cache
 restored from another commit is therefore either exactly right or invisible;
-there is no state in which a stale helper is served under a current name. CI
+there is no state in which a stale helper is served under a current name.
+
+The directory is **durable and outside the checkout** (POD-3162). `<projectKey>`
+is a hash of the repository's common git directory — the same identity the shared
+Turbo cache uses (`scripts/shared-cache-dir.ts`) — so every linked worktree of one
+repository shares one cache. That is the point: a release packages from a fresh
+detached worktree in /tmp, where an in-checkout `dist-bun/abduco-cache` is always
+created empty and every release paid the compiles again. Print the resolved path
+with `bun scripts/abduco-cross.ts --print-cache-dir`, and override it with
+`PODIUM_ABDUCO_CACHE_DIR` — which is how CI pins it back to `dist-bun/abduco-cache`,
+the fixed path an `actions/cache` `path:` can name. CI
 caches that directory keyed on `hashFiles('packages/pty/vendor/abduco/abduco.c')`,
 so the compiles are paid for once.
 

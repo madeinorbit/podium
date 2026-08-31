@@ -9,6 +9,10 @@ permissions:
 # one, so the same tag drives the headless and desktop halves of one release to the same channel.
 # Edge assets always live under the fixed `edge` tag — that URL is baked into shipped updaters.
 env:
+  # Pin the abduco cache back inside the checkout so actions/cache can name it as a
+  # `path`. The default is durable and outside the checkout (POD-3162), which is what a
+  # developer box and a /tmp release worktree need and what an ephemeral runner cannot use.
+  PODIUM_ABDUCO_CACHE_DIR: dist-bun/abduco-cache
   PODIUM_RELEASE_CHANNEL: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || 'stable' }}
   PODIUM_RELEASE_TAG: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}
 concurrency:
@@ -46,7 +50,10 @@ jobs:
       - name: Install pigz
         run: command -v pigz || (sudo apt-get update && sudo apt-get install -y pigz)
       # The abduco cache is content-addressed on the vendored source, so this key is the
-      # honest one: touch abduco.c and every platform's helper is rebuilt.
+      # honest one: touch abduco.c and every platform's helper is rebuilt. PODIUM_ABDUCO_CACHE_DIR
+      # pins it back inside the checkout: locally the default is a durable per-repository
+      # path outside it (POD-3162), which buys nothing on an ephemeral runner and cannot be
+      # named by an actions/cache `path`.
       - uses: actions/cache@v4
         with:
           path: dist-bun/abduco-cache

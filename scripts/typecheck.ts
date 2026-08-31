@@ -22,10 +22,10 @@
  *      (110x the cached 2s) on a host shared with a live Podium instance.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { arch, homedir, platform, tmpdir } from 'node:os'
-import { isAbsolute, join, resolve, sep } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { arch, homedir, platform } from 'node:os'
 import { type InstallTopology, readInstallTopology } from './install-topology'
+import { sharedCacheDir } from './shared-cache-dir'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 export interface ForceDecision {
@@ -174,51 +174,12 @@ export function admissionRefusal(census: EnvCensus, lane: string): string | null
   )
 }
 
-function projectCacheIdentity(root: string): string {
-  const dotGit = join(root, '.git')
-  if (!existsSync(dotGit)) return realpathSync(root)
-  const stat = statSync(dotGit)
-  const statTarget = stat.isFile() ? readFileSync(dotGit, 'utf8') : ''
-  const match = statTarget.match(/^gitdir: (.+)$/m)
-  const gitDir = match ? (match[1] ?? '') : dotGit
-  const absoluteGitDir = isAbsolute(gitDir) ? gitDir : resolve(root, gitDir)
-  // A linked worktree's gitfile points at <common-git-dir>/worktrees/<name>.
-  // Resolve this structurally instead of looking for a literal `worktrees` path segment:
-  // bare repositories and Windows path separators are both legitimate.
-  const worktreesParent = resolve(absoluteGitDir, '..', '..')
-  if (
-    stat.isFile() &&
-    absoluteGitDir !== worktreesParent &&
-    resolve(absoluteGitDir, '..').endsWith(`${sep}worktrees`)
-  ) {
-    return realpathSync(worktreesParent)
-  }
-  return realpathSync(absoluteGitDir)
-}
-
 /**
- * One durable cache per repository per host, shared by every sibling worktree.
- *
- * The key is the common git directory, so linked worktrees of one repository land in
- * the same place and a result produced in one is readable from the next — that sharing
- * is the whole return on the cache. Two things used to threaten it. TMPDIR is reminted
- * per agent session and per test file in this repository, so an XDG-less host silently
- * gave every session its own cache and its own cold start; and /tmp does not survive a
- * reboot. $HOME/.cache — the XDG default — is stable for both, so it is preferred over
- * the temporary directory, which now only catches a host with no usable home.
+ * The Turbo cache lane of the shared durable cache root (see scripts/shared-cache-dir.ts,
+ * which holds the reasoning about the common-git-dir key and the base directory).
  */
 export function sharedTurboCacheDir(root: string, env = process.env, home = homedir()): string {
-  const projectKey = createHash('sha256')
-    .update(projectCacheIdentity(root))
-    .digest('hex')
-    .slice(0, 16)
-  // Each candidate is only valid when absolute. A relative value is treated as unset:
-  // resolving it against each worktree would silently produce separate caches.
-  const cacheBase =
-    [env.XDG_CACHE_HOME, home && join(home, '.cache')].find(
-      (candidate): candidate is string => !!candidate && isAbsolute(candidate),
-    ) ?? join(tmpdir(), 'podium-cache')
-  return join(cacheBase, 'podium', 'turbo', projectKey)
+  return sharedCacheDir('turbo', root, env, home)
 }
 
 export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
