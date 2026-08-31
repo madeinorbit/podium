@@ -797,14 +797,20 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             if (!canOpenProfileOffline(selected, result.kind)) {
               throw new Error(`${result.title}: ${result.detail}`)
             }
-            const next = { activeProfileId: selected.id, profiles: profileState.profiles }
-            const saved = await profileWrites.run(async () => {
-              await saveServerProfiles(next)
-              if (operation === switchOperation.current) return true
-              await saveServerProfiles(profileState)
-              return false
+            const next = await profileWrites.run(async () => {
+              const current = await loadServerProfiles()
+              const durableSelected = current.profiles.find((row) => row.id === selected.id)
+              if (!durableSelected || operation !== switchOperation.current) return null
+              const candidate: ServerProfileState = {
+                activeProfileId: selected.id,
+                profiles: current.profiles,
+              }
+              await saveServerProfiles(candidate)
+              if (operation === switchOperation.current) return candidate
+              await saveServerProfiles(current)
+              return null
             })
-            if (!saved) return
+            if (!next) return
             setProfileState(next)
             setBearer(null)
             setActivation('offline-cache')
@@ -818,27 +824,28 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           }
           const credential = await credentialWrites.run(() => getProfileCredential(selected.id))
           if (operation !== switchOperation.current) return
-          const validated: ServerProfile = {
-            ...selected,
-            httpOrigin: result.httpOrigin,
-            instanceId: result.instanceId,
-            mode: result.mode,
-            transport: result.transport,
-            updatedAt: new Date().toISOString(),
-          }
-          const next = {
-            activeProfileId: selected.id,
-            profiles: profileState.profiles.map((row) =>
-              row.id === selected.id ? validated : row,
-            ),
-          }
-          const saved = await profileWrites.run(async () => {
-            await saveServerProfiles(next)
-            if (operation === switchOperation.current) return true
-            await saveServerProfiles(profileState)
-            return false
+          const next = await profileWrites.run(async () => {
+            const current = await loadServerProfiles()
+            const durableSelected = current.profiles.find((row) => row.id === selected.id)
+            if (!durableSelected || operation !== switchOperation.current) return null
+            const validated: ServerProfile = {
+              ...durableSelected,
+              httpOrigin: result.httpOrigin,
+              instanceId: result.instanceId,
+              mode: result.mode,
+              transport: result.transport,
+              updatedAt: new Date().toISOString(),
+            }
+            const candidate: ServerProfileState = {
+              activeProfileId: selected.id,
+              profiles: current.profiles.map((row) => (row.id === selected.id ? validated : row)),
+            }
+            await saveServerProfiles(candidate)
+            if (operation === switchOperation.current) return candidate
+            await saveServerProfiles(current)
+            return null
           })
-          if (!saved) return
+          if (!next) return
           setProfileState(next)
           setBearer(credential)
           setActivation('verified')
