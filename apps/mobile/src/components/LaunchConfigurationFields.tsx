@@ -20,6 +20,7 @@ import {
   type LaunchConfiguration,
   type LaunchMachineOption,
   type LaunchPlan,
+  hasAuthoritativeLaunchCatalog,
   normalizeLaunchConfiguration,
   selectLaunchAgent,
   selectInheritedLaunchAgent,
@@ -93,6 +94,11 @@ export function LaunchConfigurationFields({
   // leave one frame where the old eligible plan could still be submitted.
   useLayoutEffect(() => onPlan?.(plan), [onPlan, plan])
   const effective = plan.configuration
+  const hasLiveAgentCatalog = hasAuthoritativeLaunchCatalog(
+    catalog,
+    catalogStatus,
+    effective.agentKind,
+  )
   const displayedMachineOptions: NativePickerOption[] =
     value.machineId && !machineOptions.some((option) => option.value === value.machineId)
       ? [
@@ -108,17 +114,16 @@ export function LaunchConfigurationFields({
     })),
   ]
   const modelOptions = useMemo<NativePickerOption[]>(() => {
-    if (catalogStatus !== 'ready') return [{ value: AUTO, label: 'Auto' }]
+    if (!hasLiveAgentCatalog) return [{ value: AUTO, label: 'Auto' }]
     const group = ISSUE_AGENT_LABELS[effective.agentKind]
     return allConnectorModelOptions(catalog)
       .filter((option) => option.value === AUTO || option.group === group)
       .map(({ value: optionValue, label }) => ({ value: optionValue, label }))
-  }, [catalog, catalogStatus, effective.agentKind])
+  }, [catalog, effective.agentKind, hasLiveAgentCatalog])
   const decoded = decodeModelPick(effective.modelPick)
-  const effortOptions =
-    catalogStatus === 'ready'
-      ? effortOptionsForModel(effective.agentKind, decoded.model, catalog[effective.agentKind])
-      : []
+  const effortOptions = hasLiveAgentCatalog
+    ? effortOptionsForModel(effective.agentKind, decoded.model, catalog[effective.agentKind])
+    : []
 
   const rows: Array<{
     key: Exclude<Picker, null>

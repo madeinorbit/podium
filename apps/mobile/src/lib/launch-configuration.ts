@@ -51,6 +51,15 @@ export function launchPlanCanSubmit(plan: LaunchPlan | null): plan is LaunchPlan
   return plan !== null && plan.refusal === undefined
 }
 
+/** Explicit picks are safe only when this exact agent has an authoritative list. */
+export function hasAuthoritativeLaunchCatalog(
+  catalog: ModelCatalog,
+  status: ModelCatalogStatus,
+  agentKind: IssueAgentKind,
+): boolean {
+  return status === 'ready' && (catalog[agentKind]?.length ?? 0) > 0
+}
+
 export function selectLaunchAgent(
   value: LaunchConfiguration,
   agentKind: IssueAgentKind,

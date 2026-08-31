@@ -81,4 +81,22 @@ describe('useModelCatalog', () => {
 
     expect(screen.getByText('unavailable')).toBeTruthy()
   })
+
+  it('recovers from unavailable to a later fresh catalog', async () => {
+    const machineId = asMachineId('75c55a26-b2d5-401d-87a8-c1bf21a4b1c3')
+    catalog.mockRejectedValueOnce(new Error('offline')).mockImplementationOnce(async () => ({
+      machineId,
+      byAgent: { codex: [{ value: 'gpt-current', label: 'Current' }] },
+      fetchedAt: Date.now(),
+    }))
+
+    render(<StatusProbe machineId={machineId} />)
+    await act(async () => {})
+    expect(screen.getByText('unavailable')).toBeTruthy()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MODEL_CATALOG_MAX_AGE_MS)
+    })
+    expect(screen.getByText('ready')).toBeTruthy()
+  })
 })

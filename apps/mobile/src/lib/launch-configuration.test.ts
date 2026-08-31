@@ -3,6 +3,7 @@ import { AUTO, encodeModelPick } from './agent-models'
 import {
   autoLaunchMachineOption,
   type LaunchConfiguration,
+  hasAuthoritativeLaunchCatalog,
   launchConfigurationPatch,
   launchPlanCanSubmit,
   normalizeLaunchConfiguration,
@@ -106,6 +107,21 @@ describe('normalizeLaunchConfiguration', () => {
       defaultModel: AUTO,
       defaultEffort: AUTO,
     })
+  })
+
+  it('does not expose explicit picks when a ready catalog only knows another agent', () => {
+    const otherAgentCatalog = {
+      'claude-code': [{ value: 'sonnet', label: 'Sonnet', efforts: ['high'] }],
+    }
+    expect(hasAuthoritativeLaunchCatalog(otherAgentCatalog, 'ready', 'codex')).toBe(false)
+    expect(
+      normalizeLaunchConfiguration(
+        selected,
+        otherAgentCatalog,
+        [{ value: 'host-a', label: 'Host A' }],
+        'ready',
+      ).configuration,
+    ).toMatchObject({ modelPick: AUTO, effort: AUTO })
   })
 
   it.each([
