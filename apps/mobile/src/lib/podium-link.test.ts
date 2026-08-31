@@ -191,6 +191,18 @@ describe('followPodiumLink', () => {
 
     openURL.mockRestore()
   })
+
+  it('does not rewrite backslashes inside protocol-relative query or fragment detail', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    setActivePodiumOrigin('http://127.0.0.1:8787')
+    const href = String.raw`//example.test/search?q=C:\Users#x\y`
+
+    followPodiumLink(href)
+    expect(openURL).toHaveBeenCalledWith(`http:${href}`)
+
+    openURL.mockRestore()
+  })
 })
 
 describe('the two origin slots (POD-1606 finding 4)', () => {
