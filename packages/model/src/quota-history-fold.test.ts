@@ -127,6 +127,49 @@ describe('reset detection', () => {
     expect(windows[1]?.peakPercent).toBe(12)
   })
 
+  it("does not mint a window per poll when an empty pool's reset time tracks the clock", () => {
+    // The measured Codex artifact. Idle account, pool at 0%, so `resetsAt` is
+    // just `now + 7 days` and advances exactly as fast as the fifteen-minute
+    // poll. Five polls in an idle hour produced five one-sample "windows" of no
+    // length, and the ledger drew a column for each.
+    const base = Date.parse('2026-08-29T21:31:05Z')
+    const week = 7 * 24 * 60 * MINUTE
+    const windows = foldSamples(
+      [0, 15, 30, 38, 45].map((m) =>
+        sample({
+          agent: 'codex',
+          windowKey: 'weekly',
+          usedPercent: 0,
+          atMs: base + m * MINUTE,
+          resetsAtMs: base + m * MINUTE + week,
+        }),
+      ),
+      SAMPLING,
+    )
+    expect(windows).toHaveLength(1)
+    expect(windows[0]?.sampleCount).toBe(5)
+  })
+
+  it('still sees a rollover the sampler slept through', () => {
+    // The creep exemption must not swallow a real reset just because the sampler
+    // was down for about as long as the window: the advance is a whole window
+    // while the clock moved further, so it is not creep.
+    const base = Date.parse('2026-08-20T07:00:00Z')
+    const week = 7 * 24 * 60 * MINUTE
+    const windows = foldSamples(
+      [
+        sample({ usedPercent: 20, atMs: base, resetsAtMs: base + week }),
+        sample({
+          usedPercent: 20,
+          atMs: base + week + 6 * 60 * MINUTE,
+          resetsAtMs: base + 2 * week,
+        }),
+      ],
+      SAMPLING,
+    )
+    expect(windows).toHaveLength(2)
+  })
+
   it('leaves ordinary oscillation alone — the threshold sits above it', () => {
     // 2,587 of the measured decreases were 2 points or less. None may split a row.
     const steady = Date.parse('2026-08-31T07:00:00Z')
@@ -210,14 +253,30 @@ describe('peak, not last', () => {
 
 describe('partial rows', () => {
   const started = Date.parse('2026-08-24T06:00:00Z')
+  const HOUR = 60 * MINUTE
+  const WEEK_MINUTES = 10080
 
   it('does not flag a window that simply opened above zero', () => {
     // The measured rollover opened at 1% with nothing missed.
-    expect(isPartial(started + MINUTE, started, SAMPLING)).toBe(false)
+    expect(isPartial(started + MINUTE, started, SAMPLING, WEEK_MINUTES)).toBe(false)
   })
 
   it('flags a window first seen well after it started', () => {
-    expect(isPartial(started + 3 * 60 * MINUTE, started, SAMPLING)).toBe(true)
+    expect(isPartial(started + 3 * 24 * HOUR, started, SAMPLING, WEEK_MINUTES)).toBe(true)
+  })
+
+  it('scales the threshold to the window rather than to the poll', () => {
+    // The measured Grok case: a seven-day pool first seen 1 h 47 m in, at 2%
+    // spent, was flagged "joined mid-window" because 1 h 47 m clears one
+    // fifteen-minute poll. It is one percent of the window and nothing was
+    // missed; eight hours of the same week genuinely could have hidden spending.
+    expect(isPartial(started + 107 * MINUTE, started, SAMPLING, WEEK_MINUTES)).toBe(false)
+    expect(isPartial(started + 9 * HOUR, started, SAMPLING, WEEK_MINUTES)).toBe(true)
+  })
+
+  it('falls back to one poll when the provider reports no window length', () => {
+    expect(isPartial(started + 10 * MINUTE, started, SAMPLING, 0)).toBe(false)
+    expect(isPartial(started + 20 * MINUTE, started, SAMPLING, 0)).toBe(true)
   })
 
   it('cannot judge a window whose duration the provider never reported', () => {
@@ -240,7 +299,7 @@ describe('purity and re-derivation', () => {
     // A row that keeps a stale `partial` goes on claiming "start not observed"
     // about a start we can now show we watched.
     const startedAt = Date.parse('2026-08-18T01:00:00Z')
-    const late = openInstance(sample({ atMs: startedAt + 5 * 60 * MINUTE }), SAMPLING)
+    const late = openInstance(sample({ atMs: startedAt + 3 * 24 * 60 * MINUTE }), SAMPLING)
     expect(late.partial).toBe(true)
     const withEarly = foldSample(late, sample({ atMs: startedAt + MINUTE }), SAMPLING)
     expect(withEarly.partial).toBe(false)

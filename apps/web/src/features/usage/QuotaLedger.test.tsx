@@ -1,8 +1,31 @@
 import { quotaLedger } from '@podium/client-core/viewmodels'
 import type { QuotaWindowHistoryWire } from '@podium/model'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { QuotaLedger } from './QuotaLedger'
+
+/**
+ * Open a column's hover card and hand back everything it says.
+ *
+ * The details moved off a `title` attribute onto a real tooltip, so reading them
+ * means driving the pointer rather than reading a string off the node. Rendering
+ * inside a provider with no delay is what makes the open synchronous enough to
+ * await.
+ */
+async function hoverCard(el: Element): Promise<string> {
+  await act(async () => {
+    fireEvent.pointerOver(el, { pointerType: 'mouse', bubbles: true })
+    fireEvent.pointerEnter(el, { pointerType: 'mouse', bubbles: true })
+    fireEvent.mouseOver(el, { bubbles: true })
+    fireEvent.mouseEnter(el)
+    fireEvent.mouseMove(el, { bubbles: true })
+  })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  })
+  return document.querySelector('[data-slot="tooltip-content"]')?.textContent ?? ''
+}
 
 /**
  * What the ledger promises visually: a column is a groove with a ceiling, the
@@ -72,7 +95,7 @@ describe('cold and empty', () => {
     // would claim a number is still coming. Neither is true.
     render(<QuotaLedger ledger={quotaLedger([])} cold={false} />)
     expect(figure().querySelectorAll('.usage-unfilled')).toHaveLength(0)
-    expect(screen.getAllByTitle('No window has completed yet').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('–').length).toBeGreaterThan(0)
   })
 })
 
@@ -107,10 +130,40 @@ describe('columns', () => {
     expect(figure().querySelectorAll('.quota-groove[data-partial]')).toHaveLength(1)
   })
 
-  it('gives every column a readable summary without a tooltip component', () => {
-    render(<QuotaLedger ledger={quotaLedger([row({ peakPercent: 71 })])} cold={false} />)
+  it('gives every column a hover card rather than a browser title string', async () => {
+    // Six facts joined by middots in a `title` arrived as one unpunctuated line
+    // in the OS font. The card gives each of them a place instead.
+    render(
+      <TooltipProvider delay={0}>
+        <QuotaLedger ledger={quotaLedger([row({ peakPercent: 71 })])} cold={false} />
+      </TooltipProvider>,
+    )
     const groove = figure().querySelector('.quota-groove') as HTMLElement
-    expect(groove.title).toMatch(/71% of plan spent/)
+    expect(groove.title).toBe('')
+    const card = await hoverCard(groove)
+    expect(card).toMatch(/71%/)
+    expect(card).toMatch(/of the plan spent/)
+    // The negative space is the whole message of this chart, so the card says it.
+    expect(card).toMatch(/29% went unused/)
+  })
+
+  it('says what a missed start means, not just that it happened', async () => {
+    render(
+      <TooltipProvider delay={0}>
+        <QuotaLedger ledger={quotaLedger([row({ partial: true })])} cold={false} />
+      </TooltipProvider>,
+    )
+    const card = await hoverCard(figure().querySelector('.quota-groove') as HTMLElement)
+    expect(card).toMatch(/may understate what was really spent/)
+  })
+
+  it('hatches a running window whose start was never observed', () => {
+    // Both states set the fill, and the running one used to win outright: the
+    // column was painted solid while its own card said the start was missed.
+    render(
+      <QuotaLedger ledger={quotaLedger([row({ partial: true, closed: false })])} cold={false} />,
+    )
+    expect(figure().querySelectorAll('.quota-groove[data-partial][data-now]')).toHaveLength(1)
   })
 })
 
@@ -224,10 +277,30 @@ describe('width shows length', () => {
     expect(widths()).toEqual(['7'])
   })
 
-  it('names the length in the column summary', () => {
-    render(<QuotaLedger ledger={quotaLedger([row({ windowMinutes: 2880 })])} cold={false} />)
-    const groove = figure().querySelector('.quota-groove') as HTMLElement
-    expect(groove.title).toMatch(/2 days long/)
+  it('names the length on the card', async () => {
+    render(
+      <TooltipProvider delay={0}>
+        <QuotaLedger ledger={quotaLedger([row({ windowMinutes: 2880 })])} cold={false} />
+      </TooltipProvider>,
+    )
+    const card = await hoverCard(figure().querySelector('.quota-groove') as HTMLElement)
+    expect(card).toMatch(/Ran for2 days/)
+  })
+
+  it('gives a sub-day window its length in hours instead of rounding it to zero', async () => {
+    render(
+      <TooltipProvider delay={0}>
+        <QuotaLedger
+          ledger={quotaLedger([
+            row({ firstSeenAt: '2026-08-17T07:05:00Z', resetsAt: '2026-08-17T20:00:00Z' }),
+            row({ firstSeenAt: '2026-08-18T00:05:00Z', resetsAt: '2026-08-24T07:00:00Z' }),
+          ])}
+          cold={false}
+        />
+      </TooltipProvider>,
+    )
+    const card = await hoverCard(figure().querySelector('.quota-groove') as HTMLElement)
+    expect(card).toMatch(/Ran for17 h/)
   })
 })
 
@@ -242,7 +315,7 @@ describe('cadence heading', () => {
         cold={false}
       />,
     )
-    expect(screen.getByText('1–2 days')).toBeTruthy()
+    expect(screen.getByText('every 1–2 days')).toBeTruthy()
     expect(screen.queryByText('Weekly')).toBeNull()
   })
 

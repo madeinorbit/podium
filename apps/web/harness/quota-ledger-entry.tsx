@@ -15,6 +15,7 @@ import { quotaLedger } from '@podium/client-core/viewmodels'
 import type { QuotaWindowHistoryWire } from '@podium/model'
 import type { JSX } from 'react'
 import { createRoot } from 'react-dom/client'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { QuotaLedger } from '@/features/usage/QuotaLedger'
 import '@/index.css'
 import '@/styles.css'
@@ -115,6 +116,55 @@ const SPARSE = quotaLedger([
   }),
 ])
 
+/**
+ * THE TWO CLAIMS THAT USED TO CONTRADICT EACH OTHER (POD-1852).
+ *
+ * A window that is still running AND was joined after it opened sets both fill
+ * states at once. They both wrote `background`, so the running rule simply won
+ * and the column came out solid while its own card said the start was missed —
+ * every pool with a live window showed it. The last column here is that case.
+ *
+ * Its neighbours are the other half of the same report: sub-day windows, whose
+ * lengths used to round to `0 days` and drag the strip's cadence down with them.
+ */
+const RUNNING_PARTIAL = quotaLedger([
+  row({
+    accountKey: 'claude-code::a@b.c',
+    agent: 'claude-code',
+    windowKey: 'weekly-all',
+    resetsAt: week(1),
+    peakPercent: 64,
+    plan: 'max',
+    partial: true,
+  }),
+  row({
+    accountKey: 'claude-code::a@b.c',
+    agent: 'claude-code',
+    windowKey: 'weekly-all',
+    resetsAt: week(0),
+    peakPercent: 71,
+    plan: 'max',
+    partial: true,
+    closed: false,
+  }),
+  // The measured Codex shape: a nominally weekly pool that rolls in a day and a
+  // half, with the running window still open.
+  ...[
+    [37 / 24, 11],
+    [28 / 24, 31],
+  ].map(([days, peak], i) =>
+    row({
+      resetsAt: new Date(
+        Date.parse('2026-08-24T07:00:00.000Z') - (2 - i) * 1.5 * 86_400_000,
+      ).toISOString(),
+      windowMinutes: Math.round((days as number) * 24 * 60),
+      peakPercent: peak as number,
+      plan: 'pro',
+    }),
+  ),
+  row({ resetsAt: week(-1), peakPercent: 18, closed: false, plan: 'pro' }),
+])
+
 function Panel({
   title,
   theme,
@@ -178,6 +228,12 @@ function Shell(): JSX.Element {
       <Panel title="Several pools · Paper" theme="paper">
         <QuotaLedger ledger={FULL} cold={false} />
       </Panel>
+      <Panel title="Running window, start not observed" theme="dark">
+        <QuotaLedger ledger={RUNNING_PARTIAL} cold={false} />
+      </Panel>
+      <Panel title="Running window, start not observed · Paper" theme="paper">
+        <QuotaLedger ledger={RUNNING_PARTIAL} cold={false} />
+      </Panel>
       <Panel title="Mixed window lengths" theme="dark">
         <QuotaLedger ledger={MIXED} cold={false} />
       </Panel>
@@ -195,4 +251,9 @@ function Shell(): JSX.Element {
 }
 
 const root = document.getElementById('root')
-if (root) createRoot(root).render(<Shell />)
+if (root)
+  createRoot(root).render(
+    <TooltipProvider delay={0}>
+      <Shell />
+    </TooltipProvider>,
+  )

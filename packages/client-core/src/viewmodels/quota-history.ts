@@ -137,6 +137,45 @@ export function formatLedgerSpan(startedAt: string | undefined, resetsAt: string
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+const trimZero = (s: string) => s.replace(/\.0$/, '')
+
+/**
+ * A LENGTH IN THE UNIT THAT CAN ACTUALLY CARRY IT.
+ *
+ * Every length here used to be printed in days, rounded, and a window that ran
+ * for seven minutes therefore came out as `0 days` — a number that is not merely
+ * imprecise but false, since the window plainly ran. A ledger of nominally weekly
+ * pools still holds real sub-day windows (a Codex pool that rolls twice in an
+ * afternoon), so the unit has to follow the magnitude.
+ *
+ * Under an hour it is minutes, under a day it is hours, and from a day up it is
+ * days with one decimal while that decimal still means something. The parts come
+ * back separately so a RANGE can print its unit once — `1.2–1.5 days`, not
+ * `1.2 days–1.5 days` — and fall back to naming both when the ends disagree.
+ */
+export function durationParts(days: number): { value: string; unit: 'min' | 'h' | 'days' } {
+  const minutes = days * 1440
+  if (minutes < 60) return { value: String(Math.max(1, Math.round(minutes))), unit: 'min' }
+  if (days < 1) return { value: String(Math.round(days * 24)), unit: 'h' }
+  return { value: trimZero(days < 10 ? days.toFixed(1) : String(Math.round(days))), unit: 'days' }
+}
+
+/** One length, spelled out: `45 min` · `17 h` · `1.5 days`. Singular only here —
+ *  a range keeps the plural so `1–2 days` does not have to break into two units. */
+export function formatWindowDuration(days: number): string {
+  const { value, unit } = durationParts(days)
+  return `${value} ${unit === 'days' && value === '1' ? 'day' : unit}`
+}
+
+/** A span between two lengths, sharing the unit when both ends agree on one. */
+export function formatDurationRange(lo: number, hi: number): string {
+  const a = durationParts(lo)
+  const b = durationParts(hi)
+  if (a.value === b.value && a.unit === b.unit) return `${a.value} ${a.unit}`
+  if (a.unit === b.unit) return `${a.value}–${b.value} ${b.unit}`
+  return `${a.value} ${a.unit} – ${b.value} ${b.unit}`
+}
+
 /**
  * A window's length in days.
  *
@@ -187,11 +226,17 @@ function median(values: number[]): number | undefined {
  *  - every window within half a day of seven → `Weekly`, said plainly;
  *  - they vary but sit around a week → `typically weekly`, which claims a
  *    tendency and not a rule;
- *  - they vary and are not weekly → the observed range, `1–7 days`.
+ *  - they vary and are not weekly → the observed range, `every 1.2–1.5 days`.
  *
  * And a fourth: fewer than two completed windows says NOTHING. One observation
  * cannot establish a rhythm, and silence is the honest output — the caller
  * renders no cadence at all rather than a hedge.
+ *
+ * The range reads `every …` because the bare one did not read as anything. Set
+ * beside a harness name, `0-2 DAYS` looks like a label with its verb missing —
+ * a duration, a limit, a countdown, no way to tell — where `EVERY 1.2–1.5 DAYS`
+ * can only be a rhythm. (And the `0` was the other half of that complaint; see
+ * {@link durationParts}.)
  */
 export function cadenceLabel(durationsDays: number[]): string | undefined {
   const known = durationsDays.filter((d) => Number.isFinite(d) && d > 0)
@@ -201,8 +246,28 @@ export function cadenceLabel(durationsDays: number[]): string | undefined {
   if (lo >= 6.5 && hi <= 7.5) return 'Weekly'
   const mid = median(known) ?? 0
   if (mid >= 6 && mid <= 8) return 'typically weekly'
-  const round = (d: number) => (d < 1.5 ? d.toFixed(1).replace(/\.0$/, '') : String(Math.round(d)))
-  return lo === hi ? `${round(lo)} days` : `${round(lo)}–${round(hi)} days`
+  return `every ${formatDurationRange(lo, hi)}`
+}
+
+/**
+ * A POLL IS NOT A WINDOW.
+ *
+ * A row seen exactly once, holding 0%, records no reset and no spending. It is
+ * what the fold used to produce when a rolling provider's reset time crept while
+ * its pool sat empty (see `isCreep` in the fold): every fifteen-minute poll of an
+ * idle Codex account opened another "window", and the chart drew each of them as
+ * a column of no length and no fill. The fold no longer creates them, but the
+ * ones already written down do not un-write themselves, and a stored artifact
+ * would go on skewing the observed cadence for the ninety days it is retained.
+ *
+ * The NEWEST row in a strip is kept whatever it looks like: a window that really
+ * did just open has exactly this shape for its first quarter of an hour, and it
+ * is the one column the reader is most likely to be looking for.
+ */
+function dropPollArtifacts(ordered: QuotaWindowHistoryWire[]): QuotaWindowHistoryWire[] {
+  return ordered.filter(
+    (row, i) => i === ordered.length - 1 || row.sampleCount > 1 || row.peakPercent > 0,
+  )
 }
 
 function mean(values: number[]): number | undefined {
@@ -230,10 +295,12 @@ export function quotaLedger(rows: QuotaWindowHistoryWire[]): QuotaLedgerView {
 
   const strips: QuotaLedgerStrip[] = []
   for (const [key, list] of byStrip) {
-    const ordered = [...list].sort(
-      (a, b) =>
-        Date.parse(a.firstSeenAt) - Date.parse(b.firstSeenAt) ||
-        Date.parse(a.resetsAt) - Date.parse(b.resetsAt),
+    const ordered = dropPollArtifacts(
+      [...list].sort(
+        (a, b) =>
+          Date.parse(a.firstSeenAt) - Date.parse(b.firstSeenAt) ||
+          Date.parse(a.resetsAt) - Date.parse(b.resetsAt),
+      ),
     )
     const first = ordered[0]
     if (!first) continue

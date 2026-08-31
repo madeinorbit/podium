@@ -1,9 +1,11 @@
-import type {
-  QuotaLedgerColumn,
-  QuotaLedgerStrip,
-  QuotaLedgerView,
+import {
+  formatWindowDuration,
+  type QuotaLedgerColumn,
+  type QuotaLedgerStrip,
+  type QuotaLedgerView,
 } from '@podium/client-core/viewmodels'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Unfilled } from './Unfilled'
 import type { QuotaLedgerFeed } from './useQuotaLedger'
 
@@ -37,40 +39,107 @@ const TARGET_PERCENT = 85
 /** Days a column is drawn as when the provider reported no duration. See below. */
 const UNKNOWN_DAYS = 7
 
+/**
+ * THE HOVER CARD FOR ONE WINDOW.
+ *
+ * This was a `title` attribute holding six facts joined by middots, which is
+ * roughly the worst way to present them: the browser chrome renders it in the OS
+ * font after a delay it owns, with no structure, so `28% of plan spent · joined
+ * mid-window — start not observed · still running` arrived as one unpunctuated
+ * line and the reader had to parse it. The facts have shape — a period, a
+ * number, and up to two caveats about how much to trust it — and the card gives
+ * each of them its own place.
+ *
+ * THE CAVEATS ARE SENTENCES, not tags. `joined mid-window` names a condition
+ * without saying what follows from it; the reader's actual question is whether
+ * the number above can be believed, so the note answers that instead.
+ */
+function ColumnTooltip({
+  column,
+  children,
+}: {
+  column: QuotaLedgerColumn
+  children: ReactNode
+}): JSX.Element {
+  const percent = Math.max(0, Math.min(100, column.peakPercent))
+  const days = column.durationDays
+  return (
+    <Tooltip>
+      <TooltipTrigger render={children as JSX.Element} />
+      <TooltipContent
+        side="top"
+        className="max-w-64 flex-col items-stretch gap-0 px-2.5 py-2 text-left"
+      >
+        <span className="quota-tip">
+          <b className="quota-tip-span">{column.spanLabel}</b>
+          <span className="quota-tip-figure">
+            <em>{percent.toFixed(0)}%</em>
+            <span>of the plan spent</span>
+            {/* The unspent half of the same fact. It is the reason the figure
+                exists, and it is only a settled number once the window has reset. */}
+            {column.closed && percent < 100 ? (
+              <i>{(100 - percent).toFixed(0)}% went unused</i>
+            ) : null}
+          </span>
+          {/* A two-column grid of label/value pairs, so the pairs are laid out as
+              siblings rather than wrapped — a wrapper would need `display:
+              contents` to get out of the grid's way, and that drops its text
+              nodes into anonymous boxes. */}
+          <span className="quota-tip-rows">
+            <b>Ran for</b>
+            <span>{days === undefined ? 'not reported' : formatWindowDuration(days)}</span>
+            {column.plan ? (
+              <>
+                <b>Plan</b>
+                <span>{column.plan}</span>
+              </>
+            ) : null}
+            <b>State</b>
+            <span>{column.closed ? 'reset' : 'still running'}</span>
+          </span>
+          {column.partial ? (
+            <span className="quota-tip-note">
+              Sampling started after this window opened, so its peak may understate what was really
+              spent.
+            </span>
+          ) : null}
+          {column.planBreak ? (
+            <span className="quota-tip-note">
+              The plan changed here — the pool is a different size, so this column and the one
+              before it are not comparable.
+            </span>
+          ) : null}
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 function Column({ column }: { column: QuotaLedgerColumn }): JSX.Element {
   const percent = Math.max(0, Math.min(100, column.peakPercent))
   const days = column.durationDays
-  const title = [
-    column.spanLabel,
-    days === undefined ? null : `${days < 1.5 ? days.toFixed(1) : Math.round(days)} days long`,
-    `${percent.toFixed(0)}% of plan spent`,
-    column.partial ? 'joined mid-window — start not observed' : null,
-    column.closed ? null : 'still running',
-    column.plan ? `plan: ${column.plan}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
   return (
-    <span
-      className="quota-groove"
-      data-partial={column.partial || undefined}
-      data-now={column.closed ? undefined : true}
-      data-plan-break={column.planBreak || undefined}
-      // WIDTH IS THE WINDOW'S LENGTH, linearly: seven days is drawn seven times
-      // one day. `--days` feeds a flex-basis, so the ratio survives the strip
-      // being squeezed — flex shrinks in proportion to basis.
-      //
-      // A window with no observed or reported duration gets the nominal week
-      // and says so through `data-unknown-length`, rather than defaulting to
-      // something short and inventing a fact the history never gave us.
-      data-unknown-length={days === undefined || undefined}
-      style={{ '--days': days ?? UNKNOWN_DAYS } as React.CSSProperties}
-      title={title}
-    >
-      {/* A 1.5% floor so a window that was barely touched still shows a mark
-          rather than reading as "no data" — the two are different facts. */}
-      <i style={{ '--u': `${Math.max(1.5, percent)}%` } as React.CSSProperties} />
-    </span>
+    <ColumnTooltip column={column}>
+      <span
+        className="quota-groove"
+        data-partial={column.partial || undefined}
+        data-now={column.closed ? undefined : true}
+        data-plan-break={column.planBreak || undefined}
+        // WIDTH IS THE WINDOW'S LENGTH, linearly: seven days is drawn seven times
+        // one day. `--days` feeds a flex-basis, so the ratio survives the strip
+        // being squeezed — flex shrinks in proportion to basis.
+        //
+        // A window with no observed or reported duration gets the nominal week
+        // and says so through `data-unknown-length`, rather than defaulting to
+        // something short and inventing a fact the history never gave us.
+        data-unknown-length={days === undefined || undefined}
+        style={{ '--days': days ?? UNKNOWN_DAYS } as React.CSSProperties}
+      >
+        {/* A 1.5% floor so a window that was barely touched still shows a mark
+            rather than reading as "no data" — the two are different facts. */}
+        <i style={{ '--u': `${Math.max(1.5, percent)}%` } as React.CSSProperties} />
+      </span>
+    </ColumnTooltip>
   )
 }
 
@@ -101,7 +170,10 @@ function Reading({
         {value !== undefined ? (
           value
         ) : loaded ? (
-          <span title="No window has completed yet">–</span>
+          <Tooltip>
+            <TooltipTrigger render={<span>–</span>} />
+            <TooltipContent side="top">No window has completed yet</TooltipContent>
+          </Tooltip>
         ) : (
           <Unfilled ch={ch} />
         )}
@@ -141,17 +213,20 @@ function Strip({ strip }: { strip: QuotaLedgerStrip }): JSX.Element {
         </div>
         <div className="quota-strip-days">
           {strip.columns.map((column) => (
-            <span
-              key={`${column.windowKey}:${column.resetsAt}`}
-              // The label track mirrors the plot's flex basis exactly, or the
-              // dates stop sitting under the columns they name.
-              style={{ '--days': column.durationDays ?? UNKNOWN_DAYS } as React.CSSProperties}
-              title={column.spanLabel}
-            >
-              {/* Inner element so the container query below can hide the text on a
-                  column too narrow to hold it. */}
-              <b>{column.endLabel}</b>
-            </span>
+            // The date track carries the same card as the column above it: the
+            // container query below hides the text on a narrow column, and a
+            // label that has vanished is exactly when someone reaches for it.
+            <ColumnTooltip key={`${column.windowKey}:${column.resetsAt}`} column={column}>
+              <span
+                // The label track mirrors the plot's flex basis exactly, or the
+                // dates stop sitting under the columns they name.
+                style={{ '--days': column.durationDays ?? UNKNOWN_DAYS } as React.CSSProperties}
+              >
+                {/* Inner element so the container query below can hide the text on a
+                    column too narrow to hold it. */}
+                <b>{column.endLabel}</b>
+              </span>
+            </ColumnTooltip>
           ))}
         </div>
       </div>
