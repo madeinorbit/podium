@@ -55,12 +55,14 @@ describe('handlePodiumLinkClick', () => {
     expect(event.defaultPrevented).toBe(false)
   })
 
-  it('leaves the anchor alone when the activator cannot open the target', () => {
+  it('gives ordinary browser fallback the active server when activation declines', () => {
     // THE DEAD CLICK the review found: a repo file, a backend path, an issue the
     // replica has not received. Cancelling here replaces a real navigation with
     // nothing at all.
     setPodiumTargetActivator(() => false)
+    expect(window.location.origin).not.toBe(HOME)
     expect(clickOn('<a href="/docs/readme.md">x</a>').defaultPrevented).toBe(false)
+    expect((document.querySelector('a') as HTMLAnchorElement).href).toBe(`${HOME}/docs/readme.md`)
     expect(clickOn(`<a href="${HOME}/files/asset?path=/w/a.png">x</a>`).defaultPrevented).toBe(
       false,
     )
@@ -76,6 +78,13 @@ describe('handlePodiumLinkClick', () => {
     const event = clickOn(`<a href="${HOME}/issues/POD-1606">x</a>`, { metaKey: true })
     expect(activate).not.toHaveBeenCalled()
     expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('gives browser modifier fallback the active server instead of the page origin', () => {
+    expect(window.location.origin).not.toBe(HOME)
+    const event = clickOn('<a href="/issues/POD-1606">x</a>', { metaKey: true })
+    expect(event.defaultPrevented).toBe(false)
+    expect((document.querySelector('a') as HTMLAnchorElement).href).toBe(`${HOME}/issues/POD-1606`)
   })
 
   it('hands a modifier click to the OS browser inside the desktop shell', () => {
