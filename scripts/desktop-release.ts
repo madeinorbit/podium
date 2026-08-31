@@ -23,6 +23,32 @@ export const NATIVE_DESKTOP_BRIDGE_VERSION = 1
  * standing release so a test promotion never lands where real installs are looking.
  */
 export type DesktopReleaseChannel = 'stable' | 'edge' | 'dev'
+
+/**
+ * Give each built dev shell a real, increasing updater version without changing the versioned
+ * release source. The workflow run number is monotonic for this workflow; the source suffix makes
+ * the bytes identifiable without affecting precedence. Stable and edge remain tag/package-owned.
+ */
+export function desktopBuildVersion(input: {
+  channel: DesktopReleaseChannel
+  baseVersion: string
+  runNumber?: string
+  sourceSha?: string
+}): string {
+  if (input.channel !== 'dev') return input.baseVersion
+  const core = input.baseVersion.split('-', 1)[0]
+  if (!core || !/^\d+\.\d+\.\d+$/.test(core)) {
+    throw new Error(`cannot derive a dev desktop version from ${input.baseVersion}`)
+  }
+  if (!input.runNumber || !/^[1-9]\d*$/.test(input.runNumber)) {
+    throw new Error('dev desktop release needs a positive workflow run number')
+  }
+  if (!input.sourceSha || !/^[0-9a-f]{7,40}$/i.test(input.sourceSha)) {
+    throw new Error('dev desktop release needs a Git source SHA')
+  }
+  return `${core}-dev.${input.runNumber}+${input.sourceSha.slice(0, 7).toLowerCase()}`
+}
+
 export type DesktopReleaseTarget =
   | 'linux-x86_64'
   | 'windows-x86_64'
@@ -449,8 +475,20 @@ function main(): void {
     throw new Error('--channel must be stable, edge, or dev')
   }
   const rootPackage = JSON.parse(readFileSync('package.json', 'utf8')) as { version?: string }
-  const version = arg('--version') ?? rootPackage.version
-  if (!version) throw new Error('desktop release version is missing')
+  const baseVersion = rootPackage.version
+  if (!baseVersion) throw new Error('desktop release version is missing')
+  const version =
+    arg('--version') ??
+    desktopBuildVersion({
+      channel,
+      baseVersion,
+      runNumber: arg('--run-number'),
+      sourceSha: arg('--sha'),
+    })
+  if (process.argv.includes('--print-version')) {
+    console.log(version)
+    return
+  }
   const stableTag = arg('--tag')
   const releaseTag = desktopReleaseTag(channel, version, stableTag)
   // The release tag the workflow uploads to has to be the one this script wrote into every

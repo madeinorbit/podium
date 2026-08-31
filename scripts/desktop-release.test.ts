@@ -4,6 +4,7 @@ import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildDesktopManifest,
+  desktopBuildVersion,
   desktopReleaseTag,
   prepareDesktopRelease,
   referencedDesktopAssets,
@@ -41,6 +42,32 @@ const macIntelArtifact = {
 const releaseArtifacts = [linuxArtifact, windowsArtifact, macArtifact, macIntelArtifact]
 
 describe('desktop release manifest', () => {
+  it('gives each dev workflow run an identifiable increasing shell version', () => {
+    expect(
+      desktopBuildVersion({
+        channel: 'dev',
+        baseVersion: '0.1.1-edge.2',
+        runNumber: '42',
+        sourceSha: 'ABCDEF1234567890',
+      }),
+    ).toBe('0.1.1-dev.42+abcdef1')
+    expect(
+      desktopBuildVersion({
+        channel: 'stable',
+        baseVersion: '0.1.1',
+      }),
+    ).toBe('0.1.1')
+    expect(
+      desktopBuildVersion({
+        channel: 'edge',
+        baseVersion: '0.1.1-edge.3',
+      }),
+    ).toBe('0.1.1-edge.3')
+    expect(() =>
+      desktopBuildVersion({ channel: 'dev', baseVersion: '0.1.1-edge.2' }),
+    ).toThrow('workflow run number')
+  })
+
   it('publishes Windows, Linux, and both macOS updater architectures to the rolling edge release', () => {
     const text = buildDesktopManifest({
       version: '0.2.0-edge.1',

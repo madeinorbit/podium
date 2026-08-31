@@ -151,16 +151,6 @@ fn local_host_sidecar_command(
     command
 }
 
-fn replacement_daemon_command(runnable: &Path, server_url: &str) -> Command {
-    let mut command = Command::new(runnable);
-    command
-        .args(["daemon", "--server", server_url, "--takeover"])
-        .env(PODIUM_CLI_PATH_ENV, runnable)
-        .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env(SUPERVISOR_PID_ENV, std::process::id().to_string());
-    command
-}
-
 fn native_window_capability(
     identifier: &str,
     remote_pattern: Option<String>,
@@ -638,7 +628,7 @@ fn should_respawn_backend(exit_code: Option<i32>) -> bool {
 
 /// Supervise the backend child. Ordinary exits retain the existing bounded-backoff respawn;
 /// only a durable, matching server-transfer transition retargets the existing webview and
-/// switches supervision to an explicit daemon child.
+/// switches supervision to a new top-level parent whose config owns the daemon child.
 fn spawn_respawn_monitor<F, S, D>(
     child_state: Arc<Mutex<Option<std::process::Child>>>,
     shutting_down: Arc<AtomicBool>,
@@ -1388,7 +1378,10 @@ fn main() {
                                         let runnable_daemon = runnable.clone();
                                         let web_dir2 = web_dir.clone();
                                         let mobile_web_dir2 = mobile_web_dir.clone();
+                                        let web_dir_daemon = web_dir.clone();
+                                        let mobile_web_dir_daemon = mobile_web_dir.clone();
                                         let sidecar_args2 = sidecar_args.clone();
+                                        let sidecar_args_daemon = sidecar_args.clone();
                                         let transition_action = initial_action.clone();
                                         let monitor_app = app.handle().clone();
                                         let source_cookie_url = Url::parse(
@@ -1412,10 +1405,13 @@ fn main() {
                                                 )
                                                 .spawn()
                                             },
-                                            move |server_url| {
-                                                replacement_daemon_command(
+                                            move |_server_url| {
+                                                local_host_sidecar_command(
                                                     &runnable_daemon,
-                                                    server_url,
+                                                    &sidecar_args_daemon,
+                                                    port,
+                                                    &web_dir_daemon,
+                                                    &mobile_web_dir_daemon,
                                                 )
                                                 .spawn()
                                             },
@@ -1441,12 +1437,21 @@ fn main() {
                 }
 
                 bootstrap::LaunchAction::LocalDaemon { server_url } => {
-                    // Spawn the local `podium`; it reads config → daemon mode → connects to the
-                    // remote server. There is NO local server, so do not force PODIUM_PORT and do
-                    // not wait for a local /health — the web client connects to the remote.
+                    // Spawn the top-level `podium parent`; it reads config → daemon mode and
+                    // supervises the remote-connected daemon. There is NO local server, so the
+                    // web client connects to the configured remote endpoint.
                     let install = payload_install
                         .as_ref()
                         .expect("a daemon host has an external payload");
+                    let sidecar_args = vec!["parent".to_string(), "--takeover".to_string()];
+                    let port = bootstrap::resolve_local_port(&cfg);
+                    let web_dir = install.join("web");
+                    let mobile_web_dir = install.join("mobile");
+                    let successor_file = install.join(".desktop-successor-pid");
+                    // The parent reports its healthy replacement here during self-handover;
+                    // remove any stale crash-era marker before supervising the first parent.
+                    let _ = std::fs::remove_file(&successor_file);
+                    *successor.file.lock().unwrap() = Some(successor_file);
                     if payload_start_error.is_none() {
                         match bootstrap::ensure_executable(&install.join("podium")) {
                             Err(error) => {
@@ -1455,11 +1460,19 @@ fn main() {
                                 payload_start_error = Some(reason);
                             }
                             Ok(runnable) => {
-                                log::info!("spawning daemon {runnable:?} → {server_url}");
-                                match replacement_daemon_command(&runnable, &server_url).spawn() {
+                                log::info!(
+                                    "spawning parent {runnable:?} {sidecar_args:?} for daemon mode → {server_url}"
+                                );
+                                match local_host_sidecar_command(
+                                    &runnable,
+                                    &sidecar_args,
+                                    port,
+                                    &web_dir,
+                                    &mobile_web_dir,
+                                ).spawn() {
                                     Err(error) => {
                                         let reason =
-                                            format!("daemon payload spawn failed: {error}");
+                                            format!("parent payload spawn failed: {error}");
                                         log::error!("{reason}");
                                         payload_start_error = Some(reason);
                                     }
@@ -1467,8 +1480,11 @@ fn main() {
                                         log::info!("native backend initial daemon spawn succeeded; {}", child_details(&child));
                                         *child_state.lock().unwrap() = Some(child);
                                         let runnable2 = runnable.clone();
-                                        let runnable_daemon = runnable.clone();
-                                        let respawn_server_url = server_url.clone();
+                                        let runnable_parent = runnable.clone();
+                                        let web_dir2 = web_dir.clone();
+                                        let mobile_web_dir2 = mobile_web_dir.clone();
+                                        let web_dir_parent = web_dir.clone();
+                                        let mobile_web_dir_parent = mobile_web_dir.clone();
                                         spawn_respawn_monitor(
                                             child_state.clone(),
                                             shutting_down.clone(),
@@ -1477,18 +1493,26 @@ fn main() {
                                             app.handle().clone(),
                                             None,
                                             move || {
-                                                replacement_daemon_command(
+                                                let sidecar_args =
+                                                    vec!["parent".to_string(), "--takeover".to_string()];
+                                                local_host_sidecar_command(
                                                     &runnable2,
-                                                    &respawn_server_url,
-                                                )
-                                                .spawn()
+                                                    &sidecar_args,
+                                                    port,
+                                                    &web_dir2,
+                                                    &mobile_web_dir2,
+                                                ).spawn()
                                             },
-                                            move |server_url| {
-                                                replacement_daemon_command(
-                                                    &runnable_daemon,
-                                                    server_url,
-                                                )
-                                                .spawn()
+                                            move |_server_url| {
+                                                let sidecar_args =
+                                                    vec!["parent".to_string(), "--takeover".to_string()];
+                                                local_host_sidecar_command(
+                                                    &runnable_parent,
+                                                    &sidecar_args,
+                                                    port,
+                                                    &web_dir_parent,
+                                                    &mobile_web_dir_parent,
+                                                ).spawn()
                                             },
                                             || bootstrap::BackendExitDecision::Respawn,
                                             format!("(daemon); executable={}", runnable.display()),
@@ -2126,7 +2150,7 @@ mod tests {
     }
 
     #[test]
-    fn every_daemon_the_desktop_starts_is_marked_supervised() {
+    fn every_backend_the_desktop_starts_uses_the_parent_supervisor() {
         let host = local_host_sidecar_command(
             Path::new("podium"),
             &["parent".to_string(), "--takeover".to_string()],
@@ -2134,11 +2158,17 @@ mod tests {
             Path::new("web"),
             Path::new("mobile"),
         );
-        let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
+        let daemon = local_host_sidecar_command(
+            Path::new("podium"),
+            &["parent".to_string(), "--takeover".to_string()],
+            18787,
+            Path::new("web"),
+            Path::new("mobile"),
+        );
 
         for (label, command) in [
             ("local host sidecar", &host),
-            ("replacement daemon", &daemon),
+            ("daemon parent", &daemon),
         ] {
             assert_eq!(
                 command_env(command, DESKTOP_SUPERVISED_ENV).as_deref(),
@@ -2171,7 +2201,7 @@ mod tests {
                 .get_args()
                 .map(|arg| arg.to_string_lossy().into_owned())
                 .collect::<Vec<_>>(),
-            ["daemon", "--server", "wss://new.example", "--takeover"]
+            ["parent", "--takeover"],
         );
     }
 
@@ -2188,12 +2218,23 @@ mod tests {
             Path::new("web"),
             Path::new("mobile"),
         );
-        let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
+        let daemon = local_host_sidecar_command(
+            Path::new("podium"),
+            &["parent".to_string(), "--takeover".to_string()],
+            18787,
+            Path::new("web"),
+            Path::new("mobile"),
+        );
+        assert_eq!(
+            command_env(&daemon, DESKTOP_SUCCESSOR_FILE_ENV).as_deref(),
+            Some(".desktop-successor-pid"),
+            "the daemon-mode parent must have a bridge for reporting each handover successor"
+        );
         let expected = std::process::id().to_string();
 
         for (label, command) in [
             ("local host sidecar", &host),
-            ("replacement daemon", &daemon),
+            ("daemon parent", &daemon),
         ] {
             assert_eq!(
                 command_env(command, SUPERVISOR_PID_ENV),

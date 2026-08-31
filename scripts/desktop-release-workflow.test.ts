@@ -10,6 +10,10 @@ const desktopWorkflow = readFileSync(
   'utf8',
 )
 const headlessWorkflow = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8')
+const stageSidecarSource = readFileSync(
+  join(repoRoot, 'apps/desktop/scripts/stage-sidecar.ts'),
+  'utf8',
+)
 const releaseSource = readFileSync(join(repoRoot, 'scripts/release.ts'), 'utf8')
 const carryForwardSource = readFileSync(
   join(repoRoot, 'scripts/carry-forward-desktop-manifest.ts'),
@@ -370,6 +374,22 @@ describe('desktop release workflow', () => {
     expect(headlessWorkflow).toContain('scripts/carry-forward-desktop-manifest.ts')
     expect(carryForwardSource).toContain("'latest.json', 'desktop-shell-input.sha256'")
     expect(releaseSource).toContain('validateReferencedDesktopManifest')
+  })
+
+  it('stamps one monotonic version through a dev shell and its embedded payload', () => {
+    expect(desktopWorkflow).toContain('--print-version')
+    expect(desktopWorkflow).toContain('--run-number "$GITHUB_RUN_NUMBER" --sha "$GITHUB_SHA"')
+    expect(desktopWorkflow).toContain(
+      'desktop_version: ${{ steps.validate.outputs.desktop_version }}',
+    )
+    expect(desktopWorkflow).toContain(
+      'PODIUM_DESKTOP_VERSION: ${{ needs.validate.outputs.desktop_version }}',
+    )
+    expect(desktopWorkflow).toContain(
+      'PODIUM_APP_VERSION: ${{ needs.validate.outputs.desktop_version }}',
+    )
+    expect(desktopWorkflow).toContain('--version "$DESKTOP_VERSION"')
+    expect(stageSidecarSource).toContain('process.env.PODIUM_DESKTOP_VERSION')
   })
 
   it('builds both macOS architectures with the same signing pipeline', () => {

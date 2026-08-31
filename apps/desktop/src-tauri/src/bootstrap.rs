@@ -164,16 +164,15 @@ pub struct DesktopConfig {
 /// What the shell should do at launch, derived purely from the config.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LaunchAction {
-    /// Default: bind the stable local port, spawn the local `podium` (server+daemon), load the
-    /// UI from that server (baked dist only if the sidecar is unreachable).
+    /// Default: bind the stable local port, spawn the local top-level `podium parent` (server +
+    /// daemon), load the UI from that server (baked dist only if the sidecar is unreachable).
     LocalAllInOne,
-    /// `mode=server` (hub-only box): bind the stable local port, spawn `podium server` — the
-    /// SERVER role only, no local daemon/agents — and load the UI from that port (#176).
-    /// The explicit `server` subcommand (rather than a bare `podium` reading config.mode) also
-    /// bypasses the CLI's persistence-managed path, so a systemd/detached-configured hub still
-    /// gets a real in-process server child the desktop shell can supervise.
+    /// `mode=server` (hub-only box): bind the stable local port, spawn the top-level `podium
+    /// parent` — which owns the SERVER role only, with no local daemon/agents — and load the UI
+    /// from that port (#176). The parent keeps the desktop shell's one-child boundary intact.
     LocalServerOnly,
-    /// Spawn the local `podium` (which reads config → daemon mode → connects to `server_url`);
+    /// Spawn the local `podium parent` (which reads config → daemon mode → connects its daemon
+    /// child to `server_url`);
     /// the window points at the remote (no local server to wait for).
     LocalDaemon { server_url: String },
     /// Spawn nothing; the window points at the remote server.
@@ -635,8 +634,8 @@ pub fn initialize_update_channel(
 /// PURE resolver: map (mode, serverUrl) → the launch action.
 ///
 /// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
-/// - `daemon` + serverUrl  → LocalDaemon (spawn local podium daemon, window → remote)
-/// - `server` (with or without serverUrl) → LocalServerOnly (spawn `podium server`, no daemon,
+/// - `daemon` + serverUrl  → LocalDaemon (spawn local podium parent, window → remote)
+/// - `server` (with or without serverUrl) → LocalServerOnly (spawn `podium parent` with no daemon,
 ///   window → local port). Previously this fell through to LocalAllInOne, silently running a
 ///   local daemon + agents on a hub-only box (#176).
 /// - everything else (all-in-one / unset / missing serverUrl) → LocalAllInOne

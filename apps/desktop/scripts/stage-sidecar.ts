@@ -24,23 +24,23 @@ import { bundleNames } from '../../../scripts/build-bun.js'
 const desktopDir = fileURLToPath(new URL('..', import.meta.url)) // apps/desktop/
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url)) // repo root
 
-// 0. Single-source the version: copy root package.json `version` into tauri.conf.json so the
-//    desktop + headless bundles always report ONE version. Root package.json is the source.
-const rootVersion = (
-  JSON.parse(readFileSync(`${repoRoot}/package.json`, 'utf8')) as {
-    version?: string
-  }
-).version
-if (rootVersion) {
+// 0. Single-source the version. Tagged stable/edge builds use root package.json; a dispatched
+//    dev build receives its monotonic shell version from the release workflow. The same value is
+//    also passed as PODIUM_APP_VERSION, so the immutable payload seed and shell agree.
+const packageVersion = (JSON.parse(readFileSync(`${repoRoot}/package.json`, 'utf8')) as {
+  version?: string
+}).version
+const desktopVersion = process.env.PODIUM_DESKTOP_VERSION?.trim() || packageVersion
+if (desktopVersion) {
   const confPath = `${desktopDir}src-tauri/tauri.conf.json`
   const conf = JSON.parse(readFileSync(confPath, 'utf8')) as {
     version?: string
   }
-  if (conf.version !== rootVersion) {
-    conf.version = rootVersion
+  if (conf.version !== desktopVersion) {
+    conf.version = desktopVersion
     writeFileSync(confPath, `${JSON.stringify(conf, null, 2)}\n`)
     console.log(
-      `[stage-sidecar] tauri.conf.json version -> ${rootVersion} (from root package.json)`,
+      `[stage-sidecar] tauri.conf.json version -> ${desktopVersion} (${process.env.PODIUM_DESKTOP_VERSION ? 'release workflow' : 'root package.json'})`,
     )
   }
 }

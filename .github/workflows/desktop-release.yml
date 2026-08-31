@@ -50,6 +50,7 @@ jobs:
       stable_tag: ${{ steps.resolve.outputs.stable_tag }}
       checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
       target_tag: ${{ steps.validate.outputs.target_tag }}
+      desktop_version: ${{ steps.validate.outputs.desktop_version }}
       build_shell: ${{ steps.shell.outputs.build_shell }}
       shell_input_hash: ${{ steps.shell.outputs.shell_input_hash }}
     steps:
@@ -104,20 +105,25 @@ jobs:
           TAG_NAME: ${{ github.event_name == 'push' && github.ref_name || '' }}
         run: |
           set -euo pipefail
+          base_version="$(bun -e 'console.log(JSON.parse(await Bun.file("package.json").text()).version)')"
           if [ -n "$TAG_NAME" ]; then
-            version="$(bun -e 'console.log(JSON.parse(await Bun.file("package.json").text()).version)')"
-            if [ "$TAG_NAME" != "v$version" ]; then
-              echo "tag $TAG_NAME does not match package.json version $version" >&2
+            if [ "$TAG_NAME" != "v$base_version" ]; then
+              echo "tag $TAG_NAME does not match package.json version $base_version" >&2
               exit 1
             fi
           fi
-          bun scripts/desktop-release.ts --validate-only --channel "$CHANNEL" --tag "$RELEASE_TAG"
+          desktop_version="$(bun scripts/desktop-release.ts --print-version \
+            --channel "$CHANNEL" --run-number "$GITHUB_RUN_NUMBER" --sha "$GITHUB_SHA")"
+          bun scripts/desktop-release.ts --validate-only --channel "$CHANNEL" \
+            --tag "$RELEASE_TAG" --version "$desktop_version"
           # The release this promotion uploads to, taken from the script that wrote it into every
           # manifest URL rather than re-derived here. Two places deciding which tag a channel
           # publishes to is how a dev build ends up on the tag real installs follow.
-          target_tag="$(bun scripts/desktop-release.ts --print-tag --channel "$CHANNEL" --tag "$RELEASE_TAG")"
+          target_tag="$(bun scripts/desktop-release.ts --print-tag --channel "$CHANNEL" \
+            --tag "$RELEASE_TAG" --version "$desktop_version")"
           echo "target_tag=$target_tag" >> "$GITHUB_OUTPUT"
-          echo "$CHANNEL publishes to release $target_tag"
+          echo "desktop_version=$desktop_version" >> "$GITHUB_OUTPUT"
+          echo "$CHANNEL publishes desktop $desktop_version to release $target_tag"
       - name: Compare desktop shell inputs
         id: shell
         env:
@@ -279,6 +285,10 @@ jobs:
           # Compile the resolved promotion channel into the installed shell so a pristine config
           # checks the feed this artifact actually came from.
           PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}
+          # A dev dispatch gets a monotonic workflow-owned version; the payload seed must report
+          # the same version as the Tauri shell around it.
+          PODIUM_DESKTOP_VERSION: ${{ needs.validate.outputs.desktop_version }}
+          PODIUM_APP_VERSION: ${{ needs.validate.outputs.desktop_version }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run --cwd apps/desktop build ${{ matrix.build_args }}
@@ -329,11 +339,13 @@ jobs:
           CHANNEL: ${{ needs.validate.outputs.channel }}
           RELEASE_TAG: ${{ needs.validate.outputs.stable_tag }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
+          DESKTOP_VERSION: ${{ needs.validate.outputs.desktop_version }}
         run: >-
           bun scripts/desktop-release.ts
           --channel "$CHANNEL"
           --tag "$RELEASE_TAG"
           --notes "$RELEASE_NOTES"
+          --version "$DESKTOP_VERSION"
           --bundle-dir dist-desktop-input
       - name: Record desktop shell input hash
         env:
