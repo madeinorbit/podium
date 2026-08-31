@@ -96,6 +96,12 @@ describe('resolvePodiumTarget', () => {
         context,
       ),
     ).toBeNull()
+    expect(
+      resolvePodiumTarget(
+        { kind: 'artifact', issue: 'POD-1606', artifactId: 'nope', entry: 'index.html' },
+        context,
+      ),
+    ).toBeNull()
   })
 
   it('opens a file against the worktree the address names', () => {
@@ -129,6 +135,12 @@ describe('resolvePodiumTarget', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'view', path: '/settings/general', search: '', hash: '#advanced' },
+        context,
+      ),
+    ).toBeNull()
+    expect(
+      resolvePodiumTarget(
+        { kind: 'issue', issue: 'POD-1606', search: '?tab=activity', hash: '#latest' },
         context,
       ),
     ).toBeNull()

@@ -248,6 +248,21 @@ describe('the guards the reviewer went looking for', () => {
     })
   })
 
+  it('keeps query and fragment detail on typed targets too', () => {
+    const target = {
+      kind: 'issue',
+      issue: 'POD-1606',
+      search: '?tab=activity',
+      hash: '#latest',
+    } as const
+    expect(parsePodiumLink(`${HOME}/issues/POD-1606?tab=activity#latest`, known)).toEqual({
+      kind: 'internal',
+      origin: HOME,
+      target,
+    })
+    expect(podiumTargetPath(target)).toBe('/issues/POD-1606?tab=activity#latest')
+  })
+
   it('sees the address the BROWSER will see, not the one the text spells', () => {
     // A URL parser strips tab/LF/CR and reads a backslash as a slash, so both of
     // these resolve to evil.example — they are not root-relative at all, and

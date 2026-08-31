@@ -84,10 +84,12 @@ export function resolvePodiumTarget(
 ): PodiumOpen | null {
   switch (target.kind) {
     case 'issue': {
+      if (target.search || target.hash) return null
       const issue = findLinkedIssue(target.issue, context.issues)
       return issue ? { kind: 'issue', issueId: issue.id } : null
     }
     case 'session': {
+      if (target.search || target.hash) return null
       // `navigateToSession` is deliberately inert for an unknown row. Resolve
       // with the same shared helper first so the activator reports false when
       // no navigation will happen and the anchor keeps its fallback behavior.
@@ -95,13 +97,14 @@ export function resolvePodiumTarget(
       return session ? { kind: 'session', sessionIdOrRef: session.sessionId } : null
     }
     case 'artifact': {
+      if (target.search || target.hash) return null
       const issue = findLinkedIssue(target.issue, context.issues)
       if (!issue) return null
       const entry = issue.panel?.artifacts?.find((a) => a.artifactId === target.artifactId)
+      if (!entry) return null
       // The address may name the file inside the bundle; otherwise the panel
       // entry says which file is the primary one.
-      const path = target.entry ?? entry?.entry ?? (entry ? basename(entry.path) : null)
-      if (path === null) return null
+      const path = target.entry ?? entry.entry ?? basename(entry.path)
       return {
         kind: 'artifact',
         issueId: issue.id,

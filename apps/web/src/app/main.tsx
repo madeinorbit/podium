@@ -2,6 +2,7 @@ import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
 import { startWebLogging } from '@/lib/logging'
+import { startupPodiumHref } from '@/lib/podium-link'
 import { AppStarted } from './AppStarted'
 import { AppShell } from './AppShell'
 import '@/index.css'
@@ -29,6 +30,8 @@ const showMotionDemo = params.get('e2e') === '1' && params.get('motion-demo') ==
 // A phone reaching the desktop shell means a cached service worker beat the
 // server's redirect to it (POD-359) — send it on before mounting anything.
 if (!redirectPhoneToMobileApp()) {
+  const initialPodiumHref = startupPodiumHref(window.location)
+  if (initialPodiumHref) window.history.replaceState(null, '', '/workspace')
   createRoot(root).render(
     <StrictMode>
       <AppStarted />
@@ -43,7 +46,9 @@ if (!redirectPhoneToMobileApp()) {
             <MotionDemo />
           </Suspense>
         ) : (
-          <LoginGate>{(auth) => <AppShell auth={auth} />}</LoginGate>
+          <LoginGate>
+            {(auth) => <AppShell auth={auth} initialPodiumHref={initialPodiumHref} />}
+          </LoginGate>
         )}
       </ThemeProvider>
     </StrictMode>,

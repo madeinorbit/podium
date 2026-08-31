@@ -72,13 +72,26 @@ const LINKABLE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
 
 /** The thing a Podium address names. */
 export type PodiumTarget =
-  | { kind: 'issue'; issue: string }
-  | { kind: 'session'; session: string }
+  | { kind: 'issue'; issue: string; search?: string; hash?: string }
+  | { kind: 'session'; session: string; search?: string; hash?: string }
   /** `entry` is a slash-separated relpath INSIDE the artifact bundle. Its
    *  segments cannot themselves contain a slash — the address has no way to say
    *  so, and no filesystem has such a name either. */
-  | { kind: 'artifact'; issue: string; artifactId: string; entry: string | null }
-  | { kind: 'file'; path: string; root: string | null; machineId: string | null }
+  | {
+      kind: 'artifact'
+      issue: string
+      artifactId: string
+      entry: string | null
+      search?: string
+      hash?: string
+    }
+  | {
+      kind: 'file'
+      path: string
+      root: string | null
+      machineId: string | null
+      hash?: string
+    }
   /** An ordinary in-app page (`/settings/general`, `/usage`, `/`). The client's
    *  own router owns the meaning; this only says it is inside Podium. The
    *  fragment rides along: `#advanced` is which part of the page the writer
@@ -142,26 +155,36 @@ export function podiumTargetForPath(pathname: string, search = '', hash = ''): P
   // router to parse. Re-encoding a decoded copy would be a second opinion about
   // escaping in the one branch that has no opinion about the path at all.
   const view = { kind: 'view', path: pathname === '' ? '/' : pathname, search, hash } as const
+  const detail = {
+    ...(search ? { search } : {}),
+    ...(hash ? { hash } : {}),
+  }
 
   if ((head === 'issues' || head === 'issue') && second) {
     if (third === 'artifacts' || third === 'artifact') {
       if (!fourth) return view
       const entry = rest.length > 0 ? rest.join('/') : null
-      return { kind: 'artifact', issue: second, artifactId: fourth, entry }
+      return { kind: 'artifact', issue: second, artifactId: fourth, entry, ...detail }
     }
-    if (third === undefined) return { kind: 'issue', issue: second }
+    if (third === undefined) return { kind: 'issue', issue: second, ...detail }
     return view
   }
 
   if ((head === 'sessions' || head === 'session') && second && third === undefined) {
-    return { kind: 'session', session: second }
+    return { kind: 'session', session: second, ...detail }
   }
 
   if (head === 'file' && second === undefined) {
     const params = new URLSearchParams(search)
     const path = params.get('path')
     if (path) {
-      return { kind: 'file', path, root: params.get('root'), machineId: params.get('machineId') }
+      return {
+        kind: 'file',
+        path,
+        root: params.get('root'),
+        machineId: params.get('machineId'),
+        ...(hash ? { hash } : {}),
+      }
     }
   }
 
@@ -264,21 +287,23 @@ export function isInternalPodiumLink(href: string, options: PodiumLinkOptions = 
  */
 export function podiumTargetPath(target: PodiumTarget): string {
   const enc = encodeURIComponent
+  const detail = (target: { search?: string; hash?: string }): string =>
+    `${target.search ?? ''}${target.hash ?? ''}`
   switch (target.kind) {
     case 'issue':
-      return `/issues/${enc(target.issue)}`
+      return `/issues/${enc(target.issue)}${detail(target)}`
     case 'session':
-      return `/sessions/${enc(target.session)}`
+      return `/sessions/${enc(target.session)}${detail(target)}`
     case 'artifact': {
       const base = `/issues/${enc(target.issue)}/artifacts/${enc(target.artifactId)}`
-      if (!target.entry) return base
-      return `${base}/${target.entry.split('/').map(enc).join('/')}`
+      if (!target.entry) return `${base}${detail(target)}`
+      return `${base}/${target.entry.split('/').map(enc).join('/')}${detail(target)}`
     }
     case 'file': {
       const parts = [`path=${enc(target.path)}`]
       if (target.root) parts.push(`root=${enc(target.root)}`)
       if (target.machineId) parts.push(`machineId=${enc(target.machineId)}`)
-      return `/file?${parts.join('&')}`
+      return `/file?${parts.join('&')}${target.hash ?? ''}`
     }
     default:
       return `${target.path}${target.search}${target.hash}`

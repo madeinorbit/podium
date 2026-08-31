@@ -8,7 +8,7 @@
  * navigated the SPA off the file in a preview.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setKnownPodiumOrigins, setPodiumTargetActivator } from './podium-link'
+import { setKnownPodiumOrigins, setPodiumTargetActivator, startupPodiumHref } from './podium-link'
 import { handlePodiumLinkClick } from './podium-link-click'
 
 const HOME = 'http://127.0.0.1:8787'
@@ -92,5 +92,27 @@ describe('handlePodiumLinkClick', () => {
     const event = new MouseEvent('click', { bubbles: true, cancelable: true })
     Object.defineProperty(event, 'target', { value: document.querySelector('p') })
     expect(handlePodiumLinkClick(event)).toBe(false)
+  })
+})
+
+describe('startupPodiumHref', () => {
+  it('captures canonical targets before the ordinary router can erase them', () => {
+    expect(startupPodiumHref({ pathname: '/issues/POD-1606', search: '' })).toBe('/issues/POD-1606')
+    expect(startupPodiumHref({ pathname: '/sessions/POD-1606-A', search: '' })).toBe(
+      '/sessions/POD-1606-A',
+    )
+    expect(
+      startupPodiumHref({ pathname: '/issues/POD-1606/artifacts/art1/index.html', search: '' }),
+    ).toBe('/issues/POD-1606/artifacts/art1/index.html')
+    expect(startupPodiumHref({ pathname: '/file', search: '?path=%2Fw%2Fa.ts&root=%2Fw' })).toBe(
+      '/file?path=%2Fw%2Fa.ts&root=%2Fw',
+    )
+  })
+
+  it('leaves ordinary and detailed routes with the browser', () => {
+    expect(startupPodiumHref({ pathname: '/settings/general', search: '' })).toBeNull()
+    expect(
+      startupPodiumHref({ pathname: '/issues/POD-1606', search: '?tab=activity', hash: '#latest' }),
+    ).toBeNull()
   })
 })

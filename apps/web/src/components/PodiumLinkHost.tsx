@@ -1,9 +1,15 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { MainView } from '@podium/client-core/ui-state'
 import type { ArtifactId } from '@podium/model/browser'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
-import { setKnownPodiumOrigins, setPodiumTargetActivator } from '@/lib/podium-link'
+import {
+  PODIUM_NATIVE_OPEN_EVENT,
+  activatePodiumHref,
+  classifyPodiumLink,
+  setKnownPodiumOrigins,
+  setPodiumTargetActivator,
+} from '@/lib/podium-link'
 import { resolvePodiumTarget } from '@/lib/podium-link-open'
 
 /**
@@ -21,7 +27,7 @@ import { resolvePodiumTarget } from '@/lib/podium-link-open'
  *    render so the activator always closes over the current issue rows —
  *    resolving `POD-1606` needs live data, exactly like the ref activator.
  */
-export function PodiumLinkHost(): null {
+export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | null }): null {
   const {
     httpOrigin,
     sessions,
@@ -43,6 +49,8 @@ export function PodiumLinkHost(): null {
     shallowEqual,
   )
   const issues = useReplicaIssues()
+  const pendingHref = useRef<string | null>(initialHref)
+  const [pendingRevision, setPendingRevision] = useState(0)
 
   useEffect(() => {
     setKnownPodiumOrigins(httpOrigin ? [httpOrigin] : [])
@@ -83,10 +91,9 @@ export function PodiumLinkHost(): null {
           // backend path on our own origin (/files/asset, /trpc/…) and a repo
           // file (/docs/readme.md) both land here, and both need the anchor.
           //
-          // A FRAGMENT ALSO NEEDS THE ANCHOR. `#advanced` names a part of the
-          // page, and `routePath` has nowhere to put it — setView would land the
-          // reader at the top of the right page and quietly lose what they
-          // clicked. The browser honours it, so let the browser have it.
+          // Detailed view addresses were already declined by the pure resolver:
+          // setView cannot preserve their query or fragment. Only a lossless
+          // top-level view reaches this branch.
           const view = mainViewForPath(open.path)
           if (!view) return false
           setView(view)
@@ -96,6 +103,28 @@ export function PodiumLinkHost(): null {
     })
     return () => setPodiumTargetActivator(null)
   })
+
+  // Startup addresses are captured before createRouter can normalize its
+  // unknown path to /workspace. Keep retrying while replica rows arrive: refs,
+  // sessions and artifact panel entries all need live data to resolve.
+  useEffect(() => {
+    const href = pendingHref.current
+    if (href && activatePodiumHref(href)) pendingHref.current = null
+  }, [issues, sessions, pendingRevision])
+
+  // Native capture and window focus belong to POD-1710. This is the narrow web
+  // half of that contract: one raw URL event, validated and routed through the
+  // same resolver as every rendered link. No native-specific parser lives here.
+  useEffect(() => {
+    const onNativeOpen = (event: Event): void => {
+      const detail = (event as CustomEvent<unknown>).detail
+      if (typeof detail !== 'string' || classifyPodiumLink(detail)?.kind !== 'internal') return
+      pendingHref.current = detail
+      setPendingRevision((value) => value + 1)
+    }
+    window.addEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)
+    return () => window.removeEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)
+  }, [])
 
   return null
 }
