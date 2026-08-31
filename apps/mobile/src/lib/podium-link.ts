@@ -188,7 +188,12 @@ export function followPodiumLink(href: string): void {
       // A malformed active origin cannot make a protocol-relative URL unsafe;
       // HTTPS remains the conservative OS handoff.
     }
-    externalHref = `${protocol}${externalHref.replace(/\\/g, '/')}`
+    const query = externalHref.indexOf('?')
+    const fragment = externalHref.indexOf('#')
+    const detailAt = query === -1 ? fragment : fragment === -1 ? query : Math.min(query, fragment)
+    const address = detailAt === -1 ? externalHref : externalHref.slice(0, detailAt)
+    const detail = detailAt === -1 ? '' : externalHref.slice(detailAt)
+    externalHref = `${protocol}${address.replace(/\\/g, '/')}${detail}`
   }
   void Linking.openURL(externalHref).catch(() => {})
 }
