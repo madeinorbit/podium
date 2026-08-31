@@ -204,6 +204,25 @@ describe('handlePodiumLinkClick', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it('uses the parsed href for successful explicit HTTP middle-clicks', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    const href = 'HTTP://Example.COM:80/a/../b?q=hello world#x%2fy'
+    document.body.innerHTML = '<a data-podium-link-candidate="">x</a>'
+    const anchor = document.querySelector('a') as HTMLAnchorElement
+    anchor.setAttribute('href', href)
+    anchor.setAttribute('data-podium-link-source', href)
+    const event = new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+    Object.defineProperty(event, 'target', { value: anchor })
+
+    expect(handlePodiumLinkAuxClick(event)).toBe(true)
+    expect(openExternal).toHaveBeenCalledWith('http://example.com/b?q=hello%20world#x%2fy')
+    expect(event.defaultPrevented).toBe(true)
+  })
+
   it('normalizes every protocol-relative spelling for desktop middle-click', () => {
     const openExternal = vi.fn<(url: string) => Promise<void>>(async () => undefined)
     ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {

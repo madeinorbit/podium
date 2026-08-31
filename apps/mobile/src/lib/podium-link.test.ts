@@ -233,6 +233,27 @@ describe('followPodiumLink', () => {
 
     openURL.mockRestore()
   })
+
+  it('uses the parsed href for successful explicit HTTP links', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+
+    followPodiumLink('HTTP://Example.COM:80/a/../b?q=hello world#x%2fy')
+    expect(openURL).toHaveBeenCalledWith('http://example.com/b?q=hello%20world#x%2fy')
+
+    openURL.mockRestore()
+  })
+
+  it('hands malformed explicit HTTP links to the OS unchanged', async () => {
+    const { Linking } = await import('react-native')
+    const openURL = vi.spyOn(Linking, 'openURL').mockResolvedValue(true)
+    const href = 'http://127.0.0.1:8787./issues/POD-1'
+
+    followPodiumLink(href)
+    expect(openURL).toHaveBeenCalledWith(href)
+
+    openURL.mockRestore()
+  })
 })
 
 describe('the two origin slots (POD-1606 finding 4)', () => {
