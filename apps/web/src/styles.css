@@ -10026,7 +10026,7 @@ button.waterfall-fold:hover {
   }
   .waterfall-session-bar {
     gap: 2px;
-    padding-inline: 3px;
+    padding: 0 24px 0 3px;
   }
   .waterfall-session-bar > :first-child {
     display: none;
