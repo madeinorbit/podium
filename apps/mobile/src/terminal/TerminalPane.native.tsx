@@ -7,8 +7,8 @@ import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { color } from '../theme/theme'
 import TerminalDom from './TerminalDom'
 import type { TerminalControlState } from './terminal-control'
-import { encodeFrameBytes } from './terminal-dom-bridge'
 import type { TerminalDomControlEvent, TerminalDomHandle } from './terminal-dom-bridge'
+import { encodeFrameBytes } from './terminal-dom-bridge'
 
 /**
  * The NATIVE terminal pane: the same session surface as TerminalPane.web.tsx,
