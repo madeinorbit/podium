@@ -561,7 +561,6 @@ pub fn opener_shim_script() -> &'static str {
   };
   const cleanedHref = (raw) => String(raw).replace(/[\t\n\r]/g, '').trim();
   const handoffHref = (href, parsed) => {
-    if (/^https?:\/\//i.test(href)) return href;
     if (/^[\\/][\\/]/.test(href)) {
       const query = href.indexOf('?');
       const fragment = href.indexOf('#');

@@ -98,14 +98,15 @@ describe('desktop opener shim', () => {
     expect(nativeOpen).not.toHaveBeenCalled()
   })
 
-  it('preserves authored explicit HTTP bytes for clicks and window.open', () => {
+  it('uses the parsed explicit HTTP href for clicks and window.open', () => {
     const href = 'HTTP://Example.COM:80/a/../b?q=hello world#x%2fy'
+    const expected = 'http://example.com/b?q=hello%20world#x%2fy'
     expect(clickOfferLink(href)).toBe(true)
-    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: href })
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: expected })
 
     invoke.mockClear()
     window.open(href, '_blank')
-    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: href })
+    expect(invoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: expected })
     expect(nativeOpen).not.toHaveBeenCalled()
   })
 
