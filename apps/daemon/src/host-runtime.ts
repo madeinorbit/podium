@@ -508,6 +508,10 @@ export async function createDaemonHostRuntime(args: {
         exit: process.exit,
       }),
     report: (status) => send(status),
+    // THE FLIGHT RECORDER FOR AN UPDATE (POD-3170). `send` drops when the link
+    // is down, and a coordinator applying its own grant takes the link down —
+    // so the phases of a lost delivery are only ever knowable from here.
+    log: (event, fields) => log.info(event, fields),
     now: Date.now,
   })
   const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) => {
