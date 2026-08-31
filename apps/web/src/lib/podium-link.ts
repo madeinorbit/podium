@@ -136,7 +136,7 @@ export function systemBrowserPodiumHref(href: string): string | null {
 export function systemBrowserExternalHref(href: string): string | null {
   const link = classifyPodiumLink(href)
   if (link?.kind !== 'external') return null
-  return formatExternalHttpLink(href, serverOrigins[0])
+  return formatExternalHttpLink(link.href, serverOrigins[0])
 }
 
 /**
