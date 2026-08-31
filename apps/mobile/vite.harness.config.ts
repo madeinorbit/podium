@@ -1,6 +1,12 @@
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import {
+  resolveMobileFile,
+  resolveMobilePackage,
+  resolveRootFile,
+  resolveRootPackage,
+} from './resolve-package'
 
 /**
  * Serves the working-mark harness (POD-1259) — NOT an app build.
@@ -18,7 +24,7 @@ export default defineConfig({
   resolve: {
     extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
     alias: [
-      { find: /^react-native$/, replacement: 'react-native-web' },
+      { find: /^react-native$/, replacement: resolveMobilePackage('react-native-web') },
       // The composer harness (POD-1659) pulls the real component, which reaches
       // Expo modules a plain vite page has no runtime for. Stub the pieces that
       // only matter on device; safe-area is a hook, so it gets a module rather
@@ -59,30 +65,16 @@ export default defineConfig({
       // The mark needs two elements; name the web element module outright.
       {
         find: /^react-native-svg$/,
-        replacement: fileURLToPath(
-          new URL(
-            '../../node_modules/react-native-svg/lib/module/ReactNativeSVG.web.js',
-            import.meta.url,
-          ),
-        ),
+        replacement: resolveMobileFile('react-native-svg/lib/module/ReactNativeSVG.web.js'),
       },
       // ONE COPY OF REACT, AND IT HAS TO BE THE ROOT'S — the same trap the unit
       // lane documents (vitest.config.ts): the root and apps/mobile resolve
       // different Reacts, and two copies means "Invalid hook call" from a
       // component that is fine. Exact-match regexes: a bare `react` alias is a
       // PREFIX match and would rewrite `react-dom/client` with it.
-      {
-        find: /^react$/,
-        replacement: fileURLToPath(new URL('../../node_modules/react', import.meta.url)),
-      },
-      {
-        find: /^react-dom$/,
-        replacement: fileURLToPath(new URL('../../node_modules/react-dom', import.meta.url)),
-      },
-      {
-        find: /^react-dom\/client$/,
-        replacement: fileURLToPath(new URL('../../node_modules/react-dom/client', import.meta.url)),
-      },
+      { find: /^react$/, replacement: resolveRootPackage('react') },
+      { find: /^react-dom$/, replacement: resolveRootPackage('react-dom') },
+      { find: /^react-dom\/client$/, replacement: resolveRootFile('react-dom/client') },
     ],
   },
   // Nothing in this graph may reach React Native's Flow-typed source. The

@@ -1,6 +1,12 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
+import {
+  resolveMobileFile,
+  resolveMobilePackage,
+  resolveRootPackage,
+  resolveThroughMobileDep,
+} from './resolve-package'
 
 /**
  * The mobile unit lane (POD-1220).
@@ -80,7 +86,11 @@ export default defineConfig({
     ],
     alias: [
       ...sharedAliases,
-      { find: 'react-native', replacement: 'react-native-web' },
+      // An ABSOLUTE replacement, because this rewrite also fires for inlined
+      // third-party code (react-native-svg below), whose files live in the
+      // isolated linker's store — a bare `react-native-web` would be resolved
+      // relative to THAT directory, where it is not a dependency (POD-3174).
+      { find: 'react-native', replacement: resolveMobilePackage('react-native-web') },
       {
         find: /^expo-symbols$/,
         replacement: fileURLToPath(new URL('./test/expo-symbols.tsx', import.meta.url)),
@@ -88,14 +98,20 @@ export default defineConfig({
       // react-native-svg publishes native CJS as its Node entrypoint. Its web
       // build is the same implementation Expo's web bundler selects, and an
       // absolute replacement keeps its imports inside Vite's alias pipeline.
+      // Resolved from apps/mobile, which declares it — under the isolated
+      // linker it is not at the workspace root at all (see resolve-package.ts).
+      // react-native-svg's web build reaches for React Native's asset registry
+      // without declaring it — a hoisted install made that work by accident.
+      {
+        find: /^@react-native\/assets-registry\/registry$/,
+        replacement: resolveThroughMobileDep(
+          'react-native',
+          '@react-native/assets-registry/registry',
+        ),
+      },
       {
         find: /^react-native-svg$/,
-        replacement: fileURLToPath(
-          new URL(
-            '../../node_modules/react-native-svg/lib/module/ReactNativeSVG.web.js',
-            import.meta.url,
-          ),
-        ),
+        replacement: resolveMobileFile('react-native-svg/lib/module/ReactNativeSVG.web.js'),
       },
       // ONE COPY OF REACT, AND IT HAS TO BE THE ROOT'S.
       //
@@ -110,14 +126,8 @@ export default defineConfig({
       // way round. The exact-match regexes matter: a bare `'react'` alias is a
       // PREFIX match and would rewrite `react-dom/client` and
       // `react/jsx-runtime` with it.
-      {
-        find: /^react$/,
-        replacement: fileURLToPath(new URL('../../node_modules/react', import.meta.url)),
-      },
-      {
-        find: /^react-dom$/,
-        replacement: fileURLToPath(new URL('../../node_modules/react-dom', import.meta.url)),
-      },
+      { find: /^react$/, replacement: resolveRootPackage('react') },
+      { find: /^react-dom$/, replacement: resolveRootPackage('react-dom') },
     ],
   },
   ssr: { resolve: { conditions } },
