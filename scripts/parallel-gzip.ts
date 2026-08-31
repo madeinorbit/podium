@@ -20,23 +20,37 @@
  * optional accelerator it is here, or the same input would sign differently on two hosts.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
 
 /** Threads pinned to the build scope's CPUQuota=200%. See the note above before changing. */
 export const PIGZ_THREADS = 2
 
+/** Candidate pigz paths tried after PODIUM_PIGZ and a bare `pigz` on PATH. */
+const PIGZ_FALLBACK_PATHS = ['/usr/bin/pigz', '/usr/local/bin/pigz', '/opt/homebrew/bin/pigz']
+
+/** Injectable seam: does `candidate` actually RUN? Replaced in tests to simulate a host without pigz. */
+export type PigzDeps = { probe: (candidate: string) => boolean }
+
+const defaultDeps: PigzDeps = {
+  probe: (candidate) => spawnSync(candidate, ['--version'], { stdio: 'ignore' }).status === 0,
+}
+
 /**
- * Locate pigz: PODIUM_PIGZ, then PATH, then the usual install prefixes. Unlike
+ * Locate a pigz that RUNS: PODIUM_PIGZ, then PATH, then the usual install prefixes. Unlike
  * `resolveZig`/`resolveRcodesign` in scripts/abduco-cross.ts this returns undefined instead of
  * throwing — pigz is an optimisation, not a prerequisite, and a host without it still produces
  * a valid signed bundle through plain gzip.
+ *
+ * EVERY candidate is probed, the configured one included. Those resolvers take the env var on
+ * trust because their tool is mandatory and a mistyped path SHOULD fail loudly; here the
+ * opposite holds. `tar --use-compress-program=/nonexistent/pigz` exits 2 ("Child returned
+ * status 127"), so trusting a stale PODIUM_PIGZ would break every release with the one thing
+ * that is only ever meant to make them faster. Same reason existsSync is not enough: a file
+ * that exists but does not execute must fall through to gzip.
  */
-export function resolvePigz(): string | undefined {
+export function resolvePigz(deps: PigzDeps = defaultDeps): string | undefined {
   const configured = process.env.PODIUM_PIGZ?.trim()
-  if (configured) return configured
-  if (spawnSync('pigz', ['--version'], { stdio: 'ignore' }).status === 0) return 'pigz'
-  for (const candidate of ['/usr/bin/pigz', '/usr/local/bin/pigz', '/opt/homebrew/bin/pigz']) {
-    if (existsSync(candidate)) return candidate
+  for (const candidate of [...(configured ? [configured] : []), 'pigz', ...PIGZ_FALLBACK_PATHS]) {
+    if (deps.probe(candidate)) return candidate
   }
   return undefined
 }

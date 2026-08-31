@@ -13,17 +13,32 @@ afterEach(() => {
 })
 
 describe('resolvePigz', () => {
-  it('prefers PODIUM_PIGZ over anything on PATH', () => {
+  it('prefers a WORKING PODIUM_PIGZ over anything on PATH', () => {
     process.env.PODIUM_PIGZ = '/somewhere/else/pigz'
-    expect(resolvePigz()).toBe('/somewhere/else/pigz')
+    expect(resolvePigz({ probe: (candidate) => candidate === '/somewhere/else/pigz' })).toBe(
+      '/somewhere/else/pigz',
+    )
   })
 
-  it('returns undefined rather than throwing when pigz is absent — it is an optimisation', () => {
-    // An empty PATH with no PODIUM_PIGZ is the "host without pigz" case. The absolute
-    // fallbacks are still probed, so only assert the type: undefined or a real path.
-    process.env.PODIUM_PIGZ = ''
-    const resolved = resolvePigz()
-    expect(resolved === undefined || typeof resolved === 'string').toBe(true)
+  it('falls back to gzip when NOTHING runs — a host without pigz still builds', () => {
+    delete process.env.PODIUM_PIGZ
+    expect(resolvePigz({ probe: () => false })).toBeUndefined()
+  })
+
+  it('ignores a stale PODIUM_PIGZ rather than failing the release with it', () => {
+    // tar --use-compress-program=/nonexistent/pigz exits 2 ("Child returned status 127"), so a
+    // mistyped or stale override would break EVERY release. pigz is an optimisation: it must
+    // degrade to gzip, never break the build.
+    process.env.PODIUM_PIGZ = '/nonexistent/pigz'
+    expect(resolvePigz({ probe: (candidate) => candidate !== '/nonexistent/pigz' })).toBe('pigz')
+  })
+
+  it('ignores an absolute fallback that exists but does not run', () => {
+    delete process.env.PODIUM_PIGZ
+    expect(resolvePigz({ probe: (candidate) => candidate === '/usr/bin/pigz' })).toBe(
+      '/usr/bin/pigz',
+    )
+    expect(resolvePigz({ probe: () => false })).toBeUndefined()
   })
 })
 
@@ -46,20 +61,23 @@ describe('tarCompressArgs', () => {
     )
   })
 
-  it('produces an archive plain tar -xzf extracts to identical bytes', () => {
-    const pigz = resolvePigz()
-    if (!pigz) return // a host without pigz exercises the gzip path above instead
-    const dir = mkdtempSync(join(tmpdir(), 'pigz-'))
-    mkdirSync(join(dir, 'headless'))
-    writeFileSync(join(dir, 'headless/payload'), 'x'.repeat(200_000))
-    const tarball = join(dir, 'out.tgz')
-    execFileSync('tar', tarCompressArgs(tarball, dir, 'headless', pigz))
+  it.skipIf(!resolvePigz())(
+    'produces an archive plain tar -xzf extracts to identical bytes',
+    () => {
+      const pigz = resolvePigz()
+      if (!pigz) throw new Error('unreachable: skipped when pigz is absent')
+      const dir = mkdtempSync(join(tmpdir(), 'pigz-'))
+      mkdirSync(join(dir, 'headless'))
+      writeFileSync(join(dir, 'headless/payload'), 'x'.repeat(200_000))
+      const tarball = join(dir, 'out.tgz')
+      execFileSync('tar', tarCompressArgs(tarball, dir, 'headless', pigz))
 
-    const out = join(dir, 'extracted')
-    mkdirSync(out)
-    execFileSync('tar', ['-xzf', tarball, '-C', out])
-    expect(readFileSync(join(out, 'headless/payload'), 'utf8')).toBe(
-      readFileSync(join(dir, 'headless/payload'), 'utf8'),
-    )
-  })
+      const out = join(dir, 'extracted')
+      mkdirSync(out)
+      execFileSync('tar', ['-xzf', tarball, '-C', out])
+      expect(readFileSync(join(out, 'headless/payload'), 'utf8')).toBe(
+        readFileSync(join(dir, 'headless/payload'), 'utf8'),
+      )
+    },
+  )
 })
