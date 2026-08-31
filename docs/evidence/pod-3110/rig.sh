@@ -202,6 +202,34 @@ wait_health() {
   return 1
 }
 
+port_is_listening() {
+  local port="$1"
+  ss -ltn | awk -v suffix=":$port" '$1 == "LISTEN" && index($4, suffix) == length($4)-length(suffix)+1 { found=1 } END { exit !found }'
+}
+
+wait_daemon_ready() {
+  local pid rc first
+  pid="$(pid_of daemon)"
+  for _ in $(seq 1 120); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      set +e
+      wait "$pid"
+      rc=$?
+      set -e
+      first="$(sed -n '1p' "$LOGS/daemon.log")"
+      log "daemon exited before endpoint readiness status=$rc firstLog=${first:-<empty>}" >&2
+      return 1
+    fi
+    if port_is_listening "$HOOK_PORT" && port_is_listening "$RELAY_PORT"; then
+      log "daemon ready pid=$pid hookPort=$HOOK_PORT relayPort=$RELAY_PORT"
+      return 0
+    fi
+    sleep 0.25
+  done
+  log "daemon readiness timeout pid=$pid hookPort=$HOOK_PORT relayPort=$RELAY_PORT firstLog=$(sed -n '1p' "$LOGS/daemon.log")" >&2
+  return 1
+}
+
 claim_state() {
   env "${env_args[@]}" \
     PODIUM_INSTANCE="$INSTANCE" PODIUM_NO_RELAY=1 \
@@ -256,10 +284,7 @@ up() {
   start_component server scripts/server.ts PODIUM_CHAT_STREAMING=1
   wait_health
   start_component daemon scripts/daemon.ts
-  for _ in $(seq 1 90); do
-    kill -0 "$(pid_of daemon)" 2>/dev/null && break
-    sleep 1
-  done
+  wait_daemon_ready
   log "instance=$INSTANCE arm=$arm port=$PORT state=$STATE_DIR"
   log "home=$NORMAL_HOME (inherited; not overridden)"
   log "web=$WEB"
