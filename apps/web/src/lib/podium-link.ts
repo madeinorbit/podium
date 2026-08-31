@@ -8,8 +8,9 @@
  *   - WHICH ORIGINS ARE US. The resolver takes them as an argument precisely so
  *     that no layer has to guess from `window.location`. This module holds the
  *     answer for this tab: the server the client is actually talking to
- *     (`httpOrigin`) plus the page origin, which in the macOS shell is a
- *     different string (`tauri://localhost`) for the same Podium.
+ *     (`httpOrigin`). The page origin is deliberately irrelevant: a browser
+ *     tab can be served by A while `?server=` connects it to B, and refs are
+ *     server-local.
  *   - WHAT OPENING ONE MEANS. Issues and sessions are routes; artifacts and
  *     files are store actions, not routes. The app installs one activator that
  *     knows how to do all four; markdown click handlers and the offer renderer
@@ -20,6 +21,7 @@ import {
   type PodiumLink,
   type PodiumLinkOptions,
   type PodiumTarget,
+  formatPodiumLink,
   parsePodiumLink,
 } from '@podium/protocol'
 
@@ -31,19 +33,17 @@ let serverOrigins: readonly string[] = []
 
 /**
  * Record the Podium server(s) this tab talks to. Called from the app root when
- * the client config resolves. Until it runs, only the page origin counts as
- * ours — the conservative direction: an unrecognised link opens externally,
- * which is what happens today, rather than being swallowed by an app that
- * cannot route it.
+ * the client config resolves. Until it runs, no absolute origin counts as ours
+ * — the conservative direction: an unrecognised link opens externally rather
+ * than being swallowed by an app that cannot route it.
  */
 export function setKnownPodiumOrigins(origins: Iterable<string>): void {
   serverOrigins = [...origins].filter(Boolean)
 }
 
-/** Every origin that is this Podium, page origin included. */
+/** Every server origin this tab may resolve against. */
 export function knownPodiumOrigins(): readonly string[] {
-  const page = typeof window === 'undefined' ? [] : [window.location.origin]
-  return [...serverOrigins, ...page]
+  return serverOrigins
 }
 
 export function podiumLinkOptions(): PodiumLinkOptions {
@@ -76,21 +76,40 @@ export function startupPodiumHref(location: {
   const href = `${location.pathname}${location.search}${location.hash ?? ''}`
   const link = parsePodiumLink(href)
   if (link?.kind !== 'internal' || link.target.kind === 'view') return null
+  if (hasUnsupportedTypedDetail(link.target)) return null
   return href
 }
 
-/** Add typed-target detail to the route an activator just produced. The
- * router's own query stays first, so duplicate `wt` or `pane` keys cannot
- * replace the workspace it selected. */
-export function appendPodiumAddressDetail(
-  current: { pathname: string; search: string },
-  detail: { search?: string; hash?: string },
-): string | null {
-  const extra = detail.search?.replace(/^\?/, '') ?? ''
-  const hash = detail.hash ?? ''
-  if (!extra && !hash) return null
-  const separator = extra ? (current.search ? '&' : '?') : ''
-  return `${current.pathname}${current.search}${separator}${extra}${hash}`
+/** The router destination used while a typed startup URL waits for replica
+ * rows. Keep the server override that selects the replica, but never leak file
+ * address fields or unsupported target detail into the workspace route. */
+export function startupPodiumRouteHref(location: { search: string }): string {
+  const server = new URLSearchParams(location.search).get('server')
+  if (!server) return '/workspace'
+  const params = new URLSearchParams({ server })
+  return `/workspace?${params.toString()}`
+}
+
+/** Query/fragment semantics belong to the opened target. This client has no
+ * such consumers yet; `server` is the sole exception because boot consumes it
+ * before activation and the router deliberately retains it. */
+export function hasUnsupportedTypedDetail(target: PodiumTarget): boolean {
+  if (target.kind === 'view') return Boolean(target.search || target.hash)
+  if ('hash' in target && target.hash) return true
+  if (!('search' in target) || !target.search) return false
+  const params = new URLSearchParams(target.search)
+  params.delete('server')
+  return params.toString() !== ''
+}
+
+/** Resolve a host-less internal address to the active HTTP server for an OS
+ * browser handoff. Never derive it from the Tauri page origin. */
+export function systemBrowserPodiumHref(href: string): string | null {
+  const link = classifyPodiumLink(href)
+  if (link?.kind !== 'internal') return null
+  if (link.origin) return formatPodiumLink(link.origin, link.target)
+  const serverOrigin = serverOrigins[0]
+  return serverOrigin ? formatPodiumLink(serverOrigin, link.target) : null
 }
 
 // --- Activator registry ----------------------------------------------------

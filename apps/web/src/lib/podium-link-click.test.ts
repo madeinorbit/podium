@@ -9,10 +9,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  appendPodiumAddressDetail,
+  internalPodiumTarget,
   setKnownPodiumOrigins,
   setPodiumTargetActivator,
   startupPodiumHref,
+  startupPodiumRouteHref,
 } from './podium-link'
 import { handlePodiumLinkClick } from './podium-link-click'
 
@@ -91,6 +92,17 @@ describe('handlePodiumLinkClick', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it('resolves a root-relative modifier click against the active server, not Tauri', () => {
+    const openExternal = vi.fn(async () => undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      openExternal,
+    }
+    const event = clickOn('<a href="/issues/POD-1606">x</a>', { metaKey: true })
+    expect(openExternal).toHaveBeenCalledWith(`${HOME}/issues/POD-1606`)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
   it('ignores a click that did not land on a link', () => {
     setPodiumTargetActivator(() => true)
     document.body.innerHTML = '<p>no link here</p>'
@@ -114,25 +126,32 @@ describe('startupPodiumHref', () => {
     )
   })
 
-  it('leaves ordinary views with the browser and captures typed detail', () => {
+  it('leaves ordinary views and unsupported typed detail with the browser', () => {
     expect(startupPodiumHref({ pathname: '/settings/general', search: '' })).toBeNull()
     expect(
       startupPodiumHref({ pathname: '/issues/POD-1606', search: '?tab=activity', hash: '#latest' }),
-    ).toBe('/issues/POD-1606?tab=activity#latest')
+    ).toBeNull()
+  })
+
+  it('retains only the server selector while a typed startup target waits', () => {
+    const search = '?server=wss%3A%2F%2Fother.example&path=not-route-state'
+    expect(startupPodiumRouteHref({ search })).toBe('/workspace?server=wss%3A%2F%2Fother.example')
+    expect(
+      startupPodiumHref({
+        pathname: '/sessions/POD-1606-A',
+        search: '?server=wss%3A%2F%2Fother.example',
+      }),
+    ).toBe('/sessions/POD-1606-A?server=wss%3A%2F%2Fother.example')
   })
 })
 
-describe('appendPodiumAddressDetail', () => {
-  it('keeps the routed workspace selection before typed query and fragment detail', () => {
-    expect(
-      appendPodiumAddressDetail(
-        { pathname: '/workspace', search: '?wt=%2Fw&pane=sess_1' },
-        { search: '?from=offer', hash: '#latest' },
-      ),
-    ).toBe('/workspace?wt=%2Fw&pane=sess_1&from=offer#latest')
-  })
-
-  it('does not rewrite a route when the typed target has no detail', () => {
-    expect(appendPodiumAddressDetail({ pathname: '/issues/iss_abc', search: '' }, {})).toBeNull()
+describe('server identity', () => {
+  it('does not resolve the page origin when an explicit server is active', () => {
+    expect(window.location.origin).not.toBe(HOME)
+    expect(internalPodiumTarget(`${window.location.origin}/issues/POD-1606`)).toBeNull()
+    expect(internalPodiumTarget(`${HOME}/issues/POD-1606`)).toEqual({
+      kind: 'issue',
+      issue: 'POD-1606',
+    })
   })
 })

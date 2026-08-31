@@ -112,8 +112,9 @@ export type PodiumLink =
 export interface PodiumLinkOptions {
   /**
    * Every origin that IS this Podium, as the client knows them: the server's
-   * `httpOrigin`, the page origin when it differs (the macOS shell), and on the
-   * phone every paired server profile. Order does not matter; entries are
+   * `httpOrigin`, and on the phone every paired server profile. A page origin
+   * may name a different server when the client uses `?server=`, so callers
+   * must not add it merely because it hosts the web bundle. Order does not matter; entries are
    * canonicalized, and `ws://`/`wss://` forms are accepted so a caller can pass
    * a relay URL straight through.
    */

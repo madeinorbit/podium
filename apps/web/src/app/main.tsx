@@ -2,7 +2,7 @@ import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
 import { startWebLogging } from '@/lib/logging'
-import { startupPodiumHref } from '@/lib/podium-link'
+import { startupPodiumHref, startupPodiumRouteHref } from '@/lib/podium-link'
 import { AppStarted } from './AppStarted'
 import { AppShell } from './AppShell'
 import '@/index.css'
@@ -31,7 +31,9 @@ const showMotionDemo = params.get('e2e') === '1' && params.get('motion-demo') ==
 // server's redirect to it (POD-359) — send it on before mounting anything.
 if (!redirectPhoneToMobileApp()) {
   const initialPodiumHref = startupPodiumHref(window.location)
-  if (initialPodiumHref) window.history.replaceState(null, '', '/workspace')
+  if (initialPodiumHref) {
+    window.history.replaceState(null, '', startupPodiumRouteHref(window.location))
+  }
   createRoot(root).render(
     <StrictMode>
       <AppStarted />

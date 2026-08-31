@@ -104,13 +104,19 @@ describe('resolvePodiumTarget', () => {
     ).toBeNull()
   })
 
-  it('opens a file against the worktree the address names and retains its fragment', () => {
+  it('declines a file fragment this client cannot deliver to the editor', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1', hash: '#L42' },
         context,
       ),
-    ).toEqual({ kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1', hash: '#L42' })
+    ).toBeNull()
+    expect(
+      resolvePodiumTarget(
+        { kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' },
+        context,
+      ),
+    ).toEqual({ kind: 'file', path: '/w/src/a.ts', root: '/w', machineId: 'm1' })
   })
 
   it('refuses a file with no worktree rather than guessing one', () => {
@@ -131,7 +137,7 @@ describe('resolvePodiumTarget', () => {
     ).toEqual({ kind: 'view', path: '/usage', search: '', hash: '' })
   })
 
-  it('retains detail on typed targets but declines lossy plain views', () => {
+  it('declines typed detail and lossy plain views', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'view', path: '/settings/general', search: '', hash: '#advanced' },
@@ -143,18 +149,22 @@ describe('resolvePodiumTarget', () => {
         { kind: 'issue', issue: 'POD-1606', search: '?tab=activity', hash: '#latest' },
         context,
       ),
-    ).toEqual({
-      kind: 'issue',
-      issueId: 'iss_abc',
-      search: '?tab=activity',
-      hash: '#latest',
-    })
+    ).toBeNull()
     expect(
       resolvePodiumTarget(
         { kind: 'view', path: '/workspace', search: '?wt=%2Fw', hash: '' },
         context,
       ),
     ).toBeNull()
+  })
+
+  it('allows the server selector because boot consumes and retains it', () => {
+    expect(
+      resolvePodiumTarget(
+        { kind: 'session', session: 'POD-1606-A', search: '?server=wss%3A%2F%2FB' },
+        context,
+      ),
+    ).toEqual({ kind: 'session', sessionIdOrRef: 'sess_1' })
   })
 
   it('resolves nothing for an issue this replica has not seen', () => {
