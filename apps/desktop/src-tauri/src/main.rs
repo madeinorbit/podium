@@ -130,7 +130,13 @@ struct PayloadRepairState {
 
 #[derive(Default)]
 struct NativeOpenQueue {
-    pending: Mutex<VecDeque<String>>,
+    state: Mutex<NativeOpenQueueState>,
+}
+
+#[derive(Default)]
+struct NativeOpenQueueState {
+    pending: VecDeque<String>,
+    draining: bool,
 }
 
 fn is_configured_podium_url(url: &Url) -> bool {
@@ -143,29 +149,42 @@ fn native_open_eval(raw: &str) -> String {
 }
 
 fn enqueue_native_open(queue: &NativeOpenQueue, raw: String) -> bool {
-    let mut pending = queue.pending.lock().unwrap();
-    if pending.len() >= NATIVE_OPEN_QUEUE_CAPACITY {
+    let mut state = queue.state.lock().unwrap();
+    if state.pending.len() >= NATIVE_OPEN_QUEUE_CAPACITY {
         log::warn!("dropping newest OS-delivered Podium URL because the native-open queue is full");
         return false;
     }
-    pending.push_back(raw);
+    state.pending.push_back(raw);
     true
 }
 
-fn restore_native_open_front(queue: &NativeOpenQueue, earlier: &[String]) {
-    let mut pending = queue.pending.lock().unwrap();
-    for raw in earlier.iter().rev() {
-        pending.push_front(raw.clone());
+fn drain_native_open_queue(queue: &NativeOpenQueue, mut deliver: impl FnMut(&str) -> bool) {
+    {
+        let mut state = queue.state.lock().unwrap();
+        if state.draining {
+            return;
+        }
+        state.draining = true;
     }
-    let mut dropped = 0;
-    while pending.len() > NATIVE_OPEN_QUEUE_CAPACITY {
-        pending.pop_back();
-        dropped += 1;
-    }
-    if dropped > 0 {
-        log::warn!(
-            "dropping {dropped} newest OS-delivered Podium URL(s) to restore earlier queued work"
-        );
+
+    loop {
+        let Some(raw) = ({
+            let mut state = queue.state.lock().unwrap();
+            let next = state.pending.pop_front();
+            if next.is_none() {
+                state.draining = false;
+            }
+            next
+        }) else {
+            return;
+        };
+
+        if !deliver(&raw) {
+            let mut state = queue.state.lock().unwrap();
+            state.pending.push_front(raw);
+            state.draining = false;
+            return;
+        }
     }
 }
 
@@ -176,8 +195,12 @@ fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &
     }
     log::info!("accepted an OS-delivered Podium URL");
     let raw = url.as_str().to_string();
+    // Every accepted URL enters one authoritative FIFO before delivery. A
+    // warm URL must never bypass older cold work or a head restored after an
+    // eval failure, and concurrent flush attempts are serialized by the
+    // queue's draining flag.
+    enqueue_native_open(queue, raw);
     let Some(window) = app.get_webview_window("main") else {
-        enqueue_native_open(queue, raw);
         return;
     };
     // A deep link is an explicit request to return to Podium. CloseRequested
@@ -185,24 +208,17 @@ fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &
     // activates the target. RunEvent::Reopen only covers Dock activation.
     let _ = window.show();
     let _ = window.set_focus();
-    if let Err(error) = window.eval(native_open_eval(&raw)) {
-        log::warn!("could not deliver native Podium URL yet: {error}");
-        enqueue_native_open(queue, raw);
-    }
+    flush_native_open_queue(&window, queue);
 }
 
 fn flush_native_open_queue(window: &tauri::WebviewWindow, queue: &NativeOpenQueue) {
-    let pending = {
-        let mut guard = queue.pending.lock().unwrap();
-        guard.drain(..).collect::<Vec<_>>()
-    };
-    for (index, raw) in pending.iter().enumerate() {
-        if let Err(error) = window.eval(native_open_eval(&raw)) {
+    drain_native_open_queue(queue, |raw| {
+        if let Err(error) = window.eval(native_open_eval(raw)) {
             log::warn!("could not flush a native Podium URL: {error}");
-            restore_native_open_front(queue, &pending[index..]);
-            break;
+            return false;
         }
-    }
+        true
+    });
 }
 
 /// Initialization scripts run before the React tree. Rust can therefore hand
@@ -2202,15 +2218,51 @@ mod tests {
             "podium://issues/POD-excess".to_string()
         ));
 
-        let pending = queue.pending.lock().unwrap();
-        assert_eq!(pending.len(), NATIVE_OPEN_QUEUE_CAPACITY);
+        let state = queue.state.lock().unwrap();
+        assert_eq!(state.pending.len(), NATIVE_OPEN_QUEUE_CAPACITY);
         assert_eq!(
-            pending.front().map(String::as_str),
+            state.pending.front().map(String::as_str),
             Some("podium://issues/POD-0")
         );
         assert_eq!(
-            pending.back().map(String::as_str),
+            state.pending.back().map(String::as_str),
             Some("podium://issues/POD-31")
+        );
+    }
+
+    #[test]
+    fn native_open_queue_keeps_later_input_behind_a_failed_head() {
+        let queue = NativeOpenQueue::default();
+        assert!(enqueue_native_open(
+            &queue,
+            "podium://issues/POD-A".to_string()
+        ));
+        assert!(enqueue_native_open(
+            &queue,
+            "podium://issues/POD-B".to_string()
+        ));
+
+        drain_native_open_queue(&queue, |raw| {
+            assert_eq!(raw, "podium://issues/POD-A");
+            assert!(enqueue_native_open(
+                &queue,
+                "podium://issues/POD-C".to_string()
+            ));
+            false
+        });
+
+        let mut delivered = Vec::new();
+        drain_native_open_queue(&queue, |raw| {
+            delivered.push(raw.to_string());
+            true
+        });
+        assert_eq!(
+            delivered,
+            [
+                "podium://issues/POD-A",
+                "podium://issues/POD-B",
+                "podium://issues/POD-C",
+            ]
         );
     }
 

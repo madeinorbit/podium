@@ -42,17 +42,20 @@ describe('tauri desktop config', () => {
     expect(nativeOpenSource).toContain('const PENDING_CAPACITY = 32')
     expect(webLinkHostSource).toContain('PODIUM_LINK_QUEUE_CAPACITY = 32')
     expect(mainSource).toContain('enqueue_native_open(queue, raw)')
-    expect(mainSource).toContain('restore_native_open_front(queue, &pending[index..])')
+    expect(mainSource).toContain('drain_native_open_queue(queue, |raw|')
     expect(mainSource).toContain('flush_native_open_queue(&window, &page_open_queue)')
     const warmDelivery = mainSource.slice(
       mainSource.indexOf('fn deliver_or_queue_native_open'),
       mainSource.indexOf('fn flush_native_open_queue'),
     )
-    expect(warmDelivery.indexOf('window.show()')).toBeGreaterThan(-1)
+    expect(warmDelivery.indexOf('enqueue_native_open(queue, raw)')).toBeGreaterThan(-1)
+    expect(warmDelivery.indexOf('window.show()')).toBeGreaterThan(
+      warmDelivery.indexOf('enqueue_native_open(queue, raw)'),
+    )
     expect(warmDelivery.indexOf('window.set_focus()')).toBeGreaterThan(
       warmDelivery.indexOf('window.show()'),
     )
-    expect(warmDelivery.indexOf('window.eval(native_open_eval(&raw))')).toBeGreaterThan(
+    expect(warmDelivery.indexOf('flush_native_open_queue(&window, queue)')).toBeGreaterThan(
       warmDelivery.indexOf('window.set_focus()'),
     )
     const listener = webLinkHostSource.indexOf(

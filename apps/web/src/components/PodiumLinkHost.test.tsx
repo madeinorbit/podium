@@ -111,13 +111,17 @@ describe('PodiumLinkHost native delivery', () => {
   })
 
   it('rejects excess entries without evicting earlier queued work', () => {
-    for (let index = 0; index < PODIUM_LINK_QUEUE_CAPACITY - 1; index += 1) {
-      nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(`podium://issues/POD-${900_000 + index}`)
-    }
-    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1711')
-    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1711')
-
     act(() => root.render(<PodiumLinkHost />))
+    const dispatchNativeOpen = (detail: string): void => {
+      window.dispatchEvent(new CustomEvent('podium:native-open', { detail }))
+    }
+    act(() => {
+      for (let index = 0; index < PODIUM_LINK_QUEUE_CAPACITY - 1; index += 1) {
+        dispatchNativeOpen(`podium://issues/POD-${900_000 + index}`)
+      }
+      dispatchNativeOpen('podium://issues/POD-1711')
+      dispatchNativeOpen('podium://issues/POD-1711')
+    })
     expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
 
     act(() => vi.advanceTimersByTime(PODIUM_LINK_RESOLUTION_TIMEOUT_MS))
