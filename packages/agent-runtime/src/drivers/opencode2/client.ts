@@ -290,6 +290,7 @@ async function* events(
     path: string,
     body?: unknown,
     signal?: AbortSignal,
+    streaming?: boolean,
   ) => Promise<Response>,
   signal: AbortSignal,
 ): AsyncIterable<OpencodeEvent> {

@@ -1436,6 +1436,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
         relaunch: async () => {},
         close: async () => {},
         release: async () => {},
+        relaunch: async () => undefined,
         viewers: () => {},
         input: () => false,
         resize: () => false,

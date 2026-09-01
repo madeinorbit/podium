@@ -187,7 +187,7 @@ export function serverRuntimeHandleFor(
  *  corroboration differs — see the module header), and opencode's credentialed
  *  probe material. */
 interface JournalledReap {
-  driver: 'opencode' | 'codex' | 'grok'
+  driver: 'opencode' | 'opencode2' | 'codex' | 'grok'
   identity: ServerProcessIdentity
   /** opencode only: the exact-identity liveness probe from its journal. */
   probe?: { baseUrl: string; secret: string }
