@@ -3,7 +3,6 @@ import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { claudeSdkTosAcceptedByEnv } from '../runtime/registry'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -60,9 +59,7 @@ export function runtimeDriverInventory(
   const opencode = versionFor('opencode')
   return [
     ...terminalRuntimeDriverInventory(),
-    ...(claudeSdkTosAcceptedByEnv()
-      ? ([{ harness: 'claude-code', id: 'claude-sdk', family: 'embedded' }] as const)
-      : []),
+    { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
     ...(codex && gateCodexVersion(codex) === null
       ? ([{ harness: 'codex', id: 'codex-app-server', family: 'server' }] as const)
       : []),

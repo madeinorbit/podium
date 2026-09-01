@@ -624,8 +624,8 @@ export const DRIVER_IDS = [
 export type DriverId = (typeof DRIVER_IDS)[number]
 
 /** What `select()` is allowed to decide on. `auth` is the load-bearing axis:
- *  Claude on subscription/API-key/Bedrock/Vertex selects the embedded SDK when
- *  that driver is available (the ToS gate); otherwise it stays on terminal. */
+ *  Claude on subscription/API-key/Bedrock/Vertex can select the embedded SDK
+ *  when that driver is explicitly requested; otherwise it stays on terminal. */
 export interface SelectionContext {
   auth: 'subscription' | 'api-key' | 'bedrock' | 'vertex' | 'logged-out' | 'unknown'
   platform: NodeJS.Platform

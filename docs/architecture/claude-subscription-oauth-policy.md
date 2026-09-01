@@ -20,14 +20,12 @@ policy had always been true.
    get right, the same way Codex app-server and Grok ACP are treated.
 3. **PTY (`claude-pty`) is the permanent fallback**, not the exclusive
    subscription-preserving path. Use it when the SDK path is unavailable,
-   refused, logged out, out of admission, or when a human asked for a visible
+   refused, logged out, or when a human asked for a visible
    terminal. Do not delete the terminal family for Claude.
-4. **Rollout is opt-in with an explicit acknowledgement.** Do not silently
-   flip every Claude session to the SDK, and do not silently spend the
-   operator's live login. A spawn or drive that uses the managed subscription
-   credential on the SDK path must record that acknowledgement (issue comment,
-   drive log, or the existing per-spawn `claude-sdk` preference). Default
-   selection may stay on the PTY until that acknowledgement exists.
+4. **The SDK is an explicit driver choice, without a separate acknowledgement
+   gate.** Do not silently flip every Claude session to the SDK. An explicit
+   per-spawn `claude-sdk` preference is sufficient; ordinary Claude sessions
+   stay on the PTY path.
 5. **Third-party reuse is still barred.** Putting an Anthropic *subscription*
    token into opencode or any other third-party tool remains ToS-prohibited.
    This policy covers Claude Code's own Agent SDK / `claude -p` surface, not
@@ -57,9 +55,8 @@ For the POD-1761 coordinator and every later agent:
   high priority. Do not skip them because an older spec row said "terminal
   only" or "embedded rework is a non-goal."
 - **Do not relitigate the ToS bar** for Claude's own SDK. If a drive or
-  implementation is blocked, the blocker is a product defect, a missing
-  acknowledgement, or the credential-safety boundary — not "subscription
-  OAuth is prohibited."
+  implementation is blocked, the blocker is a product defect or the
+  credential-safety boundary — not "subscription OAuth is prohibited."
 - **Preserve history.** Leave `docs/plans/pod-1761-results.tsv`,
   `docs/evidence/**`, and audit-time classifications alone. Append a current
   reading; do not edit an old one to match this policy.

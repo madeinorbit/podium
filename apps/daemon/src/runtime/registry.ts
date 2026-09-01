@@ -112,11 +112,8 @@ export function availableDriverIds(probe: {
    * that degrades to terminal.
    */
   codexDrivable?: boolean
-  /** Explicit operator acknowledgement for the non-default Claude SDK path. */
-  claudeSdkTosAccepted?: boolean
 }): readonly DriverId[] {
-  const ids: DriverId[] = ['claude-pty', 'generic-pty']
-  if (probe.claudeSdkTosAccepted) ids.push('claude-sdk')
+  const ids: DriverId[] = ['claude-pty', 'generic-pty', 'claude-sdk']
   if (probe.opencodeDrivable) ids.push('opencode-server')
   if (probe.grokDrivable) ids.push('grok-acp')
   if (probe.codexDrivable) ids.push('codex-app-server')
@@ -181,7 +178,7 @@ function claudeAuthFromEnv(
  *
  * Claude is the other exception: a stored OAuth login (or a setup-token on the
  * spawn frame) is subscription auth, and a managed API key on the frame is
- * api-key. Those facts decide whether the ToS-admitted SDK is selectable. */
+ * api-key. Those facts decide whether the SDK is selectable. */
 export function selectionAuthForLogin(
   agentKind: AgentKind,
   state: 'in' | 'out' | 'unknown' | undefined,
@@ -193,11 +190,6 @@ export function selectionAuthForLogin(
     if (state === 'in') return 'subscription'
   }
   return harnessLoginNeedsInteractive(agentKind, state) ? 'logged-out' : 'unknown'
-}
-
-export const CLAUDE_SDK_TOS_ENV = 'PODIUM_CLAUDE_SDK_TOS_ACCEPTED'
-export function claudeSdkTosAcceptedByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[CLAUDE_SDK_TOS_ENV] === '1'
 }
 
 /**
@@ -244,12 +236,6 @@ export function resolveRuntimeDriver(input: {
       return {
         ok: false,
         reason: `harness '${input.agentKind}' does not declare runtime driver 'claude-sdk'`,
-      }
-    }
-    if (!input.available.includes('claude-sdk')) {
-      return {
-        ok: false,
-        reason: `runtime driver 'claude-sdk' requires explicit ${CLAUDE_SDK_TOS_ENV}=1 operator acknowledgement`,
       }
     }
     return { ok: true, driverId: 'claude-sdk' }

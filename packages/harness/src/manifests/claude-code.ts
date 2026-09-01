@@ -223,8 +223,7 @@ export const claudeCodeManifest: AgentManifest = {
 
   // §2's load-bearing selection: subscription / API-key / Bedrock / Vertex can
   // run the Agent SDK in a runtime-owned worker child when that driver is
-  // available (the daemon only admits it after PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1).
-  // Without that admission, or on unknown/logged-out auth, the interactive PTY
+  // explicitly requested. On unknown/logged-out auth, the interactive PTY
   // remains the total fallback.
   runtime: {
     server: unsupported(
@@ -243,9 +242,9 @@ export const claudeCodeManifest: AgentManifest = {
       // fallback, and `unverified` is the honest answer when even that times out.
       sendProof: ['hook', 'transcript-echo'],
     },
-    // Availability is the ToS gate. An explicit terminal preference still opts
-    // out; a machine-wide SDK default is stripped before this function runs, so
-    // unknown auth cannot silently move every Claude session off the PTY path.
+    // An explicit terminal preference still opts out; a machine-wide SDK
+    // default is stripped before this function runs, so unknown auth cannot
+    // silently move every Claude session off the PTY path.
     select: selectClaudeRuntime,
   },
   headless: supported({

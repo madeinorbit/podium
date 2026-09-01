@@ -33,7 +33,6 @@ vi.mock('../runtime/grok-acp-server', () => ({
 vi.mock('../runtime/opencode-server', () => ({
   opencodeVersionProbe: vi.fn(() => new Promise(() => {})),
 }))
-vi.mock('../runtime/registry', () => ({ claudeSdkTosAcceptedByEnv: () => false }))
 
 import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/agent-runtime'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
@@ -54,9 +53,12 @@ const INV: Inventory = {
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
   tools: [{ name: 'gh', installed: false }],
 }
-const withTerminalDrivers = (inventory: Inventory): Inventory => ({
+const withBaselineDrivers = (inventory: Inventory): Inventory => ({
   ...inventory,
-  runtimeDrivers: terminalRuntimeDriverInventory(),
+  runtimeDrivers: [
+    ...terminalRuntimeDriverInventory(),
+    { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
+  ],
 })
 const HEADLESS_INV: Inventory = {
   ...INV,
@@ -106,7 +108,7 @@ function makeRuntimeCtx(): {
   reprobe: ReturnType<typeof vi.fn>
 } {
   const sent: DaemonMessage[] = []
-  const snapshot = { inventory: withTerminalDrivers(INV) }
+  const snapshot = { inventory: withBaselineDrivers(INV) }
   const current = vi.fn(async () => snapshot)
   const refresh = vi.fn(async () => snapshot)
   const reprobe = vi.fn(async () => snapshot)
@@ -131,7 +133,7 @@ describe('daemon inventory reporting (#222)', () => {
   it('sends an inventoryReport frame carrying the built inventory', async () => {
     const { ctx, sent } = makeCtx()
     await reportInventory(ctx)
-    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: withTerminalDrivers(INV) }])
+    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) }])
   })
 
   it('re-probes the production runtime on reconnect instead of replaying its snapshot', async () => {
@@ -139,7 +141,7 @@ describe('daemon inventory reporting (#222)', () => {
     await reportInventory(ctx)
     expect(reprobe).toHaveBeenCalledTimes(1)
     expect(current).not.toHaveBeenCalled()
-    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-runtime', inventory: withTerminalDrivers(INV) }])
+    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-runtime', inventory: withBaselineDrivers(INV) }])
   })
 
   it('projects headless availability from the completed inventory without driver probes', async () => {
@@ -162,6 +164,7 @@ describe('daemon inventory reporting (#222)', () => {
           ...HEADLESS_INV,
           runtimeDrivers: [
             ...terminalRuntimeDriverInventory(),
+            { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
             { harness: 'codex', id: 'codex-app-server', family: 'server' },
             { harness: 'grok', id: 'grok-acp', family: 'server' },
             { harness: 'opencode', id: 'opencode-server', family: 'server' },
@@ -195,8 +198,8 @@ describe('daemon inventory reporting (#222)', () => {
 
     expect(buildInventory).toHaveBeenCalledTimes(2)
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withTerminalDrivers(TIMED_OUT_INV) },
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withTerminalDrivers(INV) },
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(TIMED_OUT_INV) },
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
     ])
   })
 
@@ -222,7 +225,7 @@ describe('daemon inventory reporting (#222)', () => {
       const stop = startInventoryRefresh(ctx, 100)
       await vi.advanceTimersByTimeAsync(100)
       expect(buildInventory).toHaveBeenCalledTimes(1)
-      expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: withTerminalDrivers(INV) }])
+      expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) }])
       stop()
       await vi.advanceTimersByTimeAsync(200)
       expect(buildInventory).toHaveBeenCalledTimes(1)
@@ -255,7 +258,7 @@ describe('daemon inventory reporting (#222)', () => {
     resolveFresh(INV)
     await Promise.all([stale, fresh])
 
-    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: withTerminalDrivers(INV) }])
+    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) }])
   })
 
   it('coalesces forced rebuilds behind an in-flight probe wave', async () => {
@@ -285,7 +288,7 @@ describe('daemon inventory reporting (#222)', () => {
     await Promise.all([initial, firstForced, secondForced])
 
     expect(buildInventory).toHaveBeenCalledTimes(2)
-    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: withTerminalDrivers(INV) }])
+    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) }])
   })
 
   it('a failed build is never cached, never throws, and the next call retries', async () => {

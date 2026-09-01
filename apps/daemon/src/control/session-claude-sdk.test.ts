@@ -1,7 +1,7 @@
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { configureFieldsForDriver } from '@podium/agent-runtime'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './session'
@@ -75,13 +75,8 @@ function world(input: {
   return { ctx, sent, adopt, resume }
 }
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-})
-
 describe('Claude SDK reattach control', () => {
   it('adopts the surviving handle without minting a replacement conversation', async () => {
-    vi.stubEnv('PODIUM_CLAUDE_SDK_TOS_ACCEPTED', '1')
     const surviving = handle(SESSION_ID, RESUME)
     const w = world({
       existing: surviving,
@@ -111,7 +106,6 @@ describe('Claude SDK reattach control', () => {
   })
 
   it('resumes with the exact id and ref after the daemon process is gone', async () => {
-    vi.stubEnv('PODIUM_CLAUDE_SDK_TOS_ACCEPTED', '1')
     const resumed = handle(SESSION_ID, RESUME)
     const w = world({
       adopt: async () => {
@@ -167,31 +161,6 @@ describe('Claude SDK reattach control', () => {
     expect(w.sent.filter((message) => message.type === 'bind')).toHaveLength(1)
     expect(w.sent.some((message) => message.type === 'reattachFailed')).toBe(false)
   })
-
-  it('refuses reattach unless the exact operator acknowledgement is present', async () => {
-    vi.stubEnv('PODIUM_CLAUDE_SDK_TOS_ACCEPTED', 'true')
-    const w = world({
-      adopt: async () => {
-        throw new Error('must not call the SDK')
-      },
-      resume: async () => {
-        throw new Error('must not call the SDK')
-      },
-    })
-
-    sessionHandlers.reattach(w.ctx, reattachMessage(SESSION_ID, RESUME))
-    await vi.waitFor(() =>
-      expect(w.sent.some((message) => message.type === 'reattachFailed')).toBe(true),
-    )
-
-    expect(w.adopt).not.toHaveBeenCalled()
-    expect(w.resume).not.toHaveBeenCalled()
-    expect(w.sent.at(-1)).toMatchObject({
-      type: 'reattachFailed',
-      sessionId: SESSION_ID,
-      reason: expect.stringContaining('PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1'),
-    })
-  })
 })
 describe('Claude SDK embedded teardown', () => {
   it('ends an embedded handle from the generic hibernate/kill choke point', async () => {
@@ -224,9 +193,8 @@ describe('Claude SDK embedded teardown', () => {
   })
 })
 
-describe('Claude SDK subscription spawn gate', () => {
-  it('launches the embedded SDK for a logged-in Claude spawn when ToS is accepted', async () => {
-    vi.stubEnv('PODIUM_CLAUDE_SDK_TOS_ACCEPTED', '1')
+describe('Claude SDK subscription spawn selection', () => {
+  it('launches the embedded SDK for an explicit logged-in Claude spawn', async () => {
     const created = handle(SESSION_ID, RESUME)
     const send = vi.fn()
     const create = vi.fn(async () => created)
@@ -253,6 +221,7 @@ describe('Claude SDK subscription spawn gate', () => {
       agentKind: 'claude-code',
       cwd: '/project',
       geometry: { cols: 80, rows: 24 },
+      runtimeContract: 'claude-sdk',
     } as never
 
     await expect(
@@ -262,7 +231,7 @@ describe('Claude SDK subscription spawn gate', () => {
     expect(resume).not.toHaveBeenCalled()
   })
 
-  it('falls through to PTY when the ToS gate is absent', async () => {
+  it('keeps an ordinary Claude spawn on the PTY path', async () => {
     const send = vi.fn()
     const create = vi.fn(async () => {
       throw new Error('SDK must not launch')
@@ -272,7 +241,7 @@ describe('Claude SDK subscription spawn gate', () => {
       harnessLoginState: () => 'in',
       agentRuntime: {
         resolveDriver: vi.fn(() => {
-          throw new Error('resolve must not run when the SDK is not admitted')
+          throw new Error('resolve must not run without an explicit runtime request')
         }),
         create,
         resume: vi.fn(),
@@ -296,7 +265,6 @@ describe('Claude SDK subscription spawn gate', () => {
 
 describe('Claude SDK spawn resume control', () => {
   it('passes the exact Podium id and Claude ref to resume instead of create', async () => {
-    vi.stubEnv('PODIUM_CLAUDE_SDK_TOS_ACCEPTED', '1')
     const resumed = handle(SESSION_ID, RESUME)
     const send = vi.fn()
     const create = vi.fn(async () => {

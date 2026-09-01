@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   availableDriverIds,
-  CLAUDE_SDK_TOS_ENV,
-  claudeSdkTosAcceptedByEnv,
   resolveRuntimeDriver,
   selectionAuthForLogin,
 } from './registry'
@@ -54,33 +52,19 @@ describe('Claude SDK runtime selection', () => {
     expect(selectedExplicitly).toEqual({ ok: true, driverId: 'claude-sdk' })
   })
 
-  it('requires both the per-spawn driver id and the operator ToS acknowledgement', () => {
-    const refused = resolveRuntimeDriver({
-      ...base,
-      requested: 'claude-sdk',
-      machineDefault: undefined,
-      available: ['claude-pty', 'generic-pty'],
-    })
-    expect(refused).toMatchObject({ ok: false })
-    if (!refused.ok) expect(refused.reason).toContain(CLAUDE_SDK_TOS_ENV)
-
+  it('accepts an explicit per-spawn SDK request without a separate admission flag', () => {
     expect(
       resolveRuntimeDriver({
         ...base,
         requested: 'claude-sdk',
         machineDefault: undefined,
-        available: ['claude-pty', 'generic-pty', 'claude-sdk'],
+        available: ['claude-pty', 'generic-pty'],
       }),
     ).toEqual({ ok: true, driverId: 'claude-sdk' })
   })
 
-  it('never offers the SDK unless the acknowledgement value is exact', () => {
-    expect(claudeSdkTosAcceptedByEnv({ [CLAUDE_SDK_TOS_ENV]: '1' })).toBe(true)
-    expect(claudeSdkTosAcceptedByEnv({ [CLAUDE_SDK_TOS_ENV]: 'true' })).toBe(false)
-    expect(availableDriverIds({ opencodeDrivable: false })).not.toContain('claude-sdk')
-    expect(availableDriverIds({ opencodeDrivable: false, claudeSdkTosAccepted: true })).toContain(
-      'claude-sdk',
-    )
+  it('always advertises the embedded SDK shipped by this build', () => {
+    expect(availableDriverIds({ opencodeDrivable: false })).toContain('claude-sdk')
   })
 
   it('keeps subscription auth headed until the SDK is explicitly requested', () => {

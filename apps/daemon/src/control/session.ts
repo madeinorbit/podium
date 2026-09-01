@@ -52,7 +52,6 @@ import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper
 import { opencodeVersionProbe, opencodeVersionProbeForExecutable } from '../runtime/opencode-server'
 import {
   availableDriverIds,
-  claudeSdkTosAcceptedByEnv,
   droppedDriverPreference,
   isEmbeddedDriver,
   isServerDriver,
@@ -861,8 +860,8 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
    * Every spawn is offered to the harness policy. Server-capable harnesses take
    * their own server driver when its three-valued probe admits this machine; an
    * absent, unsupported or unprobeable driver falls through to the PTY path.
-   * Claude's embedded SDK is admitted only after PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1;
-   * without that gate it never probes and stays on the terminal path.
+   * Claude's embedded SDK is selected only by an explicit per-spawn request;
+   * ordinary Claude spawns stay on the terminal path.
    */
   const runtimeLaunch = await launchServerDriverSession(ctx, msg)
   if (runtimeLaunch.handled) return
@@ -1242,11 +1241,11 @@ export async function launchServerDriverSession(
     perSpawn: msg.runtimeContract,
     machineDefault: runtimeDriverByEnv(),
   })
-  const embeddedAdmitted =
-    claudeSdkTosAcceptedByEnv() && isEmbeddedDriver(msg.agentKind, 'claude-sdk')
-  if (!preferred && !embeddedAdmitted) {
-    // No server/embedded driver is in play: Claude without the ToS gate, cursor,
-    // a shell. The answer is the terminal one and it is known without probing
+  const embeddedRequested =
+    msg.runtimeContract === 'claude-sdk' && isEmbeddedDriver(msg.agentKind, 'claude-sdk')
+  if (!preferred && !embeddedRequested) {
+    // No server/embedded driver is in play: ordinary Claude, cursor, or a shell.
+    // The answer is the terminal one and it is known without probing
     // anything, so say so now rather than leaving the clients to infer it from
     // a `bind` that is still seconds away. `terminalProfileFor` is undefined
     // only for a kind with no manifest — a shell — which has no driver to name.
@@ -1342,7 +1341,6 @@ export async function launchServerDriverSession(
     // Only the preferred server is probed and admitted. An explicit terminal
     // request therefore avoids every server probe.
     available: availableDriverIds({
-      claudeSdkTosAccepted: claudeSdkTosAcceptedByEnv(),
       grokDrivable: preferredServer === 'grok-acp' && preferredProbe?.drivable === true,
       opencodeDrivable: preferredServer === 'opencode-server' && preferredProbe?.drivable === true,
       codexDrivable: preferredServer === 'codex-app-server' && preferredProbe?.drivable === true,
@@ -1586,11 +1584,6 @@ async function adoptOrResumeEmbeddedClaudeSession(
   }
   if (requested && existing && !existingClaude) {
     return fail(`session '${msg.sessionId}' is already bound to '${existing.binding.driver}'`)
-  }
-  if (!claudeSdkTosAcceptedByEnv()) {
-    return fail(
-      "runtime driver 'claude-sdk' requires explicit PODIUM_CLAUDE_SDK_TOS_ACCEPTED=1 operator acknowledgement",
-    )
   }
   if (
     existingClaude &&
