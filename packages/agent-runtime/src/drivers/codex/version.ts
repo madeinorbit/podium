@@ -55,7 +55,7 @@ export interface CodexVersion {
 export const SUPPORTED_CODEX = {
   major: 0,
   minMinor: 147,
-  maxMinor: 151,
+  maxMinor: 152,
   /** What the fixtures were recorded from, for the diagnostic's body. */
   recordedAt: '0.147.0',
   verifiedThrough: '0.151.0',
