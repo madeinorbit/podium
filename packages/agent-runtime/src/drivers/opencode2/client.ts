@@ -16,6 +16,7 @@ import type {
 export function createOpencode2Client(config: OpencodeClientConfig): OpencodeClient {
   const fetcher = config.fetch ?? globalThis.fetch
   const auth = `Basic ${base64(`opencode:${config.password}`)}`
+  const timeoutMs = config.timeoutMs ?? 30_000
   let session: string | undefined
   const forms = new Map<string, Opencode2Form>()
   const request = async (
@@ -23,16 +24,28 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
     path: string,
     body?: unknown,
     signal?: AbortSignal,
+    streaming = false,
   ) => {
-    const response = await fetcher(`${config.baseUrl}${path}`, {
-      method,
-      headers: {
-        authorization: auth,
-        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      ...(signal ? { signal } : {}),
-    })
+    const timer = new AbortController()
+    const onAbort = (): void => timer.abort()
+    signal?.addEventListener('abort', onAbort, { once: true })
+    const timeout = setTimeout(() => timer.abort(), timeoutMs)
+    if (typeof timeout === 'object' && 'unref' in timeout) timeout.unref()
+    let response: Response
+    try {
+      response = await fetcher(`${config.baseUrl}${path}`, {
+        method,
+        headers: {
+          authorization: auth,
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: timer.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+      if (!streaming) signal?.removeEventListener('abort', onAbort)
+    }
     if (!response.ok)
       throw new Error(`opencode2 ${method} ${path} → ${response.status}: ${await response.text()}`)
     return response
@@ -59,7 +72,13 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
         agent: input?.agent,
         location: { directory: config.directory },
         ...(model
-          ? { model: { providerID: model.providerID, model: model.id, variant: model.variant } }
+          ? {
+              model: {
+                providerID: model.providerID,
+                id: model.id,
+                variant: model.variant,
+              },
+            }
           : {}),
       })
       const row = ((await response.json()) as { data: OpencodeSession }).data
@@ -77,7 +96,7 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
         await request('POST', `/api/session/${encodeURIComponent(sessionId)}/model`, {
           model: {
             providerID: body.model.providerID,
-            model: body.model.modelID,
+            id: body.model.modelID,
             variant: body.variant,
           },
         })
@@ -107,11 +126,20 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
     },
     async messages(sessionId) {
       session = sessionId
-      const response = await request(
-        'GET',
-        `/api/session/${encodeURIComponent(sessionId)}/message?order=asc&limit=1000`,
-      )
-      const rows = ((await response.json()) as { data?: Array<Record<string, unknown>> }).data ?? []
+      const rows: Array<Record<string, unknown>> = []
+      let path = `/api/session/${encodeURIComponent(sessionId)}/message?order=asc&limit=200`
+      for (;;) {
+        const response = await request('GET', path)
+        const page = (await response.json()) as {
+          data?: Array<Record<string, unknown>>
+          cursor?: { next?: string | null }
+        }
+        rows.push(...(page.data ?? []))
+        if (!page.cursor?.next) break
+        path = `/api/session/${encodeURIComponent(
+          sessionId,
+        )}/message?limit=200&cursor=${encodeURIComponent(page.cursor.next)}`
+      }
       return rows.map((row): OpencodeMessageWithParts => {
         const id = String(row.id)
         const type = String(row.type)
@@ -164,7 +192,9 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
     async replyPermission(requestId, reply: OpencodePermissionReply, message) {
       await request(
         'POST',
-        `/api/session/${encodeURIComponent(sid())}/permission/${encodeURIComponent(requestId)}/reply`,
+        `/api/session/${encodeURIComponent(
+          sid(),
+        )}/permission/${encodeURIComponent(requestId)}/reply`,
         { reply, message },
       )
     },
@@ -263,7 +293,7 @@ async function* events(
   ) => Promise<Response>,
   signal: AbortSignal,
 ): AsyncIterable<OpencodeEvent> {
-  const response = await request('GET', '/api/event', undefined, signal)
+  const response = await request('GET', '/api/event', undefined, signal, true)
   const reader = response.body?.getReader()
   if (!reader) return
   const decoder = new TextDecoder()
@@ -339,13 +369,24 @@ async function* events(
           type: 'session.status',
           properties: { sessionID, status: { type: 'busy' } },
         }
-      else if (raw.type === 'session.execution.succeeded' && sessionID)
-        mapped = { id: eventID, type: 'session.idle', properties: { sessionID } }
-      else if (
-        (raw.type === 'session.execution.failed' || raw.type === 'session.execution.interrupted') &&
-        sessionID
-      )
-        mapped = { id: eventID, type: 'session.error', properties: { sessionID, error: data } }
+      else if (!mapped && raw.type === 'session.execution.succeeded' && sessionID)
+        mapped = {
+          id: eventID,
+          type: 'session.idle',
+          properties: { sessionID },
+        }
+      else if (!mapped && raw.type === 'session.execution.failed' && sessionID)
+        mapped = {
+          id: eventID,
+          type: 'session.error',
+          properties: { sessionID, error: data.error ?? data },
+        }
+      else if (!mapped && raw.type === 'session.execution.interrupted' && sessionID)
+        mapped = {
+          id: eventID,
+          type: 'session.error',
+          properties: { sessionID, error: { name: 'MessageAborted', ...data } },
+        }
       else if (raw.type === 'session.step.started' && sessionID) {
         const messageID = String(data.assistantMessageID)
         const model = data.model as { id?: string; providerID?: string } | undefined

@@ -1129,7 +1129,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                     { value: 'headed', label: 'Headed (default)' },
                     ...availableHeadlessDrivers.map((driver) => ({
                       value: driver.id,
-                      label: driver.id,
+                      label: runtimeDriverLabel(driver.id),
                       group: 'Headless drivers',
                     })),
                   ]}

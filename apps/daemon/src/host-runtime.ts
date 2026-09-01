@@ -924,6 +924,10 @@ export async function createDaemonHostRuntime(args: {
           healthPath: '/api/health',
           scopeToken: 'oc2',
           journalNamespace: 'opencode2-servers',
+          // V2 currently migrates the stable CLI's default database to an incompatible schema.
+          // Isolate only the database so v1 and v2 can coexist while both still read the
+          // instance's shared OpenCode credentials and configuration.
+          env: { OPENCODE_DB: join(stateDir(), 'opencode2.db') },
           versionDiagnostic: opencode2VersionDiagnostic,
         },
       }),

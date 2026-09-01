@@ -275,10 +275,18 @@ async function waitForReady(baseUrl: string, secret: string, deadlineMs: number)
 export type OpencodeProbeVerdict =
   | { drivable: true }
   /** The binary answered and the gate refused it. Stable; degrade is honest. */
-  | { drivable: false; reason: 'unsupported'; diagnostic: OpencodeVersionDiagnostic }
+  | {
+      drivable: false
+      reason: 'unsupported'
+      diagnostic: OpencodeVersionDiagnostic
+    }
   /** The binary did not answer at all — absent, or too slow under load. NOT a
    *  statement about the version, and cached only until the retry interval. */
-  | { drivable: false; reason: 'unprobeable'; diagnostic: OpencodeVersionDiagnostic }
+  | {
+      drivable: false
+      reason: 'unprobeable'
+      diagnostic: OpencodeVersionDiagnostic
+    }
 
 /**
  * MEMOIZED PERMANENTLY ONLY WHEN THE ANSWER IS DEFINITIVE.
@@ -293,7 +301,9 @@ const versionProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
       const diagnostic: OpencodeVersionDiagnostic = {
         code: 'opencode-version-unsupported',
         title: 'opencode server driver needs review',
-        body: `\`opencode --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the server driver is not disabled, and a later spawn will probe again. Observed: ${output || '(no output)'}`,
+        body: `\`opencode --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the server driver is not disabled, and a later spawn will probe again. Observed: ${
+          output || '(no output)'
+        }`,
         observedVersion: output.trim() || '(probe failed)',
       }
       log.warn('could not probe the opencode version', { output })
@@ -330,25 +340,33 @@ export function opencodeVersionProbeForExecutable(
  *  LIST — the distinction that matters is at the spawn site, which asks the
  *  verdict directly. */
 
+const opencode2VersionProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
+  evaluate: ({ output, ok }) => {
+    const match = /0\.0\.0-beta-(\d+)/u.exec(output)
+    if (ok && match && Number(match[1]) === 18743) return { drivable: true }
+    const diagnostic: OpencodeVersionDiagnostic = {
+      code: 'opencode-version-unsupported',
+      title: 'opencode server driver needs review',
+      body: ok
+        ? `opencode2 ${output.trim()} is outside the preview build range exercised by this driver (only beta-18743).`
+        : `opencode2 --version did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms: ${
+            output || '(no output)'
+          }`,
+      observedVersion: output.trim() || '(probe failed)',
+    }
+    return {
+      drivable: false,
+      reason: ok ? 'unsupported' : 'unprobeable',
+      diagnostic,
+    }
+  },
+})
+
 export function opencode2VersionProbe(
   probe: VersionProbe = () => execVersionProbe('opencode2', VERSION_PROBE_TIMEOUT_MS),
   policy?: VersionProbePolicy,
 ): Promise<OpencodeProbeVerdict> {
-  return createVersionProbeCache<OpencodeProbeVerdict>({
-    evaluate: ({ output, ok }) => {
-      const match = /0\.0\.0-(?:beta|dev)-(\d+)/u.exec(output)
-      if (ok && match && Number(match[1]) >= 18743) return { drivable: true }
-      const diagnostic: OpencodeVersionDiagnostic = {
-        code: 'opencode-version-unsupported',
-        title: 'opencode server driver needs review',
-        body: ok
-          ? `opencode2 ${output.trim()} is outside the preview build range exercised by this driver (beta-18743 or newer).`
-          : `opencode2 --version did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms: ${output || '(no output)'}`,
-        observedVersion: output.trim() || '(probe failed)',
-      }
-      return { drivable: false, reason: ok ? 'unsupported' : 'unprobeable', diagnostic }
-    },
-  }).probe(probe, policy)
+  return opencode2VersionProbeCache.probe(probe, policy)
 }
 
 export function opencode2VersionDiagnostic(
@@ -365,6 +383,9 @@ export function opencodeVersionDiagnostic(
   return (probe ? opencodeVersionProbe(probe) : opencodeVersionProbe()).then((verdict) =>
     verdict.drivable ? null : verdict.diagnostic,
   )
+}
+export function resetOpencode2VersionProbe(): void {
+  opencode2VersionProbeCache.reset()
 }
 
 /** Reset the memo. Tests only — a daemon never needs it. */
@@ -433,6 +454,8 @@ export interface OpencodeHostDeps {
     healthPath: string
     scopeToken: string
     journalNamespace: string
+    /** Environment shared by the server and its native client. */
+    env?: Readonly<Record<string, string>>
     versionDiagnostic(probe?: VersionProbe): Promise<OpencodeVersionDiagnostic | null>
   }
 }
@@ -601,6 +624,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         ...(input.env ? { sessionEnv: input.env } : {}),
       })
       for (const key of STRIPPED_PROVIDER_KEYS) delete env[key]
+      Object.assign(env, variant?.env)
       env.OPENCODE_SERVER_USERNAME = username
       // RULE 2: the secret is HERE. It appears in `serveArgv` nowhere, and this
       // is the assertion `opencode-server.test.ts` pins.
@@ -648,7 +672,9 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         child.kill('SIGKILL')
         children.delete(input.sessionId)
         throw new Error(
-          `opencode serve did not answer /global/health on ${baseUrl} within ${READY_TIMEOUT_MS}ms${banner ? `: ${banner.trim()}` : ''}`,
+          `opencode serve did not answer /global/health on ${baseUrl} within ${READY_TIMEOUT_MS}ms${
+            banner ? `: ${banner.trim()}` : ''
+          }`,
         )
       }
       if (!scoped) {
@@ -656,7 +682,9 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         // in the daemon's cgroup: it still works, but per-session memory
         // accounting and OOM isolation are gone, and a redeploy's
         // KillMode=control-group reaches it.
-        log.warn('opencode session is running unscoped', { sessionId: input.sessionId })
+        log.warn('opencode session is running unscoped', {
+          sessionId: input.sessionId,
+        })
       }
       return endpointFor({
         sessionId: input.sessionId,
@@ -757,10 +785,15 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
           target: {
             kind: 'opencode',
             driverId,
+            ...(variant?.env ? { env: variant.env } : {}),
             conversation: entry.opencodeSessionId,
             // Loopback TCP with a mandatory per-session secret: the URL and the
             // credential travel together because the transport says they must.
-            endpoint: { address: input.url, username: entry.username, secret: entry.secret },
+            endpoint: {
+              address: input.url,
+              username: entry.username,
+              secret: entry.secret,
+            },
             workdir: entry.workdir,
           },
         })

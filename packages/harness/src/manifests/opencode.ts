@@ -276,7 +276,7 @@ export const opencodeManifest: AgentManifest = {
         transport: 'loopback-tcp',
         requiresPerSessionSecret: true,
         openapiPath: '/openapi.json',
-        versionRange: supported('>=0.0.0-beta-18743'),
+        versionRange: supported('=0.0.0-beta-18743'),
         clientTerminal: supported({
           labelToken: 'oc2',
           parkOnRelease: true,

@@ -217,6 +217,8 @@ export interface ClientTerminalTarget {
    *  implies — see `ClientTerminalEndpoint`. Empty for a stdio engine. */
   endpoint: ClientTerminalEndpoint
   workdir: string
+  /** Driver-specific environment required by both server and native client. */
+  env?: Readonly<Record<string, string>>
 }
 
 export interface OpencodeClientTerminals {
@@ -529,6 +531,7 @@ export function createOpencodeClientTerminals(
       // the per-session server credentials, which stay in the ENV and out of
       // argv exactly as its server half requires.
       ...(launch.env ?? {}),
+      ...(target.env ?? {}),
       ...(ports.instanceUuid ? { PODIUM_INSTANCE_UUID: ports.instanceUuid } : {}),
       PODIUM_SESSION_ID: record.streamId,
       ...harnessCompatEnv(kind),

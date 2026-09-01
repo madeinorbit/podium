@@ -759,6 +759,24 @@ describe('the client terminal a server-family attach produces', () => {
     expect(STRIPPED_CODEX_CREDENTIALS).toContain('OPENAI_BASE_URL')
   })
 
+  it('passes a generation-specific database path to the OpenCode 2 native client', async () => {
+    const { terminals, state } = harness()
+    await terminals.attach({
+      sessionId: SESSION,
+      target: {
+        ...target,
+        driverId: 'opencode2-server',
+        env: { OPENCODE_DB: '/instance/state/opencode2.db' },
+      },
+    })
+
+    expect(state.spawns[0]).toMatchObject({
+      label: 'podium-oc2-attach-11111111-1111-4111-8111-111111111111',
+      cmd: 'opencode2',
+      env: { OPENCODE_DB: '/instance/state/opencode2.db' },
+    })
+  })
+
   it('launches Codex and Grok original resume TUIs under sibling labels', async () => {
     const codex = harness()
     await codex.terminals.attach({

@@ -29,11 +29,13 @@ import {
   createOpencodeHost,
   createOpencodeJournal,
   opencodeScopeLabel,
+  opencode2VersionProbe,
   opencodeServeArgv,
   opencodeVersionDiagnostic,
   opencodeVersionProbe,
   opencodeVersionProbeForExecutable,
   resetOpencodeVersionProbe,
+  resetOpencode2VersionProbe,
 } from './opencode-server'
 import {
   availableDriverIds,
@@ -459,8 +461,14 @@ describe('driver resolution', () => {
 })
 
 describe('the version gate, as the daemon reads it', () => {
-  beforeEach(() => resetOpencodeVersionProbe())
-  afterEach(() => resetOpencodeVersionProbe())
+  beforeEach(() => {
+    resetOpencodeVersionProbe()
+    resetOpencode2VersionProbe()
+  })
+  afterEach(() => {
+    resetOpencodeVersionProbe()
+    resetOpencode2VersionProbe()
+  })
 
   const answered = (output: string) => () => ({ output, ok: true })
   const silent =
@@ -536,6 +544,16 @@ describe('the version gate, as the daemon reads it', () => {
     expect(sent.at(-1)).toMatchObject({ type: 'spawnError', sessionId: SESSION })
   })
 
+  it('admits only the OpenCode 2 beta whose API boundary is exercised', async () => {
+    await expect(opencode2VersionProbe(answered('0.0.0-beta-18743'))).resolves.toEqual({
+      drivable: true,
+    })
+    resetOpencode2VersionProbe()
+    const future = await opencode2VersionProbe(answered('0.0.0-beta-18744'))
+    expect(future.drivable).toBe(false)
+    if (!future.drivable) expect(future.reason).toBe('unsupported')
+  })
+
   it.each([
     { label: 'directly', scoped: false },
     { label: 'through systemd-run', scoped: true },
@@ -585,6 +603,42 @@ describe('the version gate, as the daemon reads it', () => {
         args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
       })
     }
+  })
+
+  it('passes the isolated database path to the OpenCode 2 server process', async () => {
+    const stopped = new Error('stop after env capture')
+    let spawnedEnv: NodeJS.ProcessEnv | undefined
+    const host = createOpencodeHost({
+      resources: () => undefined,
+      freePort: async () => 41234,
+      canScope: async () => false,
+      journal: { read: () => undefined, write: () => {}, clear: () => {} },
+      variant: {
+        driverId: 'opencode2-server',
+        executable: 'opencode2',
+        username: 'opencode',
+        healthPath: '/api/health',
+        scopeToken: 'oc2',
+        journalNamespace: 'opencode2-servers',
+        env: { OPENCODE_DB: '/instance/state/opencode2.db' },
+        versionDiagnostic: async () => null,
+      },
+      spawnProcess: ((_command: string, _args: string[], options: { env?: NodeJS.ProcessEnv }) => {
+        spawnedEnv = options.env
+        throw stopped
+      }) as never,
+    })
+
+    await expect(
+      host.launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        secret: 'secret',
+        username: 'opencode',
+      }),
+    ).rejects.toBe(stopped)
+    expect(host.driverId).toBe('opencode2-server')
+    expect(spawnedEnv?.OPENCODE_DB).toBe('/instance/state/opencode2.db')
   })
 
   it('builds serve argv from the resolved executable without changing PATH installs', () => {
