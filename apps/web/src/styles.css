@@ -11592,19 +11592,18 @@ button.waterfall-fold:hover {
 
 /* ── THE WELL'S TWO HEIGHTS [POD-1469] ───────────────────────────────────────
    The box has a CLI mode and a prompt mode (see ColdStartComposer), and the
-   whole difference in geometry is this element's height. Both are set as an
-   explicit `height` rather than `min-height`, so the transition has one number
-   to walk: with a min-height the box would sit at the textarea's intrinsic size
-   until the animated value overtook it, which is a beat of stillness at the head
-   of a gesture whose job is to feel like the box opening.
+   fold starts from the two explicit heights below. Once open,
+   `useColdStartPromptAutoGrow` replaces the resting height with a measured pixel
+   height as the operator writes. It takes all remaining room in the pane before
+   the field scrolls, while keeping the headline and launch row reachable.
 
    `rows={1}` is what makes the closed height honest — a textarea's intrinsic
    height comes from its rows, and a two-row default would fight the number
    below.
 
-   The prompt height is the one the deck has always used: about a fifth of a
-   short window, capped at the old desktop 132px, so the whole instrument stays
-   on screen down to a 240px pane before the deck scrolls.
+   The prompt's RESTING height remains the one the deck has always used: about a
+   fifth of a short window, capped at 132px. That is the starting size, no longer
+   the writing cap.
 
    THE OPEN BOX GIVES ITS RIGHT SHOULDER TO THE CLOSE CONTROL. 46px of right
    padding rather than 22 — the X sits at top:9/right:10 and the first line of a
@@ -11622,15 +11621,26 @@ button.waterfall-fold:hover {
      easeOutCubic is at ~51% at the same instant, so the motion is visible for
      most of its duration and still lands decelerating. 240ms is inside the
      design's 200–260ms window for structural motion. */
-  transition:
-    height 240ms cubic-bezier(0.33, 1, 0.68, 1),
-    padding 240ms cubic-bezier(0.33, 1, 0.68, 1);
+  transition-property: height, padding;
+  transition-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  transition-duration: 0s;
 }
 .cold-start-field[data-expanded="true"] .cold-start-input {
   height: clamp(72px, 19dvh, 132px);
   padding-block: clamp(12px, 2dvh, 20px) 10px;
   padding-right: 46px;
+}
+.cold-start-input[data-capped="true"] {
   overflow-y: auto;
+}
+.cold-start-input[data-grow="fold"] {
+  transition-duration: 240ms;
+}
+.cold-start-input[data-grow="up"] {
+  transition-duration: 150ms;
+}
+.cold-start-input[data-grow="down"] {
+  transition-duration: 240ms;
 }
 /* THE CLOSED LINE GIVES ITS RIGHT SHOULDER TO THE FOCUS CHORD. Same reason
    the open box pads for the X: a 46px row with the placeholder running under
@@ -11642,8 +11652,8 @@ button.waterfall-fold:hover {
   padding-right: 96px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .cold-start-input {
-    transition: none;
+  .cold-start-input[data-grow] {
+    transition-duration: 0s;
   }
 }
 

@@ -43,6 +43,7 @@ import {
   readFirstTaskDraft,
   serializeFirstTaskDraft,
 } from './first-task-draft'
+import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import { SetupError } from './SetupFeedback'
 
 function repoLabel(repo: { path: string; name?: string }): string {
@@ -472,6 +473,24 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
   const [focused, setFocused] = useState(false)
+  useColdStartPromptAutoGrow({
+    taRef: inputRef,
+    expanded,
+    value: draft.title,
+    layoutKey: [
+      attachments.attachments.length,
+      error,
+      machineDenied,
+      ready,
+      draft.pendingIssueId,
+      first,
+      selectedRepo?.path,
+      selectedMachine?.id,
+      agent,
+      draft.model,
+      draft.effort,
+    ].join('\u0000'),
+  })
   /**
    * THE FOCUS CHORD (POD-993). The session prompt already answers ⌘/ (and ⌘L
    * from the macOS View menu). This box is the prompt when nothing is open, so
@@ -893,8 +912,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           overflows the "drop here" frame would sit above the visible area and
           scroll with it. Splitting the two puts the veil over the pane and
           leaves the scrolling exactly where it was. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="cold-start-body">
+      <div data-cold-start-bounds className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div data-cold-start-body className="cold-start-body">
           {/* ONE SENTENCE, SET AS TEXT (POD-1184). The headline used to be a
               wrapping FLEX row of three items — sentence, project pill, tail —
               and a flex line break is not a text line break: at a ~680px pane
