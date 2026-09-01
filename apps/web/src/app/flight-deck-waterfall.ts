@@ -132,7 +132,11 @@ export function followWaterfallViewport(
   trackPx: number,
   options: { future?: boolean } = {},
 ): WaterfallViewport {
-  if (sessions.length === 0) return fitWaterfallViewport(null, now, options)
+  // Taken as the empty check AND as the narrowing one: `focus[0] ?? sessions[0]`
+  // below is safe only because the list is non-empty here, and indexed access
+  // has no way to know that from a length test.
+  const first = sessions[0]
+  if (first === undefined) return fitWaterfallViewport(null, now, options)
 
   const active = sessions.filter((session) => !sessionSettled(session))
   const byMostRecent = [...sessions].sort(
@@ -141,7 +145,7 @@ export function followWaterfallViewport(
       waterfallSessionStart(right, now) - waterfallSessionStart(left, now),
   )
   const focus = active.length > 0 ? active : byMostRecent.slice(0, 3)
-  const focusEnd = active.length > 0 ? now : waterfallSessionEnd(focus[0] ?? sessions[0], now)
+  const focusEnd = active.length > 0 ? now : waterfallSessionEnd(focus[0] ?? first, now)
   const durations = focus
     .map((session) =>
       Math.max(
