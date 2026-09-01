@@ -10,6 +10,14 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * TWO PRECISIONS, AND THE DIFFERENCE IS THE POINT
  * ─────────────────────────────────────────────────────────────────────────────
+ * NOTHING HERE ROUNDS OR NAMES A HARNESS ITSELF. Every function below delegates
+ * to `client-core/viewmodels`, which the coordinator made binding for all four
+ * cost surfaces: `formatCostRounded`, `formatCostExact`, `costHarnessLabel` and
+ * the sheet's own `formatCostWeightRatio`. A second implementation of the same
+ * rounding is how one task comes to read two prices — the defect this feature
+ * exists to make impossible. What stays here is the WORDING this surface adds
+ * around those figures, and nothing else.
+ *
  * {@link approxUsd} is for a figure the reader is meant to take as a MAGNITUDE —
  * the rollup headline, a session's share, the roster's meta line. It carries `≈`
  * and it never prints cents above $10, because "$225.81" invites arithmetic on a
@@ -23,13 +31,13 @@
  * that is a rounding, not a disagreement.
  */
 
+import {
+  costHarnessLabel,
+  formatCostExact,
+  formatCostRounded,
+  formatCostWeightRatio,
+} from '@podium/client-core/viewmodels'
 import type { CostHarness } from '@podium/model/browser'
-
-/** Above this, cents are noise on an estimate. Below it, they are the figure. */
-const CENTS_BELOW_USD = 10
-
-/** Three significant figures start mattering here — "$1,234" over-reads. */
-const SIGNIFICANT_FROM_USD = 1000
 
 /**
  * "≈$226", "≈$4.80" — a magnitude, three significant figures, cents only under
@@ -42,16 +50,10 @@ const SIGNIFICANT_FROM_USD = 1000
  * states are words, not numbers — so a `$0` here is a real, counted zero.
  */
 export function approxUsd(usd: number): string {
+  // The nil case is this surface's, not the formatter's: a session that cost
+  // nothing still occupies a row here, and `≈$0` is the reading for it.
   if (!Number.isFinite(usd) || usd <= 0) return '≈$0'
-  if (usd >= SIGNIFICANT_FROM_USD) {
-    // 12,345 → 12,300. Round at the third digit rather than truncating to it, so
-    // the figure stays the nearest reading rather than always the low one.
-    const factor = 10 ** (Math.floor(Math.log10(usd)) - 2)
-    const rounded = Math.round(usd / factor) * factor
-    return `≈$${rounded.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-  }
-  if (usd >= CENTS_BELOW_USD) return `≈$${Math.round(usd).toLocaleString('en-US')}`
-  return `≈$${usd.toFixed(2)}`
+  return `≈${formatCostRounded(usd)}`
 }
 
 /**
@@ -65,27 +67,26 @@ export function approxUsd(usd: number): string {
  */
 export function exactUsd(usd: number): string {
   if (!Number.isFinite(usd) || usd <= 0) return '$0'
-  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return formatCostExact(usd)
 }
 
 /**
- * "2.3× median" — this task's cost per reply against the cohort's.
+ * "2.3x median" — this task's cost per reply against the cohort's.
  *
- * The multiple is NOT computed here. Both surfaces read `rateVsMedian` off the
- * one viewmodel, which builds it from the ROLLUP cost over the ROLLUP replies so
- * that it matches the headline standing beside it. A surface that divided its
- * own two numbers is exactly how the same task came to read 1.97× in the panel
- * and 2.51× in the sheet.
+ * The multiple is NOT computed here, and it is NOT formatted here either. Both
+ * surfaces read `rateVsMedian` off the one viewmodel, which builds it from the
+ * ROLLUP cost over the ROLLUP replies so that it matches the headline standing
+ * beside it. A surface that divided its own two numbers is exactly how the same
+ * task came to read 1.97x in the panel and 2.51x in the sheet.
+ *
+ * The digits come from the sheet's own `formatCostWeightRatio`, which the
+ * composition ramp has printed for as long as this sheet has existed. Spelling
+ * the same multiple `2.3×` here and `2.3x` two surfaces away is a smaller lie
+ * than a wrong number and still a reason for a reader to wonder whether the two
+ * readings are the same reading.
  */
 export function rateLabel(rateVsMedian: number): string {
-  return `${rateVsMedian.toFixed(1)}× median`
-}
-
-/** Harness → the name a person would use for it. */
-const HARNESS_NAME: Record<CostHarness, string> = {
-  'claude-code': 'Claude',
-  codex: 'Codex',
-  grok: 'Grok',
+  return `${formatCostWeightRatio(rateVsMedian)} median`
 }
 
 /**
@@ -101,9 +102,8 @@ const HARNESS_NAME: Record<CostHarness, string> = {
  * the wire sends.
  */
 export function floorLabel(harnesses: readonly CostHarness[]): string {
-  if (harnesses.length === 0) return '≥ floor'
-  const named = harnesses.map((h) => HARNESS_NAME[h])
-  return `≥ floor · ${named.length === 1 ? `all ${named[0]}` : named.join(' + ')}`
+  const named = costHarnessLabel(harnesses)
+  return named === '' ? '≥ floor' : `≥ floor · ${named}`
 }
 
 /**

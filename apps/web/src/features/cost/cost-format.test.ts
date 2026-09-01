@@ -53,8 +53,13 @@ describe('exactUsd', () => {
 
 describe('rateLabel', () => {
   it('reads as a multiple of the cohort, to one place', () => {
-    expect(rateLabel(2.34)).toBe('2.3× median')
-    expect(rateLabel(0.92)).toBe('0.9× median')
+    expect(rateLabel(2.34)).toBe('2.3x median')
+    expect(rateLabel(0.92)).toBe('0.9x median')
+    // Same spelling the deck's chip and the sheet's Rate column use: the digits
+    // come from `formatCostWeightRatio`, so a whole multiple drops its `.0` and
+    // anything past 10x stops offering a decimal it cannot support.
+    expect(rateLabel(2)).toBe('2x median')
+    expect(rateLabel(42.4)).toBe('42x median')
   })
 })
 

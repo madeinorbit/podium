@@ -30,6 +30,10 @@ const view = (over: Partial<TaskCostView> = {}): TaskCostView => ({
   floor: 'none',
   harnesses: ['claude-code'],
   sessions: [],
+  // The read-time stamp the wire carries (POD-1858). This section deliberately
+  // draws nothing from it — the display decision is the coordinator's — but the
+  // fixture has to be a whole view or it stops type-checking against one.
+  sampledAt: null,
   ratePerReplyUsd: null,
   rateVsMedian: null,
   ...over,
@@ -221,7 +225,7 @@ describe('TaskCostSection · the costed reading', () => {
   it('reads the rate off the viewmodel and never computes one', () => {
     render(<TaskCostSection view={pod1574({ rateVsMedian: 2.34 })} />)
 
-    expect(screen.getAllByTestId('cost-row').map((r) => r.textContent)).toContain('Rate2.3× median')
+    expect(screen.getAllByTestId('cost-row').map((r) => r.textContent)).toContain('Rate2.3x median')
   })
 
   it('drops the rate row entirely rather than showing a multiple with no cohort', () => {
