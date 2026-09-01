@@ -11,11 +11,20 @@ const listDir = vi.fn()
 const openFileInWorktree = vi.fn()
 const searchFiles = vi.fn()
 vi.mock('@/app/store', () => {
-  const useStore = () => ({
-    listDir,
-    openFileInWorktree,
-    trpc: { files: { search: { query: searchFiles } } },
-  })
+  // ONE store object, built on first use and kept, as the real store is. Handing
+  // back a fresh object per call gave the component a new `trpc` on every render,
+  // and the search effect that depends on `trpc` re-ran forever — this file spun
+  // at 100% CPU and the web suite never finished. Built lazily because vi.mock is
+  // hoisted above the vi.fn() declarations it closes over.
+  let store: Record<string, unknown> | undefined
+  const useStore = (): Record<string, unknown> => {
+    store ??= {
+      listDir,
+      openFileInWorktree,
+      trpc: { files: { search: { query: searchFiles } } },
+    }
+    return store
+  }
   return {
     useStore,
     useReplicaIssues: () => [],
@@ -137,7 +146,9 @@ describe('WorktreeFileTree', () => {
     await screen.findByText('a.ts')
     vi.useFakeTimers()
 
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'deep' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search files' }), {
+      target: { value: 'deep' },
+    })
     await act(async () => void vi.advanceTimersByTime(150))
     await act(async () => void (await Promise.resolve()))
 
@@ -148,7 +159,7 @@ describe('WorktreeFileTree', () => {
       machineId: 'machine-1',
     })
     expect(screen.getByText('src/deep')).toBeTruthy()
-    fireEvent.keyDown(screen.getByLabelText('Search files'), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Search files' }), { key: 'Enter' })
     expect(openFileInWorktree).toHaveBeenCalledWith({
       machineId: 'machine-1',
       root: '/w',
@@ -163,7 +174,7 @@ describe('WorktreeFileTree', () => {
     await screen.findByText('a.ts')
     vi.useFakeTimers()
 
-    const search = screen.getByLabelText('Search files')
+    const search = screen.getByRole('combobox', { name: 'Search files' })
     fireEvent.change(search, { target: { value: 'src' } })
     await act(async () => void vi.advanceTimersByTime(150))
     await act(async () => void (await Promise.resolve()))
