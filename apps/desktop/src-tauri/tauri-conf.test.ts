@@ -141,11 +141,13 @@ describe('tauri desktop config', () => {
     )
     const transfer = mainSource.slice(
       mainSource.indexOf('fn grant_transfer_remote_capabilities'),
-      mainSource.indexOf('fn reap_tracked_successor'),
+      mainSource.indexOf('fn main()'),
     )
 
     expect(bootstrapSource).toContain('pub fn validate_server_transport(')
     expect(bootstrapSource).toContain('address.is_loopback()')
+    expect(bootstrapSource).toContain(".strip_prefix('[')")
+    expect(bootstrapSource).toContain("host.strip_suffix(']')")
     expect(bootstrapSource).toContain('"http" | "ws" if is_loopback_server(&url) => Ok(url)')
     expect(bootstrapSource).toContain('"https" | "wss" => Ok(url)')
     expect(bootstrapSource).toContain(
@@ -163,12 +165,16 @@ describe('tauri desktop config', () => {
     )
     expect(mainSource).toContain('BackendExitDecision::BlockedServerTransport { reason }')
     expect(mainSource).toContain('.title("Server connection blocked")')
+    expect(mainSource).toContain('.on_navigation(move |url|')
+    expect(mainSource).toContain('bootstrap::validate_desktop_navigation(url)')
 
     expect(mainSource).toContain('window.__PODIUM_SERVER_TRANSPORT_BLOCKED__ = true')
     expect(mainSource).toContain('server_transport_blocked_injection(&error)')
     expect(webMainSource).toContain('function ServerTransportBlockedPage(')
     expect(webMainSource).toContain('This server needs a secure connection')
     expect(webMainSource).toContain("{ label: 'Blocked server access', value: 'Not granted' }")
+    expect(webMainSource).toContain("label: 'Restart Podium'")
+    expect(webMainSource).toContain('onClick: () => void restartPodiumShell()')
   })
 
   it('routes a broken installed payload to signed repair and leaves healthy startup alone', () => {

@@ -335,8 +335,12 @@ fn is_loopback_server(url: &Url) -> bool {
     let Some(host) = url.host_str() else {
         return false;
     };
+    let ip_literal = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
     host == "localhost"
-        || host
+        || ip_literal
             .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback())
 }
@@ -367,6 +371,17 @@ pub fn validate_server_transport(server_url: &str) -> Result<Url, String> {
 pub fn validated_webview_http_url(server_url: &str) -> Result<Url, String> {
     let server = validate_server_transport(server_url)?;
     Url::parse(&webview_http_url(server.as_str())).map_err(|error| error.to_string())
+}
+
+/// Apply the transport policy to every top-level document, including redirects and script-driven
+/// navigation. The two Tauri document forms are signed bundled content, not configured servers.
+pub fn validate_desktop_navigation(url: &Url) -> Result<(), String> {
+    let is_bundled_document = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost"));
+    if is_bundled_document {
+        return Ok(());
+    }
+    validate_server_transport(url.as_str()).map(|_| ())
 }
 
 /// Build the one session cookie copied across a committed desktop origin transition. The value
@@ -1773,6 +1788,31 @@ mod tests {
     fn desktop_transport_accepts_secure_remote_servers() {
         assert!(validate_server_transport("https://podium.example").is_ok());
         assert!(validate_server_transport("wss://relay.example:55555").is_ok());
+    }
+
+    #[test]
+    fn desktop_navigation_preserves_bundled_and_secure_documents() {
+        for raw in [
+            "tauri://localhost/",
+            "http://tauri.localhost/",
+            "https://podium.example/workspace",
+            "http://[::1]:18787/",
+        ] {
+            let url = Url::parse(raw).expect(raw);
+            assert!(validate_desktop_navigation(&url).is_ok(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn desktop_navigation_rejects_plaintext_redirects_and_location_changes() {
+        for raw in [
+            "http://192.168.1.20/redirected",
+            "http://podium.example/script-target",
+        ] {
+            let url = Url::parse(raw).expect(raw);
+            let error = validate_desktop_navigation(&url).expect_err(raw);
+            assert!(error.contains("require HTTPS or WSS"), "{error}");
+        }
     }
 
     #[test]

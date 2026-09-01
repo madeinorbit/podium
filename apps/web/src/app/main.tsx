@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { lazy, StrictMode, Suspense, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
+import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { startWebLogging } from '@/lib/logging'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -101,8 +102,8 @@ function ServerTransportBlockedPage({ reason }: { reason?: string }): JSX.Elemen
       trace={{ from: 'Desktop app', to: 'Remote server' }}
       detail={reason}
       primary={{
-        label: 'Try again',
-        onClick: () => window.location.reload(),
+        label: 'Restart Podium',
+        onClick: () => void restartPodiumShell(),
       }}
       panelLabel="Connection policy"
     />

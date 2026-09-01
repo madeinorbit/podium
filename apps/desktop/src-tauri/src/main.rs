@@ -2133,12 +2133,39 @@ fn main() {
                     "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_open_bridge}\n{native_crash_report}\n{runtime_probe}"
                 );
                 let page_open_queue = native_open_queue.clone();
+                let navigation_notice_open = Arc::new(AtomicBool::new(false));
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
+                    let navigation_app = handle2.clone();
+                    let navigation_notice = navigation_notice_open.clone();
                     let window_builder = WebviewWindowBuilder::new(&handle2, "main", resolved_url)
                         .title("Podium ADE")
                         .inner_size(1200.0, 800.0)
                         .min_inner_size(900.0, 600.0)
+                        // Redirects and script-assigned locations do not pass through the link
+                        // shim. Reapply the transport policy at the webview boundary so a secure
+                        // server cannot move this native-capable window onto plaintext remote
+                        // content after startup.
+                        .on_navigation(move |url| {
+                            let Err(error) = bootstrap::validate_desktop_navigation(url) else {
+                                return true;
+                            };
+                            log::error!(
+                                "blocked desktop navigation to {}: {error}",
+                                url.origin().ascii_serialization()
+                            );
+                            if !navigation_notice.swap(true, Ordering::AcqRel) {
+                                let notice_closed = navigation_notice.clone();
+                                navigation_app
+                                    .dialog()
+                                    .message(error)
+                                    .title("Server connection blocked")
+                                    .show(move |_| {
+                                        notice_closed.store(false, Ordering::Release);
+                                    });
+                            }
+                            false
+                        })
                         // [POD-1598] Tauri installs a native OS drag-drop handler by
                         // default, and it consumes the drag BEFORE the page: the document
                         // never receives `dragover`/`drop` at all, so every HTML5 drop zone
