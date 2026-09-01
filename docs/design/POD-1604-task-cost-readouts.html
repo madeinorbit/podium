@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>What a task cost</title>
+<style>
+:root{
+  --background:#f2f1ed; --foreground:#38362f; --bar:#f7f7f5; --tabstrip:#faf9f7; --chip:#fff;
+  --hairline-soft:#eeede8; --hairline-bar:#e6e5e0;
+  --text-strong:#1d1c19; --text-dim:#8f8d85; --text-faint:#a3a199; --label:#6f6d66;
+  --attention:#7a6134; --live:#2a62f0; --claude:#d97757;
+  --rule:color-mix(in srgb,var(--foreground) 12%,transparent);
+  --scale:color-mix(in srgb,var(--foreground) 8%,transparent);
+  --fill:color-mix(in srgb,var(--foreground) 55%,transparent);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --background:#16171a; --foreground:#d7dae0; --bar:#1b1d21; --tabstrip:#202228; --chip:#252830;
+  --hairline-soft:#24272d; --hairline-bar:#26292f;
+  --text-strong:#f2f3f5; --text-dim:#848a94; --text-faint:#6f7580; --label:#949aa4;
+  --attention:#d9b477; --live:#6f9dff; --claude:#d97757;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--background);color:var(--foreground);
+  font-family:var(--sans);font-size:15px;line-height:1.62;
+  -webkit-font-smoothing:antialiased;}
+.wrap{max-width:960px;margin:0 auto;padding:0 28px 140px}
+header.top{padding:76px 0 40px;border-bottom:1px solid var(--rule);margin-bottom:48px}
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--text-faint);margin:0 0 18px}
+h1{font-size:38px;line-height:1.12;letter-spacing:-.022em;margin:0 0 16px;color:var(--text-strong);font-weight:600}
+.standfirst{font-size:17px;line-height:1.6;color:var(--text-dim);max-width:66ch;margin:0}
+h2{font-size:25px;line-height:1.2;letter-spacing:-.018em;margin:72px 0 6px;color:var(--text-strong);font-weight:600}
+h2 .num{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--text-faint);
+  display:block;text-transform:uppercase;margin-bottom:12px;font-weight:400}
+h3{font-size:17px;margin:38px 0 10px;color:var(--text-strong);font-weight:600;letter-spacing:-.008em}
+h4{font-size:13px;margin:26px 0 8px;color:var(--label);font-weight:600;
+  font-family:var(--mono);letter-spacing:.07em;text-transform:uppercase}
+p{margin:0 0 16px;max-width:72ch}
+ul,ol{max-width:72ch;padding-left:22px;margin:0 0 16px}
+li{margin-bottom:8px}
+strong{color:var(--text-strong);font-weight:600}
+code,.mono{font-family:var(--mono);font-size:.88em}
+code{background:color-mix(in srgb,var(--foreground) 7%,transparent);padding:.1em .35em;border-radius:3px}
+a{color:inherit}
+.lede{font-size:16.5px;color:var(--text-dim);max-width:70ch;margin:0 0 26px}
+
+/* ── figure furniture ─────────────────────────────────── */
+figure{margin:26px 0 30px}
+figcaption{font-size:13px;line-height:1.55;color:var(--text-dim);margin-top:12px;max-width:88ch}
+figcaption b{color:var(--text-strong);font-weight:600}
+.frame.narrow{max-width:600px}
+.frame{background:var(--bar);border:1px solid var(--hairline-bar);border-radius:9px;overflow:hidden}
+.frame-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  height:34px;padding:0 12px;border-bottom:1px solid var(--hairline-bar);
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint)}
+.frame-body{padding:14px 12px}
+
+/* ── the deck mock ────────────────────────────────────── */
+.deck{width:100%;max-width:520px;font-size:12px}
+.strip{display:flex;align-items:center;gap:6px;padding:0 6px 0 0;min-height:30px;
+  background:var(--tabstrip);border:1px solid var(--hairline-soft);border-radius:6px;margin-bottom:3px}
+.strip.ctx{background:transparent;border-color:transparent}
+.strip.sel{border-color:color-mix(in srgb,var(--foreground) 26%,transparent)}
+.chev{width:20px;flex:none;text-align:center;color:var(--text-dim);font-size:9px}
+.glyph{width:13px;height:13px;flex:none;border-radius:50%;border:1.5px solid var(--text-dim)}
+.glyph.done{background:var(--text-dim);border-color:var(--text-dim)}
+.glyph.prog{background:conic-gradient(var(--text-dim) 55%,transparent 0)}
+.ident{display:flex;align-items:center;gap:6px;min-width:0;flex:1}
+.ref{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);flex:none}
+.ttl{color:var(--text-strong);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.strip.ctx .ttl{color:var(--text-dim);font-weight:400}
+.meta{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
+.statecol{width:80px;flex:none;display:flex;align-items:center;justify-content:flex-end;gap:6px;
+  font-family:var(--mono);font-size:10.5px;color:var(--text-dim)}
+.spin{color:var(--live)}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--attention);flex:none}
+.chip{display:inline-flex;align-items:center;gap:6px;height:17px;padding:0 6px;border-radius:4px;
+  border:1px solid var(--hairline-bar);color:var(--text-dim);font-family:var(--mono);font-size:10.5px;flex:none}
+.chip .k{font-size:8px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-faint);font-weight:600}
+.chip.warm{border-color:color-mix(in srgb,var(--attention) 40%,transparent);color:var(--attention)}
+.chip.warm .k{color:var(--attention)}
+/* the cost treatments */
+.cost{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);flex:none;font-variant-numeric:tabular-nums}
+.cost.roll{border-left:2px solid var(--hairline-bar);padding-left:5px}
+.cost.strong{color:var(--text-strong)}
+.cost.floor{color:var(--text-faint)}
+.ratio{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);flex:none;font-variant-numeric:tabular-nums}
+.ratio.heavy{color:var(--text-strong)}
+.wgt{display:inline-flex;align-items:center;gap:1.5px;flex:none}
+.wgt i{display:block;width:2.5px;border-radius:1px;background:var(--scale)}
+.wgt i.on{background:var(--fill)}
+.agentrow{display:flex;align-items:center;gap:6px;min-height:26px;padding:0 6px 0 34px;font-size:11.5px;color:var(--text-dim)}
+.agentrow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mark{width:17px;height:17px;flex:none;border-radius:5px;border:1px solid var(--hairline-bar);
+  display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--claude);font-family:var(--mono)}
+
+/* ── the properties rail mock ─────────────────────────── */
+.rail{width:100%;max-width:310px;font-size:12px}
+.railhead{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--text-faint);margin:0 0 6px;display:flex;justify-content:space-between}
+.prow{display:flex;align-items:center;gap:10px;height:30px;font-size:12.5px}
+.prow .lbl{width:78px;flex:none;color:var(--text-dim)}
+.prow .val{color:var(--text-strong);display:flex;align-items:center;gap:7px;min-width:0}
+.prow.hot .val{cursor:pointer;text-decoration:underline;text-decoration-style:dotted;
+  text-underline-offset:3px;text-decoration-color:var(--text-faint)}
+.srow{display:flex;align-items:center;gap:8px;height:28px;font-size:12.5px}
+.srow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground)}
+.srow .tr{font-family:var(--mono);font-size:10.5px;color:var(--text-faint);flex:none;font-variant-numeric:tabular-nums}
+.srow.mut{opacity:.7}
+.sep{height:1px;background:var(--hairline-bar);margin:10px 0}
+
+/* ── the popover mock ─────────────────────────────────── */
+.pop{width:300px;background:var(--chip);border:1px solid var(--hairline-bar);border-radius:8px;
+  padding:12px;box-shadow:0 12px 34px rgb(0 0 0 / .22)}
+.popfig{font-size:23px;font-weight:600;color:var(--text-strong);letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;line-height:1.15}
+.popcap{font-size:11.5px;color:var(--text-faint);line-height:1.45;margin-top:5px}
+.popline{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;
+  color:var(--text-dim);padding:3px 0;font-variant-numeric:tabular-nums}
+.popline b{color:var(--text-strong);font-weight:500;font-family:var(--mono);font-size:11px}
+
+/* ── the sheet mock ───────────────────────────────────── */
+.sheet{font-size:12px}
+.shead{display:flex;align-items:baseline;gap:9px;font-size:12.5px;color:var(--text-strong);
+  font-weight:600;margin:0 0 9px;padding-bottom:7px;border-bottom:1px solid var(--rule)}
+.shead span{font-weight:400;color:var(--text-faint);font-size:10.5px;font-family:var(--mono);
+  letter-spacing:.06em;text-transform:uppercase}
+table.st{width:100%;border-collapse:collapse;font-size:11.5px}
+table.st th{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--text-faint);font-weight:500;text-align:left;padding:0 8px 6px 0}
+table.st th.n,table.st td.n{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+table.st td{padding:5px 8px 5px 0;color:var(--text-dim);border-top:1px solid var(--hairline-soft)}
+table.st td.t{color:var(--foreground)}
+table.st td.c{color:var(--text-strong)}
+table.st td.r{width:100px;padding-right:14px}
+.trk{display:block;height:5px;border-radius:2.5px;background:var(--scale);overflow:hidden}
+.trk i{display:block;height:100%;background:var(--fill);border-radius:2.5px;min-width:2px}
+.readouts{display:flex;align-items:flex-end;gap:0;margin-bottom:14px}
+.answer{flex:1}
+.awlbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint)}
+.awval{font-size:26px;font-weight:600;letter-spacing:-.02em;color:var(--text-strong);
+  font-variant-numeric:tabular-nums;line-height:1.15}
+.rgroup{display:flex;border-left:1px solid var(--rule)}
+.rcell{padding:0 13px;border-right:1px solid var(--rule);text-align:right}
+.rcell:last-child{border-right:0;padding-right:0}
+.rlbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-faint)}
+.rval{font-size:13px;color:var(--text-strong);font-variant-numeric:tabular-nums;font-family:var(--mono)}
+.caveat{font-size:11px;color:var(--text-faint);margin-top:5px}
+.provbar{display:flex;gap:0;background:var(--bar);border-top:1px solid var(--hairline-bar);
+  margin:14px -12px -14px;padding:8px 12px}
+.provcell{padding-right:16px;margin-right:16px;border-right:1px solid var(--rule)}
+.provcell:last-child{border-right:0;margin-right:0;padding-right:0}
+.provl{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint)}
+.provv{font-size:10.5px;color:var(--text-dim);line-height:1.4}
+
+/* ── data tables ──────────────────────────────────────── */
+table.data{width:100%;border-collapse:collapse;font-size:13px;margin:20px 0 26px}
+table.data th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--text-faint);font-weight:500;
+  padding:0 12px 8px 0;border-bottom:1px solid var(--rule)}
+table.data td{padding:7px 12px 7px 0;border-bottom:1px solid var(--hairline-soft);color:var(--text-dim);vertical-align:top}
+table.data td.n,table.data th.n{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:12px}
+table.data td b{color:var(--text-strong);font-weight:500}
+table.data tr:last-child td{border-bottom:0}
+
+/* ── callouts ─────────────────────────────────────────── */
+.note{border-left:2px solid var(--rule);padding:2px 0 2px 16px;margin:22px 0;max-width:72ch}
+.note .nt{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--text-faint);margin-bottom:5px}
+.note.warm{border-left-color:color-mix(in srgb,var(--attention) 55%,transparent)}
+.note.warm .nt{color:var(--attention)}
+.note p:last-child{margin-bottom:0}
+
+/* ── approach headers ─────────────────────────────────── */
+.appr{border-top:2px solid var(--rule);margin-top:78px;padding-top:26px}
+.apprtag{display:inline-flex;align-items:baseline;gap:11px;margin-bottom:2px}
+.apprtag .a{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--text-faint)}
+.apprtag h2{margin:0;font-size:29px}
+.forwhat{font-size:16px;color:var(--text-dim);max-width:70ch;margin:10px 0 4px}
+.forwhat b{color:var(--text-strong)}
+
+/* ── two-up ───────────────────────────────────────────── */
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+@media (max-width:760px){.duo{grid-template-columns:1fr}}
+.scrollx{overflow-x:auto}
+
+/* ── the compare table ────────────────────────────────── */
+table.cmp{width:100%;border-collapse:collapse;font-size:12.5px;margin:22px 0}
+table.cmp th{text-align:left;padding:0 14px 9px 0;border-bottom:1px solid var(--rule);
+  font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--text-faint);font-weight:500;vertical-align:bottom}
+table.cmp td{padding:9px 14px 9px 0;border-bottom:1px solid var(--hairline-soft);
+  color:var(--text-dim);vertical-align:top;line-height:1.5}
+table.cmp td:first-child{color:var(--text-strong);font-weight:500;width:150px}
+.pill{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;padding:1px 6px;border-radius:3px;border:1px solid var(--hairline-bar);color:var(--text-faint)}
+.rec{border:1px solid color-mix(in srgb,var(--attention) 40%,transparent);
+  border-radius:9px;padding:20px 22px;margin:26px 0;background:color-mix(in srgb,var(--attention) 5%,transparent)}
+.rec h3{margin-top:0}
+.dist{display:flex;align-items:flex-end;gap:2px;height:54px;margin:16px 0 6px}
+.dist i{flex:1;background:var(--scale);border-radius:1px 1px 0 0;min-height:2px}
+.dist i.on{background:var(--fill)}
+.distax{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--text-faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<style>
+/* ── v2 additions ─────────────────────────────────────── */
+.decided{border:1px solid color-mix(in srgb,var(--live) 34%,transparent);border-radius:9px;
+  padding:18px 20px;margin:24px 0;background:color-mix(in srgb,var(--live) 6%,transparent)}
+.decided h3{margin-top:0}
+.decided .nt{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--live);margin-bottom:6px}
+.killed{opacity:.62}
+.strike{text-decoration:line-through;text-decoration-thickness:1px;color:var(--text-faint)}
+/* mission header mock */
+.mhead{padding:16px 18px;max-width:520px}
+.mtitle{font-size:17px;font-weight:600;letter-spacing:-.02em;color:var(--text-strong);line-height:1.3}
+.mbrief{font-size:13px;line-height:1.55;color:var(--text-dim);margin:9px 0 0}
+.mrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:13px}
+.gauge{flex:1 1 9rem;min-width:9rem;height:26px;border-radius:8px;border:1px solid var(--hairline-bar);
+  background:var(--scale);position:relative;overflow:hidden;display:flex;align-items:center;padding:0 9px}
+.gauge i{position:absolute;left:0;top:0;bottom:0;background:color-mix(in srgb,var(--foreground) 13%,transparent)}
+.gauge span{position:relative;font-family:var(--mono);font-size:10.5px;color:var(--text-dim)}
+.hchip{height:26px;border-radius:8px;border:1px solid var(--hairline-bar);background:var(--chip);
+  display:inline-flex;align-items:center;gap:7px;padding:0 10px;flex:none;
+  font-family:var(--mono);font-size:11px;color:var(--text-strong);font-variant-numeric:tabular-nums}
+.hchip .k{font-size:8.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--text-faint);font-weight:600}
+.hchip.act{color:var(--text-dim);font-family:var(--sans);font-size:12px}
+/* the rollup split bar */
+.split{display:flex;height:7px;border-radius:3.5px;overflow:hidden;background:var(--scale);gap:1.5px}
+.split i{display:block;height:100%}
+.split i.own{background:color-mix(in srgb,var(--foreground) 52%,transparent)}
+.split i.kid{background:color-mix(in srgb,var(--foreground) 22%,transparent)}
+.splitkey{display:flex;gap:14px;margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--text-dim);
+  font-variant-numeric:tabular-nums;flex-wrap:wrap}
+.splitkey b{color:var(--text-strong);font-weight:500}
+.swatch{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.sw-own{background:color-mix(in srgb,var(--foreground) 52%,transparent)}
+.sw-kid{background:color-mix(in srgb,var(--foreground) 22%,transparent)}
+/* dock part */
+.dock{max-width:340px;font-size:12px}
+.dpart{margin-bottom:15px}
+.dhead{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.dhead .t{font-size:10.5px;font-weight:600;color:var(--label);flex:none}
+.dhead .t b{margin-left:5px;color:var(--text-faint);font-weight:500;font-variant-numeric:tabular-nums}
+.dhead .rule{height:1px;flex:1;background:var(--hairline-bar)}
+.dhead .m{font-family:var(--mono);font-size:10px;color:var(--text-faint);flex:none;font-variant-numeric:tabular-nums}
+.bigcost{font-size:21px;font-weight:600;color:var(--text-strong);letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;line-height:1.2}
+.subcost{font-size:11px;color:var(--text-faint);margin-top:2px;line-height:1.45}
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:11.5px;color:var(--text-dim);padding:3px 0;
+  font-variant-numeric:tabular-nums}
+.kv b{color:var(--text-strong);font-weight:500;font-family:var(--mono);font-size:11px}
+.disc{width:100%;text-align:left;background:none;border:0;padding:5px 0 0;color:var(--text-dim);
+  font-family:var(--mono);font-size:10.5px;border-top:1px solid var(--hairline-soft);margin-top:8px}
+.surf{display:grid;grid-template-columns:26px 1fr;gap:0 14px;margin:20px 0 26px;max-width:74ch}
+.surf .n{font-family:var(--mono);font-size:10px;color:var(--text-faint);padding-top:3px}
+.surf .b{padding-bottom:16px}
+.surf .b h4{margin:0 0 5px}
+.surf .b p{margin:0;font-size:13.5px}
+</style>
+<header class="top">
+  <p class="eyebrow">Podium · Mission header · Task detail · Usage &amp; analytics · Design · <b style="color:var(--live)">v2 · direction chosen</b></p>
+  <h1>What a task cost</h1>
+  <p class="standfirst">Every issue on this machine already has a price — the transcripts are on disk and the
+  price table has shipped since POD-596. <strong>v1 offered three approaches; A+C was chosen, with one
+  correction: no prices on the flight deck.</strong> This version carries that decision through four surfaces
+  and answers the two questions left open.</p>
+</header>
+
+<p class="lede">Figures and task refs are real, read off this machine over the last seven days.
+<span style="color:var(--text-faint)">Tracker read 24 Aug 2026; stages move, so a row may have advanced since.</span></p>
+
+<div class="decided">
+<div class="nt">What was decided</div>
+<ul style="margin-bottom:0">
+<li><strong>A+C.</strong> A settled figure (the ledger) as the spine, with C's comparative multiple as a second
+reading. B — the live burn alarm — is not built.</li>
+<li><strong>No price on any deck row.</strong> The spine stays about attention and progress. <strong>One price
+on the mission header</strong>, for the epic the column is showing, opening a breakdown or the task in the
+explorer.</li>
+<li><strong>A cost section in the explorer's task detail and in the task detail page</strong>, designed around the
+fact that neither surface lists settled sessions.</li>
+<li><strong>High-level cost stats on the usage sheet</strong>, above the ranked table.</li>
+<li><strong>Rollup: yes</strong>, and it has to be legible rather than a hover tooltip.</li>
+</ul>
+</div>
+
+<h2><span class="num">01 · The correction</span>Why cost was wrong on the deck rows</h2>
+
+<p>The instruction was “keep it away from the flight deck”, and working through the surface afterwards, the
+deck's own commentary had been saying the same thing. Worth writing down, because it is the rule that keeps
+the figure from creeping back:</p>
+
+<ul>
+<li><strong>The spine is one question.</strong> Every column in a deck row answers “what needs me, and what is
+moving”. Cost answers neither. The state column's comment is explicit that it spends its width on the one word
+that says something the marks cannot — a dollar figure is a second axis smuggled into a list built for one.</li>
+<li><strong>It would have had to fight for room it cannot win.</strong> The meta cluster already holds the
+relation chip, the seat chip, the fold payload and the crew census, with a drop ladder retiring them at 370,
+350 and 310px. Cost joins that queue at the bottom, which means the number is missing exactly when the column
+is narrow — a figure you cannot rely on seeing is worse than one you never expected.</li>
+<li><strong>At the median it says nothing.</strong> Half of all costed tasks are under $7.03. A spine of thirty
+strips would carry thirty small change figures to surface the two that matter.</li>
+</ul>
+
+<p>So the deck keeps <strong>one</strong> price, at the level where the question is actually asked: the mission
+you are looking at, in its header, once.</p>
+
+<h2><span class="num">02 · The four surfaces</span>Where the number lives now</h2>
+
+<div class="surf">
+<div class="n">01</div><div class="b"><h4>Mission header · flight deck</h4>
+<p>One chip beside the gauge: what this mission has cost, rolled up. Click opens the breakdown; the same click
+target can open the task in the explorer. No other row in the column carries a figure.</p></div>
+<div class="n">02</div><div class="b"><h4>Task detail in the explorer · <code>IssuePanelView</code></h4>
+<p>A <code>Cost</code> section. It carries the whole accounting <em>because</em> the roster above it does not —
+that surface lists only open sessions — and this work uncaps that list.</p></div>
+<div class="n">03</div><div class="b"><h4>Task detail page · <code>IssuePage</code></h4>
+<p>Same section, more room: the rollup split, the model split, and the per-session breakdown expanded rather
+than behind a disclosure.</p></div>
+<div class="n">04</div><div class="b"><h4>Usage &amp; analytics</h4>
+<p>High-level stats first — what work cost this week, the spread, the top task — then the ranked table with
+C's Rate/Total toggle.</p></div>
+</div>
+
+<h2><span class="num">03 · Mission header</span>One price, at the top of the column</h2>
+
+<figure>
+<div class="frame narrow"><div class="frame-head"><span>Flight deck · mission header</span><span>rolled up</span></div>
+<div class="frame-body">
+<div class="mhead">
+  <div class="mtitle">Cross-issue artifact gallery</div>
+  <p class="mbrief">One gallery across every issue, with previews, collections and labels. M1 landed; M2 and M3
+  are in review.</p>
+  <div class="mrow">
+    <div class="gauge"><i style="width:62%"></i><span>6 of 10 done · 2 working</span></div>
+    <span class="hchip"><span class="k">cost</span>≈$226</span>
+    <span class="hchip act">Add agent</span>
+  </div>
+</div>
+</div></div>
+<figcaption><b>It joins a family that already exists.</b> POD-1146 made the gauge, the crew chip and the
+mission's one action into a single row of 26px radius-8 objects on one baseline, and wrote that the row
+<em>wraps</em> rather than crushing either when space runs out. A cost chip is one more object in that row and
+inherits the wrap for free — no new geometry, no new drop rung, and the gauge keeps taking the slack. <b>The
+label is inside the chip</b> so the figure is never a bare currency floating next to a title: <span class="mono">COST
+≈$226</span> reads as an instrument, <span class="mono">$225.81</span> reads as a bill.</figcaption>
+</figure>
+
+<h3>What the click does</h3>
+<figure>
+<div class="duo">
+<div class="frame"><div class="frame-head"><span>Click the chip</span></div><div class="frame-body" style="display:flex;justify-content:center;padding:20px 12px">
+<div class="pop">
+  <div class="popfig">$225.81</div>
+  <div class="popcap">API-equivalent, at list price for the same tokens — not what you were billed.</div>
+  <div style="height:1px;background:var(--hairline-bar);margin:11px 0"></div>
+  <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-faint);margin-bottom:7px">Where it went</div>
+  <div class="split"><i class="own" style="width:100%"></i></div>
+  <div class="splitkey"><span><i class="swatch sw-own"></i>This task <b>$225.81</b></span><span style="color:var(--text-faint)">No sub-tasks</span></div>
+  <div style="height:1px;background:var(--hairline-bar);margin:11px 0"></div>
+  <div class="popline"><span>claude-opus-5</span><b>$171.51</b></div>
+  <div class="popline"><span>claude-fable-5</span><b>$54.29</b></div>
+  <div style="height:1px;background:var(--hairline-bar);margin:11px 0"></div>
+  <div class="popline"><span>10 sessions · 1,178 replies</span><b>296.3M tok</b></div>
+  <div class="popline"><span>Rate</span><b>2.3× median</b></div>
+  <div style="height:1px;background:var(--hairline-bar);margin:11px 0"></div>
+  <button class="disc" style="border-top:0;margin:0;padding:0;color:var(--text-dim)">Open in explorer →</button>
+</div>
+</div></div>
+<div>
+<p style="font-size:13.5px;color:var(--text-dim)">Both behaviours you asked about, in one control rather than
+two competing ones: the popover answers the question in place, and its last line is the door to the explorer
+for anyone who wants the full page. That ordering matters — <b>the cheap answer should not cost a
+navigation</b>, and most of the time “what has this mission cost” is a glance, not a visit.</p>
+<p style="font-size:13.5px;color:var(--text-dim)">The popover is the one place on the deck where cents and the
+full hedge sentence appear. The chip outside it stays rounded and prefixed, because a rounded figure reads as a
+measurement and a figure to the cent reads as an invoice.</p>
+<p style="font-size:13.5px;color:var(--text-dim)"><b>C's multiple rides here</b> as one line — <span class="mono">2.3×
+median</span> — rather than on the chip. On the header there is room for the rate to be labelled, which is
+what stops a bare multiple asking “× what?”.</p>
+</div>
+</div>
+</figure>
+
+<h2><span class="num">04 · Rollup</span>Making “includes sub-tasks” legible</h2>
+
+<p>v1 marked a rolled-up figure with a left tick and put the split on hover. That was too quiet for a number
+whose meaning changes completely depending on whether it includes children — so the split is drawn, not
+hidden.</p>
+
+<figure>
+<div class="frame"><div class="frame-head"><span>The three rollup shapes, all real</span><span>7 days</span></div>
+<div class="frame-body">
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:26px">
+  <div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-faint);margin-bottom:7px">POD-1574 · NO CHILDREN</div>
+    <div class="bigcost">≈$226</div>
+    <div class="split" style="margin-top:9px"><i class="own" style="width:100%"></i></div>
+    <div class="splitkey"><span><i class="swatch sw-own"></i>This task <b>$225.81</b></span></div>
+    <div class="subcost">No sub-tasks, so no split is drawn at all.</div>
+  </div>
+  <div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-faint);margin-bottom:7px">POD-1402 · MOSTLY ITS OWN</div>
+    <div class="bigcost">≈$263</div>
+    <div class="split" style="margin-top:9px"><i class="own" style="width:54%"></i><i class="kid" style="width:46%"></i></div>
+    <div class="splitkey"><span><i class="swatch sw-own"></i>This task <b>$142.09</b></span><span><i class="swatch sw-kid"></i>32 sub-tasks <b>$120.79</b></span></div>
+    <div class="subcost">The epic lead outspent all 32 children put together.</div>
+  </div>
+  <div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-faint);margin-bottom:7px">POD-1484 · ALL CHILDREN</div>
+    <div class="bigcost">≈$93</div>
+    <div class="split" style="margin-top:9px"><i class="kid" style="width:100%"></i></div>
+    <div class="splitkey"><span style="color:var(--text-faint)"><i class="swatch sw-own"></i>This task <b style="color:var(--text-faint)">$0</b></span><span><i class="swatch sw-kid"></i>33 sub-tasks <b>$92.64</b></span></div>
+    <div class="subcost">No sessions of its own. Showing own cost would render it free.</div>
+  </div>
+</div>
+</div></div>
+<figcaption><b>One bar, two segments, both labelled with their figure.</b> The headline is always the rollup,
+because that is the honest answer to “what did this cost” — but the bar says immediately how that total is
+composed, and the three real cases on this machine are visibly different objects rather than three identical
+numbers. POD-1484 is the case that forces the rollup: it spent nothing itself. POD-1402 is the case that forces
+the <em>split</em>: a bare $263 hides that most of the money went to the lead session rather than to the work.
+<b>A task with no children draws no split</b> — a two-segment bar with one empty segment is a question the
+reader has to answer before they can read the number.</figcaption>
+</figure>
+
+<h2><span class="num">05 · Explorer &amp; task detail</span>The section that accounts for what the roster hides</h2>
+
+<div class="note">
+<div class="nt">The structural fact this design turns on</div>
+<p><code>IssuePanelView</code> holds <em>every</em> session for the task in <code>all</code>, then renders
+<code>activeSessions = all.filter(isOpenSession)</code>. So the roster is deliberately live-only — which is
+exactly why the cost section has to exist and has to be self-contained. <strong>The five-row cap and its
+“N more active” toggle come out as part of this work</strong>: the explorer shows every active session. <strong>It is not a summary
+of the list above it; it is the accounting for the sessions that list will never show.</strong> The data is
+already in scope, so nothing about the roster has to change.</p>
+</div>
+
+<figure>
+<div class="duo">
+<div class="frame"><div class="frame-head"><span>Explorer · task detail</span></div><div class="frame-body">
+<div class="dock">
+  <div class="dpart">
+    <div class="dhead"><span class="t">Agents &amp; sessions<b>2</b></span><span class="rule"></span><span class="m">≈$226 over 10</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">Artifact gallery epic lead</span><span class="tr" style="color:var(--live)">⠻ 12m</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">UI review: the gallery</span><span class="tr" style="color:var(--live)">⠹ 3m</span></div>
+  </div>
+  <div class="dpart">
+    <div class="dhead"><span class="t">Cost</span><span class="rule"></span><span class="m">so far</span></div>
+    <div class="bigcost">≈$226</div>
+    <div class="subcost">at list price for the same tokens — not what you were billed</div>
+    <div class="split" style="margin-top:11px"><i class="own" style="width:100%"></i></div>
+    <div class="splitkey"><span><i class="swatch sw-own"></i>This task <b>$225.81</b></span></div>
+    <div style="height:1px;background:var(--hairline-soft);margin:11px 0"></div>
+    <div class="kv"><span>claude-opus-5</span><b>$171.51</b></div>
+    <div class="kv"><span>claude-fable-5</span><b>$54.29</b></div>
+    <div class="kv"><span>Rate</span><b>2.3× median</b></div>
+    <button class="disc">▸ 10 sessions, most expensive first</button>
+  </div>
+</div>
+</div></div>
+<div class="frame"><div class="frame-head"><span>Disclosure open</span></div><div class="frame-body">
+<div class="dock">
+  <div class="dpart">
+    <div class="dhead"><span class="t">Cost</span><span class="rule"></span><span class="m">so far</span></div>
+    <button class="disc" style="border-top:0;margin:0 0 8px;padding:0">▾ 10 sessions, most expensive first</button>
+    <div class="srow"><span class="mark">✳</span><span class="nm">M2: Gallery grid and previews</span><span class="tr">≈$58</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">Artifact gallery epic lead</span><span class="tr" style="color:var(--live)">≈$50 ⠻</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">M3: Collections and labels</span><span class="tr">≈$49</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">Review: M2 gallery grid</span><span class="tr">≈$16</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">Review: epic-wide regression</span><span class="tr">≈$12</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">Review: M3 curation state</span><span class="tr">≈$11</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">Design: artifact gallery</span><span class="tr">≈$10</span></div>
+    <div class="srow"><span class="mark">✳</span><span class="nm">UI review: the gallery</span><span class="tr" style="color:var(--live)">≈$10 ⠹</span></div>
+    <div class="srow mut"><span class="mark">✳</span><span class="nm">M1: Artifacts tab and flag</span><span class="tr">≈$4.80</span></div>
+    <div class="srow mut"><span class="mark">✳</span><span class="nm">Review: M1 flag and route</span><span class="tr">≈$4.40</span></div>
+  </div>
+</div>
+</div></div>
+</div>
+<figcaption><b>Two readings, one section.</b> Closed, it answers “what has this cost” in four lines. Open, it is
+the only place in the app that lists every session that ever ran on the task — which the roster above cannot do
+and is not trying to. <b>The sessions part gains one word of meta:</b> <span class="mono">≈$226 over 10</span>,
+in the slot <code>DockPart</code> already defines for “one machine-voice fact about the section”. That single
+line is what stops the roster lying by omission: it shows two agents and now says there were ten. <b>Live
+sessions keep their spinner and show cost too</b> — inside a section headed <em>Cost</em>, sorted by cost, a
+figure is what the row is for; the “so far” in the section meta carries the tense for all of them at once
+rather than hedging each row.</figcaption>
+</figure>
+
+<h3>The task detail page</h3>
+<figure>
+<div class="frame"><div class="frame-head"><span>Task detail page · properties rail</span><span>more room, same concept</span></div>
+<div class="frame-body">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;max-width:720px">
+<div class="rail" style="max-width:none">
+  <div class="prow"><span class="lbl">Status</span><span class="val">Review</span></div>
+  <div class="prow"><span class="lbl">Priority</span><span class="val">P1</span></div>
+  <div class="prow"><span class="lbl">Estimate</span><span class="val">5d</span></div>
+  <div class="prow"><span class="lbl">Sub-tasks</span><span class="val">32</span></div>
+</div>
+<div>
+  <div class="dhead"><span class="t">Cost</span><span class="rule"></span><span class="m">7 days</span></div>
+  <div class="bigcost">≈$263</div>
+  <div class="subcost">at list price for the same tokens — not what you were billed</div>
+  <div class="split" style="margin-top:11px"><i class="own" style="width:54%"></i><i class="kid" style="width:46%"></i></div>
+  <div class="splitkey"><span><i class="swatch sw-own"></i>This task <b>$142.09</b></span><span><i class="swatch sw-kid"></i>32 sub-tasks <b>$120.79</b></span></div>
+  <div style="height:1px;background:var(--hairline-soft);margin:11px 0"></div>
+  <div class="kv"><span>gpt-5.6-sol</span><b>$142.09</b></div>
+  <div class="kv"><span>6 sessions · 1,775 replies</span><b>223.7M tok</b></div>
+  <div class="kv"><span>Rate</span><b>0.9× median</b></div>
+  <div class="kv" style="color:var(--text-faint)"><span>Attribution</span><b style="color:var(--text-faint)">≥ floor · all Codex</b></div>
+</div>
+</div>
+</div></div>
+<figcaption><b>POD-1402 shown here rather than POD-1574, because it exercises everything at once:</b> a real
+rollup split, a wholly-Codex task that therefore carries the floor mark, and a rate <em>below</em> the median —
+the most expensive epic on the machine was, per unit of work, slightly better than average. That is the reading
+no total can give you, and the argument for keeping C. The page has room to expand the session breakdown
+inline instead of behind a disclosure.</figcaption>
+</figure>
+
+<h2><span class="num">06 · Usage &amp; analytics</span>High-level stats, then the ranking</h2>
+
+<figure>
+<div class="frame"><div class="frame-head"><span>Usage &amp; analytics · new section</span><span>POD-1604</span></div>
+<div class="frame-body">
+<div class="sheet">
+  <div class="shead">Where it went <span>by task</span></div>
+  <div class="readouts" style="margin-bottom:16px">
+    <div class="answer"><div class="awlbl">Attributed to a task</div><div class="awval" style="font-size:20px">$3,035</div></div>
+    <div class="rgroup">
+      <div class="rcell"><div class="rlbl">Tasks that cost</div><div class="rval">226</div></div>
+      <div class="rcell"><div class="rlbl">Median task</div><div class="rval">$7.03</div></div>
+      <div class="rcell"><div class="rlbl">Top 10 tasks</div><div class="rval">31%</div></div>
+      <div class="rcell"><div class="rlbl">Dearest</div><div class="rval">$225.81</div></div>
+    </div>
+  </div>
+  <table class="st">
+    <tr><th>Task</th><th>Stage</th><th></th><th class="n">Sessions</th><th class="n">Replies</th><th class="n">Rate</th><th class="n">API-equivalent</th></tr>
+    <tr><td class="t">POD-1574 Cross-issue artifact gallery</td><td>In progress</td><td class="r"><span class="trk"><i style="width:100%"></i></span></td><td class="n">10</td><td class="n">1,178</td><td class="n">2.3×</td><td class="n c">$225.81</td></tr>
+    <tr><td class="t">POD-1402 Web Frontend Performance</td><td>Review</td><td class="r"><span class="trk"><i style="width:62.9%"></i></span></td><td class="n">6</td><td class="n">1,775</td><td class="n">0.9×</td><td class="n c">$142.09</td></tr>
+    <tr><td class="t">POD-1403 Expo Motion Performance</td><td>Review</td><td class="r"><span class="trk"><i style="width:39.2%"></i></span></td><td class="n">3</td><td class="n">1,128</td><td class="n">0.9×</td><td class="n c">$88.55</td></tr>
+    <tr><td class="t">POD-1376 Stable Chat Rendering</td><td>Closed</td><td class="r"><span class="trk"><i style="width:39.0%"></i></span></td><td class="n">2</td><td class="n">1,078</td><td class="n">1.0×</td><td class="n c">$88.16</td></tr>
+    <tr><td class="t">POD-1253 Sidebar 3a design fidelity</td><td>Closed</td><td class="r"><span class="trk"><i style="width:35.0%"></i></span></td><td class="n">1</td><td class="n">366</td><td class="n">2.6×</td><td class="n c">$78.94</td></tr>
+    <tr><td class="t">POD-1422 Stable Dynamic Issue Chips</td><td>Closed</td><td class="r"><span class="trk"><i style="width:31.2%"></i></span></td><td class="n">1</td><td class="n">910</td><td class="n">0.9×</td><td class="n c">$70.41</td></tr>
+  </table>
+  <div style="font-size:10.5px;color:var(--text-faint);margin-top:9px">Ranked by total · <span style="color:var(--text-dim)">switch to rate</span></div>
+  <div class="provbar">
+    <div class="provcell"><div class="provl">Source</div><div class="provv">Claude Code, Codex, Grok</div></div>
+    <div class="provcell"><div class="provl">Pricing</div><div class="provv">Public per-model list price</div></div>
+    <div class="provcell"><div class="provl" style="color:var(--attention)">Attribution</div><div class="provv">96.6% maps to a task</div></div>
+    <div class="provcell"><div class="provl">Refreshed</div><div class="provv">Every 90s</div></div>
+  </div>
+</div>
+</div></div>
+<figcaption><b>The stats row is the high-level read; the table is the detail under it.</b> It uses the sheet's
+own divided-cell grammar (POD-755) and right edge, at section scale rather than masthead scale — the sheet
+still leads with one figure and this is not it. The four readings are chosen to be the ones a total cannot
+give: <em>how many tasks cost anything</em>, <em>what a normal one costs</em>, <em>how concentrated the spend
+is</em>, <em>what the worst case was</em>. “Top 10 tasks = 31%” is the single most useful number here, because it
+says the tail is where the money is and the median is not worth chasing. <b>C rides as one column and one
+toggle</b>, reusing the Cost/Tokens segmented control the trace already has.</figcaption>
+</figure>
+
+<h2><span class="num">07 · What is unchanged from v1</span>The rules that survive the correction</h2>
+<ul>
+<li><strong>Rounding is the provenance.</strong> <span class="mono">≈$226</span> outside, cents only where the
+full sentence fits. Three significant figures, no cents above $10.</li>
+<li><strong>The hedge sentence is reused verbatim</strong> — “at list price for the same tokens — not what you
+were billed” — never paraphrased into a second wording.</li>
+<li><strong>Attribution is stated once</strong>, in the sheet's provenance bar. The floor mark keys off harness:
+a task with any Claude session is fully counted; only wholly-Codex or mixed tasks print
+<span class="mono">≥</span>. <b>Re-measured 31 Aug and the rule holds, though the figure moves:</b> of files
+touched in the last 7 days, 0 of 117 Claude transcripts lack a segment row and <b>137 of 299 Codex rollouts
+do</b> — 284.9M tokens, 4.4% of Codex tokens, unattributable to any task. Do not quote a fixed percentage
+anywhere in the UI; the provenance cell should report the measured share, not a constant.</li>
+<li><strong>Never a confident $0.</strong> A task with no sessions reads <span class="mono">No sessions</span>,
+never <span class="mono">$0.00</span> — POD-1608 is the live proof, with 126 files changed and a truthful zero,
+because the agent that did the work was bound to another issue.</li>
+<li><strong>Pruned transcripts read <span class="mono">Not recorded</span></strong>, which is a different fact
+from zero.</li>
+<li><strong>POD-1571 composition is settled, and it shipped.</strong> The reset ledger is implemented and
+green, and it complies with the closed-masthead rule: it renders no masthead figure at all, and its three
+readings sit inside its own section at the sheet's 13px mono reading size. Both features touch the provenance
+bar and nothing else, one cell each.</li>
+<li><strong>Do not borrow a tone ramp for the percentile view.</strong> The live quota meter escalates amber at
+75% and red past 90%; in a history chart that mapping inverts, which is why the ledger went monochrome. Ours
+inverts the other way again — high spend is the thing worth a second look — so the safe answer is the one
+already chosen: ink steps, never hue, following the Composition ramp.</li>
+</ul>
+
+<h2><span class="num">08 · Build order</span></h2>
+
+<div class="note">
+<div class="nt">Integration notes from the shipped ledger — read before touching the sheet</div>
+<ul style="margin-bottom:0">
+<li><strong>The provenance bar is ours to edit.</strong> POD-1571 deliberately left <code>UsageProvenance</code>
+untouched so there is no race. Land the Attribution cell whenever; the ledger's
+<em>Collecting</em> cell goes on top of our change rather than beside it.</li>
+<li><strong>Its cadence is 15 minutes, not 5</strong> — the daemon memoises each provider read for 120s, so
+faster polling returns identical payloads. Do not repeat the 5-minute figure from its proposal artifact.</li>
+<li><strong><code>Unfilled</code> has moved</strong> to <code>features/usage/Unfilled.tsx</code>. It was private
+to <code>UsageView.tsx</code>, and importing it from a sibling region created a cycle. The by-task section's
+cold state imports it from the new module.</li>
+<li><strong><code>UsageView.test.tsx</code> will need the same two fixes</strong> the ledger needed: the trpc stub
+must answer our new procedure as well as <code>usage.summary</code>, and any
+<code>.usage-reading-value .usage-unfilled</code> count has to be scoped to its own region or a second region's
+slots inflate it.</li>
+</ul>
+</div>
+<table class="data">
+<tr><th style="width:34px">#</th><th>Slice</th><th>Why here</th></tr>
+<tr><td class="n">01</td><td><b>The read path</b> — attribute the walk the daemon ALREADY does, plus a per-session cost cache for all-time figures. Rollup and rate included. No UI. <b>See section 10 — this is not a live scan.</b></td><td>The price table is untouched, but “nothing new stored” was wrong: measured, a live scan costs 856ms for one task and 70s for the sheet.</td></tr>
+<tr><td class="n">02</td><td><b>The Cost section</b> in <code>IssuePanelView</code> — total, rollup split, model split, session disclosure. Plus the <code>meta</code> line on the sessions part.</td><td>Most room, most need: it is the surface whose roster hides settled sessions today.</td></tr>
+<tr><td class="n">03</td><td><b>Task detail page</b> — same section, breakdown expanded inline.</td><td>Shares the component from 02; mostly layout.</td></tr>
+<tr><td class="n">04</td><td><b>The sheet</b> — stats row, by-task table, Attribution cell in the provenance bar.</td><td>Answers “the most expensive projects”, and lands the 3.4% caveat once for the whole app.</td></tr>
+<tr><td class="n">05</td><td><b>Mission header chip</b> + popover.</td><td>Last: the deck is the most constrained surface and should inherit rules the other three have proved.</td></tr>
+<tr><td class="n">06</td><td><b>C's rate</b> — the multiple in the cost sections and the Rate/Total toggle on the sheet.</td><td>Needs a cohort, so it wants the read path to have been running. Splits out cleanly.</td></tr>
+</table>
+
+<h2><span class="num">10 · Performance</span>Measured, and it rules out the obvious build</h2>
+
+<p>v2 said the feature was “one query over data that already exists”. That was wrong, and it is the kind of
+wrong that only shows up after something ships. Measured on this machine:</p>
+
+<table class="data">
+<tr><th>Case</th><th class="n">Corpus</th><th class="n">Time</th><th>Verdict</th></tr>
+<tr><td><b>One task</b> — POD-1574, task-detail panel</td><td class="n">10 transcripts · 45MB</td><td class="n">856ms</td><td>Too slow to open a panel with.</td></tr>
+<tr><td><b>Every task</b> — the usage sheet</td><td class="n">1,397 transcripts · 4.15GB</td><td class="n">69.9s</td><td>Not viable at all.</td></tr>
+</table>
+
+<p>And the naive fix — “scan it in the daemon” — is the worst available option, because
+<code>apps/daemon/src/control/exec.ts</code> already says so in its own comment: the existing usage scan
+<em>“runs on the DAEMON's event loop, which is the loop carrying PTY traffic”</em>, is memoised for 120s, and
+serves stale while rescanning precisely to keep that walk off the critical path. <strong>A second full walk
+would land on the loop that carries every agent's keystrokes.</strong></p>
+
+<div class="decided">
+<div class="nt">The architecture that follows</div>
+<ol style="margin-bottom:0">
+<li><strong>Attribute the walk that already happens; do not add one.</strong> The daemon already parses every
+usage-bearing line of every transcript touched in the last 7 days, and then throws away which session each
+record came from. Carrying the segment path through and bucketing by issue as well as by hour×model makes the
+sheet's by-task section <strong>nearly free</strong> — one DB lookup per file, not per record.</li>
+<li><strong>Persist per-session cost for the all-time figures.</strong> The 7-day walk cannot answer “what did
+this task cost” for a task that closed months ago, and the task-detail panel needs exactly that. One row per
+session, written by the same walk.</li>
+<li><strong>Make the rescan incremental.</strong> Transcripts are append-only, so store a byte offset per file
+and read only what is new. That turns a 70-second cold walk into a bounded steady-state cost, and it is exact
+rather than heuristic.</li>
+<li><strong>Never block a render.</strong> Every surface takes the sheet's existing cold-state treatment —
+<code>Unfilled</code> slots in a layout drawn in full from the first frame — rather than a spinner or a
+late-arriving reflow.</li>
+</ol>
+</div>
+
+<p><strong>Pricing stays client-side.</strong> The read path returns per-model TOKEN aggregates, not dollars —
+<code>apps/server</code> does not depend on <code>client-core</code> and should not grow that edge to duplicate a
+price table. Every surface prices with the existing <code>bucketCostUsd</code>, so the product has exactly one
+pricing implementation. <b>It follows that the rate and its cohort median must also be computed client-side,
+after pricing:</b> cost-per-reply and tokens-per-reply are not the same ranking and not a monotonic transform of
+each other, because models differ in price per token. A server-side token-based median would look plausible and
+rank tasks wrongly — the worst failure for a number whose only job is comparison.</p>
+
+<h2><span class="num">09 · Still open</span></h2>
+<p><strong>The mission header chip on a mission with no cost.</strong> A brand-new mission shows no chip at all,
+so the header row is gauge + Add agent as it is today — the chip appears when there is something to report.
+That means the header's shape changes once, early in a mission's life. The alternative is a permanent chip
+reading <span class="mono">—</span>, which is a slot held open for a number rather than a fact. Recommending
+the first; say if the shifting row bothers you more than the empty one would.</p>
+</div>
+</body>
+</html>

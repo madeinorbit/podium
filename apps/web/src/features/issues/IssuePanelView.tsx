@@ -892,7 +892,6 @@ export function IssuePanelView({
   // whispers (⤷ tick), this panel names every edge.
   const relations = useMemo(() => (issue ? groupRelations(issue) : []), [issue])
   const [showCompleted, setShowCompleted] = useState(false)
-  const [showAllActive, setShowAllActive] = useState(false)
   const [showRetired, setShowRetired] = useState(false)
 
   /**
@@ -953,9 +952,11 @@ export function IssuePanelView({
   ).length
 
   const all = issueSessions(issue, sessions)
-  // Needs-you first — the answer affordance now lives on the session row, and
-  // the roster folds at five, so a waiting agent must never be the one behind
-  // the fold. Then the coordinator, then most-recently-active.
+  // Needs-you first — the answer affordance lives on the session row, so a
+  // waiting agent belongs where the eye starts. Then the coordinator, then
+  // most-recently-active. The five-row fold this ordering was written to
+  // survive is gone (POD-1859): the roster lists EVERY open session, and the
+  // Cost section below accounts for the ones it will never show.
   const activeSessions = all.filter(isOpenSession).sort((a, b) => {
     const aNeeds = sessionNeedsHuman(a)
     const bNeeds = sessionNeedsHuman(b)
@@ -965,7 +966,6 @@ export function IssuePanelView({
     return b.lastActiveAt.localeCompare(a.lastActiveAt)
   })
   const retiredSessions = all.filter((s) => !isOpenSession(s))
-  const shownSessions = showAllActive ? activeSessions : activeSessions.slice(0, 5)
   // Total over the stage vocabulary since POD-516/9a05afd59: the only null is
   // "this issue has live sessions", which is the branch that renders agent rows
   // instead. No local fallback — a second set of words here is what drifts.
@@ -1191,7 +1191,7 @@ export function IssuePanelView({
 
         <DockPart title="Agents & sessions" count={activeSessions.length} testId="dock-sessions">
           {activeSessions.length > 0
-            ? shownSessions.map((session) => (
+            ? activeSessions.map((session) => (
                 <IssueSessionRow
                   key={session.sessionId}
                   session={session}
@@ -1206,13 +1206,6 @@ export function IssuePanelView({
               // it, in the FLIGHT DECK'S OWN WORDS (mission.ts owns the vocabulary),
               // so one task never reads two ways in two columns.
               presence && <PresenceLine note={presence} />}
-          {activeSessions.length > 5 && (
-            <FoldRow
-              open={showAllActive}
-              label={showAllActive ? 'Show fewer' : `${activeSessions.length - 5} more active`}
-              onToggle={() => setShowAllActive((v) => !v)}
-            />
-          )}
           {retiredSessions.length > 0 && (
             <>
               <FoldRow
