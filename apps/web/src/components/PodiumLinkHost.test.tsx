@@ -35,7 +35,7 @@ vi.mock('@/app/store', () => ({
     }),
 }))
 
-import { PodiumLinkHost } from './PodiumLinkHost'
+import { PODIUM_LINK_RESOLUTION_TIMEOUT_MS, PodiumLinkHost } from './PodiumLinkHost'
 
 interface NativeOpenWindow extends Window {
   __PODIUM_DELIVER_NATIVE_OPEN__?: (raw: unknown) => void
@@ -53,6 +53,7 @@ describe('PodiumLinkHost native delivery', () => {
   let root: Root
 
   beforeEach(() => {
+    vi.useFakeTimers()
     vi.clearAllMocks()
     hostStore.issues = [hostStore.allIssues[1]!]
     container = document.createElement('div')
@@ -66,6 +67,7 @@ describe('PodiumLinkHost native delivery', () => {
     container.remove()
     delete nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__
     delete nativeWindow.__PODIUM_NATIVE_OPEN_READY__
+    vi.useRealTimers()
   })
 
   it('keeps later cold URLs behind an unresolved queue head', () => {
@@ -87,5 +89,20 @@ describe('PodiumLinkHost native delivery', () => {
     hostStore.issues = [...hostStore.allIssues]
     act(() => root.render(<PodiumLinkHost />))
     expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(2)
+  })
+
+  it('expires an unavailable head and delivers the next URL once', () => {
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-999999')
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1711')
+
+    act(() => root.render(<PodiumLinkHost />))
+    expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
+
+    act(() => vi.advanceTimersByTime(PODIUM_LINK_RESOLUTION_TIMEOUT_MS))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_two'))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+
+    act(() => vi.advanceTimersByTime(PODIUM_LINK_RESOLUTION_TIMEOUT_MS))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
   })
 })

@@ -19,6 +19,17 @@ import {
 } from '@/lib/podium-link-click'
 import { resolvePodiumTarget } from '@/lib/podium-link-open'
 
+export const PODIUM_LINK_RESOLUTION_TIMEOUT_MS = 5_000
+
+interface PendingPodiumHref {
+  href: string
+  expiresAt: number
+}
+
+function pendingPodiumHref(href: string): PendingPodiumHref {
+  return { href, expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS }
+}
+
 /**
  * Makes Podium addresses live in this tab (POD-1606). Mounted once at app root
  * beside <RefMiniviewHost>, whose shape it copies; renders nothing.
@@ -56,7 +67,9 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const pendingHrefs = useRef<string[]>(initialHref ? [initialHref] : [])
+  const pendingHrefs = useRef<PendingPodiumHref[]>(
+    initialHref ? [pendingPodiumHref(initialHref)] : [],
+  )
   const [pendingRevision, setPendingRevision] = useState(0)
 
   useEffect(() => {
@@ -134,12 +147,22 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
   // unknown path to /workspace. Keep retrying while replica rows arrive: refs,
   // sessions and artifact panel entries all need live data to resolve. Stop at
   // an unresolved head so a later URL cannot overtake it and become the wrong
-  // final destination.
+  // final destination. An unavailable target expires after a bounded wait so
+  // untrusted input cannot wedge every later native activation.
   useEffect(() => {
+    const now = Date.now()
     while (pendingHrefs.current.length > 0) {
-      const href = pendingHrefs.current[0]
-      if (href === undefined || !activatePodiumHref(href)) break
-      pendingHrefs.current.shift()
+      const pending = pendingHrefs.current[0]
+      if (pending === undefined) break
+      if (activatePodiumHref(pending.href) || pending.expiresAt <= now) {
+        pendingHrefs.current.shift()
+        continue
+      }
+      const retry = window.setTimeout(
+        () => setPendingRevision((value) => value + 1),
+        pending.expiresAt - now,
+      )
+      return () => window.clearTimeout(retry)
     }
   }, [issues, sessions, pendingRevision])
 
@@ -161,7 +184,7 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
       ) {
         return
       }
-      pendingHrefs.current.push(detail)
+      pendingHrefs.current.push(pendingPodiumHref(detail))
       setPendingRevision((value) => value + 1)
     }
     window.addEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)

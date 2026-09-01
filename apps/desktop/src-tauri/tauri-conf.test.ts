@@ -57,7 +57,7 @@ describe('tauri desktop config', () => {
     expect(listener).toBeGreaterThan(-1)
     expect(ready).toBeGreaterThan(listener)
     expect(webLinkHostSource).toContain('__PODIUM_NATIVE_OPEN_READY__?.(false)')
-    expect(webLinkHostSource).toContain('pendingHrefs.current.push(detail)')
+    expect(webLinkHostSource).toContain('pendingHrefs.current.push(pendingPodiumHref(detail))')
   })
 
   it('keeps stable as the packaged fallback endpoint', () => {
