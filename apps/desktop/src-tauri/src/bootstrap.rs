@@ -1,4 +1,4 @@
-use std::net::TcpListener;
+use std::net::{IpAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use tauri::webview::cookie::{Cookie, SameSite};
 use tauri::{Url, WebviewUrl};
@@ -191,6 +191,9 @@ pub enum BackendExitDecision {
     Hold {
         reason: String,
     },
+    BlockedServerTransport {
+        reason: String,
+    },
 }
 
 struct TransferMarker {
@@ -328,19 +331,49 @@ fn state_dir_from_parts(
     base.join(".podium")
 }
 
-fn remote_http_url(server_url: &str) -> Result<Url, String> {
-    let url = Url::parse(&webview_http_url(server_url)).map_err(|error| error.to_string())?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(format!("unsupported remote URL scheme: {}", url.scheme()));
+fn is_loopback_server(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    host == "localhost"
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+/// Enforce the desktop shell's transport boundary before it loads a server-controlled page or
+/// grants native capabilities to that page. Plain HTTP and WebSocket transport stay available for
+/// local development, but only on localhost, 127.0.0.0/8, or ::1. Every other server needs TLS.
+pub fn validate_server_transport(server_url: &str) -> Result<Url, String> {
+    let url = Url::parse(server_url).map_err(|error| format!("invalid server URL: {error}"))?;
+    let host = url
+        .host_str()
+        .filter(|host| !host.is_empty())
+        .ok_or_else(|| "server URL has no host".to_string())?;
+    match url.scheme() {
+        "https" | "wss" => Ok(url),
+        "http" | "ws" if is_loopback_server(&url) => Ok(url),
+        "http" | "ws" => Err(format!(
+            "Podium blocked an insecure connection to {host}. Desktop connections to non-loopback servers require HTTPS or WSS."
+        )),
+        scheme => Err(format!(
+            "Podium Desktop does not support the {scheme} server URL scheme. Use HTTPS or WSS, or HTTP or WS for a loopback server."
+        )),
     }
-    Ok(url)
+}
+
+/// Parse the page URL the desktop webview will load after applying the transport policy. Relay
+/// ws(s) schemes map to the matching http(s) origin because the server serves both protocols.
+pub fn validated_webview_http_url(server_url: &str) -> Result<Url, String> {
+    let server = validate_server_transport(server_url)?;
+    Url::parse(&webview_http_url(server.as_str())).map_err(|error| error.to_string())
 }
 
 /// Build the one session cookie copied across a committed desktop origin transition. The value
 /// stays in memory; omitting expiry/max-age keeps it a session cookie, while the validated target
 /// host, root path, and transport flags prevent it from escaping to an unrelated origin.
 pub fn session_cookie_for_target(value: &str, server_url: &str) -> Result<Cookie<'static>, String> {
-    let target = remote_http_url(server_url)?;
+    let target = validated_webview_http_url(server_url)?;
     let host = target
         .host_str()
         .filter(|host| !host.is_empty())
@@ -437,13 +470,13 @@ pub fn classify_backend_exit(
             ),
         };
     }
-    let config_url = match remote_http_url(&server_url) {
+    let config_url = match validated_webview_http_url(&server_url) {
         Ok(url) => url,
-        Err(reason) => return BackendExitDecision::Hold { reason },
+        Err(reason) => return BackendExitDecision::BlockedServerTransport { reason },
     };
-    let journal_url = match remote_http_url(&marker.public_url) {
+    let journal_url = match validated_webview_http_url(&marker.public_url) {
         Ok(url) => url,
-        Err(reason) => return BackendExitDecision::Hold { reason },
+        Err(reason) => return BackendExitDecision::BlockedServerTransport { reason },
     };
     if config_url != journal_url {
         return BackendExitDecision::Hold {
@@ -1050,17 +1083,12 @@ pub fn webview_http_url(server_url: &str) -> String {
     }
 }
 
-/// Decide what a remote-mode (client/daemon) window loads. Preferred: load the relay's own URL
-/// directly so the page is SAME-ORIGIN with the relay — WKWebView's WebSocket from a
-/// tauri://localhost page to a remote TLS relay fails (1006), but a same-origin load connects
-/// (a browser tab / Safari already work this way). The page then derives the server from its own
-/// location, so no injection is needed. Fallback (unparseable URL): load the bundled UI and inject
-/// the server global, preserving the old behavior rather than failing to open a window.
-pub fn remote_window_target(server_url: &str) -> (WebviewUrl, String) {
-    match Url::parse(&webview_http_url(server_url)) {
-        Ok(url) => (WebviewUrl::External(url), String::new()),
-        Err(_) => (WebviewUrl::default(), remote_injection_script(server_url)),
-    }
+/// Decide what a remote-mode (client/daemon) window loads. The relay page is same-origin with its
+/// HTTP API and WebSocket. Validation happens first so an insecure non-loopback page never loads
+/// and never reaches the native capability grant path.
+pub fn remote_window_target(server_url: &str) -> Result<(WebviewUrl, String), String> {
+    validated_webview_http_url(server_url)
+        .map(|url| (WebviewUrl::External(url), String::new()))
 }
 
 /// One HTTP/1.0 GET against the loopback backend. Returns the status line's code and the
@@ -1708,8 +1736,49 @@ mod tests {
     }
 
     #[test]
-    fn remote_window_target_loads_the_relay_url_directly() {
-        let (url, injection) = remote_window_target("https://relay.example:55555");
+    fn desktop_transport_allows_plaintext_localhost() {
+        assert!(validate_server_transport("http://localhost:18787").is_ok());
+        assert!(validate_server_transport("ws://localhost:18787").is_ok());
+    }
+
+    #[test]
+    fn desktop_transport_allows_the_whole_ipv4_loopback_block() {
+        assert!(validate_server_transport("http://127.0.0.1:18787").is_ok());
+        assert!(validate_server_transport("ws://127.255.42.9:18787").is_ok());
+    }
+
+    #[test]
+    fn desktop_transport_allows_ipv6_loopback() {
+        assert!(validate_server_transport("http://[::1]:18787").is_ok());
+        assert!(validate_server_transport("ws://[::1]:18787").is_ok());
+    }
+
+    #[test]
+    fn desktop_transport_rejects_plaintext_private_lan_servers() {
+        for url in ["http://192.168.1.20:18787", "ws://10.0.0.8:18787"] {
+            let error = validate_server_transport(url).expect_err(url);
+            assert!(error.contains("require HTTPS or WSS"), "{error}");
+        }
+    }
+
+    #[test]
+    fn desktop_transport_rejects_plaintext_public_servers() {
+        for url in ["http://podium.example", "ws://203.0.113.8:18787"] {
+            let error = validate_server_transport(url).expect_err(url);
+            assert!(error.contains("require HTTPS or WSS"), "{error}");
+        }
+    }
+
+    #[test]
+    fn desktop_transport_accepts_secure_remote_servers() {
+        assert!(validate_server_transport("https://podium.example").is_ok());
+        assert!(validate_server_transport("wss://relay.example:55555").is_ok());
+    }
+
+    #[test]
+    fn remote_window_target_loads_the_secure_relay_url_directly() {
+        let (url, injection) = remote_window_target("https://relay.example:55555")
+            .expect("secure remote transport is allowed");
         // Same-origin load: an external relay URL, and NO injected server global.
         assert!(
             matches!(url, WebviewUrl::External(u) if u.as_str() == "https://relay.example:55555/")
@@ -1718,10 +1787,9 @@ mod tests {
     }
 
     #[test]
-    fn remote_window_target_falls_back_to_bundled_on_bad_url() {
-        let (url, injection) = remote_window_target("not a url");
-        assert!(!matches!(url, WebviewUrl::External(_)));
-        assert!(injection.contains("__PODIUM_SERVER__"));
+    fn remote_window_target_rejects_an_invalid_or_insecure_url() {
+        assert!(remote_window_target("not a url").is_err());
+        assert!(remote_window_target("http://podium.example").is_err());
     }
 
     #[test]
@@ -1943,13 +2011,42 @@ mod tests {
             None,
             Some(transfer_marker("committing", "https://new.example")),
             Some(transfer_marker("committed", "https://other.example")),
-            Some(transfer_marker("committed", "file:///not-http")),
         ] {
             assert!(matches!(
                 classify_backend_exit(&LaunchAction::LocalAllInOne, &config, marker.as_deref(),),
                 BackendExitDecision::Hold { .. }
             ));
         }
+        assert!(matches!(
+            classify_backend_exit(
+                &LaunchAction::LocalAllInOne,
+                &config,
+                Some(&transfer_marker("committed", "file:///not-http")),
+            ),
+            BackendExitDecision::BlockedServerTransport { .. }
+        ));
+    }
+
+    #[test]
+    fn committed_insecure_lan_transition_is_blocked_before_retarget() {
+        let config = DesktopConfig {
+            mode: Some("daemon".to_string()),
+            server_url: Some("ws://192.168.1.20:18787".to_string()),
+            ..DesktopConfig::default()
+        };
+        let decision = classify_backend_exit(
+            &LaunchAction::LocalAllInOne,
+            &config,
+            Some(&transfer_marker(
+                "committed",
+                "http://192.168.1.20:18787",
+            )),
+        );
+        assert!(matches!(
+            decision,
+            BackendExitDecision::BlockedServerTransport { reason }
+                if reason.contains("require HTTPS or WSS")
+        ));
     }
 
     #[test]

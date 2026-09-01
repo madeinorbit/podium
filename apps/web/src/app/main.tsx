@@ -84,6 +84,31 @@ function PayloadUnavailablePage({ reason }: { reason?: string }): JSX.Element {
   )
 }
 
+function ServerTransportBlockedPage({ reason }: { reason?: string }): JSX.Element {
+  return (
+    <BootScreen
+      eyebrow="Server / blocked"
+      headline="This server needs a secure connection"
+      prose="Podium Desktop allows HTTP and WS only for localhost and loopback IP addresses. Change every other server URL to HTTPS or WSS."
+      fields={[
+        {
+          label: 'Connection refusal',
+          value: reason ?? 'The configured server uses an insecure transport',
+          tone: 'fault',
+        },
+        { label: 'Blocked server access', value: 'Not granted' },
+      ]}
+      trace={{ from: 'Desktop app', to: 'Remote server' }}
+      detail={reason}
+      primary={{
+        label: 'Try again',
+        onClick: () => window.location.reload(),
+      }}
+      panelLabel="Connection policy"
+    />
+  )
+}
+
 // FIRST, before anything can throw: the global handlers and the flight recorder
 // are what turn a crash during boot into a report on the user's own server
 // [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
@@ -99,6 +124,11 @@ const payloadUnavailable =
   true
 const payloadStartupError = (globalThis as { __PODIUM_PAYLOAD_ERROR__?: string })
   .__PODIUM_PAYLOAD_ERROR__
+const serverTransportBlocked =
+  (globalThis as { __PODIUM_SERVER_TRANSPORT_BLOCKED__?: boolean })
+    .__PODIUM_SERVER_TRANSPORT_BLOCKED__ === true
+const serverTransportError = (globalThis as { __PODIUM_SERVER_TRANSPORT_ERROR__?: string })
+  .__PODIUM_SERVER_TRANSPORT_ERROR__
 
 // A phone reaching the desktop shell means a cached service worker beat the
 // server's redirect to it (POD-359) — send it on before mounting anything.
@@ -111,7 +141,9 @@ if (!redirectPhoneToMobileApp()) {
     <StrictMode>
       <AppStarted />
       <ThemeProvider>
-        {payloadUnavailable ? (
+        {serverTransportBlocked ? (
+          <ServerTransportBlockedPage reason={serverTransportError} />
+        ) : payloadUnavailable ? (
           <PayloadUnavailablePage reason={payloadStartupError} />
         ) : (
           <>

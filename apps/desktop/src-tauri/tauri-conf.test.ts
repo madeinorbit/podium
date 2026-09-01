@@ -134,6 +134,43 @@ describe('tauri desktop config', () => {
     expect(webMainSource).toContain('nativeDesktopBridge()?.repairPayload')
   })
 
+  it('refuses insecure non-loopback servers before granting native access', () => {
+    const startup = mainSource.slice(
+      mainSource.indexOf('let action = bootstrap::resolve_launch'),
+      mainSource.indexOf('app.add_capability(window_capability)?'),
+    )
+    const transfer = mainSource.slice(
+      mainSource.indexOf('fn grant_transfer_remote_capabilities'),
+      mainSource.indexOf('fn reap_tracked_successor'),
+    )
+
+    expect(bootstrapSource).toContain('pub fn validate_server_transport(')
+    expect(bootstrapSource).toContain('address.is_loopback()')
+    expect(bootstrapSource).toContain('"http" | "ws" if is_loopback_server(&url) => Ok(url)')
+    expect(bootstrapSource).toContain('"https" | "wss" => Ok(url)')
+    expect(bootstrapSource).toContain(
+      'Desktop connections to non-loopback servers require HTTPS or WSS.',
+    )
+
+    expect(startup.indexOf('bootstrap::validate_server_transport(server_url)')).toBeLessThan(
+      startup.indexOf('replacement_daemon_command('),
+    )
+    expect(startup.indexOf('bootstrap::validate_server_transport(server_url)')).toBeLessThan(
+      startup.indexOf('remote_capability_pattern(&server_url)'),
+    )
+    expect(transfer.indexOf('remote_capability_pattern(server_url)?')).toBeLessThan(
+      transfer.indexOf('app.add_capability(capability)'),
+    )
+    expect(mainSource).toContain('BackendExitDecision::BlockedServerTransport { reason }')
+    expect(mainSource).toContain('.title("Server connection blocked")')
+
+    expect(mainSource).toContain('window.__PODIUM_SERVER_TRANSPORT_BLOCKED__ = true')
+    expect(mainSource).toContain('server_transport_blocked_injection(&error)')
+    expect(webMainSource).toContain('function ServerTransportBlockedPage(')
+    expect(webMainSource).toContain('This server needs a secure connection')
+    expect(webMainSource).toContain("{ label: 'Blocked server access', value: 'Not granted' }")
+  })
+
   it('routes a broken installed payload to signed repair and leaves healthy startup alone', () => {
     const payloadStartup = mainSource.slice(
       mainSource.indexOf('let mut payload_start_error'),
@@ -156,9 +193,9 @@ describe('tauri desktop config', () => {
 
     // A broken startup selects the baked document and its native repair bridge first. With no
     // error, the same code continues through the existing healthy local and remote targets.
-    expect(windowRouting.indexOf('if let Some(error) = payload_start_error_for_window')).toBeLessThan(
-      windowRouting.indexOf('else if let Some(port) = wait_local_port'),
-    )
+    expect(
+      windowRouting.indexOf('if let Some(error) = payload_start_error_for_window'),
+    ).toBeLessThan(windowRouting.indexOf('else if let Some(port) = wait_local_port'))
     expect(windowRouting).toContain(
       '(WebviewUrl::default(), payload_unavailable_injection(&error))',
     )

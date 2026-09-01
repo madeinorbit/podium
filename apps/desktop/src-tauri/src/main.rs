@@ -20,6 +20,7 @@ use tauri::path::BaseDirectory;
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_dialog::DialogExt;
 use updater::{check_update, claim_update_ownership, install_update, set_update_channel};
 
 const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
@@ -890,6 +891,18 @@ fn spawn_respawn_monitor<F, S, D>(
                     let _ = child_state.lock().map(|mut child| child.take());
                     break;
                 }
+                bootstrap::BackendExitDecision::BlockedServerTransport { reason } => {
+                    log::error!(
+                        "backend exited for a server blocked by desktop transport policy: {reason}"
+                    );
+                    app_handle
+                        .dialog()
+                        .message(reason.clone())
+                        .title("Server connection blocked")
+                        .blocking_show();
+                    let _ = child_state.lock().map(|mut child| child.take());
+                    break;
+                }
             };
 
             if !intentional_transfer {
@@ -1125,6 +1138,16 @@ fn payload_unavailable_injection(error: &str) -> String {
     )
 }
 
+/// Initialization for the bundled document when a configured remote server violates the desktop
+/// transport policy. The untrusted page never loads, and the signed frame explains the refusal.
+fn server_transport_blocked_injection(error: &str) -> String {
+    let error_literal = serde_json::to_string(error)
+        .unwrap_or_else(|_| "\"the configured server uses an insecure transport\"".to_string());
+    format!(
+        "window.__PODIUM_SERVER_TRANSPORT_BLOCKED__ = true;\nwindow.__PODIUM_SERVER_TRANSPORT_ERROR__ = {error_literal};"
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DaemonConnectivity {
@@ -1184,8 +1207,7 @@ fn enable_hosting(pair_code: String) -> Result<(), String> {
 /// the capability pattern must be derived from that mapped URL — a raw `wss://…`
 /// origin would never match the page's `https://…` origin and the grant would be dead.
 fn remote_capability_pattern(server_url: &str) -> Result<String, String> {
-    let url = tauri::Url::parse(&bootstrap::webview_http_url(server_url))
-        .map_err(|error| error.to_string())?;
+    let url = bootstrap::validated_webview_http_url(server_url)?;
     Ok(format!("{}/*", url.origin().ascii_serialization()))
 }
 
@@ -1423,6 +1445,21 @@ fn main() {
             })?;
             let action = bootstrap::resolve_launch(cfg.mode.as_deref(), cfg.server_url.as_deref());
             log::info!("launch action: {action:?}");
+            // Reject an insecure configured server before starting a daemon, loading its page, or
+            // deriving any remote native capability from it. Local shell modes have no remote
+            // server at this point; their loopback served origin is validated below like any other
+            // capability target.
+            let server_transport_error = match &action {
+                bootstrap::LaunchAction::LocalDaemon { server_url }
+                | bootstrap::LaunchAction::ClientOnly { server_url } => {
+                    bootstrap::validate_server_transport(server_url).err()
+                }
+                bootstrap::LaunchAction::LocalAllInOne
+                | bootstrap::LaunchAction::LocalServerOnly => None,
+            };
+            if let Some(error) = server_transport_error.as_deref() {
+                log::error!("configured server rejected by desktop transport policy: {error}");
+            }
             // Resolved-mode tag exposed to the web UI (bridge.launchMode) and used to gate the
             // hosting toggle [spec:SP-3701].
             let launch_mode_tag = match &action {
@@ -1469,7 +1506,7 @@ fn main() {
             let mut webview_url = WebviewUrl::default();
             // Origin that needs CapabilityBuilder::remote grants. Local served-local uses the
             // stable loopback URL; remote modes use the configured serverUrl.
-            let remote_window_server_url: Option<String>;
+            let mut remote_window_server_url: Option<String> = None;
 
             let initial_action = action.clone();
 
@@ -1611,8 +1648,7 @@ fn main() {
                     // when the sidecar is up we load it; grants for an unused origin are
                     // harmless if we fall back to baked.
                     wait_local_port = Some(port);
-                    remote_window_server_url =
-                        Some(bootstrap::local_served_http_url(port));
+                    remote_window_server_url = Some(bootstrap::local_served_http_url(port));
                 }
 
                 bootstrap::LaunchAction::LocalDaemon { server_url } => {
@@ -1622,7 +1658,7 @@ fn main() {
                     let install = payload_install
                         .as_ref()
                         .expect("a daemon host has an external payload");
-                    if payload_start_error.is_none() {
+                    if server_transport_error.is_none() && payload_start_error.is_none() {
                         match bootstrap::ensure_executable(&install.join("podium")) {
                             Err(error) => {
                                 let reason = format!("payload is not executable: {error}");
@@ -1684,16 +1720,24 @@ fn main() {
                         }
                     }
 
-                    remote_window_server_url = Some(server_url.clone());
-                    (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
+                    if server_transport_error.is_none() {
+                        remote_window_server_url = Some(server_url.clone());
+                        (webview_url, window_injection) =
+                            bootstrap::remote_window_target(&server_url)
+                                .expect("the validated remote server URL remains valid");
+                    }
                     wait_local_port = None;
                 }
 
                 bootstrap::LaunchAction::ClientOnly { server_url } => {
                     // No backend, no monitor — just point the window at the remote server.
-                    log::info!("client mode → {server_url} (no local backend)");
-                    remote_window_server_url = Some(server_url.clone());
-                    (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
+                    if server_transport_error.is_none() {
+                        log::info!("client mode → {server_url} (no local backend)");
+                        remote_window_server_url = Some(server_url.clone());
+                        (webview_url, window_injection) =
+                            bootstrap::remote_window_target(&server_url)
+                                .expect("the validated remote server URL remains valid");
+                    }
                     wait_local_port = None;
                 }
             }
@@ -2014,12 +2058,20 @@ fn main() {
             // fill them after the readiness probe inside the spawn below.
             let remote_init_injection = window_injection;
             let watchdog_shutting_down = shutting_down.clone();
+            let server_transport_error_for_window = server_transport_error;
             let payload_start_error_for_window = payload_start_error;
             std::thread::spawn(move || {
-                let (resolved_url, resolved_injection) = if let Some(error) = payload_start_error_for_window {
-                    log::error!("opening signed payload repair surface: {error}");
-                    (WebviewUrl::default(), payload_unavailable_injection(&error))
-                } else if let Some(port) = wait_local_port {
+                let (resolved_url, resolved_injection) =
+                    if let Some(error) = server_transport_error_for_window {
+                        log::error!("opening bundled transport refusal surface: {error}");
+                        (
+                            WebviewUrl::default(),
+                            server_transport_blocked_injection(&error),
+                        )
+                    } else if let Some(error) = payload_start_error_for_window {
+                        log::error!("opening signed payload repair surface: {error}");
+                        (WebviewUrl::default(), payload_unavailable_injection(&error))
+                    } else if let Some(port) = wait_local_port {
                     // Native runtime proof seam: debug builds may force the scratch host
                     // origin so a tiny test server can set an HttpOnly cookie before the
                     // committed transition. It is not a Podium server, so it must skip the
@@ -2813,8 +2865,9 @@ mod tests {
             Ok("https://relay.example:55555/*".to_string())
         );
         assert_eq!(
-            remote_capability_pattern("ws://relay.example:18787"),
-            Ok("http://relay.example:18787/*".to_string())
+            remote_capability_pattern("ws://127.42.0.9:18787"),
+            Ok("http://127.42.0.9:18787/*".to_string())
         );
+        assert!(remote_capability_pattern("ws://relay.example:18787").is_err());
     }
 }
