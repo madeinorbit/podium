@@ -508,11 +508,15 @@ describe('served-local launchMode classification (POD-2510)', () => {
     expect(mainSource).not.toContain('"core:window:allow-toggle-maximize"')
   })
 
-  it('creates the window before waiting for a local backend and keeps close-to-hide macOS-only', () => {
-    const window = mainSource.indexOf('handle.run_on_main_thread')
-    const wait = mainSource.indexOf('bootstrap::wait_for_port', window)
-    expect(window).toBeGreaterThan(-1)
-    expect(wait).toBeGreaterThan(window)
+  it('resolves the signed local document before window creation and keeps close-to-hide macOS-only', () => {
+    const resolveDocument = mainSource.indexOf('let (resolved_url, resolved_injection)')
+    const wait = mainSource.indexOf('bootstrap::wait_for_local_server', resolveDocument)
+    const window = mainSource.indexOf('handle.run_on_main_thread', wait)
+    expect(resolveDocument).toBeGreaterThan(-1)
+    expect(wait).toBeGreaterThan(resolveDocument)
+    expect(window).toBeGreaterThan(wait)
+    expect(mainSource).toContain('opening signed payload repair surface')
+    expect(mainSource).toContain('payload_unavailable_injection(&error)')
     expect(mainSource).toContain(
       '#[cfg(target_os = "macos")]\n                tauri::WindowEvent::CloseRequested',
     )

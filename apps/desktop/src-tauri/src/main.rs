@@ -1739,10 +1739,10 @@ fn main() {
             // `podium://update-progress`, and a page that may invoke the install
             // but may not subscribe to the event gets a spinner that never moves
             // — the exact silence the progress events were added to end. The
-            // static `default.json` grants `core:default` (which includes
-            // listen) but declares no remote block, so it covers the local
-            // origin only; remote mode, where the page is served by the remote
-            // server, needs it named here alongside the commands it belongs to.
+            // static `default.json` grants exactly listen and unlisten but no
+            // remote block, so it covers the local origin only. Remote mode,
+            // where the page is served by the remote server, needs those exact
+            // permissions named here alongside the commands they belong to.
             let mut update_capability = tauri::ipc::CapabilityBuilder::new("update-bridge")
                 .window("main")
                 .permission("allow-claim-update-ownership")
