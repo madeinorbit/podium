@@ -171,10 +171,14 @@ jobs:
           #       apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
           #       apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
           #
-          # Re-adding it is not enough on its own: `bun install` still fails on windows-latest
-          # under bunfig's isolated linker + global store, and that is to be fixed on Windows
-          # rather than worked around here. The compile error it hit past that point is already
-          # fixed (`exit_status_details` in src-tauri/src/main.rs).
+          # Re-adding it now installs cleanly: the windows-latest `bun install` failure under
+          # bunfig's isolated linker was the global store's location, not the linker. The store
+          # is `links/` inside Bun's install cache, which defaulted to the C: profile while the
+          # checkout is on D:, so every store symlink crossed a volume and Bun fell back to a
+          # copyfile that failed ENOENT. windows-smoke.yml pins BUN_INSTALL_CACHE_DIR beside the
+          # workspace so cache and store share the checkout's volume; a Windows row here needs
+          # the same pin. The compile error past that point is already fixed
+          # (`exit_status_details` in src-tauri/src/main.rs).
           - target: darwin-aarch64
             runner: macos-15
             build_args: "-- --target aarch64-apple-darwin"
