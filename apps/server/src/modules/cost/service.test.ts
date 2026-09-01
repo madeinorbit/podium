@@ -7,8 +7,11 @@
  * figure IS its children.
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { IssueId, MachineId, SessionId, UsageSourceWire } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
 import type { IssueRow, SessionRow } from '../../store/types'
 import { CostService } from './service'
@@ -17,12 +20,24 @@ let store: SessionStore
 let service: CostService
 let machineId: MachineId
 
-const CLAUDE_DIR = '/home/u/.claude/projects/-repo'
+// A REAL directory, because `not-recorded` now means the file is actually gone
+// and the service stats it. A fixture of invented paths would put every session
+// in that state and prove nothing about the ones that are merely unread.
+const tmpDirs: string[] = []
+let CLAUDE_DIR = ''
+
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
 
 beforeEach(() => {
   store = new SessionStore(':memory:')
   service = new CostService(store)
   machineId = store.hostMachineId
+  const home = mkdtempSync(join(tmpdir(), 'podium-cost-'))
+  tmpDirs.push(home)
+  CLAUDE_DIR = join(home, '.claude', 'projects', '-repo')
+  mkdirSync(CLAUDE_DIR, { recursive: true })
 })
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -89,11 +104,20 @@ function session(over: Partial<SessionRow> = {}): SessionRow {
   return row
 }
 
-/** A transcript on disk, indexed the way the conversation registry indexes one. */
-function transcript(nativeId: string, opts: { parentNativeId?: string } = {}): string {
-  const path = opts.parentNativeId
-    ? `${CLAUDE_DIR}/${opts.parentNativeId}/subagents/${nativeId}.jsonl`
-    : `${CLAUDE_DIR}/${nativeId}.jsonl`
+/**
+ * A transcript indexed the way the conversation registry indexes one.
+ * `onDisk: false` registers the row and leaves no file — a pruned transcript.
+ */
+function transcript(
+  nativeId: string,
+  opts: { parentNativeId?: string; onDisk?: boolean } = {},
+): string {
+  const dir = opts.parentNativeId ? join(CLAUDE_DIR, opts.parentNativeId, 'subagents') : CLAUDE_DIR
+  const path = join(dir, `${nativeId}.jsonl`)
+  if (opts.onDisk !== false) {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(path, '{}\n')
+  }
   const parentPodiumId = opts.parentNativeId
     ? store.conversations.registry.podiumId(machineId, opts.parentNativeId)
     : undefined
@@ -177,7 +201,7 @@ describe('attribution', () => {
   it('drops a transcript that maps to no conversation at all', () => {
     const task = issue()
     session({ issueId: task.id })
-    expect(ingest([source(`${CLAUDE_DIR}/nobody-indexed-this.jsonl`)])).toBe(0)
+    expect(ingest([source(join(CLAUDE_DIR, 'nobody-indexed-this.jsonl'))])).toBe(0)
     expect(store.transcriptCosts.countAll()).toBe(0)
   })
 
@@ -285,16 +309,27 @@ describe('states', () => {
     expect(result.rollup).toMatchObject({ models: [], messages: 0, sessionCount: 0 })
   })
 
-  it('reads a session with no transcript on disk as not-recorded', () => {
+  it('reads a session with no transcript row at all as not-recorded', () => {
     const task = issue()
     session({ issueId: task.id }) // no registry row: nothing to read
     expect(service.task(task.id).state).toBe('not-recorded')
   })
 
-  it('reads an unread transcript as pending, not as not-recorded', () => {
+  // A registry row naming a path is not evidence the file exists. 165 of the 488
+  // transcripts behind sampled tasks on this machine are already pruned, and
+  // every one of them read as pending — a slot that will never fill, drawn as
+  // one that is about to.
+  it('reads a PRUNED transcript as not-recorded, not as pending', () => {
     const task = issue()
     const ses = session({ issueId: task.id })
-    transcript(ses.resumeValue as string) // indexed, never ingested
+    transcript(ses.resumeValue as string, { onDisk: false })
+    expect(service.task(task.id).state).toBe('not-recorded')
+  })
+
+  it('reads an unread transcript that IS on disk as pending', () => {
+    const task = issue()
+    const ses = session({ issueId: task.id })
+    transcript(ses.resumeValue as string) // indexed, on disk, never ingested
     expect(service.task(task.id).state).toBe('pending')
   })
 
@@ -335,9 +370,71 @@ describe('states', () => {
   })
 })
 
+// ── deterministic attribution ───────────────────────────────────────────────
+
+describe('a resume value two sessions share', () => {
+  // Five such pairs on this machine, and in the live case one row carries an
+  // issue and the other does not — so row order decided whether the transcript
+  // was attributed at all.
+  it('attributes to the session that names an issue, whatever order rows arrive in', () => {
+    const task = issue()
+    const shared = 'native-shared-1'
+    // The unattached row is written FIRST, so a first-row-wins rule picks it.
+    session({ issueId: null, resumeValue: shared, createdAt: '2026-08-01T00:00:00.000Z' })
+    const attached = session({
+      issueId: task.id,
+      resumeValue: shared,
+      createdAt: '2026-08-02T00:00:00.000Z',
+    })
+    ingest([source(transcript(shared))])
+
+    const cost = service.task(task.id)
+    expect(cost.state).toBe('costed')
+    expect(cost.own.messages).toBe(10)
+    expect(cost.sessions[0]?.sessionId).toBe(attached.id)
+  })
+
+  it('prefers the newest row when both name an issue, and counts the cost once', () => {
+    const task = issue()
+    const shared = 'native-shared-2'
+    session({ issueId: task.id, resumeValue: shared, createdAt: '2026-08-01T00:00:00.000Z' })
+    const newer = session({
+      issueId: task.id,
+      resumeValue: shared,
+      createdAt: '2026-08-05T00:00:00.000Z',
+    })
+    ingest([source(transcript(shared))])
+
+    const cost = service.task(task.id)
+    expect(cost.own.messages).toBe(10)
+    expect(cost.own.sessionCount).toBe(1)
+    expect(cost.sessions[0]?.sessionId).toBe(newer.id)
+  })
+})
+
 // ── the sheet's table ───────────────────────────────────────────────────────
 
 describe('tasks()', () => {
+  // The rate is one property of a task and must read the same in the sheet as
+  // in the panel, so the row carries the rollup the panel divides.
+  it('carries each task rollup so the sheet can print the panel rate', () => {
+    const epic = issue()
+    const child = issue({ parentId: epic.id })
+    for (const target of [epic, child]) {
+      const ses = session({ issueId: target.id })
+      ingest([source(transcript(ses.resumeValue as string))])
+    }
+    const rows = service.tasks()
+    const epicRow = rows.find((r) => r.issueId === epic.id)
+    const childRow = rows.find((r) => r.issueId === child.id)
+    expect(epicRow?.messages).toBe(10)
+    expect(epicRow?.rollupMessages).toBe(20)
+    // A leaf's rollup is its own, and it is NOT credited with its parent's.
+    expect(childRow?.rollupMessages).toBe(10)
+    // The panel and the sheet agree on the same task.
+    expect(service.task(epic.id).rollup.messages).toBe(epicRow?.rollupMessages)
+  })
+
   // Attributing an ALL-TIME per-task figure against the host's 7-DAY total is
   // how a sheet ends up claiming 123% attributed — measured, on this machine.
   it('reports the window and all-time folds separately', () => {
@@ -405,14 +502,16 @@ describe('the task-detail path never walks the disk', () => {
    * back in full anyway. A read that consulted a transcript would return the
    * cold state instead — or throw.
    */
-  it('answers in full from stored rows when no transcript file exists', () => {
+  it('answers in full from stored rows when the transcript is gone', () => {
     const task = issue()
     const ses = session({ issueId: task.id })
-    const path = transcript(ses.resumeValue as string)
+    const path = transcript(ses.resumeValue as string, { onDisk: false })
     ingest([source(path)])
 
     expect(existsOnDisk(path)).toBe(false)
     const result = service.task(task.id)
+    // The file it was read from no longer exists and the money is still here:
+    // the figure comes from the stored fold, not from a walk of the disk.
     expect(result.state).toBe('costed')
     expect(tokensOf(result.own.models)).toBe(1_500)
   })

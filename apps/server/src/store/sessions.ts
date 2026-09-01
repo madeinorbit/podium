@@ -114,6 +114,38 @@ export class SessionsRepository {
   }
 
   /**
+   * EVERY session that names each of these resume values, not just the first.
+   *
+   * {@link findSessionsByResumeValues} answers "the live session a conversation
+   * resumes into" and deliberately keeps whichever row `readSessions` returns
+   * first, so that feed visibility keeps the answer it had before POD-1614 made
+   * it a query. Cost attribution needs a different thing: when two rows share a
+   * resume value — five pairs on this machine — one may carry an `issueId` and
+   * the other not, and letting row order decide whether a transcript is
+   * attributed at all is not a tie-break, it is a coin toss. So this returns the
+   * candidates and lets the caller state its own preference, leaving the
+   * visibility answer above untouched.
+   */
+  listSessionsByResumeValues(resumeValues: readonly string[]): Map<string, SessionRow[]> {
+    const out = new Map<string, SessionRow[]>()
+    const unique = [...new Set(resumeValues)]
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      for (const row of this.readSessions(
+        `resume_value IN (${chunk.map(() => '?').join(',')}) AND deleted_at IS NULL`,
+        ...chunk,
+      )) {
+        if (row.resumeValue === null) continue
+        const list = out.get(row.resumeValue)
+        if (list) list.push(row)
+        else out.set(row.resumeValue, [row])
+      }
+    }
+    return out
+  }
+
+  /**
    * Every live-table session bound to one of these issues (POD-1858).
    *
    * The cost read's denominator: how many sessions a task HAS is what separates
