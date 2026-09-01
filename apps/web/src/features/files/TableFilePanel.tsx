@@ -207,6 +207,7 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
           {query && (
             <button
               type="button"
+              data-pressable
               onClick={() => setQuery('')}
               aria-label="Clear row filter"
               className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
@@ -254,6 +255,7 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
                     >
                       <button
                         type="button"
+                        data-pressable
                         onClick={() => toggleSort(column)}
                         className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-muted/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
                         title={`Sort by ${header}`}

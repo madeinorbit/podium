@@ -88,6 +88,7 @@ export function AssetFilePanel({
             </Button>
             <button
               type="button"
+              data-pressable
               className="h-6 min-w-11 rounded px-1 text-[10px] tabular-nums text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
               onClick={setActualSize}
               aria-label="Show image at actual size"

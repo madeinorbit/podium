@@ -423,6 +423,7 @@ export function WorktreeFileTree({
           {query && (
             <button
               type="button"
+              data-pressable
               onClick={() => {
                 setQuery('')
                 searchRef.current?.focus()
