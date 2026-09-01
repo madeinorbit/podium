@@ -113,7 +113,12 @@ export interface ServerReapIo {
    *  path's identity proof for codex/grok (and opencode's fallback). */
   pidInUnit(pid: number, scopeUnit: string): boolean
   /** The opencode credentialed health probe — exact identity via the secret. */
-  probeOpencode(input: { baseUrl: string; secret: string }): Promise<boolean>
+  probeOpencode(input: {
+    baseUrl: string
+    secret: string
+    username?: string
+    healthPath?: string
+  }): Promise<boolean>
   runSystemctl(args: readonly string[]): Promise<void>
   sleep(ms: number): Promise<void>
   canScope(): boolean | Promise<boolean>
@@ -154,7 +159,8 @@ const defaultIo: ServerReapIo = {
       return false
     }
   },
-  probeOpencode: ({ baseUrl, secret }) => probeHealth(baseUrl, secret),
+  probeOpencode: ({ baseUrl, secret, username, healthPath }) =>
+    probeHealth(baseUrl, secret, username, healthPath),
   async runSystemctl(args) {
     await new Promise<void>((resolve) => {
       // The live env map, per SP-3f93 — scope management runs with the
@@ -190,7 +196,7 @@ interface JournalledReap {
   driver: 'opencode' | 'opencode2' | 'codex' | 'grok'
   identity: ServerProcessIdentity
   /** opencode only: the exact-identity liveness probe from its journal. */
-  probe?: { baseUrl: string; secret: string }
+  probe?: { baseUrl: string; secret: string; username?: string; healthPath?: string }
   clearJournal: () => void
 }
 

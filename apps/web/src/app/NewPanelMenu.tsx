@@ -38,9 +38,9 @@ import {
   loginWarning,
 } from '@/lib/agent-capability'
 import { AGENT_KIND_ICON } from '@/lib/agent-tone'
-import { useFeature } from '@/lib/use-feature'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
-import { headlessRuntimeDrivers } from '@/lib/runtime-driver-options'
+import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
+import { useFeature } from '@/lib/use-feature'
 import { useStoreSelector } from './store'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
@@ -451,7 +451,11 @@ function HeadlessDriverItems({
   onCreate,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId, runtimeContract?: string | true) => Promise<void>
+  onCreate: (
+    kind: AgentKind,
+    machineId: MachineId,
+    runtimeContract?: string | true,
+  ) => Promise<void>
 }): JSX.Element | null {
   const drivers = headlessRuntimeDrivers(machine)
   if (drivers.length === 0) return null
@@ -466,7 +470,7 @@ function HeadlessDriverItems({
         return (
           <CapabilityAgentItem
             key={`${driver.harness}:${driver.id}`}
-            label={`${agent.label} — ${driver.id}`}
+            label={`${agent.label} — ${runtimeDriverLabel(driver.id)}`}
             icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
             status={{
               ...(loggedOut
@@ -490,7 +494,11 @@ function MachineSubmenu({
   runtimeDriversEnabled,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId, runtimeContract?: string | true) => Promise<void>
+  onCreate: (
+    kind: AgentKind,
+    machineId: MachineId,
+    runtimeContract?: string | true,
+  ) => Promise<void>
   runtimeDriversEnabled: boolean
 }): JSX.Element {
   return (

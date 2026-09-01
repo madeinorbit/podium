@@ -182,13 +182,13 @@ describe('agent manifest registry', () => {
       client?.launch({
         cwd: '/work',
         conversation: 'ses_v2',
-        endpoint: { address: 'http://127.0.0.1:41427', secret: 'secret' },
+        endpoint: { address: 'http://127.0.0.1:41427', username: 'opencode', secret: 'secret' },
       }),
     ).toEqual({
       cmd: 'opencode2',
       args: ['mini', '--server', 'http://127.0.0.1:41427', '--session', 'ses_v2'],
       cwd: '/work',
-      env: { OPENCODE_SERVER_PASSWORD: 'secret' },
+      env: { OPENCODE_SERVER_USERNAME: 'opencode', OPENCODE_SERVER_PASSWORD: 'secret' },
     })
   })
 

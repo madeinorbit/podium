@@ -10,7 +10,7 @@ const json = (data: unknown, status = 200) =>
 function makeClient(fetch: typeof globalThis.fetch, timeoutMs?: number) {
   return createOpencode2Client({
     baseUrl: 'http://127.0.0.1:41427',
-    username: 'ignored-by-v2',
+    username: 'opencode',
     password: 'secret',
     directory: '/repo',
     fetch,
@@ -28,7 +28,10 @@ describe('OpenCode 2 client adapter', () => {
       agent: 'build',
       system: 'Stay focused.',
       variant: 'high',
-      parts: [{ type: 'text', text: 'Ship it' }],
+      parts: [
+        { type: 'text', text: 'Ship it' },
+        { type: 'file', mime: 'text/plain', filename: 'notes.txt', url: 'file:///tmp/notes.txt' },
+      ],
     })
 
     expect(
@@ -49,7 +52,11 @@ describe('OpenCode 2 client adapter', () => {
         'PUT',
         { value: 'Stay focused.' },
       ],
-      ['http://127.0.0.1:41427/api/session/ses_v2/prompt', 'POST', { text: 'Ship it' }],
+      [
+        'http://127.0.0.1:41427/api/session/ses_v2/prompt',
+        'POST',
+        { text: 'Ship it', files: [{ uri: 'file:///tmp/notes.txt', name: 'notes.txt' }] },
+      ],
     ])
     expect(fetch.mock.calls[0]?.[1]?.headers).toMatchObject({
       authorization: 'Basic b3BlbmNvZGU6c2VjcmV0',
@@ -186,7 +193,7 @@ describe('OpenCode 2 client adapter', () => {
       },
     }
     const fetch = vi.fn<typeof globalThis.fetch>(
-      async () => new Response(`data: ${JSON.stringify(payload)}\n\n`),
+      async () => new Response(`data:not-json\n\ndata:${JSON.stringify(payload)}\n\n`),
     )
     const controller = new AbortController()
     const iterator = makeClient(fetch).events(controller.signal)[Symbol.asyncIterator]()
@@ -202,6 +209,7 @@ describe('OpenCode 2 client adapter', () => {
       },
     })
     controller.abort()
+    await iterator.return?.()
   })
   it('preserves v2 execution failure and interruption verdicts', async () => {
     const frames = [

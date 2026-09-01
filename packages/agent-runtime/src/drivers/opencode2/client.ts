@@ -7,15 +7,15 @@ import type {
   OpencodeQuestionAnswers,
   OpencodeQuestionRequest,
   OpencodeSession,
-  OpencodeSessionId,
 } from '../opencode/protocol.js'
 
 /** Adapter from the OpenCode 2 preview /api surface to the stable OpenCode
  * runtime port. Keeping this translation here lets both protocol generations
+ * Beta-18743 scopes session routes by path and `/api/event` across all server locations; unlike v1, its OpenAPI contract exposes no directory query parameter. Payload casts below are deliberately bounded by the exact-build admission gate.
  * share the RuntimeDriver implementation and conformance behavior. */
 export function createOpencode2Client(config: OpencodeClientConfig): OpencodeClient {
   const fetcher = config.fetch ?? globalThis.fetch
-  const auth = `Basic ${base64(`opencode:${config.password}`)}`
+  const auth = `Basic ${base64(`${config.username}:${config.password}`)}`
   const timeoutMs = config.timeoutMs ?? 30_000
   let session: string | undefined
   const forms = new Map<string, Opencode2Form>()
@@ -118,8 +118,15 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       const text = body.parts
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
+        // Beta-18743 documents this as durable admission plus scheduling; the 200 response is an enqueue acknowledgement, not turn completion.
         .join('\n')
-      await request('POST', `/api/session/${encodeURIComponent(sessionId)}/prompt`, { text })
+      const files = body.parts
+        .filter((part) => part.type === 'file')
+        .map((part) => ({ uri: part.url, ...(part.filename ? { name: part.filename } : {}) }))
+      await request('POST', `/api/session/${encodeURIComponent(sessionId)}/prompt`, {
+        text,
+        ...(files.length > 0 ? { files } : {}),
+      })
     },
     async abort(sessionId) {
       await request('POST', `/api/session/${encodeURIComponent(sessionId)}/interrupt`)
@@ -299,149 +306,164 @@ async function* events(
   if (!reader) return
   const decoder = new TextDecoder()
   let buffer = ''
-  while (!signal.aborted) {
-    const next = await reader.read()
-    if (next.done) return
-    buffer += decoder.decode(next.value, { stream: true })
-    for (;;) {
-      const end = buffer.indexOf('\n\n')
-      if (end < 0) break
-      const frame = buffer.slice(0, end)
-      buffer = buffer.slice(end + 2)
-      const line = frame.split('\n').find((candidate) => candidate.startsWith('data: '))
-      if (!line) continue
-      const raw = JSON.parse(line.slice(6)) as {
-        id?: string
-        type?: string
-        created?: number
-        data?: Record<string, unknown>
-      }
-      const data = raw.data ?? {}
-      const eventID = raw.id ?? `opencode2-${crypto.randomUUID()}`
-      const sessionID = typeof data.sessionID === 'string' ? data.sessionID : undefined
-      let mapped: OpencodeEvent | undefined
-      if (raw.type === 'form.created') {
-        const form = data.form as Opencode2Form | undefined
-        if (form) mapped = { id: eventID, type: 'question.asked', properties: formToQuestion(form) }
-      } else if (raw.type === 'form.replied' && sessionID) {
-        mapped = {
-          id: eventID,
-          type: 'question.replied',
-          properties: { sessionID, requestID: String(data.id), answers: [] },
+  try {
+    while (!signal.aborted) {
+      const next = await reader.read()
+      if (next.done) return
+      buffer += decoder.decode(next.value, { stream: true })
+      for (;;) {
+        const end = buffer.indexOf('\n\n')
+        if (end < 0) break
+        const frame = buffer.slice(0, end)
+        buffer = buffer.slice(end + 2)
+        const line = frame.split('\n').find((candidate) => candidate.startsWith('data:'))
+        if (!line) continue
+        let raw: {
+          id?: string
+          type?: string
+          created?: number
+          data?: Record<string, unknown>
         }
-      } else if (raw.type === 'form.cancelled' && sessionID) {
-        mapped = {
-          id: eventID,
-          type: 'question.rejected',
-          properties: { sessionID, requestID: String(data.id) },
+        try {
+          raw = JSON.parse(line.slice(5).trimStart()) as typeof raw
+        } catch {
+          continue
         }
-      } else if (raw.type === 'permission.asked') {
-        const permission = (data.request ?? data) as Record<string, unknown>
-        const permissionSessionID =
-          typeof permission.sessionID === 'string' ? permission.sessionID : undefined
-        if (permissionSessionID) {
+        const data = raw.data ?? {}
+        const eventID = raw.id ?? `opencode2-${crypto.randomUUID()}`
+        const sessionID = typeof data.sessionID === 'string' ? data.sessionID : undefined
+        let mapped: OpencodeEvent | undefined
+        if (raw.type === 'form.created') {
+          const form = data.form as Opencode2Form | undefined
+          if (form)
+            mapped = { id: eventID, type: 'question.asked', properties: formToQuestion(form) }
+        } else if (raw.type === 'form.replied' && sessionID) {
           mapped = {
             id: eventID,
-            type: 'permission.asked',
+            type: 'question.replied',
+            properties: { sessionID, requestID: String(data.id), answers: [] },
+          }
+        } else if (raw.type === 'form.cancelled' && sessionID) {
+          mapped = {
+            id: eventID,
+            type: 'question.rejected',
+            properties: { sessionID, requestID: String(data.id) },
+          }
+        } else if (raw.type === 'permission.asked') {
+          const permission = (data.request ?? data) as Record<string, unknown>
+          const permissionSessionID =
+            typeof permission.sessionID === 'string' ? permission.sessionID : undefined
+          if (permissionSessionID) {
+            mapped = {
+              id: eventID,
+              type: 'permission.asked',
+              properties: {
+                id: String(permission.id),
+                sessionID: permissionSessionID,
+                permission: String(permission.action),
+                patterns: Array.isArray(permission.resources)
+                  ? permission.resources.map(String)
+                  : [],
+                metadata: (permission.metadata ?? {}) as Record<string, unknown>,
+                always: Array.isArray(permission.save) ? permission.save.map(String) : [],
+              },
+            }
+          }
+        } else if (raw.type === 'permission.replied' && sessionID) {
+          mapped = {
+            id: eventID,
+            type: 'permission.replied',
             properties: {
-              id: String(permission.id),
-              sessionID: permissionSessionID,
-              permission: String(permission.action),
-              patterns: Array.isArray(permission.resources) ? permission.resources.map(String) : [],
-              metadata: (permission.metadata ?? {}) as Record<string, unknown>,
-              always: Array.isArray(permission.save) ? permission.save.map(String) : [],
+              sessionID,
+              requestID: String(data.id ?? data.requestID),
+              reply: String(data.reply) as OpencodePermissionReply,
             },
           }
         }
-      } else if (raw.type === 'permission.replied' && sessionID) {
-        mapped = {
-          id: eventID,
-          type: 'permission.replied',
-          properties: {
-            sessionID,
-            requestID: String(data.id ?? data.requestID),
-            reply: String(data.reply) as OpencodePermissionReply,
-          },
-        }
-      }
-      if (!mapped && raw.type === 'session.execution.started' && sessionID)
-        mapped = {
-          id: eventID,
-          type: 'session.status',
-          properties: { sessionID, status: { type: 'busy' } },
-        }
-      else if (!mapped && raw.type === 'session.execution.succeeded' && sessionID)
-        mapped = {
-          id: eventID,
-          type: 'session.idle',
-          properties: { sessionID },
-        }
-      else if (!mapped && raw.type === 'session.execution.failed' && sessionID)
-        mapped = {
-          id: eventID,
-          type: 'session.error',
-          properties: { sessionID, error: data.error ?? data },
-        }
-      else if (!mapped && raw.type === 'session.execution.interrupted' && sessionID)
-        mapped = {
-          id: eventID,
-          type: 'session.error',
-          properties: { sessionID, error: { name: 'MessageAborted', ...data } },
-        }
-      else if (raw.type === 'session.step.started' && sessionID) {
-        const messageID = String(data.assistantMessageID)
-        const model = data.model as { id?: string; providerID?: string } | undefined
-        mapped = {
-          id: eventID,
-          type: 'message.updated',
-          properties: {
-            sessionID,
-            info: {
-              id: messageID,
+        if (!mapped && raw.type === 'session.execution.started' && sessionID)
+          mapped = {
+            id: eventID,
+            type: 'session.status',
+            properties: { sessionID, status: { type: 'busy' } },
+          }
+        else if (!mapped && raw.type === 'session.execution.succeeded' && sessionID)
+          mapped = {
+            id: eventID,
+            type: 'session.idle',
+            properties: { sessionID },
+          }
+        else if (!mapped && raw.type === 'session.execution.failed' && sessionID)
+          mapped = {
+            id: eventID,
+            type: 'session.error',
+            properties: { sessionID, error: data.error ?? data },
+          }
+        else if (!mapped && raw.type === 'session.execution.interrupted' && sessionID)
+          mapped = {
+            id: eventID,
+            type: 'session.error',
+            properties: { sessionID, error: { name: 'MessageAborted', ...data } },
+          }
+        else if (raw.type === 'session.step.started' && sessionID) {
+          const messageID = String(data.assistantMessageID)
+          const model = data.model as { id?: string; providerID?: string } | undefined
+          mapped = {
+            id: eventID,
+            type: 'message.updated',
+            properties: {
               sessionID,
-              role: 'assistant',
-              time: { created: raw.created },
-              modelID: model?.id,
-              providerID: model?.providerID,
+              info: {
+                id: messageID,
+                sessionID,
+                role: 'assistant',
+                time: { created: raw.created },
+                modelID: model?.id,
+                providerID: model?.providerID,
+              },
             },
-          },
-        }
-      } else if (
-        (raw.type === 'session.text.ended' || raw.type === 'session.reasoning.ended') &&
-        sessionID
-      ) {
-        const messageID = String(data.assistantMessageID)
-        mapped = {
-          id: eventID,
-          type: 'message.part.updated',
-          properties: {
-            sessionID,
-            time: raw.created,
-            part: {
-              id: `${messageID}:${String(data.ordinal ?? 0)}:${raw.type}`,
+          }
+        } else if (
+          (raw.type === 'session.text.ended' || raw.type === 'session.reasoning.ended') &&
+          sessionID
+        ) {
+          const messageID = String(data.assistantMessageID)
+          mapped = {
+            id: eventID,
+            type: 'message.part.updated',
+            properties: {
+              sessionID,
+              time: raw.created,
+              part: {
+                id: `${messageID}:${String(data.ordinal ?? 0)}:${raw.type}`,
+                messageID,
+                sessionID,
+                type: raw.type === 'session.text.ended' ? 'text' : 'reasoning',
+                text: String(data.text ?? ''),
+              },
+            },
+          }
+        } else if (
+          (raw.type === 'session.text.delta' || raw.type === 'session.reasoning.delta') &&
+          sessionID
+        ) {
+          const messageID = String(data.assistantMessageID)
+          mapped = {
+            id: eventID,
+            type: 'message.part.delta',
+            properties: {
+              sessionID,
               messageID,
-              sessionID,
-              type: raw.type === 'session.text.ended' ? 'text' : 'reasoning',
-              text: String(data.text ?? ''),
+              partID: `${messageID}:${String(data.ordinal ?? 0)}:${raw.type === 'session.text.delta' ? 'session.text.ended' : 'session.reasoning.ended'}`,
+              field: 'text',
+              delta: String(data.delta ?? ''),
             },
-          },
+          }
         }
-      } else if (raw.type === 'session.text.delta' && sessionID) {
-        const messageID = String(data.assistantMessageID)
-        mapped = {
-          id: eventID,
-          type: 'message.part.delta',
-          properties: {
-            sessionID,
-            messageID,
-            partID: `${messageID}:${String(data.ordinal ?? 0)}:session.text.ended`,
-            field: 'text',
-            delta: String(data.delta ?? ''),
-          },
-        }
+        if (mapped) yield mapped
       }
-      if (mapped) yield mapped
     }
+  } finally {
+    await reader.cancel().catch(() => {})
   }
 }
 

@@ -3,6 +3,7 @@ import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { opencode2VersionProbeForExecutable } from '../runtime/opencode-server'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -49,6 +50,7 @@ export function terminalRuntimeDriverInventory(): NonNullable<Inventory['runtime
  * only concrete drivers this machine can select from the facts already observed. */
 export function runtimeDriverInventory(
   inventory: Inventory,
+  opencode2Drivable = false,
 ): NonNullable<Inventory['runtimeDrivers']> {
   const versionFor = (kind: Inventory['agents'][number]['kind']): string | undefined => {
     const agent = inventory.agents.find((candidate) => candidate.kind === kind)
@@ -57,10 +59,6 @@ export function runtimeDriverInventory(
   const codex = versionFor('codex')
   const grok = versionFor('grok')
   const opencode = versionFor('opencode')
-  const opencode2Installed =
-    (globalThis as typeof globalThis & { Bun?: { which(command: string): string | null } }).Bun?.which(
-      'opencode2',
-    ) != null
   return [
     ...terminalRuntimeDriverInventory(),
     { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
@@ -73,7 +71,7 @@ export function runtimeDriverInventory(
     ...(opencode && gateOpencodeVersion(opencode) === null
       ? ([{ harness: 'opencode', id: 'opencode-server', family: 'server' }] as const)
       : []),
-    ...(opencode2Installed
+    ...(opencode2Drivable
       ? ([{ harness: 'opencode', id: 'opencode2-server', family: 'server' }] as const)
       : []),
   ]
@@ -100,12 +98,17 @@ export async function reportInventory(
         ? ctx.harnessRuntime.refresh()
         : ctx.harnessRuntime.reprobe())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
+      const opencode2Executable = snapshot.commandEnvironment.resolve('opencode2')
+      const opencode2Drivable = opencode2Executable
+        ? (await opencode2VersionProbeForExecutable(opencode2Executable)).drivable
+        : false
+      if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       ctx.send({
         type: 'inventoryReport',
         machineId: asMachineId(ctx.machineId),
         inventory: {
           ...snapshot.inventory,
-          runtimeDrivers: runtimeDriverInventory(snapshot.inventory),
+          runtimeDrivers: runtimeDriverInventory(snapshot.inventory, opencode2Drivable),
         },
       })
     } catch (err) {

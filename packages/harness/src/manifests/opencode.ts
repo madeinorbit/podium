@@ -1,4 +1,3 @@
-import { resolveOpencodeBin } from '../opencode/cli.js'
 import { join } from 'node:path'
 import {
   type OpencodeMessagePartRow,
@@ -18,10 +17,11 @@ import {
   unsupported,
 } from '../manifest.js'
 import { detectOpencodeLogin } from '../opencode/auth.js'
+import { resolveOpencode2Bin, resolveOpencodeBin } from '../opencode/cli.js'
 import {
   loadOpencodeTranscriptTail,
-  openOpencodeDb,
   opencodeDbPathForSession,
+  openOpencodeDb,
 } from '../opencode/db.js'
 
 /**
@@ -280,12 +280,13 @@ export const opencodeManifest: AgentManifest = {
         clientTerminal: supported({
           labelToken: 'oc2',
           parkOnRelease: true,
-          launch: ({ cwd, conversation, endpoint }) => ({
-            cmd: 'opencode2',
+          launch: ({ cwd, conversation, endpoint, env }) => ({
+            cmd: resolveOpencode2Bin(undefined, env),
             args: ['mini', '--server', endpoint.address ?? '', '--session', conversation],
             cwd,
 
             env: {
+              ...(endpoint.username ? { OPENCODE_SERVER_USERNAME: endpoint.username } : {}),
               ...(endpoint.secret ? { OPENCODE_SERVER_PASSWORD: endpoint.secret } : {}),
             },
           }),

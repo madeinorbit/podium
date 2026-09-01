@@ -75,9 +75,9 @@ import {
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
-import { SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'
 import { stageRuntimeAttachment } from './attachment-staging'
 import type { OpencodeClientTerminals } from './opencode-attach'
+import { SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -216,8 +216,8 @@ async function freeLoopbackPort(): Promise<number> {
   })
 }
 
-const basicAuth = (secret: string): string =>
-  `Basic ${Buffer.from(`${USERNAME}:${secret}`).toString('base64')}`
+const basicAuth = (secret: string, username = USERNAME): string =>
+  `Basic ${Buffer.from(`${username}:${secret}`).toString('base64')}`
 
 /** One bounded health probe. `false` covers dead, not-yet-listening AND wrong
  *  secret — all three mean "not usable", which is the only question here.
@@ -225,10 +225,15 @@ const basicAuth = (secret: string): string =>
  *  exact-identity proof that a journalled pid is still THIS session's server —
  *  the same guard the launch path documents below ("Stopping a live server
  *  here would kill a session we were about to adopt"). */
-export async function probeHealth(baseUrl: string, secret: string): Promise<boolean> {
+export async function probeHealth(
+  baseUrl: string,
+  secret: string,
+  username = USERNAME,
+  healthPath = '/global/health',
+): Promise<boolean> {
   try {
-    const response = await fetch(`${baseUrl}/global/health`, {
-      headers: { authorization: basicAuth(secret) },
+    const response = await fetch(`${baseUrl}${healthPath}`, {
+      headers: { authorization: basicAuth(secret, username) },
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     })
     return response.ok
@@ -236,11 +241,15 @@ export async function probeHealth(baseUrl: string, secret: string): Promise<bool
     return false
   }
 }
-
-async function waitForReady(baseUrl: string, secret: string, deadlineMs: number): Promise<boolean> {
+async function waitForReady(
+  health: (baseUrl: string, secret: string) => Promise<boolean>,
+  baseUrl: string,
+  secret: string,
+  deadlineMs: number,
+): Promise<boolean> {
   const deadline = Date.now() + deadlineMs
   while (Date.now() < deadline) {
-    if (await probeHealth(baseUrl, secret)) return true
+    if (await health(baseUrl, secret)) return true
     await new Promise((resolve) => {
       const timer = setTimeout(resolve, READY_POLL_MS)
       timer.unref?.()
@@ -368,6 +377,15 @@ export function opencode2VersionProbe(
 ): Promise<OpencodeProbeVerdict> {
   return opencode2VersionProbeCache.probe(probe, policy)
 }
+export function opencode2VersionProbeForExecutable(
+  executablePath: string,
+  policy?: VersionProbePolicy,
+): Promise<OpencodeProbeVerdict> {
+  return opencode2VersionProbe(
+    () => execVersionProbe(executablePath, VERSION_PROBE_TIMEOUT_MS),
+    policy,
+  )
+}
 
 export function opencode2VersionDiagnostic(
   probe?: VersionProbe,
@@ -478,19 +496,8 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
   const healthPath = variant?.healthPath ?? '/global/health'
   const scopeLabel = (sessionId: SessionId): string =>
     `podium-${variant?.scopeToken ?? 'oc'}-${sessionId}`
-  const health = async (baseUrl: string, secret: string): Promise<boolean> => {
-    try {
-      const response = await fetch(`${baseUrl}${healthPath}`, {
-        headers: {
-          authorization: `Basic ${Buffer.from(`${username}:${secret}`).toString('base64')}`,
-        },
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      })
-      return response.ok
-    } catch {
-      return false
-    }
-  }
+  const health = (baseUrl: string, secret: string): Promise<boolean> =>
+    probeHealth(baseUrl, secret, username, healthPath)
   const children = new Map<SessionId, ReturnType<typeof spawn>>()
 
   const endpointFor = (input: {
@@ -660,19 +667,12 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // success: a session must never wait on a best-effort budget call.
       if (scoped) void applySessionsSliceBudget()
 
-      const ready = await (async () => {
-        const deadline = Date.now() + READY_TIMEOUT_MS
-        while (Date.now() < deadline) {
-          if (await health(baseUrl, input.secret)) return true
-          await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS))
-        }
-        return false
-      })()
+      const ready = await waitForReady(health, baseUrl, input.secret, READY_TIMEOUT_MS)
       if (!ready) {
         child.kill('SIGKILL')
         children.delete(input.sessionId)
         throw new Error(
-          `opencode serve did not answer /global/health on ${baseUrl} within ${READY_TIMEOUT_MS}ms${
+          `opencode serve did not answer ${healthPath} on ${baseUrl} within ${READY_TIMEOUT_MS}ms${
             banner ? `: ${banner.trim()}` : ''
           }`,
         )

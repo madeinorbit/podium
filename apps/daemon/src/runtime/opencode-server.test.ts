@@ -9,14 +9,13 @@
  * `packages/agent-runtime`.
  */
 
-import { chmodSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { mkdtempSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   admissionProbeDriver,
   launchServerDriverSession,
@@ -28,14 +27,15 @@ import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import {
   createOpencodeHost,
   createOpencodeJournal,
-  opencodeScopeLabel,
   opencode2VersionProbe,
+  opencodeScopeLabel,
   opencodeServeArgv,
   opencodeVersionDiagnostic,
   opencodeVersionProbe,
   opencodeVersionProbeForExecutable,
-  resetOpencodeVersionProbe,
+  probeHealth,
   resetOpencode2VersionProbe,
+  resetOpencodeVersionProbe,
 } from './opencode-server'
 import {
   availableDriverIds,
@@ -218,7 +218,7 @@ describe('driver resolution', () => {
     expect(
       resolveRuntimeDriver({
         agentKind,
-        requested: serverDriver + '-bogus',
+        requested: `${serverDriver}-bogus`,
         machineDefault: undefined,
         available: [serverDriver, 'generic-pty'],
         platform: 'linux',
@@ -552,6 +552,22 @@ describe('the version gate, as the daemon reads it', () => {
     const future = await opencode2VersionProbe(answered('0.0.0-beta-18744'))
     expect(future.drivable).toBe(false)
     if (!future.drivable) expect(future.reason).toBe('unsupported')
+  })
+  it('probes the OpenCode 2 health route with its configured username', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+    try {
+      await expect(
+        probeHealth('http://127.0.0.1:41427', 'secret', 'opencode', '/api/health'),
+      ).resolves.toBe(true)
+      expect(fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:41427/api/health',
+        expect.objectContaining({
+          headers: { authorization: 'Basic b3BlbmNvZGU6c2VjcmV0' },
+        }),
+      )
+    } finally {
+      fetch.mockRestore()
+    }
   })
 
   it.each([

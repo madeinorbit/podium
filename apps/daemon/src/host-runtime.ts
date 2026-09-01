@@ -1,16 +1,16 @@
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
+import { createOpencode2Client } from '@podium/agent-runtime'
 import {
   agentLaunchCommand,
   buildMachineInventory,
   declaredValue,
+  type HarnessEnvironment,
   harnessDetectLogin,
   harnessLoginReadEnv,
-  type HarnessEnvironment,
   resolvedHarnessPath,
 } from '@podium/harness'
-import { createOpencode2Client } from '@podium/agent-runtime'
 import { createLogger, resolveLevel } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
@@ -57,9 +57,9 @@ import {
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
-import { createFrameSink } from './frame-sink'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
+import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
@@ -79,23 +79,23 @@ import { type PortableStateControl, PortableStateFence } from './portable-state-
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
-import { createCodexHost } from './runtime/codex-app-server'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
 import {
   createDaemonClaudeSdkRuntime,
   type DaemonClaudeSdkRuntime,
 } from './runtime/claude-sdk-driver'
+import { createCodexHost } from './runtime/codex-app-server'
 import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
 import { runtimeContractEnabledByEnv } from './runtime/flag'
 import { createGrokAcpHost } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
-import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { daemonRuntimeHost } from './runtime/host'
+import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createOpencodeClientTerminals } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
 import { createOpencodeHost, opencode2VersionDiagnostic } from './runtime/opencode-server'
-import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { createScopeMonitor } from './runtime/scope-monitor'
+import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
@@ -860,6 +860,7 @@ export async function createDaemonHostRuntime(args: {
   const contractHost = daemonRuntimeHost(ctx, send, stageAttachment)
   terminalRuntime = createTerminalRuntime(contractHost)
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
+  const opencode2Executable = generationInventory?.commandEnvironment.resolve('opencode2')
   claudeRuntime = createDaemonClaudeSdkRuntime({
     send,
     host: contractHost,
@@ -915,6 +916,7 @@ export async function createDaemonHostRuntime(args: {
         resources: (subject) => scopeMonitor.resources(subject),
         clientTerminals,
         stageAttachment,
+        ...(opencode2Executable ? { executablePath: opencode2Executable } : {}),
         ...(homeDir ? { homeDir } : {}),
         instanceUuid: instance.instanceUuid,
         variant: {

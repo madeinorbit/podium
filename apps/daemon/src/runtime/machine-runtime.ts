@@ -35,7 +35,7 @@ import { createRuntimeWatchLifecycle } from './watch'
 export interface JournalledServerProcess {
   driver: 'opencode' | 'opencode2' | 'codex' | 'grok'
   identity: { key: string; pid?: number; scopeUnit?: string }
-  probe?: { baseUrl: string; secret: string }
+  probe?: { baseUrl: string; secret: string; username?: string; healthPath?: string }
   clearJournal(): void
 }
 
@@ -416,7 +416,12 @@ export function createDaemonMachineRuntime(input: {
         return {
           driver: 'opencode2',
           identity: opencode2.process,
-          probe: { baseUrl: opencode2.baseUrl, secret: opencode2.secret },
+          probe: {
+            baseUrl: opencode2.baseUrl,
+            secret: opencode2.secret,
+            username: opencode2.username,
+            healthPath: '/api/health',
+          },
           clearJournal: () => input.opencode2.journal.clear(sessionId),
         }
       }

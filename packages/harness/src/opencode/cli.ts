@@ -44,8 +44,22 @@ export function resolveOpencodeBin(homeDir?: string, env?: ResolverEnvironment):
   return 'opencode'
 }
 
-/** Legacy synchronous availability helper. Production discovery uses the daemon snapshot. */
+/** Resolve the OpenCode 2 preview binary with the same instance-aware precedence. */
+export function resolveOpencode2Bin(homeDir?: string, env?: ResolverEnvironment): string {
+  const home = homeDir ?? (env ? (env.HOME ?? homedir()) : (process.env.HOME ?? homedir()))
+  for (const candidate of [
+    join(home, '.opencode', 'bin', 'opencode2'),
+    join(home, '.local', 'bin', 'opencode2'),
+    'opencode2',
+  ]) {
+    if (candidate !== 'opencode2' && !existsSync(candidate)) continue
+    return candidate
+  }
+  return 'opencode2'
+}
+
 export function isOpencodeCliAvailable(homeDir?: string, env?: ResolverEnvironment): boolean {
+  /** Legacy synchronous availability helper. Production discovery uses the daemon snapshot. */
   return opencodeRuns(resolveOpencodeBin(homeDir, env), env)
 }
 
