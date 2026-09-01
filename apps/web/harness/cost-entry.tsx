@@ -352,6 +352,11 @@ state.costRows = [
 function Column({ label, issueId }: { label: string; issueId: string }): JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: 340, flex: '0 0 340px' }}>
+      {/* EVERY FIGURE IN THIS HARNESS IS INVENTED, and the crop says so.
+          A screenshot of a stub was reviewed as if it were live, and the
+          multiple it printed was read as a defect in the panel — it cost a
+          review round. The banner travels with the frame so no crop of it can
+          be mistaken for a reading of this machine. */}
       <div
         style={{
           padding: '8px 12px',
@@ -361,7 +366,7 @@ function Column({ label, issueId }: { label: string; issueId: string }): JSX.Ele
           color: 'var(--text-faint)',
         }}
       >
-        {label}
+        <span style={{ color: 'var(--attention)' }}>FIXTURE</span> · {label}
       </div>
       <div
         data-right-dock-panel="issue"
@@ -388,14 +393,31 @@ function Harness(): JSX.Element {
             <div
               style={{
                 display: 'flex',
+                flexDirection: 'column',
                 height: '100vh',
                 background: 'var(--background)',
-                alignItems: 'stretch',
               }}
             >
-              {CASES.map((c) => (
-                <Column key={c.id} label={c.label} issueId={c.id} />
-              ))}
+              {/* Said once at the top of the frame as well as on every column,
+                  so a full-width crop and a single-column crop both carry it. */}
+              <div
+                style={{
+                  flex: '0 0 auto',
+                  padding: '7px 12px',
+                  font: '10px/1.4 var(--font-mono)',
+                  letterSpacing: '.06em',
+                  color: 'var(--text-faint)',
+                  borderBottom: '1px solid var(--border)',
+                }}
+              >
+                <span style={{ color: 'var(--attention)' }}>FIXTURE DATA</span> — every figure below
+                is invented to exercise a state. Nothing here is a reading of this machine.
+              </div>
+              <div style={{ display: 'flex', flex: 1, minHeight: 0, alignItems: 'stretch' }}>
+                {CASES.map((c) => (
+                  <Column key={c.id} label={c.label} issueId={c.id} />
+                ))}
+              </div>
             </div>
           </IssueExplorerProvider>
         </OperatorFocusProvider>

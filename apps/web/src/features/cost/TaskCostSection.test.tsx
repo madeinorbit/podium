@@ -359,11 +359,11 @@ describe('TaskCostSection · the disclosure', () => {
     expect(row).toContain('Codex session · ')
   })
 
-  it('counts what it lists AND names what it cannot, so the two numbers relate', () => {
-    // The panel used to print "≈$226 over 10" above a fold reading "6 sessions".
-    // `own.sessionCount` is every session with a cost row on this task; the list
-    // holds the subset with a figure, and the difference is stated rather than
-    // left as a silent gap.
+  it('counts every session that RAN, and names the ones it cannot price', () => {
+    // The roster counts sessions that still exist as replica rows; this block
+    // counts transcripts of sessions that ran. A task with ten transcripts and
+    // two surviving rows legitimately shows both numbers, and "that ever ran" is
+    // what makes the larger one make sense beside them.
     render(
       <TaskCostSection
         view={pod1574({
@@ -375,7 +375,7 @@ describe('TaskCostSection · the disclosure', () => {
     )
 
     expect(screen.getByTestId('cost-disclosure').textContent).toContain(
-      '3 of 10 sessions, most expensive first',
+      '10 sessions that ever ran, most expensive first',
     )
     fireEvent.click(screen.getByTestId('cost-disclosure'))
     expect(screen.getByTestId('cost-unpriced').textContent).toBe('7 more with no figure recorded')
@@ -385,7 +385,7 @@ describe('TaskCostSection · the disclosure', () => {
     render(<TaskCostSection view={pod1574({ sessions, own: amount({ sessionCount: 3 }) })} />)
 
     expect(screen.getByTestId('cost-disclosure').textContent).toContain(
-      '3 sessions, most expensive first',
+      '3 sessions that ever ran, most expensive first',
     )
     fireEvent.click(screen.getByTestId('cost-disclosure'))
     expect(screen.queryByTestId('cost-unpriced')).toBeNull()
@@ -401,7 +401,7 @@ describe('TaskCostSection · the disclosure', () => {
       />,
     )
 
-    expect(screen.getByTestId('cost-disclosure').textContent).toContain('1 session')
+    expect(screen.getByTestId('cost-disclosure').textContent).toContain('1 session that ever ran')
     expect(screen.getByTestId('cost-disclosure').textContent).not.toContain('sessions')
     expect(screen.getByTestId('cost-disclosure').textContent).not.toContain('most expensive')
   })

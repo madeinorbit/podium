@@ -327,25 +327,28 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
   // distinction is drawn, which is exactly what it is there for — a column that
   // silently changed scope halfway down would need a second bar to explain it.
   const models = rollup.models
-  // THE DISCLOSURE COUNTS WHAT IT LISTS, AND NAMES WHAT IT CANNOT.
+  // "N SESSIONS THAT EVER RAN" — the coordinator's wording, and it lives here
+  // ONCE because the dock and the task detail page share this component and a
+  // string in two files is a string that diverges.
   //
-  // The panel used to put "≈$226 over 10" in the roster's meta directly above a
-  // fold reading "6 sessions" — two numbers on screen at once that no reader
-  // could reconcile, which is the lying-by-omission the meta was added to
-  // prevent, pointing the other way. `own.sessionCount` is every session with a
-  // cost row on THIS task; `sessions` is the subset that has a figure to sort
-  // by. When they differ the label says so, so the list is visibly short rather
-  // than silently short — and `rosterCostMeta` above carries the rollup scope in
-  // words, so "38 sessions, 6 on this task" and "2 of 6" chain by reading.
+  // "That ever ran" is doing precise work. The panel used to print "≈$226 over
+  // 10" directly above a fold reading "6 sessions", two numbers a reader could
+  // only reconcile by knowing the schema. The cause is not a scope mistake in
+  // either count: the roster and the page rail count sessions that still EXIST
+  // as replica rows, and this block counts transcripts of sessions that RAN. A
+  // task with ten transcripts and two surviving rows legitimately shows both,
+  // and this phrase is what makes the larger number make sense beside them.
   //
-  // The sort clause is dropped at one row, where "most expensive first" claims
-  // an ordering over nothing.
+  // The COUNT is `own.sessionCount` — every session that ran on this task — not
+  // the length of the list, which holds only the ones with a figure to sort by.
+  // The difference is stated inside the fold rather than left as a silent gap,
+  // which is also why the count and the list are allowed to disagree.
   const unpriced = Math.max(0, own.sessionCount - sessions.length)
-  const noun =
-    unpriced > 0
-      ? `${sessions.length} of ${own.sessionCount} sessions`
-      : `${sessions.length} session${sessions.length === 1 ? '' : 's'}`
-  const label = sessions.length === 1 && unpriced === 0 ? noun : `${noun}, most expensive first`
+  const ran = Math.max(own.sessionCount, sessions.length)
+  const label = `${ran} session${ran === 1 ? '' : 's'} that ever ran${
+    // At one row "most expensive first" claims an ordering over nothing.
+    ran === 1 ? '' : ', most expensive first'
+  }`
 
   return (
     <div data-testid="cost-section" data-state="costed">
@@ -387,11 +390,19 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
             aria-expanded={open}
             // The inspector's own fold grammar — wholly mono, because a fold
             // summary counts things.
-            className="w-full px-1 py-1.5 text-left font-mono text-[11px] text-text-dim leading-none hover:text-foreground"
+            // Two COLUMNS rather than a glyph inline with the text: the
+            // mandated label is longer than a 340px dock can hold on one line,
+            // and wrapped inline its second line started under the marker. The
+            // marker keeps its own fixed column so the label hangs against
+            // itself. `leading-none` becomes `leading-[1.35]` for the same
+            // reason — two mono lines set solid touch.
+            className="flex w-full gap-1 px-1 py-1.5 text-left font-mono text-[11px] text-text-dim leading-[1.35] hover:text-foreground"
             data-testid="cost-disclosure"
           >
-            <span className="mr-1">{open ? '⌄' : '›'}</span>
-            {label}
+            <span className="flex-none" aria-hidden="true">
+              {open ? '⌄' : '›'}
+            </span>
+            <span className="min-w-0 flex-1">{label}</span>
           </button>
           {open && (
             <>
