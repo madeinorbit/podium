@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -21,6 +22,16 @@ import type { UsageBucketWire, UsageModelTotalWire, UsageSourceWire } from '@pod
  * more, so it is harvested here rather than by a second walk of the same 4GB —
  * see `scanHostUsageSources`, and section 10 of the POD-1604 design for why a
  * second walk on the daemon's event loop is not an option.
+ *
+ * WHAT THIS DOES NOT DO: MOVE THE WALK OFF THE DAEMON'S EVENT LOOP. There is no
+ * worker thread here. `rescanUsage` still calls `scanHostUsageSources` on the
+ * loop that carries PTY traffic, and `runUsageScan` still awaits it on a request
+ * path the first time a window is asked for. Measured against main the cold walk
+ * is not a regression (9,943ms vs 8,855ms, then 7,703ms vs 7,479ms — noise), and
+ * the cursor makes the STEADY STATE roughly ten times cheaper (620-857ms warm),
+ * but cheaper is not the same as elsewhere. Anyone who needs that loop actually
+ * protected still has to build it; believing it is already done is worse than
+ * knowing it is not, because it stops the next person looking.
  *
  * THE CURSOR IS THE OFFSET AFTER THE LAST NEWLINE, NEVER THE FILE SIZE. A
  * transcript is appended to WHILE it is read, so the final line of any read is
@@ -287,6 +298,25 @@ export interface UsageFileScan {
   model: string
   /** Recent response identities, so an append cannot recount a straddler. */
   tailIds: string[]
+  /**
+   * A hash of the file's first bytes — the OTHER half of the append test.
+   *
+   * "Transcripts are append-only" is load-bearing and, on its own, unverified:
+   * a rewrite in place that leaves the file the same length or longer changes
+   * the mtime, passes a `size >= priorSize` check, and resumes at a cursor that
+   * now points into different content. Measured, that reads 10 records where a
+   * cold walk reads 99, or 930 where a cold walk reads 2,400 — wrong in both
+   * directions, and the wrong fold is then banked in the durable row for good.
+   * So the head is fingerprinted, and a head that moved forces a cold read.
+   *
+   * `headBytes` is how many bytes that hash covers, and it is stored rather than
+   * recomputed because the two files being compared are different lengths: the
+   * next walk hashes exactly THIS many bytes of the new file, so a pure append
+   * to a file shorter than the sample still compares like with like instead of
+   * reading as a changed head.
+   */
+  headHash: string
+  headBytes: number
 }
 
 /**
@@ -577,6 +607,10 @@ async function scanGrokFiles(opts: {
         tailBuckets: [],
         model: rec.model,
         tailIds: [],
+        // Never read incrementally, so the fingerprint has nothing to guard;
+        // size and mtime alone decide whether a snapshot is re-read.
+        headHash: '',
+        headBytes: 0,
       }
       opts.cache?.put(scan)
       out.push(scan)
@@ -733,7 +767,17 @@ async function scanJsonlTranscript(
   prior: UsageFileScan | undefined,
 ): Promise<UsageFileScan> {
   if (prior && prior.fileSize === info.size && prior.mtimeMs === info.mtimeMs) return prior
-  const base = prior && info.size >= prior.fileSize ? prior : undefined
+  // THE APPEND TEST IS TWO-SIDED. Growing (or holding) length is necessary and
+  // nowhere near sufficient: a rewrite in place satisfies it while invalidating
+  // every byte before the cursor. The head fingerprint is what makes "this is
+  // the same file, only longer" a checked claim rather than an assumption; when
+  // it fails the file is read cold, which is always correct and merely slower.
+  const head = await readHead(path, Math.min(HEAD_SAMPLE_BYTES, info.size))
+  const headMatches =
+    prior !== undefined &&
+    prior.headBytes <= head.length &&
+    hashOf(head.subarray(0, prior.headBytes)) === prior.headHash
+  const base = prior && info.size >= prior.fileSize && headMatches ? prior : undefined
 
   const complete: UsageRecord[] = []
   const torn: UsageRecord[] = []
@@ -787,8 +831,35 @@ async function scanJsonlTranscript(
     tailBuckets: bucketize(torn),
     model,
     tailIds: ids.slice(-TAIL_ID_MEMORY),
+    headHash: hashOf(head),
+    headBytes: head.length,
   }
 }
+
+/**
+ * Fingerprint the first `HEAD_SAMPLE_BYTES` of a file.
+ *
+ * A transcript's head is its `session_meta` / first records — stable for the
+ * life of an append-only file and different in any file rewritten from scratch.
+ * Sampling the head rather than the whole file is what keeps this O(1) per walk
+ * instead of re-reading the 4GB the cursor exists to avoid.
+ */
+const HEAD_SAMPLE_BYTES = 4096
+
+async function readHead(path: string, length: number): Promise<Buffer> {
+  if (length <= 0) return Buffer.alloc(0)
+  const handle = await open(path, 'r')
+  try {
+    const buffer = Buffer.alloc(length)
+    const { bytesRead } = await handle.read(buffer, 0, length, 0)
+    return buffer.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+}
+
+const hashOf = (bytes: Buffer): string =>
+  createHash('sha256').update(bytes).digest('hex').slice(0, 32)
 
 /** `JSON.parse` + extract, treating a torn or non-JSON line as nothing. */
 function parseLine<T>(line: string, extract: (record: unknown) => T | null | undefined): T | null {
@@ -830,11 +901,17 @@ async function streamJsonl(
     while (offset < size) {
       const len = Math.min(CHUNK, size - offset)
       const buffer = Buffer.alloc(len)
-      await handle.read(buffer, 0, len, offset)
-      const lastNewline = buffer.lastIndexOf(0x0a)
+      // ADVANCE BY WHAT WAS ACTUALLY READ, never by the slab length. A short
+      // read is legal, and treating it as a full one would both feed the decoder
+      // the untouched tail of the buffer as content and skip the bytes that were
+      // never read — a silent hole in the middle of a transcript.
+      const { bytesRead } = await handle.read(buffer, 0, len, offset)
+      if (bytesRead <= 0) break
+      const chunk = buffer.subarray(0, bytesRead)
+      const lastNewline = chunk.lastIndexOf(0x0a)
       if (lastNewline >= 0) consumed = offset + lastNewline + 1
-      offset += len
-      for (const line of decoder.push(buffer)) emit(line, true)
+      offset += bytesRead
+      for (const line of decoder.push(chunk)) emit(line, true)
     }
     const last = decoder.flush()
     if (last !== null) emit(last, false)

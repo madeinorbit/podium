@@ -759,6 +759,67 @@ describe('the incremental cursor', () => {
     expect(settled.sources[0]!.scannedBytes).toBe(statSync(path).size)
   })
 
+  // "Transcripts are append-only" is load-bearing, and a length test alone does
+  // not check it: a rewrite in place that keeps or grows the size passes it and
+  // then resumes at a cursor pointing into different content.
+  it('cold-reads a file rewritten in place at the SAME size', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    const line = (id: string, input: number) =>
+      assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', input, 20, { requestId: id })
+    write(path, [line('r1', 11), line('r2', 11)])
+
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    // Same byte length, entirely different content — the file was rewritten.
+    write(path, [line('r3', 22), line('r4', 22)])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cold = await scanHostUsageSources({ sinceMs: 0, homeDir: dir })
+    expect(warm.sources[0]!.models).toEqual(cold.sources[0]!.models)
+    expect(warm.sources[0]!.models[0]).toMatchObject({ inputTokens: 44, messages: 2 })
+  })
+
+  it('cold-reads a file rewritten LONGER with all-new content', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    write(path, [
+      assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'r1' }),
+    ])
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    write(path, [
+      assistantLine('2026-06-12T10:03:00.000Z', 'claude-opus-5', 5, 5, { requestId: 'x1' }),
+      assistantLine('2026-06-12T10:04:00.000Z', 'claude-opus-5', 5, 5, { requestId: 'x2' }),
+      assistantLine('2026-06-12T10:05:00.000Z', 'claude-opus-5', 5, 5, { requestId: 'x3' }),
+    ])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cold = await scanHostUsageSources({ sinceMs: 0, homeDir: dir })
+    expect(warm.sources[0]!.models).toEqual(cold.sources[0]!.models)
+    expect(warm.sources[0]!.models[0]).toMatchObject({ inputTokens: 15, messages: 3 })
+  })
+
+  // The fingerprint must not defeat the cursor it guards: a file shorter than
+  // the head sample still has to resume incrementally when it merely grows.
+  it('still resumes incrementally on a small file that only grew', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    write(path, [
+      assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'r1' }),
+    ])
+    const cache = new UsageScanCache()
+    const first = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cursor = first.sources[0]!.scannedBytes
+    append(path, [
+      assistantLine('2026-06-12T10:02:00.000Z', 'claude-opus-5', 30, 40, { requestId: 'r2' }),
+    ])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cold = await scanHostUsageSources({ sinceMs: 0, homeDir: dir })
+    expect(warm.sources[0]!.scannedBytes).toBeGreaterThan(cursor)
+    expect(warm.sources[0]!.models).toEqual(cold.sources[0]!.models)
+  })
+
   it('re-reads from zero when a file shrank, rather than trusting a stale cursor', async () => {
     const dir = home()
     const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
