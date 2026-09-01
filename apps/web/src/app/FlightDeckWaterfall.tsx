@@ -1,5 +1,8 @@
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
-import { FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY } from '@podium/client-core/ui-state'
+import {
+  FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
+  FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
+} from '@podium/client-core/ui-state'
 import {
   deckSessions,
   type FlightDeckMode,
@@ -7,6 +10,7 @@ import {
   isCoordinatorSession,
   nativeSubagentRows,
   sessionAsksOnIssue,
+  sessionSettled,
   sessionUnreadEmphasized,
 } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionMeta } from '@podium/model/browser'
@@ -40,6 +44,7 @@ import { useClickIntent } from './click-intent'
 import type { FlightDeckDisplay } from './flight-deck-display'
 import {
   fitWaterfallViewport,
+  followWaterfallViewport,
   foldWaterfallSegments,
   formatWaterfallClock,
   formatWaterfallDuration,
@@ -68,19 +73,101 @@ import { useStoreSelector } from './store'
 const WATERFALL_ROW_ZOOM_MIN = 0.72
 const WATERFALL_ROW_ZOOM_MAX = 1.55
 const WATERFALL_ROW_ZOOM_STEP = 0.08
+const WATERFALL_AXIS_HEIGHT = 32
+const WATERFALL_TASK_WIDTH_MIN = 168
+const WATERFALL_TASK_WIDTH_MAX = 300
+const WATERFALL_TRACK_WIDTH_MIN = 132
+const WATERFALL_TASK_WIDTH_STEP = 12
 
 export function clampWaterfallRowZoom(value: number): number {
   if (!Number.isFinite(value)) return 1
   return Math.min(WATERFALL_ROW_ZOOM_MAX, Math.max(WATERFALL_ROW_ZOOM_MIN, value))
 }
 
-function readWaterfallRowZoom(raw: string | null): number {
-  return clampWaterfallRowZoom(raw === null ? 1 : Number(raw))
+function readWaterfallRowZoom(raw: string | null): number | null {
+  if (raw === null) return null
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? clampWaterfallRowZoom(parsed) : null
 }
 
-function writeWaterfallRowZoom(value: number): string | null {
-  const clamped = clampWaterfallRowZoom(value)
-  return Math.abs(clamped - 1) < 0.005 ? null : clamped.toFixed(2)
+function writeWaterfallRowZoom(value: number | null): string | null {
+  return value === null ? null : clampWaterfallRowZoom(value).toFixed(2)
+}
+
+function waterfallRowMetrics(zoom: number): {
+  bar: number
+  lane: number
+  gap: number
+  padding: number
+} {
+  return {
+    bar: Math.round(Math.min(28, Math.max(15, 20 * zoom))),
+    lane: Math.round(Math.min(34, Math.max(19, 24 * zoom))),
+    gap: Math.round(Math.min(5, Math.max(1, 2 * zoom))),
+    padding: Math.round(Math.min(7, Math.max(3, 4 * zoom))),
+  }
+}
+
+/** Largest row scale whose initial lanes fit the visible part of the deck. */
+export function defaultWaterfallRowZoom(
+  availableHeight: number,
+  laneCounts: readonly number[],
+): number {
+  if (availableHeight <= WATERFALL_AXIS_HEIGHT || laneCounts.length === 0) return 1
+  const budget = availableHeight - WATERFALL_AXIS_HEIGHT
+  const contentHeight = (zoom: number): number => {
+    const metrics = waterfallRowMetrics(zoom)
+    return laneCounts.reduce((total, rawCount) => {
+      const count = Math.max(1, rawCount)
+      const track = count * metrics.lane + Math.max(0, count - 1) * metrics.gap
+      const issueDetails = 30 + metrics.padding * 2
+      return total + Math.max(track + metrics.padding * 2, issueDetails) + 1
+    }, 0)
+  }
+  if (contentHeight(WATERFALL_ROW_ZOOM_MAX) <= budget) return WATERFALL_ROW_ZOOM_MAX
+  if (contentHeight(WATERFALL_ROW_ZOOM_MIN) >= budget) return WATERFALL_ROW_ZOOM_MIN
+  let low = WATERFALL_ROW_ZOOM_MIN
+  let high = WATERFALL_ROW_ZOOM_MAX
+  for (let index = 0; index < 12; index += 1) {
+    const middle = (low + high) / 2
+    if (contentHeight(middle) <= budget) low = middle
+    else high = middle
+  }
+  return Math.round(low * 100) / 100
+}
+
+function readWaterfallTaskWidth(raw: string | null): number | null {
+  if (raw === null) return null
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function writeWaterfallTaskWidth(value: number | null): string | null {
+  return value === null ? null : String(Math.round(value))
+}
+
+export function clampWaterfallTaskWidth(value: number, rootWidth: number): number {
+  const max =
+    rootWidth > 0
+      ? Math.max(
+          WATERFALL_TASK_WIDTH_MIN,
+          Math.min(WATERFALL_TASK_WIDTH_MAX, rootWidth - WATERFALL_TRACK_WIDTH_MIN),
+        )
+      : WATERFALL_TASK_WIDTH_MAX
+  return Math.round(Math.min(max, Math.max(WATERFALL_TASK_WIDTH_MIN, value)))
+}
+
+/** Content-aware starting width with enough timeline left for useful bars. */
+export function defaultWaterfallTaskWidth(
+  titles: readonly string[],
+  rootWidth: number,
+  expanded: boolean,
+): number {
+  const longest = titles.reduce((length, title) => Math.max(length, [...title].length), 0)
+  const titleRoom = Math.min(34, Math.max(18, longest)) * 6.1
+  const desired = Math.max(expanded ? 214 : 188, 64 + titleRoom)
+  const fallbackRootWidth = expanded ? 680 : 360
+  return clampWaterfallTaskWidth(desired, rootWidth || fallbackRootWidth)
 }
 
 interface WaterfallIssueRow {
@@ -229,22 +316,28 @@ const WaterfallAxis = memo(function WaterfallAxis({
   frame,
   ticks,
   following,
+  hasCurrentWork,
   rowZoom,
+  automaticRowZoom,
   onZoom,
   onRowZoomPreview,
   onRowZoomCommit,
+  onRowZoomReset,
   onFit,
-  onLive,
+  onFollow,
 }: {
   frame: WaterfallFrame
   ticks: readonly WaterfallTick[]
   following: boolean
+  hasCurrentWork: boolean
   rowZoom: number
+  automaticRowZoom: boolean
   onZoom: (factor: number) => void
   onRowZoomPreview: (scale: number | null) => void
   onRowZoomCommit: (scale: number) => void
+  onRowZoomReset: () => void
   onFit: () => void
-  onLive: () => void
+  onFollow: () => void
 }): JSX.Element {
   const nowVisible = frame.nowPct >= 0 && frame.nowPct <= 100
   const nowAtEdge = (frame.nowPct / 100) * frame.trackPx > frame.trackPx - 26
@@ -265,9 +358,9 @@ const WaterfallAxis = memo(function WaterfallAxis({
           aria-valuemin={Math.round(WATERFALL_ROW_ZOOM_MIN * 100)}
           aria-valuemax={Math.round(WATERFALL_ROW_ZOOM_MAX * 100)}
           aria-valuenow={Math.round(rowZoom * 100)}
-          aria-valuetext={`${Math.round(rowZoom * 100)} percent`}
-          title="Drag vertically to resize rows. Double-click to reset."
-          onDoubleClick={() => onRowZoomCommit(1)}
+          aria-valuetext={`${Math.round(rowZoom * 100)} percent${automaticRowZoom ? ', automatic' : ', saved'}`}
+          title="Drag vertically to resize rows. Double-click or press 0 to restore automatic sizing."
+          onDoubleClick={onRowZoomReset}
           onPointerDown={(event) => {
             if (event.button !== 0) return
             rowDragRef.current = { y: event.clientY, zoom: rowZoom, pointerId: event.pointerId }
@@ -306,7 +399,7 @@ const WaterfallAxis = memo(function WaterfallAxis({
               onRowZoomCommit(WATERFALL_ROW_ZOOM_MAX)
             } else if (event.key === '0') {
               event.preventDefault()
-              onRowZoomCommit(1)
+              onRowZoomReset()
             }
           }}
         >
@@ -360,16 +453,21 @@ const WaterfallAxis = memo(function WaterfallAxis({
             </span>
           ) : null}
         </div>
-        {!following || !nowVisible ? (
+        {!following ? (
           <button
             data-pressable
             type="button"
             className="waterfall-live-resume"
-            onClick={onLive}
-            aria-label="Follow live time again"
+            onClick={onFollow}
+            aria-label={hasCurrentWork ? 'Follow current work and time' : 'Return to latest work'}
+            title={
+              hasCurrentWork
+                ? 'Return to current work and keep the timeline moving with time'
+                : 'Return to the latest completed work'
+            }
           >
             <Crosshair size={9} aria-hidden="true" />
-            live
+            {hasCurrentWork ? 'Follow now' : 'Latest work'}
           </button>
         ) : null}
       </div>
@@ -1081,13 +1179,33 @@ export function FlightDeckWaterfall({
 
   const [manual, setManual] = useState<WaterfallViewport | null>(null)
   const [flashSessionId, setFlashSessionId] = useState<string | null>(null)
-  const [savedRowZoom, setSavedRowZoom] = usePersistedUiState<number>(
+  const [savedRowZoom, setSavedRowZoom] = usePersistedUiState<number | null>(
     FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
     readWaterfallRowZoom,
     writeWaterfallRowZoom,
   )
   const [rowZoomPreview, setRowZoomPreview] = useState<number | null>(null)
-  const rowZoom = rowZoomPreview ?? savedRowZoom
+  const [availableHeight, setAvailableHeight] = useState(0)
+  const initialLaneCounts = useMemo(
+    () =>
+      projected.map((item) => {
+        const collapsedFinished = item.sessions.filter(
+          (session) =>
+            waterfallSessionState(session) === 'finished' &&
+            !isCoordinatorSession(item.row.issue, session.sessionId) &&
+            session.sessionId !== activeSessionId,
+        ).length
+        return collapsedFinished > 3
+          ? Math.max(1, item.sessions.length - collapsedFinished + 1)
+          : Math.max(1, item.sessions.length)
+      }),
+    [activeSessionId, projected],
+  )
+  const automaticRowZoom = useMemo(
+    () => defaultWaterfallRowZoom(availableHeight, initialLaneCounts),
+    [availableHeight, initialLaneCounts],
+  )
+  const rowZoom = rowZoomPreview ?? savedRowZoom ?? automaticRowZoom
   const commitRowZoom = useCallback(
     (next: number): void => {
       setRowZoomPreview(null)
@@ -1095,11 +1213,40 @@ export function FlightDeckWaterfall({
     },
     [setSavedRowZoom],
   )
-  const viewport = manual ?? fitWaterfallViewport(timelineStart, now, { future: hasFuture })
+  const resetRowZoom = useCallback((): void => {
+    setRowZoomPreview(null)
+    setSavedRowZoom(null)
+  }, [setSavedRowZoom])
+
+  const [savedTaskWidth, setSavedTaskWidth] = usePersistedUiState<number | null>(
+    FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
+    readWaterfallTaskWidth,
+    writeWaterfallTaskWidth,
+  )
+  const [taskWidthPreview, setTaskWidthPreview] = useState<number | null>(null)
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const [trackPx, setTrackPx] = useState(240)
+  const [rootPx, setRootPx] = useState(0)
+  const automaticTaskWidth = useMemo(
+    () =>
+      defaultWaterfallTaskWidth(
+        projected.map((item) => item.displayTitle),
+        rootPx,
+        display === 'expanded',
+      ),
+    [display, projected, rootPx],
+  )
+  const taskWidth = clampWaterfallTaskWidth(
+    taskWidthPreview ?? savedTaskWidth ?? automaticTaskWidth,
+    rootPx,
+  )
+  const autoViewport = useMemo(
+    () => followWaterfallViewport(sessions, now, trackPx, { future: hasFuture }),
+    [hasFuture, now, sessions, trackPx],
+  )
+  const viewport = manual ?? autoViewport
   useEffect(() => {
     const root = rootRef.current
     if (!root) return
@@ -1108,9 +1255,12 @@ export function FlightDeckWaterfall({
     trackRef.current = probe as HTMLDivElement
     const observer = new ResizeObserver(() => {
       setTrackPx(Math.max(60, probe.clientWidth))
+      setRootPx(root.clientWidth)
     })
     observer.observe(probe)
+    observer.observe(root)
     setTrackPx(Math.max(60, probe.clientWidth))
+    setRootPx(root.clientWidth)
     return () => observer.disconnect()
   }, [])
 
@@ -1124,9 +1274,11 @@ export function FlightDeckWaterfall({
     if (!(scroller instanceof HTMLElement) || !(chrome instanceof HTMLElement)) return
     const apply = (): void => {
       scroller.style.setProperty('--waterfall-chrome-offset', `${chrome.offsetHeight}px`)
+      setAvailableHeight(Math.max(0, scroller.clientHeight - chrome.offsetHeight))
     }
     const observer = new ResizeObserver(apply)
     observer.observe(chrome)
+    observer.observe(scroller)
     apply()
     return () => {
       observer.disconnect()
@@ -1254,9 +1406,19 @@ export function FlightDeckWaterfall({
 
   const zoomBy = useCallback((factor: number): void => {
     const current = frameRef.current
-    const anchor = Math.min(1, Math.max(0, current.nowPct / 100))
+    const anchor =
+      current.nowPct >= 0 && current.nowPct <= 100
+        ? Math.min(1, Math.max(0, current.nowPct / 100))
+        : 0.5
     setManual(zoomWaterfallViewport(current.viewport, factor, anchor, current.now))
   }, [])
+  const fitAll = useCallback((): void => {
+    setManual(
+      fitWaterfallViewport(timelineStart, frameRef.current.now, {
+        future: hasFuture,
+      }),
+    )
+  }, [hasFuture, timelineStart])
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -1272,7 +1434,7 @@ export function FlightDeckWaterfall({
         zoomBy(1.6)
       } else if (event.key === '0') {
         event.preventDefault()
-        setManual(null)
+        fitAll()
       } else if (event.key === 'ArrowLeft' && event.altKey) {
         event.preventDefault()
         setManual(panWaterfallViewport(current.viewport, -span * 0.2, current.now))
@@ -1281,7 +1443,69 @@ export function FlightDeckWaterfall({
         setManual(panWaterfallViewport(current.viewport, span * 0.2, current.now))
       }
     },
-    [zoomBy],
+    [fitAll, zoomBy],
+  )
+
+  const taskWidthDragRef = useRef<{
+    x: number
+    width: number
+    latest: number
+    pointerId: number
+  } | null>(null)
+  const onTaskWidthPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLSpanElement>): void => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      taskWidthDragRef.current = {
+        x: event.clientX,
+        width: taskWidth,
+        latest: taskWidth,
+        pointerId: event.pointerId,
+      }
+      event.currentTarget.setPointerCapture(event.pointerId)
+    },
+    [taskWidth],
+  )
+  const onTaskWidthPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLSpanElement>): void => {
+      const drag = taskWidthDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      drag.latest = clampWaterfallTaskWidth(drag.width + event.clientX - drag.x, rootPx)
+      setTaskWidthPreview(drag.latest)
+    },
+    [rootPx],
+  )
+  const finishTaskWidthDrag = useCallback(
+    (event: ReactPointerEvent<HTMLSpanElement>, commit: boolean): void => {
+      const drag = taskWidthDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      taskWidthDragRef.current = null
+      setTaskWidthPreview(null)
+      if (commit) setSavedTaskWidth(drag.latest)
+    },
+    [setSavedTaskWidth],
+  )
+  const onTaskWidthKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLSpanElement>): void => {
+      if (event.key === 'Escape' || event.key === '0') {
+        event.preventDefault()
+        setTaskWidthPreview(null)
+        setSavedTaskWidth(null)
+        return
+      }
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      event.preventDefault()
+      const next =
+        event.key === 'Home'
+          ? WATERFALL_TASK_WIDTH_MIN
+          : event.key === 'End'
+            ? WATERFALL_TASK_WIDTH_MAX
+            : taskWidth +
+              (event.key === 'ArrowLeft' ? -WATERFALL_TASK_WIDTH_STEP : WATERFALL_TASK_WIDTH_STEP)
+      setSavedTaskWidth(clampWaterfallTaskWidth(next, rootPx))
+    },
+    [rootPx, setSavedTaskWidth, taskWidth],
   )
 
   // TAB AREA → WATERFALL. `activeSessionId` follows the workspace's focused
@@ -1359,6 +1583,9 @@ export function FlightDeckWaterfall({
     // The NOW chip outranks any wall-clock label it would sit on.
     return all.filter((tick) => (Math.abs(tick.pct - frame.nowPct) / 100) * frame.trackPx > 26)
   }, [frame.nowPct, frame.trackPx, frame.viewport, nowInFrame])
+  const rowMetrics = waterfallRowMetrics(rowZoom)
+  const hasCurrentWork = sessions.some((session) => !sessionSettled(session))
+  const taskWidthMax = clampWaterfallTaskWidth(WATERFALL_TASK_WIDTH_MAX, rootPx)
   return (
     <TooltipProvider delay={140}>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: zoom/pan gesture surface; every action here also has a real button or key. */}
@@ -1371,11 +1598,12 @@ export function FlightDeckWaterfall({
         style={
           {
             '--waterfall-now': `${frame.nowPct}%`,
+            '--waterfall-label-col': `${taskWidth}px`,
             '--waterfall-row-zoom': rowZoom,
-            '--waterfall-bar-height': `${Math.round(Math.min(28, Math.max(15, 20 * rowZoom)))}px`,
-            '--waterfall-lane-height': `${Math.round(Math.min(34, Math.max(19, 24 * rowZoom)))}px`,
-            '--waterfall-row-gap': `${Math.round(Math.min(5, Math.max(1, 2 * rowZoom)))}px`,
-            '--waterfall-row-padding': `${Math.round(Math.min(7, Math.max(3, 4 * rowZoom)))}px`,
+            '--waterfall-bar-height': `${rowMetrics.bar}px`,
+            '--waterfall-lane-height': `${rowMetrics.lane}px`,
+            '--waterfall-row-gap': `${rowMetrics.gap}px`,
+            '--waterfall-row-padding': `${rowMetrics.padding}px`,
           } as CSSProperties
         }
         onKeyDown={onKeyDown}
@@ -1389,12 +1617,35 @@ export function FlightDeckWaterfall({
           frame={frame}
           ticks={ticks}
           following={manual === null}
+          hasCurrentWork={hasCurrentWork}
           rowZoom={rowZoom}
+          automaticRowZoom={savedRowZoom === null}
           onZoom={zoomBy}
           onRowZoomPreview={setRowZoomPreview}
           onRowZoomCommit={commitRowZoom}
-          onFit={() => setManual(null)}
-          onLive={() => setManual(null)}
+          onRowZoomReset={resetRowZoom}
+          onFit={fitAll}
+          onFollow={() => setManual(null)}
+        />
+        <span
+          className="waterfall-column-resizer"
+          role="separator"
+          tabIndex={0}
+          aria-label="Task details width"
+          aria-orientation="vertical"
+          aria-valuemin={WATERFALL_TASK_WIDTH_MIN}
+          aria-valuemax={taskWidthMax}
+          aria-valuenow={taskWidth}
+          aria-valuetext={`${taskWidth} pixels${savedTaskWidth === null ? ', automatic' : ', saved'}`}
+          data-dragging={taskWidthPreview !== null || undefined}
+          title="Drag to resize task details. Double-click, press 0, or press Escape to restore automatic width."
+          onDoubleClick={() => setSavedTaskWidth(null)}
+          onPointerDown={onTaskWidthPointerDown}
+          onPointerMove={onTaskWidthPointerMove}
+          onPointerUp={(event) => finishTaskWidthDrag(event, true)}
+          onPointerCancel={(event) => finishTaskWidthDrag(event, false)}
+          onLostPointerCapture={(event) => finishTaskWidthDrag(event, false)}
+          onKeyDown={onTaskWidthKeyDown}
         />
         <div className="waterfall-gridlines" aria-hidden="true">
           <div className="waterfall-gridlines-track">

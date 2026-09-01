@@ -29,6 +29,8 @@ const FUTURE_HEADROOM = 0.16
 const FUTURE_HEADROOM_BARE = 0.05
 /** Lead-in pad behind the earliest bar so it does not touch the label column. */
 const FIT_LEAD = 0.02
+/** Default bar width that leaves room for an agent name and its leading glyph. */
+const FOLLOW_BAR_TARGET_PX = 112
 
 export type WaterfallSessionState = 'finished' | 'live' | 'working' | 'attention'
 
@@ -114,6 +116,52 @@ export function fitWaterfallViewport(
   return {
     start: now - span * (1 + FIT_LEAD),
     end: now + span * headroom,
+  }
+}
+
+/**
+ * The useful default is a detail view, not an archive fit. Live sessions end
+ * at Now, so their right edges share a stable anchor while older completed
+ * work is allowed to leave the frame. Once the crew has stopped, the same
+ * calculation parks on the latest completed work instead of showing an empty
+ * gap between that work and today's clock.
+ */
+export function followWaterfallViewport(
+  sessions: readonly SessionMeta[],
+  now: number,
+  trackPx: number,
+  options: { future?: boolean } = {},
+): WaterfallViewport {
+  if (sessions.length === 0) return fitWaterfallViewport(null, now, options)
+
+  const active = sessions.filter((session) => !sessionSettled(session))
+  const byMostRecent = [...sessions].sort(
+    (left, right) =>
+      waterfallSessionEnd(right, now) - waterfallSessionEnd(left, now) ||
+      waterfallSessionStart(right, now) - waterfallSessionStart(left, now),
+  )
+  const focus = active.length > 0 ? active : byMostRecent.slice(0, 3)
+  const focusEnd = active.length > 0 ? now : waterfallSessionEnd(focus[0] ?? sessions[0], now)
+  const durations = focus
+    .map((session) =>
+      Math.max(
+        WATERFALL_MIN_SPAN_MS,
+        waterfallSessionEnd(session, now) - waterfallSessionStart(session, now),
+      ),
+    )
+    .sort((left, right) => left - right)
+  const typicalDuration =
+    durations[Math.floor((durations.length - 1) / 2)] ?? WATERFALL_MIN_WINDOW_MS
+  const detailSpan = typicalDuration * Math.max(2, Math.max(1, trackPx) / FOLLOW_BAR_TARGET_PX)
+  const newestStart = Math.max(...focus.map((session) => waterfallSessionStart(session, focusEnd)))
+  const contentSpan = Math.min(
+    WATERFALL_MAX_WINDOW_MS,
+    Math.max(WATERFALL_MIN_WINDOW_MS, focusEnd - newestStart, detailSpan),
+  )
+  const headroom = options.future ? FUTURE_HEADROOM : FUTURE_HEADROOM_BARE
+  return {
+    start: focusEnd - contentSpan * (1 + FIT_LEAD),
+    end: focusEnd + contentSpan * headroom,
   }
 }
 

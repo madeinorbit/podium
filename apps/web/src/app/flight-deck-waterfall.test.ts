@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   fitWaterfallViewport,
   foldWaterfallSegments,
+  followWaterfallViewport,
   formatWaterfallDuration,
   panWaterfallViewport,
   summarizeWaterfallSegments,
@@ -136,6 +137,39 @@ describe('waterfall viewport', () => {
     expect(fresh.end - fresh.start).toBeGreaterThanOrEqual(WATERFALL_MIN_WINDOW_MS)
     const ancient = fitWaterfallViewport(NOW - 14 * 24 * 60 * 60 * 1_000, NOW)
     expect(ancient.end - ancient.start).toBeLessThanOrEqual(WATERFALL_MAX_WINDOW_MS * 1.3)
+  })
+
+  it('follows current work without flattening it against old history', () => {
+    const old = session('old', {
+      status: 'stopped',
+      createdAt: '2026-08-29T10:00:00.000Z',
+      stoppedAt: '2026-08-29T10:10:00.000Z',
+    })
+    const current = session('current', {
+      createdAt: '2026-08-31T11:55:00.000Z',
+      lastActiveAt: '2026-08-31T11:59:00.000Z',
+    })
+    const viewport = followWaterfallViewport([old, current], NOW, 480)
+    const bar = waterfallBarGeometry(waterfallSessionStart(current, NOW), NOW, viewport)
+
+    expect(waterfallPercent(viewport, NOW)).toBeGreaterThan(85)
+    expect(bar.widthPct * 4.8).toBeGreaterThanOrEqual(90)
+    expect(waterfallBarGeometry(waterfallSessionStart(old, NOW), NOW, viewport).clippedStart).toBe(
+      true,
+    )
+  })
+
+  it('parks a completed crew on its latest work instead of an empty present-day gap', () => {
+    const latestEnd = NOW - 6 * 60 * 60_000
+    const finished = session('finished', {
+      status: 'stopped',
+      createdAt: new Date(latestEnd - 10 * 60_000).toISOString(),
+      stoppedAt: new Date(latestEnd).toISOString(),
+    })
+    const viewport = followWaterfallViewport([finished], NOW, 480)
+
+    expect(waterfallPercent(viewport, latestEnd)).toBeGreaterThan(85)
+    expect(waterfallPercent(viewport, NOW)).toBeGreaterThan(100)
   })
 
   it('zooms around the anchor so the time under the cursor stays put', () => {

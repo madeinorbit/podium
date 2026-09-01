@@ -2,6 +2,7 @@
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
+  FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -9,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { DOUBLE_CLICK_MS } from './click-intent'
+import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
 import {
   briefCutoffLayout,
   continuationPresenceLine,
@@ -258,6 +260,28 @@ const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
   'scrollHeight',
 )
+
+describe('waterfall automatic geometry', () => {
+  it('uses the available height for sparse and crowded crews', () => {
+    expect(defaultWaterfallRowZoom(700, [1, 1, 2])).toBe(1.55)
+    expect(defaultWaterfallRowZoom(240, [3, 4, 2, 5, 3])).toBe(0.72)
+    const middle = defaultWaterfallRowZoom(320, [2, 2, 2, 2])
+    expect(middle).toBeGreaterThan(0.72)
+    expect(middle).toBeLessThan(1.55)
+  })
+
+  it('gives long task titles more room while preserving the timeline', () => {
+    const short = defaultWaterfallTaskWidth(['Build'], 680, true)
+    const long = defaultWaterfallTaskWidth(
+      ['Coordinate the production database migration and verification'],
+      680,
+      true,
+    )
+    expect(long).toBeGreaterThan(short)
+    expect(long).toBeLessThanOrEqual(300)
+    expect(defaultWaterfallTaskWidth(['Long task title'], 300, false)).toBe(168)
+  })
+})
 
 afterEach(() => {
   for (const off of afterEachListeners.splice(0)) off()
@@ -1021,6 +1045,39 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 
     fireEvent.pointerUp(control, { clientY: 76, pointerId: 7 })
     expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.28')
+
+    fireEvent.keyDown(control, { key: '0' })
+    expect(harness.ui.has(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe(false)
+    expect(control.getAttribute('aria-valuetext')).toContain('automatic')
+  })
+
+  it('resizes task details, saves the width, and restores automatic sizing', () => {
+    deck()
+    const divider = screen.getByRole('separator', { name: 'Task details width' })
+    const initial = Number(divider.getAttribute('aria-valuenow'))
+    expect(initial).toBeGreaterThan(148)
+    expect(divider.getAttribute('aria-valuetext')).toContain('automatic')
+
+    fireEvent.keyDown(divider, { key: 'ArrowRight' })
+    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY)).toBe(String(initial + 12))
+    expect(divider.getAttribute('aria-valuetext')).toContain('saved')
+
+    fireEvent.keyDown(divider, { key: 'Escape' })
+    expect(harness.ui.has(FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY)).toBe(false)
+    expect(divider.getAttribute('aria-valuetext')).toContain('automatic')
+  })
+
+  it('explains how to return after leaving the current timeline', () => {
+    deck()
+    expect(screen.queryByRole('button', { name: 'Follow current work and time' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    const follow = screen.getByRole('button', { name: 'Follow current work and time' })
+    expect(follow.textContent).toContain('Follow now')
+    expect(follow.getAttribute('title')).toContain('keep the timeline moving')
+
+    fireEvent.click(follow)
+    expect(screen.queryByRole('button', { name: 'Follow current work and time' })).toBeNull()
   })
 
   it('uses amber alone for a session that needs attention', () => {

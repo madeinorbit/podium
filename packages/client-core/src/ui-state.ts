@@ -264,8 +264,9 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
    *  agent state, and a phone has no business inheriting a desktop's folds. */
   'podium.flightDeck.mode',
   'podium.flightDeck.folds',
-  /** Per-device vertical scale for the Flight Deck waterfall. */
+  /** Per-device geometry for the Flight Deck waterfall. */
   'podium.flightDeck.waterfallRowZoom',
+  'podium.flightDeck.waterfallTaskWidth',
   /**
    * The mission-brief cutoff as a fraction of this screen's Flight Deck height.
    * It applies to every mission on the device, but does not travel to a phone or
@@ -328,6 +329,7 @@ export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
 export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
 export const FLIGHT_DECK_BRIEF_CUTOFF_KEY = 'podium.flightDeck.briefCutoff'
 export const FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY = 'podium.flightDeck.waterfallRowZoom'
+export const FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY = 'podium.flightDeck.waterfallTaskWidth'
 export const FLIGHT_DECK_DISPLAY_KEY = 'podium.flightDeck.display'
 export const FLIGHT_DECK_EXPANDED_WIDTH_KEY = 'podium:flightDeck:expandedWidth'
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'

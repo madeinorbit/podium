@@ -9621,9 +9621,6 @@ a.ref-link--session::before {
   container-type: inline-size;
   container-name: flight-waterfall;
 }
-.flight-waterfall-expanded {
-  --waterfall-label-col: 184px;
-}
 .waterfall-axis,
 .waterfall-issue-row,
 .waterfall-now-line {
@@ -9681,6 +9678,34 @@ a.ref-link--session::before {
 .waterfall-row-zoom:focus-visible {
   outline: 2px solid var(--issue);
   outline-offset: 1px;
+}
+.waterfall-column-resizer {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  bottom: 0;
+  left: var(--waterfall-label-col);
+  width: 9px;
+  cursor: ew-resize;
+  touch-action: none;
+  translate: -50% 0;
+}
+.waterfall-column-resizer::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 100ms ease-out;
+}
+.waterfall-column-resizer:hover::after,
+.waterfall-column-resizer:focus-visible::after,
+.waterfall-column-resizer[data-dragging]::after {
+  background: var(--issue);
+}
+.waterfall-column-resizer:focus-visible {
+  outline: none;
 }
 .waterfall-axis-track {
   position: relative;
@@ -10419,9 +10444,6 @@ button.waterfall-fold:hover {
 }
 
 @container flight-waterfall (max-width: 390px) {
-  .flight-waterfall {
-    --waterfall-label-col: 112px;
-  }
   .waterfall-issue-title {
     font-size: 10.5px;
   }
