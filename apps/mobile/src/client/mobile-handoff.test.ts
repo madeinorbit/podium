@@ -175,9 +175,34 @@ describe('profile-bound mobile handoff decisions', () => {
 })
 
 describe('incoming handoff scope', () => {
+  it('captures ordinary issue and session links as navigation targets', () => {
+    expect(
+      parseMobileHandoffUrl(formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' })),
+    ).toEqual({ kind: 'navigation', target: { kind: 'issue', issue: 'POD-1710' } })
+    expect(
+      parseMobileHandoffUrl(
+        formatPodiumLink(PODIUM_SCHEME, { kind: 'session', session: 'POD-1710-A' }),
+      ),
+    ).toEqual({ kind: 'navigation', target: { kind: 'session', session: 'POD-1710-A' } })
+  })
+
+  it('opens ordinary navigation only after the active profile replica is ready', () => {
+    const navigation = parseMobileHandoffUrl(
+      formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' }),
+    )
+    expect(navigation).not.toBeNull()
+    expect(decideMobileHandoff(navigation!, context())).toEqual({
+      kind: 'open',
+      target: { kind: 'issue', issue: 'POD-1710' },
+    })
+    expect(decideMobileHandoff(navigation!, context({ replicaReady: false }))).toEqual({
+      kind: 'wait-replica',
+    })
+  })
+
   it('fails an unscoped session destination closed to Work', () => {
     const parsed = parseMobileHandoffUrl(
-      formatPodiumLink(PODIUM_SCHEME, { kind: 'session', session: SESSION_ID }),
+      `${formatPodiumLink(PODIUM_SCHEME, { kind: 'session', session: SESSION_ID })}?unexpected=1`,
     )
     expect(parsed).toEqual({ kind: 'unscoped' })
     expect(decideMobileHandoff(parsed!, context())).toEqual({

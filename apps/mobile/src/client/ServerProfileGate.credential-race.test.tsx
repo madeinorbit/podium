@@ -295,6 +295,44 @@ afterEach(() => {
 })
 
 describe('handoff profile selection', () => {
+  it('captures a cold ordinary navigation link without invoking pairing', async () => {
+    seams.getInitialUrl.mockResolvedValue(
+      formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' }),
+    )
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+
+    await waitFor(() => expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true))
+    expect(pendingMobileHandoffSnapshot().request).toEqual({
+      kind: 'navigation',
+      target: { kind: 'issue', issue: 'POD-1710' },
+    })
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+  })
+
+  it('captures a warm ordinary navigation link without invoking pairing', async () => {
+    await mountActiveProfileA()
+
+    act(() => {
+      seams.linkListener?.({
+        url: formatPodiumLink(PODIUM_SCHEME, {
+          kind: 'session',
+          session: 'POD-1710-A',
+        }),
+      })
+    })
+
+    await waitFor(() => expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true))
+    expect(pendingMobileHandoffSnapshot().request).toEqual({
+      kind: 'navigation',
+      target: { kind: 'session', session: 'POD-1710-A' },
+    })
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+  })
+
   it('keeps a warm event authoritative over an older deferred initial URL', async () => {
     let resolveInitialUrl = (_url: string | null) => {}
     const initialUrlResolved = new Promise<string | null>((resolve) => {

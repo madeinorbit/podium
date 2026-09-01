@@ -142,6 +142,9 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
   // half of that contract: one raw URL event, validated and routed through the
   // same resolver as every rendered link. No native-specific parser lives here.
   useEffect(() => {
+    const nativeBridge = globalThis as {
+      __PODIUM_NATIVE_OPEN_READY__?: (ready?: boolean) => void
+    }
     const onNativeOpen = (event: Event): void => {
       const detail = (event as CustomEvent<unknown>).detail
       if (typeof detail !== 'string') return
@@ -157,7 +160,11 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
       setPendingRevision((value) => value + 1)
     }
     window.addEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)
-    return () => window.removeEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)
+    nativeBridge.__PODIUM_NATIVE_OPEN_READY__?.(true)
+    return () => {
+      nativeBridge.__PODIUM_NATIVE_OPEN_READY__?.(false)
+      window.removeEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)
+    }
   }, [])
 
   return null

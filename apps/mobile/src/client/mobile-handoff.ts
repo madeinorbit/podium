@@ -13,6 +13,10 @@ export interface MobileHandoffDestination {
 
 export type MobileHandoffRequest =
   | { kind: 'destination'; destination: MobileHandoffDestination }
+  | {
+      kind: 'navigation'
+      target: Extract<PodiumTarget, { kind: 'issue' | 'session' }>
+    }
   | { kind: 'unscoped' }
 
 export interface PendingMobileHandoff {
@@ -67,7 +71,14 @@ export function parseMobileHandoffUrl(raw: string): MobileHandoffRequest | null 
   if (!/^podium:/i.test(raw.trim())) return null
   const link = parsePodiumLink(raw)
   if (link?.kind !== 'internal' || link.origin !== null) return null
+  if (link.target.kind === 'issue') {
+    return link.target.search || link.target.hash
+      ? { kind: 'unscoped' }
+      : { kind: 'navigation', target: link.target }
+  }
   if (link.target.kind !== 'session' || link.target.hash) return { kind: 'unscoped' }
+
+  if (!link.target.search) return { kind: 'navigation', target: link.target }
 
   const params = new URLSearchParams(link.target.search ?? '')
   const origins = params.getAll(HANDOFF_ORIGIN_PARAM)
@@ -107,13 +118,14 @@ export type MobileHandoffFallbackReason =
   | 'identity-unverified'
   | 'profile-unavailable'
   | 'session-unavailable'
+  | 'target-unavailable'
   | 'unscoped'
 
 export type MobileHandoffDecision =
   | { kind: 'switch-profile'; profileId: string }
   | { kind: 'authenticate'; profileId: string }
   | { kind: 'wait-replica' }
-  | { kind: 'open'; target: Extract<PodiumTarget, { kind: 'session' }> }
+  | { kind: 'open'; target: Extract<PodiumTarget, { kind: 'issue' | 'session' }> }
   | { kind: 'fallback'; reason: MobileHandoffFallbackReason }
 
 export interface MobileHandoffContext {
@@ -151,6 +163,16 @@ export function decideMobileHandoff(
   context: MobileHandoffContext,
 ): MobileHandoffDecision {
   if (request.kind === 'unscoped') return { kind: 'fallback', reason: 'unscoped' }
+  if (request.kind === 'navigation') {
+    if (context.activation !== 'verified' || context.authentication === 'unavailable') {
+      return { kind: 'fallback', reason: 'identity-unverified' }
+    }
+    if (context.authentication === 'unauthenticated') {
+      return { kind: 'authenticate', profileId: context.activeProfileId }
+    }
+    if (!context.replicaReady) return { kind: 'wait-replica' }
+    return { kind: 'open', target: request.target }
+  }
   const { destination } = request
   const profile = matchingMobileHandoffProfile(request, context.profiles, context.activeProfileId)
   if (!profile) return { kind: 'fallback', reason: 'profile-unavailable' }
@@ -180,6 +202,7 @@ const FALLBACK_STATUS: Record<MobileHandoffFallbackReason, string> = {
   'identity-unverified': 'Opened Work because the saved server could not be verified.',
   'profile-unavailable': 'Opened Work because the matching saved server is unavailable.',
   'session-unavailable': 'Opened Work because this session is not available to this profile.',
+  'target-unavailable': 'Opened Work because this link is not available to this profile.',
   unscoped: 'Opened Work because this link does not identify a saved server.',
 }
 

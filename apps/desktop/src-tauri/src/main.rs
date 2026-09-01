@@ -9,6 +9,7 @@ mod bootstrap;
 mod logging;
 mod updater;
 
+use std::collections::VecDeque;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -21,6 +22,7 @@ use tauri::tray::TrayIconBuilder;
 #[cfg(target_os = "macos")]
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
 use updater::{check_update, claim_update_ownership, install_update, set_update_channel};
 
 const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
@@ -36,6 +38,7 @@ const DAEMON_BLOCKED_EXIT_CODE: i32 = 78;
 /// can put in an exit handler covers "the exit handler never ran", so the backend polls
 /// for our death instead (packages/runtime/src/supervisor.ts).
 const SUPERVISOR_PID_ENV: &str = "PODIUM_SUPERVISOR_PID";
+const PODIUM_URL_SCHEME: &str = "podium";
 
 fn bundled_sidecar_resource(windows: bool) -> &'static str {
     if windows {
@@ -119,6 +122,58 @@ struct PayloadRepairPaths {
 struct PayloadRepairState {
     paths: Mutex<Option<PayloadRepairPaths>>,
     busy: AtomicBool,
+}
+
+#[derive(Default)]
+struct NativeOpenQueue {
+    pending: Mutex<VecDeque<String>>,
+}
+
+fn is_configured_podium_url(url: &Url) -> bool {
+    url.scheme() == PODIUM_URL_SCHEME
+}
+
+fn native_open_eval(raw: &str) -> String {
+    let literal = serde_json::to_string(raw).unwrap_or_else(|_| "\"\"".to_string());
+    format!("window.__PODIUM_DELIVER_NATIVE_OPEN__?.({literal});")
+}
+
+fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &Url) {
+    if !is_configured_podium_url(url) {
+        log::warn!("refusing OS-delivered URL outside the configured podium scheme");
+        return;
+    }
+    log::info!("accepted an OS-delivered Podium URL");
+    let raw = url.as_str().to_string();
+    let Some(window) = app.get_webview_window("main") else {
+        queue.pending.lock().unwrap().push_back(raw);
+        return;
+    };
+    if let Err(error) = window.eval(native_open_eval(&raw)) {
+        log::warn!("could not deliver native Podium URL yet: {error}");
+        queue.pending.lock().unwrap().push_back(raw);
+    }
+}
+
+fn flush_native_open_queue(window: &tauri::WebviewWindow, queue: &NativeOpenQueue) {
+    let pending = {
+        let mut guard = queue.pending.lock().unwrap();
+        guard.drain(..).collect::<Vec<_>>()
+    };
+    for raw in pending {
+        if let Err(error) = window.eval(native_open_eval(&raw)) {
+            log::warn!("could not flush a native Podium URL: {error}");
+            queue.pending.lock().unwrap().push_back(raw);
+        }
+    }
+}
+
+/// Initialization scripts run before the React tree. Rust can therefore hand
+/// cold and warm URLs to this tiny page-local queue without racing the host's
+/// effect. The host marks itself ready only after its CustomEvent listener is
+/// installed, and every queued raw URL is dispatched once through that event.
+fn native_open_bridge_script() -> &'static str {
+    include_str!("../native-open.js")
 }
 
 fn local_host_sidecar_command(
@@ -1192,6 +1247,7 @@ fn main() {
     // reading. `CARGO_PKG_VERSION` rather than `app.package_info()` because the
     // app does not exist yet; they are the same string.
     logging::init(env!("CARGO_PKG_VERSION"));
+    let native_open_queue = Arc::new(NativeOpenQueue::default());
     let mut builder = tauri::Builder::default();
     // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
     // window and exit the duplicate. Registered FIRST so it fires before any setup work.
@@ -1207,6 +1263,10 @@ fn main() {
             }
         }));
     }
+    // Keep this immediately after single-instance. Its `deep-link` feature
+    // turns a Linux/Windows second process argv into the same open-url event
+    // macOS sends to the running process.
+    builder = builder.plugin(tauri_plugin_deep_link::init());
     let app = builder
         // Auto-updater stack: updater (check/download/install signed artifacts),
         // dialog (the prompt-then-restart confirmation), process (app.restart()).
@@ -1232,7 +1292,28 @@ fn main() {
             set_update_channel,
             repair_payload
         ])
-        .setup(|app| {
+        .setup(move |app| {
+            app.manage(native_open_queue.clone());
+            #[cfg(target_os = "linux")]
+            if let Err(error) = app.deep_link().register_all() {
+                // Installed desktop entries still carry the static scheme.
+                // Runtime registration is the AppImage/dev fallback and must
+                // not make an otherwise usable shell fail to start.
+                log::warn!("could not register desktop deep links at runtime: {error}");
+            }
+            if let Some(urls) = app.deep_link().get_current()? {
+                for url in urls {
+                    deliver_or_queue_native_open(app.handle(), &native_open_queue, &url);
+                }
+            }
+            let deep_link_app = app.handle().clone();
+            let warm_open_queue = native_open_queue.clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    deliver_or_queue_native_open(&deep_link_app, &warm_open_queue, &url);
+                }
+            });
+
             // TEST AID: record the running app version so the e2e can deterministically
             // distinguish 0.1.0 from 0.1.1 across a self-replace+restart. Only writes when
             // PODIUM_STATE_DIR is set (the e2e sets it to a scratch dir); a no-op otherwise.
@@ -1759,6 +1840,7 @@ fn main() {
                 machine_id.as_deref(),
             );
             let opener_shim = bootstrap::opener_shim_script();
+            let native_open_bridge = native_open_bridge_script();
             let runtime_probe = runtime_probe_script();
             // Remote modes already resolved webview_url + window_injection. Local modes
             // fill them after the readiness probe inside the spawn below.
@@ -1828,8 +1910,9 @@ fn main() {
                 };
                 // External-link shim (ALL modes): route window.open/_blank to the OS browser.
                 let init = format!(
-                    "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_crash_report}\n{runtime_probe}"
+                    "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_open_bridge}\n{native_crash_report}\n{runtime_probe}"
                 );
+                let page_open_queue = native_open_queue.clone();
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
                     let window_builder = WebviewWindowBuilder::new(&handle2, "main", resolved_url)
@@ -1852,7 +1935,12 @@ fn main() {
                         // native events it gives up: the shell uploads nothing, and the page
                         // owns the workspace the bytes land in.
                         .disable_drag_drop_handler()
-                        .initialization_script(&init);
+                        .initialization_script(&init)
+                        .on_page_load(move |window, payload| {
+                            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                                flush_native_open_queue(&window, &page_open_queue);
+                            }
+                        });
 
                     // [spec:SP-3834] Native desktop chrome replaces the separate OS title bar.
                     #[cfg(target_os = "macos")]
@@ -2034,6 +2122,32 @@ mod tests {
     fn bundled_sidecar_resource_matches_the_platform_binary_name() {
         assert_eq!(bundled_sidecar_resource(false), "resources/podium");
         assert_eq!(bundled_sidecar_resource(true), "resources/podium.exe");
+    }
+
+    #[test]
+    fn native_open_boundary_accepts_only_the_configured_scheme() {
+        assert!(is_configured_podium_url(
+            &Url::parse("podium://issues/POD-1710").unwrap()
+        ));
+        assert!(!is_configured_podium_url(
+            &Url::parse("https://podium.example/issues/POD-1710").unwrap()
+        ));
+        assert!(!is_configured_podium_url(
+            &Url::parse("javascript:alert(1)").unwrap()
+        ));
+    }
+
+    #[test]
+    fn native_open_page_bridge_queues_until_the_custom_event_listener_is_ready() {
+        let bridge = native_open_bridge_script();
+        assert!(bridge.contains("new CustomEvent('podium:native-open', { detail: raw })"));
+        assert!(bridge.contains("else pending.push(raw)"));
+        assert!(bridge.contains("for (const raw of pending.splice(0)) dispatch(raw)"));
+
+        let eval = native_open_eval("podium://issues/POD-1710?note='quoted'");
+        assert!(eval.contains("window.__PODIUM_DELIVER_NATIVE_OPEN__"));
+        assert!(eval.contains("podium://issues/POD-1710"));
+        assert!(eval.contains("'quoted'"));
     }
 
     /// ⌘Q. Supervision must leave the child slot lockable while the backend is alive, because

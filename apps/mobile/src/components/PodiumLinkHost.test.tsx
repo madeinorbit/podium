@@ -9,7 +9,7 @@ const seams = vi.hoisted(() => ({
   announce: vi.fn(),
   router: { replace: vi.fn(), push: vi.fn() },
   httpOrigin: 'https://current.example',
-  issues: [] as Array<{ id: string }>,
+  issues: [] as Array<{ id: string; displayRef?: string }>,
   sessions: [] as Array<{ sessionId: string; displayRef?: string }>,
   booting: false,
   authStatus: { needsAuth: true, authed: true, userId: 'user-one' } as {
@@ -108,6 +108,7 @@ beforeEach(() => {
   seams.router.replace.mockReset()
   seams.router.push.mockReset()
   seams.sessions = []
+  seams.issues = []
   seams.booting = false
   seams.authStatus = { needsAuth: true, authed: true, userId: 'user-one' }
   const current = profile()
@@ -118,6 +119,19 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('PodiumLinkHost mobile handoff integration', () => {
+  it('routes an OS-delivered issue through mobilePodiumRoute', async () => {
+    seams.issues = [{ id: 'iss-1710', displayRef: 'POD-1710' }]
+    render(<PodiumLinkHost />)
+
+    act(() => {
+      captureMobileHandoffUrl(formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' }))
+      markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
+    })
+
+    await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith('/issue/iss-1710'))
+    expect(seams.router.push).not.toHaveBeenCalled()
+  })
+
   it('waits for profile selection before opening from the authorized replica', async () => {
     seams.sessions = [{ sessionId: SESSION_ID }]
     render(<PodiumLinkHost />)

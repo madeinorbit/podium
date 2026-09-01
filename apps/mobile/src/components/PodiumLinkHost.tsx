@@ -118,12 +118,12 @@ export function PodiumLinkHost() {
     const route = mobilePodiumRoute(decision.target, { issues, sessions })
     if (!route) {
       consumePendingMobileHandoff(pending.id)
-      setHandoffStatus(mobileHandoffFallbackStatus('session-unavailable'))
+      setHandoffStatus(mobileHandoffFallbackStatus('target-unavailable'))
       router.replace(MOBILE_HOME as never)
       return
     }
     consumePendingMobileHandoff(pending.id)
-    setHandoffStatus('Opening the session.')
+    setHandoffStatus(decision.target.kind === 'issue' ? 'Opening the task.' : 'Opening the session.')
     router.replace(route as never)
   }, [activation, authStatus, booting, issues, pending, profile.id, profiles, router, sessions])
 

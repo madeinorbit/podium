@@ -1120,6 +1120,14 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       fallback('unscoped')
       return
     }
+    if (pendingHandoff.request.kind === 'navigation') {
+      if (activationFailure) fallback('identity-unverified')
+      else {
+        markPendingMobileHandoffProfileSelected(pendingHandoff.id)
+        setHandoffStatus('')
+      }
+      return
+    }
     const selected = matchingMobileHandoffProfile(
       pendingHandoff.request,
       profileState.profiles,
