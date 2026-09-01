@@ -2396,9 +2396,10 @@ mod tests {
     fn native_open_page_bridge_queues_until_the_custom_event_listener_is_ready() {
         let bridge = native_open_bridge_script();
         assert!(bridge.contains("new CustomEvent('podium:native-open', { detail: raw })"));
-        assert!(bridge.contains("else if (pending.length < PENDING_CAPACITY) pending.push(raw)"));
+        assert!(bridge.contains("pending.length >= PENDING_CAPACITY"));
         assert!(bridge.contains("const PENDING_CAPACITY = 32"));
-        assert!(bridge.contains("for (const raw of pending.splice(0)) dispatch(raw)"));
+        assert!(bridge.contains("window.__PODIUM_NATIVE_OPEN_ACK__"));
+        assert!(bridge.contains("inFlight = false"));
 
         let eval = native_open_eval("podium://issues/POD-1710?note='quoted'");
         assert!(eval.contains("window.__PODIUM_DELIVER_NATIVE_OPEN__"));

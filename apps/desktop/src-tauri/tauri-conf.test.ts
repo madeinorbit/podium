@@ -41,6 +41,7 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('app.deep_link().register_all()')
     expect(nativeOpenSource).toContain("new CustomEvent('podium:native-open', { detail: raw })")
     expect(nativeOpenSource).toContain('window.__PODIUM_NATIVE_OPEN_READY__')
+    expect(nativeOpenSource).toContain('window.__PODIUM_NATIVE_OPEN_ACK__')
     expect(mainSource).toContain('const NATIVE_OPEN_QUEUE_CAPACITY: usize = 32')
     expect(nativeOpenSource).toContain('const PENDING_CAPACITY = 32')
     expect(webLinkHostSource).toContain('PODIUM_LINK_QUEUE_CAPACITY = 32')
@@ -68,7 +69,9 @@ describe('tauri desktop config', () => {
     expect(listener).toBeGreaterThan(-1)
     expect(ready).toBeGreaterThan(listener)
     expect(webLinkHostSource).toContain('__PODIUM_NATIVE_OPEN_READY__?.(false)')
-    expect(webLinkHostSource).toContain('pendingHrefs.current.push(pendingPodiumHref(detail))')
+    expect(webLinkHostSource).toContain(
+      'pendingHrefs.current.push(pendingPodiumHref(detail, acknowledge, nativeOwned))',
+    )
   })
 
   it('defines a bundled-page CSP and keeps ambient capabilities empty of plugin defaults', () => {

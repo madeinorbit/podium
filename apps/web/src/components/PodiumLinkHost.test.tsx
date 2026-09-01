@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { asIssueId } from '@podium/model'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -43,6 +43,7 @@ import {
 
 interface NativeOpenWindow extends Window {
   __PODIUM_DELIVER_NATIVE_OPEN__?: (raw: unknown) => void
+  __PODIUM_NATIVE_OPEN_ACK__?: (raw: unknown) => void
   __PODIUM_NATIVE_OPEN_READY__?: (value?: boolean) => void
 }
 
@@ -52,6 +53,7 @@ const nativeOpenBridge = readFileSync(
   'utf8',
 )
 const appShellSource = readFileSync(join(__dirname, '../app/AppShell.tsx'), 'utf8')
+const appMainSource = readFileSync(join(__dirname, '../app/main.tsx'), 'utf8')
 
 describe('PodiumLinkHost native delivery', () => {
   let container: HTMLDivElement
@@ -71,6 +73,7 @@ describe('PodiumLinkHost native delivery', () => {
     act(() => root.unmount())
     container.remove()
     delete nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__
+    delete nativeWindow.__PODIUM_NATIVE_OPEN_ACK__
     delete nativeWindow.__PODIUM_NATIVE_OPEN_READY__
     vi.useRealTimers()
   })
@@ -126,7 +129,112 @@ describe('PodiumLinkHost native delivery', () => {
     expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
   })
 
+  it('hands an unresolved native URL to the next host mount exactly once', () => {
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1710')
+    act(() => root.render(<PodiumLinkHost />))
+    expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
+
+    act(() => root.unmount())
+    root = createRoot(container)
+    hostStore.issues = [...hostStore.allIssues]
+    act(() => root.render(<PodiumLinkHost />))
+
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not duplicate an in-flight native URL when StrictMode replays effects', () => {
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1710')
+    act(() =>
+      root.render(
+        <StrictMode>
+          <PodiumLinkHost />
+        </StrictMode>,
+      ),
+    )
+    expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
+
+    hostStore.issues = [...hostStore.allIssues]
+    act(() =>
+      root.render(
+        <StrictMode>
+          <PodiumLinkHost />
+        </StrictMode>,
+      ),
+    )
+
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not replay the document initial URL on a host remount', () => {
+    expect(appMainSource).toContain('const pendingInitialPodiumHref = useRef(initialPodiumHref)')
+    expect(appMainSource).toContain('pendingInitialPodiumHref.current = null')
+    expect(appShellSource).toContain('const pendingInitialPodiumHref = useRef(initialPodiumHref)')
+    hostStore.issues = [...hostStore.allIssues]
+    let pendingInitialHref: string | null = 'podium://issues/POD-1710'
+    const consumeInitialHref = (): void => {
+      pendingInitialHref = null
+    }
+    act(() =>
+      root.render(
+        <PodiumLinkHost
+          initialHref={pendingInitialHref}
+          onInitialHrefConsumed={consumeInitialHref}
+        />,
+      ),
+    )
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+
+    act(() => root.unmount())
+    root = createRoot(container)
+    act(() =>
+      root.render(
+        <PodiumLinkHost
+          initialHref={pendingInitialHref}
+          onInitialHrefConsumed={consumeInitialHref}
+        />,
+      ),
+    )
+
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries an unresolved document initial URL on the next host mount', () => {
+    let pendingInitialHref: string | null = 'podium://issues/POD-1710'
+    const consumeInitialHref = (): void => {
+      pendingInitialHref = null
+    }
+    act(() =>
+      root.render(
+        <PodiumLinkHost
+          initialHref={pendingInitialHref}
+          onInitialHrefConsumed={consumeInitialHref}
+        />,
+      ),
+    )
+    expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
+
+    act(() => root.unmount())
+    root = createRoot(container)
+    hostStore.issues = [...hostStore.allIssues]
+    act(() =>
+      root.render(
+        <PodiumLinkHost
+          initialHref={pendingInitialHref}
+          onInitialHrefConsumed={consumeInitialHref}
+        />,
+      ),
+    )
+
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+    expect(pendingInitialHref).toBeNull()
+  })
+
   it('rejects excess entries without evicting earlier queued work', () => {
+    hostStore.issues = [...hostStore.allIssues]
     act(() => root.render(<PodiumLinkHost />))
     const dispatchNativeOpen = (detail: string): void => {
       window.dispatchEvent(new CustomEvent('podium:native-open', { detail }))
@@ -136,7 +244,7 @@ describe('PodiumLinkHost native delivery', () => {
         dispatchNativeOpen(`podium://issues/POD-${900_000 + index}`)
       }
       dispatchNativeOpen('podium://issues/POD-1711')
-      dispatchNativeOpen('podium://issues/POD-1711')
+      dispatchNativeOpen('podium://issues/POD-1710')
     })
     expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
 

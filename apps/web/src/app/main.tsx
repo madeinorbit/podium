@@ -1,5 +1,5 @@
 import type { JSX } from 'react'
-import { lazy, StrictMode, Suspense, useState } from 'react'
+import { lazy, StrictMode, Suspense, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
@@ -31,6 +31,30 @@ const IterationModeFrame = import.meta.env.PODIUM_ITERATION_MODE
       })),
     )
   : null
+
+function AuthenticatedPodiumApp({
+  initialPodiumHref,
+}: {
+  initialPodiumHref: string | null
+}): JSX.Element {
+  // Login and auth transitions may replace AppShell. Keep the canonical cold
+  // address above that boundary until a host activates or expires it, then
+  // clear it so a later shell cannot activate the same startup address twice.
+  const pendingInitialPodiumHref = useRef(initialPodiumHref)
+  return (
+    <LoginGate>
+      {(auth) => (
+        <AppShell
+          auth={auth}
+          initialPodiumHref={pendingInitialPodiumHref.current}
+          onInitialPodiumHrefConsumed={() => {
+            pendingInitialPodiumHref.current = null
+          }}
+        />
+      )}
+    </LoginGate>
+  )
+}
 
 // Deliberately EAGER, unlike the frame above: this is the screen shown when the
 // payload could not start, so it must not depend on fetching another chunk from
@@ -167,9 +191,7 @@ if (!redirectPhoneToMobileApp()) {
                 <MotionDemo />
               </Suspense>
             ) : (
-              <LoginGate>
-                {(auth) => <AppShell auth={auth} initialPodiumHref={initialPodiumHref} />}
-              </LoginGate>
+              <AuthenticatedPodiumApp initialPodiumHref={initialPodiumHref} />
             )}
           </>
         )}

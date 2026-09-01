@@ -258,14 +258,17 @@ function KernelHubAttach({
 function ReplicaReadyPodiumLinkHost({
   syncProgress,
   initialHref,
+  onInitialHrefConsumed,
 }: {
   syncProgress: SyncProgressStore
   initialHref: string | null
+  onInitialHrefConsumed: () => void
 }): JSX.Element {
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
   return (
     <PodiumLinkHost
       initialHref={initialHref}
+      onInitialHrefConsumed={onInitialHrefConsumed}
       replicaReady={!sync.firstSync || sync.phase === 'ready'}
     />
   )
@@ -274,15 +277,20 @@ function ReplicaReadyPodiumLinkHost({
 export function AppShell({
   auth,
   initialPodiumHref = null,
+  onInitialPodiumHrefConsumed,
 }: {
   auth: AuthBootstrap
   initialPodiumHref?: string | null
+  onInitialPodiumHrefConsumed: () => void
 }): JSX.Element {
   // Whole-window, and mounted at the top so it also covers the boot and error
   // screens — a drag released over a loading app would navigate it away too.
   useFileDropGuard()
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
+  // Keep the current value above AppShell's own error/provider branches. The
+  // parent owns the same handoff above LoginGate for a whole-shell replacement.
+  const pendingInitialPodiumHref = useRef(initialPodiumHref)
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
@@ -359,7 +367,11 @@ export function AppShell({
                 <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}
-                  initialHref={initialPodiumHref}
+                  initialHref={pendingInitialPodiumHref.current}
+                  onInitialHrefConsumed={() => {
+                    pendingInitialPodiumHref.current = null
+                    onInitialPodiumHrefConsumed()
+                  }}
                 />
                 <RoutedDensityProvider>
                   <ThemeUiStateMirror />
