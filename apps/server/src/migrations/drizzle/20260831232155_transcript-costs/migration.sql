@@ -17,6 +17,6 @@ CREATE TABLE `transcript_costs` (
 );
 --> statement-breakpoint
 CREATE INDEX `conversation_segments_path` ON `conversation_segments` (`path`);--> statement-breakpoint
-CREATE INDEX `idx_sessions_machine_resume` ON `sessions` (`machine_id`,`resume_value`);--> statement-breakpoint
+CREATE INDEX `idx_sessions_resume_machine` ON `sessions` (`resume_value`,`machine_id`);--> statement-breakpoint
 CREATE INDEX `idx_transcript_costs_issue` ON `transcript_costs` (`issue_id`);--> statement-breakpoint
 CREATE INDEX `idx_transcript_costs_session` ON `transcript_costs` (`session_id`);

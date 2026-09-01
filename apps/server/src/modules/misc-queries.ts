@@ -162,10 +162,15 @@ export const USAGE_QUERIES = {
     // The daemon's own default window, restated here because the fold has to
     // record WHICH window its per-file totals cover — see `window_since_ms`.
     const sinceMs = Date.now() - USAGE_WINDOW_MS
-    const { sources, ...usage } = await s.modules.rpc.usage(sinceMs, true)
+    const { sources, sourcesSinceMs, ...usage } = await s.modules.rpc.usage(sinceMs, true)
     if (sources && sources.length > 0) {
       try {
-        new CostService(s.store).ingest(sources, sinceMs)
+        // The MEMO's window, not ours. The daemon may serve a fold it computed
+        // against an older `sinceMs`; stamping it with the newer one re-dates
+        // last window's numbers as current and keeps a transcript that has
+        // since fallen out of the window contributing to "attributed".
+        const foldSinceMs = sourcesSinceMs ?? sinceMs
+        new CostService(s.store).ingest(s.modules.rpc.answeringMachineId(), sources, foldSinceMs)
       } catch (err) {
         log.warn('cost fold failed — usage buckets unaffected', { err })
       }

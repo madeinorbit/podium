@@ -557,7 +557,12 @@ export class IssuesRepository {
    * how a panel read turns into a visible pause.
    */
   listIssueParentEdges(): { id: IssueId; parentId: IssueId | null }[] {
-    const rows = this.db.prepare('SELECT id, parent_id FROM issues').all() as {
+    // TOMBSTONES ARE NOT ANCESTORS. Issues are soft-deleted, so an unfiltered
+    // walk folds a costed task's spend into a parent the operator deleted and
+    // can see nowhere else in the app (POD-1858 review).
+    const rows = this.db
+      .prepare('SELECT id, parent_id FROM issues WHERE deleted_at IS NULL')
+      .all() as {
       id: IssueId
       parent_id: IssueId | null
     }[]

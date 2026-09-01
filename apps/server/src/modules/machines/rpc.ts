@@ -349,6 +349,17 @@ export class DaemonRpcService {
 
   /** Globally-unique requestId mint — shared with the headless module so its
    *  turn/bind ids can never collide with an RPC id. */
+  /**
+   * The machine an UNROUTED request lands on — the one `usage()` answered from.
+   *
+   * The cost fold needs it: a transcript path is only unique within a host, so
+   * the segment lookup that turns a path into a session has to be scoped to the
+   * daemon whose walk produced it (POD-1858).
+   */
+  answeringMachineId(): MachineId {
+    return this.deps.defaultMachine()
+  }
+
   nextRequestId(prefix: string): string {
     return this.broker.nextRequestId(prefix)
   }
@@ -489,6 +500,8 @@ export class DaemonRpcService {
     sampledAt?: string
     buckets: UsageBucketWire[]
     sources?: UsageSourceWire[]
+    /** The window the `sources` folds cover — the daemon's memo, not `sinceMs`. */
+    sourcesSinceMs?: number
   }> {
     return this.request(
       USAGE,

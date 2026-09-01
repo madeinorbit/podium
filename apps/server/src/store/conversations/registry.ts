@@ -28,6 +28,7 @@ export class ConversationRegistryRepository {
    * SQLite's variable limit on a box with a thousand active transcripts.
    */
   segmentsByPaths(
+    machineId: MachineId,
     paths: readonly string[],
   ): Map<string, { machineId: MachineId; nativeId: string; podiumId: ConversationId }> {
     const out = new Map<
@@ -40,10 +41,15 @@ export class ConversationRegistryRepository {
       const chunk = unique.slice(i, i + CHUNK)
       const rows = this.db
         .prepare(
+          // SCOPED BY MACHINE, like every other lookup in this file. The caller
+          // trusts the returned `machine_id` as the transcript's identity, so an
+          // unscoped match would let a path that also exists in another host's
+          // segment rows attribute this daemon's spend to that host's session
+          // and bank it under the wrong (machine_id, native_id) key.
           `SELECT machine_id, native_id, podium_id, path FROM conversation_segments
-           WHERE path IN (${chunk.map(() => '?').join(',')})`,
+           WHERE machine_id = ? AND path IN (${chunk.map(() => '?').join(',')})`,
         )
-        .all(...chunk) as {
+        .all(machineId, ...chunk) as {
         machine_id: MachineId
         native_id: string
         podium_id: ConversationId

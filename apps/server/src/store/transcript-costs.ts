@@ -118,8 +118,14 @@ export class TranscriptCostsRepository {
        ON CONFLICT(machine_id, native_id) DO UPDATE SET
          path = excluded.path,
          harness = excluded.harness,
-         session_id = excluded.session_id,
-         issue_id = excluded.issue_id,
+         -- COALESCE, NEVER A PLAIN OVERWRITE. A later harvest re-resolves the
+         -- owner from live rows, and that lookup skips tombstones -- so a
+         -- session soft-deleted while its transcript is still inside the mtime
+         -- window resolves to nothing, and a plain assignment would write NULL
+         -- over an attribution this table exists to keep. Every other column is
+         -- a re-measurement and may be overwritten; these two are history.
+         session_id = COALESCE(excluded.session_id, transcript_costs.session_id),
+         issue_id = COALESCE(excluded.issue_id, transcript_costs.issue_id),
          scanned_bytes = MAX(transcript_costs.scanned_bytes, excluded.scanned_bytes),
          first_ts_ms = excluded.first_ts_ms,
          last_ts_ms = excluded.last_ts_ms,

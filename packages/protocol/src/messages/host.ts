@@ -163,6 +163,14 @@ export const UsageResultMessage = z.object({
    *  FILE instead of by hour. Present only for a `withSources` request; the
    *  server folds it into per-task cost and does not pass it to clients. */
   sources: z.array(UsageSourceWire).optional(),
+  /**
+   * THE WINDOW THE `sources` FOLDS ACTUALLY COVER — which is the memo's, not
+   * the request's. `buckets` are re-filtered to whatever this caller asked for;
+   * a per-file fold cannot be, so within the memo TTL the two can disagree and
+   * the server must stamp the durable rows with THIS rather than its own
+   * `sinceMs` (POD-1858 review).
+   */
+  sourcesSinceMs: z.number().optional(),
 })
 
 // ── Agent plan-quota (rate-limit windows). Distinct from UsageBucketWire, which

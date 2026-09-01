@@ -824,10 +824,25 @@ async function scanJsonlTranscript(
     torn.push(rec)
   })
 
-  const stamps = [...complete, ...torn].map((r) => r.tsMs)
+  // FOLDED, NOT SPREAD. `Math.min(...stamps)` passes one argument per usage
+  // record, and the cold path no longer filters by `sinceMs`, so `stamps` is the
+  // whole transcript rather than the window. Past the engine's argument limit
+  // (~125k records — well inside what a long-lived 4GB transcript reaches) the
+  // spread throws RangeError, `scanJsonlTranscripts` swallows it per file, and
+  // the transcript vanishes from the buckets AND the sources silently, forever,
+  // re-failing on every walk because it is never cached either.
+  let minTsMs = Number.POSITIVE_INFINITY
+  let maxTsMs = 0
+  for (const list of [complete, torn]) {
+    for (const rec of list) {
+      if (rec.tsMs < minTsMs) minTsMs = rec.tsMs
+      if (rec.tsMs > maxTsMs) maxTsMs = rec.tsMs
+    }
+  }
+  const seen = complete.length + torn.length > 0
   // A file with nothing in it yet reads 0/0 rather than an infinity, because the
   // wire says these are non-negative integers and a cold file is not an error.
-  const firstTsMs = base?.firstTsMs || (stamps.length > 0 ? Math.min(...stamps) : 0)
+  const firstTsMs = base?.firstTsMs || (seen ? minTsMs : 0)
   const ids = [...(base?.tailIds ?? [])]
   for (const rec of complete) if (rec.responseId) ids.push(rec.responseId)
   return {
@@ -836,9 +851,8 @@ async function scanJsonlTranscript(
     scannedBytes: consumedBytes,
     fileSize: info.size,
     mtimeMs: info.mtimeMs,
-    firstTsMs:
-      stamps.length > 0 ? Math.min(firstTsMs || Number.POSITIVE_INFINITY, ...stamps) : firstTsMs,
-    lastTsMs: Math.max(base?.lastTsMs ?? 0, ...stamps, 0),
+    firstTsMs: seen ? Math.min(firstTsMs || Number.POSITIVE_INFINITY, minTsMs) : firstTsMs,
+    lastTsMs: Math.max(base?.lastTsMs ?? 0, maxTsMs, 0),
     buckets: base ? mergeBuckets([...base.buckets, ...bucketize(complete)]) : bucketize(complete),
     tailBuckets: bucketize(torn),
     model,

@@ -180,7 +180,12 @@ export const sessions = sqliteTable(
     // The second half of POD-1858's per-file resolution: segment identity to the
     // session that owns it. Also the join `conversation_segments` has always
     // implied and never had an index for.
-    index('idx_sessions_machine_resume').on(table.machineId, table.resumeValue),
+    // RESUME VALUE FIRST. Its only reader (`listSessionsByResumeValues`, the
+    // cost harvest's owner lookup) filters on `resume_value` ALONE, and SQLite
+    // will not use an index whose leading column the query does not constrain —
+    // so led by `machine_id` this index bought nothing and every harvest, i.e.
+    // every 90s usage poll, fell back to a full scan of `sessions`.
+    index('idx_sessions_resume_machine').on(table.resumeValue, table.machineId),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,

@@ -59,6 +59,7 @@ import {
   type UsageModelTotalWire,
   type UsageSourceWire,
 } from '@podium/model'
+import { formatIssueRef } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { TranscriptCostRecord } from '../../store/transcript-costs'
 import type { SessionRow } from '../../store/types'
@@ -98,7 +99,7 @@ export class CostService {
    * key to store under, and the sheet already states the resulting gap once, in
    * its provenance bar. Returns how many rows were written, for the caller's log.
    */
-  ingest(sources: readonly UsageSourceWire[], sinceMs: number): number {
+  ingest(machineId: MachineId, sources: readonly UsageSourceWire[], sinceMs: number): number {
     if (sources.length === 0) return 0
     const registry = this.store.conversations.registry
 
@@ -112,7 +113,7 @@ export class CostService {
         s.harness === 'grok' ? [s.path, join(dirname(s.path), 'summary.json')] : [s.path],
       )
     }
-    const segments = registry.segmentsByPaths([...candidates.values()].flat())
+    const segments = registry.segmentsByPaths(machineId, [...candidates.values()].flat())
 
     const resolved = new Map<
       string,
@@ -365,7 +366,12 @@ export class CostService {
     const rows: TaskCostRowWire[] = []
     for (const [issueId, list] of byIssue) {
       const issue = issues.get(issueId)
-      if (!issue) continue // an issue deleted since the harvest read it
+      // Hard-missing OR tombstoned: issues are SOFT-deleted, so `getIssues`
+      // still returns one the operator has deleted. Ranking it would put a task
+      // in the sheet that exists nowhere else in the app, and — worse — count
+      // it into `taskCount`, the median, the top-ten share and the cohort every
+      // "x median" on every surface is measured against.
+      if (!issue || issue.deletedAt) continue
       const totals = totalsOf(list)
       if (totals.messages === 0) continue
       const windowModels = foldModelTotals(
@@ -375,9 +381,14 @@ export class CostService {
       const harnesses = [
         ...new Set(list.filter((c) => c.messages > 0).map((c) => c.harness)),
       ].sort() as CostHarness[]
+      const prefix = this.store.repos.prefixForPath(issue.repoPath)
       rows.push({
         issueId: issueId as IssueId,
         seq: issue.seq,
+        // The ref the rest of the app prints. Without it every row in the sheet
+        // reads `#1234` while the deck, the panel and the CLI read `POD-1234`,
+        // and a ref you cannot paste is a ref you cannot chase.
+        displayRef: prefix ? formatIssueRef(prefix, issue.seq) : `#${issue.seq}`,
         title: issue.title,
         stage: issue.stage,
         models: totals.models,

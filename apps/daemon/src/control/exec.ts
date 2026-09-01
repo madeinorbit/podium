@@ -257,7 +257,9 @@ async function runUsageScan(
     // Only when asked. The status chip polls this every 90s and wants the
     // buckets alone; the per-file breakdown is an order of magnitude larger and
     // has exactly one reader, the server's cost fold.
-    ...(msg.withSources && current ? { sources: current.sources } : {}),
+    ...(msg.withSources && current
+      ? { sources: current.sources, sourcesSinceMs: current.sinceMs }
+      : {}),
   })
 }
 

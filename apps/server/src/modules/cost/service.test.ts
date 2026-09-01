@@ -160,7 +160,9 @@ function source(path: string, over: Partial<UsageSourceWire> = {}): UsageSourceW
 const SINCE = Date.parse('2026-08-18T00:00:00.000Z')
 
 const ingest = (sources: UsageSourceWire[], sinceMs = SINCE): number =>
-  service.ingest(sources, sinceMs)
+  // The harvest is one machine's, and the segment lookup is scoped to it: a
+  // transcript path is only unique within a host.
+  service.ingest(machineId, sources, sinceMs)
 
 const tokensOf = (models: { inputTokens: number; outputTokens: number }[]) =>
   models.reduce((n, m) => n + m.inputTokens + m.outputTokens, 0)

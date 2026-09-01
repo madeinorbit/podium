@@ -165,6 +165,13 @@ export type TaskCostWire = z.infer<typeof TaskCostWire>
 export const TaskCostRowWire = z.object({
   issueId: IssueIdField,
   seq: z.number().int().nonnegative(),
+  /**
+   * `POD-1234` — the ref the rest of the product prints, carried rather than
+   * rebuilt: the prefix belongs to the issue's REPO and a browser has no way to
+   * derive it from a seq. Optional so an older payload still parses; a reader
+   * without it falls back to `#seq` (`issueDisplayRef`).
+   */
+  displayRef: z.string().optional(),
   title: z.string(),
   stage: z.string(),
   /** Everything this task has ever cost, as far as the harvest has read. */

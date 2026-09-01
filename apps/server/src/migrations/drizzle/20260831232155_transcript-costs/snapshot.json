@@ -10864,18 +10864,18 @@
     {
       "columns": [
         {
-          "value": "machine_id",
+          "value": "resume_value",
           "isExpression": false
         },
         {
-          "value": "resume_value",
+          "value": "machine_id",
           "isExpression": false
         }
       ],
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "idx_sessions_machine_resume",
+      "name": "idx_sessions_resume_machine",
       "entityType": "indexes",
       "table": "sessions"
     },
