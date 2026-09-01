@@ -22,14 +22,16 @@ describe('desktop native-open page bridge', () => {
   it('queues cold URLs until the listener is ready and drains each once', () => {
     const received: unknown[] = []
     const onOpen = (event: Event): void => received.push((event as CustomEvent).detail)
-    const cold = 'podium://issues/POD-1710?literal=%27quoted%27'
+    const first = 'podium://issues/POD-1710?literal=%27quoted%27'
+    const second = 'podium://sessions/POD-1710-A'
 
-    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(cold)
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(first)
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(second)
     window.addEventListener('podium:native-open', onOpen)
     nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(true)
     nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(true)
 
-    expect(received).toEqual([cold])
+    expect(received).toEqual([first, second])
     window.removeEventListener('podium:native-open', onOpen)
   })
 

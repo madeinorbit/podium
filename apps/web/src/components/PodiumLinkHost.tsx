@@ -56,7 +56,7 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const pendingHref = useRef<string | null>(initialHref)
+  const pendingHrefs = useRef<string[]>(initialHref ? [initialHref] : [])
   const [pendingRevision, setPendingRevision] = useState(0)
 
   useEffect(() => {
@@ -134,8 +134,7 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
   // unknown path to /workspace. Keep retrying while replica rows arrive: refs,
   // sessions and artifact panel entries all need live data to resolve.
   useEffect(() => {
-    const href = pendingHref.current
-    if (href && activatePodiumHref(href)) pendingHref.current = null
+    pendingHrefs.current = pendingHrefs.current.filter((href) => !activatePodiumHref(href))
   }, [issues, sessions, pendingRevision])
 
   // Native capture and window focus belong to POD-1710. This is the narrow web
@@ -156,7 +155,7 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
       ) {
         return
       }
-      pendingHref.current = detail
+      pendingHrefs.current.push(detail)
       setPendingRevision((value) => value + 1)
     }
     window.addEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)

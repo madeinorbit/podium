@@ -149,6 +149,11 @@ fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &
         queue.pending.lock().unwrap().push_back(raw);
         return;
     };
+    // A deep link is an explicit request to return to Podium. CloseRequested
+    // hides the main window, so warm delivery must restore it before the page
+    // activates the target. RunEvent::Reopen only covers Dock activation.
+    let _ = window.show();
+    let _ = window.set_focus();
     if let Err(error) = window.eval(native_open_eval(&raw)) {
         log::warn!("could not deliver native Podium URL yet: {error}");
         queue.pending.lock().unwrap().push_back(raw);

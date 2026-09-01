@@ -39,6 +39,17 @@ describe('tauri desktop config', () => {
     expect(nativeOpenSource).toContain("new CustomEvent('podium:native-open', { detail: raw })")
     expect(nativeOpenSource).toContain('window.__PODIUM_NATIVE_OPEN_READY__')
     expect(mainSource).toContain('flush_native_open_queue(&window, &page_open_queue)')
+    const warmDelivery = mainSource.slice(
+      mainSource.indexOf('fn deliver_or_queue_native_open'),
+      mainSource.indexOf('fn flush_native_open_queue'),
+    )
+    expect(warmDelivery.indexOf('window.show()')).toBeGreaterThan(-1)
+    expect(warmDelivery.indexOf('window.set_focus()')).toBeGreaterThan(
+      warmDelivery.indexOf('window.show()'),
+    )
+    expect(warmDelivery.indexOf('window.eval(native_open_eval(&raw))')).toBeGreaterThan(
+      warmDelivery.indexOf('window.set_focus()'),
+    )
     const listener = webLinkHostSource.indexOf(
       'window.addEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)',
     )
@@ -46,6 +57,7 @@ describe('tauri desktop config', () => {
     expect(listener).toBeGreaterThan(-1)
     expect(ready).toBeGreaterThan(listener)
     expect(webLinkHostSource).toContain('__PODIUM_NATIVE_OPEN_READY__?.(false)')
+    expect(webLinkHostSource).toContain('pendingHrefs.current.push(detail)')
   })
 
   it('keeps stable as the packaged fallback endpoint', () => {
