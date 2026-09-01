@@ -2261,6 +2261,42 @@ mod tests {
         assert_eq!(delivered, accepted);
     }
 
+    #[test]
+    fn native_open_queue_keeps_later_input_behind_a_failed_head() {
+        let queue = NativeOpenQueue::default();
+        assert!(enqueue_native_open(
+            &queue,
+            "podium://issues/POD-A".to_string()
+        ));
+        assert!(enqueue_native_open(
+            &queue,
+            "podium://issues/POD-B".to_string()
+        ));
+
+        drain_native_open_queue(&queue, |raw| {
+            assert_eq!(raw, "podium://issues/POD-A");
+            assert!(enqueue_native_open(
+                &queue,
+                "podium://issues/POD-C".to_string()
+            ));
+            false
+        });
+
+        let mut delivered = Vec::new();
+        drain_native_open_queue(&queue, |raw| {
+            delivered.push(raw.to_string());
+            true
+        });
+        assert_eq!(
+            delivered,
+            [
+                "podium://issues/POD-A",
+                "podium://issues/POD-B",
+                "podium://issues/POD-C",
+            ]
+        );
+    }
+
     /// ⌘Q. Supervision must leave the child slot lockable while the backend is alive, because
     /// the quit path reaps the child from the MAIN thread — and a main thread that never gets
     /// the lock never returns from `terminate:`, which macOS force quits as a crash.
