@@ -13,11 +13,11 @@
 import { focusedPaneSession } from '@podium/client-core/engine'
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
 import {
-  PODIUM_SCHEME,
   canonicalPodiumOrigin,
   formatPodiumLink,
-  parseServerVersion,
+  PODIUM_SCHEME,
   parsePodiumLink,
+  parseServerVersion,
   podiumTargetPath,
 } from '@podium/protocol'
 import { useEffect, useState } from 'react'
@@ -120,7 +120,12 @@ export function useMobileHandoffUrl(
       controller.abort()
     }
   }, [httpOrigin, sessionId, trpc])
-  return published?.trpc === trpc &&
+  // Hoisted before the comparison chain: narrowing an optional chain in the
+  // first operand does not carry to the later ones, so reading the fields off
+  // the union directly is a null dereference as far as the checker is
+  // concerned (POD-1868).
+  if (published === null) return null
+  return published.trpc === trpc &&
     published.httpOrigin === httpOrigin &&
     published.sessionId === sessionId
     ? published.url
