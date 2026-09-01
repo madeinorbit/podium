@@ -50,6 +50,7 @@ const harness = vi.hoisted(() => ({
   display: 'compact' as 'compact' | 'expanded',
   onDisplayChange: vi.fn(),
   openSessionTab: vi.fn(),
+  openSessionAtTranscript: vi.fn(),
   focusIssueSession: vi.fn(async () => null),
   setPanelMode: vi.fn(),
   preferPanelMode: vi.fn(),
@@ -62,12 +63,28 @@ const harness = vi.hoisted(() => ({
   setPlacement: vi.fn(async (_input: unknown) => undefined),
   startIssue: vi.fn(async (_input: unknown) => undefined),
   addSession: vi.fn(async (_input: unknown) => undefined),
+  transcriptRead: vi.fn(
+    async (_input: unknown): Promise<{ items: unknown[]; hasMore: boolean; head?: string }> => ({
+      items: [],
+      hasMore: false,
+    }),
+  ),
+  issueEvents: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
+  issueVisitBaseline: null as { issueId: string; readAt: string | null; openedAt: string } | null,
+  replica: {
+    transcriptWindow: vi.fn(() => undefined),
+    putTranscriptWindow: vi.fn(),
+  },
   trpc: {
     features: { state: { query: async () => null } },
     issues: {
       setPlacement: { mutate: (input: unknown) => harness.setPlacement(input) },
       start: { mutate: (input: unknown) => harness.startIssue(input) },
       addSession: { mutate: (input: unknown) => harness.addSession(input) },
+      events: { query: (input: unknown) => harness.issueEvents(input) },
+    },
+    sessions: {
+      transcriptRead: { query: (input: unknown) => harness.transcriptRead(input) },
     },
   } as unknown,
 }))
@@ -102,6 +119,8 @@ vi.mock('./store', () => ({
       setSelectedWorktree: vi.fn(),
       setSelectedIssueId: harness.setSelectedIssueId,
       openSessionTab: harness.openSessionTab,
+      openSessionAtTranscript: harness.openSessionAtTranscript,
+      issueVisitBaseline: harness.issueVisitBaseline,
       focusIssueSession: harness.focusIssueSession,
       setPanelMode: harness.setPanelMode,
       preferPanelMode: harness.preferPanelMode,
@@ -123,6 +142,7 @@ vi.mock('./store', () => ({
       // The shared task menu and `Add agent` read these; the deck's own
       // projection never does.
       machines: harness.machines,
+      replica: harness.replica,
       trpc: harness.trpc,
     }),
   useReplicaIssues: () => harness.issues,
@@ -225,6 +245,7 @@ beforeEach(() => {
   harness.display = 'compact'
   harness.onDisplayChange.mockClear()
   harness.openSessionTab.mockClear()
+  harness.openSessionAtTranscript.mockClear()
   harness.focusIssueSession.mockClear()
   harness.setPanelMode.mockClear()
   harness.preferPanelMode.mockClear()
@@ -235,6 +256,11 @@ beforeEach(() => {
   harness.startIssue.mockClear()
   harness.addSession.mockClear()
   harness.setPlacement.mockClear()
+  harness.transcriptRead.mockClear()
+  harness.issueEvents.mockClear()
+  harness.replica.transcriptWindow.mockClear()
+  harness.replica.putTranscriptWindow.mockClear()
+  harness.issueVisitBaseline = null
   harness.issues = [
     issue('root', { title: 'Mission' }),
     // One session, no children — the strip that should arrive CLOSED.
@@ -547,33 +573,134 @@ describe('the cold deck (POD-1112)', () => {
   })
 })
 
-describe('the developer Waterfall view', () => {
-  it('keeps the original list as Full spine and hides Waterfall when development is off', () => {
-    harness.ui.set('podium.flightDeck.mode', 'waterfall')
+describe('the developer Flight Deck views', () => {
+  it('keeps the original list and does no Handoff reads when development is off', () => {
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
     deck()
 
     expect(screen.queryByRole('button', { name: 'Waterfall' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Handoff' })).toBeNull()
     expect(screen.getByTestId('flight-deck-rows').className).toContain('deck-rows')
     expect(screen.queryByTestId('flight-deck-waterfall')).toBeNull()
+    expect(screen.queryByTestId('flight-deck-handoff')).toBeNull()
+    expect(harness.transcriptRead).not.toHaveBeenCalled()
+    expect(harness.issueEvents).not.toHaveBeenCalled()
+    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
     expect(screen.getByRole('button', { name: 'Full spine' }).getAttribute('aria-pressed')).toBe(
       'true',
     )
   })
 
-  it('adds Waterfall as the fourth view when Podium development is enabled', () => {
+  it('orders Waterfall and Handoff after the three spine views', () => {
     developerFeature.enabled = true
     deck()
 
-    const views = ['Full spine', 'Working', 'Needs you', 'Waterfall'].map((name) =>
+    const views = ['Full spine', 'Working', 'Needs you', 'Waterfall', 'Handoff'].map((name) =>
       screen.getByRole('button', { name }),
     )
-    fireEvent.click(views[3] as HTMLElement)
+    expect(views.map((view) => view.textContent)).toEqual([
+      'Full spine',
+      'Working',
+      'Needs you',
+      'Waterfall',
+      'Handoff',
+    ])
+    fireEvent.click(views[4] as HTMLElement)
 
-    expect(harness.ui.get('podium.flightDeck.mode')).toBe('waterfall')
-    expect(screen.getByTestId('flight-deck-waterfall')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Waterfall' }).getAttribute('aria-pressed')).toBe(
+    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
+    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Handoff' }).getAttribute('aria-pressed')).toBe(
       'true',
     )
+  })
+
+  it('falls back without overwriting Handoff and restores it when the gate returns', () => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
+    const view = deck()
+    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
+
+    developerFeature.enabled = false
+    view.rerender(<DeckHarness />)
+    expect(screen.queryByTestId('flight-deck-handoff')).toBeNull()
+    expect(screen.getByTestId('flight-deck-rows')).toBeTruthy()
+    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
+
+    developerFeature.enabled = true
+    view.rerender(<DeckHarness />)
+    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
+  })
+
+  it('renders return context in order and opens the stable transcript item', async () => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
+    harness.issueVisitBaseline = {
+      issueId: 'root',
+      readAt: '2026-01-01T00:05:00.000Z',
+      openedAt: '2026-01-01T00:10:00.000Z',
+    }
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? {
+            ...(candidate as Issue),
+            activityNotes: 'Ready for the operator.',
+            notesUpdatedAt: '2026-01-01T00:04:00.000Z',
+          }
+        : candidate,
+    )
+    harness.sessions = harness.sessions.map((candidate) =>
+      (candidate as SessionMeta).sessionId === 's1'
+        ? session('s1', {
+            issueId: 't1',
+            displayRef: 'POD-1-A',
+            name: 'Private display name',
+            lastInputAt: '2026-01-01T00:08:00.000Z',
+            lastActiveAt: '2026-01-01T00:09:00.000Z',
+            transcriptAvailable: true,
+          })
+        : candidate,
+    )
+    harness.transcriptRead.mockResolvedValueOnce({
+      items: [
+        { id: 'prompt-id', cursor: 'prompt-cursor', role: 'user', text: 'Where are we?' },
+        {
+          id: 'answer-id',
+          cursor: 'answer-cursor',
+          role: 'assistant',
+          text: 'Ready to land.',
+          answer: true,
+          ts: '2026-01-01T00:07:00.000Z',
+        },
+      ],
+      hasMore: false,
+    })
+
+    deck()
+    await waitFor(() => expect(screen.getByText('Where are we?')).toBeTruthy())
+    const headings = [...screen.getByTestId('flight-deck-handoff').querySelectorAll('h3')].map(
+      (heading) => heading.textContent,
+    )
+    expect(headings).toEqual([
+      'Last update',
+      'Last prompt',
+      'Last answer',
+      'What is happening',
+      'What happens next',
+      'Proposed',
+    ])
+    expect(screen.getByTestId('flight-deck-handoff').textContent).toContain(
+      'Ready for the operator.',
+    )
+    expect(screen.queryByText('Stored issue update')).toBeNull()
+    expect(screen.queryByText('Private display name')).toBeNull()
+    expect(screen.getAllByText('POD-1-A').length).toBeGreaterThan(0)
+    expect(screen.getByText('New since your last visit')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Last prompt in session POD-1-A/ }))
+    expect(harness.setPanelMode).toHaveBeenCalledWith('s1', 'chat')
+    expect(harness.openSessionAtTranscript).toHaveBeenCalledWith('s1', 'prompt-cursor', {
+      permanent: true,
+    })
   })
 })
 

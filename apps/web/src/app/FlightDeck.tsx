@@ -121,6 +121,7 @@ import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useClickIntent } from './click-intent'
+import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
 import { MissionGauge } from './MissionGauge'
@@ -147,7 +148,7 @@ import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
  * asking agents: busy and stuck-on-you are different facts, and a tab that held
  * both left `Needs you` looking like it had done nothing.
  */
-type FlightDeckView = FlightDeckMode | 'waterfall'
+type FlightDeckView = FlightDeckMode | 'waterfall' | 'handoff'
 
 const MODES: Array<{ id: FlightDeckView; label: string }> = [
   { id: 'full', label: 'Full spine' },
@@ -155,6 +156,7 @@ const MODES: Array<{ id: FlightDeckView; label: string }> = [
   { id: 'needs-you', label: 'Needs you' },
 ]
 const WATERFALL_MODE = { id: 'waterfall', label: 'Waterfall' } as const
+const HANDOFF_MODE = { id: 'handoff', label: 'Handoff' } as const
 
 /**
  * `Add agent` — one more agent onto the mission root.
@@ -443,7 +445,7 @@ const railFor = (tone: RailTone): Rail =>
 const readMode = (raw: string | null): FlightDeckView =>
   raw === 'active'
     ? 'working'
-    : raw === 'working' || raw === 'needs-you' || raw === 'waterfall'
+    : raw === 'working' || raw === 'needs-you' || raw === 'waterfall' || raw === 'handoff'
       ? raw
       : 'full'
 const writeMode = (mode: FlightDeckView): string | null => (mode === 'full' ? null : mode)
@@ -2906,7 +2908,10 @@ export function FlightDeck({
     setSelectedWorktree,
     setSelectedIssueId,
     openSessionTab,
+    openSessionAtTranscript,
+    issueVisitBaseline,
     focusIssueSession,
+    setPanelMode,
     preferPanelMode,
     setView,
     markIssueRead,
@@ -2933,7 +2938,10 @@ export function FlightDeck({
       // derived mirrors they now are — this column still reads them to know
       // which session the operator is actually in.
       openSessionTab: store.openSessionTab,
+      openSessionAtTranscript: store.openSessionAtTranscript,
+      issueVisitBaseline: store.issueVisitBaseline,
       focusIssueSession: store.focusIssueSession,
+      setPanelMode: store.setPanelMode,
       preferPanelMode: store.preferPanelMode,
       setView: store.setView,
       markIssueRead: store.markIssueRead,
@@ -2971,7 +2979,7 @@ export function FlightDeck({
   // Device-local DISPLAY preference, subscribed rather than seeded (POD-540):
   // which view you left the deck in and which branches you folded survive a
   // remount. Neither ever touches issue stage or agent state.
-  const waterfallEnabled = useFeature('podium-development')
+  const developmentEnabled = useFeature('podium-development')
   const [preferredView, setPreferredView] = usePersistedUiState<FlightDeckView>(
     FLIGHT_DECK_MODE_KEY,
     readMode,
@@ -2981,9 +2989,11 @@ export function FlightDeck({
   // gate restores the operator's last view without making unfinished UI leak
   // into an ordinary install.
   const view: FlightDeckView =
-    preferredView === 'waterfall' && !waterfallEnabled ? 'full' : preferredView
-  const mode: FlightDeckMode = view === 'waterfall' ? 'full' : view
-  const modes = waterfallEnabled ? [...MODES, WATERFALL_MODE] : MODES
+    !developmentEnabled && (preferredView === 'waterfall' || preferredView === 'handoff')
+      ? 'full'
+      : preferredView
+  const mode: FlightDeckMode = view === 'waterfall' || view === 'handoff' ? 'full' : view
+  const modes = developmentEnabled ? [...MODES, WATERFALL_MODE, HANDOFF_MODE] : MODES
   useLayoutEffect(() => {
     if (view !== 'waterfall' && display === 'expanded') onDisplayChange('compact')
   }, [display, onDisplayChange, view])
@@ -2995,6 +3005,24 @@ export function FlightDeck({
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const headerIntent = useClickIntent()
+  const deckScrollerRef = useRef<HTMLElement | null>(null)
+  type DeckScrollKey = 'spine' | 'waterfall' | 'handoff'
+  const scrollKey: DeckScrollKey =
+    view === 'handoff' ? 'handoff' : view === 'waterfall' ? 'waterfall' : 'spine'
+  const scrollPositionsRef = useRef<Record<DeckScrollKey, number>>({
+    spine: 0,
+    waterfall: 0,
+    handoff: 0,
+  })
+  const previousScrollKeyRef = useRef(scrollKey)
+  useLayoutEffect(() => {
+    const scroller = deckScrollerRef.current
+    const previous = previousScrollKeyRef.current
+    if (!scroller || previous === scrollKey) return
+    scrollPositionsRef.current[previous] = scroller.scrollTop
+    scroller.scrollTop = scrollPositionsRef.current[scrollKey]
+    previousScrollKeyRef.current = scrollKey
+  }, [scrollKey])
   // `selectedMissionRoot`, not `missionRootFor`: a persisted selection left
   // pointing at an empty draft vessel is not a mission, and this column shows
   // `EmptyDeck` for it rather than a header and a gauge over nothing (POD-1112).
@@ -3183,7 +3211,7 @@ export function FlightDeck({
       for (const id of row.descendantIds) hiddenByAncestor.add(id)
     }
     const unfolded = tree.filter((row) => row.depth > 0 && !hiddenByAncestor.has(row.issue.id))
-    const needle = query.trim().toLowerCase()
+    const needle = view === 'handoff' ? '' : query.trim().toLowerCase()
     if (!needle) return unfolded
     const keep = new Set<string>()
     const trail: FlightDeckRow[] = []
@@ -3194,14 +3222,14 @@ export function FlightDeck({
         for (const ancestor of trail) if (ancestor) keep.add(ancestor.issue.id)
     }
     return unfolded.filter((row) => keep.has(row.issue.id))
-  }, [rows, proposalIds, folds, query])
+  }, [rows, proposalIds, folds, query, view])
   /** The proposals themselves. The tree's folds do not govern them — they are
    *  not in the tree — so only the search narrows them. */
   const proposedRows = useMemo(() => {
     const proposals = rows.filter((row) => proposalIds.has(row.issue.id))
-    const needle = query.trim().toLowerCase()
+    const needle = view === 'handoff' ? '' : query.trim().toLowerCase()
     return needle ? proposals.filter((row) => matchesQuery(row, needle)) : proposals
-  }, [rows, proposalIds, query])
+  }, [rows, proposalIds, query, view])
   // Computed over the rows that ACTUALLY render: a fold or a filter changes which
   // strip is the last child of its branch, and a rail that outlives its last
   // child is the tell that the tree was drawn from data rather than from layout.
@@ -3596,6 +3624,30 @@ export function FlightDeck({
     setView('workspace')
   }
 
+  /** Handoff task-only rows retarget the Task dock without replacing the chat. */
+  const focusHandoffIssue = (issueId: IssueId): void => {
+    setFocusedIssueId(issueId)
+    window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
+    void markIssueRead(issueId)
+    setView('workspace')
+  }
+
+  const openHandoffSession = (issueId: IssueId, sessionId: SessionId): void => {
+    const session = sessions.find((candidate) => candidate.sessionId === sessionId)
+    if (session) selectSession(issueId, session, { permanent: true })
+  }
+
+  const openHandoffTranscript = (sessionId: SessionId, itemKey: string): void => {
+    const session = sessions.find((candidate) => candidate.sessionId === sessionId)
+    if (session?.issueId) setFocusedIssueId(session.issueId)
+    if (session?.cwd) setSelectedWorktree(session.cwd)
+    setPanelMode(sessionId, 'chat')
+    openSessionAtTranscript(sessionId, itemKey, { permanent: true })
+    void markSessionRead(sessionId)
+    if (session?.issueId) void markIssueRead(session.issueId)
+    setView('workspace')
+  }
+
   /**
    * The list spine is one line, resolved once so its width and tone cannot jog
    * between the root roster and the nested task rows.
@@ -3646,6 +3698,7 @@ export function FlightDeck({
       className={cn('engraved-column relative', root && 'overflow-y-auto')}
       data-testid={root ? 'flight-deck-scroller' : undefined}
       aria-label="Flight Deck"
+      ref={deckScrollerRef}
     >
       {!root && collapseButton(true)}
 
@@ -3794,29 +3847,31 @@ export function FlightDeck({
               className="relative flex h-8 flex-none items-center gap-1 border-y border-hairline-soft pr-2"
               style={{ paddingLeft: GUTTER }}
             >
-              {modes.map((option) => (
-                <button
-                  data-pressable
-                  type="button"
-                  key={option.id}
-                  aria-pressed={view === option.id}
-                  // THE ACTIVE VIEW IS UNDERLINED IN THE MISSION'S OWN COLOUR, and
-                  // the underline runs the bar's full height rather than a pill's.
-                  // A filled pill here read as one more raised object competing
-                  // with the strips below it; an inset floor rule is the same
-                  // device the selected strip wears on its left edge, turned
-                  // through ninety degrees, so both say "this one" in one voice.
-                  className={cn(
-                    'shell-type-micro inline-flex flex-none items-center self-stretch whitespace-nowrap font-medium text-text-faint hover:text-text-strong',
-                    view === 'waterfall' ? 'px-1' : 'px-2',
-                    view === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
-                  )}
-                  onClick={() => setPreferredView(option.id)}
-                >
-                  {option.label}
-                </button>
-              ))}
-              <div className="ml-auto flex flex-none items-center gap-0.5">
+              <div className="flex min-w-0 flex-1 gap-1 self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {modes.map((option) => (
+                  <button
+                    data-pressable
+                    type="button"
+                    key={option.id}
+                    aria-pressed={view === option.id}
+                    // THE ACTIVE VIEW IS UNDERLINED IN THE MISSION'S OWN COLOUR, and
+                    // the underline runs the bar's full height rather than a pill's.
+                    // A filled pill here read as one more raised object competing
+                    // with the strips below it; an inset floor rule is the same
+                    // device the selected strip wears on its left edge, turned
+                    // through ninety degrees, so both say "this one" in one voice.
+                    className={cn(
+                      'shell-type-micro inline-flex flex-none items-center self-stretch whitespace-nowrap font-medium text-text-faint hover:text-text-strong',
+                      view === 'waterfall' ? 'px-1' : 'px-2',
+                      view === option.id && 'text-text-strong shadow-[inset_0_-2px_0_var(--issue)]',
+                    )}
+                    onClick={() => setPreferredView(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-none items-center gap-0.5">
                 {view === 'waterfall' && (
                   <Button
                     variant="ghost"
@@ -3838,45 +3893,49 @@ export function FlightDeck({
                     )}
                   </Button>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-6 text-text-faint"
-                  aria-pressed={searchOpen}
-                  title="Search this mission"
-                  onClick={() => {
-                    setSearchOpen((open) => !open)
-                    if (searchOpen) setQuery('')
-                  }}
-                >
-                  <Search size={13} aria-hidden="true" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-6 text-text-faint"
-                  title={allFolded ? 'Expand every branch' : 'Fold every branch'}
-                  disabled={!anyFoldable}
-                  // Both directions write EXPLICIT values for every foldable
-                  // branch: "expand everything" that merely cleared the map would
-                  // leave the one-session tasks closed by the default rule, which
-                  // is not what the control says.
-                  onClick={() =>
-                    setFolds(
-                      new Map(
-                        foldable.map((row): [string, FoldState] => [
-                          row.issue.id,
-                          allFolded ? 'open' : 'closed',
-                        ]),
-                      ),
-                    )
-                  }
-                >
-                  {allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
-                </Button>
+                {view !== 'handoff' && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6 text-text-faint"
+                      aria-pressed={searchOpen}
+                      title="Search this mission"
+                      onClick={() => {
+                        setSearchOpen((open) => !open)
+                        if (searchOpen) setQuery('')
+                      }}
+                    >
+                      <Search size={13} aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6 text-text-faint"
+                      title={allFolded ? 'Expand every branch' : 'Fold every branch'}
+                      disabled={!anyFoldable}
+                      // Both directions write EXPLICIT values for every foldable
+                      // branch: "expand everything" that merely cleared the map would
+                      // leave the one-session tasks closed by the default rule, which
+                      // is not what the control says.
+                      onClick={() =>
+                        setFolds(
+                          new Map(
+                            foldable.map((row): [string, FoldState] => [
+                              row.issue.id,
+                              allFolded ? 'open' : 'closed',
+                            ]),
+                          ),
+                        )
+                      }
+                    >
+                      {allFolded ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
-            {searchOpen && (
+            {searchOpen && view !== 'handoff' && (
               <div
                 className="relative flex h-8 flex-none items-center gap-2 border-b border-hairline-soft pr-2"
                 style={{ paddingLeft: GUTTER }}
@@ -3912,8 +3971,16 @@ export function FlightDeck({
             )}
           </div>
           <div
-            className={view === 'waterfall' ? 'contents' : 'deck-rows flex-none pb-1.5 pr-2'}
-            data-testid={view === 'waterfall' ? undefined : 'flight-deck-rows'}
+            className={
+              view === 'waterfall'
+                ? 'contents'
+                : view === 'handoff'
+                  ? 'flex-none'
+                  : 'deck-rows flex-none pb-1.5 pr-2'
+            }
+            data-testid={
+              view === 'waterfall' || view === 'handoff' ? undefined : 'flight-deck-rows'
+            }
           >
             {view === 'waterfall' ? (
               rootRow && (
@@ -3941,6 +4008,42 @@ export function FlightDeck({
                   onRenameDone={() => setRenameTarget(null)}
                 />
               )
+            ) : view === 'handoff' ? (
+              <FlightDeckHandoff
+                rootIssue={root}
+                issues={issues}
+                sessions={sessions}
+                visitReadAt={
+                  issueVisitBaseline?.issueId === root.id ? issueVisitBaseline.readAt : null
+                }
+                onOpenTranscript={openHandoffTranscript}
+                onOpenSession={openHandoffSession}
+                onOpenIssue={focusHandoffIssue}
+                proposed={
+                  proposedRows.length > 0 ? (
+                    <DeckSection
+                      label="Proposed"
+                      count={proposedRows.length}
+                      tone="text-fuchsia-500"
+                      testId="flight-proposed"
+                    >
+                      <div className="flex flex-col gap-1">
+                        {proposedRows.map((row) => (
+                          <ProposalRow
+                            key={row.issue.id}
+                            issue={row.issue}
+                            author={authorOf(row.issue)}
+                            selected={focused === row.issue.id}
+                            onSelect={(permanent) => selectIssue(row, permanent)}
+                            onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                            onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
+                          />
+                        ))}
+                      </div>
+                    </DeckSection>
+                  ) : null
+                }
+              />
             ) : (
               <>
                 <div className="relative h-1.5">{spineSegment('inset-y-0')}</div>

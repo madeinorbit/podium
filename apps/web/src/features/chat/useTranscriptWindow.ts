@@ -249,20 +249,23 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     [transcriptController],
   )
 
-  const probeNewest = useCallback((disclose = false): Promise<boolean> => {
-    if (refreshInFlightRef.current) return refreshInFlightRef.current
-    if (probeInFlightRef.current) return probeInFlightRef.current
-    const promise = transcriptController.probe({ disclose }).then((accepted) => {
-      if (accepted) reconciledSignalRef.current = activitySignalRef.current
-      return accepted
-    })
-    probeInFlightRef.current = promise
-    const clear = (): void => {
-      if (probeInFlightRef.current === promise) probeInFlightRef.current = null
-    }
-    void promise.then(clear, clear)
-    return promise
-  }, [transcriptController])
+  const probeNewest = useCallback(
+    (disclose = false): Promise<boolean> => {
+      if (refreshInFlightRef.current) return refreshInFlightRef.current
+      if (probeInFlightRef.current) return probeInFlightRef.current
+      const promise = transcriptController.probe({ disclose }).then((accepted) => {
+        if (accepted) reconciledSignalRef.current = activitySignalRef.current
+        return accepted
+      })
+      probeInFlightRef.current = promise
+      const clear = (): void => {
+        if (probeInFlightRef.current === promise) probeInFlightRef.current = null
+      }
+      void promise.then(clear, clear)
+      return promise
+    },
+    [transcriptController],
+  )
 
   // The controller owns cache hydration, read-then-subscribe, reset recovery,
   // reconnect refresh, paging, and stale-result rejection. This hook adds only
@@ -581,12 +584,18 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     }
     if (!hasMoreOlder || loadingOlder || headCursor === undefined) return
     const before = transcriptController.getSnapshot().items.length
-    void transcriptController.loadOlder().then((accepted) => {
-      if (!accepted) return
-      const added = transcriptController.getSnapshot().items.length - before
-      setPagedBack(true)
-      setRenderCount((count) => count + Math.max(added, 1))
-    })
+    void transcriptController
+      .loadOlder()
+      .then((accepted) => {
+        if (!accepted) return
+        const added = transcriptController.getSnapshot().items.length - before
+        setPagedBack(true)
+        setRenderCount((count) => count + Math.max(added, 1))
+      })
+      .catch(() => {
+        // The pager remains available for an explicit retry. Reveal requests
+        // notice that the window did not advance and terminate separately.
+      })
   }, [headCursor, hasMoreOlder, loadingOlder, renderStart, transcriptController])
 
   // Back-page the LOADED window out to SEARCH_DEPTH — called when the user opens

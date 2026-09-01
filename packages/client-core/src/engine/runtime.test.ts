@@ -2699,3 +2699,67 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
     expect(hub.connectNowCount).toBe(1)
   })
 })
+
+describe('issue visit baseline', () => {
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+  })
+
+  it('keeps the pre-read cursor for one visit and refreshes it across mission and visibility changes', async () => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    const { engine } = makeEngine()
+    engine.start()
+    await settle(40)
+    const first = {
+      id: 'iss_1',
+      seq: 1,
+      title: 'First',
+      stage: 'in_progress',
+      readAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-02T00:00:00.000Z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      archived: false,
+    } as unknown as IssueWire
+    const second = {
+      ...first,
+      id: 'iss_2',
+      seq: 2,
+      title: 'Second',
+      readAt: '2026-07-03T00:00:00.000Z',
+      updatedAt: '2026-07-04T00:00:00.000Z',
+    } as IssueWire
+    engine.replica.applyChanges('issues', [first, second], [])
+    await settle()
+
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_1'))
+    engine.getSnapshot().setView('workspace')
+    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+      issueId: 'iss_1',
+      readAt: first.readAt,
+    })
+
+    void engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
+    expect(engine.getSnapshot().issues.find((issue) => issue.id === 'iss_1')?.readAt).not.toBe(
+      first.readAt,
+    )
+    expect(engine.getSnapshot().issueVisitBaseline?.readAt).toBe(first.readAt)
+
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_2'))
+    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+      issueId: 'iss_2',
+      readAt: second.readAt,
+    })
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(engine.getSnapshot().issueVisitBaseline).toBeNull()
+    const visibleReadAt = engine.getSnapshot().issues.find((issue) => issue.id === 'iss_2')?.readAt
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+      issueId: 'iss_2',
+      readAt: visibleReadAt,
+    })
+  })
+})

@@ -85,6 +85,8 @@ export const UI_LOCAL_ACTIONS = [
   'setPane',
   'setFocusedPane',
   'openSessionTab',
+  'openSessionAtTranscript',
+  'clearTranscriptReveal',
   'openTabInWorkspace',
   'promoteWorkspaceTab',
   'activateWorkspaceTab',
@@ -177,6 +179,7 @@ type ActionState = {
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
+  transcriptReveal: Store['transcriptReveal']
   workspaces: WorkspaceMap
   paneA: SessionId | null
   paneB: SessionId | null
@@ -390,6 +393,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
   const api = rt.api
+  let transcriptRevealNonce = 0
   const replicatedLayout = createReplicatedLayoutController({
     outbox: rt.outbox,
     api,
@@ -587,6 +591,20 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       editWorkspace((ws) => openTab(ws, id, { permanent: true, paneId }))
     },
     openSessionTab: (sessionId, opts) => openInWorkspace(sessionId, opts),
+    openSessionAtTranscript: (sessionId, itemKey, opts) => {
+      if (!sessionId || !itemKey) return
+      const state = rt.state()
+      transcriptRevealNonce += 1
+      rt.apply({
+        ...workspaceEdit(state, (workspace) =>
+          openTab(workspace, sessionId, { permanent: opts?.permanent !== false }),
+        ),
+        transcriptReveal: { nonce: transcriptRevealNonce, sessionId, itemKey },
+      })
+    },
+    clearTranscriptReveal: (nonce) => {
+      if (rt.state().transcriptReveal?.nonce === nonce) rt.apply({ transcriptReveal: null })
+    },
     openTabInWorkspace: (tabId, opts) => openInWorkspace(tabId, opts),
     promoteWorkspaceTab: (tabId) => editWorkspace((ws) => promoteTab(ws, tabId)),
     activateWorkspaceTab: (tabId) => editWorkspace((ws) => activateTab(ws, tabId)),

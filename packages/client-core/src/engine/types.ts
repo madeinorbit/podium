@@ -84,6 +84,20 @@ export interface SessionEndResult {
   worktreeFreed?: boolean
 }
 
+/** The issue read cursor that existed when the current foreground visit began. */
+export interface IssueVisitBaseline {
+  issueId: IssueId
+  readAt: string | null
+  openedAt: string
+}
+
+/** One app-local request to reveal a stable item inside a session transcript. */
+export interface TranscriptRevealRequest {
+  nonce: number
+  sessionId: SessionId
+  itemKey: string
+}
+
 export function defaultFormatError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message
   if (typeof error === 'string' && error.trim()) return error
@@ -226,6 +240,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Classic sidebar never sets it; unified worktree rows clear it. */
   selectedIssueId: IssueId | null
   setSelectedIssueId: (id: IssueId | null) => void
+  /** Captured before eager mark-read advances the issue's per-user cursor. */
+  issueVisitBaseline: IssueVisitBaseline | null
+  /** Consumed by the matching chat surface, then cleared by nonce. */
+  transcriptReveal: TranscriptRevealRequest | null
   /**
    * EDITOR-STYLE TAB WORKSPACES (POD-710): what each task in the left sidebar
    * has open — its tabs, its active tab, its ONE preview tab and its split
@@ -254,6 +272,14 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  next single click. Defaults to a permanent tab — a caller that has not
    *  thought about it wants a tab that stays. */
   openSessionTab: (sessionId: SessionId, opts?: { permanent?: boolean; paneId?: PaneId }) => void
+  /** Open/select one session tab and request a jump to a stable transcript item. */
+  openSessionAtTranscript: (
+    sessionId: SessionId,
+    itemKey: string,
+    opts?: { permanent?: boolean },
+  ) => void
+  /** Clear only the request the consumer actually handled. */
+  clearTranscriptReveal: (nonce: number) => void
   /** The same, for any tab id (a session, or a `file:…` editor tab). */
   openTabInWorkspace: (tabId: TabId, opts?: { permanent?: boolean; paneId?: PaneId }) => void
   /** Preview → permanent, with no reorder (typing into the panel, or a

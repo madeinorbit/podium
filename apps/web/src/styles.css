@@ -5679,6 +5679,37 @@ html[data-density="compact"] .brief-shelf {
   outline-offset: 4px;
   background: color-mix(in oklab, var(--issue, transparent) 5%, transparent);
 }
+
+/* Handoff is a reading pass through the mission, not another tree. Sections
+   keep one shared left edge and use rules instead of card-stacking. */
+.handoff-view {
+  padding-top: 14px;
+}
+.handoff-section {
+  padding-inline: 16px 8px;
+}
+.handoff-section + .handoff-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline-soft);
+}
+.handoff-markdown > :first-child {
+  margin-top: 0;
+}
+.handoff-markdown > :last-child {
+  margin-bottom: 0;
+}
+.handoff-markdown p + p,
+.handoff-markdown p + ul,
+.handoff-markdown p + ol,
+.handoff-markdown ul + p,
+.handoff-markdown ol + p {
+  margin-top: 0.55em;
+}
+.handoff-markdown ul,
+.handoff-markdown ol {
+  padding-inline-start: 1.25em;
+}
 /* The narrow dock runs the same grammar at its own scale (§2.5). Specificity
    has to match `.chat-compact .transcript-row`, which would otherwise win. */
 .chat-compact .transcript-turn-open {

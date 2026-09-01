@@ -933,6 +933,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
     if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
+      this.reactions.updateIssueVisitBaseline()
+    if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
       this.reactions.updateIssueMarkReadTimer()
   }
 
