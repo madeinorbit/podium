@@ -48,6 +48,7 @@ import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runti
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
 import {
   opencode2VersionProbe,
+  opencode2VersionProbeForExecutable,
   opencodeVersionProbe,
   opencodeVersionProbeForExecutable,
 } from '../runtime/opencode-server'
@@ -1151,7 +1152,9 @@ export function resolvedAdmissionExecutable(
   preferred: string | undefined,
   executables: ReadonlyMap<string, { readonly path: string }> | undefined,
 ): string | undefined {
-  return preferred === 'opencode-server' ? executables?.get('opencode')?.path : undefined
+  if (preferred === 'opencode-server') return executables?.get('opencode')?.path
+  if (preferred === 'opencode2-server') return executables?.get('opencode2')?.path
+  return undefined
 }
 
 /**
@@ -1227,7 +1230,9 @@ const defaultServerDriverAdmissionProbe: ServerDriverAdmissionProbe = (
   driverId === 'codex-app-server'
     ? codexAppServerVersionProbe(undefined, policy)
     : driverId === 'opencode2-server'
-      ? opencode2VersionProbe(undefined, policy)
+      ? executablePath
+        ? opencode2VersionProbeForExecutable(executablePath, policy)
+        : opencode2VersionProbe(undefined, policy)
       : driverId === 'grok-acp'
         ? grokAcpVersionProbe(undefined, policy)
         : executablePath
@@ -1294,7 +1299,9 @@ export async function launchServerDriverSession(
     probeDriver(
       driverId,
       namedHere === driverId ? { retryInconclusive: true } : undefined,
-      driverId === 'opencode-server' ? resolvedOpencodeExecutable : undefined,
+      driverId === 'opencode-server' || driverId === 'opencode2-server'
+        ? resolvedOpencodeExecutable
+        : undefined,
     )
   const preferredServer = admissionProbeDriver(preferred, selectionAuth)
   const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)

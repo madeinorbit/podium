@@ -495,10 +495,14 @@ describe('the version gate, as the daemon reads it', () => {
   it('selects only the generation-resolved OpenCode executable for admission', () => {
     const executables = new Map([
       ['opencode', { path: '/home/rig/.opencode/bin/opencode' }],
+      ['opencode2', { path: '/home/rig/.opencode/bin/opencode2' }],
       ['codex', { path: '/usr/bin/codex' }],
     ])
     expect(resolvedAdmissionExecutable('opencode-server', executables)).toBe(
       '/home/rig/.opencode/bin/opencode',
+    )
+    expect(resolvedAdmissionExecutable('opencode2-server', executables)).toBe(
+      '/home/rig/.opencode/bin/opencode2',
     )
     expect(resolvedAdmissionExecutable('codex-app-server', executables)).toBeUndefined()
     expect(resolvedAdmissionExecutable('opencode-server', undefined)).toBeUndefined()

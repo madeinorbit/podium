@@ -740,7 +740,9 @@ describe('observeOpencodeState interrupted verdict', () => {
             item.role === 'assistant' && (item.text === 'partial' || item.text === 'late text'),
         ),
       ).toEqual([])
-      const bootEvents = await opencodeStateProvider.bootEvents!({
+      const bootEventsProvider = opencodeStateProvider.bootEvents
+      if (!bootEventsProvider) throw new Error('OpenCode state provider must expose boot events')
+      const bootEvents = await bootEventsProvider({
         cwd: '/repo/interrupt',
         homeDir: home,
         resumeValue: 'ses_interrupt',
