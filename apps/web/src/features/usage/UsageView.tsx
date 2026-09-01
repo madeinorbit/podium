@@ -18,7 +18,9 @@ import { AppSheet } from '@/app/AppSheet'
 import { useStoreSelector } from '@/app/store'
 import { QuotaLedger } from './QuotaLedger'
 import { Unfilled } from './Unfilled'
+import { UsageTasks } from './UsageTasks'
 import { type QuotaLedgerFeed, useQuotaLedger } from './useQuotaLedger'
+import { type TaskCostsFeed, useTaskCosts } from './useTaskCosts'
 import { formatClock, type UsageFeed, useArrived, useUsageFeed } from './useUsageFeed'
 
 /**
@@ -55,6 +57,7 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const feed = useUsageFeed(trpc)
   const ledger = useQuotaLedger(trpc)
+  const tasks = useTaskCosts(trpc)
   const cold = feed.buckets === null
   const arrived = useArrived(!cold)
   const summary = usageSummary(feed.buckets ?? [], Date.now())
@@ -89,6 +92,7 @@ export function UsageView({ onClose }: { onClose: () => void }): JSX.Element {
         <UsageBody
           feed={feed}
           ledger={ledger}
+          tasks={tasks}
           summary={summary}
           cold={cold}
           arrived={arrived}
@@ -149,12 +153,14 @@ function UsageUnreachable({ onRetry }: { onRetry: () => void }): JSX.Element {
 function UsageBody({
   feed,
   ledger,
+  tasks,
   summary,
   cold,
   arrived,
 }: {
   feed: UsageFeed
   ledger: QuotaLedgerFeed
+  tasks: TaskCostsFeed
   summary: UsageSummaryView
   cold: boolean
   arrived: boolean
@@ -189,12 +195,17 @@ function UsageBody({
       <div className="usage-scroll">
         <UsageReadouts summary={summary} cold={cold} />
         <UsageProviders summary={summary} cold={cold} />
+        {/* Provider is the coarse grouping of the window total and task is the
+            next one down, so they sit together and both sit above the trace —
+            which answers WHEN, and between them would split one question in
+            two. */}
+        <UsageTasks feed={tasks} cold={tasks.rows === null} />
         <UsageTrace summary={summary} cold={cold} arrived={arrived} />
         <UsageComposition summary={summary} cold={cold} />
         <UsageModels summary={summary} cold={cold} />
         <QuotaLedger ledger={ledger.ledger} cold={ledger.ledger === null} feed={ledger} />
       </div>
-      <UsageProvenance summary={summary} cold={cold} />
+      <UsageProvenance summary={summary} cold={cold} tasks={tasks} />
     </div>
   )
 }
@@ -207,9 +218,14 @@ function UsageBody({
  * left edge and a hand's breadth of nothing beside it. A window does not end
  * that way: it CLOSES (DESIGN.md, The Status Strip). So the fine print became
  * the frame's bottom edge — full-bleed, `--bar` toned and hairline-topped, the
- * mirror of the sheet's own 36px header — carrying the three facts as labelled
- * cells divided into a compact set of labelled readings.
+ * mirror of the sheet's own 36px header — carrying its facts as labelled cells
+ * divided into a compact set of labelled readings.
  * The surface opens and closes on the same grammar.
+ *
+ * ATTRIBUTION IS A CELL HERE AND NOWHERE ELSE (POD-1861). Every by-task figure
+ * on the sheet is short by whatever the harvest could not link to a task, and
+ * that caveat belongs with the other three rather than repeated beside each
+ * ranking — the same argument that put the list-price hedge in one place.
  *
  * Its type does NOT join the Reading Tier the sheet's content uses: chrome never
  * does (POD-407), and a frame whose text grew with its contents stops reading as
@@ -218,22 +234,29 @@ function UsageBody({
 function UsageProvenance({
   summary,
   cold,
+  tasks,
 }: {
   summary: UsageSummaryView
   cold: boolean
+  tasks: TaskCostsFeed
 }): JSX.Element {
   const pricing =
     summary.unpricedModels.length === 0
       ? 'Public per-model list price. Every model in this window matched a priced family.'
       : `Public per-model list price. ${formatCount(summary.unpricedModels.length)} ${summary.unpricedModels.length === 1 ? 'model used' : 'models used'} the fallback rate: ${summary.unpricedModels.join(', ')}.`
-  const facts = [
-    { label: 'Source', value: 'Claude Code, Codex, and Grok sessions on this machine', wide: false },
+  // Each cell that is not knowable before its own read holds an unfilled slot,
+  // so the bar is drawn at full height from the first frame and no cell appears
+  // late. The two facts that are constants are simply true from the start.
+  const facts: { label: string; value: string | null; wide: boolean; ch: number }[] = [
     {
-      label: 'Pricing',
-      value: pricing,
-      wide: true,
+      label: 'Source',
+      value: 'Claude Code, Codex, and Grok sessions on this machine',
+      wide: false,
+      ch: 30,
     },
-    { label: 'Refreshed', value: 'Every 90s while open', wide: false },
+    { label: 'Pricing', value: cold ? null : pricing, wide: true, ch: 48 },
+    { label: 'Attribution', value: attribution(summary, tasks), wide: false, ch: 26 },
+    { label: 'Refreshed', value: 'Every 90s while open', wide: false, ch: 18 },
   ]
   return (
     <footer className="usage-provenance">
@@ -241,12 +264,32 @@ function UsageProvenance({
         <div key={f.label} className="usage-prov" data-wide={f.wide || undefined}>
           <span className="usage-prov-label">{f.label}</span>
           <span className="usage-prov-value">
-            {cold && f.label === 'Pricing' ? <Unfilled ch={48} /> : f.value}
+            {f.value === null ? <Unfilled ch={f.ch} /> : f.value}
           </span>
         </div>
       ))}
     </footer>
   )
+}
+
+/**
+ * HOW MUCH OF THIS WINDOW MAPS TO A TASK — stated ONCE, here, and MEASURED.
+ *
+ * Never a constant. The share moves: it is a function of how many Codex rollouts
+ * the registry has linked, which changes with every harvest, and a figure frozen
+ * into the copy would go on asserting last month's completeness. It is also the
+ * only place the by-task section's gap is admitted, which is why that section
+ * carries no second hedge of its own.
+ *
+ * Both halves must be the WINDOW's, or the cell divides two different things and
+ * prints something over 100%.
+ */
+function attribution(summary: UsageSummaryView, tasks: TaskCostsFeed): string | null {
+  if (tasks.rows === null) return null
+  const attributed = tasks.rows.reduce((n, row) => n + row.windowCostUsd, 0)
+  const total = summary.week.estCostUsd
+  if (total <= 0) return 'Nothing spent in this window to attribute.'
+  return `${formatShare(Math.min(attributed, total), total)} of this window maps to a task`
 }
 
 /**

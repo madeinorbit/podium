@@ -8112,6 +8112,90 @@ a.ref-link--session::before {
   font-size: 11.5px;
   line-height: 1.4;
 }
+
+/* ── Where it went · by task (POD-1861) ──────────────────────────────────────
+   THE SAME DIVIDED INSTRUMENT AS THE MASTHEAD, WITHOUT ITS ONE SIZE JUMP. The
+   masthead is closed (POD-596): one figure at 24px and nothing else on the
+   surface takes that step, so this section's headline reading leads its row by
+   ink and by position instead. `.usage-readings` already carries the hairline
+   grammar; all this adds is a lead cell pinned to the left edge while the four
+   readings that size it keep the sheet's one right edge. */
+.usage-task-readings {
+  align-self: stretch;
+  margin-left: 0;
+}
+.usage-task-readings .usage-reading[data-lead] {
+  padding-left: 0;
+  border-left: 0;
+  text-align: left;
+}
+/* The four readings sit at the right edge; the lead one holds the left. The
+   auto margin goes on the cell AFTER the lead rather than on the group, so the
+   division between them stays a hairline and not a gap of unexplained width. */
+.usage-task-readings .usage-reading[data-lead] + .usage-reading {
+  margin-left: auto;
+}
+/* The section's answer, loud by INK rather than by size — the one move left
+   once the 24px step is spoken for. */
+.usage-task-readings .usage-reading[data-lead] .usage-reading-value {
+  font-weight: 600;
+}
+/* The seam between a window reading and all-time ones, stated in the sheet's
+   interpretive voice — the register the cache counterfactual uses, one step
+   quieter because it qualifies a row rather than interpreting a figure. */
+.usage-task-note {
+  margin: -2px 0 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+/* A task title is a SENTENCE, not an identifier: it takes the room the model
+   column does not need and ellipses rather than wrapping a ranking into three
+   lines per row. The rail still absorbs the slack — this column is capped, not
+   greedy. */
+/* Width 1%, like every other column but the rail: the rail is what absorbs the
+   slack (the model table's rule), and a task title left to take it collapsed the
+   share bar to a 15px stub. The clamp below is what stops `width: 1%` from
+   simply growing to the longest title instead. */
+.usage-th-task {
+  width: 1%;
+  white-space: nowrap;
+}
+.usage-td-task {
+  color: var(--foreground);
+}
+/* The clamp lives on an inner block, not on the cell: `max-width` on a `td` in
+   an auto-layout table is advisory at best, and a title that ignored it would
+   push the six right-aligned columns off the sheet's one right edge. */
+.usage-td-task-inner {
+  display: block;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-td-task-ref {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.usage-th-stage {
+  width: 1%;
+  white-space: nowrap;
+}
+.usage-td-stage {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.usage-td-rate {
+  color: var(--muted-foreground);
+}
+/* The lower-bound mark rides one rung below the figure it qualifies: it is a
+   caveat ON the number, not a second number. */
+.usage-td-floor {
+  color: var(--text-dim);
+  font-weight: 500;
+}
 .usage-provider-name {
   color: var(--foreground);
   font-size: 13px;
@@ -8630,6 +8714,7 @@ a.ref-link--session::before {
 .usage-body[data-arrive] .usage-cache-saving,
 .usage-body[data-arrive] .usage-provider-cost,
 .usage-body[data-arrive] .usage-provider-sub,
+.usage-body[data-arrive] .usage-task-note,
 .usage-body[data-arrive] .usage-axis-tick,
 .usage-body[data-arrive] .usage-figure-peak,
 .usage-body[data-arrive] .usage-day-total,
@@ -8674,6 +8759,7 @@ a.ref-link--session::before {
   .usage-body[data-arrive] .usage-cache-saving,
   .usage-body[data-arrive] .usage-provider-cost,
   .usage-body[data-arrive] .usage-provider-sub,
+  .usage-body[data-arrive] .usage-task-note,
   .usage-body[data-arrive] .usage-axis-tick,
   .usage-body[data-arrive] .usage-figure-peak,
   .usage-body[data-arrive] .usage-day-total,
