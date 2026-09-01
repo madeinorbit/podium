@@ -44,6 +44,9 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
+import { rosterCostMeta } from '../cost/cost-format'
+import { costSectionMeta, TaskCostSection } from '../cost/TaskCostSection'
+import { useTaskCost } from '../cost/useTaskCost'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
 import {
@@ -844,6 +847,7 @@ export function IssuePanelView({
   const {
     sessions,
     repos,
+    trpc,
     updateIssue,
     setPane,
     setView,
@@ -854,6 +858,7 @@ export function IssuePanelView({
     (s) => ({
       sessions: s.sessions,
       repos: s.repos,
+      trpc: s.trpc,
       updateIssue: s.updateIssue,
       setPane: s.setPane,
       setView: s.setView,
@@ -875,6 +880,11 @@ export function IssuePanelView({
         : null,
     [issues, sessions, cwd, sessionId, issueId],
   )
+  // WHAT THIS TASK COST. Read here rather than inside the section so the hook
+  // sits above this component's own early return for an unresolvable id — and
+  // so the section stays a pure render of a view, which is what lets the task
+  // detail page reuse it against its own feed.
+  const { view: costView } = useTaskCost(trpc, issue?.id ?? null)
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   // The same derivation the Flight Deck makes from the same slice — every
   // worktree root the shell knows, for `issueDisplayTitle` below.
@@ -1189,7 +1199,22 @@ export function IssuePanelView({
           )}
         </DockPart>
 
-        <DockPart title="Agents & sessions" count={activeSessions.length} testId="dock-sessions">
+        {/* The roster is live-only, so on a long task it shows two agents out of
+            ten and says nothing about the other eight. `meta` is the slot for
+            one machine-voice fact ABOUT a section, and this is the fact that
+            stops the list lying by omission — the same rollup figure the Cost
+            section below states in full, over the session count it was read
+            from. */}
+        <DockPart
+          title="Agents & sessions"
+          count={activeSessions.length}
+          meta={
+            costView?.state === 'costed'
+              ? rosterCostMeta(costView.rollup.estCostUsd, costView.rollup.sessionCount)
+              : undefined
+          }
+          testId="dock-sessions"
+        >
           {activeSessions.length > 0
             ? activeSessions.map((session) => (
                 <IssueSessionRow
@@ -1226,6 +1251,11 @@ export function IssuePanelView({
                 ))}
             </>
           )}
+        </DockPart>
+
+        {/* The accounting for the sessions the roster above will never show. */}
+        <DockPart title="Cost" meta={costSectionMeta(costView)} testId="dock-cost">
+          <TaskCostSection view={costView} />
         </DockPart>
 
         {/* Where the work happens — an address, not a check. */}

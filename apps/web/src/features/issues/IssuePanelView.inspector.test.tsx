@@ -179,6 +179,10 @@ describe('IssuePanelView inspector', () => {
       'Subtasks',
       'Relations',
       'Agents & sessions',
+      // The accounting sits directly under the roster it accounts for: the
+      // roster answers "who is on this now", Cost answers it for every session
+      // that ever was (POD-1859).
+      'Cost',
       'Branch & worktree',
     ])
   })
