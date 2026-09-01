@@ -307,7 +307,19 @@ export interface UsageFileScan {
    * now points into different content. Measured, that reads 10 records where a
    * cold walk reads 99, or 930 where a cold walk reads 2,400 — wrong in both
    * directions, and the wrong fold is then banked in the durable row for good.
-   * So the head is fingerprinted, and a head that moved forces a cold read.
+   * So the head is fingerprinted, and A REWRITE THAT CHANGES THE HEAD forces a
+   * cold read.
+   *
+   * WHAT THAT DOES NOT COVER, said here because the property a reader will take
+   * from the sentence above is stronger than the one it buys: a rewrite that
+   * preserves the first `HEAD_SAMPLE_BYTES` VERBATIM and replaces everything
+   * after still resumes at a stale cursor (measured: warm 730 against cold
+   * 1,800). That is the inherent limit of sampling a head, and it is exactly the
+   * shape of a compaction — keep the session header, rewrite the body. Closing
+   * it needs a second fingerprint near the CURSOR rather than a bigger sample,
+   * and it is deliberately not built: no harness observed on this box rewrites a
+   * transcript that way, and an unused guard costs a read per file per walk
+   * forever.
    *
    * `headBytes` is how many bytes that hash covers, and it is stored rather than
    * recomputed because the two files being compared are different lengths: the

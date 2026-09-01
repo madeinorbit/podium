@@ -25,7 +25,15 @@
  *   `costed`        at least one transcript was read and priced.
  *   `no-sessions`   no session ever ran on this task. Renders "No sessions".
  *   `not-recorded`  sessions ran; no transcript survives for any of them.
- *                   A DIFFERENT FACT FROM ZERO, and a common one.
+ *                   A DIFFERENT FACT FROM ZERO, and a common one. IT IS A
+ *                   PER-HOST VERDICT: only the machine holding a transcript can
+ *                   say it is gone, so a task whose work ran on another box
+ *                   stays `pending` rather than being declared missing by a
+ *                   process that could never have seen the file. That is the
+ *                   right direction to fail in, and it means `pending` keeps a
+ *                   permanent population on a multi-machine install — small and
+ *                   principled, rather than the half-corpus it would be if the
+ *                   check guessed.
  *   `pending`       transcripts exist and the walk has not reached them yet.
  *                   The cold state the layout draws Unfilled slots for; it is
  *                   never a zero and never a claim about the money.
