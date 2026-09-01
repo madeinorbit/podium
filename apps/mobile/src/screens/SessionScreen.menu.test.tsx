@@ -6,7 +6,7 @@
  * snooze all manage a session's lifecycle. A draft has no lifecycle to manage:
  * its menu is exactly one destructive Delete (of the draft issue) plus the
  * sheet's standard Cancel. An active session keeps the session-scoped verbs,
- * minus the removed "Find in transcript".
+ * including transcript search.
  */
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
@@ -174,10 +174,10 @@ describe('the draft chat menu', () => {
 })
 
 describe('the active-session chat menu', () => {
-  it('keeps the session verbs but not the removed Find in transcript', async () => {
+  it('keeps transcript search and the session verbs', async () => {
     await openMenu(vessel({ draft: false, worktreePath: '/tmp/wt/vessel' }))
 
-    expect(screen.queryByLabelText('Find in transcript')).toBeNull()
+    expect(screen.getByLabelText('Find in transcript')).toBeTruthy()
     expect(screen.queryByLabelText('Delete')).toBeNull()
     expect(screen.getByLabelText('Next session')).toBeTruthy()
     expect(screen.getByLabelText('Archive')).toBeTruthy()

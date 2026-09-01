@@ -1,20 +1,15 @@
 /**
  * ONE REACT, CHECKED BEFORE THE FIRST RENDER (POD-405).
  *
- * `vitest.config.ts` points the app's `react` import at the workspace root's copy so
- * the component under test and `@testing-library/react` share a module instance. That
- * alias only rewrites what VITE resolves. `react-native-web` is externalized CJS: it
- * `require`s `react` through Node, and gets whichever copy its own `node_modules`
- * offers. A checkout whose install has drifted to a per-package layout hands it a
- * SECOND React, and then the very first `<View>` calls `useContext` on a module whose
- * dispatcher was never installed:
+ * `vitest.config.ts` points transformed app and workspace imports at apps/mobile's
+ * React. The externalized renderer, react-dom, and react-native-web must resolve that
+ * same module instance. If one of them sees another copy, the first hook reads a
+ * dispatcher that its renderer never installed:
  *
  *   TypeError: Cannot read properties of null (reading 'useContext')
  *
- * That message names react-native-web and a hook, so it reads as a bug in the
- * component under test. It is not — it is the checkout, and no edit to the component
- * or to this lane's config will move it. This preflight makes the same condition say
- * so, with the command that fixes it.
+ * That message names the component and hook even though the dependency graph is at
+ * fault. This preflight names every disagreeing owner before the first render.
  */
 
 import { realpathSync } from 'node:fs'
@@ -27,24 +22,36 @@ const require = createRequire(import.meta.url)
 const reactSeenBy = (pkg: string): string =>
   realpathSync(require.resolve('react', { paths: [dirname(require.resolve(pkg))] }))
 
+/** Where transformed mobile source is required to land. */
+const mobileReact = realpathSync(require.resolve('react'))
+
 /**
- * The two sides that have to agree: the harness that renders, and the library every
- * mobile component is built out of. Ask `@testing-library/react` rather than
- * `react-dom` — the app declares its own `react-dom` at a different version, so a
- * question asked from this directory answers for the app, not for the renderer that
- * actually drives the test.
+ * Ask every externalized consumer from its own package directory. Resolving React
+ * only from this setup file would answer for the app, not for each package's peer
+ * graph.
  */
-export const assertOneReact = (harness: string, components: string): void => {
-  if (harness === components) return
+export const assertOneReact = (
+  app: string,
+  harness: string,
+  renderer: string,
+  components: string,
+): void => {
+  if (app === harness && harness === renderer && renderer === components) return
   throw new Error(
     'Two copies of React in this checkout — the mobile unit lane cannot render.\n' +
+      `  mobile app resolves:            ${app}\n` +
       `  @testing-library/react resolves: ${harness}\n` +
+      `  react-dom resolves:              ${renderer}\n` +
       `  react-native-web resolves:       ${components}\n` +
-      'Fix the checkout, not this config or the component: run `bun install` at the\n' +
-      'workspace root. bunfig.toml controls the workspace link topology and React peers;\n' +
-      'a drifted install must be repaired before the lane can render.\n' +
+      'Repair this checkout with `bun run deps:repair`. bunfig.toml and the mobile\n' +
+      'Vitest aliases own the isolated package graph; do not patch the component.\n' +
       'See apps/mobile/test/one-react.ts.',
   )
 }
 
-assertOneReact(reactSeenBy('@testing-library/react'), reactSeenBy('react-native-web'))
+assertOneReact(
+  mobileReact,
+  reactSeenBy('@testing-library/react'),
+  reactSeenBy('react-dom'),
+  reactSeenBy('react-native-web'),
+)

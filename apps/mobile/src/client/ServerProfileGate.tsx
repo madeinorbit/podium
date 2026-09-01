@@ -148,6 +148,11 @@ let initialWebPairing = (() => {
 /** Native cold-start pairing link, consumed once per process — see the boot effect. */
 let initialNativePairingConsumed = false
 
+/** Keeps process-lifetime initial-link ownership deterministic in isolated tests. */
+export function resetInitialNativeLinkConsumptionForTests(): void {
+  initialNativePairingConsumed = false
+}
+
 function overrideFromUrl(raw: string | null): string | null {
   if (!raw) return null
   try {
@@ -426,7 +431,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       // activation write. The older owner restores its saved state before this
       // read is allowed to choose any profile or release any credential.
       const stored = await profileWrites.run(() => loadServerProfiles())
-      await purgeOrphanedProfileCredentials(stored.profiles.map((row) => row.id))
+      // Pairing can finish while cold startup is still draining. Keep orphan
+      // cleanup in the same order as every credential read/write so a purge
+      // based on the older profile snapshot cannot erase the newly paired
+      // profile's bearer or registry entry.
+      await credentialWrites.run(() =>
+        purgeOrphanedProfileCredentials(stored.profiles.map((row) => row.id)),
+      )
       if (!alive || setupOwnsStartup.current) return
       while (alive && !setupOwnsStartup.current) {
         const generation = startupLinkGeneration.current

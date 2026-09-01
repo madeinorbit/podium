@@ -21,6 +21,7 @@ const seams = vi.hoisted(() => ({
   parsePairing: vi.fn(),
   pollPairing: vi.fn(),
   preflight: vi.fn(),
+  purgeCredentials: vi.fn<(profileIds: string[]) => Promise<void>>(),
   router: { replace: vi.fn() },
   runtime: [] as Array<{ origin: string | null; bearer: string | null }>,
   saveProfiles: vi.fn<(state: ServerProfileState) => Promise<void>>(),
@@ -30,7 +31,7 @@ const seams = vi.hoisted(() => ({
 }))
 
 vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn() }))
-vi.mock('expo-router', () => ({ useRouter: () => seams.router }))
+vi.mock('expo-router', () => ({ router: seams.router, useRouter: () => seams.router }))
 vi.mock('react-native', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-native')>()
   return {
@@ -101,7 +102,7 @@ vi.mock('./pairing', () => ({
 vi.mock('./profile-credentials', () => ({
   deleteProfileCredential: seams.deleteCredential,
   getProfileCredential: seams.getCredential,
-  purgeOrphanedProfileCredentials: vi.fn(async () => {}),
+  purgeOrphanedProfileCredentials: seams.purgeCredentials,
   setProfileCredential: seams.setCredential,
 }))
 vi.mock('./server-profiles', async (importOriginal) => {
@@ -130,7 +131,11 @@ vi.mock('./trpc', () => ({
 }))
 vi.mock('./auth', () => ({ logout: seams.logout }))
 
-import { ServerProfileGate, useServerProfile } from './ServerProfileGate'
+import {
+  resetInitialNativeLinkConsumptionForTests,
+  ServerProfileGate,
+  useServerProfile,
+} from './ServerProfileGate'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
@@ -219,6 +224,7 @@ async function mountActiveProfileA() {
 }
 
 beforeEach(() => {
+  resetInitialNativeLinkConsumptionForTests()
   consumePendingMobileHandoff(pendingMobileHandoffSnapshot().id)
   seams.activeContext = null
   seams.alert.mockReset()
@@ -261,6 +267,9 @@ beforeEach(() => {
     bearer: 'token-c',
     userId: 'user:c',
   })
+  seams.purgeCredentials.mockReset()
+  seams.purgeCredentials.mockResolvedValue(undefined)
+  seams.router.replace.mockReset()
   seams.logout.mockReset()
   seams.logout.mockResolvedValue(undefined)
   seams.saveProfiles.mockReset()
@@ -359,7 +368,7 @@ describe('handoff profile selection', () => {
     })
     expect(pendingMobileHandoffSnapshot().request).toBeNull()
     expect(seams.router.replace).toHaveBeenCalledWith('/work')
-    expect(seams.router.replace.mock.calls.every(([route]) => route === '/work')).toBe(true)
+    expect(seams.router.replace.mock.calls.map(([route]) => route)).toEqual(['/', '/work'])
     expect(seams.preflight.mock.calls.map(([origin]) => origin)).toEqual(['https://a.example'])
     expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
     expect(seams.announce).toHaveBeenCalledWith(
@@ -579,7 +588,7 @@ describe('pairing supersedes handoff intent', () => {
       profileSelected: false,
     })
     expect(pendingMobileHandoffSnapshot().id).toBeGreaterThan(handoffId)
-    expect(seams.router.replace).toHaveBeenCalledWith('/work')
+    expect(seams.router.replace).toHaveBeenCalledWith('/')
     expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
     expect(seams.router.replace.mock.invocationCallOrder.at(-1)).toBeLessThan(
       seams.parsePairing.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
@@ -762,6 +771,63 @@ describe('pairing supersedes handoff intent', () => {
       origin: 'https://b.example',
       bearer: 'token-b',
     })
+  })
+
+  it('keeps a pairing credential durable when pairing completes during cold startup purge', async () => {
+    let releasePurge = () => {}
+    const purgeReleased = new Promise<void>((resolve) => {
+      releasePurge = resolve
+    })
+    let reportPurgeStarted = () => {}
+    const purgeStarted = new Promise<void>((resolve) => {
+      reportPurgeStarted = resolve
+    })
+    seams.purgeCredentials.mockImplementation(async (profileIds) => {
+      reportPurgeStarted()
+      await purgeReleased
+      for (const profileId of seams.credentials.keys()) {
+        if (!profileIds.includes(profileId)) seams.credentials.delete(profileId)
+      }
+    })
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await purgeStarted
+    await waitFor(() => expect(seams.linkListener).not.toBeNull())
+
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    fireEvent.click(await screen.findByLabelText('Request approval'))
+
+    await waitFor(() => {
+      const durableActive = seams.durableProfiles?.profiles.find(
+        (profile) => profile.id === seams.durableProfiles?.activeProfileId,
+      )
+      expect(durableActive?.httpOrigin).toBe('https://pair.example')
+    })
+    expect(seams.setCredential).not.toHaveBeenCalledWith(expect.any(String), 'token-c')
+
+    await act(async () => {
+      releasePurge()
+      await purgeReleased
+    })
+
+    await waitFor(() => {
+      expect(seams.activeContext?.config.httpOrigin).toBe('https://pair.example')
+      expect(seams.activeContext?.bearer).toBe('token-c')
+    })
+    const durableActive = seams.durableProfiles?.profiles.find(
+      (profile) => profile.id === seams.durableProfiles?.activeProfileId,
+    )
+    expect(durableActive).toMatchObject({
+      instanceId: 'pair-instance',
+      userId: 'user:c',
+    })
+    expect(seams.credentials.get(durableActive?.id ?? '')).toBe('token-c')
+    expect(seams.purgeCredentials).toHaveBeenCalledWith(['profile-a', 'profile-b'])
   })
 
   it('lets pairing completion own a still-draining cold handoff startup', async () => {

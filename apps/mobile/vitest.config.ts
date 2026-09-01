@@ -1,12 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
-import {
-  resolveMobileFile,
-  resolveMobilePackage,
-  resolveRootPackage,
-  resolveThroughMobileDep,
-} from './resolve-package'
+import { mobileVitestResolution } from './vitest-resolution'
 
 /**
  * The mobile unit lane (POD-1220).
@@ -84,13 +79,26 @@ export default defineConfig({
       '.js',
       '.json',
     ],
+    // The config root is apps/mobile, but workspace source can enter from a
+    // sibling package whose own development graph has React 19.2.7. Keep every
+    // transformed import on the mobile app's declared 19.2.3 pair.
+    dedupe: ['react', 'react-dom'],
     alias: [
       ...sharedAliases,
       // An ABSOLUTE replacement, because this rewrite also fires for inlined
       // third-party code (react-native-svg below), whose files live in the
       // isolated linker's store — a bare `react-native-web` would be resolved
       // relative to THAT directory, where it is not a dependency (POD-3174).
-      { find: 'react-native', replacement: resolveMobilePackage('react-native-web') },
+      { find: 'react-native', replacement: mobileVitestResolution.reactNativeWeb },
+      // Expo publishes this subpath as a CommonJS shim that requires a
+      // TypeScript source path without an extension. Node cannot load that
+      // source directly when Vitest externalizes the shim, so enter the same
+      // Expo source through Vite and let the platform extension order above
+      // select fetch.web.ts.
+      {
+        find: /^expo\/fetch$/,
+        replacement: mobileVitestResolution.expoFetch,
+      },
       {
         find: /^expo-symbols$/,
         replacement: fileURLToPath(new URL('./test/expo-symbols.tsx', import.meta.url)),
@@ -104,30 +112,33 @@ export default defineConfig({
       // without declaring it — a hoisted install made that work by accident.
       {
         find: /^@react-native\/assets-registry\/registry$/,
-        replacement: resolveThroughMobileDep(
-          'react-native',
-          '@react-native/assets-registry/registry',
-        ),
+        replacement: mobileVitestResolution.assetsRegistry,
+      },
+      // Safe Area's package entry is CommonJS. Even when the dependency stays
+      // inside Vite, that entry uses Node's `require`, bypasses these aliases,
+      // and loads React Native's Flow source. Its ESM build lets the platform
+      // extension order choose NativeSafeAreaProvider.web.js as Expo does.
+      {
+        find: /^react-native-safe-area-context$/,
+        replacement: mobileVitestResolution.reactNativeSafeAreaContext,
       },
       {
         find: /^react-native-svg$/,
-        replacement: resolveMobileFile('react-native-svg/lib/module/ReactNativeSVG.web.js'),
+        replacement: mobileVitestResolution.reactNativeSvg,
       },
-      // ONE COPY OF REACT, AND IT HAS TO BE THE ROOT'S.
+      // ONE COPY OF REACT, FROM THE MOBILE PACKAGE GRAPH.
       //
-      // The workspace root and `apps/mobile` resolve different React versions,
-      // and `@testing-library/react` lives at the ROOT — externalized CJS, so a
-      // vite alias never rewrites what it requires. Left alone, a component test
-      // renders with the root's React while the component under test calls the
-      // app's, and every hook throws "Invalid hook call" — a failure about the
-      // harness that reads exactly like a failure about the component.
+      // The workspace root and `apps/mobile` resolve different React versions.
+      // The mobile package declares its own @testing-library/react, whose
+      // externalized renderer and react-dom peer both resolve mobile React
+      // 19.2.3. Pointing transformed app code at root React 19.2.7 gives the
+      // renderer a second dispatcher and every hook throws "Invalid hook call".
       //
-      // So the app's imports are pointed at the root copy rather than the other
-      // way round. The exact-match regexes matter: a bare `'react'` alias is a
-      // PREFIX match and would rewrite `react-dom/client` and
-      // `react/jsx-runtime` with it.
-      { find: /^react$/, replacement: resolveRootPackage('react') },
-      { find: /^react-dom$/, replacement: resolveRootPackage('react-dom') },
+      // Pin transformed workspace source to the same mobile pair. The exact
+      // regexes matter: a bare `react` alias is a prefix match and would rewrite
+      // react-dom/client and react/jsx-runtime with it.
+      { find: /^react$/, replacement: mobileVitestResolution.react },
+      { find: /^react-dom$/, replacement: mobileVitestResolution.reactDom },
     ],
   },
   ssr: { resolve: { conditions } },
@@ -135,13 +146,13 @@ export default defineConfig({
     ...sharedVitestConfig.test,
     server: {
       deps: {
-        // Native packages commonly publish CJS entrypoints whose internal
-        // `require('react-native')` calls bypass Vite aliases when externalized.
-        // Keep the native dependency boundary in Vite so the react-native-web
-        // alias and `.web.*` resolution above apply transitively. Otherwise
-        // react-native-svg reaches RN's Flow-typed index.js and Node fails on
-        // its `import typeof` declaration.
-        inline: ['react-native-svg'],
+        // Native packages publish entry graphs that assume Metro's platform
+        // resolver. Keep that boundary in Vite so the react-native-web alias,
+        // extension completion, and `.web.*` order apply transitively.
+        // Gesture Handler and Worklets publish extensionless internal imports;
+        // Reanimated imports a directory; Safe Area and SVG otherwise reach
+        // React Native's Flow source through externalized CommonJS entries.
+        inline: [...mobileVitestResolution.inlineDependencies],
       },
     },
     // `one-react.ts` last: it turns a drifted checkout into a message that names the

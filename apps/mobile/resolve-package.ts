@@ -16,21 +16,17 @@ import { fileURLToPath } from 'node:url'
  *
  * Node's resolver already knows where the linker put things, so ask it. The two
  * entry points differ in WHICH package.json does the asking, and that choice is
- * load-bearing, not cosmetic — see `resolveRootPackage`.
+ * load-bearing, not cosmetic.
  */
 
 /** Resolves as `apps/mobile` does — its own dependencies, whatever the layout. */
 const mobileRequire = createRequire(fileURLToPath(import.meta.url))
 
-/**
- * Resolves as the WORKSPACE ROOT does. `@testing-library/react` lives at the
- * root and is externalized CJS, so it always loads the root's React; the react
- * and react-dom aliases exist to point the app's imports at that same copy
- * (apps/mobile pins 19.2.3, the root 19.2.7). Resolving these from the mobile
- * package would hand the app its own React back and reintroduce exactly the
- * two-copy "Invalid hook call" breakage `test/one-react.ts` reports.
- */
-const rootRequire = createRequire(fileURLToPath(new URL('../../package.json', import.meta.url)))
+/** Resolves as the WORKSPACE ROOT does. The browser-only Vite harness uses the
+ * root's Vite/React renderer; the mobile Vitest lane deliberately does not.
+ * Keep this lazy because Vite gives transformed test modules an HTTP import URL. */
+const rootRequire = () =>
+  createRequire(fileURLToPath(new URL('../../package.json', import.meta.url)))
 
 /** Absolute path to a file inside one of `apps/mobile`'s own dependencies. */
 export function resolveMobileFile(specifier: string): string {
@@ -60,10 +56,10 @@ export function resolveThroughMobileDep(dependency: string, specifier: string): 
 
 /** Absolute path to the root's copy of a package's directory. */
 export function resolveRootPackage(name: string): string {
-  return dirname(rootRequire.resolve(`${name}/package.json`))
+  return dirname(rootRequire().resolve(`${name}/package.json`))
 }
 
 /** Absolute path to a file inside the root's copy of a package. */
 export function resolveRootFile(specifier: string): string {
-  return rootRequire.resolve(specifier)
+  return rootRequire().resolve(specifier)
 }
