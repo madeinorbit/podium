@@ -313,15 +313,34 @@ describe('handoff profile selection', () => {
     expect(seams.parsePairing).not.toHaveBeenCalled()
   })
 
-  it('captures a warm ordinary navigation link without invoking pairing', async () => {
+  it('handles a mixed-case Podium scheme on cold launch like a warm link', async () => {
+    const link = formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' })
+    seams.getInitialUrl.mockResolvedValue(link.replace(/^podium:/, 'PoDiUm:'))
+
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+
+    await waitFor(() => expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true))
+    expect(pendingMobileHandoffSnapshot().request).toEqual({
+      kind: 'navigation',
+      target: { kind: 'issue', issue: 'POD-1710' },
+    })
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+  })
+
+  it('handles a mixed-case Podium scheme on warm delivery like cold launch', async () => {
     await mountActiveProfileA()
+    const link = formatPodiumLink(PODIUM_SCHEME, {
+      kind: 'session',
+      session: 'POD-1710-A',
+    })
 
     act(() => {
       seams.linkListener?.({
-        url: formatPodiumLink(PODIUM_SCHEME, {
-          kind: 'session',
-          session: 'POD-1710-A',
-        }),
+        url: link.replace(/^podium:/, 'PoDiUm:'),
       })
     })
 

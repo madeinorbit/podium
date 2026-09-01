@@ -40,6 +40,7 @@ import {
   markPendingMobileHandoffProfileSelected,
   matchingMobileHandoffProfile,
   mobileHandoffFallbackStatus,
+  parseMobileHandoffUrl,
   pendingMobileHandoffSnapshot,
   retirePendingMobileHandoff,
   subscribePendingMobileHandoff,
@@ -110,6 +111,16 @@ function webProfile(): { profile: ServerProfile; config: ServerConfig } {
       createdAt: now,
       updatedAt: now,
     },
+  }
+}
+
+function isNativeStartupLink(raw: string | null): raw is string {
+  if (!raw) return false
+  if (parseMobileHandoffUrl(raw)) return true
+  try {
+    return new URL(raw).protocol === 'podium:' || raw.includes('#pair=')
+  } catch {
+    return false
   }
 }
 
@@ -380,10 +391,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       // newer intent. The delayed cold result must never reclaim startup.
       const initialUrl =
         initialUrlGeneration === startupLinkGeneration.current ? resolvedInitialUrl : null
-      const isNativeLink = Boolean(
-        initialUrl && (initialUrl.startsWith('podium:') || initialUrl.includes('#pair=')),
-      )
-      if (isNativeLink && initialUrl) {
+      if (isNativeStartupLink(initialUrl)) {
         initialNativePairingConsumed = true
         handleLink(initialUrl)
       }
