@@ -22,16 +22,41 @@ jobs:
           # Pinned: ConPTY support needs >= 1.3.14, and a '1.3' range has been seen
           # resolving to 1.3.0 (release.yml pins for the same reason).
           bun-version: '1.3.14'
+      # Bun's global virtual store is not a directory of its own: it is `links/` INSIDE the
+      # install cache, and every node_modules/.bun/<pkg> entry is a symlink into it. On
+      # windows-latest the cache defaults to C:\Users\runneradmin\.bun\install\cache while the
+      # checkout is on D:, so each of those links would cross a volume. Put the cache — and so
+      # the store — on the checkout's own volume. The global store stays fully in use; this
+      # only decides where it lives, which is why it is not a Windows linker override.
+      - name: Pin Bun's install cache (and its global store) to the checkout volume
+        shell: pwsh
+        run: |
+          $cache = Join-Path (Split-Path -Parent (Split-Path -Parent $env:GITHUB_WORKSPACE)) 'bun-install-cache'
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "BUN_INSTALL_CACHE_DIR=$cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "workspace volume: $((Split-Path -Qualifier $env:GITHUB_WORKSPACE))"
+          Write-Host "cache volume:     $((Split-Path -Qualifier $cache))  ($cache)"
+      # Diagnostic, not a gate: records what this runner actually permits, so a future failure
+      # can be read against the privileges rather than guessed at.
+      - name: Probe symlink privilege and volume layout
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          whoami /priv | Select-String 'SymbolicLink'
+          $dev = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
+          Write-Host "AllowDevelopmentWithoutDevLicense: $((Get-ItemProperty -Path $dev -ErrorAction SilentlyContinue).AllowDevelopmentWithoutDevLicense)"
+          foreach ($t in @($env:GITHUB_WORKSPACE, $env:USERPROFILE)) {
+            $link = Join-Path $env:BUN_INSTALL_CACHE_DIR ("probe-" + (Split-Path -Qualifier $t).TrimEnd(':'))
+            try {
+              New-Item -ItemType SymbolicLink -Path $link -Target $t -ErrorAction Stop | Out-Null
+              Write-Host "symlink to $t : OK"; Remove-Item $link -Force
+            } catch { Write-Host "symlink to $t : FAILED - $($_.Exception.Message)" }
+          }
       - uses: actions/cache@v4
         with:
-          path: ~\.bun\install\cache
+          path: ${{ env.BUN_INSTALL_CACHE_DIR }}
           key: windows-bun-${{ hashFiles('bun.lock') }}
       # No package lifecycle hook is required for the Bun/ConPTY runtime.
-      # KNOWN RED: this install currently fails on windows-latest — bunfig's isolated linker
-      # wants node_modules to be symlinks into the shared global store, the runner will not
-      # make them, and Bun's copyfile fallback then fails ENOENT for most of the graph
-      # ("Failed to install 1310 packages"). Windows is meant to use the global store like
-      # every other platform, so the fix belongs there and not in an override here.
       - run: bun install --frozen-lockfile --ignore-scripts
 
       - name: ConPTY runtime smoke (spawn → write/exec → resize → exit)
