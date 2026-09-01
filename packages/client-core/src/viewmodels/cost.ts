@@ -93,6 +93,10 @@ export interface TaskCostView {
   harnesses: CostHarness[]
   /** Own sessions, dearest first. */
   sessions: SessionCostView[]
+  /** When this figure was last read — absent when nothing has been read for it.
+   *  Follow the usage sheet's `UsageStamp`: show a last-read time only when what
+   *  is on screen is not current, never as a clock in the corner. */
+  sampledAt: string | null
   /** Rolled-up cost per reply; null when there are no replies to divide by. */
   ratePerReplyUsd: number | null
   /**
@@ -219,6 +223,7 @@ export function taskCostView(wire: TaskCostWire, cohort?: CostCohort): TaskCostV
     ratePerReplyUsd,
     rateVsMedian:
       ratePerReplyUsd !== null && median !== null && median > 0 ? ratePerReplyUsd / median : null,
+    sampledAt: wire.sampledAt ?? null,
   }
 }
 
@@ -258,6 +263,8 @@ export interface TaskCostRowView {
   harnesses: CostHarness[]
   ratePerReplyUsd: number | null
   rateVsMedian: number | null
+  /** When this row was last read — see `TaskCostView.sampledAt`. */
+  sampledAt: string | null
 }
 
 /**
@@ -295,6 +302,7 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
       harnesses: row.harnesses,
       ratePerReplyUsd: rate,
       rateVsMedian: rate !== null && median !== null && median > 0 ? rate / median : null,
+      sampledAt: row.sampledAt ?? null,
     }
   })
   priced.sort((a, b) => b.estCostUsd - a.estCostUsd)

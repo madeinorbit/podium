@@ -127,6 +127,25 @@ export const TaskCostWire = z.object({
   harnesses: z.array(CostHarness),
   /** Own sessions, dearest first. Descendants are not listed here. */
   sessions: z.array(SessionCostWire),
+  /**
+   * WHEN THIS FIGURE WAS LAST READ — the newest harvest behind any row under it.
+   *
+   * Not when the work happened: the session rows carry `firstTsMs`/`lastTsMs`
+   * for that. This is when we last LOOKED, which is the only thing that lets a
+   * surface tell a figure read seconds ago from one read before the last
+   * harvest. `provisional` says a number is still moving and cannot say from
+   * when; without this, neither can anything else.
+   *
+   * Named for the usage sheet's `sampledAt`, which is the same fact about the
+   * same walk, and whose `UsageStamp` shows a last-read time ONLY when what is
+   * on screen is not current — the precedent to follow when a surface does
+   * eventually render this.
+   *
+   * ABSENT WHEN THERE IS NOTHING BEHIND THE FIGURE: a task in `no-sessions` or
+   * `not-recorded` has no row and therefore no read time, and inventing `now`
+   * for it would claim we had checked something we never looked at.
+   */
+  sampledAt: z.string().optional(),
 })
 export type TaskCostWire = z.infer<typeof TaskCostWire>
 
@@ -168,6 +187,8 @@ export const TaskCostRowWire = z.object({
   sessionCount: z.number().int().nonnegative(),
   floor: CostFloor,
   harnesses: z.array(CostHarness),
+  /** When this row's figures were last read — see `TaskCostWire.sampledAt`. */
+  sampledAt: z.string().optional(),
 })
 export type TaskCostRowWire = z.infer<typeof TaskCostRowWire>
 

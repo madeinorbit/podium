@@ -149,6 +149,16 @@ describe('the rate cohort', () => {
   })
 })
 
+describe('the read-time stamp', () => {
+  it('passes a read time through, and null when there is none', () => {
+    expect(taskCostView(wire({ sampledAt: '2026-09-01T00:00:00.000Z' })).sampledAt).toBe(
+      '2026-09-01T00:00:00.000Z',
+    )
+    expect(taskCostView(wire()).sampledAt).toBeNull()
+    expect(taskCostRows([row(1)]).rows[0]?.sampledAt).toBeNull()
+  })
+})
+
 describe('one rate, two surfaces', () => {
   // POD-1869 finding 6: the panel divided the rollup and the sheet divided own
   // cost, so one task read 1.97x in one place and 2.51x in the other.

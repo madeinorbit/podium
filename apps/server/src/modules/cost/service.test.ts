@@ -370,6 +370,64 @@ describe('states', () => {
   })
 })
 
+// ── when the figure was read ────────────────────────────────────────────────
+
+describe('the read-time stamp', () => {
+  it('stamps a costed task with the newest harvest behind it', () => {
+    const task = issue()
+    const ses = session({ issueId: task.id })
+    const before = new Date().toISOString()
+    ingest([source(transcript(ses.resumeValue as string))])
+
+    const cost = service.task(task.id)
+    expect(cost.sampledAt).toBeDefined()
+    expect(cost.sampledAt! >= before).toBe(true)
+    expect(service.tasks()[0]?.sampledAt).toBe(cost.sampledAt)
+  })
+
+  it('takes the newest of the rows under a rollup, not the task own row', () => {
+    const epic = issue()
+    const epicSes = session({ issueId: epic.id })
+    ingest([source(transcript(epicSes.resumeValue as string))])
+    const ownStamp = service.task(epic.id).sampledAt as string
+
+    const child = issue({ parentId: epic.id })
+    const childSes = session({ issueId: child.id })
+    // A later harvest, explicitly after the first.
+    store.transcriptCosts.record(
+      [
+        {
+          machineId,
+          nativeId: childSes.resumeValue as string,
+          path: transcript(childSes.resumeValue as string),
+          harness: 'claude-code',
+          sessionId: childSes.id,
+          issueId: child.id,
+          scannedBytes: 1,
+          firstTsMs: 1,
+          lastTsMs: 2,
+          models: [],
+          windowModels: [],
+          windowSinceMs: SINCE,
+        },
+      ],
+      '2099-01-01T00:00:00.000Z',
+    )
+    expect(service.task(epic.id).sampledAt).toBe('2099-01-01T00:00:00.000Z')
+    expect(service.task(epic.id).sampledAt).not.toBe(ownStamp)
+  })
+
+  // Stamping `now` on a task nothing has been read for would claim we checked
+  // something we never looked at — the same class of lie as a confident zero.
+  it('leaves a task with nothing behind it unstamped, rather than stamping now', () => {
+    const task = issue()
+    session({ issueId: task.id })
+    const cost = service.task(task.id)
+    expect(cost.state).toBe('not-recorded')
+    expect(cost.sampledAt).toBeUndefined()
+  })
+})
+
 // ── deterministic attribution ───────────────────────────────────────────────
 
 describe('a resume value two sessions share', () => {

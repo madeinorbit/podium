@@ -298,6 +298,10 @@ export class CostService {
       provisional: sessions.some((s) => RUNNING.has(s.status)),
       floor: floorOf(harnesses),
       harnesses,
+      // The newest harvest behind ANY row under this task, own or descendant —
+      // the figure is only as fresh as the least recently read row it contains,
+      // but the reading a surface reports is when we last looked at all.
+      ...stampOf(costs),
       sessions: ownCosts
         .filter((c) => c.messages > 0)
         .map((c): SessionCostWire => {
@@ -385,6 +389,7 @@ export class CostService {
         sessionCount: totals.sessionCount,
         floor: floorOf(harnesses),
         harnesses,
+        ...stampOf(list),
       })
     }
     return rows
@@ -445,6 +450,20 @@ export class CostService {
     }
     return out
   }
+}
+
+/**
+ * When these rows were last read, as an optional field ready to spread.
+ *
+ * OMITTED RATHER THAN DEFAULTED when there is nothing behind the figure: a task
+ * with no rows has no read time, and stamping it with `now` would claim we had
+ * checked something we never looked at — the same class of lie as a confident
+ * zero, which is what the four states exist to prevent.
+ */
+function stampOf(costs: readonly { updatedAt: string }[]): { sampledAt?: string } {
+  let newest = ''
+  for (const cost of costs) if (cost.updatedAt > newest) newest = cost.updatedAt
+  return newest ? { sampledAt: newest } : {}
 }
 
 function totalsOf(costs: readonly { models: CostModelTotalWire[]; sessionId: string | null }[]) {

@@ -42,6 +42,8 @@ export interface TranscriptCostRecord {
 /** One transcript's fold, as a reader gets it back. */
 export interface TranscriptCost extends TranscriptCostRecord {
   messages: number
+  /** When the harvest last wrote this row — the figure's read time. */
+  updatedAt: string
 }
 
 interface Row {
@@ -58,6 +60,7 @@ interface Row {
   models_json: string
   window_models_json: string
   window_since_ms: number
+  updated_at: string
 }
 
 /**
@@ -93,6 +96,7 @@ const toCost = (row: Row): TranscriptCost => ({
   models: parseModels(row.models_json),
   windowModels: parseModels(row.window_models_json),
   windowSinceMs: row.window_since_ms,
+  updatedAt: row.updated_at,
 })
 
 export class TranscriptCostsRepository {

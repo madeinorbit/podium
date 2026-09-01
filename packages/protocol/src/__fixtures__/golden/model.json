@@ -12414,12 +12414,13 @@
         "rollupMessages": 1,
         "sessionCount": 1,
         "floor": "none",
-        "harnesses": ["claude-code"]
+        "harnesses": ["claude-code"],
+        "sampledAt": "sampledAt"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"issueId\":\"issueId\",\"seq\":1,\"title\":\"title\",\"stage\":\"stage\",\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"windowModels\":[{\"model\":\"windowModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"windowMessages\":1,\"rollupModels\":[{\"model\":\"rollupModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"rollupMessages\":1,\"sessionCount\":1,\"floor\":\"none\",\"harnesses\":[\"claude-code\"]}"
+      "encoded": "{\"issueId\":\"issueId\",\"seq\":1,\"title\":\"title\",\"stage\":\"stage\",\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"windowModels\":[{\"model\":\"windowModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"windowMessages\":1,\"rollupModels\":[{\"model\":\"rollupModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"rollupMessages\":1,\"sessionCount\":1,\"floor\":\"none\",\"harnesses\":[\"claude-code\"],\"sampledAt\":\"sampledAt\"}"
     },
     {
       "schema": "TaskCostState",
@@ -12526,12 +12527,13 @@
             "firstTsMs": 1,
             "lastTsMs": 1
           }
-        ]
+        ],
+        "sampledAt": "sampledAt"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"issueId\":\"issueId\",\"state\":\"costed\",\"own\":{\"models\":[{\"model\":\"own.models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1},\"rollup\":{\"models\":[{\"model\":\"rollup.models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1},\"descendantCount\":1,\"provisional\":true,\"floor\":\"none\",\"harnesses\":[\"claude-code\"],\"sessions\":[{\"sessionId\":\"sessions[0].sessionId\",\"title\":\"sessions[0].title\",\"harness\":\"claude-code\",\"running\":true,\"models\":[{\"model\":\"sessions[0].models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"firstTsMs\":1,\"lastTsMs\":1}]}"
+      "encoded": "{\"issueId\":\"issueId\",\"state\":\"costed\",\"own\":{\"models\":[{\"model\":\"own.models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1},\"rollup\":{\"models\":[{\"model\":\"rollup.models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1},\"descendantCount\":1,\"provisional\":true,\"floor\":\"none\",\"harnesses\":[\"claude-code\"],\"sessions\":[{\"sessionId\":\"sessions[0].sessionId\",\"title\":\"sessions[0].title\",\"harness\":\"claude-code\",\"running\":true,\"models\":[{\"model\":\"sessions[0].models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"firstTsMs\":1,\"lastTsMs\":1}],\"sampledAt\":\"sampledAt\"}"
     },
     {
       "schema": "TelegramChatBinding",
