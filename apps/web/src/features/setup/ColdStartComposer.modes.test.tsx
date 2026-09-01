@@ -11,8 +11,8 @@
  *   CLOSED  — always available; starts the chosen agent on the chosen machine
  *             with NO prompt, in a new tab. This is the action the sidebar's
  *             deleted `New <Agent> in <Repo>` chip used to be.
- *   OPEN    — refused while the prompt is empty; creates the mission and starts
- *             it, exactly as it always has.
+ *   OPEN    — starts the chosen agent with NO prompt when empty, or creates the
+ *             mission and starts it once text is present.
  *
  * The fold is DERIVED, which is the part worth guarding: a persisted draft with
  * words in it has to come back open, or the sentence the operator was halfway
@@ -185,13 +185,14 @@ describe('the launch box unfolds', () => {
     expect(screen.getByTestId('cold-start-collapse')).toBeTruthy()
   })
 
-  it('refuses Launch while the prompt is empty, and allows it once it is not', () => {
+  it('keeps Launch live with nothing written after the box unfolds', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.focus(field())
-    expect(launch().disabled).toBe(true)
-
-    fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
     expect(launch().disabled).toBe(false)
+
+    fireEvent.click(launch())
+    expect(spawnDraftAgent).toHaveBeenCalled()
+    expect(spawnIssueAgent).not.toHaveBeenCalled()
   })
 
   it('creates the mission rather than a bare session once there is a prompt', () => {
@@ -227,16 +228,17 @@ describe('the launch box unfolds', () => {
     expect(box().getAttribute('data-expanded')).toBe('true')
   })
 
-  // WHITESPACE IS NOT A PROMPT, on either side. Reading it as content in one
-  // place and as emptiness in the other left the box permanently open with
-  // Launch permanently refused and Escape refusing to close it.
-  it('does not treat a box holding only spaces as written', () => {
+  // WHITESPACE IS NOT A PROMPT. It should take the same promptless path as an
+  // untouched box, even though the box remains visually unfolded.
+  it('treats a box holding only spaces as promptless', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.focus(field())
     fireEvent.change(field(), { target: { value: '   ' } })
-    expect(launch().disabled).toBe(true)
-    fireEvent.keyDown(field(), { key: 'Escape' })
-    expect(box().getAttribute('data-expanded')).toBe('false')
+    expect(launch().disabled).toBe(false)
+
+    fireEvent.click(launch())
+    expect(spawnDraftAgent).toHaveBeenCalled()
+    expect(spawnIssueAgent).not.toHaveBeenCalled()
   })
 })
 

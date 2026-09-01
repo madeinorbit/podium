@@ -476,12 +476,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * the well starts CLOSED — one clickable line of placeholder over the
    * instrument row — and unfolds when they say they have something to write.
    *
-   * The two modes differ in exactly one more place, and it is the important one:
-   * what Launch does. Closed, it starts the agent with no prompt (`startCli`)
-   * and is always available, because "no prompt" is the whole request. Open, it
-   * creates the mission from what was typed and is refused while that is empty,
-   * because an empty box in prompt mode is an unfinished sentence rather than a
-   * decision.
+   * The prompt's contents decide what Launch does. With nothing written, closed
+   * or open, it starts the agent with no prompt (`startCli`) because "no prompt"
+   * is the whole request. With text, it creates the mission from what was typed.
+   * An attached file still needs prose so it cannot be silently dropped by the
+   * promptless CLI path.
    *
    * EXPANSION IS DERIVED, NOT STORED. A persisted draft with words in it — the
    * operator navigated away mid-sentence — has to come back open, or the text
@@ -796,9 +795,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }
   }
 
-  const launchable = expanded
-    ? Boolean(draft.pendingIssueId) || draft.title.trim().length > 0
-    : true
+  const hasPrompt = draft.title.trim().length > 0
   const launchBlocked =
     busy ||
     // A launch that outran its uploads would create the mission with a brief
@@ -810,9 +807,10 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     machineDenied ||
     !ready ||
     driverUnavailable ||
-    !launchable
+    // The promptless path has no way to deliver uploaded files to the agent.
+    (!draft.pendingIssueId && !hasPrompt && attachments.attachments.length > 0)
 
-  /** What Launch and ⌘↵ do, which is the one thing the two modes disagree about. */
+  /** What Launch and ⌘↵ do. Text selects the mission path; no text starts a bare session. */
   const launch = (): void => {
     if (launchBlocked) return
     // Starting work on a harness is what makes it the operator's harness — see
@@ -820,7 +818,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     // actually news: relaunching on the harness that is already the default has
     // nothing to write.
     if (agent !== defaultAgent) void persistDefaultAgent(agent)
-    if (expanded) void start()
+    if (draft.pendingIssueId || hasPrompt) void start()
     else startCli()
   }
 
