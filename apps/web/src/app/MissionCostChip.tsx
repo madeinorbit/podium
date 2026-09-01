@@ -188,22 +188,36 @@ function MissionCostBreakdown({
       <div>
         <div className={cn(MENU_SECTION_LABEL, 'px-0')}>Where it went</div>
         <SplitRow label="This task" usd={own.estCostUsd} />
-        {/* NO SPLIT BAR WITHOUT CHILDREN. A two-segment bar with one empty
-            segment is a question the reader has to answer before they can read
-            the number, so a childless task gets the words and no bar at all. */}
+        {/* THE SPLIT IS KEYED ON `descendantCount`, NEVER ON own != rollup.
+            Those are different questions, and today they give different
+            answers: POD-1402 (32 descendants), POD-1403 (9), POD-1484 (33) and
+            POD-1574 (4) all carry descendants AND identical own/rollup figures
+            right now, because their children's work sits outside the seven-day
+            harvest window. Keying on the figures would tell all four of them
+            they have no sub-tasks, and POD-1867's backfill would then silently
+            grow a split bar onto a panel that had been denying one. The count
+            is a fact about the tree; the figures are a fact about the window.
+
+            So a task WITH children whose children have cost nothing yet draws
+            the bar with a zero-width second segment and a `$0` beside its own
+            label — which is the honest reading, not a broken one. */}
         {descendantCount > 0 ? (
           <>
-            <div
-              className="mt-1.5 mb-1 flex h-1.5 overflow-hidden rounded-sm bg-background"
-              data-testid="mission-cost-split"
-              aria-hidden="true"
-            >
-              {/* INK STEPS, NEVER HUE — the deck's rule, and the ledger's. The
-                  denser segment is this task's own; the fainter one is the work
-                  under it. */}
-              <span className="bg-text-dim" style={{ flexGrow: own.estCostUsd }} />
-              <span className="bg-text-faint" style={{ flexGrow: childrenUsd }} />
-            </div>
+            {/* The one shape a two-segment bar cannot survive is both segments
+                at zero: it would paint an empty track under a real headline. */}
+            {rollup.estCostUsd > 0 && (
+              <div
+                className="mt-1.5 mb-1 flex h-1.5 overflow-hidden rounded-sm bg-background"
+                data-testid="mission-cost-split"
+                aria-hidden="true"
+              >
+                {/* INK STEPS, NEVER HUE — the deck's rule, and the ledger's.
+                    The denser segment is this task's own; the fainter one is
+                    the work under it. */}
+                <span className="bg-text-dim" style={{ flexGrow: own.estCostUsd }} />
+                <span className="bg-text-faint" style={{ flexGrow: childrenUsd }} />
+              </div>
+            )}
             <SplitRow
               label={`${formatCount(descendantCount)} sub-task${descendantCount === 1 ? '' : 's'}`}
               usd={childrenUsd}
@@ -229,8 +243,16 @@ function MissionCostBreakdown({
 
       <div className="flex flex-col gap-1 border-t border-hairline-soft pt-2">
         <div className="flex items-baseline gap-2 font-mono text-[10.5px] tabular-nums text-text-faint">
+          {/* NEVER "0 sessions" UNDER A LIVE FIGURE. `sessionCount` counts the
+              rollup, but a task whose whole figure is its descendants' can
+              still arrive here with nothing of its own to count, and a zero
+              beside a real headline reads as a fault rather than as a fact.
+              The replies are what the rate is built from, so they always
+              show; the session count only speaks when it has something to
+              say. */}
           <span>
-            {formatCount(rollup.sessionCount)} session{rollup.sessionCount === 1 ? '' : 's'} ·{' '}
+            {rollup.sessionCount > 0 &&
+              `${formatCount(rollup.sessionCount)} session${rollup.sessionCount === 1 ? '' : 's'} · `}
             {formatCount(rollup.messages)} replies
           </span>
           <span className="ml-auto">{formatTokens(rollup.totalTokens)} tok</span>

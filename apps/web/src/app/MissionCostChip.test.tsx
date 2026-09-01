@@ -187,6 +187,44 @@ describe('the popover', () => {
     expect(screen.getByText('No sub-tasks')).toBeTruthy()
   })
 
+  it('splits on the descendant COUNT, not on own != rollup', async () => {
+    // POD-1402, POD-1403, POD-1484 and POD-1574 all read own == rollup today
+    // while carrying descendants: their children's work is outside the
+    // seven-day window. Keying the split on the figures would tell all four
+    // they have no sub-tasks, and POD-1867's backfill would then grow a bar
+    // onto a panel that had been denying one.
+    answer = wire({
+      descendantCount: 32,
+      own: { models: [total(225, 900)], messages: 900, sessionCount: 10 },
+      rollup: { models: [total(225, 900)], messages: 900, sessionCount: 10 },
+    } as Partial<TaskCostWire>)
+    await mountAndSettle()
+    const panel = await open()
+    expect(screen.getByText('32 sub-tasks')).toBeTruthy()
+    expect(panel.textContent).not.toContain('No sub-tasks')
+    // The bar is still drawn; the descendants' segment is simply zero-wide,
+    // and their side reads $0 — the honest reading, not a broken one.
+    expect(screen.getByTestId('mission-cost-split')).toBeTruthy()
+    expect(screen.getByText('$0')).toBeTruthy()
+  })
+
+  it('never says "0 sessions" under a real figure', async () => {
+    // POD-1839's shape: own 0, a real rollup, and the whole figure is its one
+    // descendant's. `sessions[]` is OWN-only by contract, so an empty own side
+    // is intended here and must not render as an empty state.
+    answer = wire({
+      descendantCount: 1,
+      own: { models: [], messages: 0, sessionCount: 0 },
+      rollup: { models: [total(225, 900)], messages: 900, sessionCount: 0 },
+      sessions: [],
+    } as Partial<TaskCostWire>)
+    await mountAndSettle()
+    const panel = await open()
+    expect(chip().textContent).toBe('COST≈$225')
+    expect(panel.textContent).not.toContain('0 sessions')
+    expect(panel.textContent).toContain('900 replies')
+  })
+
   it('labels the multiple, so a bare 1.3x never asks "x what?"', async () => {
     await mountAndSettle()
     const panel = await open()
