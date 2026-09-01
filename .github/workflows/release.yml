@@ -40,7 +40,7 @@ jobs:
         with: { bun-version: '1.3.14' }
       # zig cross-compiles the abduco helper. rcodesign re-signs Darwin Mach-Os with
       # Bun's JIT entitlements — it does not add the signature (Bun already did).
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
         with: { version: '0.16.0' }
       - name: Install rcodesign
         run: sudo -E bash scripts/ci-install-rcodesign.sh
@@ -191,7 +191,7 @@ jobs:
       # prepared bytes. It skips the target build, but still packages the lane's
       # isolated coordinator and therefore needs the checkout-local release
       # toolchain. Edge never executes these setup steps or the proof.
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
         with: { version: '0.16.0' }
       - uses: dtolnay/rust-toolchain@stable
@@ -282,7 +282,7 @@ jobs:
       # Mach-O signature reader — and zig, to rebuild the reference abduco helpers it
       # checks the published binaries against. Without those references the embedded-helper
       # check could only be waived, and a waived check reads as a pass.
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
         with: { version: '0.16.0' }
       - name: Install rcodesign
         run: sudo -E bash scripts/ci-install-rcodesign.sh

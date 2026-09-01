@@ -158,12 +158,23 @@ jobs:
             artifact_paths: |
               apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
               apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig
-          - target: windows-x86_64
-            runner: windows-latest
-            build_args: "-- --bundles nsis"
-            artifact_paths: |
-              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
-              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+          # Windows is experimental and is deliberately NOT built by default. A red leg here does
+          # not withhold the release — `publish` runs on the legs that succeeded, so a Windows
+          # failure only ever produced a manifest without Windows in it — but it does spend a
+          # runner and put a failure on every release, which reads as a broken release when it is
+          # a platform we are not shipping yet. Re-add this entry to build it:
+          #
+          #   - target: windows-x86_64
+          #     runner: windows-latest
+          #     build_args: "-- --bundles nsis"
+          #     artifact_paths: |
+          #       apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          #       apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+          #
+          # Re-adding it is not enough on its own: `bun install` still fails on windows-latest
+          # under bunfig's isolated linker + global store, and that is to be fixed on Windows
+          # rather than worked around here. The compile error it hit past that point is already
+          # fixed (`exit_status_details` in src-tauri/src/main.rs).
           - target: darwin-aarch64
             runner: macos-15
             build_args: "-- --target aarch64-apple-darwin"

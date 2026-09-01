@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1-edge.4] - 2026-08-31
+
+### Added
+
+- Updates are now a first-class release pipeline rather than a one-shot script: every release
+  attempt writes a build record, one release child owns each approved build, the publisher writes
+  a ledger and reads it back, and a proposal has to be approved before it can be published.
+- Headless bundles for all four platforms are cross-built from Linux, and CI proves the Darwin
+  payloads actually run on real Macs.
+- A `dev` update channel that resolves through the attached server's own feed, with trust held per
+  channel, so a build can be tried without touching the stable or edge feeds.
+- Settings shows every component version on one line when they agree and marks the ones that do
+  not, so a partial update is visible instead of silent.
+- The desktop shell serves its webview UI from the connected server, and refuses to run a baked-in
+  UI older than the data already on the device.
+- Links that point at Podium now share one address space, so an agent's offer links are clickable
+  and open where they should — in the app for our own URLs, in a real browser for everything else.
+- Quota windows record what each plan window came to before it reset, and are drawn as wide as
+  they actually were.
+- The flight deck gained a launch box in the task panel, a foldable left sidebar, drag-and-drop
+  onto an empty deck, starting a task before choosing an agent, and the mission brief set as prose
+  with a draggable cutoff.
+- Mobile gained a native iOS round: glass tab bar, CLI terminal, embedded fonts, platform symbols
+  and value pickers, and an offer to refresh when the server serves a newer phone build.
+
+### Changed
+
+- Every install converges to a single `podium.service`, so a machine cannot end up running two
+  runtimes that disagree about which one is current.
+- The brand accent is bisque, on both web and phone.
+- Agent management no longer blocks an update from proceeding.
+
+### Fixed
+
+- The updater recovers from the states that used to strand it: legacy snapshots are found at boot
+  and their child killed on close, snapshot records whose file is gone are dropped, recovery
+  snapshots are verified off the event loop, stale deferred promises are all restated rather than
+  only the newest, and trust survives a key rotation.
+- Malformed, schemeless and deep-link URLs keep their authored detail instead of being rewritten
+  on the way through the shell.
+- Transcript streaming holds its refresh ownership across StrictMode remounts, publishes its
+  stream health, and no longer flickers back to a stale pending state.
+- Interrupted chat sends are cancelled and targeted correctly instead of landing after the fact.
+- Mobile bounds its dictation audio buffering, transcript cache writes and artifact preview reads,
+  and carries PTY frames across the webview seam as bytes.
+- Releasing works again on both halves. The desktop manifest builder demanded a Windows bundle
+  that is no longer built, which threw away the Linux and macOS shells that had built and signed
+  correctly; Windows is now optional there. The headless half could not fetch its Zig toolchain
+  after Zig changed its tarball naming, and its pinned action was too old to follow.
+
 ## [0.1.1-edge.2] - 2026-08-21
 
 ### Fixed

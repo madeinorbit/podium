@@ -366,6 +366,38 @@ describe('isolated peer-context executable shims', () => {
     expect(topology(fixture.root)).toEqual(withShim)
   })
 
+  it('agrees with an install where Bun never wrote the peer .bin at all', () => {
+    // POD-3185: three identical frozen installs in one worktree materialized 95, 98 and
+    // 98 peer-context `.bin` directories. Normalizing the shims was not enough — the
+    // container's own record moved the fingerprint, and PODIUM_CHECK_ENV_HASH is
+    // turbo.json's only globalEnv, so every release paid a full client rebuild.
+    const fixture = executableTopologyFixture()
+    const peerContext = 'node_modules/.bun/consumer@1.0.0+aaaaaaaaaaaaaaaa/node_modules'
+    const withBin = topology(fixture.root)
+    expect(withBin.layout).not.toContainEqual(`${peerContext}\t.bin\td\t-`)
+    // The root's own `.bin` is a command surface workspace tasks resolve through: it stays.
+    expect(withBin.layout).toContainEqual('node_modules\t.bin\td\t-')
+
+    rmSync(fixture.peerBin, { recursive: true, force: true })
+    const withoutBin = topology(fixture.root)
+
+    expect(withoutBin.errors).toEqual([])
+    expect(withoutBin.layout).toEqual(withBin.layout)
+  })
+
+  it('still refuses a broken shim in the .bin whose container it stopped recording', () => {
+    // The container is omitted because it names no command, not because its contents are
+    // trusted: a shim that resolves to nothing must still refuse, and still be recorded.
+    const fixture = executableTopologyFixture()
+    const shim = join(fixture.peerBin, 'tool')
+    rmSync(shim)
+    symlinkSync('../tool/missing.js', shim)
+
+    const census = topology(fixture.root)
+    expect(census.errors).toContainEqual(expect.stringContaining('dangling symlink'))
+    expect(census.layout).toContainEqual(expect.stringContaining('.bin/tool\tl\t'))
+  })
+
   it('still follows and refuses a dangling or wrong-target nested shim', () => {
     const fixture = executableTopologyFixture()
     const shim = join(fixture.peerBin, 'tool')
