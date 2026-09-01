@@ -222,9 +222,14 @@ export function loadModelExportNames(repoRoot: string): Set<string> {
  * This closes a hole the other rules could not see. All of them reason about
  * DECLARED edges — layer order, platform tags, leaf purity — so an import whose
  * package.json entry is simply MISSING is invisible to the whole gate: there is no
- * edge to judge. It resolves anyway under Bun's hoisted node_modules, so nothing
- * fails locally, and then a scoped typecheck of some UNRELATED consumer reports
- * TS2307 because no workspace symlink exists. POD-300 produced exactly that:
+ * edge to judge.
+ *
+ * Under isolated linking with `hoist = false` such an import no longer resolves at
+ * all — the workspace symlink is never created, so it fails outright. This rule is
+ * still what you want in front of that: it names the offending file, the specifier
+ * and the workspace whose package.json needs the entry, whereas the raw failure is
+ * a bare module-not-found or a TS2307 that can surface in an UNRELATED consumer's
+ * scoped typecheck long after the edit that caused it. POD-300 produced exactly that:
  * import specifiers moved to `@podium/model`, the dependency lists did not, and
  * `packages/harness` silently imported a package it never declared until an
  * unrelated app's typecheck broke.
