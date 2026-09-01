@@ -9,6 +9,7 @@ import { useClickIntent } from '@/app/click-intent'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { compareEntries } from './entry-order'
 import { FileTypeIcon } from './file-icon'
 
 type Entry = { name: string; isDir: boolean }
@@ -18,13 +19,7 @@ function joinPath(dir: string, name: string): string {
 }
 
 function sortEntries(entries: Entry[]): Entry[] {
-  return [...entries].sort((a, b) =>
-    a.isDir !== b.isDir
-      ? a.isDir
-        ? -1
-        : 1
-      : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
-  )
+  return [...entries].sort(compareEntries)
 }
 
 function relativeToRoot(root: string, path: string): string {

@@ -8,6 +8,7 @@ import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { compareEntries } from './entry-order'
 import { FileTypeIcon } from './file-icon'
 
 type Entry = { name: string; isDir: boolean }
@@ -56,15 +57,7 @@ export function FileBrowserModal({
           setResolvedRoot(r.path)
         }
         setPath(r.path)
-        setEntries(
-          [...r.entries].sort((a, b) =>
-            a.isDir !== b.isDir
-              ? a.isDir
-                ? -1
-                : 1
-              : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
-          ),
-        )
+        setEntries([...r.entries].sort(compareEntries))
       } catch (e) {
         setError(formatAppError(e, 'Could not open directory'))
       } finally {

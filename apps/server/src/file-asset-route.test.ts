@@ -146,6 +146,54 @@ describe('GET /files/asset', () => {
     expect(allowsRoot).toHaveBeenCalledWith('/', 'machine-2')
     expect(readAsset).not.toHaveBeenCalled()
   })
+  it('collapses .. in the root BEFORE authorizing it, so a crafted prefix cannot escape', async () => {
+    // The registry prefix-matches lexically, exactly like the real one: a root that
+    // textually starts with a registered root is allowed. Without collapsing `..`
+    // first, `/repo/../../etc` passes that check and the daemon resolves it to /etc.
+    const readAsset = vi.fn(async () => ({ ok: true }))
+    const allowsRoot = vi.fn((root: string) => root === '/repo' || root.startsWith('/repo/'))
+    const app = new Hono()
+    registerAssetRoute(app, { allowsRoot, readAsset })
+
+    const res = await app.request(
+      `/files/asset?root=${encodeURIComponent('/repo/../../etc')}&path=${encodeURIComponent('/etc/passwd')}`,
+    )
+
+    expect(res.status).toBe(403)
+    expect(allowsRoot).toHaveBeenCalledWith('/etc', undefined)
+    expect(readAsset).not.toHaveBeenCalled()
+  })
+  it('forwards the collapsed root, so the authorized root is the one that is read', async () => {
+    const readAsset = vi.fn(async () => ({
+      ok: true,
+      dataBase64: Buffer.from('A').toString('base64'),
+      contentType: 'text/plain; charset=utf-8',
+      size: 1,
+    }))
+    const allowsRoot = vi.fn(() => true)
+    const app = new Hono()
+    registerAssetRoute(app, { allowsRoot, readAsset })
+
+    const res = await app.request(
+      `/files/asset?root=${encodeURIComponent('/repo/sub/..')}&path=${encodeURIComponent('/repo/a.txt')}`,
+    )
+
+    expect(res.status).toBe(200)
+    expect(allowsRoot).toHaveBeenCalledWith('/repo', undefined)
+    expect(readAsset).toHaveBeenCalledWith(expect.objectContaining({ root: '/repo' }))
+  })
+  it('rejects a relative worktree root outright', async () => {
+    const readAsset = vi.fn(async () => ({ ok: true }))
+    const allowsRoot = vi.fn(() => true)
+    const app = new Hono()
+    registerAssetRoute(app, { allowsRoot, readAsset })
+
+    const res = await app.request('/files/asset?root=repo&path=%2Frepo%2Fa.txt')
+
+    expect(res.status).toBe(403)
+    expect(allowsRoot).not.toHaveBeenCalled()
+    expect(readAsset).not.toHaveBeenCalled()
+  })
   it('404s when the read is not ok (e.g. outside sandbox)', async () => {
     const app = new Hono()
     registerAssetRoute(app, stub({ ok: false, error: 'outside workspace' }))

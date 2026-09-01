@@ -57,4 +57,37 @@ describe('parseDelimitedDocument', () => {
     expect(result.truncated).toBe(true)
     expect(result.columnCount).toBe(200)
   })
+
+  it('keeps the data rows of a document whose rows are wider than the column cap', () => {
+    const wide = (prefix: string) =>
+      Array.from({ length: 250 }, (_, i) => `${prefix}${i}`).join(',')
+    const result = parseDelimitedDocument(`${wide('c')}\n${wide('a')}\n${wide('b')}\n`, ',')
+
+    // The overflow costs the RIGHT-HAND COLUMNS of each row, never the rows below it.
+    expect(result.truncated).toBe(true)
+    expect(result.columnCount).toBe(200)
+    expect(result.rows).toHaveLength(2)
+    expect(result.headers[0]).toBe('c0')
+    expect(result.rows[0]?.[0]).toBe('a0')
+    expect(result.rows[0]?.[199]).toBe('a199')
+    expect(result.rows[1]?.[0]).toBe('b0')
+  })
+
+  it('resumes on the next row when a quoted cell overflows the column cap', () => {
+    const wide = Array.from({ length: 250 }, (_, i) => `"c,${i}"`).join(',')
+    const result = parseDelimitedDocument(`${wide}\nkeep,me\n`, ',')
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]?.[0]).toBe('keep')
+    expect(result.rows[0]?.[1]).toBe('me')
+  })
+
+  it('reads a header-only document as zero rows rather than a truncated parse', () => {
+    expect(parseDelimitedDocument('name,count\n', ',')).toEqual({
+      headers: ['name', 'count'],
+      rows: [],
+      columnCount: 2,
+      truncated: false,
+    })
+  })
 })

@@ -1,4 +1,6 @@
 // apps/server/src/file-asset-route.ts
+
+import { isAbsolute, resolve } from 'node:path'
 import { asMachineId, asSessionId, type MachineId, type SessionId } from '@podium/model'
 import type { Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
@@ -37,15 +39,22 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
     const path = c.req.query('path')
     if ((!sessionId && !root) || !path) return c.text('bad request', 400)
     const parsedMachineId = machineId ? asMachineId(machineId) : undefined
-    if (!sessionId && root && !registry.allowsRoot(root, parsedMachineId)) {
-      return c.text('forbidden', 403)
+    // `allowsRoot` prefix-matches against the registered repo roots, and that
+    // comparison is lexical: `/repo/../../etc` starts with `/repo/` and would pass
+    // while the daemon resolves it to `/etc`. Collapse `..` FIRST and forward the
+    // collapsed root, so the root that is authorized is the root that is read.
+    let scopedRoot = root
+    if (!sessionId && root) {
+      if (!isAbsolute(root)) return c.text('forbidden', 403)
+      scopedRoot = resolve(root)
+      if (!registry.allowsRoot(scopedRoot, parsedMachineId)) return c.text('forbidden', 403)
     }
     const requestedRange = parseByteRange(c.req.header('range'))
     if (requestedRange === 'invalid') return c.body(null, 416)
     const target = sessionId
       ? { sessionId: asSessionId(sessionId), path }
       : {
-          root: root as string,
+          root: scopedRoot as string,
           ...(parsedMachineId ? { machineId: parsedMachineId } : {}),
           path,
         }

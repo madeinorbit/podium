@@ -47,6 +47,9 @@ describe('file kind helpers', () => {
   it('recognises the previewable asset families case-insensitively', () => {
     expect(isTablePath('DATA.TSV')).toBe(true)
     expect(isImagePath('photo.JPEG')).toBe(true)
+    // SVG is editable markup — it must keep the source editor, not become view-only.
+    expect(isImagePath('/repo/logo.svg')).toBe(false)
+    expect(fileKindForPath('/repo/logo.svg')).toBe('source')
     expect(isPdfPath('brief.PDF')).toBe(true)
     expect(isVideoPath('clip.M4V')).toBe(true)
     expect(isAudioPath('voice.M4A')).toBe(true)

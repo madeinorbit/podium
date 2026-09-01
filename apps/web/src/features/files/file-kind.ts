@@ -28,8 +28,12 @@ export function isTablePath(path: string): boolean {
   return /\.(csv|tsv)$/i.test(path)
 }
 
+/** Raster images only. `.svg` is deliberately absent: it is markup people edit,
+ *  and the asset viewer has no source mode, so routing it here would take away
+ *  the editor it has always had. It keeps the text editor until the viewer grows
+ *  a Preview/Source toggle. */
 export function isImagePath(path: string): boolean {
-  return /\.(png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i.test(path)
+  return /\.(png|jpe?g|gif|webp|avif|bmp|ico)$/i.test(path)
 }
 
 export function isPdfPath(path: string): boolean {

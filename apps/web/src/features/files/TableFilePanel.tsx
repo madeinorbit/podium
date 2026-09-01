@@ -13,6 +13,20 @@ import { useFileDocument } from './useFileDocument'
 
 const VALUE_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
+/** Sort a column the way its data reads. The collator alone treats `-` as
+ * punctuation and a decimal point as a separator between two integer runs, so
+ * `-10` sorts above `-2` and `1.10` above `1.5`. Compare as numbers whenever both
+ * cells are numbers, and fall back to the natural-order collator for everything
+ * else (mixed columns, ids, dates, text). */
+function compareCellValues(a: string, b: string): number {
+  const left = Number(a)
+  const right = Number(b)
+  if (a.trim() !== '' && b.trim() !== '' && Number.isFinite(left) && Number.isFinite(right)) {
+    return left === right ? 0 : left < right ? -1 : 1
+  }
+  return VALUE_COLLATOR.compare(a, b)
+}
+
 type Mode = 'preview' | 'source'
 type Sort = { column: number; direction: 'asc' | 'desc' } | null
 
@@ -148,7 +162,7 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
       : indexed
     if (!sort) return matching
     return matching.sort((a, b) => {
-      const order = VALUE_COLLATOR.compare(a.row[sort.column] ?? '', b.row[sort.column] ?? '')
+      const order = compareCellValues(a.row[sort.column] ?? '', b.row[sort.column] ?? '')
       return (sort.direction === 'asc' ? order : -order) || a.sourceIndex - b.sourceIndex
     })
   }, [deferredQuery, sort, table.rows])
@@ -288,7 +302,7 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
           </table>
           {filtered.length === 0 && (
             <div className="p-4 text-center text-xs text-muted-foreground">
-              No rows match "{query.trim()}".
+              {query.trim() ? `No rows match "${query.trim()}".` : 'No data rows.'}
             </div>
           )}
         </div>

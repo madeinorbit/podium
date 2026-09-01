@@ -37,6 +37,10 @@ export function AssetFilePanel({
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)
   const [fit, setFit] = useState(true)
   const [zoom, setZoom] = useState(100)
+  // A deleted, unreadable or rejected asset otherwise leaves a broken-image glyph
+  // with no explanation — every other panel surfaces the failure through
+  // useFileDocument, and these elements load their bytes themselves.
+  const [failed, setFailed] = useState(false)
 
   const setActualSize = (): void => {
     setFit(false)
@@ -117,7 +121,7 @@ export function AssetFilePanel({
         )}
       </div>
 
-      {!url ? (
+      {!url || failed ? (
         <div className="p-4 text-sm text-muted-foreground">This file cannot be previewed.</div>
       ) : kind === 'image' ? (
         <div
@@ -140,8 +144,16 @@ export function AssetFilePanel({
             draggable={false}
             onLoad={(event) => {
               const image = event.currentTarget
-              setDimensions({ width: image.naturalWidth, height: image.naturalHeight })
+              // An SVG carrying only a viewBox reports 0 in some browsers. Treating
+              // that as a real size makes "Actual size" compute a 0px width and the
+              // image vanish, so fall back to intrinsic layout instead.
+              setDimensions(
+                image.naturalWidth > 0 && image.naturalHeight > 0
+                  ? { width: image.naturalWidth, height: image.naturalHeight }
+                  : null,
+              )
             }}
+            onError={() => setFailed(true)}
             className={`block bg-transparent outline outline-1 outline-black/10 select-none dark:outline-white/10 ${
               fit ? 'max-h-full max-w-full object-contain' : 'max-w-none'
             }`}
@@ -166,6 +178,7 @@ export function AssetFilePanel({
             preload="metadata"
             className="max-h-full max-w-full"
             aria-label={fileName(path)}
+            onError={() => setFailed(true)}
           >
             <source src={url} />
             Your browser cannot play this video. Open it in the browser to try another player.
@@ -182,6 +195,7 @@ export function AssetFilePanel({
             preload="metadata"
             className="w-full max-w-xl"
             aria-label={fileName(path)}
+            onError={() => setFailed(true)}
           >
             <source src={url} />
             Your browser cannot play this audio file. Open it in the browser to try another player.
