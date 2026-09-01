@@ -39,6 +39,10 @@ const DAEMON_BLOCKED_EXIT_CODE: i32 = 78;
 /// for our death instead (packages/runtime/src/supervisor.ts).
 const SUPERVISOR_PID_ENV: &str = "PODIUM_SUPERVISOR_PID";
 const PODIUM_URL_SCHEME: &str = "podium";
+// Each pre-activation layer rejects its newest input after 32 accepted URLs.
+// Keeping the native queue finite prevents an OS-delivered burst from growing
+// without bound while the webview is absent or cannot evaluate the bridge.
+const NATIVE_OPEN_QUEUE_CAPACITY: usize = 32;
 
 fn bundled_sidecar_resource(windows: bool) -> &'static str {
     if windows {
@@ -138,6 +142,33 @@ fn native_open_eval(raw: &str) -> String {
     format!("window.__PODIUM_DELIVER_NATIVE_OPEN__?.({literal});")
 }
 
+fn enqueue_native_open(queue: &NativeOpenQueue, raw: String) -> bool {
+    let mut pending = queue.pending.lock().unwrap();
+    if pending.len() >= NATIVE_OPEN_QUEUE_CAPACITY {
+        log::warn!("dropping newest OS-delivered Podium URL because the native-open queue is full");
+        return false;
+    }
+    pending.push_back(raw);
+    true
+}
+
+fn restore_native_open_front(queue: &NativeOpenQueue, earlier: &[String]) {
+    let mut pending = queue.pending.lock().unwrap();
+    for raw in earlier.iter().rev() {
+        pending.push_front(raw.clone());
+    }
+    let mut dropped = 0;
+    while pending.len() > NATIVE_OPEN_QUEUE_CAPACITY {
+        pending.pop_back();
+        dropped += 1;
+    }
+    if dropped > 0 {
+        log::warn!(
+            "dropping {dropped} newest OS-delivered Podium URL(s) to restore earlier queued work"
+        );
+    }
+}
+
 fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &Url) {
     if !is_configured_podium_url(url) {
         log::warn!("refusing OS-delivered URL outside the configured podium scheme");
@@ -146,7 +177,7 @@ fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &
     log::info!("accepted an OS-delivered Podium URL");
     let raw = url.as_str().to_string();
     let Some(window) = app.get_webview_window("main") else {
-        queue.pending.lock().unwrap().push_back(raw);
+        enqueue_native_open(queue, raw);
         return;
     };
     // A deep link is an explicit request to return to Podium. CloseRequested
@@ -156,7 +187,7 @@ fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &
     let _ = window.set_focus();
     if let Err(error) = window.eval(native_open_eval(&raw)) {
         log::warn!("could not deliver native Podium URL yet: {error}");
-        queue.pending.lock().unwrap().push_back(raw);
+        enqueue_native_open(queue, raw);
     }
 }
 
@@ -165,10 +196,11 @@ fn flush_native_open_queue(window: &tauri::WebviewWindow, queue: &NativeOpenQueu
         let mut guard = queue.pending.lock().unwrap();
         guard.drain(..).collect::<Vec<_>>()
     };
-    for raw in pending {
+    for (index, raw) in pending.iter().enumerate() {
         if let Err(error) = window.eval(native_open_eval(&raw)) {
             log::warn!("could not flush a native Podium URL: {error}");
-            queue.pending.lock().unwrap().push_back(raw);
+            restore_native_open_front(queue, &pending[index..]);
+            break;
         }
     }
 }
@@ -2146,13 +2178,40 @@ mod tests {
     fn native_open_page_bridge_queues_until_the_custom_event_listener_is_ready() {
         let bridge = native_open_bridge_script();
         assert!(bridge.contains("new CustomEvent('podium:native-open', { detail: raw })"));
-        assert!(bridge.contains("else pending.push(raw)"));
+        assert!(bridge.contains("else if (pending.length < PENDING_CAPACITY) pending.push(raw)"));
+        assert!(bridge.contains("const PENDING_CAPACITY = 32"));
         assert!(bridge.contains("for (const raw of pending.splice(0)) dispatch(raw)"));
 
         let eval = native_open_eval("podium://issues/POD-1710?note='quoted'");
         assert!(eval.contains("window.__PODIUM_DELIVER_NATIVE_OPEN__"));
         assert!(eval.contains("podium://issues/POD-1710"));
         assert!(eval.contains("'quoted'"));
+    }
+
+    #[test]
+    fn native_open_queue_rejects_newest_input_at_capacity() {
+        let queue = NativeOpenQueue::default();
+        for index in 0..NATIVE_OPEN_QUEUE_CAPACITY {
+            assert!(enqueue_native_open(
+                &queue,
+                format!("podium://issues/POD-{index}")
+            ));
+        }
+        assert!(!enqueue_native_open(
+            &queue,
+            "podium://issues/POD-excess".to_string()
+        ));
+
+        let pending = queue.pending.lock().unwrap();
+        assert_eq!(pending.len(), NATIVE_OPEN_QUEUE_CAPACITY);
+        assert_eq!(
+            pending.front().map(String::as_str),
+            Some("podium://issues/POD-0")
+        );
+        assert_eq!(
+            pending.back().map(String::as_str),
+            Some("podium://issues/POD-31")
+        );
     }
 
     /// ⌘Q. Supervision must leave the child slot lockable while the backend is alive, because

@@ -38,6 +38,11 @@ describe('tauri desktop config', () => {
     expect(mainSource).toContain('app.deep_link().register_all()')
     expect(nativeOpenSource).toContain("new CustomEvent('podium:native-open', { detail: raw })")
     expect(nativeOpenSource).toContain('window.__PODIUM_NATIVE_OPEN_READY__')
+    expect(mainSource).toContain('const NATIVE_OPEN_QUEUE_CAPACITY: usize = 32')
+    expect(nativeOpenSource).toContain('const PENDING_CAPACITY = 32')
+    expect(webLinkHostSource).toContain('PODIUM_LINK_QUEUE_CAPACITY = 32')
+    expect(mainSource).toContain('enqueue_native_open(queue, raw)')
+    expect(mainSource).toContain('restore_native_open_front(queue, &pending[index..])')
     expect(mainSource).toContain('flush_native_open_queue(&window, &page_open_queue)')
     const warmDelivery = mainSource.slice(
       mainSource.indexOf('fn deliver_or_queue_native_open'),

@@ -50,4 +50,21 @@ describe('desktop native-open page bridge', () => {
     expect(received).toEqual(['podium://sessions/POD-1710-A', 'podium://issues/POD-1710'])
     window.removeEventListener('podium:native-open', onOpen)
   })
+
+  it('rejects the newest cold URL once the pending queue is full', () => {
+    const received: unknown[] = []
+    const onOpen = (event: Event): void => received.push((event as CustomEvent).detail)
+    const accepted = Array.from(
+      { length: 32 },
+      (_, index) => `podium://issues/POD-${index}`,
+    )
+
+    for (const raw of accepted) nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(raw)
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-excess')
+    window.addEventListener('podium:native-open', onOpen)
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(true)
+
+    expect(received).toEqual(accepted)
+    window.removeEventListener('podium:native-open', onOpen)
+  })
 })
