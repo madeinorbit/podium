@@ -107,14 +107,37 @@ export function floorLabel(harnesses: readonly CostHarness[]): string {
 }
 
 /**
- * "≈$226 over 10" — the fact the ROSTER is missing, in `DockPart`'s meta slot.
+ * "≈$226 across 10 sessions" — the fact the ROSTER is missing, in `DockPart`'s
+ * meta slot.
  *
  * The roster lists open sessions, which on a finished task is none of them. This
  * one line is what stops it lying by omission: it shows two agents and says
- * there were ten. Both halves are the ROLLUP's, matching the Cost section's own
- * headline directly below rather than counting a different set of sessions.
+ * there were ten.
+ *
+ * IT SAYS ITS OWN SCOPE, which the first draft did not. "≈$226 over 10" sat
+ * directly above a disclosure reading "6 sessions" and listing six — two numbers
+ * visible at once that no reader could reconcile without knowing the schema,
+ * which is the same lie the line was added to prevent, pointing the other way.
+ * Both halves are the ROLLUP's, matching the Cost section's headline below; the
+ * own count is named separately when there are descendants, so the reader can
+ * chain "38 sessions, 6 on this task" to the fold's "2 of 6" by reading.
  */
-export function rosterCostMeta(rollupUsd: number, rollupSessionCount: number): string | undefined {
+export function rosterCostMeta(
+  rollupUsd: number,
+  rollupSessionCount: number,
+  ownSessionCount?: number,
+): string | undefined {
   if (rollupSessionCount <= 0) return undefined
-  return `${approxUsd(rollupUsd)} over ${rollupSessionCount}`
+  const noun = `${rollupSessionCount} session${rollupSessionCount === 1 ? '' : 's'}`
+  // Only when the two counts actually differ: "10 sessions, 10 on this task"
+  // spends a whole clause restating the number beside it.
+  if (ownSessionCount === undefined || ownSessionCount === rollupSessionCount) {
+    return `${approxUsd(rollupUsd)} across ${noun}`
+  }
+  // TERSER WHEN IT CARRIES BOTH, because this string shares a 340px head row
+  // with a section title and its rule, and `DockPart` gives it no room to wrap:
+  // the long form ("… across 38 sessions, 6 on this task") rendered as "6 on
+  // thi…", which relates the two counts by truncating one of them. `6 own`
+  // chains to the fold's own "2 of 6" and fits.
+  return `${approxUsd(rollupUsd)} · ${noun}, ${ownSessionCount} own`
 }

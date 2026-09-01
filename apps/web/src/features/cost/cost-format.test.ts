@@ -81,11 +81,21 @@ describe('floorLabel', () => {
 })
 
 describe('rosterCostMeta', () => {
-  it('states the rollup and the sessions it was read over', () => {
-    expect(rosterCostMeta(225.81, 10)).toBe('≈$226 over 10')
+  it('states the rollup and names the scope it counted over', () => {
+    expect(rosterCostMeta(225.81, 10)).toBe('≈$226 across 10 sessions')
   })
 
-  it('says nothing rather than "over 0"', () => {
+  it('names the own count too, so it chains to the fold below it', () => {
+    // "≈$226 over 10" sat directly above a fold reading "6 sessions" — two
+    // numbers a reader could only reconcile by knowing the schema.
+    expect(rosterCostMeta(262.88, 38, 6)).toBe('≈$263 · 38 sessions, 6 own')
+  })
+
+  it('does not restate one count as two when they are the same', () => {
+    expect(rosterCostMeta(225.81, 10, 10)).toBe('≈$226 across 10 sessions')
+  })
+
+  it('says nothing rather than "across 0 sessions"', () => {
     expect(rosterCostMeta(0, 0)).toBeUndefined()
   })
 })

@@ -12393,13 +12393,20 @@ button.waterfall-fold:hover {
   border-radius: 3.5px;
   background: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
+/* PUSHED WELL PAST THE ORIGINAL 52/22. At those two strengths the segments read
+   as one bar with a seam on this ground, and the legend underneath ended up
+   doing all the work the bar exists to do — which is a bar that costs 7px of
+   height and earns none of it. The job here is that the COMPOSITION lands before
+   the reader gets to the words, so the two steps have to be far enough apart to
+   separate at a glance and at a distance. Still one ink at two strengths, never
+   two hues: neither half of a cost is good or bad. */
 .cost-split-own {
-  background: color-mix(in srgb, var(--foreground) 52%, transparent);
+  background: color-mix(in srgb, var(--foreground) 68%, transparent);
 }
 /* Descendants sit BELOW the task's own share in the ink ramp: the section is
    about this task, and its children are the context around that figure. */
 .cost-split-kid {
-  background: color-mix(in srgb, var(--foreground) 22%, transparent);
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
 }
 
 .cost-splitkey {
@@ -12432,8 +12439,8 @@ button.waterfall-fold:hover {
   vertical-align: middle;
 }
 .cost-swatch-own {
-  background: color-mix(in srgb, var(--foreground) 52%, transparent);
+  background: color-mix(in srgb, var(--foreground) 68%, transparent);
 }
 .cost-swatch-kid {
-  background: color-mix(in srgb, var(--foreground) 22%, transparent);
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
 }

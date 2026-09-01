@@ -16,10 +16,16 @@ const ORIGIN = process.env.P1859_ORIGIN ?? 'http://[::1]:55604'
 const OUT = process.argv[2] ?? '/tmp/pod1859'
 
 const browser = await chromium.launch()
+// The app's theme is localStorage-authoritative and defaults to dark, so
+// `colorScheme` alone photographs the same frame twice — see app/theme.tsx.
 const ctx = await browser.newContext({
   viewport: { width: 1740, height: 1000 },
   deviceScaleFactor: 2,
 })
+await ctx.addInitScript(
+  ([k, m]) => localStorage.setItem(k as string, m as string),
+  ['podium.theme.mode', process.env.P1859_THEME ?? 'dark'],
+)
 const page = await ctx.newPage()
 page.on('pageerror', (e) => console.log(`[pageerror] ${String(e).slice(0, 300)}`))
 page.setDefaultTimeout(30_000)

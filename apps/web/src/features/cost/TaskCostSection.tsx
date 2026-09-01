@@ -41,6 +41,7 @@ import {
   type SessionCostView,
   type TaskCostView,
 } from '@podium/client-core/viewmodels'
+import type { CostHarness } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
@@ -195,7 +196,45 @@ function SplitBar({
  * them at once rather than hedging each row, which is what stops a ten-row list
  * from repeating the same caveat ten times.
  */
+/**
+ * One harness, named for a ROW rather than for the attribution sentence.
+ *
+ * Not `costHarnessLabel`, deliberately: that renders a SET as a claim about a
+ * figure's completeness ("all Codex", "Codex + Grok") and is the binding wording
+ * for the attribution line. This is a single harness naming a single session,
+ * where "all Codex" would be nonsense.
+ */
+const HARNESS_WORD: Record<CostHarness, string> = {
+  'claude-code': 'Claude',
+  codex: 'Codex',
+  grok: 'Grok',
+}
+
+/**
+ * WHAT AN UNNAMED SESSION IS CALLED — its harness and the day it ran.
+ *
+ * `title` is null when no session row survives for a transcript that did: the
+ * work happened, and what somebody called it is not recoverable. "Unnamed
+ * session" is the wrong answer to that, because it describes the GAP rather than
+ * the session, and in a list where every other row is legible it reads as
+ * missing data.
+ *
+ * Harness plus date is addressable instead: it is enough to find the transcript
+ * with, it distinguishes two nameless rows from each other, and it says the one
+ * true thing left about the row — some Codex agent worked here on the 12th.
+ */
+function unnamedSessionLabel(session: SessionCostView): string {
+  const harness = HARNESS_WORD[session.harness]
+  if (session.firstTsMs <= 0) return `${harness} session`
+  const day = new Date(session.firstTsMs).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+  })
+  return `${harness} session · ${day}`
+}
+
 function SessionCostRow({ session }: { session: SessionCostView }): JSX.Element {
+  const unnamed = session.title === null
   return (
     <div
       className="flex min-h-[28px] items-center gap-2 border-hairline-soft border-b px-1 last:border-b-0"
@@ -205,13 +244,12 @@ function SessionCostRow({ session }: { session: SessionCostView }): JSX.Element 
         className={cn(
           DOCK_ROW,
           'min-w-0 flex-1 truncate',
-          // No session row survives for this transcript — it ran, and what it
-          // was called is not recoverable. Said in the ink reserved for what the
-          // app does not know rather than invented.
-          session.title === null ? 'text-text-faint italic' : 'text-foreground/90',
+          // Held one ink step down: the row is legible and addressable, but what
+          // it says is derived rather than something a person chose to call it.
+          unnamed ? 'text-text-dim' : 'text-foreground/90',
         )}
       >
-        {session.title ?? 'Unnamed session'}
+        {session.title ?? unnamedSessionLabel(session)}
       </span>
       <span className={cn(DOCK_STAMP, 'flex-none tabular-nums text-text-dim')}>
         {approxUsd(session.estCostUsd)}
@@ -250,12 +288,19 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
   if (view === null || view.state === 'pending') {
     // The layout, drawn, with the reading absent — see this file's header for
     // why `pending` is here and why neither arm is allowed to move.
+    //
+    // NO HEDGE. The sentence disclaims how a FIGURE was arrived at, and there is
+    // no figure to disclaim; printing it here says "that number you cannot see
+    // is at list price". It belongs only where a figure is shown, which is why
+    // the two word states below have never carried it either.
     return (
       <div data-testid="cost-section" data-state={view?.state ?? 'cold'}>
         <div className="cost-figure">
-          <Unfilled ch={5} />
+          {/* The width the FIGURE would occupy, not a token dash. At five it
+              read as a stray hyphen rather than a held place; a rounded rollup
+              is "≈$226" and the slot has to look like somewhere that lands. */}
+          <Unfilled ch={8} />
         </div>
-        <Hedge />
       </div>
     )
   }
@@ -282,20 +327,25 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
   // distinction is drawn, which is exactly what it is there for — a column that
   // silently changed scope halfway down would need a second bar to explain it.
   const models = rollup.models
-  // "N [own] sessions, most expensive first".
+  // THE DISCLOSURE COUNTS WHAT IT LISTS, AND NAMES WHAT IT CANNOT.
   //
-  // OWN is said only when there are children to distinguish it from: the wire
-  // carries this task's own sessions, so under a rolled-up headline a bare "2
-  // sessions" invites the reader to open the fold, add the list up and find it
-  // short. One word rather than "on this task", because the line has to stay on
-  // one line at dock width.
+  // The panel used to put "≈$226 over 10" in the roster's meta directly above a
+  // fold reading "6 sessions" — two numbers on screen at once that no reader
+  // could reconcile, which is the lying-by-omission the meta was added to
+  // prevent, pointing the other way. `own.sessionCount` is every session with a
+  // cost row on THIS task; `sessions` is the subset that has a figure to sort
+  // by. When they differ the label says so, so the list is visibly short rather
+  // than silently short — and `rosterCostMeta` above carries the rollup scope in
+  // words, so "38 sessions, 6 on this task" and "2 of 6" chain by reading.
   //
   // The sort clause is dropped at one row, where "most expensive first" claims
   // an ordering over nothing.
-  const noun = `${sessions.length} ${view.descendantCount > 0 ? 'own ' : ''}session${
-    sessions.length === 1 ? '' : 's'
-  }`
-  const label = sessions.length === 1 ? noun : `${noun}, most expensive first`
+  const unpriced = Math.max(0, own.sessionCount - sessions.length)
+  const noun =
+    unpriced > 0
+      ? `${sessions.length} of ${own.sessionCount} sessions`
+      : `${sessions.length} session${sessions.length === 1 ? '' : 's'}`
+  const label = sessions.length === 1 && unpriced === 0 ? noun : `${noun}, most expensive first`
 
   return (
     <div data-testid="cost-section" data-state="costed">
@@ -343,8 +393,26 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
             <span className="mr-1">{open ? '⌄' : '›'}</span>
             {label}
           </button>
-          {open &&
-            sessions.map((s, i) => <SessionCostRow key={s.sessionId ?? `t${i}`} session={s} />)}
+          {open && (
+            <>
+              {sessions.map((s, i) => (
+                <SessionCostRow key={s.sessionId ?? `t${i}`} session={s} />
+              ))}
+              {/* The sessions the list CANNOT show, said rather than left as a
+                  gap between two counts. They ran on this task and carry no
+                  figure to sort by — a transcript not harvested yet, or one that
+                  no longer exists. Naming them is what keeps the fold's "2 of 6"
+                  from reading as a list that lost four rows. */}
+              {unpriced > 0 && (
+                <div
+                  className={cn(DOCK_BODY, 'px-1 py-1.5 text-text-faint')}
+                  data-testid="cost-unpriced"
+                >
+                  {unpriced} more with no figure recorded
+                </div>
+              )}
+            </>
+          )}
         </>
       )}
     </div>

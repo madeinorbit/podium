@@ -52,13 +52,13 @@ const OPUS = tok('claude-opus-5', {
   cacheReadTokens: 300_000_000,
   outputTokens: 800_000,
   inputTokens: 300_000,
-  messages: 1_100,
+  messages: 770,
 })
 const FABLE = tok('claude-fable-5', {
   cacheReadTokens: 40_000_000,
   outputTokens: 280_000,
   inputTokens: 30_000,
-  messages: 400,
+  messages: 276,
 })
 
 const session = (id: string, title: string, models: unknown[], running = false) => ({
@@ -67,16 +67,18 @@ const session = (id: string, title: string, models: unknown[], running = false) 
   harness: 'claude-code',
   running,
   models,
-  firstTsMs: 0,
-  lastTsMs: 1,
+  // Real timestamps: a session with no surviving row is labelled by its harness
+  // and the DAY it ran, so a zero here would photograph a label that never ships.
+  firstTsMs: Date.parse('2026-08-12T09:00:00Z'),
+  lastTsMs: Date.parse('2026-08-12T17:30:00Z'),
 })
 
 /** 1 · COSTED, LIVE, NO CHILDREN — the section's ordinary reading. */
 const COSTED = {
   issueId: 'i-1574',
   state: 'costed',
-  own: { models: [OPUS, FABLE], messages: 1_500, sessionCount: 10 },
-  rollup: { models: [OPUS, FABLE], messages: 1_500, sessionCount: 10 },
+  own: { models: [OPUS, FABLE], messages: 1_046, sessionCount: 10 },
+  rollup: { models: [OPUS, FABLE], messages: 1_046, sessionCount: 10 },
   descendantCount: 0,
   provisional: true,
   floor: 'none',
@@ -256,14 +258,25 @@ for (const c of CASES) state.costByIssue.set(c.id, c.cost)
 
 // The cohort the "× median" reading is measured against. One row per task, built
 // from OWN cost over OWN replies — the same function the sheet calls.
+// THE COHORT, AT THE CORPUS'S REAL SHAPE.
+//
+// Five rows spanning the measured range ($0.030 to $0.255 per reply) with the
+// MEDIAN sitting on the corpus's own $0.09346. The first draft of this fixture
+// was three invented rows whose median came out at $0.0256 — 3.7x too cheap —
+// and it made the panel print 5.9x for a task the read path reads at 2.31x.
+// The panel's arithmetic was never wrong; the fixture under it was, and a
+// screenshot of a wrong fixture is a wrong screenshot.
 state.costRows = [
   {
-    issueId: 'i-a',
+    issueId: 'i-1',
     seq: 1,
-    title: 'a',
+    title: 'cohort 1',
     stage: 'done',
-    models: [tok('claude-opus-5', { cacheReadTokens: 40_000_000, outputTokens: 120_000 })],
-    messages: 900,
+    // $0.030/reply
+    models: [tok('claude-opus-5', { cacheReadTokens: 30_000_000 })],
+    messages: 500,
+    rollupModels: [tok('claude-opus-5', { cacheReadTokens: 30_000_000 })],
+    rollupMessages: 500,
     windowModels: [],
     windowMessages: 0,
     sessionCount: 3,
@@ -271,30 +284,68 @@ state.costRows = [
     harnesses: ['claude-code'],
   },
   {
-    issueId: 'i-b',
+    issueId: 'i-2',
     seq: 2,
-    title: 'b',
+    title: 'cohort 2',
     stage: 'done',
-    models: [tok('claude-opus-5', { cacheReadTokens: 20_000_000, outputTokens: 80_000 })],
-    messages: 700,
+    // $0.060/reply
+    models: [tok('claude-opus-5', { cacheReadTokens: 96_000_000 })],
+    messages: 800,
+    rollupModels: [tok('claude-opus-5', { cacheReadTokens: 96_000_000 })],
+    rollupMessages: 800,
     windowModels: [],
     windowMessages: 0,
-    sessionCount: 2,
+    sessionCount: 3,
     floor: 'none',
     harnesses: ['claude-code'],
   },
   {
-    issueId: 'i-c',
+    issueId: 'i-3',
     seq: 3,
-    title: 'c',
+    title: 'cohort 3',
     stage: 'done',
-    models: [tok('gpt-5.6-sol', { cacheReadTokens: 60_000_000, outputTokens: 200_000 })],
-    messages: 1_400,
+    // $0.09346/reply
+    models: [tok('claude-opus-5', { cacheReadTokens: 186_920_000 })],
+    messages: 1_000,
+    rollupModels: [tok('claude-opus-5', { cacheReadTokens: 186_920_000 })],
+    rollupMessages: 1_000,
     windowModels: [],
     windowMessages: 0,
-    sessionCount: 5,
-    floor: 'partial',
-    harnesses: ['codex'],
+    sessionCount: 3,
+    floor: 'none',
+    harnesses: ['claude-code'],
+  },
+  {
+    issueId: 'i-4',
+    seq: 4,
+    title: 'cohort 4',
+    stage: 'done',
+    // $0.150/reply
+    models: [tok('claude-opus-5', { cacheReadTokens: 180_000_000 })],
+    messages: 600,
+    rollupModels: [tok('claude-opus-5', { cacheReadTokens: 180_000_000 })],
+    rollupMessages: 600,
+    windowModels: [],
+    windowMessages: 0,
+    sessionCount: 3,
+    floor: 'none',
+    harnesses: ['claude-code'],
+  },
+  {
+    issueId: 'i-5',
+    seq: 5,
+    title: 'cohort 5',
+    stage: 'done',
+    // $0.255/reply
+    models: [tok('claude-opus-5', { cacheReadTokens: 459_000_000 })],
+    messages: 900,
+    rollupModels: [tok('claude-opus-5', { cacheReadTokens: 459_000_000 })],
+    rollupMessages: 900,
+    windowModels: [],
+    windowMessages: 0,
+    sessionCount: 3,
+    floor: 'none',
+    harnesses: ['claude-code'],
   },
 ]
 

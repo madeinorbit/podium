@@ -90,6 +90,9 @@ describe('TaskCostSection · the states that are words', () => {
     expect(container.querySelector('.usage-unfilled')).not.toBeNull()
     expect(container.querySelector('[data-testid="working-mark"]')).toBeNull()
     expect(screen.queryByText(/\$/)).toBeNull()
+    // The hedge disclaims how a FIGURE was arrived at. Printing it here says
+    // "that number you cannot see is at list price".
+    expect(screen.queryByTestId('cost-hedge')).toBeNull()
   })
 
   it('draws a cold first paint exactly as it draws pending', () => {
@@ -100,6 +103,7 @@ describe('TaskCostSection · the states that are words', () => {
 
     expect(container.querySelector('.usage-unfilled')).not.toBeNull()
     expect(screen.getByTestId('cost-section').dataset.state).toBe('cold')
+    expect(screen.queryByTestId('cost-hedge')).toBeNull()
   })
 })
 
@@ -313,7 +317,8 @@ describe('TaskCostSection · the disclosure', () => {
       estCostUsd: 4.4,
       totalTokens: 1,
       messages: 1,
-      firstTsMs: 0,
+      // A real start time: this row's whole label is derived from it.
+      firstTsMs: Date.parse('2026-08-12T09:00:00Z'),
       lastTsMs: 1,
     },
   ]
@@ -341,16 +346,24 @@ describe('TaskCostSection · the disclosure', () => {
     expect(live?.querySelector('[data-testid="working-mark"]')).not.toBeNull()
   })
 
-  it('says a transcript with no surviving session is unnamed rather than inventing one', () => {
+  it('names a session with no surviving row by harness and day, not "Unnamed"', () => {
+    // "Unnamed session" describes the GAP rather than the session, and in a list
+    // where every other row is legible it reads as missing data. Harness plus
+    // day is addressable: enough to find the transcript, and enough to tell two
+    // nameless rows apart.
     render(<TaskCostSection view={pod1574({ sessions })} />)
     fireEvent.click(screen.getByTestId('cost-disclosure'))
 
-    expect(screen.getAllByTestId('cost-session-row')[2]?.textContent).toContain('Unnamed session')
+    const row = screen.getAllByTestId('cost-session-row')[2]?.textContent ?? ''
+    expect(row).not.toContain('Unnamed')
+    expect(row).toContain('Codex session · ')
   })
 
-  it('counts what it lists, not what the headline rolled up', () => {
-    // The wire carries OWN sessions only. Under a rolled-up headline, a bare
-    // "3 sessions" invites the reader to add the list up and find it short.
+  it('counts what it lists AND names what it cannot, so the two numbers relate', () => {
+    // The panel used to print "≈$226 over 10" above a fold reading "6 sessions".
+    // `own.sessionCount` is every session with a cost row on this task; the list
+    // holds the subset with a figure, and the difference is stated rather than
+    // left as a silent gap.
     render(
       <TaskCostSection
         view={pod1574({
@@ -362,21 +375,30 @@ describe('TaskCostSection · the disclosure', () => {
     )
 
     expect(screen.getByTestId('cost-disclosure').textContent).toContain(
-      '3 own sessions, most expensive first',
+      '3 of 10 sessions, most expensive first',
     )
+    fireEvent.click(screen.getByTestId('cost-disclosure'))
+    expect(screen.getByTestId('cost-unpriced').textContent).toBe('7 more with no figure recorded')
   })
 
-  it('drops "own" when there are no children to distinguish it from', () => {
-    render(<TaskCostSection view={pod1574({ sessions })} />)
+  it('says a plain count when every own session has a figure', () => {
+    render(<TaskCostSection view={pod1574({ sessions, own: amount({ sessionCount: 3 }) })} />)
 
     expect(screen.getByTestId('cost-disclosure').textContent).toContain(
       '3 sessions, most expensive first',
     )
+    fireEvent.click(screen.getByTestId('cost-disclosure'))
+    expect(screen.queryByTestId('cost-unpriced')).toBeNull()
   })
 
   it('counts one session as one, and claims no ordering over a single row', () => {
     render(
-      <TaskCostSection view={pod1574({ sessions: [sessions[0] as (typeof sessions)[number]] })} />,
+      <TaskCostSection
+        view={pod1574({
+          sessions: [sessions[0] as (typeof sessions)[number]],
+          own: amount({ sessionCount: 1 }),
+        })}
+      />,
     )
 
     expect(screen.getByTestId('cost-disclosure').textContent).toContain('1 session')

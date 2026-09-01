@@ -1210,7 +1210,11 @@ export function IssuePanelView({
           count={activeSessions.length}
           meta={
             costView?.state === 'costed'
-              ? rosterCostMeta(costView.rollup.estCostUsd, costView.rollup.sessionCount)
+              ? rosterCostMeta(
+                  costView.rollup.estCostUsd,
+                  costView.rollup.sessionCount,
+                  costView.own.sessionCount,
+                )
               : undefined
           }
           testId="dock-sessions"
