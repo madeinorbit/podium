@@ -168,9 +168,9 @@ export function UsageTasks({ feed, cold }: { feed: TaskCostsFeed; cold: boolean 
   // path keeps zero and "nothing recorded" as different facts precisely so the
   // surfaces never collapse them, and the sheet's own contribution is to let a
   // task with nothing to show simply not be a row.
+  const byCost = useMemo(() => (feed.rows ?? []).filter((r) => r.estCostUsd > 0), [feed.rows])
   const ranked = useMemo(() => {
-    const rows = (feed.rows ?? []).filter((r) => r.estCostUsd > 0)
-    if (ranking === 'total') return rows
+    if (ranking === 'total') return byCost
     // Ranked by rate, the cohort's entry bar becomes an ORDERING rule as well as
     // a comparison one. A task with three replies has a rate and it is noise —
     // one expensive turn moves it by a factor a reader would take for a finding
@@ -178,10 +178,16 @@ export function UsageTasks({ feed, cold }: { feed: TaskCostsFeed; cold: boolean 
     // their own order rather than topping a ranking they cannot support.
     const rate = (r: TaskCostRowView): number => r.ratePerReplyUsd ?? 0
     const qualifies = (r: TaskCostRowView): number => (r.messages > RATE_COHORT_MIN_REPLIES ? 1 : 0)
-    return [...rows].sort((a, b) => qualifies(b) - qualifies(a) || rate(b) - rate(a))
-  }, [feed.rows, ranking])
+    return [...byCost].sort((a, b) => qualifies(b) - qualifies(a) || rate(b) - rate(a))
+  }, [byCost, ranking])
 
-  const stats = useMemo(() => taskCostStats(ranked), [ranked])
+  // THE READINGS ARE OFF THE COST ORDER, NEVER OFF THE CURRENT ONE. They
+  // describe the corpus — how many tasks cost anything, what a normal one costs,
+  // how concentrated the spend is, the worst case — and none of that is a fact
+  // about how the table beneath them happens to be sorted. Taken off `ranked`,
+  // "Dearest" would quietly become "the dearest of the ten fastest-burning" the
+  // moment someone pressed Rate.
+  const stats = useMemo(() => taskCostStats(byCost), [byCost])
   const loaded = feed.rows !== null && !cold
   // The rail measures whatever the table is ORDERED by. A rail measuring one
   // thing under a column ordered by another is two answers to one question —

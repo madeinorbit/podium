@@ -121,10 +121,18 @@ describe('UsageTasks', () => {
     expect(first()).toContain('Dear task')
     expect(screen.getByText('by task · ranked by cost')).toBeTruthy()
 
+    const dearestBefore = screen.getByText('Dearest').nextSibling?.textContent
+    const shareBefore = screen.getByText('Top 10 tasks').nextSibling?.textContent
+
     fireEvent.click(screen.getByRole('button', { name: 'Rate' }))
     expect(screen.getByRole('button', { name: 'Rate' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('by task · ranked by rate')).toBeTruthy()
     expect(first()).toContain('Costly per reply')
+
+    // The readings describe the CORPUS, not the current sort. "Dearest" must not
+    // quietly become "the dearest of the fastest-burning" when the toggle moves.
+    expect(screen.getByText('Dearest').nextSibling?.textContent).toBe(dearestBefore)
+    expect(screen.getByText('Top 10 tasks').nextSibling?.textContent).toBe(shareBefore)
   })
 
   it('marks a lower bound and names the harnesses behind it', () => {
