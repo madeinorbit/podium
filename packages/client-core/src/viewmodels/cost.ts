@@ -308,3 +308,85 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
   priced.sort((a, b) => b.estCostUsd - a.estCostUsd)
   return { rows: priced, cohort }
 }
+
+// ---------------------------------------------------------------------------
+// How a figure is WORDED — the rounding, the hedge and the attribution
+// ---------------------------------------------------------------------------
+//
+// The module header says a viewmodel must not pre-render a surface's copy, and
+// that still holds for the STATE words: "No sessions" and "Not recorded" are
+// each surface's own sentence. What lives here is the opposite kind of string —
+// the ones the design (POD-1604 §07) requires to be IDENTICAL everywhere, for
+// the same reason the price table is single: four surfaces rounding a figure
+// four ways would quote four numbers for one cost, and the mission chip would
+// stop agreeing with the panel it opens onto.
+
+/**
+ * `$226` — the ROUNDED reading, which is what a figure means outside the one
+ * place the full sentence fits. Three significant figures, and no cents at all
+ * above $10: a rounded figure reads as a measurement, and a figure to the cent
+ * reads as an invoice (POD-1604 §03).
+ *
+ * Below $10 the cents ARE the significant figures — `$4.80` is the honest
+ * reading of a cheap task, and `$4.8` looks like a truncation.
+ */
+export function formatCostRounded(usd: number): string {
+  if (usd >= 10) {
+    const mag = Math.floor(Math.log10(usd))
+    const factor = 10 ** Math.max(0, mag - 2)
+    return `$${(Math.round(usd / factor) * factor).toLocaleString('en-US')}`
+  }
+  return `$${usd.toFixed(2)}`
+}
+
+/**
+ * `$225.81` — the figure to the cent, for the one place per surface that also
+ * carries {@link COST_HEDGE}. Zero prints `$0` rather than `$0.00`: it appears
+ * only as the OWN side of a rollup split (POD-1484 spent nothing itself), where
+ * two decimal places on a nil figure read as a measured zero rather than an
+ * absence. It is never the headline — a task with no cost renders a state word,
+ * never a figure.
+ */
+export function formatCostExact(usd: number): string {
+  if (usd === 0) return '$0'
+  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+/**
+ * The rounded figure under its PROVENANCE MARK.
+ *
+ * `≈` is an estimate of the whole; `≥` is a lower bound, and the difference is
+ * not decoration — a partly-attributed task's real cost is above what we can
+ * count, so `≈` there would be a claim we cannot make. The mark keys off
+ * `floor`, which keys off harness and nothing else.
+ */
+export function formatCostMark(usd: number, floor: CostFloor): string {
+  return `${floor === 'partial' ? '≥' : '≈'}${formatCostRounded(usd)}`
+}
+
+/** The hedge, in ONE place. POD-1604 §07: reused verbatim on every surface that
+ *  shows a figure to the cent, never paraphrased into a second wording. */
+export const COST_HEDGE = 'at list price for the same tokens — not what you were billed'
+
+const HARNESS_WORD: Record<CostHarness, string> = {
+  'claude-code': 'Claude',
+  codex: 'Codex',
+  grok: 'Grok',
+}
+
+/**
+ * WHY a figure is a floor, in the reader's words: `all Codex`, `Claude + Codex`,
+ * `Codex + Grok`.
+ *
+ * Built from the harness LIST rather than from an arm per harness, which is the
+ * mistake this replaces: POD-1484 really does read `[codex, grok]`, and a
+ * three-armed enum would have printed "all Codex" over a task with Grok in it —
+ * a label that states a falsehood as a fact. A lone harness gets `all` because
+ * that is the claim ("nothing else contributed"); two or more are simply named.
+ */
+export function costHarnessLabel(harnesses: readonly CostHarness[]): string {
+  const words = harnesses.map((h) => HARNESS_WORD[h])
+  if (words.length === 0) return ''
+  if (words.length === 1) return `all ${words[0] as string}`
+  return words.join(' + ')
+}

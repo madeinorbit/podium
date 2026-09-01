@@ -124,6 +124,7 @@ import { useClickIntent } from './click-intent'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
+import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useSessionHovered } from './session-hover'
@@ -3828,6 +3829,19 @@ export function FlightDeck({
                   <div className="min-w-[9rem] flex-[1_1_9rem]">
                     <MissionGauge progress={progress} live={liveCount} working={workingCount} />
                   </div>
+                  {/* THE DECK'S ONE PRICE (POD-1862). One more object in this
+                    row, so it inherits the wrap above rather than adding a drop
+                    rung of its own, and it renders NOTHING at all until there
+                    is a figure — see {@link MissionCostChip}. Its last line
+                    takes the header's own promotion, because "open in explorer"
+                    and a double click on the header are the same request. */}
+                  {rootIssue && rootRow && (
+                    <MissionCostChip
+                      key={rootIssue.id}
+                      issueId={rootIssue.id}
+                      onOpenInExplorer={() => selectIssue(rootRow, true)}
+                    />
+                  )}
                   {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
                     <MissionAgentMenu
                       key={rootIssue.id}

@@ -77,6 +77,13 @@ const harness = vi.hoisted(() => ({
   },
   trpc: {
     features: { state: { query: async () => null } },
+    // The mission header asks what the mission cost (POD-1862). These decks
+    // have no figure, which is the ordinary case and renders no chip at all —
+    // but the procedure has to EXIST, or the read throws inside the effect.
+    cost: {
+      task: { query: async () => null },
+      tasks: { query: async () => [] },
+    },
     issues: {
       setPlacement: { mutate: (input: unknown) => harness.setPlacement(input) },
       start: { mutate: (input: unknown) => harness.startIssue(input) },

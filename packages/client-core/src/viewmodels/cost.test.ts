@@ -1,7 +1,12 @@
 import type { CostModelTotalWire, TaskCostRowWire, TaskCostWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  COST_HEDGE,
   costCohort,
+  costHarnessLabel,
+  formatCostExact,
+  formatCostMark,
+  formatCostRounded,
   modelTotalCostUsd,
   RATE_COHORT_MIN_REPLIES,
   taskCostRows,
@@ -218,5 +223,53 @@ describe('the sheet rows', () => {
     // Nothing in the window: the sheet's window reading is zero, and the
     // all-time figure beside it is not.
     expect(rows[0]?.windowCostUsd).toBe(0)
+  })
+})
+
+describe('how a figure is worded', () => {
+  // The three real missions the design is drawn against (POD-1604 §04).
+  it('rounds the way the chip reads, on the real figures', () => {
+    expect(formatCostRounded(225.81)).toBe('$226')
+    expect(formatCostRounded(262.88)).toBe('$263')
+    expect(formatCostRounded(92.64)).toBe('$93')
+  })
+
+  it('keeps cents only below $10, where they ARE the significant figures', () => {
+    expect(formatCostRounded(4.8)).toBe('$4.80')
+    expect(formatCostRounded(4.4)).toBe('$4.40')
+    expect(formatCostRounded(0.12)).toBe('$0.12')
+    // The boundary itself is a whole-dollar reading, not $10.00.
+    expect(formatCostRounded(10)).toBe('$10')
+    expect(formatCostRounded(9.99)).toBe('$9.99')
+  })
+
+  it('holds to three significant figures once a figure runs past them', () => {
+    expect(formatCostRounded(1234)).toBe('$1,230')
+    expect(formatCostRounded(12_345)).toBe('$12,300')
+  })
+
+  it('prints the exact figure to the cent, and a nil own-side as $0', () => {
+    expect(formatCostExact(225.81)).toBe('$225.81')
+    expect(formatCostExact(120.79)).toBe('$120.79')
+    // POD-1484's own side: it spent nothing itself. `$0.00` reads as a measured
+    // zero; `$0` reads as the absence it is.
+    expect(formatCostExact(0)).toBe('$0')
+  })
+
+  it('marks a lower bound with ≥ and an estimate with ≈', () => {
+    expect(formatCostMark(225.81, 'none')).toBe('≈$226')
+    expect(formatCostMark(92.64, 'partial')).toBe('≥$93')
+  })
+
+  it('names the harnesses a floor rests on, and never lies about Grok', () => {
+    expect(costHarnessLabel(['codex'])).toBe('all Codex')
+    expect(costHarnessLabel(['claude-code', 'codex'])).toBe('Claude + Codex')
+    // The case an arm-per-harness enum got wrong: POD-1484 really reads this.
+    expect(costHarnessLabel(['codex', 'grok'])).toBe('Codex + Grok')
+    expect(costHarnessLabel([])).toBe('')
+  })
+
+  it('states the hedge in exactly one wording', () => {
+    expect(COST_HEDGE).toBe('at list price for the same tokens — not what you were billed')
   })
 })
