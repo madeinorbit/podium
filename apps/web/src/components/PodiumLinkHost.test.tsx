@@ -35,7 +35,11 @@ vi.mock('@/app/store', () => ({
     }),
 }))
 
-import { PODIUM_LINK_RESOLUTION_TIMEOUT_MS, PodiumLinkHost } from './PodiumLinkHost'
+import {
+  PODIUM_LINK_QUEUE_CAPACITY,
+  PODIUM_LINK_RESOLUTION_TIMEOUT_MS,
+  PodiumLinkHost,
+} from './PodiumLinkHost'
 
 interface NativeOpenWindow extends Window {
   __PODIUM_DELIVER_NATIVE_OPEN__?: (raw: unknown) => void
@@ -93,6 +97,24 @@ describe('PodiumLinkHost native delivery', () => {
 
   it('expires an unavailable head and delivers the next URL once', () => {
     nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-999999')
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1711')
+
+    act(() => root.render(<PodiumLinkHost />))
+    expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
+
+    act(() => vi.advanceTimersByTime(PODIUM_LINK_RESOLUTION_TIMEOUT_MS))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_two'))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+
+    act(() => vi.advanceTimersByTime(PODIUM_LINK_RESOLUTION_TIMEOUT_MS))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects excess entries without evicting earlier queued work', () => {
+    for (let index = 0; index < PODIUM_LINK_QUEUE_CAPACITY - 1; index += 1) {
+      nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(`podium://issues/POD-${900_000 + index}`)
+    }
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1711')
     nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1711')
 
     act(() => root.render(<PodiumLinkHost />))

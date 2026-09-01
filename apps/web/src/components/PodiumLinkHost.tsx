@@ -20,6 +20,7 @@ import {
 import { resolvePodiumTarget } from '@/lib/podium-link-open'
 
 export const PODIUM_LINK_RESOLUTION_TIMEOUT_MS = 5_000
+export const PODIUM_LINK_QUEUE_CAPACITY = 32
 
 interface PendingPodiumHref {
   href: string
@@ -184,6 +185,7 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
       ) {
         return
       }
+      if (pendingHrefs.current.length >= PODIUM_LINK_QUEUE_CAPACITY) return
       pendingHrefs.current.push(pendingPodiumHref(detail))
       setPendingRevision((value) => value + 1)
     }
