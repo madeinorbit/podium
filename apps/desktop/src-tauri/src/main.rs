@@ -150,7 +150,11 @@ fn native_open_eval(raw: &str) -> String {
 
 fn enqueue_native_open(queue: &NativeOpenQueue, raw: String) -> bool {
     let mut state = queue.state.lock().unwrap();
-    if state.pending.len() >= NATIVE_OPEN_QUEUE_CAPACITY {
+    // The head being evaluated is still accepted work even while it is
+    // temporarily outside `pending`. Count it so a concurrent arrival cannot
+    // turn a full 32-entry queue into 33 when that head has to be restored.
+    let accepted = state.pending.len() + usize::from(state.draining);
+    if accepted >= NATIVE_OPEN_QUEUE_CAPACITY {
         log::warn!("dropping newest OS-delivered Podium URL because the native-open queue is full");
         return false;
     }
@@ -2231,22 +2235,20 @@ mod tests {
     }
 
     #[test]
-    fn native_open_queue_keeps_later_input_behind_a_failed_head() {
+    fn native_open_queue_rejects_new_input_while_a_full_queue_head_is_in_flight() {
         let queue = NativeOpenQueue::default();
-        assert!(enqueue_native_open(
-            &queue,
-            "podium://issues/POD-A".to_string()
-        ));
-        assert!(enqueue_native_open(
-            &queue,
-            "podium://issues/POD-B".to_string()
-        ));
+        let accepted = (0..NATIVE_OPEN_QUEUE_CAPACITY)
+            .map(|index| format!("podium://issues/POD-{index}"))
+            .collect::<Vec<_>>();
+        for raw in &accepted {
+            assert!(enqueue_native_open(&queue, raw.clone()));
+        }
 
         drain_native_open_queue(&queue, |raw| {
-            assert_eq!(raw, "podium://issues/POD-A");
-            assert!(enqueue_native_open(
+            assert_eq!(raw, accepted[0]);
+            assert!(!enqueue_native_open(
                 &queue,
-                "podium://issues/POD-C".to_string()
+                "podium://issues/POD-excess".to_string()
             ));
             false
         });
@@ -2256,14 +2258,7 @@ mod tests {
             delivered.push(raw.to_string());
             true
         });
-        assert_eq!(
-            delivered,
-            [
-                "podium://issues/POD-A",
-                "podium://issues/POD-B",
-                "podium://issues/POD-C",
-            ]
-        );
+        assert_eq!(delivered, accepted);
     }
 
     /// ⌘Q. Supervision must leave the child slot lockable while the backend is alive, because

@@ -255,6 +255,22 @@ function KernelHubAttach({
   return null
 }
 
+function ReplicaReadyPodiumLinkHost({
+  syncProgress,
+  initialHref,
+}: {
+  syncProgress: SyncProgressStore
+  initialHref: string | null
+}): JSX.Element {
+  const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
+  return (
+    <PodiumLinkHost
+      initialHref={initialHref}
+      replicaReady={!sync.firstSync || sync.phase === 'ready'}
+    />
+  )
+}
+
 export function AppShell({
   auth,
   initialPodiumHref = null,
@@ -341,6 +357,10 @@ export function AppShell({
                 createOutboxFn={kernel.assembly.createOutboxFn}
               >
                 <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
+                <ReplicaReadyPodiumLinkHost
+                  syncProgress={kernel.assembly.progress}
+                  initialHref={initialPodiumHref}
+                />
                 <RoutedDensityProvider>
                   <ThemeUiStateMirror />
                   <BrowserOpenOverlay />
@@ -348,10 +368,7 @@ export function AppShell({
                     {/* Above both TopBar and the view outlet: the command bar's centre
                     is a portal target the active mode fills (POD-365). */}
                     <ToolbarSlotProvider>
-                      <AppBody
-                        syncProgress={kernel.assembly.progress}
-                        initialPodiumHref={initialPodiumHref}
-                      />
+                      <AppBody syncProgress={kernel.assembly.progress} />
                     </ToolbarSlotProvider>
                   </ConfirmProvider>
                 </RoutedDensityProvider>
@@ -394,13 +411,7 @@ function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Eleme
  *  arrow would hand `RightRail` a new callback every render (POD-540). */
 const writeRightPanel = (panel: RightPanelTab | null): string => panel ?? ''
 
-function AppBody({
-  syncProgress,
-  initialPodiumHref,
-}: {
-  syncProgress: SyncProgressStore
-  initialPodiumHref: string | null
-}): JSX.Element {
+function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Element {
   const {
     repos,
     reposLoaded,
@@ -1096,7 +1107,6 @@ function AppBody({
           <RefPrefixSync />
           <RefMiniviewHost />
         </Suspense>
-        <PodiumLinkHost initialHref={initialPodiumHref} />
       </IssueExplorerProvider>
     </OperatorFocusProvider>
   )

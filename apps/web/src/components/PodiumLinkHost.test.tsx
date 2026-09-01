@@ -51,6 +51,7 @@ const nativeOpenBridge = readFileSync(
   join(__dirname, '../../../desktop/src-tauri/native-open.js'),
   'utf8',
 )
+const appShellSource = readFileSync(join(__dirname, '../app/AppShell.tsx'), 'utf8')
 
 describe('PodiumLinkHost native delivery', () => {
   let container: HTMLDivElement
@@ -107,6 +108,21 @@ describe('PodiumLinkHost native delivery', () => {
     expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
 
     act(() => vi.advanceTimersByTime(PODIUM_LINK_RESOLUTION_TIMEOUT_MS))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not spend the resolution deadline before the initial replica is ready', () => {
+    expect(appShellSource).toContain("replicaReady={!sync.firstSync || sync.phase === 'ready'}")
+    hostStore.issues = []
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1710')
+
+    act(() => root.render(<PodiumLinkHost replicaReady={false} />))
+    act(() => vi.advanceTimersByTime(PODIUM_LINK_RESOLUTION_TIMEOUT_MS * 2))
+    expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
+
+    hostStore.issues = [hostStore.allIssues[0]!]
+    act(() => root.render(<PodiumLinkHost replicaReady={true} />))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
     expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
   })
 

@@ -24,11 +24,11 @@ export const PODIUM_LINK_QUEUE_CAPACITY = 32
 
 interface PendingPodiumHref {
   href: string
-  expiresAt: number
+  expiresAt: number | null
 }
 
 function pendingPodiumHref(href: string): PendingPodiumHref {
-  return { href, expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS }
+  return { href, expiresAt: null }
 }
 
 /**
@@ -46,7 +46,13 @@ function pendingPodiumHref(href: string): PendingPodiumHref {
  *    render so the activator always closes over the current issue rows —
  *    resolving `POD-1606` needs live data, exactly like the ref activator.
  */
-export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | null }): null {
+export function PodiumLinkHost({
+  initialHref = null,
+  replicaReady = true,
+}: {
+  initialHref?: string | null
+  replicaReady?: boolean
+}): null {
   const {
     httpOrigin,
     sessions,
@@ -149,23 +155,33 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
   // sessions and artifact panel entries all need live data to resolve. Stop at
   // an unresolved head so a later URL cannot overtake it and become the wrong
   // final destination. An unavailable target expires after a bounded wait so
-  // untrusted input cannot wedge every later native activation.
+  // untrusted input cannot wedge every later native activation. The deadline
+  // begins only after the initial replica is ready: cold data transfer can take
+  // longer than the eviction window without making a valid target look absent.
   useEffect(() => {
+    if (!replicaReady) return
     const now = Date.now()
+    for (const pending of pendingHrefs.current) {
+      pending.expiresAt ??= now + PODIUM_LINK_RESOLUTION_TIMEOUT_MS
+    }
     while (pendingHrefs.current.length > 0) {
       const pending = pendingHrefs.current[0]
       if (pending === undefined) break
-      if (activatePodiumHref(pending.href) || pending.expiresAt <= now) {
+      if (
+        activatePodiumHref(pending.href) ||
+        (pending.expiresAt !== null && pending.expiresAt <= now)
+      ) {
         pendingHrefs.current.shift()
         continue
       }
+      if (pending.expiresAt === null) return
       const retry = window.setTimeout(
         () => setPendingRevision((value) => value + 1),
         pending.expiresAt - now,
       )
       return () => window.clearTimeout(retry)
     }
-  }, [issues, sessions, pendingRevision])
+  }, [issues, sessions, pendingRevision, replicaReady])
 
   // Native capture and window focus belong to POD-1710. This is the narrow web
   // half of that contract: one raw URL event, validated and routed through the
