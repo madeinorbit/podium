@@ -39,17 +39,18 @@ import {
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
-import {
-  emitClaudeBinding,
-  ensureClaudeBindingPublished,
-} from '../runtime/claude-sdk-driver'
+import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { driverTiming } from '../runtime/driver-timing'
 import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
-import { opencodeVersionProbe, opencodeVersionProbeForExecutable } from '../runtime/opencode-server'
+import {
+  opencode2VersionProbe,
+  opencodeVersionProbe,
+  opencodeVersionProbeForExecutable,
+} from '../runtime/opencode-server'
 import {
   availableDriverIds,
   droppedDriverPreference,
@@ -1225,11 +1226,13 @@ const defaultServerDriverAdmissionProbe: ServerDriverAdmissionProbe = (
 ) =>
   driverId === 'codex-app-server'
     ? codexAppServerVersionProbe(undefined, policy)
-    : driverId === 'grok-acp'
-      ? grokAcpVersionProbe(undefined, policy)
-      : executablePath
-        ? opencodeVersionProbeForExecutable(executablePath, policy)
-        : opencodeVersionProbe(undefined, policy)
+    : driverId === 'opencode2-server'
+      ? opencode2VersionProbe(undefined, policy)
+      : driverId === 'grok-acp'
+        ? grokAcpVersionProbe(undefined, policy)
+        : executablePath
+          ? opencodeVersionProbeForExecutable(executablePath, policy)
+          : opencodeVersionProbe(undefined, policy)
 
 export async function launchServerDriverSession(
   ctx: DaemonContext,
@@ -1280,7 +1283,9 @@ export async function launchServerDriverSession(
    * manifest or machine default degrades, while a per-spawn server id refuses.
    */
   const admissionInventory =
-    preferred === 'opencode-server' ? await ctx.harnessRuntime?.current() : undefined
+    preferred === 'opencode-server' || preferred === 'opencode2-server'
+      ? await ctx.harnessRuntime?.current()
+      : undefined
   const resolvedOpencodeExecutable = resolvedAdmissionExecutable(
     preferred,
     admissionInventory?.executables,
@@ -1343,6 +1348,8 @@ export async function launchServerDriverSession(
     available: availableDriverIds({
       grokDrivable: preferredServer === 'grok-acp' && preferredProbe?.drivable === true,
       opencodeDrivable: preferredServer === 'opencode-server' && preferredProbe?.drivable === true,
+      opencode2Drivable:
+        preferredServer === 'opencode2-server' && preferredProbe?.drivable === true,
       codexDrivable: preferredServer === 'codex-app-server' && preferredProbe?.drivable === true,
     }),
     platform: process.platform,

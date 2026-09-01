@@ -88,6 +88,7 @@ export * from './drivers/grok-acp/index.js'
  *  part a package may not do: spawn a child under a systemd scope and write its
  *  binding journal — reached through `OpencodeRuntimeHost`. */
 export * from './drivers/opencode/index.js'
+export * from './drivers/opencode2/index.js'
 /** The terminal family's app-independent half (POD-1761 W3): the receipt state
  *  machine, the capability declaration, the exemption table, the envelope
  *  assembly. The concrete `RuntimeDriver` lives in `apps/daemon/src/runtime`,

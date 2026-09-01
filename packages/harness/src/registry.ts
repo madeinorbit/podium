@@ -16,6 +16,7 @@ import {
   type HarnessEnvironment,
   type HarnessLogin,
   type PortableCredential,
+  type DriverId,
 } from './manifest.js'
 import { claudeCodeManifest } from './manifests/claude-code.js'
 import { codexManifest } from './manifests/codex.js'
@@ -73,9 +74,17 @@ export function harnessCapabilitiesFor(kind: AgentKind | string): HarnessCapabil
  * outcome ("this session has no Native view"), which is the only distinction the
  * attach path can act on.
  */
-export function clientTerminalFor(kind: AgentKind | string): ClientTerminalSpec | undefined {
-  const server = manifestFor(kind)?.runtime.server
-  const clientTerminal = server && declaredValue(server)?.clientTerminal
+export function clientTerminalFor(
+  kind: AgentKind | string,
+  driverId?: DriverId,
+): ClientTerminalSpec | undefined {
+  const runtime = manifestFor(kind)?.runtime
+  const primary = runtime?.server && declaredValue(runtime.server)
+  const server =
+    driverId === undefined || primary?.driverId === driverId
+      ? primary
+      : runtime?.serverAlternatives?.find((candidate) => candidate.driverId === driverId)
+  const clientTerminal = server?.clientTerminal
   return clientTerminal ? declaredValue(clientTerminal) : undefined
 }
 
@@ -285,6 +294,8 @@ export function driverIdIsServerFamily(driverId: string): boolean {
 export function driverFamilyForId(driverId: string): DriverFamily | undefined {
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
     if (declaredValue(manifest.runtime.server)?.driverId === driverId) return 'server'
+    if (manifest.runtime.serverAlternatives?.some((server) => server.driverId === driverId))
+      return 'server'
     if (declaredValue(manifest.runtime.embedded)?.driverId === driverId) return 'embedded'
     if (manifest.runtime.terminal.driverId === driverId) return 'terminal'
   }
@@ -306,7 +317,9 @@ export function driverFamilyForId(driverId: string): DriverFamily | undefined {
 export function isServerFamilyResumeKind(resumeKind: string): boolean {
   return Object.values(AGENT_MANIFESTS).some(
     (manifest) =>
-      manifest.resumeKind === resumeKind && declaredValue(manifest.runtime.server) !== undefined,
+      manifest.resumeKind === resumeKind &&
+      (declaredValue(manifest.runtime.server) !== undefined ||
+        (manifest.runtime.serverAlternatives?.length ?? 0) > 0),
   )
 }
 

@@ -57,6 +57,7 @@ export function runtimeDriverInventory(
   const codex = versionFor('codex')
   const grok = versionFor('grok')
   const opencode = versionFor('opencode')
+  const opencode2Installed = Bun.which('opencode2') !== null
   return [
     ...terminalRuntimeDriverInventory(),
     { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
@@ -68,6 +69,9 @@ export function runtimeDriverInventory(
       : []),
     ...(opencode && gateOpencodeVersion(opencode) === null
       ? ([{ harness: 'opencode', id: 'opencode-server', family: 'server' }] as const)
+      : []),
+    ...(opencode2Installed
+      ? ([{ harness: 'opencode', id: 'opencode2-server', family: 'server' }] as const)
       : []),
   ]
 }

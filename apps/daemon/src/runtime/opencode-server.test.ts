@@ -445,6 +445,12 @@ describe('driver resolution', () => {
 
   it('lists the server driver only when the version gate admits the binary', () => {
     expect(availableDriverIds({ opencodeDrivable: true })).toContain('opencode-server')
+    expect(availableDriverIds({ opencodeDrivable: false, opencode2Drivable: true })).toContain(
+      'opencode2-server',
+    )
+    expect(availableDriverIds({ opencodeDrivable: true, opencode2Drivable: false })).not.toContain(
+      'opencode2-server',
+    )
     expect(availableDriverIds({ opencodeDrivable: false })).not.toContain('opencode-server')
     // The terminal ids are unconditional either way — their mechanism is
     // Podium's own.

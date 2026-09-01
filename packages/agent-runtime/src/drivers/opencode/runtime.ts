@@ -54,11 +54,7 @@ import type {
   SessionHealth,
   UsageSnapshot,
 } from '../../capabilities.js'
-import {
-  type ConfigureValueChecks,
-  decideConfigure,
-  noWhitespaceCheck,
-} from '../../configure.js'
+import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import type { ProcessEvent } from '../../errors.js'
 import {
@@ -156,6 +152,8 @@ export interface OpencodeServerEndpoint {
 
 /** What the driver needs from whoever owns processes and disks. */
 export interface OpencodeRuntimeHost {
+  /** Runtime identity; defaults to the stable v1 driver. */
+  driverId?: 'opencode-server' | 'opencode2-server'
   /**
    * Spawn a server for one session and RETURN ONLY WHEN IT ANSWERS.
    *
@@ -414,6 +412,7 @@ export interface OpencodeRuntime {
  * exact thing the monotonicity property forbids.
  */
 export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntime {
+  const driverId = host.driverId ?? OPENCODE_SERVER_DRIVER_ID
   const sessions = new Map<SessionId, DriverSession>()
   const handles = new Map<SessionId, AgentSessionHandle>()
   const streamPositions = new Map<
@@ -927,7 +926,10 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       )
       change = idleToStateEvent(verdict, at)
       if (!failure && completedConfiguration) {
-        host.reportObservedConfiguration?.({ sessionId: session.sessionId, ...completedConfiguration })
+        host.reportObservedConfiguration?.({
+          sessionId: session.sessionId,
+          ...completedConfiguration,
+        })
       }
     }
     emit(session, { t: 'state', change }, at)
@@ -1968,7 +1970,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       opencodeSessionId: input.opencodeSessionId,
       binding: {
         sessionId: input.sessionId,
-        driver: OPENCODE_SERVER_DRIVER_ID,
+        driver: driverId,
         family: 'server',
         harness: 'opencode',
         workdir: input.spec.workdir,
@@ -2090,7 +2092,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
   }
 
   const driver: RuntimeDriver = {
-    id: OPENCODE_SERVER_DRIVER_ID,
+    id: driverId,
     harness: 'opencode',
     family: 'server',
     capabilities: () => capabilities,
@@ -2174,7 +2176,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         sessionId: binding.sessionId,
         spec: {
           harness: 'opencode',
-          selection: { auth: 'api-key', platform: 'linux', available: [OPENCODE_SERVER_DRIVER_ID] },
+          selection: { auth: 'api-key', platform: 'linux', available: [driverId] },
           workdir: journalled.workdir,
           // NOT `{}` — see {@link OpencodeJournalEntry.model}.
           model: journalled.model ?? {},

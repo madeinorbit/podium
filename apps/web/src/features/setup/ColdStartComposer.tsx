@@ -35,7 +35,7 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
-import { headlessRuntimeDrivers } from '@/lib/runtime-driver-options'
+import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
@@ -1121,7 +1121,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                       aria-label="Driver"
                       className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                     >
-                      {driverChoice === 'headed' ? 'Headed' : driverChoice}
+                      {driverChoice === 'headed' ? 'Headed' : runtimeDriverLabel(driverChoice)}
                       <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                     </button>
                   }

@@ -1205,6 +1205,7 @@ function defaultServerSpawnContext(
     agentRuntime: createDaemonMachineRuntime({
       terminal: terminalRuntimeFixture(),
       opencode: unavailableServerRuntime('opencode-server', 'opencode'),
+      opencode2: unavailableServerRuntime('opencode2-server', 'opencode'),
       codex: runtimes.codexRuntime ?? unavailableServerRuntime('codex-app-server', 'codex'),
       grok: runtimes.grokRuntime ?? unavailableServerRuntime('grok-acp', 'grok'),
       inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),

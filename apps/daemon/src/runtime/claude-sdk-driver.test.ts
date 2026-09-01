@@ -159,6 +159,7 @@ describe('Claude SDK daemon host adapter', () => {
       terminal,
       claude,
       opencode: serverRuntime('opencode-server', 'opencode'),
+      opencode2: serverRuntime('opencode2-server', 'opencode'),
       codex: serverRuntime('codex-app-server', 'codex'),
       grok: serverRuntime('grok-acp', 'grok'),
       inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),

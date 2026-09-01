@@ -268,6 +268,30 @@ export const opencodeManifest: AgentManifest = {
         }),
       }),
     }),
+    serverAlternatives: [
+      {
+        driverId: 'opencode2-server',
+        kind: 'http-sse',
+        spawn: ['opencode2', 'serve', '--port', '<daemon-picked>', '--hostname', '127.0.0.1'],
+        transport: 'loopback-tcp',
+        requiresPerSessionSecret: true,
+        openapiPath: '/openapi.json',
+        versionRange: supported('>=0.0.0-beta-18743'),
+        clientTerminal: supported({
+          labelToken: 'oc2',
+          parkOnRelease: true,
+          launch: ({ cwd, conversation, endpoint }) => ({
+            cmd: 'opencode2',
+            args: ['mini', '--server', endpoint.address ?? '', '--session', conversation],
+            cwd,
+
+            env: {
+              ...(endpoint.secret ? { OPENCODE_SERVER_PASSWORD: endpoint.secret } : {}),
+            },
+          }),
+        }),
+      },
+    ],
     embedded: unsupported('opencode ships a server, not a library to host in-process'),
     terminal: {
       driverId: 'generic-pty',
@@ -281,7 +305,9 @@ export const opencodeManifest: AgentManifest = {
     select: (ctx) =>
       selectRuntimeDriver(
         ctx,
-        ctx.auth === 'logged-out' ? ['generic-pty'] : ['opencode-server', 'generic-pty'],
+        ctx.auth === 'logged-out'
+          ? ['generic-pty']
+          : ['opencode-server', 'opencode2-server', 'generic-pty'],
       ),
   },
   headless: supported({

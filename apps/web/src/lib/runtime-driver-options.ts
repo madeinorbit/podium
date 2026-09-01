@@ -14,6 +14,13 @@ export function headlessRuntimeDrivers(
   harness?: AgentKind,
 ): HeadlessRuntimeDriver[] {
   return (machine?.inventory?.runtimeDrivers ?? []).filter(
-    (driver) => driver.family !== 'terminal' && (harness === undefined || driver.harness === harness),
+    (driver) =>
+      driver.family !== 'terminal' && (harness === undefined || driver.harness === harness),
   )
+}
+
+export function runtimeDriverLabel(id: string): string {
+  if (id === 'opencode-server') return 'OpenCode 1 (headless)'
+  if (id === 'opencode2-server') return 'OpenCode 2 (headless)'
+  return id
 }

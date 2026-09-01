@@ -10,6 +10,7 @@ import {
   type HarnessEnvironment,
   resolvedHarnessPath,
 } from '@podium/harness'
+import { createOpencode2Client } from '@podium/agent-runtime'
 import { createLogger, resolveLevel } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
@@ -92,7 +93,7 @@ import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime
 import { daemonRuntimeHost } from './runtime/host'
 import { createOpencodeClientTerminals } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
-import { createOpencodeHost } from './runtime/opencode-server'
+import { createOpencodeHost, opencode2VersionDiagnostic } from './runtime/opencode-server'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { createScopeMonitor } from './runtime/scope-monitor'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
@@ -237,6 +238,7 @@ export async function createDaemonHostRuntime(args: {
   let terminalRuntime: TerminalRuntime | undefined
   let claudeRuntime: DaemonClaudeSdkRuntime | undefined
   let opencodeRuntime: DaemonOpencodeRuntime | undefined
+  let opencode2Runtime: DaemonOpencodeRuntime | undefined
   let codexRuntime: DaemonCodexRuntime | undefined
   let grokRuntime: DaemonGrokRuntime | undefined
   let agentRuntime: DaemonMachineRuntime | undefined
@@ -906,6 +908,28 @@ export async function createDaemonHostRuntime(args: {
       instanceUuid: instance.instanceUuid,
     }),
   })
+  opencode2Runtime = createDaemonOpencodeRuntime({
+    send,
+    host: {
+      ...createOpencodeHost({
+        resources: (subject) => scopeMonitor.resources(subject),
+        clientTerminals,
+        stageAttachment,
+        ...(homeDir ? { homeDir } : {}),
+        instanceUuid: instance.instanceUuid,
+        variant: {
+          driverId: 'opencode2-server',
+          executable: 'opencode2',
+          username: 'opencode',
+          healthPath: '/api/health',
+          scopeToken: 'oc2',
+          journalNamespace: 'opencode2-servers',
+          versionDiagnostic: opencode2VersionDiagnostic,
+        },
+      }),
+      makeClient: createOpencode2Client,
+    },
+  })
   /**
    * THE SECOND SERVER-FAMILY RUNTIME (POD-1761 W6), constructed on the same
    * terms and for the same reason as the first: it allocates two maps, and no
@@ -967,6 +991,7 @@ export async function createDaemonHostRuntime(args: {
     terminal: terminalRuntime,
     claude: claudeRuntime,
     opencode: opencodeRuntime,
+    opencode2: opencode2Runtime,
     codex: codexRuntime,
     grok: grokRuntime,
     inventory: async () =>

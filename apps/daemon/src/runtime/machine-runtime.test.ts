@@ -92,6 +92,7 @@ describe('daemon machine runtime composition', () => {
       },
     } as unknown as AgentSessionHandle
     const opencode = server('opencode-server', 'opencode')
+    const opencode2 = server('opencode2-server', 'opencode')
     const codex = server('codex-app-server', 'codex')
     const grok = server('grok-acp', 'grok', {
       handle,
@@ -119,6 +120,7 @@ describe('daemon machine runtime composition', () => {
       terminal,
       claude: claude(),
       opencode,
+      opencode2,
       codex,
       grok,
       inventory,
@@ -209,6 +211,7 @@ describe('daemon machine runtime composition', () => {
         },
       } as unknown as AgentSessionHandle,
     }))
+    const opencode2 = server('opencode2-server', 'opencode')
     const [opencode, codex, grok] = cases.map(({ driver, harness, handle }) =>
       server(driver, harness, { handle }),
     )
@@ -226,6 +229,7 @@ describe('daemon machine runtime composition', () => {
       terminal,
       claude: claude(),
       opencode,
+      opencode2,
       codex,
       grok,
       inventory: async () => INVENTORY,

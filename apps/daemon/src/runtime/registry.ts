@@ -99,6 +99,8 @@ export function availableDriverIds(probe: {
    * version string is how it was reached.
    */
   opencodeDrivable: boolean
+  /** Has the separate OpenCode 2 preview binary passed its own gate? */
+  opencode2Drivable?: boolean
   /** Has the Grok ACP version gate admitted this machine's binary? */
   grokDrivable?: boolean
   /**
@@ -115,6 +117,7 @@ export function availableDriverIds(probe: {
 }): readonly DriverId[] {
   const ids: DriverId[] = ['claude-pty', 'generic-pty', 'claude-sdk']
   if (probe.opencodeDrivable) ids.push('opencode-server')
+  if (probe.opencode2Drivable) ids.push('opencode2-server')
   if (probe.grokDrivable) ids.push('grok-acp')
   if (probe.codexDrivable) ids.push('codex-app-server')
   return ids
@@ -130,6 +133,7 @@ const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
   'generic-pty',
   'grok-acp',
   'opencode-server',
+  'opencode2-server',
   'codex-app-server',
 ])
 
@@ -275,8 +279,12 @@ export function runtimeDriverIntentForSpawn(input: {
 /** Does this harness declare a server driver at all, and is it the one selected?
  *  Read off the manifest rather than by comparing strings at each call site. */
 export function isServerDriver(agentKind: AgentKind, driverId: DriverId): boolean {
-  const server = manifestFor(agentKind)?.runtime.server
-  return server !== undefined && declaredValue(server)?.driverId === driverId
+  const runtime = manifestFor(agentKind)?.runtime
+  if (!runtime) return false
+  return (
+    declaredValue(runtime.server)?.driverId === driverId ||
+    runtime.serverAlternatives?.some((server) => server.driverId === driverId) === true
+  )
 }
 
 /** Is this the harness's declared embedded driver? */
@@ -319,7 +327,11 @@ export function isServerDriverId(driverId: string): boolean {
  */
 export function harnessOwningServerDriver(driverId: string): AgentKind | undefined {
   for (const [kind, manifest] of Object.entries(AGENT_MANIFESTS)) {
-    if (declaredValue(manifest.runtime.server)?.driverId === driverId) return kind as AgentKind
+    if (
+      declaredValue(manifest.runtime.server)?.driverId === driverId ||
+      manifest.runtime.serverAlternatives?.some((server) => server.driverId === driverId)
+    )
+      return kind as AgentKind
   }
   return undefined
 }

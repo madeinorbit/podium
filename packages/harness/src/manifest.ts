@@ -548,6 +548,8 @@ export interface AgentRuntimeAxis {
    * `select()` must never return one of its ids.
    */
   server: Declared<ServerRuntimeSpec>
+  /** Additional server mechanisms shipped by the same harness. */
+  serverAlternatives?: readonly ServerRuntimeSpec[]
   /**
    * The harness ships a library rather than a server, and the runtime hosts the
    * agent loop in a worker child it owns. Unsupported ⇒ no SDK to host.
@@ -606,6 +608,8 @@ export const DRIVER_IDS = [
   'codex-app-server',
   /** `opencode serve` over HTTP + SSE on a secret-guarded loopback port (W5). */
   'opencode-server',
+  /** OpenCode 2 preview server over its experimental API contract. */
+  'opencode2-server',
   /** `grok agent stdio` over ACP JSON-RPC (W7). */
   'grok-acp',
   /** The Claude Agent SDK loop, hosted in a runtime-owned worker child. */

@@ -47,6 +47,7 @@ import type { DriverId } from './families.js'
 const CONFIGURE_BY_DRIVER = {
   'codex-app-server': () => codexAppServerCapabilities().configure,
   'opencode-server': () => opencodeServerCapabilities().configure,
+  'opencode2-server': () => opencodeServerCapabilities().configure,
   'grok-acp': () => grokAcpCapabilities().configure,
   'claude-sdk': () => claudeSdkCapabilities().configure,
   /**
@@ -100,6 +101,7 @@ const FAKE_CONFIGURE: Declared<ConfigureCapability> = supported({
 const ATTACH_BY_DRIVER = {
   'codex-app-server': () => codexAppServerCapabilities().attach,
   'opencode-server': () => opencodeServerCapabilities().attach,
+  'opencode2-server': () => opencodeServerCapabilities().attach,
   'grok-acp': () => grokAcpCapabilities().attach,
   'claude-sdk': () => claudeSdkCapabilities().attach,
   'claude-pty': () => supported({ kinds: ['engine'] as const }),

@@ -175,6 +175,23 @@ describe('agent manifest registry', () => {
     )
   })
 
+  it('selects a client terminal by alternate server driver id', () => {
+    const client = clientTerminalFor('opencode', 'opencode2-server')
+    expect(client?.labelToken).toBe('oc2')
+    expect(
+      client?.launch({
+        cwd: '/work',
+        conversation: 'ses_v2',
+        endpoint: { address: 'http://127.0.0.1:41427', secret: 'secret' },
+      }),
+    ).toEqual({
+      cmd: 'opencode2',
+      args: ['mini', '--server', 'http://127.0.0.1:41427', '--session', 'ses_v2'],
+      cwd: '/work',
+      env: { OPENCODE_SERVER_PASSWORD: 'secret' },
+    })
+  })
+
   it('keeps every client-terminal label distinct, and clear of the session’s own', () => {
     const tokens = CLIENT_TERMINAL_HARNESSES.map((kind) => clientTerminalFor(kind)?.labelToken)
     // A shared token would give two harnesses ONE durable abduco label: attaching

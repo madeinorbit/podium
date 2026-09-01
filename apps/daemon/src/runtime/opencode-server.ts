@@ -108,9 +108,9 @@ const PROBE_TIMEOUT_MS = 2000
 
 /** Where a session's journal entry lives. Under the daemon's own state dir, so
  *  it moves with the instance and is swept with it. */
-const journalDir = (): string => join(stateDir(), 'opencode-servers')
-const journalPath = (sessionId: SessionId): string =>
-  join(journalDir(), `${encodeURIComponent(sessionId)}.json`)
+const journalDir = (namespace = 'opencode-servers'): string => join(stateDir(), namespace)
+const journalPath = (sessionId: SessionId, namespace = 'opencode-servers'): string =>
+  join(journalDir(namespace), `${encodeURIComponent(sessionId)}.json`)
 
 /**
  * Provider credentials that MUST NOT reach the child.
@@ -141,7 +141,7 @@ export const STRIPPED_PROVIDER_KEYS = AGENT_MANIFESTS.opencode.inventory.foreign
  * thing the causal envelope's monotonicity rule forbids. The payload is a few
  * hundred bytes.
  */
-export function createOpencodeJournal(): OpencodeJournal {
+export function createOpencodeJournal(namespace = 'opencode-servers'): OpencodeJournal {
   const cache = new Map<SessionId, OpencodeJournalEntry>()
   return {
     read(sessionId) {
@@ -149,7 +149,7 @@ export function createOpencodeJournal(): OpencodeJournal {
       if (cached) return cached
       try {
         const parsed = JSON.parse(
-          readFileSync(journalPath(sessionId), 'utf8'),
+          readFileSync(journalPath(sessionId, namespace), 'utf8'),
         ) as OpencodeJournalEntry
         cache.set(sessionId, parsed)
         return parsed
@@ -160,8 +160,10 @@ export function createOpencodeJournal(): OpencodeJournal {
     write(entry) {
       cache.set(entry.sessionId, entry)
       try {
-        mkdirSync(journalDir(), { recursive: true, mode: 0o700 })
-        writeFileSync(journalPath(entry.sessionId), JSON.stringify(entry), { mode: 0o600 })
+        mkdirSync(journalDir(namespace), { recursive: true, mode: 0o700 })
+        writeFileSync(journalPath(entry.sessionId, namespace), JSON.stringify(entry), {
+          mode: 0o600,
+        })
       } catch (err) {
         // A journal we cannot write costs `adopt()` after a daemon restart, and
         // nothing else — the live session is unaffected. Losing the session to
@@ -175,7 +177,7 @@ export function createOpencodeJournal(): OpencodeJournal {
     clear(sessionId) {
       cache.delete(sessionId)
       try {
-        rmSync(journalPath(sessionId), { force: true })
+        rmSync(journalPath(sessionId, namespace), { force: true })
       } catch {
         // Best effort: a stale entry whose server is gone fails its health probe
         // on the next adopt and is ignored anyway.
@@ -327,6 +329,36 @@ export function opencodeVersionProbeForExecutable(
  *  that could not answer reads as "no" here, which is right for an availability
  *  LIST — the distinction that matters is at the spawn site, which asks the
  *  verdict directly. */
+
+export function opencode2VersionProbe(
+  probe: VersionProbe = () => execVersionProbe('opencode2', VERSION_PROBE_TIMEOUT_MS),
+  policy?: VersionProbePolicy,
+): Promise<OpencodeProbeVerdict> {
+  return createVersionProbeCache<OpencodeProbeVerdict>({
+    evaluate: ({ output, ok }) => {
+      const match = /0\.0\.0-(?:beta|dev)-(\d+)/u.exec(output)
+      if (ok && match && Number(match[1]) >= 18743) return { drivable: true }
+      const diagnostic: OpencodeVersionDiagnostic = {
+        code: 'opencode-version-unsupported',
+        title: 'opencode server driver needs review',
+        body: ok
+          ? `opencode2 ${output.trim()} is outside the preview build range exercised by this driver (beta-18743 or newer).`
+          : `opencode2 --version did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms: ${output || '(no output)'}`,
+        observedVersion: output.trim() || '(probe failed)',
+      }
+      return { drivable: false, reason: ok ? 'unsupported' : 'unprobeable', diagnostic }
+    },
+  }).probe(probe, policy)
+}
+
+export function opencode2VersionDiagnostic(
+  probe?: VersionProbe,
+): Promise<OpencodeVersionDiagnostic | null> {
+  return opencode2VersionProbe(probe).then((verdict) =>
+    verdict.drivable ? null : verdict.diagnostic,
+  )
+}
+
 export function opencodeVersionDiagnostic(
   probe?: VersionProbe,
 ): Promise<OpencodeVersionDiagnostic | null> {
@@ -394,6 +426,15 @@ export interface OpencodeHostDeps {
   instanceUuid?: string
   journal?: OpencodeJournal
   now?(): number
+  variant?: {
+    driverId: 'opencode2-server'
+    executable: string
+    username: string
+    healthPath: string
+    scopeToken: string
+    journalNamespace: string
+    versionDiagnostic(probe?: VersionProbe): Promise<OpencodeVersionDiagnostic | null>
+  }
 }
 
 /** The label a session's scope unit is named from. Same shape as the PTY side's
@@ -405,9 +446,28 @@ export function opencodeServeArgv(executablePath: string, port: number): string[
 }
 
 export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost {
-  const journal = deps.journal ?? createOpencodeJournal()
+  const variant = deps.variant
+  const journal = deps.journal ?? createOpencodeJournal(variant?.journalNamespace)
+  const driverId = variant?.driverId ?? 'opencode-server'
   const spawnProcess = deps.spawnProcess ?? spawn
   const scopeAvailable = deps.canScope ?? canScopeMaster
+  const username = variant?.username ?? USERNAME
+  const healthPath = variant?.healthPath ?? '/global/health'
+  const scopeLabel = (sessionId: SessionId): string =>
+    `podium-${variant?.scopeToken ?? 'oc'}-${sessionId}`
+  const health = async (baseUrl: string, secret: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${baseUrl}${healthPath}`, {
+        headers: {
+          authorization: `Basic ${Buffer.from(`${username}:${secret}`).toString('base64')}`,
+        },
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
   const children = new Map<SessionId, ReturnType<typeof spawn>>()
 
   const endpointFor = (input: {
@@ -418,7 +478,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     scopeUnit: string | undefined
   }): OpencodeServerEndpoint => ({
     baseUrl: input.baseUrl,
-    username: USERNAME,
+    username,
     password: input.secret,
     process: {
       /**
@@ -430,7 +490,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
        * worse than not adopting. The key is the scope label, which is unique to
        * this session for the machine's lifetime.
        */
-      key: opencodeScopeLabel(input.sessionId),
+      key: scopeLabel(input.sessionId),
       ...(input.pid !== undefined ? { pid: input.pid } : {}),
       ...(input.scopeUnit ? { scopeUnit: input.scopeUnit } : {}),
     },
@@ -444,7 +504,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     resources: () =>
       deps.resources({
         sessionId: input.sessionId,
-        label: opencodeScopeLabel(input.sessionId),
+        label: scopeLabel(input.sessionId),
         ...(input.pid !== undefined ? { pid: input.pid } : {}),
         ...(input.scopeUnit ? { scopeUnit: input.scopeUnit } : {}),
       }),
@@ -463,7 +523,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     // squats the deterministic unit name and pushes the NEXT spawn into the
     // daemon's own cgroup.
     if (!(await scopeAvailable())) return
-    const unit = scopeUnitName(opencodeScopeLabel(sessionId))
+    const unit = scopeUnitName(scopeLabel(sessionId))
     for (const args of scopeReclaimArgvs(unit)) {
       await runSystemctl(args)
     }
@@ -482,6 +542,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
   }
 
   return {
+    driverId,
     journal,
     stageAttachment: deps.stageAttachment ?? stageRuntimeAttachment,
     now: deps.now ?? (() => Date.now()),
@@ -491,8 +552,8 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
     async launch(input) {
-      const executablePath = deps.executablePath ?? 'opencode'
-      const diagnostic = await opencodeVersionDiagnostic(
+      const executablePath = deps.executablePath ?? variant?.executable ?? 'opencode'
+      const diagnostic = await (variant?.versionDiagnostic ?? opencodeVersionDiagnostic)(
         deps.versionProbe ?? (() => execVersionProbe(executablePath, VERSION_PROBE_TIMEOUT_MS)),
       )
       if (diagnostic) {
@@ -510,7 +571,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
 
       const port = await (deps.freePort ?? freeLoopbackPort)()
       const baseUrl = `http://127.0.0.1:${port}`
-      const label = opencodeScopeLabel(input.sessionId)
+      const label = scopeLabel(input.sessionId)
       const scoped = await scopeAvailable()
       const unit = scopeUnitName(label)
 
@@ -520,7 +581,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         // what tells us. Stopping a live server here would kill a session we
         // were about to adopt.
         const previous = journal.read(input.sessionId)
-        const stillAlive = previous ? await probeHealth(previous.baseUrl, previous.secret) : false
+        const stillAlive = previous ? await health(previous.baseUrl, previous.secret) : false
         if (!stillAlive) {
           for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
         }
@@ -540,7 +601,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         ...(input.env ? { sessionEnv: input.env } : {}),
       })
       for (const key of STRIPPED_PROVIDER_KEYS) delete env[key]
-      env.OPENCODE_SERVER_USERNAME = USERNAME
+      env.OPENCODE_SERVER_USERNAME = username
       // RULE 2: the secret is HERE. It appears in `serveArgv` nowhere, and this
       // is the assertion `opencode-server.test.ts` pins.
       env.OPENCODE_SERVER_PASSWORD = input.secret
@@ -575,7 +636,14 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // success: a session must never wait on a best-effort budget call.
       if (scoped) void applySessionsSliceBudget()
 
-      const ready = await waitForReady(baseUrl, input.secret, READY_TIMEOUT_MS)
+      const ready = await (async () => {
+        const deadline = Date.now() + READY_TIMEOUT_MS
+        while (Date.now() < deadline) {
+          if (await health(baseUrl, input.secret)) return true
+          await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS))
+        }
+        return false
+      })()
       if (!ready) {
         child.kill('SIGKILL')
         children.delete(input.sessionId)
@@ -629,7 +697,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // …and then: is anything still answering, with the secret we stored? A
       // port that has been recycled answers nothing on this credential, which is
       // exactly the discrimination we need.
-      if (!(await probeHealth(entry.baseUrl, entry.secret))) return abandon()
+      if (!(await health(entry.baseUrl, entry.secret))) return abandon()
       // The session survived this daemon, and so may its client terminal: the
       // attachment is in its own scope precisely so a redeploy cannot reach it.
       // Nobody is holding its idle clock any more, so put it back under the
@@ -688,6 +756,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
           sessionId: input.sessionId,
           target: {
             kind: 'opencode',
+            driverId,
             conversation: entry.opencodeSessionId,
             // Loopback TCP with a mandatory per-session secret: the URL and the
             // credential travel together because the transport says they must.

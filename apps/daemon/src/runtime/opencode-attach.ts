@@ -169,8 +169,9 @@ const CLIENT_GENERATION_RESET = '\x1b[H\x1b[2J\x1b[3J'
 export const clientTerminalLabel = (
   sessionId: SessionId,
   kind: ClientTerminalKind,
+  driverId?: import('@podium/harness').DriverId,
 ): string | undefined => {
-  const token = clientTerminalFor(kind)?.labelToken
+  const token = clientTerminalFor(kind, driverId)?.labelToken
   return token === undefined ? undefined : `podium-${token}-attach-${sessionId}`
 }
 
@@ -207,6 +208,8 @@ export interface ClientTerminalTarget {
   /** Which harness's client to run. A REGISTRY KEY, not a branch: it is only
    *  ever used to look the declaration up. */
   kind: ClientTerminalKind
+  /** Selects the server declaration when a harness offers more than one. */
+  driverId?: import('@podium/harness').DriverId
   /** The native conversation the client must reopen. Without it the TUI would
    *  open a different one, which is not an attach. */
   conversation: string
@@ -498,7 +501,7 @@ export function createOpencodeClientTerminals(
      * the wrong conversation; the caller turns this into the per-machine refusal
      * an attach already knows how to report.
      */
-    const client = clientTerminalFor(kind)
+    const client = clientTerminalFor(kind, target.driverId)
     if (!client) throw new Error(`${kind} declares no client terminal to attach`)
     /**
      * A NEW CLIENT MUST NOT PAINT INTO THE OLD ONE'S SCROLLBACK (POD-2761),
@@ -801,7 +804,7 @@ export function createOpencodeClientTerminals(
     async attach({ sessionId, target }) {
       let record = attachments.get(sessionId)
       if (!record) {
-        const label = clientTerminalLabel(sessionId, target.kind)
+        const label = clientTerminalLabel(sessionId, target.kind, target.driverId)
         if (label === undefined)
           throw new Error(`${target.kind} declares no client terminal to attach`)
         record = {

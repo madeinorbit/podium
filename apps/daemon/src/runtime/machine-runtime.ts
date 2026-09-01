@@ -33,7 +33,7 @@ import type {
 import { createRuntimeWatchLifecycle } from './watch'
 
 export interface JournalledServerProcess {
-  driver: 'opencode' | 'codex' | 'grok'
+  driver: 'opencode' | 'opencode2' | 'codex' | 'grok'
   identity: { key: string; pid?: number; scopeUnit?: string }
   probe?: { baseUrl: string; secret: string }
   clearJournal(): void
@@ -104,15 +104,17 @@ export function createDaemonMachineRuntime(input: {
   terminal: TerminalRuntime
   claude: DaemonClaudeSdkRuntime
   opencode: DaemonOpencodeRuntime
+  opencode2: DaemonOpencodeRuntime
   codex: DaemonCodexRuntime
   grok: DaemonGrokRuntime
   inventory(): ReturnType<MachineAgentRuntime['inventory']>
 }): DaemonMachineRuntime {
-  const servers = [input.opencode, input.codex, input.grok] as const
+  const servers = [input.opencode, input.opencode2, input.codex, input.grok] as const
 
   const journalled = (sessionId: SessionId) => {
     const found = [
       [input.opencode, input.opencode.journal.read(sessionId), 'opencode serve'] as const,
+      [input.opencode2, input.opencode2.journal.read(sessionId), 'opencode2 serve'] as const,
       [input.codex, input.codex.journal.read(sessionId), 'codex app-server'] as const,
       [input.grok, input.grok.journal.read(sessionId), 'grok agent stdio'] as const,
     ].filter((entry) => entry[1] !== undefined)
@@ -207,6 +209,9 @@ export function createDaemonMachineRuntime(input: {
   const serverSources: readonly AgentRuntimeDriverSource[] = [
     serverSource(input.opencode, (sessionId, spec) =>
       input.opencode.launch(serverLaunchFor(sessionId, spec)),
+    ),
+    serverSource(input.opencode2, (sessionId, spec) =>
+      input.opencode2.launch(serverLaunchFor(sessionId, spec)),
     ),
     serverSource(input.codex, (sessionId, spec) =>
       input.codex.launch(serverLaunchFor(sessionId, spec)),
@@ -406,6 +411,15 @@ export function createDaemonMachineRuntime(input: {
           clearJournal: () => input.opencode.journal.clear(sessionId),
         }
       }
+      const opencode2 = input.opencode2.journal.read(sessionId)
+      if (opencode2) {
+        return {
+          driver: 'opencode2',
+          identity: opencode2.process,
+          probe: { baseUrl: opencode2.baseUrl, secret: opencode2.secret },
+          clearJournal: () => input.opencode2.journal.clear(sessionId),
+        }
+      }
       const codex = input.codex.journal.read(sessionId)
       if (codex) {
         return {
@@ -429,6 +443,7 @@ export function createDaemonMachineRuntime(input: {
       input.terminal.dispose()
       input.claude.dispose()
       input.opencode.dispose()
+      input.opencode2.dispose()
       input.codex.dispose()
       input.grok.dispose()
     },
