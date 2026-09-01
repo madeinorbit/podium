@@ -17,7 +17,7 @@ const OUT = process.argv[2] ?? '/tmp/pod1859'
 
 const browser = await chromium.launch()
 const ctx = await browser.newContext({
-  viewport: { width: 1400, height: 1000 },
+  viewport: { width: 1740, height: 1000 },
   deviceScaleFactor: 2,
 })
 const page = await ctx.newPage()

@@ -151,6 +151,65 @@ describe('TaskCostSection · the costed reading', () => {
     expect(screen.getByTestId('cost-split').textContent).toContain('This task $0')
   })
 
+  it('draws the split on descendantCount, not on the two figures differing', () => {
+    // POD-1402, POD-1403, POD-1484 and POD-1574 all have descendants AND
+    // identical own/rollup figures today, because their descendants sit outside
+    // the 7-day harvest window. Keying this bar on `own !== rollup` would hide
+    // the split on every one of them, and POD-1867's backfill will make them
+    // diverge again — so neither shape is a quirk to tune against.
+    const totals = amount({ estCostUsd: 225.8, sessionCount: 10 })
+    render(<TaskCostSection view={view({ own: totals, rollup: totals, descendantCount: 4 })} />)
+
+    const split = screen.getByTestId('cost-split')
+    expect(split.textContent).toContain('This task $225.80')
+    expect(split.textContent).toContain('4 sub-tasks $0')
+  })
+
+  it("omits a zero-width segment instead of leaving the rail's gap behind it", () => {
+    // The rail sets a 1.5px gap between segments; a zero-width sibling still
+    // claims it, which reads as a rendering fault rather than as "none of it
+    // went here". Both ends are live shapes, so both are checked.
+    const totals = amount({ estCostUsd: 225.8 })
+    const { container: allOwn } = render(
+      <TaskCostSection view={view({ own: totals, rollup: totals, descendantCount: 4 })} />,
+    )
+    expect(allOwn.querySelectorAll('.cost-split-own')).toHaveLength(1)
+    expect(allOwn.querySelectorAll('.cost-split-kid')).toHaveLength(0)
+
+    cleanup()
+    const { container: allKids } = render(
+      <TaskCostSection
+        view={view({
+          own: amount({ estCostUsd: 0 }),
+          rollup: amount({ estCostUsd: 92.64 }),
+          descendantCount: 33,
+        })}
+      />,
+    )
+    expect(allKids.querySelectorAll('.cost-split-own')).toHaveLength(0)
+    expect(allKids.querySelectorAll('.cost-split-kid')).toHaveLength(1)
+  })
+
+  it('shows a real headline over an empty own-session list without calling it empty', () => {
+    // POD-1839: own 0, rollup 21.5M tokens, one descendant. `sessions[]` is
+    // OWN-only by contract, so "all of this is descendants" is a real costed
+    // shape — and "0 sessions" under a live figure would read as a bug.
+    render(
+      <TaskCostSection
+        view={view({
+          own: amount({ estCostUsd: 0 }),
+          rollup: amount({ estCostUsd: 92.64 }),
+          descendantCount: 1,
+          sessions: [],
+        })}
+      />,
+    )
+
+    expect(screen.getByTestId('cost-figure').textContent).toBe('≈$93')
+    expect(screen.queryByTestId('cost-disclosure')).toBeNull()
+    expect(screen.queryByText(/0 sessions/)).toBeNull()
+  })
+
   it('prices each model exactly, since those rows are checked against the whole', () => {
     render(<TaskCostSection view={pod1574()} />)
 
@@ -176,6 +235,38 @@ describe('TaskCostSection · the costed reading', () => {
 
     expect(screen.getAllByTestId('cost-row').map((r) => r.textContent)).toContain(
       'Attribution≥ floor · Codex + Grok',
+    )
+  })
+
+  it('builds the floor copy from harnesses, never from the session list', () => {
+    // POD-1528: own sessions are claude-code + codex while the ROLLUP's
+    // harnesses are claude-code + codex + grok. `harnesses` describes the
+    // rollup and `sessions` describes own, so reading the list would print a
+    // harness the figure does not cover — or miss one it does.
+    render(
+      <TaskCostSection
+        view={pod1574({
+          floor: 'partial',
+          harnesses: ['claude-code', 'codex', 'grok'],
+          sessions: [
+            {
+              sessionId: 'a',
+              title: 'Own work',
+              harness: 'claude-code' as const,
+              running: false,
+              estCostUsd: 10,
+              totalTokens: 1,
+              messages: 1,
+              firstTsMs: 0,
+              lastTsMs: 1,
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.getAllByTestId('cost-row').map((r) => r.textContent)).toContain(
+      'Attribution≥ floor · Claude + Codex + Grok',
     )
   })
 
@@ -277,6 +368,16 @@ describe('TaskCostSection · the disclosure', () => {
     expect(screen.getByTestId('cost-disclosure').textContent).toContain(
       '3 sessions, most expensive first',
     )
+  })
+
+  it('counts one session as one, and claims no ordering over a single row', () => {
+    render(
+      <TaskCostSection view={pod1574({ sessions: [sessions[0] as (typeof sessions)[number]] })} />,
+    )
+
+    expect(screen.getByTestId('cost-disclosure').textContent).toContain('1 session')
+    expect(screen.getByTestId('cost-disclosure').textContent).not.toContain('sessions')
+    expect(screen.getByTestId('cost-disclosure').textContent).not.toContain('most expensive')
   })
 })
 

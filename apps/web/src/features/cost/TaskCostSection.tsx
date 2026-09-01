@@ -139,13 +139,28 @@ function SplitBar({
   // A rollup of nothing still draws: `descendantCount` says the children exist,
   // and "this task $0 · 3 sub-tasks $0" is a truthful shape. Own takes the whole
   // rail rather than dividing by zero.
-  const ownShare = rollup.estCostUsd > 0 ? (own.estCostUsd / rollup.estCostUsd) * 100 : 100
+  const ownShare =
+    rollup.estCostUsd > 0
+      ? Math.min(100, Math.max(0, (own.estCostUsd / rollup.estCostUsd) * 100))
+      : 100
   const kidLabel = `${descendantCount} sub-task${descendantCount === 1 ? '' : 's'}`
   return (
     <div data-testid="cost-split">
+      {/* EITHER SEGMENT MAY BE ZERO-WIDTH, and both cases are live right now.
+          An empty segment is not rendered at all rather than given a 0% width:
+          the rail sets a 1.5px gap between segments, and a zero-width sibling
+          still claims that gap — a stray sliver of track at one end that reads
+          as a rendering fault rather than as "none of it went here".
+
+          Both ends really happen. A parent with no sessions of its own is all
+          descendants (POD-1839), and a task whose descendants all sit outside
+          the harvest window reads own == rollup WITH children present — which
+          is why the caller keys this bar on `descendantCount`, never on the two
+          figures differing. POD-1867's backfill will make those diverge, so
+          neither shape is a temporary quirk to tune against. */}
       <div className="cost-split" aria-hidden="true">
-        <i className="cost-split-own" style={{ width: `${ownShare}%` }} />
-        <i className="cost-split-kid" style={{ width: `${100 - ownShare}%` }} />
+        {ownShare > 0 && <i className="cost-split-own" style={{ width: `${ownShare}%` }} />}
+        {ownShare < 100 && <i className="cost-split-kid" style={{ width: `${100 - ownShare}%` }} />}
       </div>
       <div className="cost-splitkey">
         <span>
@@ -258,14 +273,20 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
   // distinction is drawn, which is exactly what it is there for — a column that
   // silently changed scope halfway down would need a second bar to explain it.
   const models = rollup.models
-  const label =
-    view.descendantCount > 0
-      ? // With children in the picture, a bare "2 sessions" under a rolled-up
-        // headline invites the reader to open the fold, add the list up and find
-        // it short. The wire carries this task's OWN sessions, so the label says
-        // so — one word, because the line has to stay on one line at dock width.
-        `${sessions.length} own sessions, most expensive first`
-      : `${sessions.length} sessions, most expensive first`
+  // "N [own] sessions, most expensive first".
+  //
+  // OWN is said only when there are children to distinguish it from: the wire
+  // carries this task's own sessions, so under a rolled-up headline a bare "2
+  // sessions" invites the reader to open the fold, add the list up and find it
+  // short. One word rather than "on this task", because the line has to stay on
+  // one line at dock width.
+  //
+  // The sort clause is dropped at one row, where "most expensive first" claims
+  // an ordering over nothing.
+  const noun = `${sessions.length} ${view.descendantCount > 0 ? 'own ' : ''}session${
+    sessions.length === 1 ? '' : 's'
+  }`
+  const label = sessions.length === 1 ? noun : `${noun}, most expensive first`
 
   return (
     <div data-testid="cost-section" data-state="costed">

@@ -142,7 +142,26 @@ const SPLIT = {
   ],
 }
 
-/** 3 · PENDING — a transcript on disk that the harvest has not reached. Half of
+/**
+ * 3 · DESCENDANTS PRESENT, BUT own == rollup — POD-1574/1402/1403/1484 all read
+ * this way today, because their descendants sit outside the 7-day harvest
+ * window. The split is keyed on `descendantCount`, so the bar still draws and
+ * still says "4 sub-tasks $0"; the empty segment is omitted rather than given a
+ * 0% width, which would leave the rail's 1.5px gap stranded at one end.
+ */
+const FLAT = {
+  issueId: 'i-1403',
+  state: 'costed',
+  own: { models: [OPUS], messages: 1_100, sessionCount: 4 },
+  rollup: { models: [OPUS], messages: 1_100, sessionCount: 4 },
+  descendantCount: 4,
+  provisional: false,
+  floor: 'none',
+  harnesses: ['claude-code'],
+  sessions: [session('s-g', 'The only session that has been read', [OPUS])],
+}
+
+/** 4 · PENDING — a transcript on disk that the harvest has not reached. Half of
  *  this machine's tasks are in this state right now, and it is NOT a spinner. */
 const PENDING = {
   issueId: 'i-1867',
@@ -156,7 +175,7 @@ const PENDING = {
   sessions: [],
 }
 
-/** 4 · NO SESSIONS — a word, never a $0.00. */
+/** 5 · NO SESSIONS — a word, never a $0.00. */
 const NONE = { ...PENDING, issueId: 'i-1608', state: 'no-sessions' }
 
 const CASES: { id: string; seq: number; title: string; label: string; cost: unknown }[] = [
@@ -173,6 +192,13 @@ const CASES: { id: string; seq: number; title: string; label: string; cost: unkn
     title: 'Artifact gallery epic',
     label: 'rollup split · floor',
     cost: SPLIT,
+  },
+  {
+    id: 'i-1403',
+    seq: 1403,
+    title: 'Rollout attribution gaps',
+    label: 'children, own == rollup',
+    cost: FLAT,
   },
   {
     id: 'i-1867',
