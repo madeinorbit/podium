@@ -185,9 +185,9 @@ export class TranscriptCostsRepository {
    * against this is how a reader tells the two apart without a second write.
    */
   latestWindowSinceMs(): number {
-    const row = this.db
-      .prepare(`SELECT MAX(window_since_ms) AS m FROM transcript_costs`)
-      .get() as { m: number | null }
+    const row = this.db.prepare(`SELECT MAX(window_since_ms) AS m FROM transcript_costs`).get() as {
+      m: number | null
+    }
     return row.m ?? 0
   }
 

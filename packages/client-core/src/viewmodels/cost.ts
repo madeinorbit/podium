@@ -133,6 +133,30 @@ function amountOf(totals: CostTotalsWire): CostAmount {
 }
 
 /**
+ * THE RATE, AND THE ONLY DEFINITION OF IT — ROLLUP COST OVER ROLLUP REPLIES.
+ *
+ * One function, called by both surfaces, because two definitions that agree by
+ * convention do not: the panel divided the rollup and the sheet divided own
+ * cost, so POD-1673 read 1.97x in one place and 2.51x in the other — for a
+ * number whose entire job is comparison.
+ *
+ * Rollup, because the rate has to match the headline figure beside it and the
+ * headline is always the rollup. Null when there are no replies: a rate with no
+ * denominator is not zero, it is unmeasured.
+ *
+ * THE ASYMMETRY BELOW IS DELIBERATE AND WILL LOOK LIKE A BUG. The cohort this
+ * rate is compared against is built from OWN cost over OWN replies, one row per
+ * task — because a cohort of rollups counts an epic's work once for the epic and
+ * again for every ancestor above it, dragging the median up with every tree.
+ * Both sides are USD per reply, so the comparison is still like with like; what
+ * differs is which SET each side is drawn from, and that is the point. Do not
+ * "fix" one to match the other.
+ */
+export function taskRateUsd(estCostUsd: number, messages: number): number | null {
+  return messages > 0 ? estCostUsd / messages : null
+}
+
+/**
  * THE RATE COHORT'S ENTRY BAR — more than twenty replies.
  *
  * Measured over ALL-TIME figures, matching the per-task rate it is compared
@@ -153,7 +177,11 @@ export interface CostCohort {
   taskCount: number
 }
 
-/** The cohort a "× median" reading is measured against. */
+/**
+ * The cohort a "× median" reading is measured against — OWN cost per task.
+ *
+ * See `taskRateUsd` for why this side is own while the displayed rate is rollup.
+ */
 export function costCohort(rows: readonly TaskCostRowWire[]): CostCohort {
   const rates: number[] = []
   for (const row of rows) {
@@ -175,7 +203,7 @@ export function costCohort(rows: readonly TaskCostRowWire[]): CostCohort {
 export function taskCostView(wire: TaskCostWire, cohort?: CostCohort): TaskCostView {
   const own = wire.own.models.length === 0 ? EMPTY_AMOUNT : amountOf(wire.own)
   const rollup = wire.rollup.models.length === 0 ? EMPTY_AMOUNT : amountOf(wire.rollup)
-  const ratePerReplyUsd = rollup.messages > 0 ? rollup.estCostUsd / rollup.messages : null
+  const ratePerReplyUsd = taskRateUsd(rollup.estCostUsd, rollup.messages)
   const median = cohort?.medianUsdPerReply ?? null
   return {
     state: wire.state,
@@ -221,6 +249,10 @@ export interface TaskCostRowView {
    *  is all older than the window, which is the honest reading. */
   windowCostUsd: number
   windowMessages: number
+  /** The task plus every descendant — the figure `ratePerReplyUsd` divides, and
+   *  the same one the task-detail panel shows. */
+  rollupCostUsd: number
+  rollupMessages: number
   sessionCount: number
   floor: CostFloor
   harnesses: CostHarness[]
@@ -241,7 +273,11 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
   const median = cohort.medianUsdPerReply
   const priced = rows.map((row): TaskCostRowView => {
     const estCostUsd = row.models.reduce((n, m) => n + modelTotalCostUsd(m), 0)
-    const rate = row.messages > 0 ? estCostUsd / row.messages : null
+    const rollupCostUsd = row.rollupModels.reduce((n, m) => n + modelTotalCostUsd(m), 0)
+    // The SAME definition the panel uses — see `taskRateUsd`. The column beside
+    // it is own cost, and that is not an inconsistency: the ranking is per task,
+    // the rate is a property of the task and everything under it.
+    const rate = taskRateUsd(rollupCostUsd, row.rollupMessages)
     return {
       issueId: row.issueId,
       seq: row.seq,
@@ -252,6 +288,8 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
       messages: row.messages,
       windowCostUsd: row.windowModels.reduce((n, m) => n + modelTotalCostUsd(m), 0),
       windowMessages: row.windowMessages,
+      rollupCostUsd,
+      rollupMessages: row.rollupMessages,
       sessionCount: row.sessionCount,
       floor: row.floor,
       harnesses: row.harnesses,

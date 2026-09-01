@@ -6,6 +6,7 @@ import {
   RATE_COHORT_MIN_REPLIES,
   taskCostRows,
   taskCostView,
+  taskRateUsd,
 } from './cost'
 import { bucketCostUsd } from './usage'
 
@@ -44,6 +45,8 @@ const row = (seq: number, over: Partial<TaskCostRowWire> = {}): TaskCostRowWire 
     messages: 100,
     windowModels: [],
     windowMessages: 0,
+    rollupModels: over.rollupModels ?? over.models ?? [model()],
+    rollupMessages: over.rollupMessages ?? over.messages ?? 100,
     sessionCount: 1,
     floor: 'none',
     harnesses: ['claude-code'],
@@ -146,6 +149,51 @@ describe('the rate cohort', () => {
   })
 })
 
+describe('one rate, two surfaces', () => {
+  // POD-1869 finding 6: the panel divided the rollup and the sheet divided own
+  // cost, so one task read 1.97x in one place and 2.51x in the other.
+  it('gives a parent the SAME rate in the sheet as in the panel', () => {
+    const own = model({ messages: 50 }) // $5 over 50 replies
+    const rollup = model({ inputTokens: 3_000_000, messages: 100 }) // $15 over 100
+
+    // The sheet ranks the tasks and derives the cohort from the same set; the
+    // panel is handed that cohort. Same task, same two numbers, both surfaces.
+    const { rows, cohort } = taskCostRows([
+      row(1, { models: [own], messages: 50, rollupModels: [rollup], rollupMessages: 100 }),
+    ])
+    const panel = taskCostView(
+      wire({
+        own: { models: [own], messages: 50, sessionCount: 1 },
+        rollup: { models: [rollup], messages: 100, sessionCount: 3 },
+      }),
+      cohort,
+    )
+
+    expect(panel.ratePerReplyUsd).toBeCloseTo(0.15, 6)
+    expect(rows[0]?.ratePerReplyUsd).toBeCloseTo(0.15, 6)
+    expect(rows[0]?.rateVsMedian).toBeCloseTo(panel.rateVsMedian as number, 6)
+    // Own rate is $5/50 = 0.10, so the rollup rate reads 1.5x the cohort — and
+    // it would have read 1.0x if the sheet had kept dividing own cost.
+    expect(rows[0]?.rateVsMedian).toBeCloseTo(1.5, 6)
+  })
+
+  it('builds the cohort from OWN cost, so an epic is not counted once per ancestor', () => {
+    // Each task's own rate is $5/100 = 0.05; the rollups are ten times larger
+    // and must not reach the median.
+    const cohort = costCohort([
+      row(1, { rollupModels: [model({ inputTokens: 10_000_000 })], rollupMessages: 100 }),
+      row(2, { rollupModels: [model({ inputTokens: 10_000_000 })], rollupMessages: 100 }),
+      row(3, { rollupModels: [model({ inputTokens: 10_000_000 })], rollupMessages: 100 }),
+    ])
+    expect(cohort.medianUsdPerReply).toBeCloseTo(0.05, 6)
+  })
+
+  it('has no rate at all without replies, rather than a zero', () => {
+    expect(taskRateUsd(12, 0)).toBeNull()
+    expect(taskRateUsd(12, 4)).toBeCloseTo(3, 6)
+  })
+})
+
 describe('the sheet rows', () => {
   it('ranks by cost and measures the multiple against the same set', () => {
     const { rows, cohort } = taskCostRows([
@@ -155,6 +203,7 @@ describe('the sheet rows', () => {
     expect(rows.map((r) => r.seq)).toEqual([2, 1])
     expect(rows[0]?.estCostUsd).toBeCloseTo(20, 6)
     expect(cohort.taskCount).toBe(2)
+    // Rate from the rollup (here equal to own, no descendants), cohort from own.
     expect(rows[0]?.rateVsMedian).toBeCloseTo(1.6, 6)
     // Nothing in the window: the sheet's window reading is zero, and the
     // all-time figure beside it is not.

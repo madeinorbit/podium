@@ -12355,6 +12355,10 @@
         "stage": "stage",
         "models": [],
         "messages": 1,
+        "windowModels": [],
+        "windowMessages": 1,
+        "rollupModels": [],
+        "rollupMessages": 1,
         "sessionCount": 1,
         "floor": "none",
         "harnesses": []
@@ -12362,7 +12366,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"issueId\":\"issueId\",\"seq\":1,\"title\":\"title\",\"stage\":\"stage\",\"models\":[],\"messages\":1,\"sessionCount\":1,\"floor\":\"none\",\"harnesses\":[]}"
+      "encoded": "{\"issueId\":\"issueId\",\"seq\":1,\"title\":\"title\",\"stage\":\"stage\",\"models\":[],\"messages\":1,\"windowModels\":[],\"windowMessages\":1,\"rollupModels\":[],\"rollupMessages\":1,\"sessionCount\":1,\"floor\":\"none\",\"harnesses\":[]}"
     },
     {
       "schema": "TaskCostRowWire",
@@ -12384,6 +12388,30 @@
           }
         ],
         "messages": 1,
+        "windowModels": [
+          {
+            "model": "windowModels[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ],
+        "windowMessages": 1,
+        "rollupModels": [
+          {
+            "model": "rollupModels[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
+        ],
+        "rollupMessages": 1,
         "sessionCount": 1,
         "floor": "none",
         "harnesses": ["claude-code"]
@@ -12391,7 +12419,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"issueId\":\"issueId\",\"seq\":1,\"title\":\"title\",\"stage\":\"stage\",\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1,\"floor\":\"none\",\"harnesses\":[\"claude-code\"]}"
+      "encoded": "{\"issueId\":\"issueId\",\"seq\":1,\"title\":\"title\",\"stage\":\"stage\",\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"windowModels\":[{\"model\":\"windowModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"windowMessages\":1,\"rollupModels\":[{\"model\":\"rollupModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"rollupMessages\":1,\"sessionCount\":1,\"floor\":\"none\",\"harnesses\":[\"claude-code\"]}"
     },
     {
       "schema": "TaskCostState",

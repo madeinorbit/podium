@@ -153,6 +153,18 @@ export const TaskCostRowWire = z.object({
    */
   windowModels: z.array(CostModelTotalWire),
   windowMessages: z.number().int().nonnegative(),
+  /**
+   * The task PLUS all its descendants — carried so the sheet can print the same
+   * rate the task-detail panel prints.
+   *
+   * The rate is one property of a task and must read identically wherever it
+   * appears; a sheet that divided its own-cost column by its own replies while
+   * the panel divided the rollup gave the same task 2.51x here and 1.97x there.
+   * The COHORT the rate is compared against is built from `models` above (own),
+   * because a cohort of rollups counts the same work once per ancestor.
+   */
+  rollupModels: z.array(CostModelTotalWire),
+  rollupMessages: z.number().int().nonnegative(),
   sessionCount: z.number().int().nonnegative(),
   floor: CostFloor,
   harnesses: z.array(CostHarness),
