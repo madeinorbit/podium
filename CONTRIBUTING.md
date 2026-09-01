@@ -30,8 +30,8 @@ bot: just open a pull request.
 bun run setup:worktree
 ```
 
-This runs `bun install --frozen-lockfile` and follows the linker setting tracked in `bunfig.toml`,
-currently strict isolated linking backed by Bun's global store. Each checkout keeps its own
+This runs `bun install --frozen-lockfile` and follows the linker setting tracked in `bunfig.toml`:
+strict isolated linking backed by Bun's global store. Each checkout keeps its own
 `node_modules` link graph while immutable package payloads are reused across worktrees. Never
 share, copy, symlink, or bind-mount a complete `node_modules` tree between checkouts.
 
@@ -149,7 +149,8 @@ For a fresh checkout, run:
 bun run setup:worktree
 ```
 
-For a damaged or mixed-linker install, stop processes using this checkout's dependencies and run:
+If this checkout's dependency tree is damaged or out of sync with the lockfile, stop processes
+using it and run:
 
 ```bash
 bun run deps:repair
@@ -163,9 +164,7 @@ error and rerun the repair before starting the checkout.
 Neither command deletes Bun or Turbo caches. The cleanup is anchored to the checkout containing
 the script, and the reinstall may reuse or populate the shared Bun cache but does not remove it.
 Never add `bun pm cache rm`, delete `~/.bun/install/cache` (or the configured global Bun cache), or
-delete the shared Turbo cache to a repair procedure. Only `deps:rollback-hoisted` intentionally
-forces `--linker=hoisted` for explicit linker rollback compatibility; `deps:repair` is the normal
-repair command.
+delete the shared Turbo cache to a repair procedure.
 
 ## Cross-package imports
 

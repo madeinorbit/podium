@@ -37,13 +37,14 @@ bun run setup:worktree
 ```
 
 This is the supported topology-following frozen install: it uses the linker setting tracked in
-`bunfig.toml` (currently strict isolated linking with Bun's global store) and creates a checkout-local
+`bunfig.toml` — strict isolated linking with Bun's global store — and creates a checkout-local
 dependency link graph. Package payloads may be shared through Bun's store, but the complete
 `node_modules` tree never is. The command does not override the tracked topology, so it follows
 future configuration changes. Never share, copy, symlink, or bind-mount a complete `node_modules`
 tree between checkouts; checkout-local links are the boundary.
 
-If the checkout has a damaged or mixed-linker install, stop processes using it and run:
+If the checkout's dependency tree is damaged or out of sync with the lockfile, stop processes
+using it and run:
 
 ```bash
 bun run deps:repair
@@ -60,8 +61,6 @@ Neither command deletes shared caches. Do not add global Bun cache deletion (`bu
 removing `~/.bun/install/cache`, or deleting the configured equivalent) or shared Turbo-cache
 deletion to a repair. A reinstall may reuse or populate Bun's shared cache, but repair owns only
 the current checkout's dependency tree.
-Only `deps:rollback-hoisted` intentionally forces `--linker=hoisted`; setup and repair follow the
-tracked `bunfig.toml` setting.
 
 ## Issue tracking with Podium
 
