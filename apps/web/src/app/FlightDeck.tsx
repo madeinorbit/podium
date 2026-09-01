@@ -84,8 +84,8 @@ import type {
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
-  PointerEvent as ReactPointerEvent,
   ReactNode,
+  PointerEvent as ReactPointerEvent,
 } from 'react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -121,11 +121,11 @@ import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useClickIntent } from './click-intent'
+import { FlightDeckWaterfall } from './FlightDeckWaterfall'
+import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
 import { useSessionHovered } from './session-hover'
-import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
-import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import {
   CLOSE_RIGHT_PANEL,
   OPEN_RIGHT_PANEL_EVENT,
@@ -3468,10 +3468,16 @@ export function FlightDeck({
    * projection and the shared menu acts on the full view model.
    */
   const [issueMenu, setIssueMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null)
-  const openIssueMenu = useCallback((issueId: IssueId, event: ReactMouseEvent): void => {
-    event.preventDefault()
-    setIssueMenu({ id: issueId, anchor: { x: event.clientX, y: event.clientY } })
+  const openIssueMenuAt = useCallback((issueId: IssueId, anchor: ContextMenuAnchor): void => {
+    setIssueMenu({ id: issueId, anchor })
   }, [])
+  const openIssueMenu = useCallback(
+    (issueId: IssueId, event: ReactMouseEvent): void => {
+      event.preventDefault()
+      openIssueMenuAt(issueId, { x: event.clientX, y: event.clientY })
+    },
+    [openIssueMenuAt],
+  )
   const menuIssue = issueMenu ? issues.find((issue) => issue.id === issueMenu.id) : undefined
   /**
    * WHICH STRIP IS RENAMING (POD-1077) — deck state, for the same reason the
@@ -3929,7 +3935,7 @@ export function FlightDeck({
                   onSelectSession={(issueId, session, options) =>
                     selectSession(issueId, session, options)
                   }
-                  onIssueMenu={openIssueMenu}
+                  onIssueMenu={openIssueMenuAt}
                   onStatusPick={pickRowStatus}
                   onRenameIssue={renameIssue}
                   onRenameDone={() => setRenameTarget(null)}

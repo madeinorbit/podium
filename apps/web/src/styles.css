@@ -9608,15 +9608,21 @@ a.ref-link--session::before {
    and layered ABOVE the rows, because the one filed screenshot of this view was
    rows bleeding through the mission header. */
 .flight-waterfall {
-  --waterfall-label-col: 132px;
+  --waterfall-label-col: 148px;
+  --waterfall-row-zoom: 1;
+  --waterfall-bar-height: 20px;
+  --waterfall-lane-height: 24px;
+  --waterfall-row-gap: 2px;
+  --waterfall-row-padding: 4px;
   position: relative;
   min-width: 0;
   border-bottom: 1px solid var(--hairline-soft);
+  background: color-mix(in srgb, var(--card) 96%, var(--chip));
   container-type: inline-size;
   container-name: flight-waterfall;
 }
 .flight-waterfall-expanded {
-  --waterfall-label-col: 168px;
+  --waterfall-label-col: 184px;
 }
 .waterfall-axis,
 .waterfall-issue-row,
@@ -9627,11 +9633,11 @@ a.ref-link--session::before {
 .waterfall-axis {
   position: sticky;
   top: var(--waterfall-chrome-offset, 0px);
-  z-index: 6;
-  min-height: 26px;
-  border-bottom: 1px solid var(--hairline-soft);
-  /* Opaque on purpose: rows scroll beneath it. */
-  background: var(--card);
+  z-index: 7;
+  min-height: 32px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-strong) 65%, transparent);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  backdrop-filter: blur(16px) saturate(140%);
   color: var(--text-faint);
   font-family: var(--font-mono);
   font-size: 8.5px;
@@ -9642,15 +9648,57 @@ a.ref-link--session::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
-  padding-inline: 9px 4px;
+  gap: 6px;
+  padding-inline: 10px 6px;
   border-right: 1px solid var(--hairline-soft);
   text-transform: uppercase;
 }
+.waterfall-row-zoom {
+  display: inline-flex;
+  height: 20px;
+  min-width: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: var(--radius-md);
+  color: var(--text-faint);
+  cursor: ns-resize;
+  font-size: 8px;
+  letter-spacing: 0;
+  touch-action: none;
+  transition-property: background-color, color, scale;
+  transition-duration: 100ms;
+  transition-timing-function: ease-out;
+}
+.waterfall-row-zoom:hover,
+.waterfall-row-zoom:focus-visible {
+  background: var(--muted);
+  color: var(--text-strong);
+}
+.waterfall-row-zoom:active {
+  scale: 0.96;
+}
+.waterfall-row-zoom:focus-visible {
+  outline: 2px solid var(--issue);
+  outline-offset: 1px;
+}
+.waterfall-axis-track {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
 .waterfall-axis-controls {
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  right: 6px;
   display: flex;
   align-items: center;
   gap: 1px;
+  padding: 1px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--hairline-bar) 75%, transparent);
 }
 .waterfall-axis-controls > button {
   display: inline-flex;
@@ -9661,24 +9709,29 @@ a.ref-link--session::before {
   border-radius: var(--radius-sm);
   color: var(--text-faint);
 }
+.waterfall-axis-controls > button:active {
+  scale: 0.96;
+}
 .waterfall-axis-controls > button:hover {
   background: var(--muted);
   color: var(--text-strong);
 }
-.waterfall-axis-track {
+.waterfall-axis-labels {
   position: relative;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   overflow: hidden;
 }
 .waterfall-axis-tick {
   position: absolute;
-  top: 9px;
+  top: 11px;
   translate: -50% 0;
   white-space: nowrap;
 }
 .waterfall-axis-track .waterfall-axis-now {
   position: absolute;
-  top: 9px;
+  top: 11px;
   translate: -50% 0;
   color: var(--motion-working);
   font-weight: 600;
@@ -9692,8 +9745,8 @@ a.ref-link--session::before {
 }
 .waterfall-live-resume {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 7px;
+  right: 62px;
   display: inline-flex;
   height: 17px;
   align-items: center;
@@ -9717,7 +9770,7 @@ a.ref-link--session::before {
 .waterfall-gridlines {
   position: absolute;
   z-index: 1;
-  inset: 26px 0 0;
+  inset: 32px 0 0;
   display: grid;
   grid-template-columns: minmax(0, var(--waterfall-label-col)) minmax(0, 1fr);
   pointer-events: none;
@@ -9737,7 +9790,7 @@ a.ref-link--session::before {
 .waterfall-now-line {
   position: absolute;
   z-index: 3;
-  inset: 26px 0 0;
+  inset: 32px 0 0;
   pointer-events: none;
 }
 .waterfall-now-line::after {
@@ -9753,10 +9806,17 @@ a.ref-link--session::before {
   z-index: 2;
 }
 .waterfall-issue-row {
-  min-height: 34px;
+  min-height: calc(
+    var(--waterfall-lane-height) +
+    var(--waterfall-row-padding) +
+    var(--waterfall-row-padding)
+  );
   border-bottom: 1px solid var(--hairline-soft);
   content-visibility: auto;
-  contain-intrinsic-size: auto 42px;
+  contain-intrinsic-size: auto 48px;
+  transition-property: background-color;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 .waterfall-issue-row:last-child {
   border-bottom: 0;
@@ -9766,17 +9826,22 @@ a.ref-link--session::before {
   z-index: 3;
   display: flex;
   min-width: 0;
-  align-items: center;
-  gap: 3px;
-  padding: 5px 4px 5px calc(5px + var(--waterfall-depth) * 12px);
+  align-items: flex-start;
+  gap: 4px;
+  padding: calc(var(--waterfall-row-padding) + 2px) 7px var(--waterfall-row-padding)
+    calc(7px + var(--waterfall-depth) * 12px);
   border-right: 1px solid var(--hairline-soft);
   /* One quiet step off the track ground; `--chip` is the raised tier. (The
      old `var(--panel)` here named no token, so the whole mix silently never
      painted — the label column ran transparent.) */
-  background: color-mix(in srgb, var(--chip) 55%, var(--card));
+  background: color-mix(in srgb, var(--chip) 32%, var(--card));
 }
 .waterfall-issue-row[data-focused="true"] .waterfall-issue-cell {
-  background: color-mix(in srgb, var(--issue) calc(12 * var(--issue-tint-scale, 1%)), var(--card));
+  background: color-mix(in srgb, var(--issue) calc(9 * var(--issue-tint-scale, 1%)), var(--card));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--issue) 70%, transparent);
+}
+.waterfall-issue-row[data-attention="true"]:not([data-focused="true"]) .waterfall-issue-cell {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--attention) 78%, transparent);
 }
 .waterfall-tree-guides {
   position: absolute;
@@ -9797,7 +9862,7 @@ a.ref-link--session::before {
 .waterfall-fold {
   display: inline-flex;
   width: 16px;
-  height: 18px;
+  height: 20px;
   flex: none;
   align-items: center;
   justify-content: center;
@@ -9812,7 +9877,9 @@ button.waterfall-fold:hover {
   flex: 1;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 3px;
+  padding-block: 2px;
+  cursor: pointer;
   text-align: left;
 }
 .waterfall-issue-meta {
@@ -9828,9 +9895,9 @@ button.waterfall-fold:hover {
 .waterfall-issue-title {
   width: 100%;
   overflow: hidden;
-  color: var(--text-muted);
+  color: var(--text-dim);
   font-size: 11.5px;
-  font-weight: 500;
+  font-weight: 550;
   line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -9839,40 +9906,27 @@ button.waterfall-fold:hover {
   color: var(--text-strong);
   font-weight: 600;
 }
-.waterfall-issue-menu {
-  position: absolute;
-  z-index: 2;
-  top: 6px;
-  right: 2px;
-  background: color-mix(in srgb, var(--card) 92%, transparent);
-  opacity: 0;
-  transition: opacity 100ms ease-out;
-}
-.waterfall-issue-cell:hover .waterfall-issue-menu,
-.waterfall-issue-cell:focus-within .waterfall-issue-menu {
-  opacity: 1;
-}
 .waterfall-track-cell {
   position: relative;
   display: flex;
   min-width: 0;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
-  padding-block: 4px;
+  gap: var(--waterfall-row-gap);
+  padding-block: var(--waterfall-row-padding);
   overflow: hidden;
   touch-action: pan-y;
 }
 .waterfall-session-lane {
   position: relative;
-  min-height: 20px;
+  min-height: var(--waterfall-lane-height);
 }
 .waterfall-session-lane[data-offscreen="true"] {
   min-height: 12px;
 }
 .waterfall-offscreen {
   position: absolute;
-  top: 0;
+  top: 50%;
   display: inline-flex;
   width: 14px;
   height: 12px;
@@ -9882,6 +9936,7 @@ button.waterfall-fold:hover {
   color: var(--text-faint);
   font-size: 10px;
   line-height: 1;
+  translate: 0 -50%;
 }
 .waterfall-offscreen[data-side="start"] {
   left: 0;
@@ -9896,25 +9951,28 @@ button.waterfall-fold:hover {
 .waterfall-session-bar {
   position: absolute;
   z-index: 2;
-  top: 0;
+  top: 50%;
   left: var(--waterfall-left);
   display: flex;
   width: max(var(--waterfall-width), 3px);
-  height: 18px;
+  height: var(--waterfall-bar-height);
   align-items: center;
   overflow: hidden;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: calc(var(--radius-md) + 1px);
   background: color-mix(in srgb, var(--text-faint) 12%, var(--bar));
   color: var(--text-muted);
   box-shadow: inset 0 0 0 1px var(--hairline-bar);
+  cursor: pointer;
   text-align: left;
+  translate: 0 -50%;
   transition:
     left 160ms ease-out,
     width 160ms ease-out,
     background-color 120ms ease-out,
     box-shadow 120ms ease-out,
-    opacity 120ms ease-out;
+    opacity 120ms ease-out,
+    scale 100ms ease-out;
 }
 /* A streamed zoom/pan writes fresh geometry every frame; settle transitions
    would trail the pointer and repaint twice. The gesture suppresses them. */
@@ -9927,24 +9985,24 @@ button.waterfall-fold:hover {
 }
 /* Solid (un-segmented) state colors — the honest fallback without history. */
 .waterfall-session-bar[data-state="working"]:not([data-segmented]) {
-  background: color-mix(in srgb, var(--motion-working) 28%, var(--bar));
+  background: color-mix(in srgb, var(--motion-working) 24%, var(--bar));
   color: var(--text-strong);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--motion-working) 62%, transparent);
 }
 .waterfall-session-bar[data-state="live"]:not([data-segmented]) {
-  background: color-mix(in srgb, var(--motion-working) 14%, var(--bar));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--motion-working) 34%, transparent);
+  background: color-mix(in srgb, var(--text-faint) 9%, var(--bar));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 36%, transparent);
 }
 .waterfall-session-bar[data-state="attention"]:not([data-segmented]) {
-  background: color-mix(in srgb, var(--attention) 15%, var(--bar));
-  color: var(--attention);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 66%, transparent);
+  background: color-mix(in srgb, var(--attention) 24%, var(--bar));
+  color: color-mix(in srgb, var(--attention) 76%, var(--text-strong));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 78%, transparent);
 }
 .waterfall-session-bar[data-state="finished"]:not([data-segmented]) {
-  background: color-mix(in srgb, var(--info) 44%, var(--bar));
-  color: var(--text-strong);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info) 55%, transparent);
-  opacity: 0.72;
+  background: color-mix(in srgb, var(--text-faint) 9%, var(--bar));
+  color: var(--text-dim);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 32%, transparent);
+  opacity: 0.58;
 }
 /* Segmented bars: a quiet idle track under working / attention stretches. */
 .waterfall-session-bar[data-segmented] {
@@ -9954,6 +10012,19 @@ button.waterfall-fold:hover {
 .waterfall-session-bar[data-segmented][data-state="working"],
 .waterfall-session-bar[data-segmented][data-state="attention"] {
   color: var(--text-strong);
+}
+.waterfall-session-bar[data-segmented][data-state="attention"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 78%, transparent);
+}
+.waterfall-session-bar[data-segmented][data-state="attention"]::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset-block: 2px;
+  right: 1px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--attention);
 }
 .waterfall-session-bar[data-segmented][data-state="finished"] {
   opacity: 0.78;
@@ -9992,13 +10063,19 @@ button.waterfall-fold:hover {
   background: var(--motion-working);
 }
 .waterfall-session-bar:hover {
-  box-shadow: inset 0 0 0 1px var(--text-dim);
+  box-shadow:
+    inset 0 0 0 1px var(--text-dim),
+    0 2px 7px color-mix(in srgb, black 13%, transparent);
   opacity: 1;
+}
+.waterfall-session-bar:active {
+  scale: 0.985 0.96;
 }
 .waterfall-session-bar[data-selected="true"] {
   box-shadow:
     inset 0 0 0 1px var(--issue),
-    inset 0 -2px 0 color-mix(in srgb, var(--issue) 72%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--issue) 34%, transparent),
+    0 3px 8px color-mix(in srgb, black 15%, transparent);
   opacity: 1;
 }
 .waterfall-session-bar[data-coordinator="true"]:not([data-selected="true"]) {
@@ -10030,7 +10107,6 @@ button.waterfall-fold:hover {
   font-weight: 650;
 }
 .waterfall-session-bar:focus-visible,
-.waterfall-session-menu:focus-visible,
 .waterfall-native-toggle:focus-visible,
 .waterfall-native-worker:focus-visible,
 .waterfall-issue-open:focus-visible,
@@ -10049,7 +10125,7 @@ button.waterfall-fold:hover {
   flex: 1;
   align-items: center;
   gap: 4px;
-  padding-inline: 5px;
+  padding-inline: 6px;
 }
 .waterfall-session-lane[data-has-native="true"] .waterfall-bar-content {
   padding-right: 24px;
@@ -10058,7 +10134,7 @@ button.waterfall-fold:hover {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 9.5px;
+  font-size: clamp(9.5px, calc(9px + var(--waterfall-row-zoom) * 1px), 11px);
   font-weight: 500;
   line-height: 1;
   text-overflow: ellipsis;
@@ -10075,9 +10151,9 @@ button.waterfall-fold:hover {
 .waterfall-bar-tag {
   position: absolute;
   z-index: 1;
-  top: 0;
+  top: 50%;
   display: inline-flex;
-  height: 18px;
+  height: var(--waterfall-bar-height);
   max-width: 45%;
   align-items: center;
   gap: 4px;
@@ -10087,6 +10163,7 @@ button.waterfall-fold:hover {
   font-size: 9px;
   line-height: 1;
   pointer-events: none;
+  translate: 0 -50%;
   white-space: nowrap;
 }
 .waterfall-bar-tag[data-side="after"] {
@@ -10131,21 +10208,20 @@ button.waterfall-fold:hover {
 .waterfall-session-tools {
   position: absolute;
   z-index: 4;
-  top: 0;
+  top: 50%;
   left: calc(var(--waterfall-left) + max(var(--waterfall-width), 3px));
   display: flex;
-  height: 18px;
+  height: var(--waterfall-bar-height);
   align-items: center;
   gap: 1px;
   padding-inline: 1px;
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--bar) 92%, transparent);
-  transform: translateX(-100%);
+  translate: -100% -50%;
 }
-.waterfall-native-toggle,
-.waterfall-session-menu {
+.waterfall-native-toggle {
   display: inline-flex;
-  height: 16px;
+  height: calc(var(--waterfall-bar-height) - 4px);
   flex: none;
   align-items: center;
   justify-content: center;
@@ -10159,33 +10235,23 @@ button.waterfall-fold:hover {
   font-size: 8px;
   line-height: 1;
 }
-.waterfall-session-menu {
-  width: 16px;
-  min-width: 16px;
-  opacity: 0;
-  transition: opacity 100ms ease-out;
-}
-.waterfall-session-lane:hover .waterfall-session-menu,
-.waterfall-session-lane:focus-within .waterfall-session-menu {
-  opacity: 1;
-}
 .waterfall-native-toggle[aria-expanded="true"],
-.waterfall-native-toggle:hover,
-.waterfall-session-menu:hover {
+.waterfall-native-toggle:hover {
   background: var(--muted);
   color: var(--text-strong);
 }
 .waterfall-session-editor {
   position: absolute;
   z-index: 5;
-  top: 0;
+  top: 50%;
   left: var(--waterfall-left);
   width: max(var(--waterfall-width), 96px);
-  height: 20px;
+  height: var(--waterfall-bar-height);
   padding: 1px 4px;
   border: 1px solid var(--issue);
   border-radius: var(--radius-md);
   background: var(--bar);
+  translate: 0 -50%;
 }
 .waterfall-native-list {
   position: relative;
@@ -10196,7 +10262,7 @@ button.waterfall-fold:hover {
   flex-direction: column;
   gap: 1px;
   margin-left: var(--waterfall-left);
-  padding-top: 21px;
+  padding-top: calc(var(--waterfall-bar-height) + 3px);
   padding-left: 8px;
   border-left: 1px solid var(--hairline-soft);
 }
@@ -10225,54 +10291,6 @@ button.waterfall-fold:hover {
   color: var(--text-dim);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.waterfall-wait-reason {
-  position: absolute;
-  z-index: 3;
-  top: 1px;
-  left: calc(var(--waterfall-left) + max(var(--waterfall-width), 3px) + 4px);
-  display: flex;
-  max-width: calc(100% - var(--waterfall-left) - var(--waterfall-width) - 8px);
-  height: 18px;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
-  padding-inline: 5px;
-  border: 1px solid color-mix(in srgb, var(--attention) 52%, var(--hairline-soft));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--attention) 9%, var(--bar));
-  color: var(--attention);
-  font-size: 8px;
-  line-height: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.waterfall-wait-reason strong {
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.waterfall-wait-reason span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-dim);
-  text-overflow: ellipsis;
-}
-.waterfall-session-lane:has(.waterfall-wait-reason)::after {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 9px;
-  left: calc(var(--waterfall-left) + max(var(--waterfall-width), 3px));
-  width: 4px;
-  border-top: 1px dashed color-mix(in srgb, var(--attention) 52%, transparent);
 }
 .waterfall-future-label {
   position: relative;
@@ -10311,11 +10329,17 @@ button.waterfall-fold:hover {
   text-overflow: ellipsis;
 }
 .waterfall-future-label[data-state="attention"] {
-  border-color: color-mix(in srgb, var(--attention) 58%, var(--hairline-soft));
-  background: color-mix(in srgb, var(--attention) 8%, var(--bar));
-}
-.waterfall-future-label[data-state="attention"] strong {
+  border-color: transparent;
+  background: transparent;
   color: var(--attention);
+}
+.waterfall-attention-mark {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--attention);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention) 12%, transparent);
 }
 .waterfall-future-label[data-state="blocked"] strong {
   color: var(--text-muted);
@@ -10409,8 +10433,7 @@ button.waterfall-fold:hover {
     display: none;
   }
   .waterfall-session-time,
-  .waterfall-future-label span,
-  .waterfall-wait-reason span {
+  .waterfall-future-label span:not(.waterfall-attention-mark) {
     display: none;
   }
   .waterfall-native-list {
@@ -10425,6 +10448,23 @@ button.waterfall-fold:hover {
   }
   .waterfall-session-bar[data-flash] {
     animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .waterfall-axis {
+    background: var(--card);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .waterfall-axis {
+    background: var(--card);
+    border-bottom-color: var(--text-faint);
+  }
+  .waterfall-session-bar {
+    box-shadow: inset 0 0 0 1px currentColor;
   }
 }
 

@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
-import { FLIGHT_DECK_BRIEF_CUTOFF_KEY } from '@podium/client-core/ui-state'
+import {
+  FLIGHT_DECK_BRIEF_CUTOFF_KEY,
+  FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
+} from '@podium/client-core/ui-state'
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -990,9 +993,54 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 
   it('opens the shared session lifecycle menu from a waterfall bar', () => {
     deck()
+    expect(screen.queryByRole('button', { name: 'Session actions for s2' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Task actions for Task t2' })).toBeNull()
     fireEvent.contextMenu(sessionRow('s2'))
     expect(screen.getByRole('menu', { name: 'Session actions' })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeTruthy()
+  })
+
+  it('zooms rows vertically and keeps the scale on this device', () => {
+    deck()
+    const control = screen.getByRole('slider', { name: 'Timeline row height' })
+    expect(control.getAttribute('aria-valuenow')).toBe('100')
+
+    fireEvent.keyDown(control, { key: 'ArrowUp' })
+
+    expect(control.getAttribute('aria-valuenow')).toBe('108')
+    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.08')
+    expect(
+      screen.getByTestId('flight-deck-waterfall').style.getPropertyValue('--waterfall-row-zoom'),
+    ).toBe('1.08')
+
+    control.setPointerCapture = vi.fn()
+    fireEvent.pointerDown(control, { button: 0, clientY: 100, pointerId: 7 })
+    fireEvent.pointerMove(control, { clientY: 76, pointerId: 7 })
+    expect(control.getAttribute('aria-valuenow')).toBe('128')
+    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.08')
+
+    fireEvent.pointerUp(control, { clientY: 76, pointerId: 7 })
+    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.28')
+  })
+
+  it('uses amber alone for a session that needs attention', () => {
+    harness.sessions = harness.sessions.map((raw) => {
+      const item = raw as SessionMeta
+      return item.sessionId === 's2'
+        ? session('s2', {
+            issueId: 't2',
+            agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
+          })
+        : item
+    })
+    deck()
+
+    const bar = sessionRow('s2')
+    expect(bar.getAttribute('data-state')).toBe('attention')
+    expect(bar.textContent).not.toContain('Needs you')
+    expect(
+      bar.closest('.waterfall-session-lane')?.querySelector('.waterfall-wait-reason'),
+    ).toBeNull()
   })
 
   it('reopens the Task dock when an issue is picked', () => {

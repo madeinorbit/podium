@@ -1,4 +1,5 @@
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
+import { FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY } from '@podium/client-core/ui-state'
 import {
   deckSessions,
   type FlightDeckMode,
@@ -15,9 +16,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Crosshair,
-  Ellipsis,
   Maximize,
   Minus,
+  MoveVertical,
   Plus,
 } from 'lucide-react'
 import type {
@@ -28,11 +29,11 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from 'react'
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { SessionContextMenu } from '@/lib/SessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
+import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor, sessionDisplayName } from '@/lib/WorkerLabel'
 import { useClickIntent } from './click-intent'
@@ -63,6 +64,24 @@ import {
 } from './flight-deck-waterfall'
 import { clearHoveredSession, setHoveredSession, useSessionHovered } from './session-hover'
 import { useStoreSelector } from './store'
+
+const WATERFALL_ROW_ZOOM_MIN = 0.72
+const WATERFALL_ROW_ZOOM_MAX = 1.55
+const WATERFALL_ROW_ZOOM_STEP = 0.08
+
+export function clampWaterfallRowZoom(value: number): number {
+  if (!Number.isFinite(value)) return 1
+  return Math.min(WATERFALL_ROW_ZOOM_MAX, Math.max(WATERFALL_ROW_ZOOM_MIN, value))
+}
+
+function readWaterfallRowZoom(raw: string | null): number {
+  return clampWaterfallRowZoom(raw === null ? 1 : Number(raw))
+}
+
+function writeWaterfallRowZoom(value: number): string | null {
+  const clamped = clampWaterfallRowZoom(value)
+  return Math.abs(clamped - 1) < 0.005 ? null : clamped.toFixed(2)
+}
 
 interface WaterfallIssueRow {
   row: FlightDeckRow
@@ -103,7 +122,7 @@ interface FlightDeckWaterfallProps {
     session: SessionMeta,
     options: { permanent: boolean; native?: boolean },
   ) => void
-  onIssueMenu: (issueId: IssueId, event: ReactMouseEvent) => void
+  onIssueMenu: (issueId: IssueId, anchor: ContextMenuAnchor) => void
   onStatusPick: (issueId: string, value: string) => void
   onRenameIssue: (issueId: string, title: string, openedTitle: string) => void
   onRenameDone: () => void
@@ -210,23 +229,92 @@ const WaterfallAxis = memo(function WaterfallAxis({
   frame,
   ticks,
   following,
+  rowZoom,
   onZoom,
+  onRowZoomPreview,
+  onRowZoomCommit,
   onFit,
   onLive,
 }: {
   frame: WaterfallFrame
   ticks: readonly WaterfallTick[]
   following: boolean
+  rowZoom: number
   onZoom: (factor: number) => void
+  onRowZoomPreview: (scale: number | null) => void
+  onRowZoomCommit: (scale: number) => void
   onFit: () => void
   onLive: () => void
 }): JSX.Element {
   const nowVisible = frame.nowPct >= 0 && frame.nowPct <= 100
   const nowAtEdge = (frame.nowPct / 100) * frame.trackPx > frame.trackPx - 26
+  const rowDragRef = useRef<{ y: number; zoom: number; pointerId: number } | null>(null)
+  const setSteppedRowZoom = (direction: number): void => {
+    onRowZoomCommit(clampWaterfallRowZoom(rowZoom + direction * WATERFALL_ROW_ZOOM_STEP))
+  }
   return (
     <div className="waterfall-axis">
       <span className="waterfall-axis-title">
-        <span className="waterfall-axis-title-full">Task</span>
+        <span className="waterfall-axis-title-full">Tasks</span>
+        <span
+          className="waterfall-row-zoom"
+          role="slider"
+          tabIndex={0}
+          aria-label="Timeline row height"
+          aria-orientation="vertical"
+          aria-valuemin={Math.round(WATERFALL_ROW_ZOOM_MIN * 100)}
+          aria-valuemax={Math.round(WATERFALL_ROW_ZOOM_MAX * 100)}
+          aria-valuenow={Math.round(rowZoom * 100)}
+          aria-valuetext={`${Math.round(rowZoom * 100)} percent`}
+          title="Drag vertically to resize rows. Double-click to reset."
+          onDoubleClick={() => onRowZoomCommit(1)}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return
+            rowDragRef.current = { y: event.clientY, zoom: rowZoom, pointerId: event.pointerId }
+            event.currentTarget.setPointerCapture(event.pointerId)
+          }}
+          onPointerMove={(event) => {
+            const drag = rowDragRef.current
+            if (!drag || drag.pointerId !== event.pointerId) return
+            const next = clampWaterfallRowZoom(drag.zoom + (drag.y - event.clientY) / 120)
+            drag.zoom = next
+            drag.y = event.clientY
+            onRowZoomPreview(next)
+          }}
+          onPointerUp={(event) => {
+            const drag = rowDragRef.current
+            if (drag?.pointerId !== event.pointerId) return
+            rowDragRef.current = null
+            onRowZoomCommit(drag.zoom)
+          }}
+          onPointerCancel={() => {
+            rowDragRef.current = null
+            onRowZoomPreview(null)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowUp' || event.key === 'ArrowRight') {
+              event.preventDefault()
+              setSteppedRowZoom(1)
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') {
+              event.preventDefault()
+              setSteppedRowZoom(-1)
+            } else if (event.key === 'Home') {
+              event.preventDefault()
+              onRowZoomCommit(WATERFALL_ROW_ZOOM_MIN)
+            } else if (event.key === 'End') {
+              event.preventDefault()
+              onRowZoomCommit(WATERFALL_ROW_ZOOM_MAX)
+            } else if (event.key === '0') {
+              event.preventDefault()
+              onRowZoomCommit(1)
+            }
+          }}
+        >
+          <MoveVertical size={11} aria-hidden="true" />
+          <span>{Math.round(rowZoom * 100)}%</span>
+        </span>
+      </span>
+      <div className="waterfall-axis-track">
         <span className="waterfall-axis-controls">
           <button
             data-pressable
@@ -256,22 +344,22 @@ const WaterfallAxis = memo(function WaterfallAxis({
             <Maximize size={10} aria-hidden="true" />
           </button>
         </span>
-      </span>
-      <div className="waterfall-axis-track" aria-hidden="true">
-        {ticks.map((tick) => (
-          <span key={tick.at} className="waterfall-axis-tick" style={{ left: `${tick.pct}%` }}>
-            {tick.label}
-          </span>
-        ))}
-        {nowVisible ? (
-          <span
-            className="waterfall-axis-now"
-            data-edge={nowAtEdge || undefined}
-            style={{ left: `${frame.nowPct}%` }}
-          >
-            now
-          </span>
-        ) : null}
+        <div className="waterfall-axis-labels" aria-hidden="true">
+          {ticks.map((tick) => (
+            <span key={tick.at} className="waterfall-axis-tick" style={{ left: `${tick.pct}%` }}>
+              {tick.label}
+            </span>
+          ))}
+          {nowVisible ? (
+            <span
+              className="waterfall-axis-now"
+              data-edge={nowAtEdge || undefined}
+              style={{ left: `${frame.nowPct}%` }}
+            >
+              now
+            </span>
+          ) : null}
+        </div>
         {!following || !nowVisible ? (
           <button
             data-pressable
@@ -445,19 +533,17 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   const barLeftPx = (geometry.leftPct / 100) * frame.trackPx
   const barWidthPx = (geometry.widthPct / 100) * frame.trackPx
   const placement = waterfallLabelPlacement(barLeftPx, barWidthPx, frame.trackPx)
-  // A chip with no room renders as a clipped word; the bar's attention state
-  // already carries the signal, so the chip yields below ~56px of track.
-  const reasonRoomPx = frame.trackPx - (barLeftPx + barWidthPx)
-  const showReasonChip = reason !== null && reasonRoomPx >= 56
-  // The needs-you chip owns the space after the bar; the name yields to it.
-  const labelPlacementFinal = showReasonChip && placement === 'after' ? 'none' : placement
-  const showDuration = barWidthPx >= 132 && labelPlacementFinal === 'inside'
+  const showDuration = barWidthPx >= 132 && placement === 'inside'
 
   const openMenu = (event: ReactMouseEvent<HTMLElement>): void => {
     event.preventDefault()
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
     setMenuAnchor({ x: event.clientX || rect.right, y: event.clientY || rect.bottom })
+  }
+  const openMenuFromKeyboard = (element: HTMLElement): void => {
+    const rect = element.getBoundingClientRect()
+    setMenuAnchor({ x: rect.left + Math.min(rect.width, 24), y: rect.bottom })
   }
   const label = [
     session.displayRef?.trim(),
@@ -558,6 +644,11 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                     )
                   }}
                   onKeyDown={(event) => {
+                    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                      event.preventDefault()
+                      openMenuFromKeyboard(event.currentTarget)
+                      return
+                    }
                     if (event.key !== 'Enter') return
                     event.preventDefault()
                     onLocalPick()
@@ -579,7 +670,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                   ))}
                 </span>
               ) : null}
-              {labelPlacementFinal === 'inside' ? (
+              {placement === 'inside' ? (
                 <span className="waterfall-bar-content">
                   <KindIcon kind={session.agentKind} compact dimmed={state === 'finished'} />
                   <span className="waterfall-session-name">{name}</span>
@@ -614,10 +705,10 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
               />
             </WaterfallHoverPopup>
           </Tooltip>
-          {labelPlacementFinal === 'after' || labelPlacementFinal === 'before' ? (
+          {placement === 'after' || placement === 'before' ? (
             <span
               className="waterfall-bar-tag"
-              data-side={labelPlacementFinal}
+              data-side={placement}
               data-state={state}
               aria-hidden="true"
             >
@@ -627,8 +718,8 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
               </span>
             </span>
           ) : null}
-          <div className="waterfall-session-tools">
-            {workers.length > 0 ? (
+          {workers.length > 0 ? (
+            <div className="waterfall-session-tools">
               <button
                 data-pressable
                 type="button"
@@ -640,18 +731,8 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
               >
                 +{workers.length}
               </button>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="waterfall-session-menu"
-              aria-label={`Session actions for ${name}`}
-              title="Session actions"
-              onClick={openMenu}
-            >
-              <Ellipsis size={11} aria-hidden="true" />
-            </Button>
-          </div>
+            </div>
+          ) : null}
         </>
       )}
       {nativeOpen && workers.length > 0 ? (
@@ -678,17 +759,6 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
             )
           })}
         </div>
-      ) : null}
-      {showReasonChip && reason ? (
-        <span
-          role="note"
-          className="waterfall-wait-reason"
-          title={reason}
-          aria-label={`Needs you: ${reason}`}
-        >
-          <strong>Needs you</strong>
-          <span>{reason}</span>
-        </span>
       ) : null}
       {menuAnchor ? (
         <SessionContextMenu
@@ -795,7 +865,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
   onSelectIssue: (permanent: boolean) => void
   onSelectSession: (session: SessionMeta, permanent: boolean) => void
   onSelectNative: (session: SessionMeta) => void
-  onIssueMenu: (event: ReactMouseEvent) => void
+  onIssueMenu: (anchor: ContextMenuAnchor) => void
   onStatusPick: (value: string) => void
   onRenameIssue: (title: string) => void
   onRenameDone: () => void
@@ -839,16 +909,28 @@ const WaterfallIssue = memo(function WaterfallIssue({
     historyCollapsed && !historyOpen
       ? item.sessions.filter((session) => !foldedIds.has(session.sessionId))
       : item.sessions
+  const attention =
+    future?.state === 'attention' ||
+    item.sessions.some((session) => sessionAsksOnIssue(item.row.issue, session))
   return (
     <div
       className="waterfall-issue-row"
       data-flight-issue={item.row.issue.id}
       data-depth={item.row.depth}
       data-focused={focused || undefined}
+      data-attention={attention || undefined}
       style={{ '--waterfall-depth': indent } as CSSProperties}
     >
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: right-click convenience; the same menu hangs on the cell's real button. */}
-      <div className="waterfall-issue-cell" onContextMenu={onIssueMenu}>
+      {/* The task and status are the visible controls. Advanced actions stay on
+          the platform context gesture instead of occupying every row. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: context-click convenience; Shift+F10 is handled by the task button. */}
+      <div
+        className="waterfall-issue-cell"
+        onContextMenu={(event) => {
+          event.preventDefault()
+          onIssueMenu({ x: event.clientX, y: event.clientY })
+        }}
+      >
         <span className="waterfall-tree-guides" aria-hidden="true" />
         {foldable ? (
           <button
@@ -890,6 +972,12 @@ const WaterfallIssue = memo(function WaterfallIssue({
               )
             }
             onKeyDown={(event) => {
+              if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                event.preventDefault()
+                const rect = event.currentTarget.getBoundingClientRect()
+                onIssueMenu({ x: rect.left + Math.min(rect.width, 24), y: rect.bottom })
+                return
+              }
               if (event.key !== 'Enter') return
               event.preventDefault()
               intent.commit(() => onSelectIssue(true))
@@ -899,15 +987,6 @@ const WaterfallIssue = memo(function WaterfallIssue({
             <span className="waterfall-issue-meta font-mono">{issueMeta}</span>
           </button>
         )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="waterfall-issue-menu size-5 text-text-faint"
-          aria-label={`Task actions for ${item.displayTitle}`}
-          onClick={onIssueMenu}
-        >
-          <Ellipsis size={11} aria-hidden="true" />
-        </Button>
       </div>
       <div className="waterfall-track-cell">
         {item.sessions.length > 0 ? (
@@ -943,7 +1022,11 @@ const WaterfallIssue = memo(function WaterfallIssue({
             title={[future.label, future.detail].filter(Boolean).join(': ')}
             aria-label={[future.label, future.detail].filter(Boolean).join(': ')}
           >
-            <strong>{future.label}</strong>
+            {future.state === 'attention' ? (
+              <span className="waterfall-attention-mark" aria-hidden="true" />
+            ) : (
+              <strong>{future.label}</strong>
+            )}
             {future.detail ? <span>{future.detail}</span> : null}
           </span>
         ) : null}
@@ -998,6 +1081,20 @@ export function FlightDeckWaterfall({
 
   const [manual, setManual] = useState<WaterfallViewport | null>(null)
   const [flashSessionId, setFlashSessionId] = useState<string | null>(null)
+  const [savedRowZoom, setSavedRowZoom] = usePersistedUiState<number>(
+    FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
+    readWaterfallRowZoom,
+    writeWaterfallRowZoom,
+  )
+  const [rowZoomPreview, setRowZoomPreview] = useState<number | null>(null)
+  const rowZoom = rowZoomPreview ?? savedRowZoom
+  const commitRowZoom = useCallback(
+    (next: number): void => {
+      setRowZoomPreview(null)
+      setSavedRowZoom(clampWaterfallRowZoom(next))
+    },
+    [setSavedRowZoom],
+  )
   const viewport = manual ?? fitWaterfallViewport(timelineStart, now, { future: hasFuture })
 
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -1271,7 +1368,16 @@ export function FlightDeckWaterfall({
         data-testid="flight-deck-waterfall"
         data-display={display}
         data-following={manual === null || undefined}
-        style={{ '--waterfall-now': `${frame.nowPct}%` } as CSSProperties}
+        style={
+          {
+            '--waterfall-now': `${frame.nowPct}%`,
+            '--waterfall-row-zoom': rowZoom,
+            '--waterfall-bar-height': `${Math.round(Math.min(28, Math.max(15, 20 * rowZoom)))}px`,
+            '--waterfall-lane-height': `${Math.round(Math.min(34, Math.max(19, 24 * rowZoom)))}px`,
+            '--waterfall-row-gap': `${Math.round(Math.min(5, Math.max(1, 2 * rowZoom)))}px`,
+            '--waterfall-row-padding': `${Math.round(Math.min(7, Math.max(3, 4 * rowZoom)))}px`,
+          } as CSSProperties
+        }
         onKeyDown={onKeyDown}
         onPointerDown={onTrackPointerDown}
         onPointerMove={onTrackPointerMove}
@@ -1283,7 +1389,10 @@ export function FlightDeckWaterfall({
           frame={frame}
           ticks={ticks}
           following={manual === null}
+          rowZoom={rowZoom}
           onZoom={zoomBy}
+          onRowZoomPreview={setRowZoomPreview}
+          onRowZoomCommit={commitRowZoom}
           onFit={() => setManual(null)}
           onLive={() => setManual(null)}
         />
@@ -1315,7 +1424,7 @@ export function FlightDeckWaterfall({
               onSelectNative={(session) =>
                 onSelectSession(item.row.issue.id, session, { permanent: false, native: true })
               }
-              onIssueMenu={(event) => onIssueMenu(item.row.issue.id, event)}
+              onIssueMenu={(anchor) => onIssueMenu(item.row.issue.id, anchor)}
               onStatusPick={(value) => onStatusPick(item.row.issue.id, value)}
               onRenameIssue={(title) =>
                 onRenameIssue(item.row.issue.id, title, renameTarget?.seed ?? item.displayTitle)
