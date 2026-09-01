@@ -64,6 +64,9 @@ jobs:
 
       # This compiles and boots the desktop executable but deliberately does not make an
       # installer on every main push. Installers remain an explicit desktop release action.
+      # KNOWN RED (POD-3203), and a different failure from the install one that used to mask it:
+      # @podium/mobile#build fails here because Metro cannot resolve react/jsx-runtime through
+      # the isolated linker's symlinked node_modules. The install itself is green.
       - name: Build Windows desktop executable and headless bundle
         run: bun run --cwd apps/desktop build -- --no-bundle
 
