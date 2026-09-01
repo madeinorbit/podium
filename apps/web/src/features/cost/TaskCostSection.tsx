@@ -35,7 +35,12 @@
  * would be inventing a distinction to look busy.
  */
 
-import type { CostAmount, SessionCostView, TaskCostView } from '@podium/client-core/viewmodels'
+import {
+  COST_HEDGE,
+  type CostAmount,
+  type SessionCostView,
+  type TaskCostView,
+} from '@podium/client-core/viewmodels'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
@@ -54,7 +59,11 @@ import { approxUsd, exactUsd, floorLabel, rateLabel } from './cost-format'
  * the two numbers is on screen, once, under the headline — which is the only
  * place a reader who is about to quote the figure will see it.
  */
-export const COST_HEDGE = 'at list price for the same tokens — not what you were billed'
+// Re-exported, not re-declared: the canonical wording lives in the viewmodel
+// beside the one price table, and the deck's chip imports it from there. Two
+// copies of the one sentence this feature singled out as single-source would
+// drift on the first edit to either.
+export { COST_HEDGE }
 
 /**
  * The Cost section's own meta: the TENSE of the figure below it.

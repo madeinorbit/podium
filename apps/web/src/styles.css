@@ -12408,7 +12408,11 @@ button.waterfall-fold:hover {
   gap: 4px 14px;
   margin-top: 6px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  /* The shell's floor, not a size of this legend's own. A hardcoded 10px here
+     is a sub-floor rule the type gate rejects, and it would also stop tracking
+     the compact theme, where the floor is deliberately held at 10.5px while
+     everything above it steps down. */
+  font-size: var(--shell-type-micro);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -12417,7 +12421,7 @@ button.waterfall-fold:hover {
   color: var(--text-strong);
 }
 
-/* The legend's key back to the rail. 7px square at 10px type sits on the
+/* The legend's key back to the rail. 7px square at the micro floor sits on the
    x-height rather than the baseline, so it reads as part of the label. */
 .cost-swatch {
   display: inline-block;

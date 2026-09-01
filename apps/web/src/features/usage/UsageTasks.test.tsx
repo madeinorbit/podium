@@ -24,21 +24,32 @@ const model = (over: Partial<CostModelTotalWire> = {}): CostModelTotalWire => ({
   ...over,
 })
 
-const row = (over: Partial<TaskCostRowWire> = {}): TaskCostRowWire =>
-  ({
-    issueId: `iss_${over.seq ?? 1}`,
+const row = (over: Partial<TaskCostRowWire> = {}): TaskCostRowWire => {
+  const models = over.models ?? [model()]
+  const messages = over.messages ?? 100
+  return {
+    // The one cast, and only over the brand: a whole-object `as` here let this
+    // fixture go on compiling while the wire grew `rollupModels`, and the tests
+    // only found out at runtime.
+    issueId: `iss_${over.seq ?? 1}` as TaskCostRowWire['issueId'],
     seq: 1,
     title: 'A task',
     stage: 'in_progress',
-    models: [model()],
-    messages: 100,
+    models,
+    messages,
     windowModels: [model()],
     windowMessages: 100,
+    // Every fixture here is a LEAF unless it says otherwise, so its rollup is
+    // its own. The sheet ranks on own cost and reads the rollup only for the
+    // Rate column, which is exactly the pairing that has to stay honest.
+    rollupModels: models,
+    rollupMessages: messages,
     sessionCount: 2,
     floor: 'none',
     harnesses: ['claude-code'],
     ...over,
-  }) as TaskCostRowWire
+  }
+}
 
 const feedOf = (wire: TaskCostRowWire[]): TaskCostsFeed => {
   const priced = taskCostRows(wire)
