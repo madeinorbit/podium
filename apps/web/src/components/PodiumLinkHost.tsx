@@ -132,9 +132,15 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
 
   // Startup addresses are captured before createRouter can normalize its
   // unknown path to /workspace. Keep retrying while replica rows arrive: refs,
-  // sessions and artifact panel entries all need live data to resolve.
+  // sessions and artifact panel entries all need live data to resolve. Stop at
+  // an unresolved head so a later URL cannot overtake it and become the wrong
+  // final destination.
   useEffect(() => {
-    pendingHrefs.current = pendingHrefs.current.filter((href) => !activatePodiumHref(href))
+    while (pendingHrefs.current.length > 0) {
+      const href = pendingHrefs.current[0]
+      if (href === undefined || !activatePodiumHref(href)) break
+      pendingHrefs.current.shift()
+    }
   }, [issues, sessions, pendingRevision])
 
   // Native capture and window focus belong to POD-1710. This is the narrow web
