@@ -230,3 +230,61 @@ each, in their own worktree created with `bun run setup:worktree`, with a brief 
 files, the checklist, their uncovered-method list, the decision command, the freeze lock name
 while it is held, and the spec's §6.1 and §7. One reviewer per wave, two for the five large
 repositories and the flip.
+
+## 7. Which parts depend on the engine decision
+
+Two scenarios are open: **B**, Postgres in the cloud and SQLite self-hosted (the spec as written),
+and **A**, Postgres everywhere, with PGlite embedded for desktop and starter installs and real
+Postgres for scale. This section says what stays, what changes, and what can start now.
+
+### 7.1 The query layer is the same choice in both scenarios
+
+Under A, converting repositories to drizzle's Postgres tables would mean nothing converted can
+run until the engine switches, so all 34 repositories, the schema, the journal and the cutover
+tool would land in one branch: the v3 shape. A dialect-neutral builder (Kysely) keeps
+per-repository landing under both scenarios: the converted repository runs on bun:sqlite today
+and on PGlite or Postgres after a driver swap, and after the switch nothing forces a second
+conversion. So the query layer is decided independently of the engine, and the PGlite spike
+decides the engine only.
+
+### 7.2 What stays, what changes
+
+| Part | Same in both | Changes under A | Changes under B |
+|---|---|---|---|
+| Spec kernel design: unit of work, post-commit mechanisms, admission, mutable-state models, live grants | yes | | |
+| Executor prototype: scheduler port with lanes, token, ambient routing, harness | yes (port) | the driver implementation delegates to PGlite's own transaction mutex | the driver implementation is our size-one queue |
+| Phase 0: attribution seam, repos-cache invalidation, transaction lint, writer guard, step 9, sync-adapter table injection, corrupt-blob test, coverage run, measurements | yes | seam wraps the PGlite instance instead of the raw bun:sqlite client | |
+| Phase 0: shared schema edits | column-mode decisions carry over | schema file becomes Postgres tables; no `ord` work (identity columns) | `ord` migrations, SQLite table forms |
+| Phase A: per-repository conversion, waves, checklist, lint as proof | yes (with a dialect-neutral builder) | lint drops the SQLite-construct list; the cutover lands after the last repository | SQLite-construct list stays; twin later |
+| B-prep: hidden reads, array callbacks, timers, mutable state, I/O in spans, read scope, `openTestStore`, await-prep | yes, entirely | | |
+| The flip: port types, codemod, freeze, modules | yes | | |
+| Post-flip list: lifecycle, watchdog, ADRs | yes | exclusive operations become dump and reload, not checkpoint and file copy | file-level subsystem through the scheduler |
+| Feed-head allocator | one design | one implementation | two (`sqlite_sequence` stays; Postgres head row) |
+| Full-text search | behind a port | `tsvector` once | FTS5 plus the port |
+| Migrations journal | drizzle-kit | new Postgres journal from a baseline; cutover imports data | SQLite journal unchanged |
+| Durability, transfer, snapshots, Litestream plan | | rewritten on datadir dump and reload; our own lock and crash recovery | unchanged |
+| Cutover of existing installs | | mandatory for every install, at the switch | cloud only, later |
+| Stage B′ and the Postgres epic | | shrink to "real Postgres is a driver plus operations" | full: schema twin, journal, search port, cutover |
+
+### 7.3 What can start now, regardless
+
+Engine-independent and already specified:
+
+1. The measurements baseline against today's store (query count per request, frames per burst).
+2. The coverage run over `store/**` and the per-repository uncovered-method lists.
+3. The corrupt-blob table test against today's behaviour, all 23 columns.
+4. Step 9: retiring the boot upgrades, which is deletion of legacy heals.
+5. Store-owned invalidation for the repos registry cache (5b).
+6. The sync adapter's table injection.
+7. The executor prototype with the scheduler port, token, ambient routing, post-commit
+   mechanisms and the interleaving harness, first implementation on bun:sqlite; the PGlite spike
+   plugs a second implementation into the same harness.
+8. B-prep categories 1 to 5 as soon as the prototype fixes the read-scope and transact shapes.
+9. The Postgres half of the vertical slice: the feed-head allocator and locks on real Postgres,
+   with PGlite as the test backend, needed in both scenarios.
+10. The PGlite spike itself, in parallel with all of the above.
+
+Waiting for the engine decision: the schema file's form, the `ord` migrations, the
+SQLite-construct lint list, the durability and transfer rewrite, the cutover tool, and the shape
+of Stage B′. Waiting for the query-layer decision: Phase A's first conversion and the writer-guard
+replacement pattern (5d).
