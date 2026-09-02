@@ -193,13 +193,19 @@ export function resolveLaneAgainst(
 }
 
 async function collectLaneFiles(): Promise<string[]> {
-  const proc = Bun.spawn(vitestCommand(['list', '--filesOnly', '--json']), {
+  // The list goes through a file, not the pipe. Vitest exits as soon as it has written,
+  // and a piped stdout is not drained by then once the list passes the pipe buffer —
+  // a long checkout path takes it well past 200 KB — so the JSON arrived cut mid-string
+  // and the gate died before it measured anything (podium-cloud PDM-47).
+  const listPath = join(dirname(REPORT_PATH), 'lean-gate-files.json')
+  mkdirSync(dirname(listPath), { recursive: true })
+  const proc = Bun.spawn(vitestCommand(['list', '--filesOnly', `--json=${listPath}`]), {
     cwd: repositoryRoot,
-    stdio: ['ignore', 'pipe', 'inherit'],
+    stdio: ['ignore', 'ignore', 'inherit'],
   })
-  const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
+  const code = await proc.exited
   if (code !== 0) throw new Error(`vitest list exited ${code}; cannot measure the lean gate`)
-  const entries = JSON.parse(stdout) as { file: string }[]
+  const entries = JSON.parse(readFileSync(listPath, 'utf8')) as { file: string }[]
   // Absolute paths come back from Vitest; the gate speaks repository-relative.
   return entries.map((entry) => entry.file.slice(repositoryRoot.length))
 }
