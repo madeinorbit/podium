@@ -7,6 +7,7 @@ import { asMachineId, type MachineId } from '@podium/model/browser'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { pageBuildVersion } from './build-version'
 import { installGlobalHandlers } from './global-handlers'
+import { UPDATE_LOG_FLOORS } from './update-logs'
 
 /**
  * THE WEB'S SHARE of client logging: what only a browser knows.
@@ -26,6 +27,10 @@ import { installGlobalHandlers } from './global-handlers'
  * `version` is the product string (`PODIUM_APP_VERSION` or `dev+<sha>`), not
  * the chunk hash. It is resolved synchronously, before the first record —
  * see ./build-version.
+ *
+ * It also declares {@link UPDATE_LOG_FLOORS}. That is a web decision rather than
+ * a client-core one on purpose: the namespaces are this bundle's own, and the
+ * phone answers the same questions under different names.
  */
 
 export type { LogTransport }
@@ -57,6 +62,9 @@ const machineIdOf = (options: WebLoggingOptions): MachineId | undefined => {
 export function installWebLogging(options: WebLoggingOptions): () => void {
   const platform = detectPlatform()
   const logging = installClientLogging({
+    // Before the spread, so a caller may still say something else — a test that
+    // wants the floors off, or a future surface with its own set.
+    floors: UPDATE_LOG_FLOORS,
     ...options,
     role: options.role ?? detectRole(),
     version: options.version ?? pageBuildVersion(),

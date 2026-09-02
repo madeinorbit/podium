@@ -124,9 +124,11 @@ import {
   type LogLevel,
   type LogRecord,
   meetsThreshold,
+  moreVerbose,
+  namespaceFloor,
   type RingBufferSink,
-  setLogLevel,
   type Sink,
+  setLogLevel,
 } from '@podium/logger'
 
 /**
@@ -250,6 +252,31 @@ const DEFAULT_RING_CAPACITY = 500
  * this floor entirely; see `forwardSink.write`.
  */
 export const STEADY_FORWARD_LEVEL: LogLevel = 'warn'
+
+/**
+ * THE STEADY FLOOR IS PER-NAMESPACE, NOT ONE NUMBER (POD-3224).
+ *
+ * `warn` is the right default for a daemon's own chatter and the wrong one for
+ * the handful of namespaces whose whole purpose is to be read later — the update
+ * path above all. A grant that downloaded, verified, swapped and restarted
+ * writes five `info` lines on the machine doing the work, and before this every
+ * one of them stayed on that machine: the operator asking "what did ludovico
+ * actually do?" was answered by silence unless they had already raised the
+ * daemon before the update they wanted to understand.
+ *
+ * So the floor a composition root declares with `setNamespaceFloor` lifts the
+ * steady stream too. That keeps the declaration in ONE place — the namespace is
+ * either worth more than the default or it is not, and a second table here could
+ * only disagree with the first.
+ *
+ * It stays bounded by construction, because the floor is `info` and the update
+ * path's per-tick records are `debug`: what ships is the lifecycle, not the
+ * progress.
+ */
+function steadyLevelFor(ns: string): LogLevel {
+  const floor = namespaceFloor(ns)
+  return floor === null ? STEADY_FORWARD_LEVEL : moreVerbose(STEADY_FORWARD_LEVEL, floor)
+}
 
 /**
  * The most recorder records one error drags along with it.
@@ -486,7 +513,7 @@ export function installDaemonLogForwarding(
         if (sending && forwarding()) drop(1)
         return
       }
-      if (!raised && !meetsThreshold(record.level, STEADY_FORWARD_LEVEL)) return
+      if (!raised && !meetsThreshold(record.level, steadyLevelFor(record.ns))) return
       // AN ERROR CARRIES THE MINUTE THAT EXPLAINS IT. Only outside a raise: a
       // raise is already shipping that minute record by record, and prepending
       // it again would duplicate the stream against itself. `exclude` is this

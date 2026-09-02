@@ -1,4 +1,10 @@
-import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
+import {
+  addSink,
+  type LogRecord,
+  resetLogging,
+  setLogLevel,
+  setNamespaceFloor,
+} from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   RELOAD_HANDSHAKE_BUDGET_MS,
@@ -176,7 +182,14 @@ describe('startReloadHandshake', () => {
     await run.promise
     expect(run.reload).toHaveBeenCalledTimes(1)
     expect(run.statuses.at(-1)).toMatchObject({ phase: 'reloading', canReset: false })
-    expect(logged.at(-1)).toMatchObject({ level: 'info', via: 'handshake', signal: 'activated' })
+    // The OUTCOME carries WHAT and HOW in one record (POD-3224).
+    expect(logged.at(-1)).toMatchObject({
+      level: 'info',
+      outcome: 'reloading',
+      trigger: 'panel',
+      via: 'handshake',
+      signal: 'activated',
+    })
   })
 
   it('reloads when the browser reports that the replacement controls the page', async () => {
@@ -187,6 +200,8 @@ describe('startReloadHandshake', () => {
     expect(run.reload).toHaveBeenCalledTimes(1)
     expect(logged.at(-1)).toMatchObject({
       level: 'info',
+      outcome: 'reloading',
+      trigger: 'panel',
       via: 'handshake',
       signal: 'controllerchange',
     })
@@ -262,5 +277,82 @@ describe('startReloadHandshake', () => {
     expect(outcome.outcome).toBe('failed')
     expect(run.reload).not.toHaveBeenCalled()
     expect(run.statuses.at(-1)).toMatchObject({ phase: 'failed', canReset: true })
+  })
+})
+
+/**
+ * WHAT REACHES THE OPERATOR (POD-3224).
+ *
+ * These pin the forwarding contract rather than the handshake's behaviour: on a
+ * client at its shipped posture — global `warn`, `web:reload` floored to `info`
+ * — every click must leave exactly one record, and it must be the OUTCOME. The
+ * defect this replaces is the opposite of a missing log: the phases were all
+ * there, at `info`, on a client that forwarded `warn` and above.
+ */
+describe('what the handshake forwards', () => {
+  /** The shipped posture: `warn` everywhere, this namespace floored to `info`. */
+  function atClientDefaults(): void {
+    setLogLevel('warn')
+    setNamespaceFloor('web:reload', 'info')
+  }
+
+  it('writes exactly one record per click at the shipped client posture', async () => {
+    atClientDefaults()
+    logged.length = 0
+    const run = harness()
+    run.replacement.setState('activated')
+    await run.promise
+
+    const forwarded = logged.filter((record) => record.ns === 'web:reload')
+    expect(forwarded).toHaveLength(1)
+    expect(forwarded[0]).toMatchObject({
+      level: 'info',
+      outcome: 'reloading',
+      trigger: 'panel',
+      via: 'handshake',
+      signal: 'activated',
+    })
+    // A phase is progress, not news: it must not be on the wire.
+    expect(forwarded.some((record) => 'phase' in record)).toBe(false)
+  })
+
+  it('forwards a click that did NOT navigate, at warn', async () => {
+    atClientDefaults()
+    logged.length = 0
+    const run = harness({ withWaiting: false })
+    const outcome = await run.promise
+
+    expect(outcome.outcome).toBe('no-replacement')
+    expect(run.reload).not.toHaveBeenCalled()
+    const forwarded = logged.filter((record) => record.ns === 'web:reload')
+    expect(forwarded).toHaveLength(1)
+    expect(forwarded[0]).toMatchObject({ level: 'warn', outcome: 'no-replacement' })
+  })
+
+  it('names who asked, so the three callers are told apart', async () => {
+    atClientDefaults()
+    logged.length = 0
+    const reload = vi.fn()
+    await startReloadHandshake({ serviceWorker: undefined, trigger: 'recovery', reload })
+    expect(logged.at(-1)).toMatchObject({
+      trigger: 'recovery',
+      outcome: 'reloading',
+      via: 'direct',
+    })
+  })
+
+  it('keeps every phase for the flight recorder and for a raise', async () => {
+    setLogLevel('debug')
+    logged.length = 0
+    const run = harness()
+    run.replacement.setState('activated')
+    await run.promise
+
+    const phases = logged
+      .filter((record) => record.level === 'debug')
+      .map((record) => (record as { phase?: unknown }).phase)
+      .filter((phase): phase is string => typeof phase === 'string')
+    expect(phases).toContain('waiting')
+    expect(phases).toContain('reloading')
   })
 })

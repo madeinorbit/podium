@@ -5,6 +5,7 @@ import { LoginGate } from '@/features/setup/LoginGate'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { startWebLogging } from '@/lib/logging'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { navigateReload } from '@/lib/navigate'
 import { startupPodiumHref, startupPodiumRouteHref } from '@/lib/podium-link'
 import { AppShell } from './AppShell'
 import { AppStarted } from './AppStarted'
@@ -78,7 +79,7 @@ function PayloadUnavailablePage({ reason }: { reason?: string }): JSX.Element {
       }}
       secondary={{
         label: 'Try again',
-        onClick: () => window.location.reload(),
+        onClick: () => navigateReload('boot-notice', 'replica-repair-retry'),
       }}
     />
   )

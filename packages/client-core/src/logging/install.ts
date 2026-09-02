@@ -9,6 +9,7 @@ import {
   type LogRecord,
   removeSink,
   setLogLevel,
+  setNamespaceFloor,
   setProcessContext,
 } from '@podium/logger'
 import type { MachineId } from '@podium/model'
@@ -34,6 +35,11 @@ import { setActiveCrashReporter } from './runtime'
  * | console | follows config (`warn` by default) | the developer looking now |
  * | ring buffer | `trace`, always | the flight recorder |
  * | forwarding | follows config (`warn` by default) | the operator later |
+ *
+ * ...with one deliberate exception to "`warn` by default": {@link
+ * ClientLoggingOptions.floors} names namespaces that are worth more than that
+ * permanently, which is how the update path's own trace reaches the operator's
+ * server at all.
  *
  * The ring buffer is what makes `debug` worth writing in this codebase: those
  * records cost memory and nothing else until a crash fires, at which point they
@@ -80,6 +86,29 @@ export interface ClientLoggingOptions {
   platform?: string
   /** Client default. Spec: `warn`. */
   level?: LogLevel
+  /**
+   * NAMESPACES WORTH MORE THAN THE CLIENT DEFAULT — `{ 'web:updates*': 'info' }`.
+   *
+   * The client default is `warn` and that is right for a browser: nobody is
+   * reading, and everything written is also being POSTed. It is wrong for the
+   * few namespaces whose readers are all in the future. The update path is the
+   * one this arrived for: `reload-handshake.ts` narrated every phase of every
+   * Reload click at `info`, and not one of those lines ever left the tab, so
+   * every question about what a click did was answered by a shrug (POD-3224).
+   *
+   * A FLOOR, not an override, and the difference matters here more than
+   * anywhere: an operator who raises this client to `debug` is almost always
+   * doing it to watch exactly these namespaces, and a most-specific-wins rule
+   * would have capped them at `info` at the moment of asking. See
+   * `setNamespaceFloor`.
+   *
+   * Because the forwarding sink pins no threshold of its own, a floor lifts what
+   * is FORWARDED and what is printed together — the same one-knob property the
+   * boot level has. Keeping that affordable is a call-site obligation: what goes
+   * at `info` is a transition or an outcome, and anything that repeats on a
+   * timer goes at `debug`, where it costs the flight recorder and nothing else.
+   */
+  floors?: Readonly<Record<string, LogLevel>>
   ringCapacity?: number
   /** Off in tests, where a captured record is the assertion. */
   console?: boolean
@@ -126,6 +155,8 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
   })
   const boot = options.level ?? 'warn'
   setLogLevel(boot)
+  const floors = Object.entries(options.floors ?? {})
+  for (const [pattern, level] of floors) setNamespaceFloor(pattern, level)
   // The boot level is captured HERE because this is the only place that knows
   // it: an operator's reset says "back to your default" rather than naming one,
   // so a later change to that default cannot strand a stale level in somebody's
@@ -182,6 +213,7 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
     snapshot: () => ring.snapshot(),
     flush: () => forwarding.flush(),
     dispose: () => {
+      for (const [pattern] of floors) setNamespaceFloor(pattern, null)
       setActiveCrashReporter(null)
       setActiveLevelController(null)
       levels.dispose()

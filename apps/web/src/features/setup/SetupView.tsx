@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { navigateReload } from '@/lib/navigate'
 import { NetworkStep, type SetupCompleteInput } from './network-step'
 
 export { NetworkStep, quickTunnelWarning, reachablePort } from './network-step'
@@ -354,7 +355,11 @@ export function SetupView({
           <p className="text-[13px] text-muted-foreground">{activationNote}</p>
         ) : null}
         {error ? <p className="text-[13px] text-destructive">{error}</p> : null}
-        <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => navigateReload('setup', 'setup-retry')}
+        >
           Retry
         </Button>
       </div>
@@ -372,7 +377,11 @@ export function SetupView({
             here.
           </p>
         </div>
-        <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => navigateReload('setup', 'setup-retry')}
+        >
           Retry
         </Button>
       </div>

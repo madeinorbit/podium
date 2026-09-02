@@ -31,10 +31,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'reac
 import { useRegisterSW } from '@/app/pwa-register'
 import { serverConfig } from '@/app/trpc'
 import { forceReload } from '@/lib/force-reload'
+import { swLog, updatesLog } from '@/lib/logging/update-logs'
+import { navigateReload } from '@/lib/navigate'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
-import { startReloadHandshake, type ReloadHandshakeStatus } from './reload-handshake'
+import { type ReloadHandshakeStatus, startReloadHandshake } from './reload-handshake'
 import { UpdatePanel } from './UpdatePanel'
 import { publishUpdates, resetUpdates, type UpdatesContextValue } from './updates-panel-context'
 import { type PanelActionKind, useUpdateState } from './use-update-state'
@@ -56,21 +58,61 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     },
   })
 
+  /**
+   * THE PERIODIC CHECK, AND ITS REJECTION (POD-3224).
+   *
+   * `void registration.update()` was an UNHANDLED REJECTION on every server
+   * restart: the check goes out over the wire, the coordinator is mid-handover,
+   * and the browser rejects with `Failed to update a ServiceWorker … 502`. It
+   * reached the client log as a `web:crash` entry with no explanation, once per
+   * minute per open tab for the length of the outage.
+   *
+   * This is the one behaviour change POD-3224 makes, and it is a containment
+   * rather than a decision: the check is attempted exactly as often, against
+   * exactly the same registration, and only its answer is now read. A rejection
+   * is `debug` because during a restart it is EXPECTED and is one per minute per
+   * tab; the flight recorder keeps it, and it stops being a crash report.
+   */
+  const checkForUpdate = useCallback(
+    (why: 'interval' | 'visible'): void => {
+      if (!registration) return
+      const startedAt = Date.now()
+      void registration
+        .update()
+        .then(() => {
+          swLog.debug('periodic service-worker update check finished', {
+            why,
+            elapsedMs: Date.now() - startedAt,
+            waiting: registration.waiting?.state ?? 'none',
+            installing: registration.installing?.state ?? 'none',
+          })
+        })
+        .catch((err: unknown) => {
+          swLog.debug('periodic service-worker update check was rejected', {
+            why,
+            elapsedMs: Date.now() - startedAt,
+            err,
+          })
+        })
+    },
+    [registration],
+  )
+
   useEffect(() => {
     if (!registration) return
-    const timer = window.setInterval(() => void registration.update(), UPDATE_CHECK_MS)
+    const timer = window.setInterval(() => checkForUpdate('interval'), UPDATE_CHECK_MS)
     return () => window.clearInterval(timer)
-  }, [registration])
+  }, [checkForUpdate, registration])
 
   // The decisive check for an installed PWA: the moment it returns to the
   // foreground, ask the service worker whether a new build shipped while hidden.
   useEffect(() => {
     const onVisible = (): void => {
-      if (document.visibilityState === 'visible') void registration?.update()
+      if (document.visibilityState === 'visible') checkForUpdate('visible')
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [registration])
+  }, [checkForUpdate])
 
   /**
    * Reloading is a STEP THE USER TAKES (§6.2.3), so it is the panel's primary
@@ -89,10 +131,13 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     const currentRegistration = registration
     await startReloadHandshake({
       serviceWorker,
+      trigger: 'panel',
       registration: currentRegistration,
       waitingWorker: currentRegistration?.waiting,
       onStatus: setReloadStatus,
-      reload: () => window.location.reload(),
+      // Through the one navigation seam, so a click that ends in a reload and a
+      // click that ends anywhere else are the same file's two possible endings.
+      reload: () => navigateReload('handshake', 'replacement-ready'),
     })
   }, [registration])
 
@@ -143,6 +188,30 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     )
   }
 
+  /**
+   * THE SITUATION AND THE COLLAPSE, WHENEVER EITHER MOVES (POD-3224).
+   *
+   * `situation` is the key the panel re-opens on and `collapsed` is whether it
+   * is showing, and the interaction between them is the reported "I pressed Hide
+   * and it flashed back converged". Logged from an effect rather than from the
+   * render that adjusts them, so a StrictMode double render does not write the
+   * line twice.
+   *
+   * `info`, because both are bounded by what the update does and by what the
+   * user presses — neither is on a timer.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: situation and collapsed are the subject; the rest is context read at the moment they move
+  useEffect(() => {
+    updatesLog.info('update panel situation', {
+      situation,
+      collapsed,
+      state: view.state,
+      indicator: view.indicator,
+      ...(view.operationId ? { operationId: view.operationId } : {}),
+      ...(activeProposal ? { proposal: activeProposal.state } : {}),
+    })
+  }, [collapsed, situation])
+
   // "Auto-collapses after a few seconds" (§6.2.4). The success announcement is
   // worth a moment and nothing more; the operation is in history either way.
   // Keyed on the situation so a SECOND finished update re-arms the timer.
@@ -162,6 +231,14 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   const open = hasPanelContent && !collapsed
 
   const hide = useCallback(() => {
+    // Hide is where the panel's two terminal behaviours meet — the latch clears
+    // and a terminal outcome is acknowledged — and it is the gesture behind the
+    // "I pressed Hide and the panel flashed back" report, so it is on the record.
+    updatesLog.info('the user hid the update panel', {
+      state: view.state,
+      ...(view.operationId ? { operationId: view.operationId } : {}),
+      acknowledging: view.state === 'failed' || view.state === 'done',
+    })
     setCollapsed(true)
     // The service worker's "a new build is ready" is a fact about THIS tab, and
     // the user has now been told. The operation keeps it alive if it matters.
@@ -169,7 +246,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     // Hiding a terminal outcome is the user saying they have seen it, so it
     // does not come back on the next poll (or the next reload).
     if (view.state === 'failed' || view.state === 'done') acknowledge()
-  }, [acknowledge, setNeedRefresh, view.state])
+  }, [acknowledge, setNeedRefresh, view.operationId, view.state])
 
   const toggle = useCallback(() => setCollapsed((current) => !current), [])
   const show = useCallback((): boolean => {
@@ -178,6 +255,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     return true
   }, [hasPanelContent])
   const resetCachedInterface = useCallback(() => {
+    updatesLog.info('the user reset the cached interface', { from: 'update-panel' })
     setReloadStatus((status) =>
       status
         ? {
@@ -188,7 +266,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
           }
         : status,
     )
-    void forceReload()
+    void forceReload('reset-cached-interface')
   }, [])
 
   // The skew banner and anything else outside this tree open the panel through
@@ -212,6 +290,11 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
 
   const onAction = useCallback(
     (kind: PanelActionKind) => {
+      // WHAT THE USER PRESSED, before anything is attempted. The result of the
+      // press is `use-update-state`'s to report; this is the half that says a
+      // human was involved at all, which is what separates a reload the app
+      // chose from one it was asked for.
+      updatesLog.info('update panel action pressed', { action: kind })
       if (kind === 'check') void checkNow()
       else void run(kind)
     },
