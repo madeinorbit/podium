@@ -526,3 +526,63 @@ Checkable at the end of Stage B, and the acceptance for this issue's tree:
   sync) against a real Postgres through the same executor interface, with no change to the
   services above them. That spike is the acceptance test of "ready", and it is listed as the
   last sub-issue of Stage B rather than the first of Stage C.
+
+## 7. Working rules for the conversion
+
+Rules for whoever converts a repository. Each one is either a generic ORM-adoption rule made
+specific to this codebase, or a trap found by checking such a rule against the code.
+
+1. **Drizzle is the default, not a religion.** Ordinary select, insert, update, delete and
+   expression composition use the query builder. `sql\`\`` fragments inside a builder query
+   (a `coalesce`, a computed order key) are fine anywhere. Whole raw statements and anything
+   dialect-specific live behind a named port (`SearchIndex` for FTS) and nowhere else. The
+   Stage B lint forbids the §1.7 construct list, not the `sql` tag itself.
+2. **Drizzle stays inside persistence.** `drizzle-orm` is imported today only from
+   `migrations/` (`index.ts`, `schema.ts`, `branded-ref.ts`). After conversion it may also be
+   imported from `store/**`, `modules/operations/store.ts` and the sync SQLite adapter, and
+   from nowhere else in `apps/server`; add that to `check-boundaries` beside the existing
+   sync-kernel rule. Repositories keep returning the domain row types in `store/types.ts`;
+   drizzle's inferred types are an implementation detail of the mapper.
+3. **The schema is the type source of truth, and brands survive.** `$type<…>()` is already on
+   134 columns, so select and insert inference carries `RepoId`, `SessionId` and the rest; the
+   limit recorded in `branded-ref.ts` is about `references()` only. That is what lets the
+   `Record<string, unknown>` reads, the 49-column hand-typed selects and the "SERIALIZATION
+   EDGE" casts go. Duplicated row interfaces go with them; the domain type stays.
+4. **`mode: 'json'` is not a drop-in for the quarantine.** Drizzle's JSON column does a bare
+   `JSON.parse` and throws on a corrupt value. `helpers.ts` exists because one corrupt blob
+   must not abort a whole table load or crash-loop boot, and eleven read sites depend on that.
+   Columns with quarantine semantics keep `text` plus `parseJsonColumn`, or get a `customType`
+   that quarantines; the five columns already declared `mode: 'json'` are only safe where a
+   throw is the intended behaviour. Decide per column, in the conversion commit.
+5. **Trust the database's types; enforce invariants in the database.** Do not re-validate every
+   row with a schema parser. Where a value is genuinely constrained (roles, state enums), the
+   CHECK constraint is the enforcement and `$type` is the annotation; 64 CHECKs already exist,
+   add one when a `$type` has no constraint behind it. Keep validating actual external
+   boundaries and JSON blobs.
+6. **Mapping with semantics stays.** A mapper line that only existed because the driver
+   returned `unknown` can go. A mapper line that is a decision (`requireUserId` failing closed,
+   the `LockSessionKey` union that refuses to brand the operator sentinel, the legacy
+   machine-id refusal) stays, and its comment stays with it. Deleting one needs a reason in
+   the commit.
+7. **Transaction semantics are preserved exactly, including the mode.** Drizzle's bun:sqlite
+   transaction defaults to `deferred`; the store runs `BEGIN IMMEDIATE` today, and the §1.8
+   probes show what deferred does under contention. The transact port issues `IMMEDIATE`
+   explicitly. Boundaries, ordering, `INSERT OR REPLACE` cascades and `ON CONFLICT` targets are
+   reviewed per statement, not assumed equivalent.
+8. **Observability moves with the queries.** The `PODIUM_LOOP_PROFILE` attribution keys on SQL
+   text and captures caller stacks at `prepare`; a drizzle `logger` sees the generated SQL and
+   parameters synchronously in the same call path, so stacks can be captured there. Generated
+   SQL text differs from the hand-written text, so historical top-query comparisons reset once.
+9. **No ORM machinery beyond the builder.** Select, insert, update, delete, expressions,
+   prepared statements and `sql`. No relational query API, no `defineRelations`, no
+   eager-loading, no generic base repository. The relational API is the part of drizzle that
+   changed most between release candidates.
+10. **Incremental, and no schema redesign in the same change.** One repository per commit with
+    the existing tests as the oracle. The schema changes this plan does call for (mode
+    declarations, an explicit primary key where a table is addressed by `rowid`) are additive,
+    each is its own migration, and none lands in the same commit as a query conversion.
+11. **No synchronous-local-SQLite assumption in any contract.** Repository and port signatures
+    are async and take an executor even while the driver underneath is synchronous, so Turso
+    or Postgres is a driver substitution and not an architecture change. This is Stage B's
+    whole reason, and it is the rule the frame caches, getters and constructor reads in §1.5
+    violate today.
