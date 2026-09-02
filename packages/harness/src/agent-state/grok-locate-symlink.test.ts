@@ -20,7 +20,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         .filter((entry) => entry.name !== census.hiddenProject)
         .map((entry) =>
           entry.name === census.forcedProjectSymlink
-            ? { ...entry, isDirectory: () => true }
+            ? { ...entry, isDirectory: (): boolean => true }
             : entry,
         )
     },

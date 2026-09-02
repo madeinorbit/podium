@@ -346,7 +346,7 @@ interface ClientTerminalGeneration {
 }
 
 interface Attachment {
-  streamId: string
+  streamId: SessionId
   label: string
   /** Which harness's client this is — the registry key `release()` asks about
    *  parking. Remembered rather than re-derived, because the record outlives

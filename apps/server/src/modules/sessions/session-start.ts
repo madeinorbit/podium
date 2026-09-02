@@ -425,7 +425,9 @@ export class SessionStart {
     const selectedAccountId =
       input.accountId !== undefined
         ? input.accountId
-        : inheritedAccountId?.startsWith('native:') && !inheritedMatchesAgent
+        : input.agentKind !== 'shell' &&
+            inheritedAccountId?.startsWith('native:') &&
+            !inheritedMatchesAgent
           ? nativeAccountId(input.agentKind)
           : inheritedAccountId
     const accountId =

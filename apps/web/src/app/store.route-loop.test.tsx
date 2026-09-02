@@ -193,6 +193,7 @@ describe('workspace deep link with unknown wt/pane', () => {
     fakeTrpc.discovery.refreshRepos.mutate.mockImplementationOnce(async () => ({
       repositories: [],
       diagnostics: [],
+      machines: [],
     }))
     await mountAt('/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=dead-beef')
     expect(renderCount).toBeLessThan(60)

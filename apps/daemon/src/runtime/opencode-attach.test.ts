@@ -1415,6 +1415,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
           throw new Error('abduco unavailable: not installed and the vendored build failed')
         },
         adopt: () => {},
+        relaunch: async () => {},
         close: async () => {},
         release: async () => {},
         viewers: () => {},

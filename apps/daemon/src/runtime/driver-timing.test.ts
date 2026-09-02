@@ -24,7 +24,9 @@ const event = (body: object, turnEpoch = 1): RuntimeEvent =>
     observerGeneration: 1,
     turnEpoch,
     ...body,
-  }) as RuntimeEvent
+    // The envelope is shared; each caller supplies the `t`/`ev` discriminant,
+    // which an `object` body cannot state to the checker.
+  }) as unknown as RuntimeEvent
 
 describe('driver timing recorder', () => {
   it('logs launch, accepted prompt, first response, and completion from monotonic clocks', () => {

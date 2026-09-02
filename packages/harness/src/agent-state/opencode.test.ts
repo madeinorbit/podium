@@ -684,7 +684,7 @@ describe('observeOpencodeState interrupted verdict', () => {
       )
       await waitFor(() =>
         events.some(
-          (event) => event.kind === 'turn_completed' && event.verdict.kind === 'interrupted',
+          (event) => event.kind === 'turn_completed' && event.verdict?.kind === 'interrupted',
         ),
       )
 
@@ -724,12 +724,11 @@ describe('observeOpencodeState interrupted verdict', () => {
       expect(events.slice(afterInterrupt)).toEqual([])
       expect(
         events.filter(
-          (event) => event.kind === 'turn_completed' && event.verdict.kind === 'interrupted',
+          (event) => event.kind === 'turn_completed' && event.verdict?.kind === 'interrupted',
         ),
       ).toHaveLength(1)
       let state = initialAgentState('2026-08-30T00:00:00.000Z')
-      for (const event of events)
-        state = reduceAgentState(state, event, event.at ?? state.updatedAt)
+      for (const event of events) state = reduceAgentState(state, event, event.at ?? state.since)
       expect(state).toMatchObject({ phase: 'idle', idle: { kind: 'interrupted' } })
 
       expect(transcriptItems.filter((item) => item.event === 'interrupt')).toEqual([
@@ -741,7 +740,7 @@ describe('observeOpencodeState interrupted verdict', () => {
             item.role === 'assistant' && (item.text === 'partial' || item.text === 'late text'),
         ),
       ).toEqual([])
-      const bootEvents = await opencodeStateProvider.bootEvents({
+      const bootEvents = await opencodeStateProvider.bootEvents!({
         cwd: '/repo/interrupt',
         homeDir: home,
         resumeValue: 'ses_interrupt',

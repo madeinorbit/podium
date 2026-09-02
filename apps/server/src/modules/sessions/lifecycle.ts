@@ -767,7 +767,7 @@ export class SessionLifecycle {
   onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
     this.daemonLifecycle.handleOutput(principal, batch)
   }
-  transcriptFor(...args: any[]): any {
+  transcriptFor(...args: any[]): TranscriptItem[] {
     return (this.sessionMetaOps as any).transcriptFor(...args)
   }
   broadcastToClients(msg: LiveServerMessage, opts: { exceptClientId?: string } = {}): void {

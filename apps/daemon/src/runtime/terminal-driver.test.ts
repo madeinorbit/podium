@@ -1538,15 +1538,17 @@ describe('observation translation', () => {
     })
 
     await vi.waitFor(() => {
+      // The narrowing to a `complete` delta does not survive into the element
+      // type, so carry the item out of the guard rather than re-reading it.
       const items = world.frames.flatMap((frame) =>
         frame.type === 'runtimeEvent' &&
         frame.event.t === 'item' &&
         frame.event.item.kind === 'complete'
-          ? [frame.event]
+          ? [{ event: frame.event, item: frame.event.item.item }]
           : [],
       )
-      expect(items.map((event) => event.item.item.id)).toEqual([user.id, assistant.id])
-      expect(items[1]).toMatchObject({ observerGeneration: 2 })
+      expect(items.map((entry) => entry.item.id)).toEqual([user.id, assistant.id])
+      expect(items[1]?.event).toMatchObject({ observerGeneration: 2 })
       expect(session.binding.bindingVersion).toBe(2)
     })
   })

@@ -314,9 +314,7 @@ export class DriverTimingRecorder {
     }
 
     if (event.t === 'item') {
-      const response =
-        event.item.kind === 'delta' ||
-        (event.item.kind !== 'delta' && event.item.item.role === 'assistant')
+      const response = event.item.kind === 'delta' || event.item.item.role === 'assistant'
       if (!response) return
       prompt ??= claimPending()
       if (!prompt || prompt.firstResponse) return

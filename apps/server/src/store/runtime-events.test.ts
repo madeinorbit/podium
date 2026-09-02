@@ -166,53 +166,52 @@ describe('durable runtime observation gate', () => {
     })
     // Shape emitted by TerminalRuntime for a native Grok transcript tail: the
     // provider item identity rides inside a complete runtime item event.
-    const items = [
-      {
-        id: 'grok-message-user-1',
-        cursor: 'grok:messages.jsonl:0:91',
-        role: 'user' as const,
-        text: 'IDLE-DC53VW',
-        ts: '2026-08-23T00:00:01.000Z',
-      },
-      {
-        id: 'grok-message-assistant-1',
-        cursor: 'grok:messages.jsonl:92:207',
-        role: 'assistant' as const,
-        text: 'Bridge control reply',
-        ts: '2026-08-23T00:00:02.000Z',
-      },
-    ]
+    const userItem = {
+      id: 'grok-message-user-1',
+      cursor: 'grok:messages.jsonl:0:91',
+      role: 'user' as const,
+      text: 'IDLE-DC53VW',
+      ts: '2026-08-23T00:00:01.000Z',
+    }
+    const assistantItem = {
+      id: 'grok-message-assistant-1',
+      cursor: 'grok:messages.jsonl:92:207',
+      role: 'assistant' as const,
+      text: 'Bridge control reply',
+      ts: '2026-08-23T00:00:02.000Z',
+    }
+    const items = [userItem, assistantItem]
     // Either alias is sufficient: provider-derived ids can drift while cursors
     // stay stable, and a rewritten record can rotate its cursor under one id.
-    expect(mergeTranscriptItems([{ ...items[0], id: 'derived-user-id' }], [items[0]], 50)).toEqual([
-      items[0],
+    expect(mergeTranscriptItems([{ ...userItem, id: 'derived-user-id' }], [userItem], 50)).toEqual([
+      userItem,
     ])
     expect(
-      mergeTranscriptItems([{ ...items[0], cursor: 'grok:old-cursor' }], [items[0]], 50),
-    ).toEqual([items[0]])
+      mergeTranscriptItems([{ ...userItem, cursor: 'grok:old-cursor' }], [userItem], 50),
+    ).toEqual([userItem])
     // An unmatched older runtime row must not displace the true newest provider
     // row after cursor-based overlap is collapsed, and hasMore reflects the two
     // logical rows rather than the three physical inputs.
     expect(
       mergeLatestTranscriptPage(
-        [{ ...items[1], id: 'provider-derived-assistant' }],
+        [{ ...assistantItem, id: 'provider-derived-assistant' }],
         [
           {
-            ...items[0],
+            ...userItem,
             id: 'older-runtime-only',
             cursor: 'grok:older-runtime-only',
           },
-          items[1],
+          assistantItem,
         ],
         1,
       ),
-    ).toEqual({ items: [items[1]], hasMore: true })
+    ).toEqual({ items: [assistantItem], hasMore: true })
     // The same shared merge bounds both the visible transcript and the runtime
     // overlay; the oldest row falls away while the newest rows survive.
     expect(
       mergeTranscriptItems(
         [],
-        [{ ...items[0], id: 'oldest', cursor: 'grok:0' }, items[0], items[1]],
+        [{ ...userItem, id: 'oldest', cursor: 'grok:0' }, userItem, assistantItem],
         2,
       ),
     ).toEqual(items)
@@ -272,7 +271,7 @@ describe('durable runtime observation gate', () => {
     registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'transcriptDelta',
       sessionId,
-      items: [items[0]],
+      items: [userItem],
       reset: true,
     })
     for (const [index, item] of items.entries()) {
@@ -305,7 +304,7 @@ describe('durable runtime observation gate', () => {
     expect(newest).toHaveLength(1)
     expect(newest[0]).toMatchObject({
       t: 'item',
-      item: { kind: 'complete', item: items[1] },
+      item: { kind: 'complete', item: assistantItem },
     })
 
     registry.dispose()

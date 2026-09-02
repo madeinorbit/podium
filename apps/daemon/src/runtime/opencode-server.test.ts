@@ -556,6 +556,7 @@ describe('the version gate, as the daemon reads it', () => {
         sessionId: SESSION,
         workdir: '/tmp',
         secret: 'secret',
+        username: 'podium',
       }),
     ).rejects.toBe(stopped)
 

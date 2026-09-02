@@ -90,6 +90,7 @@ async function createCloseHost(
       acknowledgeRuntimeEvent: () => {},
       testAgentRuntime: runtime,
       testServerReapIo: io,
+      isConnected: () => true,
     })
     return { host, sent, cleanup }
   } catch (error) {

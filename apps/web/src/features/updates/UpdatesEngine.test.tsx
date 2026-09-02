@@ -2,7 +2,7 @@
  * Hide → indicator → reopen, which is the whole point of POD-2102's §6.1: the
  * old dialog's Hide set component state and the update became unreachable.
  */
-import type { ReleaseProposal } from '/protocol'
+import type { ReleaseProposal } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
