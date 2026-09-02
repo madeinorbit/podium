@@ -240,15 +240,19 @@ describe('ChatView headless mode', () => {
     expect(container.textContent?.split('one Grok answer')).toHaveLength(2)
   })
 
-  it('gates the composer on the running turn, not PTY status', async () => {
+  // POD-3219: the gate is on the SEND. The textarea itself is never disabled —
+  // the operator can keep writing while the turn runs and send when it ends.
+  it('gates the send on the running turn, not PTY status, and never the box', async () => {
     storeSessions = [meta({ status: 'exited' })] // PTY status must be ignored
     mount()
     await flush()
     expect(textarea().disabled).toBe(false)
+    expect(textarea().placeholder).not.toContain('Working')
     push({ kind: 'turn-start' })
-    expect(textarea().disabled).toBe(true)
-    push({ kind: 'turn-end' })
     expect(textarea().disabled).toBe(false)
+    expect(textarea().placeholder).toContain('Working')
+    push({ kind: 'turn-end' })
+    expect(textarea().placeholder).not.toContain('Working')
   })
 
   it('starts gated for a late-joining client when the query says the turn is running', async () => {
@@ -263,7 +267,7 @@ describe('ChatView headless mode', () => {
       )
     })
     await flush()
-    expect(textarea().disabled).toBe(true)
+    expect(textarea().disabled).toBe(false)
     expect(textarea().placeholder).toContain('Working')
     expect(container.querySelector('[data-tail="working"]')?.textContent).toContain('Working')
     expect(container.querySelector('[title="Stop this turn"]')).not.toBeNull()

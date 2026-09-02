@@ -484,8 +484,10 @@ export function lastAnswer(blocks: readonly ChatBlock[]): LastAnswer {
 // ---------------------------------------------------------------------------
 
 export interface ComposerState {
-  /** The composer takes input. */
-  readonly enabled: boolean
+  /** A send from the composer would be delivered right now (or would wake the
+   *  session and then be delivered). This gates SENDING only: the box itself is
+   *  always writable, because typing is local and a draft is never refused. */
+  readonly deliverable: boolean
   /** The session can take text straight through. */
   readonly sendable: boolean
   /** Parked but recoverable — submitting wakes it and the text is delivered. */
@@ -523,9 +525,9 @@ export function composerState(input: {
   // message queues behind the first — but it must not keep offering to do the
   // thing it is already doing.
   const waking = sessionWaking(session)
-  // Headless: PTY status is meaningless — the composer is open whenever no turn
-  // is running (a turn is one queued unit; the server rejects overlap anyway).
-  const enabled = headless ? !archived && !turnRunning : sendable || canResume
+  // Headless: PTY status is meaningless — a send goes whenever no turn is
+  // running (a turn is one queued unit; the server rejects overlap anyway).
+  const deliverable = headless ? !archived && !turnRunning : sendable || canResume
   const placeholder = headless
     ? archived
       ? 'Session is archived.'
@@ -549,7 +551,7 @@ export function composerState(input: {
             ? 'Message — resumes the agent…'
             : 'Session is not running.'
   return {
-    enabled,
+    deliverable,
     sendable,
     canResume,
     placeholder,

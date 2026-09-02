@@ -519,7 +519,7 @@ export function SessionConversation({
             value={conversation.draft}
             onChangeText={conversationController.setDraft.bind(conversationController)}
             caption={transcriptStatus}
-            disabled={!composer.enabled}
+            sendDisabled={!composer.deliverable}
             draftInsertion={draftInsertion}
             attachments={attachments}
             onRestingHeight={setComposerHeight}

@@ -123,7 +123,7 @@ function ScopedChatComposer({
       taRef={chat.taRef}
       draft={draft}
       onDraftChange={setDraft}
-      enabled={chat.composer.enabled}
+      deliverable={chat.composer.deliverable}
       placeholder={chat.composer.placeholder}
       compact={compact}
       isMobile={chat.isMobile}

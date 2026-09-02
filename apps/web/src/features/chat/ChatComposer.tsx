@@ -110,7 +110,7 @@ export function ChatComposer({
   taRef,
   draft,
   onDraftChange,
-  enabled,
+  deliverable,
   placeholder,
   compact,
   isMobile,
@@ -138,7 +138,11 @@ export function ChatComposer({
   taRef: RefObject<HTMLTextAreaElement | null>
   draft: string
   onDraftChange: (text: string) => void
-  enabled: boolean
+  /** A send would be delivered now. Gates the send button, the Enter chords and
+   *  the offer bar — NEVER the textarea (POD-3219). Typing is local; a draft is
+   *  kept whatever the session is doing, so the box stays writable through a
+   *  reconnect, a load gap, an ended session and a running headless turn. */
+  deliverable: boolean
   placeholder: string
   compact: boolean
   isMobile: boolean
@@ -228,15 +232,16 @@ export function ChatComposer({
     lastInterruptEscapeAt.current = null
   }, [autoFocusKey])
 
-  // Autofocus the composer when the chat view becomes active for a session that
-  // can take input, so the user can type straight away. Gated on an enabled
-  // composer and a settled transcript. Desktop only: forcing focus on mobile
-  // would pop the soft keyboard over the conversation unbidden.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: focus on session switch / enable
+  // Autofocus the composer when the chat view becomes active, so the user can
+  // type straight away. Gated on a settled transcript only: the box is always
+  // writable, so there is no "cannot take input" state to wait out. Desktop
+  // only: forcing focus on mobile would pop the soft keyboard over the
+  // conversation unbidden.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focus on session switch
   useEffect(() => {
-    if (isMobile || !enabled || !transcriptSettled) return
+    if (isMobile || !transcriptSettled) return
     taRef.current?.focus()
-  }, [autoFocusKey, enabled, transcriptSettled, isMobile])
+  }, [autoFocusKey, transcriptSettled, isMobile])
 
   // Auto-grow the composer with its content, capped by the max-height (~8
   // lines), after which it scrolls. Runs on every draft change.
@@ -311,7 +316,7 @@ export function ChatComposer({
   // Both lists are capped: the menu is a shortlist, and a menu long enough to
   // scroll past a screen is a search result, which is a different feature.
   const issues = useReplicaIssues()
-  const trigger = useAtTrigger({ taRef, enabled })
+  const trigger = useAtTrigger({ taRef, enabled: deliverable })
   const issueOptions = useMemo(
     () => (trigger.query === null ? [] : issueMentions(issues, trigger.query, 5)),
     [issues, trigger.query],
@@ -320,7 +325,7 @@ export function ChatComposer({
     query: trigger.query,
     root: session?.cwd,
     machineId: session?.machineId,
-    enabled,
+    enabled: deliverable,
   })
   // Issues first, then files: an issue row is the shorter list and the surer
   // match, and a mention that looks like a ref finds no files anyway.
@@ -328,7 +333,16 @@ export function ChatComposer({
   const mention = useAtMenu({ trigger, taRef, value: draft, onChange: onDraftChange, options })
 
   const sendDisabled =
-    !enabled || (!draft.trim() && attachments.attachments.length === 0) || attachments.uploading
+    !deliverable ||
+    (!draft.trim() && attachments.attachments.length === 0) ||
+    attachments.uploading
+  // The keyboard's send. The textarea is never disabled, so Enter reaches this
+  // handler in every state and the send gate has to be applied here — the
+  // button gets it for free from its `disabled` attribute.
+  const sendFromKeyboard = (): void => {
+    if (sendDisabled) return
+    onSend()
+  }
 
   /**
    * THE ACTION CLUSTER, HOISTED (POD-993) — one definition, two placements.
@@ -499,7 +513,7 @@ export function ChatComposer({
         <div className="mb-2">
           <OfferBar
             offer={offer}
-            disabled={!enabled}
+            disabled={!deliverable}
             onAction={onOfferAction}
             onDismiss={onOfferDismiss}
             {...(session ? { session } : {})}
@@ -627,7 +641,7 @@ export function ChatComposer({
         {!compact && (
           <span
             className="composer-chord"
-            data-show={!focused && draft === '' && enabled ? 'true' : undefined}
+            data-show={!focused && draft === '' ? 'true' : undefined}
             data-testid="composer-chord"
             aria-hidden="true"
           >
@@ -675,7 +689,6 @@ export function ChatComposer({
                     'block max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
               )}
               value={draft}
-              disabled={!enabled}
               onChange={(e) => {
                 onDraftChange(e.target.value)
                 trigger.sync()
@@ -722,12 +735,12 @@ export function ChatComposer({
                 }
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault()
-                  onSend()
+                  sendFromKeyboard()
                   return
                 }
                 if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
                   e.preventDefault()
-                  onSend()
+                  sendFromKeyboard()
                 }
               }}
               onPaste={attachments.onPaste}

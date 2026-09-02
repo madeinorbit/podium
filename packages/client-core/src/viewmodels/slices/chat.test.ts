@@ -301,10 +301,10 @@ describe('answerable questions and the last answer', () => {
 })
 
 describe('composer, queue, offer and activity', () => {
-  it('opens on live, on resumable-parked, and on headless between turns', () => {
+  it('delivers on live, on resumable-parked, and on headless between turns', () => {
     expect(
       composerState({ session: session(), headless: false, turnRunning: false, compact: false })
-        .enabled,
+        .deliverable,
     ).toBe(true)
     expect(
       composerState({
@@ -313,10 +313,10 @@ describe('composer, queue, offer and activity', () => {
         turnRunning: false,
         compact: false,
       }),
-    ).toMatchObject({ enabled: true, sendable: false, canResume: true })
+    ).toMatchObject({ deliverable: true, sendable: false, canResume: true })
     expect(
       composerState({ session: session(), headless: true, turnRunning: true, compact: false }),
-    ).toMatchObject({ enabled: false, placeholder: 'Working — stop to interject…' })
+    ).toMatchObject({ deliverable: false, placeholder: 'Working — stop to interject…' })
     expect(
       composerState({
         session: session({ status: 'exited', resumable: false }),
@@ -324,7 +324,25 @@ describe('composer, queue, offer and activity', () => {
         turnRunning: false,
         compact: false,
       }),
-    ).toMatchObject({ enabled: false, placeholder: 'Session is not running.' })
+    ).toMatchObject({ deliverable: false, placeholder: 'Session is not running.' })
+  })
+
+  // POD-3219. Deliverability is a statement about the WIRE, and these are the
+  // cases where the box used to be locked with it: a session row that has not
+  // arrived, and a live agent whose socket is mid-reconnect. The state says
+  // "not deliverable"; the composer keeps typing open regardless.
+  it('is not deliverable while the session is unknown or reconnecting', () => {
+    expect(
+      composerState({ session: undefined, headless: false, turnRunning: false, compact: false }),
+    ).toMatchObject({ deliverable: false, sendable: false, canResume: false })
+    expect(
+      composerState({
+        session: session({ status: 'reconnecting' }),
+        headless: false,
+        turnRunning: false,
+        compact: false,
+      }),
+    ).toMatchObject({ deliverable: false, placeholder: 'Session is not running.' })
   })
 
   it('treats an archived resume ref as history, not a send route', () => {
@@ -335,7 +353,7 @@ describe('composer, queue, offer and activity', () => {
       compact: false,
     })
     expect(composer).toMatchObject({
-      enabled: false,
+      deliverable: false,
       sendable: false,
       canResume: false,
       placeholder: 'Session is archived.',
@@ -367,7 +385,7 @@ describe('composer, queue, offer and activity', () => {
       compact: false,
     })
     expect(composer).toMatchObject({
-      enabled: false,
+      deliverable: false,
       sendable: false,
       canResume: false,
       placeholder:
@@ -427,7 +445,7 @@ describe('composer, queue, offer and activity', () => {
           compact: false,
         }),
       ).toMatchObject({
-        enabled: true,
+        deliverable: true,
         canResume: true,
         placeholder: 'Waking the agent — message queues…',
       })
