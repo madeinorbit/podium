@@ -27,6 +27,7 @@ export function registerSetupRoute(
       c.header('X-Podium-Local-Setup', 'all-in-one')
     }
     const mode = resolveSetting('mode', config)
+    const appUrl = resolveSetting('appUrl', config)
     return c.json({
       needsSetup: required,
       mode: mode.value ?? null,
@@ -34,6 +35,15 @@ export function registerSetupRoute(
       // 'env': offering a choice the deployment already made is a dead control
       // on the one screen a first-time operator has no context to read it on.
       modeSource: mode.source,
+      /**
+       * Where the UI actually lives (PDM-26). This route is what a browser
+       * pointed at an API-only origin reaches BEFORE it has a page, so it is
+       * the earliest honest place to say "not here, there". Omitted entirely
+       * when absent — a self-hosted server serves its own UI and has nothing to
+       * add. Non-secret: it is a public address, and the redirects below already
+       * hand it to anyone who asks.
+       */
+      ...(appUrl.value ? { appUrl: appUrl.value } : {}),
       state: readiness.state,
       reason: readiness.reason,
       dataPlane: readiness.dataPlane,

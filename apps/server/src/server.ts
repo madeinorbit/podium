@@ -314,6 +314,16 @@ export function registerVersionRoute(
     web?: () => ServedWebIdentity
     /** Parent health gate + settings: is the local daemon connected? */
     daemonConnected?: () => boolean
+    /**
+     * Where the web UI is served from, when it is not this server (PDM-26).
+     *
+     * On the PRE-BOOT probe for the same reason `feedScoping` is: a client that
+     * has to go somewhere else for its UI must learn that from the one request
+     * it already makes first, not from a frame it can only receive after it has
+     * loaded a page this origin does not have. Absent means "here", which is
+     * every self-hosted install.
+     */
+    appUrl?: () => string | undefined
     /** Janitor co-host status for DEGRADED projection [POD-2505]. */
     janitor?: () =>
       | {
@@ -364,6 +374,7 @@ export function registerVersionRoute(
       ...(sourceDigest ? { sourceDigest } : {}),
       ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
+      ...(deps.appUrl?.() ? { appUrl: deps.appUrl() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
       components,
@@ -945,6 +956,7 @@ export async function startServer(
   let janitorHostClosing = false
   registerVersionRoute(app, {
     instanceId,
+    appUrl: () => resolveAppUrl(loadConfig(), process.env),
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,
     installKind: () => (developmentRuntime.runningFromSource ? 'source' : 'installed'),

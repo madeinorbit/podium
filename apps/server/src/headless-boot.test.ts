@@ -32,6 +32,21 @@ const priorEnv = {
   transcriptLake: process.env.PODIUM_TRANSCRIPT_LAKE,
 }
 
+function restoreEnv(): void {
+  for (const [key, value] of [
+    ['PODIUM_STATE_DIR', priorEnv.stateDir],
+    ['PODIUM_MODE', priorEnv.mode],
+    ['PODIUM_PUBLIC_URL', priorEnv.publicUrl],
+    ['PODIUM_APP_URL', priorEnv.appUrl],
+    ['PODIUM_ALLOWED_ORIGINS', priorEnv.allowedOrigins],
+    ['PODIUM_UPDATE_SCOPE', priorEnv.updateScope],
+    ['PODIUM_TRANSCRIPT_LAKE', priorEnv.transcriptLake],
+  ] as const) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+}
+
 describe('a headless boot from the environment alone', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
@@ -53,18 +68,7 @@ describe('a headless boot from the environment alone', () => {
 
   afterAll(async () => {
     await handle.close()
-    for (const [key, value] of [
-      ['PODIUM_STATE_DIR', priorEnv.stateDir],
-      ['PODIUM_MODE', priorEnv.mode],
-      ['PODIUM_PUBLIC_URL', priorEnv.publicUrl],
-      ['PODIUM_APP_URL', priorEnv.appUrl],
-      ['PODIUM_ALLOWED_ORIGINS', priorEnv.allowedOrigins],
-      ['PODIUM_UPDATE_SCOPE', priorEnv.updateScope],
-      ['PODIUM_TRANSCRIPT_LAKE', priorEnv.transcriptLake],
-    ] as const) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-    }
+    restoreEnv()
     rmSync(stateDir, { recursive: true, force: true })
   })
 
@@ -85,5 +89,56 @@ describe('a headless boot from the environment alone', () => {
 
   it('does not mirror transcripts, so nothing is written to a disk that may not persist', () => {
     expect(existsSync(join(stateDir, 'transcripts'))).toBe(false)
+  })
+})
+
+/**
+ * `appUrl` reaches a client through every surface it asks first (PDM-26): the
+ * pre-boot version probe, the setup gate's status route, and — for a browser
+ * that just typed the API address — a redirect.
+ */
+describe('a headless instance whose UI lives somewhere else', () => {
+  let stateDir: string
+  let handle: Awaited<ReturnType<typeof startServer>>
+  const url = (path: string): string => `http://127.0.0.1:${handle.port}${path}`
+
+  beforeAll(async () => {
+    stateDir = mkdtempSync(join(tmpdir(), 'podium-headless-appurl-'))
+    process.env.PODIUM_STATE_DIR = stateDir
+    process.env.PODIUM_MODE = 'server'
+    process.env.PODIUM_PUBLIC_URL = 'https://api.meetpodium.com'
+    process.env.PODIUM_APP_URL = 'https://app.meetpodium.com'
+    handle = await startServer({ port: 0 })
+  })
+
+  afterAll(async () => {
+    await handle.close()
+    restoreEnv()
+    rmSync(stateDir, { recursive: true, force: true })
+  })
+
+  it('advertises it on /version, the probe a client makes before anything else', async () => {
+    const version = (await (await fetch(url('/version'))).json()) as Record<string, unknown>
+    expect(version.appUrl).toBe('https://app.meetpodium.com')
+  })
+
+  it('advertises it on /setup/config, which a browser reaches before it has a page', async () => {
+    const setup = (await (await fetch(url('/setup/config'))).json()) as Record<string, unknown>
+    expect(setup.appUrl).toBe('https://app.meetpodium.com')
+  })
+
+  it('still serves its own page when it HAS one — the app URL never takes a UI away', async () => {
+    // A checkout under test usually has a built web dist, which is exactly the
+    // case the redirect must not fire in: taking a working local UI away from
+    // the operator standing at the box would be worse than the 404 this feature
+    // exists to fix. The redirect ITSELF is pinned in static-web.test.ts, where
+    // the presence of a bundle is a parameter rather than an accident of the
+    // machine running the suite.
+    const response = await fetch(url('/'), { redirect: 'manual' })
+    if (response.status === 302) {
+      expect(response.headers.get('location')).toBe('https://app.meetpodium.com/')
+    } else {
+      expect(response.status).toBe(200)
+    }
   })
 })
