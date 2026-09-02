@@ -91,13 +91,14 @@ describe('transcript reveal', () => {
       scrollToBlock: vi.fn(),
       clear: vi.fn(),
     }
+    // `initialProps` is what renderHook infers Props from, and a non-null literal
+    // there would narrow it past the `| null` this test exists to exercise.
+    const initialProps: {
+      request: { nonce: number; sessionId: typeof sid; itemKey: string } | null
+    } = { request: { nonce: 10, sessionId: sid, itemKey: 'target' } }
     const { result, rerender } = renderHook(
-      ({
-        request,
-      }: {
-        request: { nonce: number; sessionId: typeof sid; itemKey: string } | null
-      }) => useTranscriptReveal({ ...stable, request }),
-      { initialProps: { request: { nonce: 10, sessionId: sid, itemKey: 'target' } } },
+      ({ request }: typeof initialProps) => useTranscriptReveal({ ...stable, request }),
+      { initialProps },
     )
 
     expect(result.current).toBe(0)

@@ -1460,9 +1460,12 @@ fn main() {
             // deriving any remote native capability from it. Local shell modes have no remote
             // server at this point; their loopback served origin is validated below like any other
             // capability target.
+            // `ui_url` is deliberately NOT a gate here: an app host the policy refuses is
+            // IGNORED by `remote_window_target`, which falls back to the validated server URL.
+            // Only the server URL can stop the launch.
             let server_transport_error = match &action {
-                bootstrap::LaunchAction::LocalDaemon { server_url }
-                | bootstrap::LaunchAction::ClientOnly { server_url } => {
+                bootstrap::LaunchAction::LocalDaemon { server_url, .. }
+                | bootstrap::LaunchAction::ClientOnly { server_url, .. } => {
                     bootstrap::validate_server_transport(server_url).err()
                 }
                 bootstrap::LaunchAction::LocalAllInOne

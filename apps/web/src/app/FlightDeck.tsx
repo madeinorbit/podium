@@ -2975,6 +2975,7 @@ export function FlightDeck({
     closeIssue,
     updateIssue,
     trpc,
+    coarseNow,
   } = useStoreSelector(
     (store) => ({
       sessions: store.sessions,
@@ -3007,6 +3008,10 @@ export function FlightDeck({
       closeIssue: store.closeIssue,
       updateIssue: store.updateIssue,
       trpc: store.trpc,
+      // The shared coarse clock, not one interval per row: the "N ago" stamp on
+      // a stopped session must not disagree with the ordering derived from the
+      // same clock elsewhere in the shell (sidebar-common, POD-407).
+      coarseNow: store.coarseNow,
     }),
     shallowEqual,
   )
