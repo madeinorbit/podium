@@ -82,8 +82,32 @@ function host(): HTMLDivElement {
   return el
 }
 
+/** ResizeObserver stub the test can fire — the container-size-changed signal a
+ *  real browser emits once a just-revealed pane finishes laying out. */
+function withCapturingResizeObserver(): { fire: () => void } {
+  const g = globalThis as unknown as { ResizeObserver?: unknown }
+  const original = g.ResizeObserver
+  const cbs: Array<() => void> = []
+  g.ResizeObserver = class {
+    constructor(cb: () => void) {
+      cbs.push(cb)
+    }
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  restorers.push(() => {
+    g.ResizeObserver = original
+  })
+  return {
+    fire: () => {
+      for (const cb of cbs) cb()
+    },
+  }
+}
+
 /** Hub stub whose `onState` the test drives directly. */
-function fakeHub() {
+function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 }) {
   let cbs: SessionCallbacks = {}
   let current = {
     connected: true,
@@ -93,8 +117,8 @@ function fakeHub() {
     outcome: null,
     sessionId: SESSION,
     role: 'controller' as 'controller' | 'spectator',
-    cols: 80,
-    rows: 24,
+    cols: initial.cols,
+    rows: initial.rows,
     geometryRevision: 0,
     requestedGeometry: null as { cols: number; rows: number } | null,
     epoch: 0,
@@ -126,9 +150,10 @@ function fakeHub() {
     hub,
     calls,
     serverGrid: (cols: number, rows: number) => {
-      current = { ...current, cols, rows }
+      current = { ...current, cols, rows, geometryRevision: current.geometryRevision + 1 }
       cbs.onState?.(current as never)
     },
+    attached: () => cbs.onAttached?.(),
   }
 }
 
@@ -379,4 +404,83 @@ describe('C10: nothing in the mount/hook/panel chain reads SessionMeta.geometry 
       expect({ [name]: source.includes('initialGeometry') }).toEqual({ [name]: false })
     }
   })
+})
+
+// ---------------------------------------------------------------------------
+// C17 (added at rev 3 from 0a's cold-sized capture, POD-3234)
+// ---------------------------------------------------------------------------
+
+describe('C17: a cold mount claims against the FRESH XTERM, not the server, and settles by resizing the PTY twice for no net change', () => {
+  it('the mount seeds serverGrid from the just-constructed xterm, so it claims a size the server already holds', async () => {
+    withResizeObserver()
+    // The box measures exactly what the server is already at.
+    withProposal(() => ({ cols: 104, rows: 31 }))
+    const { hub, calls } = fakeHub({ cols: 104, rows: 31 })
+
+    const mounted = mountSession(host(), { hub, sessionId: SESSION, active: true })
+    try {
+      await new Promise((r) => setTimeout(r, 300))
+      // A redundant claim: `serverGrid` was seeded from `view.cols()/rows()` at
+      // mount (session-mount.ts:172), which is xterm's construction default, so
+      // decideResizeAction compares 104x31 against 80x24 and reports a change.
+      expect(calls.resize).toContainEqual([104, 31])
+    } finally {
+      mounted.dispose()
+    }
+  }, 10000)
+
+  it('ARMED: a box that measures the construction default sends no resize at all', async () => {
+    withResizeObserver()
+    // Same server grid, but now the box happens to equal xterm's own default —
+    // the ONE case the seeded comparison calls unchanged. It redraws instead.
+    withProposal(() => ({ cols: 80, rows: 24 }))
+    const { hub, calls } = fakeHub({ cols: 104, rows: 31 })
+
+    const mounted = mountSession(host(), { hub, sessionId: SESSION, active: true })
+    try {
+      await new Promise((r) => setTimeout(r, 300))
+      expect(calls.resize).toEqual([])
+      expect(calls.redraw).toBeGreaterThan(0)
+    } finally {
+      mounted.dispose()
+    }
+  }, 10000)
+
+  it('two settling measurements push the PTY away from the server grid and back — two resizes, zero net change', async () => {
+    // 0a's cold-sized capture (POD-3190 artifact cold-sized-trace.json, mount
+    // mtkf7e2h-0): the server was already at 104x31 (rev 2); the mount's first
+    // fit measured a 2-row-taller box and claimed 104x33 (rev 3); the settled
+    // box then fired a second fit that claimed 104x31 back (rev 4). Two PTY
+    // resizes and two SIGWINCH repaints to end exactly where it started.
+    withResizeObserver()
+    const observer = withCapturingResizeObserver()
+    let grid = { cols: 104, rows: 33 } // pre-settle: the box is two rows taller
+    withProposal(() => grid)
+    const { hub, calls, serverGrid, attached } = fakeHub({ cols: 104, rows: 31 })
+
+    const mounted = mountSession(host(), { hub, sessionId: SESSION, active: true })
+    try {
+      await new Promise((r) => setTimeout(r, 300))
+      expect(calls.resize).toEqual([[104, 33]]) // away from the server's 104x31
+
+      // The attach lands and the server applies the claim: serverGrid := 104x33.
+      attached()
+      serverGrid(104, 33)
+
+      // The layout settles two rows shorter and the observer fires a second fit.
+      grid = { cols: 104, rows: 31 }
+      observer.fire()
+      await new Promise((r) => setTimeout(r, 400))
+
+      expect(calls.resize).toEqual([
+        [104, 33],
+        [104, 31],
+      ])
+      // Net zero: the PTY ends at the grid the server already held before the
+      // mount ran. Every byte of that round trip is a repaint nobody asked for.
+      expect(calls.resize.at(-1)).toEqual([104, 31])
+    } finally {
+      mounted.dispose()
+    }
+  }, 15000)
 })
