@@ -88,6 +88,10 @@ A server with **no web bundle** redirects `/`, `/desktop`, `/mobile` and
 `/mobile/*` there. A server that *has* a bundle keeps serving it: redirecting
 away from a working local UI would take it from the operator standing at the box.
 
+The whole shape this key belongs to — what the app host must serve, why the two
+hosts have to be same-site, and how to reproduce it locally — is
+[separate-app-host.md](separate-app-host.md).
+
 ### `PODIUM_ALLOWED_ORIGINS`
 
 A comma-separated list of origins allowed to make **credentialed** cross-site
@@ -101,6 +105,14 @@ A **present but empty** variable is a deliberate empty list, not "unset".
 This one has an env layer where `auth.openMode` deliberately does not, and the
 distinction is the point: it widens trust only to an explicit, fully-qualified
 list, never to "anyone".
+
+Two boundaries read it, and both treat it as an ADDITIONAL accept path rather
+than a replacement for what they already allowed: `isAllowedHttpOrigin` (the CORS
+middleware on `/setup`, `/auth`, `/trpc`, `/files` and `/version`) and
+`isAllowedWsOrigin` (the `/client` and `/daemon` upgrades). An empty list — every
+self-hosted install — leaves both exactly as they were. A refusal is logged once
+per distinct origin, host and reason; see
+[separate-app-host.md](separate-app-host.md).
 
 ### `PODIUM_UPDATE_SCOPE`
 
