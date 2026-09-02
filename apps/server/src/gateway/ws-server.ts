@@ -104,27 +104,70 @@ function hostHeaderName(host: string | null | undefined): string | undefined {
   }
 }
 
-/** Cross-site WebSocket-hijacking defense shared by both socket planes. */
+/** No deployment has said anything, which is every self-hosted install. */
+const NO_ALLOWED_ORIGINS: ReadonlySet<string> = new Set()
+
+/**
+ * Whether a socket origin is allowed, and when it is not, WHY.
+ *
+ * A local shape rather than an import from ../http-cors on purpose: that module
+ * is the Hono CORS middleware, which has no business on the socket path, and the
+ * two predicates stay deliberately different (see `isAllowedWsOrigin`).
+ */
+export type OriginVerdict = 'allowed' | 'parse' | 'not-allowed'
+
+/**
+ * Cross-site WebSocket-hijacking defense shared by both socket planes.
+ *
+ * `allowed` is this deployment's `allowedOrigins`: the exact origins a browser
+ * page may open a socket from when it is neither loopback nor this same host —
+ * the split-hosting case, a page on `app.<site>` connecting to `api.<site>`.
+ * It ADDS a case. An empty set, which is every install that names nothing,
+ * leaves every answer here as it was.
+ */
 export function isAllowedWsOrigin(
   origin: string | null | undefined,
   host: string | null | undefined,
+  allowed: ReadonlySet<string> = NO_ALLOWED_ORIGINS,
 ): boolean {
-  if (!origin) return true
+  return wsOriginVerdict(origin, host, allowed) === 'allowed'
+}
+
+/** {@link isAllowedWsOrigin}, keeping the reason it refused. */
+export function wsOriginVerdict(
+  origin: string | null | undefined,
+  host: string | null | undefined,
+  allowed: ReadonlySet<string> = NO_ALLOWED_ORIGINS,
+): OriginVerdict {
+  if (!origin) return 'allowed'
   let parsed: URL
   try {
     parsed = new URL(origin)
   } catch {
-    return false
+    return 'parse'
   }
-  if (parsed.protocol === 'tauri:') return true
-  if (LOOPBACK_HOSTS.has(parsed.hostname)) return true
+  if (parsed.protocol === 'tauri:') return 'allowed'
+  if (LOOPBACK_HOSTS.has(parsed.hostname)) return 'allowed'
   const reqHost = hostHeaderName(host)
-  if (LOOPBACK_HOSTS.has(reqHost ?? '')) return true
-  return Boolean(reqHost) && parsed.hostname === reqHost
+  if (LOOPBACK_HOSTS.has(reqHost ?? '')) return 'allowed'
+  if (reqHost && parsed.hostname === reqHost) return 'allowed'
+  return allowed.has(parsed.origin) ? 'allowed' : 'not-allowed'
 }
 
 export interface WsTransportDeps {
   timers?: SweepTimers
+  /** Exact origins from `allowedOrigins` that may open a browser socket. */
+  allowedOrigins?: ReadonlySet<string>
+  /**
+   * Told about every upgrade refused on its Origin. The 403 is otherwise
+   * indistinguishable from every other reason a socket did not open, and a
+   * deployment whose allow-list is wrong has nothing to read.
+   */
+  onOriginRefused?: (info: {
+    origin: string | undefined
+    host: string | undefined
+    reason: Exclude<OriginVerdict, 'allowed'>
+  }) => void
 }
 
 interface SocketData {
@@ -296,7 +339,15 @@ export function attachWebSockets(
       if (rawVersion !== null && versionSupport(Number(rawVersion)) !== 'ok') {
         return new Response('Upgrade Required', { status: 426 })
       }
-      if (!isAllowedWsOrigin(request.headers.get('origin'), request.headers.get('host'))) {
+      const origin = request.headers.get('origin')
+      const originHost = request.headers.get('host')
+      const originVerdict = wsOriginVerdict(origin, originHost, deps.allowedOrigins)
+      if (originVerdict !== 'allowed') {
+        deps.onOriginRefused?.({
+          origin: origin ?? undefined,
+          host: originHost ?? undefined,
+          reason: originVerdict,
+        })
         return new Response('Forbidden', {
           status: 403,
           headers: { connection: 'close' },
