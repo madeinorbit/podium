@@ -83,7 +83,6 @@ import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { MobilePairingManager } from './mobile-pairing'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
-import { originRefusalReporter } from './origin-refusal'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
@@ -117,6 +116,7 @@ import {
   timerSchedule,
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
+import { originRefusalReporter } from './origin-refusal'
 import type { PodiumPlugin } from './plugins'
 import {
   authReadinessBoundary,

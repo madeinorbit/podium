@@ -58,14 +58,18 @@ describe('isAllowedWsOrigin with an allowed-origins list', () => {
   const allowed = new Set(['https://app.meetpodium.com'])
 
   test('an exact allowed origin may open a browser socket', () => {
-    expect(isAllowedWsOrigin('https://app.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(true)
+    expect(isAllowedWsOrigin('https://app.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
+      true,
+    )
   })
 
   test('scheme, host and port must all match', () => {
-    expect(isAllowedWsOrigin('http://app.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(false)
-    expect(isAllowedWsOrigin('https://app.meetpodium.com:8443', 'api.meetpodium.com', allowed)).toBe(
+    expect(isAllowedWsOrigin('http://app.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
       false,
     )
+    expect(
+      isAllowedWsOrigin('https://app.meetpodium.com:8443', 'api.meetpodium.com', allowed),
+    ).toBe(false)
     expect(isAllowedWsOrigin('https://evil.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
       false,
     )
