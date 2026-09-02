@@ -1,8 +1,30 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, extname, join, normalize, sep } from 'node:path'
 import { brotliCompress, gzip, constants as zlibConstants } from 'node:zlib'
+import { createLogger } from '@podium/logger'
 import { desktopShellLocation, mobileEntryRedirect } from '@podium/model'
 import type { Context, Hono } from 'hono'
+
+/**
+ * A STALE PAGE, SEEN FROM THE SERVER (POD-3224, question 12).
+ *
+ * The coordinator cannot ask a browser which bundle it is holding, and `/version`
+ * carries no client identity — so "which open pages are stale?" had no
+ * server-side answer at all, only whatever each client chose to forward.
+ *
+ * But a stale page ANNOUNCES itself, exactly once per lazy chunk it still needs:
+ * it asks for a content-hashed asset that this dist no longer contains. Those
+ * URLs are immutable by construction (a new build is a new URL), so a 404 on one
+ * is never a typo and never a cache miss — it is a document running code from a
+ * dist that has been replaced underneath it. That is the same event the client
+ * reports as `assets === 'replaced'` and as a Vite preload error, observed from
+ * the other end, and it needs no cooperation from the page.
+ *
+ * `server:updates`, because the reader is following an update; `info`, because
+ * the volume is set by how many stale documents exist and how many chunks they
+ * still want, and on a converged fleet it is zero.
+ */
+const log = createLogger('server:updates')
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
@@ -547,7 +569,17 @@ export function registerWebStatic(
     }
     // A missing FILE is a 404, not the web page. Only navigations fall through
     // to the shell [POD-421].
-    if (!isNavigationRequest(pathname, c)) return c.notFound()
+    if (!isNavigationRequest(pathname, c)) {
+      if (isImmutableAsset(filePath)) {
+        log.info('a page asked for an asset this dist no longer has', {
+          path: pathname,
+          asset: basename(filePath),
+          ...(c.req.header('referer') ? { referer: c.req.header('referer') } : {}),
+          ...(c.req.header('sec-fetch-dest') ? { dest: c.req.header('sec-fetch-dest') } : {}),
+        })
+      }
+      return c.notFound()
+    }
     // index.html goes out through ONE path — the fallback — even when it was
     // asked for by name. The service worker precaches `/index.html` explicitly,
     // so it uses this same path.

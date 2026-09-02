@@ -150,6 +150,12 @@ const log = createLogger('server:http')
 // (PODIUM_LOG='server:loop=debug') without also turning up request logging.
 const loopLog = createLogger('server:loop')
 const repoDiscoveryLog = createLogger('server:repo-discovery')
+/**
+ * The served-website identity. `server:updates` rather than `server:http`,
+ * because the reader is somebody following an update end to end and this is the
+ * server's side of "the assets under this page were replaced" (POD-3224).
+ */
+const versionLog = createLogger('server:updates')
 
 /**
  * Thrown (as a rejection) by {@link startServer} when the chosen port is already
@@ -337,6 +343,49 @@ export function registerVersionRoute(
       | undefined
   },
 ): void {
+  /**
+   * WHAT THIS SERVER IS SERVING, LOGGED WHEN IT MOVES (POD-3224, question 11).
+   *
+   * `/version` is read once every 30 s by every open tab and once a second while
+   * an update runs, so logging the response would be the loudest line in the
+   * process. What is worth a record is the CHANGE: the served identity moving is
+   * the exact event that makes every already-loaded page stale, and it is the
+   * fact `assets === 'replaced'` on the client is derived from. One line per
+   * release, on the server, is what lets a stale-page report be lined up against
+   * the moment the dist under it was replaced.
+   *
+   * Held in a closure rather than compared against a stored row: this is a
+   * property of THIS PROCESS's disk as it currently reads, and a successor
+   * legitimately reports its own first read as a change.
+   */
+  let servedIdentity: string | undefined
+  const noteServed = (
+    appVersion: string,
+    sourceDigest: string | undefined,
+    web: ServedWebIdentity | undefined,
+    mobileWeb: MobileWebIdentity | undefined,
+  ): void => {
+    const signature = [
+      appVersion,
+      sourceDigest ?? '',
+      web?.present === true ? (web.bundle ?? '') : 'absent',
+      web?.digest ?? '',
+      mobileWeb?.present === true ? (mobileWeb.digest ?? '') : 'absent',
+    ].join('|')
+    if (signature === servedIdentity) return
+    const first = servedIdentity === undefined
+    servedIdentity = signature
+    versionLog.info(first ? 'serving' : 'served identity changed', {
+      appVersion,
+      ...(sourceDigest ? { sourceDigest } : {}),
+      webPresent: web?.present === true,
+      ...(web?.bundle ? { webBundle: web.bundle } : {}),
+      ...(web?.digest ? { webDigest: web.digest } : {}),
+      mobileWebPresent: mobileWeb?.present === true,
+      ...(mobileWeb?.digest ? { mobileWebDigest: mobileWeb.digest } : {}),
+    })
+  }
+
   app.get('/version', async (c) => {
     let target: UpdateTarget | undefined
     try {
@@ -357,6 +406,12 @@ export function registerVersionRoute(
       web = undefined
     }
     const sourceDigest = deps.sourceDigest?.()
+    noteServed(
+      deps.appVersion?.() ?? process.env.PODIUM_APP_VERSION ?? 'dev',
+      sourceDigest,
+      web,
+      mobileWeb,
+    )
     const daemonConnected = deps.daemonConnected?.() === true
     const janitor = deps.janitor?.()
     const components = {

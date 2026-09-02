@@ -1,6 +1,7 @@
+import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import type { Operation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import {
@@ -1512,5 +1513,142 @@ describe('observers', () => {
     await run(engine, 'test')
     expect(seen[0]).toBe('running')
     expect(seen.at(-1)).toBe('done')
+  })
+})
+
+/**
+ * THE ENGINE'S NARRATION (POD-3224).
+ *
+ * The durable row says where an operation ended up. These pin the part it
+ * cannot say: when each step was entered, whether a step was ENTERED or merely
+ * re-entered, which deadline fired, and — for a successor — what it inherited
+ * and what it concluded. Reconstructing an update's timeline previously meant
+ * diffing successive payload rows, and the row is swept after twenty.
+ */
+describe('what the engine writes down', () => {
+  let logged: LogRecord[]
+
+  const capture = (): void => {
+    resetLogging()
+    logged = []
+    setLogLevel('debug')
+    addSink({ name: 'capture', write: (record) => logged.push(record) })
+  }
+  const messages = (): string[] => logged.map((record) => record.msg)
+  const field = (msg: string, key: string): unknown =>
+    (logged.find((record) => record.msg === msg) as Record<string, unknown> | undefined)?.[key]
+
+  afterEach(() => {
+    resetLogging()
+  })
+
+  it('records the plan at the moment it was made, deferred reasons included', async () => {
+    const { engine, registry } = harness()
+    registry.register(
+      testKind({
+        plan: () => ({
+          steps: [{ id: 'first', places: [{ id: 'm1' }] }, { id: 'second' }],
+          awaiting: [{ id: 'reload', surface: 'web', title: 'Reload', required: false }],
+          deferred: [{ id: 'm2', reason: 'offline' }],
+        }),
+      }),
+    )
+    capture()
+    await run(engine, 'test', undefined, { createdBy: 'a-test' })
+
+    expect(field('operation created', 'steps')).toBe('first,second')
+    expect(field('operation created', 'deferred')).toEqual(['m2:offline'])
+    expect(field('operation created', 'awaiting')).toEqual(['reload@web'])
+    expect(field('operation created', 'createdBy')).toBe('a-test')
+  })
+
+  it('tells an entry apart from a re-entry, which is how a nudged wave reads', async () => {
+    const { engine, registry } = harness()
+    registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
+    capture()
+    const started = await engine.start('test')
+    if (!started.started) throw new Error('expected a start')
+    await engine.whenSettled(started.operation.id)
+
+    // Something outside the operation says "try again now" — the path that
+    // exists so a stuck wave can be pushed along.
+    await engine.reensure(started.operation.id, 'first')
+
+    expect(messages().filter((msg) => msg === 'operation step entered')).toHaveLength(1)
+    expect(messages()).toContain('operation step re-entered')
+  })
+
+  it('names the outcome with the attempts and stalls that produced it', async () => {
+    const { engine, registry, clock } = harness()
+    registry.register(
+      testKind({
+        runners: { first: runner(blocks), second: runner(done) },
+        deadlines: { first: { silenceMs: 1_000 } },
+      }),
+    )
+    capture()
+    const started = await engine.start('test')
+    if (!started.started) throw new Error('expected a start')
+    await engine.whenSettled(started.operation.id)
+
+    clock.advance(1_001)
+    await drainMicrotasks()
+    expect(messages()).toContain('operation step stalled; retrying once')
+
+    clock.advance(1_001)
+    await drainMicrotasks()
+    expect(messages()).toContain('operation step failed')
+    expect(field('operation finished', 'state')).toBe('failed')
+    expect(field('operation finished', 'code')).toBe(STALLED_ERROR_CODE)
+    expect(String(field('operation finished', 'steps'))).toContain('+1stall')
+  })
+
+  it('says an operation was already running rather than reporting a refusal', async () => {
+    const { engine, registry } = harness()
+    registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
+    const first = await engine.start('test')
+    if (!first.started) throw new Error('expected a start')
+    await engine.whenSettled(first.operation.id)
+    capture()
+
+    const second = await engine.start('test')
+    expect(second).toMatchObject({ started: false, alreadyRunning: first.operation.id })
+    expect(messages()).toContain('an operation of this group is already running')
+  })
+
+  it('records both sides of an adoption — what it inherited and what it concluded', async () => {
+    const { store, registry } = harness()
+    // A row the dead process left mid-flight, exactly as `adoption` builds one.
+    store.insert({
+      id: 'op_1',
+      kind: 'test',
+      exclusionGroup: 'lifecycle',
+      state: 'running',
+      createdAt: 10,
+      updatedAt: 10,
+      steps: [
+        { id: 'first', state: 'running', startedAt: 10, lastProgressAt: 10 },
+        { id: 'second', state: 'pending' },
+      ],
+    })
+    // The successor's kind consults reality and concludes `first` is finished.
+    registry.register(
+      testKind({
+        reconcile: (operation: Operation) => ({
+          ...operation,
+          steps: (operation.steps ?? []).map((step) =>
+            step.id === 'first' ? { ...step, state: 'done' as const } : step,
+          ),
+        }),
+        runners: { first: runner(blocks), second: runner(done) },
+      }),
+    )
+    capture()
+    const successor = new OperationEngine({ store, registry, clock: fakeClock().clock })
+    await successor.adoptOnBoot(() => undefined)
+
+    expect(field('operation adopted on boot', 'wasSteps')).toBe('first=running second=pending')
+    expect(String(field('operation adopted on boot', 'nowSteps'))).toContain('first=done')
+    expect(store.get('op_1')?.state).toBe('done')
   })
 })
