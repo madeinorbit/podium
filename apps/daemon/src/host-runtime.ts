@@ -940,7 +940,12 @@ export async function createDaemonHostRuntime(args: {
           // V2 currently migrates the stable CLI's default database to an incompatible schema.
           // Isolate only the database so v1 and v2 can coexist while both still read the
           // instance's shared OpenCode credentials and configuration.
-          env: { OPENCODE_DB: join(stateDir(), 'opencode2.db') },
+          env: {
+            OPENCODE_DB: join(stateDir(), 'opencode2.db'),
+            // Preview servers self-update in the background. Keep the admitted API build
+            // stable for the lifetime of the installed Podium driver.
+            OPENCODE_DISABLE_AUTOUPDATE: '1',
+          },
           versionDiagnostic: opencode2VersionDiagnostic,
         },
       }),

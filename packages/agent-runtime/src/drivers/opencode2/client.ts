@@ -10,9 +10,11 @@ import type {
 } from '../opencode/protocol.js'
 
 /** Adapter from the OpenCode 2 preview /api surface to the stable OpenCode
- * runtime port. Keeping this translation here lets both protocol generations
- * Beta-18743 scopes session routes by path and `/api/event` across all server locations; unlike v1, its OpenAPI contract exposes no directory query parameter. Payload casts below are deliberately bounded by the exact-build admission gate.
- * share the RuntimeDriver implementation and conformance behavior. */
+ * runtime port. The admitted preview builds scope session routes by path and
+ * `/api/event` across all server locations; unlike v1, their OpenAPI contract
+ * exposes no directory query parameter. Payload casts are deliberately bounded
+ * by the exact-build admission gate. Keeping this translation here lets both
+ * protocol generations share the RuntimeDriver implementation and conformance. */
 export function createOpencode2Client(config: OpencodeClientConfig): OpencodeClient {
   const fetcher = config.fetch ?? globalThis.fetch
   const auth = `Basic ${base64(`${config.username}:${config.password}`)}`
@@ -118,7 +120,8 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       const text = body.parts
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
-        // Beta-18743 documents this as durable admission plus scheduling; the 200 response is an enqueue acknowledgement, not turn completion.
+        // The admitted preview API documents this as durable admission plus scheduling;
+        // the 200 response is an enqueue acknowledgement, not turn completion.
         .join('\n')
       const files = body.parts
         .filter((part) => part.type === 'file')

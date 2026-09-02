@@ -352,12 +352,12 @@ export function opencodeVersionProbeForExecutable(
 const opencode2VersionProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
   evaluate: ({ output, ok }) => {
     const match = /0\.0\.0-beta-(\d+)/u.exec(output)
-    if (ok && match && Number(match[1]) === 18743) return { drivable: true }
+    if (ok && match && [18743, 18866].includes(Number(match[1]))) return { drivable: true }
     const diagnostic: OpencodeVersionDiagnostic = {
       code: 'opencode-version-unsupported',
       title: 'opencode server driver needs review',
       body: ok
-        ? `opencode2 ${output.trim()} is outside the preview build range exercised by this driver (only beta-18743).`
+        ? `opencode2 ${output.trim()} is outside the preview builds exercised by this driver (beta-18743 and beta-18866).`
         : `opencode2 --version did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms: ${
             output || '(no output)'
           }`,

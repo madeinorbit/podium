@@ -548,12 +548,16 @@ describe('the version gate, as the daemon reads it', () => {
     expect(sent.at(-1)).toMatchObject({ type: 'spawnError', sessionId: SESSION })
   })
 
-  it('admits only the OpenCode 2 beta whose API boundary is exercised', async () => {
+  it('admits only the OpenCode 2 betas whose API boundary is exercised', async () => {
     await expect(opencode2VersionProbe(answered('0.0.0-beta-18743'))).resolves.toEqual({
       drivable: true,
     })
     resetOpencode2VersionProbe()
-    const future = await opencode2VersionProbe(answered('0.0.0-beta-18744'))
+    await expect(opencode2VersionProbe(answered('0.0.0-beta-18866'))).resolves.toEqual({
+      drivable: true,
+    })
+    resetOpencode2VersionProbe()
+    const future = await opencode2VersionProbe(answered('0.0.0-beta-18867'))
     expect(future.drivable).toBe(false)
     if (!future.drivable) expect(future.reason).toBe('unsupported')
   })
@@ -640,7 +644,10 @@ describe('the version gate, as the daemon reads it', () => {
         healthPath: '/api/health',
         scopeToken: 'oc2',
         journalNamespace: 'opencode2-servers',
-        env: { OPENCODE_DB: '/instance/state/opencode2.db' },
+        env: {
+          OPENCODE_DB: '/instance/state/opencode2.db',
+          OPENCODE_DISABLE_AUTOUPDATE: '1',
+        },
         versionDiagnostic: async () => null,
       },
       spawnProcess: ((_command: string, _args: string[], options: { env?: NodeJS.ProcessEnv }) => {
@@ -658,7 +665,10 @@ describe('the version gate, as the daemon reads it', () => {
       }),
     ).rejects.toBe(stopped)
     expect(host.driverId).toBe('opencode2-server')
-    expect(spawnedEnv?.OPENCODE_DB).toBe('/instance/state/opencode2.db')
+    expect(spawnedEnv).toMatchObject({
+      OPENCODE_DB: '/instance/state/opencode2.db',
+      OPENCODE_DISABLE_AUTOUPDATE: '1',
+    })
   })
 
   it('builds serve argv from the resolved executable without changing PATH installs', () => {
