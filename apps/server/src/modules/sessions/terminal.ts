@@ -829,6 +829,30 @@ export class SessionTerminal {
     this.shellCommandRunning = false
   }
 
+  /**
+   * THE DAEMON'S REPORT OF THE GRID IT APPLIED (MODEL rule 5).
+   *
+   * The daemon dispatched a resize to the pty and is telling us what it
+   * dispatched. That report — and the bind report — are the only things that may
+   * move W, so this method is a WRITE, not a proposal: it takes the number as
+   * given and announces it.
+   *
+   * The broadcast is unconditional, including when the grid did not move. A
+   * report is news even at the same size: it is what turns a viewer's `unknown`
+   * into `current`, and a viewer that asked for a size it already had learns
+   * here that the ask was answered.
+   */
+  applyDaemonGeometry(geometry: Geometry): void {
+    this.setGeometry(geometry.cols, geometry.rows)
+    this.broadcast({
+      type: 'geometry',
+      sessionId: this.init.sessionId,
+      cols: this.geometry.cols,
+      rows: this.geometry.rows,
+      geometryRevision: this.geometryRevision,
+    })
+  }
+
   adoptGeometryIfUncontrolled(geometry: Geometry): void {
     if (this.controllerId === null) this.setGeometry(geometry.cols, geometry.rows)
   }

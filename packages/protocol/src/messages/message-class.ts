@@ -154,6 +154,10 @@ export const CLIENT_PLANE_CLASS = {
   input: 'control.command',
   resize: 'control.command',
   requestControl: 'control.command',
+  // POD-3239: the one message a viewer sends about size. Same class as the two
+  // frames it replaces — it asks the server to mutate control/geometry, and a
+  // lost one must be retried by the viewer's next ask, not silently tolerated.
+  viewportRequest: 'control.command',
   redrawRequest: 'control.command',
   ping: 'stream.live',
   // Today's anonymous page-visibility bit. ADR 7 Amendment 1 D9.5: it maps
@@ -337,6 +341,10 @@ export const DAEMON_PLANE_CLASS = {
   // answer and nothing else, because `bind` carries the same fact behind it.
   driverSelected: 'stream.live',
   bind: 'stream.live',
+  // POD-3239: the daemon's report of the grid it applied. Same class as `bind`,
+  // the other geometry report, and for the same reason: it is an observation of
+  // what the pty now IS, ordered with the output stream it precedes.
+  geometryApplied: 'stream.live',
   agentFrame: 'stream.live',
   agentFrameBatch: 'stream.live',
   agentExit: 'stream.live',

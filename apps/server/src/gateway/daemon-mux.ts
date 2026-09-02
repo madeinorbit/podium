@@ -114,6 +114,7 @@ const DISPATCH: Dispatcher = {
   // ---- sessions ----
   driverSelected: toSessions,
   bind: toSessions,
+  geometryApplied: toSessions,
   agentFrame: toSessions,
   agentFrameBatch: toSessions,
   agentExit: toSessions,

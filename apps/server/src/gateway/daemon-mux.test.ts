@@ -214,7 +214,13 @@ describe('machine scope and the writer class', () => {
     //
     // 28 since POD-2411: fine token deltas have their own live-only frame but
     // retain the same per-session machine ownership check as coarse events.
-    expect(sessionFrames.length).toBe(28)
+    //
+    // 29 since POD-3239. `geometryApplied` is the daemon reporting the grid it
+    // dispatched to one session's pty, and it is the only thing that may move
+    // that session's authoritative size — so it carries exactly the ownership
+    // boundary `bind` does: a machine that does not hold the session must not be
+    // able to tell every viewer of it what size it now is.
+    expect(sessionFrames.length).toBe(29)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

@@ -13,6 +13,7 @@
 import type { MachineId, UserId } from '@podium/model'
 import {
   type AcceptorStep,
+  CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   type CapabilityRef,
@@ -74,7 +75,14 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAccepto
       machines: createMachineDirectory(deps.machines),
       mint: gatewayCapabilityMinter,
     }),
-    supportedCaps: [CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_INPUT_BINARY_V1],
+    supportedCaps: [
+      CAP_TERMINAL_OUTPUT_BINARY_V1,
+      CAP_TERMINAL_INPUT_BINARY_V1,
+      // POD-3239: a daemon that reports the grid it APPLIED. Supported here from
+      // the moment the frame exists so the negotiation is in place; the session
+      // module reads the accepted set to choose its geometry writer path.
+      CAP_DAEMON_GEOMETRY_APPLIED,
+    ],
     transport: {
       endpoint: '/daemon',
       connectionId: deps.connectionId,

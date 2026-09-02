@@ -36,6 +36,7 @@ import {
   DirectoryEntryWire,
   DirectoryListingWire,
   Geometry,
+  GeometryState,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   GitWorktreeWire,
@@ -69,6 +70,7 @@ import { ClientMessage } from './client'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
 import { ServerMessage } from './server'
+import { GeometryAppliedMessage, ViewportRequestMessage } from './terminal'
 
 export interface WireFixture {
   /** Stable golden key. Never rename without regenerating deliberately. */
@@ -617,6 +619,40 @@ export const WIRE_FIXTURES: WireFixture[] = [
   { name: 'sessionOffer.full', schema: SessionOffer, value: SESSION_OFFER_FULL },
   { name: 'sessionMeta.full', schema: SessionMeta, value: SESSION_META_FULL },
   { name: 'sessionMeta.minimal', schema: SessionMeta, value: SESSION_META_MINIMAL },
+  // POD-3239: `geometryState` is ADDITIVE, and the two fixtures above are the
+  // proof — neither carries it, and both still encode byte-identically. This
+  // third one pins what the field looks like when a newer server does send it,
+  // and where it sits in the row (immediately after `geometry`, which is the
+  // value it qualifies).
+  {
+    name: 'sessionMeta.geometryState',
+    schema: SessionMeta,
+    value: { ...SESSION_META_FULL, geometryState: 'current' },
+  },
+  { name: 'geometryState', schema: GeometryState, value: 'unknown' },
+  {
+    name: 'viewportRequest',
+    schema: ViewportRequestMessage,
+    value: {
+      type: 'viewportRequest',
+      sessionId: 'sess-1',
+      geometry: { cols: 120, rows: 40 },
+      visible: true,
+      mode: 'native',
+      claimControl: true,
+      seq: 1,
+    },
+  },
+  {
+    name: 'geometryApplied',
+    schema: GeometryAppliedMessage,
+    value: {
+      type: 'geometryApplied',
+      sessionId: 'sess-1',
+      geometry: { cols: 120, rows: 40 },
+      cause: 'request',
+    },
+  },
 
   // ---- issue aggregate + projections (issues.ts) ----
   { name: 'issueStage', schema: IssueStage, value: 'in_progress' },

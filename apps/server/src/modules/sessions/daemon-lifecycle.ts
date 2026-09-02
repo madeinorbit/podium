@@ -329,6 +329,13 @@ export class SessionDaemonLifecycle {
         }
         break
       }
+      case 'geometryApplied': {
+        // THE DAEMON REPORTED THE GRID IT APPLIED (POD-3239, MODEL rule 5).
+        // Straight to the terminal's writer: nothing above the daemon gets to
+        // second-guess the size the pty is actually running at.
+        this.sessions.get(msg.sessionId)?.terminal.applyDaemonGeometry(msg.geometry)
+        break
+      }
       case 'bind': {
         this.unfencedExitsAwaitingBind.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)

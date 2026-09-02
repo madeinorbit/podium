@@ -3,6 +3,7 @@ import {
   Attribution,
   DelegationScope,
   Geometry,
+  GeometryState,
   HarnessAgent,
   IssueIdField,
   MachineIdField,
@@ -177,6 +178,37 @@ export const RequestControlMessage = z.object({
    */
   geometry: Geometry.optional(),
 })
+/**
+ * THE ONE MESSAGE A VIEWER SENDS ABOUT SIZE (MODEL rule 3).
+ *
+ * A viewer measures its box to decide whether to ASK, never to decide what to
+ * render — so this frame carries the box it would like, the visibility and mode
+ * the sender believes it is in, and whether the ask also claims control. The
+ * server applies the geometry only if it differs from W; the daemon's report is
+ * what actually moves W.
+ *
+ * `seq` is per (connection, session), starts at 1 and only increases. The
+ * server holds the watermark on the `ClientConn`, so it dies with the socket and
+ * a reconnected client starts again at 1. A request at or below the watermark is
+ * a duplicate: counted, never re-applied.
+ */
+export const ViewportRequestMessage = z.object({
+  type: z.literal('viewportRequest'),
+  sessionId: SessionIdField,
+  /** The box this viewer would like the pty to be. */
+  geometry: Geometry,
+  /** Whether the sender is rendering this session right now. Read FROM THE
+   *  MESSAGE rather than from stored `viewState`, so a request that overtakes
+   *  its own `viewState` frame is still judged on the truth it carries. */
+  visible: z.boolean(),
+  /** Which surface is rendering it — the native terminal, or chat. */
+  mode: z.enum(['native', 'chat']),
+  /** Whether this ask also claims control (desktop reveal/reconnect: true). */
+  claimControl: z.boolean(),
+  seq: positiveInt,
+})
+export type ViewportRequestMessage = z.infer<typeof ViewportRequestMessage>
+
 export const RedrawRequestMessage = z.object({
   type: z.literal('redrawRequest'),
   sessionId: SessionIdField,
@@ -257,6 +289,9 @@ export const AttachedMessage = z.object({
   /** Monotonic per-session revision for authoritative geometry. Optional so
    * older peers remain wire-compatible during the additive rollout. */
   geometryRevision: z.number().int().nonnegative().optional(),
+  /** What `geometry` is worth (MODEL rule 6). Absent from an older server,
+   *  which a client reads as `unknown` — which is what it is. */
+  geometryState: GeometryState.optional(),
   epoch: z.number().int().nonnegative(),
   // True when the following frames are an incremental catch-up from the client's
   // `sinceSeq` cursor: the client keeps its screen and appends. Absent/false = a
@@ -605,6 +640,41 @@ export const DriverSelectedMessage = z.object({
   sessionId: SessionIdField,
   driverId: z.string().min(1),
 })
+/** Daemon capability, advertised in its `hello`: this daemon reports the grid it
+ *  APPLIED (`geometryApplied`) after every resize it dispatches. A server talking
+ *  to a daemon without it keeps the old set-on-request behaviour for that
+ *  session, because nothing else would ever write W. */
+export const CAP_DAEMON_GEOMETRY_APPLIED = 'geometryApplied'
+
+/**
+ * THE ONLY WRITER OF W, besides the bind report (MODEL rule 5).
+ *
+ * The daemon flushes that session's held output, dispatches the resize, and
+ * emits this before yielding — so a viewer learns the new grid ahead of any
+ * output the daemon was still holding at the old one. Honest label: DISPATCHED
+ * to the attach pty. For an abduco session the master applies it a beat later
+ * and may forward already-read old bytes after doing so; that transient is one
+ * SIGWINCH propagation plus one repaint, and is what every terminal shows during
+ * a resize (see MODEL.md "Accepted residuals").
+ *
+ * No request id: reports for one session travel in order on one channel, so
+ * last-report-wins is the whole ordering rule.
+ */
+export const GeometryAppliedMessage = z.object({
+  type: z.literal('geometryApplied'),
+  sessionId: SessionIdField,
+  geometry: Geometry,
+  /**
+   * What caused the apply. ONE MEMBER ON PURPOSE: a viewer's request is the only
+   * thing that produces this frame. The other report — birth and reattach —
+   * travels on `bind`, which already carries the effective geometry the daemon
+   * gave the pty, so a `cause: 'bind'` here would be a second name for a frame
+   * that exists and a wire value nothing sends.
+   */
+  cause: z.enum(['request']),
+})
+export type GeometryAppliedMessage = z.infer<typeof GeometryAppliedMessage>
+
 export const BindMessage = z.object({
   type: z.literal('bind'),
   sessionId: SessionIdField,

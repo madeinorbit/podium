@@ -72,6 +72,23 @@ const positiveInt = z.number().int().positive()
 export const Geometry = z.object({ cols: positiveInt, rows: positiveInt })
 export type Geometry = z.infer<typeof Geometry>
 
+/**
+ * What is KNOWN about a session's one authoritative grid W (MODEL rule 6).
+ *
+ * `current`  — a daemon report set it, so W is the pty's real size.
+ * `unknown`  — W is the last thing we were told, and nothing has confirmed it
+ *              since: before the first report, after daemon loss, and after a
+ *              server-restart rehydration. It still RENDERS, because inside the
+ *              system W can only change through the daemon.
+ * `absent`   — there is no pty: hibernated, exited, in transit, or a spawn /
+ *              reattach that failed. The panel shows the transcript instead.
+ *
+ * Optional on every wire that carries it: an older peer omits the field and a
+ * reader treats that as `unknown`, which is exactly what it is.
+ */
+export const GeometryState = z.enum(['current', 'unknown', 'absent'])
+export type GeometryState = z.infer<typeof GeometryState>
+
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
 export type ResumeRef = z.infer<typeof ResumeRef>
 
@@ -376,6 +393,9 @@ export const SessionMetaEntity = z.object({
    *  not a person and not a session), which POD-1075 owns. */
   controllerId: z.string().nullable(),
   geometry: Geometry,
+  /** What `geometry` above is WORTH — see {@link GeometryState}. Absent from an
+   *  older server, which a reader reads as `unknown`. */
+  geometryState: GeometryState.optional(),
   epoch: z.number().int().nonnegative(),
   clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601

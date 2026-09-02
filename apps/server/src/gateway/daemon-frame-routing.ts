@@ -46,6 +46,7 @@ export const DAEMON_FRAME_PORTS = {
   // ---- session-owned: session-keyed runtime, lifecycle and host callbacks ----
   driverSelected: ['sessions'],
   bind: ['sessions'],
+  geometryApplied: ['sessions'],
   agentFrame: ['sessions'],
   agentFrameBatch: ['sessions'],
   agentExit: ['sessions'],

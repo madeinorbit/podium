@@ -92,6 +92,7 @@ const DISPATCH: Dispatcher = {
   input: toSessions,
   resize: toSessions,
   requestControl: toSessions,
+  viewportRequest: toSessions,
   redrawRequest: toSessions,
   transcriptSubscribe: toSessions,
   transcriptUnsubscribe: toSessions,

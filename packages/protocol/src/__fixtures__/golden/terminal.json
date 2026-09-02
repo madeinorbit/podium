@@ -220,6 +220,7 @@
           "rows": 1
         },
         "geometryRevision": 1,
+        "geometryState": "current",
         "epoch": 1,
         "resumed": true,
         "outputSeen": true
@@ -227,7 +228,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"controllerIdentity\":{\"kind\":\"user\",\"user\":\"controllerIdentity.user\"},\"geometry\":{\"cols\":1,\"rows\":1},\"geometryRevision\":1,\"epoch\":1,\"resumed\":true,\"outputSeen\":true}"
+      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"controllerIdentity\":{\"kind\":\"user\",\"user\":\"controllerIdentity.user\"},\"geometry\":{\"cols\":1,\"rows\":1},\"geometryRevision\":1,\"geometryState\":\"current\",\"epoch\":1,\"resumed\":true,\"outputSeen\":true}"
     },
     {
       "schema": "AttachedMessage",
@@ -246,6 +247,7 @@
           "rows": 2
         },
         "geometryRevision": 2,
+        "geometryState": "unknown",
         "epoch": 2,
         "resumed": false,
         "outputSeen": false
@@ -253,7 +255,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"controllerIdentity\":{\"kind\":\"agent\",\"agentIdentity\":\"controllerIdentity.agentIdentity\",\"onBehalfOf\":\"controllerIdentity.onBehalfOf\"},\"geometry\":{\"cols\":2,\"rows\":2},\"geometryRevision\":2,\"epoch\":2,\"resumed\":false,\"outputSeen\":false}"
+      "encoded": "{\"type\":\"attached\",\"sessionId\":\"sessionId\",\"controllerId\":\"controllerId\",\"controllerIdentity\":{\"kind\":\"agent\",\"agentIdentity\":\"controllerIdentity.agentIdentity\",\"onBehalfOf\":\"controllerIdentity.onBehalfOf\"},\"geometry\":{\"cols\":2,\"rows\":2},\"geometryRevision\":2,\"geometryState\":\"unknown\",\"epoch\":2,\"resumed\":false,\"outputSeen\":false}"
     },
     {
       "schema": "AttachMessage",
@@ -531,6 +533,40 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"durableSessionCensus\",\"labels\":[\"labels[0]\"]}"
+    },
+    {
+      "schema": "GeometryAppliedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "geometryApplied",
+        "sessionId": "sessionId",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "cause": "request"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"geometryApplied\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1},\"cause\":\"request\"}"
+    },
+    {
+      "schema": "GeometryAppliedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "geometryApplied",
+        "sessionId": "sessionId",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "cause": "request"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"geometryApplied\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1},\"cause\":\"request\"}"
     },
     {
       "schema": "GeometryMessage",
@@ -2081,6 +2117,46 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"cols\":1,\"rows\":1,\"dpr\":1}"
+    },
+    {
+      "schema": "ViewportRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "viewportRequest",
+        "sessionId": "sessionId",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "visible": true,
+        "mode": "native",
+        "claimControl": true,
+        "seq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"viewportRequest\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1},\"visible\":true,\"mode\":\"native\",\"claimControl\":true,\"seq\":1}"
+    },
+    {
+      "schema": "ViewportRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "viewportRequest",
+        "sessionId": "sessionId",
+        "geometry": {
+          "cols": 1,
+          "rows": 1
+        },
+        "visible": true,
+        "mode": "native",
+        "claimControl": true,
+        "seq": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"viewportRequest\",\"sessionId\":\"sessionId\",\"geometry\":{\"cols\":1,\"rows\":1},\"visible\":true,\"mode\":\"native\",\"claimControl\":true,\"seq\":1}"
     },
     {
       "schema": "ViewStateMessage",
