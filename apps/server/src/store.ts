@@ -212,7 +212,7 @@ export class SessionStore {
     this.db = openStoreDatabase(path)
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
-    // node:sqlite enables foreign keys on a fresh connection. Migrations use
+    // The driver enables foreign keys on a fresh connection. Migrations use
     // SQLite's table-rebuild pattern (create/copy/drop/rename), where dropping a
     // parent with enforcement on would cascade-delete child rows. The chain owns
     // this window; enforcement is restored immediately after it succeeds.

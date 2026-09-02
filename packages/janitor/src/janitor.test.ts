@@ -567,8 +567,8 @@ describe('WorktreeGcReader proposes reclaimable checkouts [POD-564]', () => {
       // POSITIONAL, not `@name`. This lane runs vitest under Bun, and bun:sqlite
       // binds an object with BARE keys as nothing at all — every column arrives
       // NULL and the reader correctly proposes nothing, so the suite fails with
-      // no error to read. node:sqlite accepts the same object, which is why the
-      // named form passes under `bunx vitest` and only dies in the real lane.
+      // no error to read. A driver that accepts the same object is why the named
+      // form used to pass elsewhere and only died in the real lane.
       const insert = db.prepare(
         `INSERT INTO issues (id, parent_id, stage, closed_reason, closed_at, worktree_path, deleted_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,

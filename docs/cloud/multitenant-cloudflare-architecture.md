@@ -44,7 +44,7 @@ as remote daemons joining via the existing pairing flow.
   `docs/offline-sync-architecture.md`).
 - **State**: `${stateDir}` with `podium.db` (57 tables, drizzle, WAL, bun:sqlite, FTS5;
   ~200 MB observed), transcripts lake, artifacts, uploads, auth.json, daemon.secret.
-- **Hard requirements**: Bun (migrator refuses node:sqlite), Linux for the daemon side
+- **Hard requirements**: Bun (the SQLite shim is bun:sqlite only since PDM-25), Linux for the daemon side
   (abduco, PTY, git, /proc). systemd scopes are optional (`PODIUM_NO_SCOPE=1`) — inside a
   container the container itself is the durability boundary, so scopes are unnecessary.
 - **Multi-instance support already exists**: `PODIUM_INSTANCE`, `PODIUM_STATE_DIR`,

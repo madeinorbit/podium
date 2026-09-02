@@ -160,9 +160,8 @@ const REQUIRER_ALLOWANCE: Record<string, readonly string[]> = {
   // for it. Runs in the daemon's address space; see the note on native addons.
   'packages/pty/src/backends/node-pty-backend.ts': ['node-pty'],
   'packages/pty/src/backends/bun-node-pty-tty-polyfill.ts': ['tty'],
-  // Node/Bun builtins chosen at runtime, which a static import cannot express.
+  // A Bun builtin loaded at runtime, which a static import cannot express.
   'packages/runtime/src/sqlite/bun.ts': ['bun:sqlite'],
-  'packages/runtime/src/sqlite/node.ts': ['node:sqlite'],
   // Resolves the TypeScript loader for the SDK host CHILD. `.resolve()` returns a
   // path and loads nothing into this process.
   'apps/daemon/src/claude-sdk-protocol.ts': ['tsx'],
