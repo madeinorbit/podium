@@ -289,7 +289,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
           })
         },
       }
-      registry.gateway.attachDaemon(principal, transport)
+      registry.gateway.attachDaemon(principal, transport, [...acceptedCaps])
       // A machine that just paired reports an EMPTY agent list: `install.sh` pairs
       // FIRST and installs Codex/Claude/Grok after, while the daemon's own inventory
       // loop only re-reports once a minute. Everything that gates on capability reads

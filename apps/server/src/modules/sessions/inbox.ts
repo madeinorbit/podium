@@ -43,6 +43,7 @@ import type { HarnessComposerReadiness, HarnessInterrupt } from '../../harness-m
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session } from './session'
+import type { ViewportRequest } from './terminal'
 
 /**
  * What `sessions.interrupt` answers, and what each half of it means (POD-2792).
@@ -2174,6 +2175,25 @@ export class SessionInbox {
     if (!session) return false
     session.terminal.handleResize(client.id, cols, rows)
     return this.reconcileActiveRenderer(sessionId)
+  }
+
+  /**
+   * THE ONE ASK (POD-3239 B6). The terminal decides; this seam adds the
+   * sole-renderer promotion that follows any recorded measurement, exactly as
+   * the legacy resize path does — a request that was refused still recorded its
+   * viewport, and that record is what `reconcileActiveRenderer` needs.
+   */
+  handleViewportRequest(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    sessionId: SessionId,
+    request: ViewportRequest,
+  ): boolean {
+    void principal
+    const session = this.deps.getSession(sessionId)
+    if (!session) return false
+    const controllerChanged = session.terminal.handleViewportRequest(client.id, request)
+    return this.reconcileActiveRenderer(sessionId) || controllerChanged
   }
 
   reconcileGeometry(principal: ClientPrincipal, client: ClientConn, sessionId: SessionId): void {

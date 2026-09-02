@@ -1072,6 +1072,7 @@
         "src/modules/sessions/turn-preview.ts",
         "src/modules/sessions/view.narrow.test.ts",
         "src/modules/sessions/view.ts",
+        "src/modules/sessions/viewport-request.test.ts",
         "src/modules/sessions/workspace.ensure-worktree.test.ts",
         "src/modules/sessions/workspace.ts",
         "src/modules/settings/audit.ts",

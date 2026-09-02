@@ -218,6 +218,10 @@ export class MachinesService {
   // socket: each connected machine has its own send, so a session's control
   // messages route to the daemon that actually runs it.
   private readonly daemons = new Map<string, DaemonControlPeer>()
+  /** The negotiated capability set of each live daemon socket — see
+   *  {@link MachineService.daemonSupports}. Keyed and cleared exactly like
+   *  {@link MachineService.daemons}, so the two can never disagree. */
+  private readonly daemonCaps = new Map<string, ReadonlySet<string>>()
   /** One local parent-backed update participant; separate from agent daemon routing. */
   private readonly updateParticipants = new Map<
     string,
@@ -290,8 +294,14 @@ export class MachinesService {
 
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
-  attach(machineId: MachineId, transport: DaemonControlPeer): void {
+  attach(machineId: MachineId, transport: DaemonControlPeer, caps: readonly string[] = []): void {
     this.daemons.set(machineId, transport)
+    // WHAT THIS SOCKET CAN DO, for as long as this socket lasts (POD-3239). Kept
+    // beside `daemons` and cleared with it: the question "does the daemon
+    // holding this session report applied geometry?" is a question about a live
+    // connection, and answering it from a persisted list would keep saying yes
+    // after a downgrade.
+    this.daemonCaps.set(machineId, new Set(caps))
     // A persisted inventory describes the PREVIOUS connection. Until this daemon
     // reports, treating an old `installed: false` as current turns startup into a
     // confident false negative.
@@ -375,6 +385,7 @@ export class MachinesService {
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean {
     if (transport !== undefined && this.daemons.get(machineId) !== transport) return false
     this.daemons.delete(machineId)
+    this.daemonCaps.delete(machineId)
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
     this.invalidateMachineCache()
@@ -384,6 +395,17 @@ export class MachinesService {
   /** True when `machineId` has a live daemon socket right now. */
   hasDaemon(machineId: MachineId): boolean {
     return this.daemons.has(machineId)
+  }
+
+  /**
+   * Did the daemon currently attached for `machineId` negotiate this capability?
+   *
+   * False when no daemon is attached, which is the right answer rather than a
+   * missing one: a session whose machine is offline has nothing reporting
+   * anything, and the caller's fallback is the conservative branch.
+   */
+  daemonSupports(machineId: MachineId, cap: string): boolean {
+    return this.daemonCaps.get(machineId)?.has(cap) === true
   }
 
   /** Wait briefly for the live daemon's first inventory, requesting it now. */

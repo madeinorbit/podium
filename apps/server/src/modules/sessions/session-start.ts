@@ -1,3 +1,4 @@
+import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
  *
@@ -140,6 +141,8 @@ export interface SessionStartPorts {
     ownerUserId: UserId
   }): void
   toMachine(machineId: MachineId, message: ControlMessage): void
+  /** Does the daemon attached for this machine RIGHT NOW have `cap`? (POD-3239) */
+  machineSupports(machineId: MachineId, cap: string): boolean
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree, if exactly one does. */
@@ -453,6 +456,11 @@ export class SessionStart {
       // reassignment), falling back to the birth machine before the row exists.
       toDaemon: (msg) =>
         this.ports.toMachine(asMachineId(this.ports.sessionMachineId(sessionId) ?? machineId), msg),
+      daemonReportsGeometry: () =>
+        this.ports.machineSupports(
+          asMachineId(this.ports.sessionMachineId(sessionId) ?? machineId),
+          CAP_DAEMON_GEOMETRY_APPLIED,
+        ),
       sendInput: (input) =>
         this.ports.toPtyInput(
           asMachineId(this.ports.sessionMachineId(sessionId) ?? machineId),

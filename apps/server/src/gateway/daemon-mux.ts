@@ -278,11 +278,15 @@ export class DaemonMux {
    * with the placeholder: rows are written under a real machine id from boot, so an
    * attaching daemon has nothing to claim — it just becomes reachable.
    */
-  attachDaemon(peer: DaemonPeer, transport: DaemonControlPeer): void {
+  attachDaemon(peer: DaemonPeer, transport: DaemonControlPeer, caps?: readonly string[]): void {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
-    machines.attach(machineId, transport)
+    // `caps` is what THIS socket negotiated (POD-3239). It travels with the
+    // attach because that is the moment the answer changes, and it is the live
+    // socket's answer — an in-process link and an older daemon both legitimately
+    // arrive with none.
+    machines.attach(machineId, transport, caps)
     // SAY THAT IT HAPPENED (POD-1585). Attach/detach ran silently, so a server
     // log with no daemon line looked identical whether the fleet was healthy or
     // no daemon had ever arrived — an instrument that cannot say NO. That silence

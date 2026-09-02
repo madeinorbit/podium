@@ -49,6 +49,7 @@ function makeClient(id: string): Sent {
     principal: userClientPrincipal(id, OWNER, 'admin'),
     send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
+    viewportSeq: new Map(),
     attached: new Set(),
     caps: new Set(),
     wireVersion: 1,
@@ -161,8 +162,8 @@ describe('C3: attachClient requests a redraw on every non-resumed replay and on 
 // C4
 // ---------------------------------------------------------------------------
 
-describe('C4: handleResize drops silently when the client is not controller or the session is not viewVisible', () => {
-  it('a non-controller resize records the viewport and then drops: no daemon resize, no broadcast, no outcome', () => {
+describe('C4 (REWRITTEN for POD-3239 B6): a refused request still records its viewport — and is now COUNTED, not silent', () => {
+  it('a non-controller resize records the viewport and then refuses: no daemon resize, no broadcast — and the refusal is counted', () => {
     const { terminal, toDaemon } = makeTerminal()
     const controller = controllerOf(terminal, 'c-controller')
     const spectator = makeClient('c-spectator')
@@ -181,15 +182,20 @@ describe('C4: handleResize drops silently when the client is not controller or t
     expect(resizesTo(toDaemon)).toEqual([])
     expect(geometryFrames(controller)).toEqual([])
     expect(geometryFrames(spectator)).toEqual([])
-    // Nothing tells the client its request went nowhere.
+    // Still nothing on the wire tells the CLIENT its request went nowhere — the
+    // model does not add a refusal frame — but the drop is no longer invisible
+    // to the operator: the session counts it (POD-3239 B6, the "silent request
+    // drops: yes → counted" row of MODEL.md's table).
     expect(spectator.sent).toEqual([])
+    expect(terminal.requestsGated).toBe(1)
 
     // ARMING CHECK — the controller's resize on the same fixture DOES reach the
-    // daemon and DOES broadcast to the spectator.
+    // daemon and DOES broadcast to the spectator, and does NOT move the counter.
     controller.viewVisible.add(SESSION)
     terminal.handleResize(controller.id, 100, 32)
     expect(resizesTo(toDaemon)).toEqual([{ cols: 100, rows: 32 }])
     expect(geometryFrames(spectator).length).toBe(1)
+    expect(terminal.requestsGated).toBe(1)
   })
 
   it('the CONTROLLER is dropped just as silently when the session is not in its viewVisible', () => {
@@ -206,13 +212,18 @@ describe('C4: handleResize drops silently when the client is not controller or t
     expect(terminal.geometry).toEqual(GEO)
     expect(resizesTo(toDaemon)).toEqual([])
     expect(client.sent).toEqual([])
+    expect(terminal.requestsGated).toBe(1)
   })
 
-  it('an UNATTACHED client id is dropped and records nothing at all', () => {
+  it('an UNATTACHED client id is dropped and records nothing at all — and is not counted either', () => {
     const { terminal, toDaemon } = makeTerminal()
     terminal.handleResize('c-nobody', 200, 60)
     expect(terminal.geometry).toEqual(GEO)
     expect(resizesTo(toDaemon)).toEqual([])
+    // Deliberately NOT counted: there is no viewer here to have been refused.
+    // The counter measures refusals of real renderers, and folding in frames
+    // from connections that are not attached would make it unreadable.
+    expect(terminal.requestsGated).toBe(0)
   })
 })
 
@@ -362,10 +373,10 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
 })
 
 // ---------------------------------------------------------------------------
-// C6
+// C6 (REWRITTEN for POD-3239 B6)
 // ---------------------------------------------------------------------------
 
-describe('C6: adoptGeometryIfUncontrolled mutates and bumps the revision only when uncontrolled AND different, and broadcasts nothing', () => {
+describe('C6: the daemon report is the ONE writer of W — it always writes, and it always announces', () => {
   /** Two attached clients and NO controller — `revokeController` is the only
    *  transition that reaches that state without emptying the client set, which
    *  matters: a fixture with nobody attached could not tell "broadcasts nothing"
@@ -390,41 +401,65 @@ describe('C6: adoptGeometryIfUncontrolled mutates and bumps the revision only wh
     return { terminal, toDaemon, watchers: [a, b] }
   }
 
-  it('uncontrolled + different: geometry moves, revision bumps, NOTHING is broadcast or sent down', () => {
+  /**
+   * THE CLAIM THIS REPLACES. `adoptGeometryIfUncontrolled` moved W only when
+   * nobody held control, bumped the revision, and told NOBODY — so a spectator
+   * kept rendering a grid the pty had already left, and a controlled session
+   * ignored the daemon outright. Both halves are gone: a report is a report.
+   */
+  it('uncontrolled: the report moves W, bumps the revision, and IS broadcast', () => {
     const { terminal, toDaemon, watchers } = uncontrolledWithWatchers()
     const before = terminal.geometryRevision
 
-    terminal.adoptGeometryIfUncontrolled({ cols: 120, rows: 40 })
+    terminal.applyDaemonGeometry({ cols: 120, rows: 40 })
 
     expect(terminal.geometry).toEqual({ cols: 120, rows: 40 })
     expect(terminal.geometryRevision).toBe(before + 1)
-    for (const w of watchers) expect(geometryFrames(w)).toEqual([])
+    for (const w of watchers) {
+      expect(geometryFrames(w)).toEqual([
+        {
+          type: 'geometry',
+          sessionId: SESSION,
+          cols: 120,
+          rows: 40,
+          geometryRevision: before + 1,
+        },
+      ])
+    }
+    // A report is not a request: nothing goes back DOWN to the daemon.
     expect(resizesTo(toDaemon)).toEqual([])
-
-    // ARMING CHECK — the same two clients DO receive a geometry frame when
-    // something broadcasts one, so the empty assertions above are the silence
-    // of adoptGeometryIfUncontrolled and not a deaf fixture.
-    terminal.requestControl(watchers[0]!.id, { cols: 90, rows: 30 })
-    terminal.handleResize(watchers[0]!.id, 100, 32)
-    for (const w of watchers) expect(geometryFrames(w).length).toBeGreaterThan(0)
   })
 
-  it('uncontrolled + EQUAL geometry: nothing changes and the revision does not move', () => {
+  it('WITH a controller it still writes — control does not own the size any more', () => {
+    const { terminal } = makeTerminal()
+    const owner = controllerOf(terminal, 'c-owner')
+    owner.sent.length = 0
+    const before = terminal.geometryRevision
+
+    terminal.applyDaemonGeometry({ cols: 200, rows: 60 })
+
+    expect(terminal.geometry).toEqual({ cols: 200, rows: 60 })
+    expect(terminal.geometryRevision).toBe(before + 1)
+    expect(geometryFrames(owner).length).toBe(1)
+  })
+
+  it('an EQUAL report freezes the revision but still announces — a report is news at any size', () => {
+    // The `unknown` → `current` edge of MODEL rule 6 happens on a same-size
+    // report too: it is what tells a viewer its ask was answered, and what turns
+    // a rehydrated guess into a confirmed grid. Suppressing it because the
+    // numbers matched would leave that viewer waiting for a frame that never comes.
     const { terminal, watchers } = uncontrolledWithWatchers()
     const before = terminal.geometryRevision
-    terminal.adoptGeometryIfUncontrolled({ ...GEO })
-    expect(terminal.geometry).toEqual(GEO)
-    expect(terminal.geometryRevision).toBe(before)
-    for (const w of watchers) expect(geometryFrames(w)).toEqual([])
-  })
 
-  it('WITH a controller it declines, however different the reported geometry is', () => {
-    const { terminal } = makeTerminal()
-    controllerOf(terminal, 'c-owner')
-    const before = terminal.geometryRevision
-    terminal.adoptGeometryIfUncontrolled({ cols: 200, rows: 60 })
+    terminal.applyDaemonGeometry({ ...GEO })
+
     expect(terminal.geometry).toEqual(GEO)
     expect(terminal.geometryRevision).toBe(before)
+    for (const w of watchers) {
+      expect(geometryFrames(w)).toEqual([
+        { type: 'geometry', sessionId: SESSION, cols: 80, rows: 24, geometryRevision: before },
+      ])
+    }
   })
 })
 
@@ -432,8 +467,13 @@ describe('C6: adoptGeometryIfUncontrolled mutates and bumps the revision only wh
 // C13
 // ---------------------------------------------------------------------------
 
-describe('C13: a same-size setGeometry is a no-op, but handleResize still pushes to the daemon and broadcasts', () => {
-  it('same-size handleResize: revision frozen, daemon resize sent, geometry frame broadcast', () => {
+describe('C13 (REWRITTEN for POD-3239 B6): a request at the size W already is, is not a resize at all', () => {
+  it('same-size request: nothing pushed to the daemon, nothing broadcast, revision frozen', () => {
+    // WHAT CHANGED. The old path pushed the winsize down and broadcast a frame
+    // whatever the numbers said, so a claim at an unchanged size cost a SIGWINCH
+    // and a TUI repaint for no change — half of 0a's observed double resize.
+    // Rule 4 makes reveal ALWAYS send its claim, which would have made that cost
+    // routine, so the server applies geometry only when it differs.
     const { terminal, toDaemon } = makeTerminal()
     const controller = controllerOf(terminal, 'c-same')
     const spectator = makeClient('c-same-spectator')
@@ -445,21 +485,24 @@ describe('C13: a same-size setGeometry is a no-op, but handleResize still pushes
     const before = terminal.geometryRevision
     terminal.handleResize(controller.id, GEO.cols, GEO.rows) // exactly the current size
 
-    expect(terminal.geometryRevision).toBe(before) // setGeometry returned early
-    expect(resizesTo(toDaemon)).toEqual([{ cols: 80, rows: 24 }]) // pushed anyway
-    // …and broadcast anyway, carrying the UNCHANGED revision.
-    expect(geometryFrames(spectator)).toEqual([
-      { type: 'geometry', sessionId: SESSION, cols: 80, rows: 24, geometryRevision: before },
-    ])
+    expect(terminal.geometryRevision).toBe(before)
+    expect(resizesTo(toDaemon)).toEqual([])
+    expect(geometryFrames(spectator)).toEqual([])
+    // It was not REFUSED either — it was accepted and found to be a no-op.
+    expect(terminal.requestsGated).toBe(0)
+    // The measurement is still on file, which is what sole-renderer promotion needs.
+    expect(controller.viewports.get(SESSION)).toEqual({ cols: 80, rows: 24 })
   })
 
-  it('a DIFFERENT size does bump the revision, so the freeze above is the same-size rule', () => {
-    const { terminal } = makeTerminal()
+  it('ARMED: a DIFFERENT size does reach the daemon, so the silence above is the same-size rule', () => {
+    const { terminal, toDaemon } = makeTerminal()
     const controller = controllerOf(terminal, 'c-diff')
-    const before = terminal.geometryRevision
+    toDaemon.length = 0
     terminal.handleResize(controller.id, 120, 40)
+    expect(resizesTo(toDaemon)).toEqual([{ cols: 120, rows: 40 }])
+    // This fixture's daemon does NOT report applied geometry, so the one
+    // compatibility branch still writes W here — see T5.
     expect(terminal.geometry).toEqual({ cols: 120, rows: 40 })
-    expect(terminal.geometryRevision).toBe(before + 1)
   })
 })
 

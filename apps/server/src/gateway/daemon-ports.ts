@@ -69,7 +69,10 @@ export interface SessionsDaemonPort {
 
 /** MACHINES. Socket bookkeeping plus the machine's own reported inventory. */
 export interface MachinesDaemonPort {
-  attach(machineId: MachineId, transport: DaemonControlPeer): void
+  /** `caps` is this SOCKET's negotiated capability set (POD-3239). Live, not
+   *  durable: a machine that reconnects with an older daemon must lose the
+   *  capability the previous one had, and a persisted list could not do that. */
+  attach(machineId: MachineId, transport: DaemonControlPeer, caps?: readonly string[]): void
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
   flushQueued(machineId: MachineId): void
   broadcastMachines(): void

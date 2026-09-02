@@ -1,3 +1,4 @@
+import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
 import type { MachineId, SessionId, SessionMeta } from '@podium/model'
 import { AgentKind } from '@podium/model'
 
@@ -73,6 +74,9 @@ export interface SessionRepositoryPorts {
   autoContinue(): AutoContinueController
   toMachine(machineId: MachineId, message: ControlMessage): void
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
+  /** Does the daemon attached for this machine RIGHT NOW have `cap`? Live, per
+   *  socket — see `MachineService.daemonSupports` (POD-3239). */
+  machineSupports(machineId: MachineId, cap: string): boolean
   broadcastSessions(): void
   flushBroadcasts(): void
   runScheduledBroadcast(): void
@@ -412,6 +416,11 @@ export class SessionRepository {
       geometry: { ...(r.geometry ?? { cols: 80, rows: 24 }) },
       machineId,
       toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
+      daemonReportsGeometry: () =>
+        this.ports.machineSupports(
+          this.sessions.get(r.id)?.machineId ?? machineId,
+          CAP_DAEMON_GEOMETRY_APPLIED,
+        ),
       sendInput: (input) =>
         this.ports.toPtyInput(this.sessions.get(r.id)?.machineId ?? machineId, input),
       onActivity: () => {

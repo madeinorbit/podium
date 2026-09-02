@@ -64,6 +64,9 @@ describe('daemon socket auth', () => {
     expect(attach).toHaveBeenCalledWith(
       machinePrincipal('m1'),
       expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+      // POD-3239: the caps THIS socket negotiated travel with the attach, so the
+      // machine registry's answer to "can this daemon do X" is the live one.
+      expect.any(Array),
     )
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
   })
@@ -98,6 +101,9 @@ describe('daemon socket auth', () => {
     expect(attach).toHaveBeenCalledWith(
       machinePrincipal('local'),
       expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+      // POD-3239: the caps THIS socket negotiated travel with the attach, so the
+      // machine registry's answer to "can this daemon do X" is the live one.
+      expect.any(Array),
     )
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
 
@@ -184,6 +190,9 @@ describe('daemon socket auth', () => {
     expect(attach).toHaveBeenCalledWith(
       machinePrincipal('mNew'),
       expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
+      // POD-3239: the caps THIS socket negotiated travel with the attach, so the
+      // machine registry's answer to "can this daemon do X" is the live one.
+      expect.any(Array),
     )
   })
 

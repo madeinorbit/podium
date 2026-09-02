@@ -240,31 +240,16 @@ export class SessionClientControl {
         break
       case 'viewportRequest':
         {
-          // THE ONE ASK (POD-3239 B4). At THIS commit its meaning is still
-          // today's: a claiming ask is the `requestControl` it replaces, a
-          // non-claiming one is the `resize`. That is deliberate — the frame
-          // ships before the server's request path does, so a client sending it
-          // early is served by the same code that served the two frames it
-          // supersedes. B6 replaces this body with the seq watermark, the
-          // gated-request counter, and the forward-don't-write rule.
+          // THE ONE ASK (POD-3239 B4/B6). One frame, one server path: the
+          // watermark, the counted refusal, and forward-don't-write all live in
+          // `SessionTerminal.handleViewportRequest`.
           let controllerChanged = false
           this.ports.mutate(message.sessionId, () => {
-            if (message.claimControl) {
-              this.ports.inbox.requestControl(
-                principal,
-                client,
-                message.sessionId,
-                message.geometry,
-              )
-              controllerChanged = true
-              return
-            }
-            controllerChanged = this.ports.inbox.handleResize(
+            controllerChanged = this.ports.inbox.handleViewportRequest(
               principal,
               client,
               message.sessionId,
-              message.geometry.cols,
-              message.geometry.rows,
+              message,
             )
           })
           if (controllerChanged) this.ports.broadcastSessions()

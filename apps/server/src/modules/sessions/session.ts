@@ -7,6 +7,7 @@ import {
   type ConversationId,
   FIRST_ADMIN_USER_ID,
   type Geometry,
+  type GeometryState,
   type HarnessAgent,
   type IssueId,
   type MachineId,
@@ -76,6 +77,9 @@ export interface SessionInit {
   geometry: Geometry
   toDaemon: Send<ControlMessage>
   sendInput?: Send<DaemonPtyInputBatch>
+  /** Does this session's daemon report the grid it applied? See
+   *  {@link SessionTerminalInit.daemonReportsGeometry}. */
+  daemonReportsGeometry?: () => boolean
   /** The machine (daemon) this session runs on. REQUIRED: the caller has resolved a
    *  real machine before a Session object exists (POD-318), so there is no default to
    *  supply and no placeholder to adopt away from later. */
@@ -439,6 +443,10 @@ export class Session {
       agentKind: init.agentKind,
       geometry: init.geometry,
       toDaemon: init.toDaemon,
+      // The terminal answers `attached` with the SESSION's geometry state, which
+      // needs the lifecycle status it does not itself hold (POD-3239 B6).
+      geometryState: () => this.geometryState(),
+      ...(init.daemonReportsGeometry ? { daemonReportsGeometry: init.daemonReportsGeometry } : {}),
       ...(init.sendInput ? { sendInput: init.sendInput } : {}),
       inputCount: init.inputCount,
       outputCount: init.outputCount,
@@ -745,12 +753,17 @@ export class Session {
       this.status = 'live'
       this.exitCode = undefined
     }
-    // Adopt the daemon's geometry only if no controller has resized us yet.
-    this.terminal.adoptGeometryIfUncontrolled(geometry)
-    // …and when a controller HAS, ours is the authoritative grid: push it back
-    // down, because a resize applied while the daemon had no bridge to receive it
-    // never reached the PTY (POD-628). A no-op when the two already agree.
-    this.terminal.resyncGeometry(geometry)
+    // BIND IS A REPORT (POD-3239 B6 / MODEL rule 1). The daemon is telling us the
+    // size the pty is actually running at, after any resize it was holding for a
+    // spawn still in flight — so we take it, we announce it, and W becomes
+    // `current`. There is nothing to adopt-if-uncontrolled and nothing to
+    // re-assert downwards: a viewer that wants a different size asks, and the
+    // ask comes back as another report. That replaces both
+    // `adoptGeometryIfUncontrolled` (which mutated W and told nobody, so a
+    // spectator kept rendering a grid the pty had left) and `resyncGeometry`
+    // (which pushed the server's belief down onto a pty that had just told us
+    // what it was).
+    this.terminal.applyDaemonGeometry(geometry)
   }
 
   /**
@@ -762,9 +775,29 @@ export class Session {
   markReconnecting(): boolean {
     if (this.status === 'live' || this.status === 'starting') {
       this.status = 'reconnecting'
+      // The daemon that was confirming W is gone, so W goes back to last-known
+      // (MODEL rule 6). The grid still RENDERS — it can only have changed
+      // through a daemon — but nothing stands behind it until the reattach binds.
+      this.terminal.markGeometryUnknown()
       return true
     }
     return false
+  }
+
+  /**
+   * WHAT THIS SESSION'S `geometry` IS WORTH (MODEL rule 6).
+   *
+   * Two facts, folded here because neither half owns both: whether there is a
+   * pty at all (the lifecycle status) and whether a daemon report stands behind
+   * the number (the terminal's `geometryKnown`). Derived rather than stored, so
+   * there is no fourth hibernate path that forgets to say `absent`.
+   *
+   * `absent` is the panel's do-not-mount answer: a hibernated or exited session
+   * has no process, and its transcript is what the operator should see.
+   */
+  geometryState(): GeometryState {
+    if (this.status === 'hibernated' || this.status === 'exited') return 'absent'
+    return this.terminal.geometryKnown ? 'current' : 'unknown'
   }
 
   /** Snapshot of all non-connection state represented by a successful session
@@ -975,6 +1008,7 @@ export class Session {
       ...(this.agentState ? { agentState: this.agentState } : {}),
       controllerId: this.terminal.controllerId,
       geometry: { ...this.terminal.geometry },
+      geometryState: this.geometryState(),
       epoch: this.terminal.epoch,
       clientCount: this.terminal.clientCount,
       createdAt: this.createdAt,

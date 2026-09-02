@@ -203,6 +203,7 @@ export class ClientMux {
           return true
         }),
       viewports: new Map(),
+      viewportSeq: new Map(),
       attached: new Set(),
       // No caps until hello — the feature's bootstrap snapshots go to everyone
       // (a delta client uses them as its initial paint, then takes a cursor via

@@ -45,6 +45,7 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     principal: testClientPrincipal(id),
     send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
+    viewportSeq: new Map(),
     attached: new Set(),
     caps: new Set(),
     wireVersion: 1,
@@ -113,6 +114,9 @@ describe('Session', () => {
       controllerIdentity: { kind: 'user', user: a.principal.user },
       geometry: geo,
       geometryRevision: 0,
+      // POD-3239: what that geometry is WORTH. A session that has not had a
+      // daemon report yet says so rather than implying confidence it lacks.
+      geometryState: 'unknown',
       epoch: 0,
       resumed: false,
       outputSeen: false,
@@ -255,9 +259,9 @@ describe('Session', () => {
     const s = makeSession(toDaemon)
     const snapshot = s.terminal.captureState()
 
-    // An uncontrolled daemon bind can move the live geometry without a client
-    // broadcast; a later durable rollback must still be a new wire revision.
-    s.terminal.adoptGeometryIfUncontrolled({ cols: 203, rows: 51 })
+    // A daemon report moves the live geometry; a later durable rollback must
+    // still be a new wire revision.
+    s.terminal.applyDaemonGeometry({ cols: 203, rows: 51 })
     const client = makeClient('a')
     s.terminal.attachClient(client)
     toDaemon.mockClear()
@@ -266,12 +270,13 @@ describe('Session', () => {
 
     expect(s.terminal.geometry).toEqual(geo)
     expect(s.terminal.geometryRevision).toBe(2)
-    expect(toDaemon).toHaveBeenCalledWith({
-      type: 'resize',
-      sessionId: asSessionId('s1'),
-      cols: 80,
-      rows: 24,
-    })
+    // REWRITTEN FOR POD-3239 B6: the rollback undoes what the SERVER believed.
+    // The pty never moved, so nothing is pushed down — telling the daemon to
+    // resize here would be this path inventing a resize nobody asked for. The
+    // clients are told, because their cached W did move.
+    expect(toDaemon).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'resize' }),
+    )
     expect(client.sent).toContainEqual({
       type: 'geometry',
       sessionId: asSessionId('s1'),
@@ -954,31 +959,54 @@ describe('Session', () => {
     expect(s.toMeta(NO_SESSION_USER_STATE).status).toBe('live')
   })
 
-  it('markLive re-asserts the controller’s geometry onto a PTY that bound at another (POD-628)', () => {
-    // The reflow bug, end to end at this seam. The row is published as soon as the
-    // server dispatches `spawn`, so the browser attaches, takes control and fits its
-    // pane to 38x35 — all while the daemon is still forking the agent. The resize
-    // reaches a daemon with no bridge for it; the PTY is born 80x24 and binds saying
-    // so. adoptGeometryIfUncontrolled declines to take that number (a controller owns
-    // the grid), which used to leave browser + server on 38x35 and the real Codex on
-    // 80x24: correct output, wrapped against the wrong width.
+  it('BIND IS A REPORT: markLive takes the daemon’s grid, announces it, and pushes nothing down', () => {
+    // REWRITTEN FOR POD-3239 B6 (was: "markLive re-asserts the controller's
+    // geometry onto a PTY that bound at another (POD-628)").
+    //
+    // Same scenario — the row is published the moment the server dispatches
+    // `spawn`, so the browser attaches, takes control and fits its pane to 38x35
+    // while the daemon is still forking. What CHANGED is the answer. The old
+    // code held two writers and had to reconcile them: the server's cache said
+    // 38x35, the pty said 80x24, and `resyncGeometry` pushed ours back down.
+    // Under rule 1 there is one writer, and it is the daemon: bind REPORTS the
+    // size the pty is actually running at, so the server takes that number,
+    // tells every viewer, and sends nothing downwards. The viewer that wants
+    // 38x35 asks again — and its ask comes back as another report.
+    //
+    // Note this is not a lost resize: 38x35 reached the daemon when the client
+    // sent it, and a daemon with no bridge yet HOLDS it (`pendingResizes`) and
+    // applies it at bind, so the geometry `bind` reports is normally already the
+    // client's. This fixture forces the disagreement to pin which side wins.
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     s.terminal.attachClient(a) // controller
     a.viewVisible = new Set([asSessionId('s1')])
     s.terminal.handleResize('a', 38, 35)
-    toDaemon.mockClear()
-
-    s.markLive('codex', geo) // the daemon binds at the 80x24 it spawned with
-
-    expect(s.terminal.geometry).toEqual({ cols: 38, rows: 35 }) // ours stays authoritative
     expect(toDaemon).toHaveBeenCalledWith({
       type: 'resize',
       sessionId: asSessionId('s1'),
       cols: 38,
       rows: 35,
     })
+    toDaemon.mockClear()
+    a.sent.length = 0
+
+    s.markLive('codex', geo) // the daemon binds at the 80x24 it spawned with
+
+    expect(s.terminal.geometry).toEqual(geo) // the daemon's number wins
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
+    // …and the viewers are TOLD, which the old adopt path never did — a
+    // spectator used to keep rendering a grid the pty had already left.
+    expect(a.sent).toContainEqual({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: geo.cols,
+      rows: geo.rows,
+      geometryRevision: s.terminal.geometryRevision,
+    })
+    // A report is what makes W known (MODEL rule 6).
+    expect(s.geometryState()).toBe('current')
   })
 
   it('markLive does not resize a PTY that already bound at our geometry', () => {

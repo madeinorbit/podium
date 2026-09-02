@@ -54,6 +54,7 @@ function makeClient(
     principal: userClientPrincipal(id, user, role),
     send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
+    viewportSeq: new Map(),
     attached: new Set(),
     caps: new Set(),
     wireVersion: 1,

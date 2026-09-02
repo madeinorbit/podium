@@ -1673,7 +1673,7 @@ export async function startServer(
             })
           },
         }
-        registry.gateway.attachDaemon(principal, transport)
+        registry.gateway.attachDaemon(principal, transport, outcome.acceptedCaps)
         return {
           established: true as const,
           reply: PeerHelloReply.parse(outcome.reply),
