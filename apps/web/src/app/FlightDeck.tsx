@@ -157,7 +157,7 @@ const MODES: Array<{ id: FlightDeckView; label: string }> = [
   { id: 'needs-you', label: 'Needs you' },
 ]
 const WATERFALL_MODE = { id: 'waterfall', label: 'Waterfall' } as const
-const HANDOFF_MODE = { id: 'handoff', label: 'Handoff' } as const
+const TIMELINE_MODE = { id: 'handoff', label: 'Timeline' } as const
 
 /**
  * `Add agent` — one more agent onto the mission root.
@@ -2994,7 +2994,7 @@ export function FlightDeck({
       ? 'full'
       : preferredView
   const mode: FlightDeckMode = view === 'waterfall' || view === 'handoff' ? 'full' : view
-  const modes = developmentEnabled ? [...MODES, WATERFALL_MODE, HANDOFF_MODE] : MODES
+  const modes = developmentEnabled ? [...MODES, WATERFALL_MODE, TIMELINE_MODE] : MODES
   useLayoutEffect(() => {
     if (view !== 'waterfall' && display === 'expanded') onDisplayChange('compact')
   }, [display, onDisplayChange, view])

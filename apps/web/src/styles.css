@@ -5680,7 +5680,7 @@ html[data-density="compact"] .brief-shelf {
   background: color-mix(in oklab, var(--issue, transparent) 5%, transparent);
 }
 
-/* Handoff is a compact return brief, built on the linked concept from POD-1842.
+/* Timeline is a compact return brief, built on the linked concept from POD-1842.
    The shared rail makes current and future state one continuous account instead
    of a stack of unrelated task cards. */
 .handoff-view {
