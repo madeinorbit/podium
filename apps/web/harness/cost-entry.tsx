@@ -99,6 +99,22 @@ const COSTED = {
     session('s-d', 'Review: M2 gallery grid', [
       tok('claude-opus-5', { cacheReadTokens: 24_000_000, outputTokens: 160_000 }),
     ]),
+    // THE DELEGATE CASE (POD-1592). The read path attributes a subagent's
+    // transcript to the session that SPAWNED it, so these three wire entries
+    // share one id and must fold into ONE row summing to $50 — not three rows
+    // on three identical React keys.
+    session(
+      's-b',
+      'Artifact gallery epic lead',
+      [tok('claude-opus-5', { cacheReadTokens: 30_000_000, outputTokens: 60_000 })],
+      true,
+    ),
+    session(
+      's-b',
+      'Artifact gallery epic lead',
+      [tok('claude-opus-5', { cacheReadTokens: 18_000_000, outputTokens: 40_000 })],
+      true,
+    ),
     session('s-e', 'Design: artifact gallery', [
       tok('claude-opus-5', { cacheReadTokens: 12_000_000, outputTokens: 90_000 }),
     ]),

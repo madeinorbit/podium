@@ -374,21 +374,40 @@ describe('TaskCostSection · the disclosure', () => {
       />,
     )
 
+    // The list holds 2 named sessions and 1 anonymous transcript; own.sessionCount
+    // counts 10 DISTINCT NAMED ids and cannot count the anonymous one, because a
+    // null id joins no set. So 11 ran, 3 are listed, 8 are named-but-unpriced —
+    // and the three numbers add up exactly rather than being clamped together.
     expect(screen.getByTestId('cost-disclosure').textContent).toContain(
-      '10 sessions that ever ran, most expensive first',
+      '11 sessions that ever ran, most expensive first',
     )
     fireEvent.click(screen.getByTestId('cost-disclosure'))
-    expect(screen.getByTestId('cost-unpriced').textContent).toBe('7 more with no figure recorded')
+    expect(screen.getAllByTestId('cost-session-row')).toHaveLength(3)
+    expect(screen.getByTestId('cost-unpriced').textContent).toBe('8 more with no figure recorded')
   })
 
-  it('says a plain count when every own session has a figure', () => {
-    render(<TaskCostSection view={pod1574({ sessions, own: amount({ sessionCount: 3 }) })} />)
+  it('says a plain count when every session that ran is in the list', () => {
+    // Two named ids and one anonymous transcript: three ran, three listed,
+    // nothing to account for.
+    render(<TaskCostSection view={pod1574({ sessions, own: amount({ sessionCount: 2 }) })} />)
 
     expect(screen.getByTestId('cost-disclosure').textContent).toContain(
       '3 sessions that ever ran, most expensive first',
     )
     fireEvent.click(screen.getByTestId('cost-disclosure'))
     expect(screen.queryByTestId('cost-unpriced')).toBeNull()
+  })
+
+  it('still says sessions ran when not one of them carries a figure', () => {
+    // Every own session is unharvested or pruned. The fold used to be gated on
+    // the list being non-empty, so the task said nothing at all about work that
+    // demonstrably happened.
+    render(<TaskCostSection view={pod1574({ sessions: [], own: amount({ sessionCount: 3 }) })} />)
+
+    expect(screen.getByTestId('cost-disclosure').textContent).toContain('3 sessions that ever ran')
+    fireEvent.click(screen.getByTestId('cost-disclosure'))
+    expect(screen.queryAllByTestId('cost-session-row')).toHaveLength(0)
+    expect(screen.getByTestId('cost-unpriced').textContent).toBe('3 more with no figure recorded')
   })
 
   it('counts one session as one, and claims no ordering over a single row', () => {

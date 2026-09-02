@@ -1,9 +1,15 @@
-import type { CostModelTotalWire, TaskCostRowWire, TaskCostWire } from '@podium/model'
+import type {
+  CostModelTotalWire,
+  SessionCostWire,
+  TaskCostRowWire,
+  TaskCostWire,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   COST_HEDGE,
   costCohort,
   costHarnessLabel,
+  foldSessionCosts,
   formatCostExact,
   formatCostMark,
   formatCostRounded,
@@ -271,5 +277,99 @@ describe('how a figure is worded', () => {
 
   it('states the hedge in exactly one wording', () => {
     expect(COST_HEDGE).toBe('at list price for the same tokens — not what you were billed')
+  })
+})
+
+/**
+ * ONE ROW PER SESSION (POD-1592's review). The wire is per TRANSCRIPT, and the
+ * read path attributes a delegate's transcript to the session that spawned it —
+ * so several entries legitimately share one id, and rendering them one-to-one
+ * gave a session with twelve delegates thirteen identical rows on identical
+ * React keys.
+ */
+describe('foldSessionCosts', () => {
+  const tok = (model: string, cacheReadTokens: number, messages: number) => ({
+    model,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens,
+    cacheCreationTokens: 0,
+    cacheCreation1hTokens: 0,
+    messages,
+  })
+  // Opus cache reads price at $0.50/M, so these are exact dollars.
+  const row = (
+    sessionId: string | null,
+    usd: number,
+    messages: number,
+    over: Record<string, unknown> = {},
+  ) =>
+    ({
+      sessionId,
+      title: sessionId === null ? null : 'Epic lead',
+      harness: 'claude-code',
+      running: false,
+      models: [tok('claude-opus-5', usd * 2_000_000, messages)],
+      firstTsMs: 1_000,
+      lastTsMs: 2_000,
+      ...over,
+    }) as unknown as SessionCostWire
+
+  it('folds a session and its delegates into one row that sums', () => {
+    const folded = foldSessionCosts([row('s-1', 10, 100), row('s-1', 5, 50), row('s-1', 2.5, 25)])
+
+    expect(folded).toHaveLength(1)
+    expect(folded[0]?.estCostUsd).toBeCloseTo(17.5, 6)
+    expect(folded[0]?.messages).toBe(175)
+  })
+
+  it('spans the whole session window across its delegate transcripts', () => {
+    const folded = foldSessionCosts([
+      row('s-1', 1, 1, { firstTsMs: 500, lastTsMs: 900 }),
+      row('s-1', 1, 1, { firstTsMs: 100, lastTsMs: 2_000 }),
+    ])
+
+    expect(folded[0]?.firstTsMs).toBe(100)
+    expect(folded[0]?.lastTsMs).toBe(2_000)
+  })
+
+  it('is live when any of its transcripts is', () => {
+    const folded = foldSessionCosts([
+      row('s-1', 1, 1, { running: false }),
+      row('s-1', 1, 1, { running: true }),
+    ])
+
+    expect(folded[0]?.running).toBe(true)
+  })
+
+  it('takes the name from whichever transcript carries one', () => {
+    const folded = foldSessionCosts([
+      row('s-1', 1, 1, { title: null }),
+      row('s-1', 1, 1, { title: 'Epic lead' }),
+    ])
+
+    expect(folded[0]?.title).toBe('Epic lead')
+  })
+
+  it('never merges anonymous transcripts, which have no identity to merge on', () => {
+    // Two sessions whose rows are gone are two different pieces of work that
+    // happen to be equally anonymous — folding them would invent one session.
+    const folded = foldSessionCosts([row(null, 3, 30), row(null, 4, 40)])
+
+    expect(folded).toHaveLength(2)
+    expect(folded.map((f) => f.estCostUsd)).toEqual([4, 3])
+  })
+
+  it('leaves every row a distinct React key, dearest first', () => {
+    const folded = foldSessionCosts([
+      row('s-1', 1, 10),
+      row('s-2', 20, 10),
+      row('s-1', 1, 10),
+      row(null, 5, 10),
+    ])
+
+    expect(folded.map((f) => f.sessionId)).toEqual(['s-2', null, 's-1'])
+    const named = folded.map((f) => f.sessionId).filter((id) => id !== null)
+    expect(new Set(named).size).toBe(named.length)
   })
 })

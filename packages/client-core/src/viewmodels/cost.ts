@@ -217,14 +217,64 @@ export function taskCostView(wire: TaskCostWire, cohort?: CostCohort): TaskCostV
     provisional: wire.provisional,
     floor: wire.floor,
     harnesses: wire.harnesses,
-    sessions: wire.sessions
-      .map((s): SessionCostView => sessionCostView(s))
-      .sort((a, b) => b.estCostUsd - a.estCostUsd),
+    sessions: foldSessionCosts(wire.sessions),
     ratePerReplyUsd,
     rateVsMedian:
       ratePerReplyUsd !== null && median !== null && median > 0 ? ratePerReplyUsd / median : null,
     sampledAt: wire.sampledAt ?? null,
   }
+}
+
+/**
+ * ONE ROW PER SESSION, NOT PER TRANSCRIPT — and this is a correctness fix, not
+ * a tidy-up (POD-1592's review of POD-1860).
+ *
+ * `TaskCostWire.sessions` carries one entry per transcript FILE, and the read
+ * path deliberately attributes a delegate's transcript to the session that
+ * SPAWNED it: `resolveOwners` climbs the parent edge, which is how roughly $85
+ * of otherwise invisible Claude spend got counted at all — 32 of 112 Claude
+ * transcripts in a window are `subagents/` files. That hop is right and must
+ * stay.
+ *
+ * The consequence is that several wire entries legitimately share one
+ * `sessionId`, so rendering them one-to-one gave a session with twelve
+ * delegates thirteen identical rows, every one keyed on the same id. Duplicate
+ * React keys, a list that disagrees with `sessionCount`, and a reader invited to
+ * add up the same session over and over.
+ *
+ * So the costs fold and the row is the session. A NULL id is not an identity and
+ * never merges: those are transcripts with no surviving session row, and two of
+ * them are two different pieces of work that happen to be equally anonymous.
+ */
+export function foldSessionCosts(rows: readonly SessionCostWire[]): SessionCostView[] {
+  const bySession = new Map<string, SessionCostView>()
+  const anonymous: SessionCostView[] = []
+  for (const row of rows) {
+    const view = sessionCostView(row)
+    if (row.sessionId === null) {
+      anonymous.push(view)
+      continue
+    }
+    const seen = bySession.get(row.sessionId)
+    if (!seen) {
+      bySession.set(row.sessionId, view)
+      continue
+    }
+    seen.estCostUsd += view.estCostUsd
+    seen.totalTokens += view.totalTokens
+    seen.messages += view.messages
+    // The session spans every transcript written under it, so its window is the
+    // union: a delegate that started first started the session's work.
+    seen.firstTsMs = Math.min(seen.firstTsMs, view.firstTsMs)
+    seen.lastTsMs = Math.max(seen.lastTsMs, view.lastTsMs)
+    // Live if ANY of its transcripts is: the flag comes from the session row, so
+    // every entry sharing an id agrees, but folding with `||` keeps that an
+    // observation rather than an assumption.
+    seen.running = seen.running || view.running
+    // The parent's own transcript carries the name; a delegate file may not.
+    seen.title = seen.title ?? view.title
+  }
+  return [...bySession.values(), ...anonymous].sort((a, b) => b.estCostUsd - a.estCostUsd)
 }
 
 function sessionCostView(s: SessionCostWire): SessionCostView {

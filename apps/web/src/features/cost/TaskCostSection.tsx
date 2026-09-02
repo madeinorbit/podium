@@ -339,12 +339,25 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
   // task with ten transcripts and two surviving rows legitimately shows both,
   // and this phrase is what makes the larger number make sense beside them.
   //
-  // The COUNT is `own.sessionCount` — every session that ran on this task — not
-  // the length of the list, which holds only the ones with a figure to sort by.
-  // The difference is stated inside the fold rather than left as a silent gap,
-  // which is also why the count and the list are allowed to disagree.
-  const unpriced = Math.max(0, own.sessionCount - sessions.length)
-  const ran = Math.max(own.sessionCount, sessions.length)
+  // THE COUNT AND THE LIST NOW RECONCILE EXACTLY: listed + unpriced === ran, by
+  // construction rather than by clamping.
+  //
+  // Two facts make this less obvious than it looks. `own.sessionCount` is a set
+  // of DISTINCT session ids and excludes transcripts whose session row is gone,
+  // because a null id cannot join a set. The list, after `foldSessionCosts`,
+  // holds one row per distinct id PLUS one row per anonymous transcript. So the
+  // two are counting different things at both ends, and the earlier
+  // `Math.max(own.sessionCount, sessions.length)` was papering over the
+  // difference — printing whichever was larger and calling it sessions, which
+  // before the fold meant printing a TRANSCRIPT count as a session count.
+  const named = sessions.filter((s) => s.sessionId !== null).length
+  const anonymous = sessions.length - named
+  // Every session that ran on this task: the distinct ones the read path counted,
+  // plus the ones whose session row no longer exists to be counted.
+  const ran = own.sessionCount + anonymous
+  // Named sessions that ran and carry no figure — a transcript not harvested
+  // yet, or one that is gone. Named only: an anonymous row is IN the list.
+  const unpriced = Math.max(0, own.sessionCount - named)
   const label = `${ran} session${ran === 1 ? '' : 's'} that ever ran${
     // At one row "most expensive first" claims an ordering over nothing.
     ran === 1 ? '' : ', most expensive first'
@@ -380,7 +393,7 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
         </CostRow>
       )}
 
-      {sessions.length > 0 && (
+      {ran > 0 && (
         <>
           <Seam />
           <button
