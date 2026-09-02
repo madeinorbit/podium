@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { readInstallTopology } from './install-topology'
 import {
   admissionRefusal,
   availableMb,
@@ -19,7 +20,6 @@ import {
   readCensus,
   sharedTurboCacheDir,
 } from './typecheck'
-import { readInstallTopology } from './install-topology'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 describe('decideForce', () => {
@@ -545,19 +545,35 @@ describe('admissionRefusal', () => {
 })
 
 describe('sharedTurboCacheDir', () => {
-  function repository(): { common: string; worktrees: string[] } {
+  /** A git directory of any kind — common, linked-worktree, or submodule — carries HEAD. */
+  function gitDir(path: string): string {
+    mkdirSync(path, { recursive: true })
+    writeFileSync(join(path, 'HEAD'), 'ref: refs/heads/main\n')
+    return path
+  }
+
+  /** Main checkout `repo`, linked worktrees `alpha` and `beta`, submodule `sub` in each. */
+  function repository(): { main: string; common: string; worktrees: string[] } {
     const root = mkdtempSync(join(tmpdir(), 'podium-cache-key-'))
     cleanup.push(root)
-    const common = join(root, 'repo/.git')
-    mkdirSync(join(common, 'worktrees'), { recursive: true })
+    const main = join(root, 'repo')
+    const common = gitDir(join(main, '.git'))
+    gitDir(join(common, 'modules/sub'))
+    mkdirSync(join(main, 'sub'), { recursive: true })
+    writeFileSync(join(main, 'sub/.git'), `gitdir: ${join(common, 'modules/sub')}\n`)
     const worktrees = ['alpha', 'beta'].map((name) => {
       const worktree = join(root, name)
-      mkdirSync(worktree, { recursive: true })
-      mkdirSync(join(common, 'worktrees', name), { recursive: true })
+      mkdirSync(join(worktree, 'sub'), { recursive: true })
+      gitDir(join(common, 'worktrees', name))
+      gitDir(join(common, 'worktrees', name, 'modules/sub'))
       writeFileSync(join(worktree, '.git'), `gitdir: ${join(common, 'worktrees', name)}\n`)
+      writeFileSync(
+        join(worktree, 'sub/.git'),
+        `gitdir: ${join(common, 'worktrees', name, 'modules/sub')}\n`,
+      )
       return worktree
     })
-    return { common, worktrees }
+    return { main, common, worktrees }
   }
 
   it('gives sibling worktrees of one repository the same durable cache', () => {
@@ -568,6 +584,19 @@ describe('sharedTurboCacheDir', () => {
 
     expect(sharedTurboCacheDir(alpha, {}, home)).toBe(sharedTurboCacheDir(beta, {}, home))
     expect(dirname(sharedTurboCacheDir(alpha, {}, home))).toBe(join(home, '.cache/podium/turbo'))
+  })
+
+  it('gives a submodule the same cache under the main checkout and under a linked worktree', () => {
+    const { main, worktrees } = repository()
+    const [alpha, beta] = worktrees as [string, string]
+    const home = mkdtempSync(join(tmpdir(), 'podium-home-'))
+    cleanup.push(home)
+
+    const underMain = sharedTurboCacheDir(join(main, 'sub'), {}, home)
+    expect(sharedTurboCacheDir(join(alpha, 'sub'), {}, home)).toBe(underMain)
+    expect(sharedTurboCacheDir(join(beta, 'sub'), {}, home)).toBe(underMain)
+    // The submodule is its own repository, not a worktree of the superproject.
+    expect(underMain).not.toBe(sharedTurboCacheDir(main, {}, home))
   })
 
   it('prefers $HOME/.cache over the temporary directory, which TMPDIR reminting moves', () => {
@@ -656,7 +685,12 @@ describe('availableMb', () => {
     // MemFree ignores reclaimable page cache and undercounts badly; a cap built on
     // it would serialise a machine that is actually fine. This box reported 221MB
     // free and 1540MB available at the same instant.
-    const meminfo = ['MemTotal:       12244000 kB', 'MemFree:          226000 kB', 'MemAvailable:    1577000 kB', ''].join('\n')
+    const meminfo = [
+      'MemTotal:       12244000 kB',
+      'MemFree:          226000 kB',
+      'MemAvailable:    1577000 kB',
+      '',
+    ].join('\n')
     expect(availableMb(meminfo)).toBe(1540)
   })
 
