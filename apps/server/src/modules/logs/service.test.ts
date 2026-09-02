@@ -21,7 +21,7 @@ import type { PodiumConfig } from '@podium/runtime/config'
 import { createCrashStore } from '@podium/runtime/crash-store'
 import { readQueue, TelemetryEmitter } from '@podium/telemetry'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LogIngestService, originKey, taggedRecord } from './service'
+import { type LogIngestDeps, LogIngestService, originKey, taggedRecord } from './service'
 
 const INSTALL = '/opt/podium'
 const INSTALL_ID = '3f9c1a2e-0000-4000-8000-000000000000'
@@ -62,11 +62,13 @@ const crashInput = (over: Partial<LogsCrashInput> = {}): LogsCrashInput => ({
 })
 
 /** Ingestion writing into a temp dir, with a crash store on the same clock. */
-function service(overrides: { telemetryDir?: string } = {}) {
-  void overrides
+function service(
+  overrides: { telemetryDir?: string; onCrash?: LogIngestDeps['onCrash'] } = {},
+) {
   let n = 0
   return new LogIngestService({
     dir: join(dir, 'clients'),
+    ...(overrides.onCrash ? { onCrash: overrides.onCrash } : {}),
     crashStore: createCrashStore({
       dir: join(dir, 'crashes'),
       id: () => {
@@ -340,6 +342,33 @@ describe('crash events', () => {
     }
 
     expect(() => ingest.crash(crashInput(), telemetry)).not.toThrow()
+    expect(createCrashStore({ dir: join(dir, 'crashes') }).list()).toHaveLength(1)
+  })
+
+  it('reports a stored crash on the observer hook, without the snapshot', () => {
+    // The bus hop exists so podium-cloud's analytics plugin can forward crashes
+    // to error tracking. It gets the error and the origin; the ring buffer is
+    // what support needs from THIS server and has no business travelling.
+    const seen: { origin: unknown; err: unknown; crashId?: string }[] = []
+    const ingest = service({ onCrash: (event) => seen.push(event) })
+
+    ingest.crash(crashInput())
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.origin).toEqual({ role: 'web', v: '0.1.3', machineId: 'm1' })
+    expect(seen[0]?.err).toEqual(crashInput().err)
+    expect(seen[0]?.crashId).toBe('id1')
+    expect(JSON.stringify(seen)).not.toContain('right before it died')
+  })
+
+  it('keeps the durable event when the observer throws', () => {
+    const ingest = service({
+      onCrash: () => {
+        throw new Error('observer exploded')
+      },
+    })
+
+    expect(() => ingest.crash(crashInput())).not.toThrow()
     expect(createCrashStore({ dir: join(dir, 'crashes') }).list()).toHaveLength(1)
   })
 

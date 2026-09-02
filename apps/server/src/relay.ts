@@ -497,7 +497,9 @@ export class SessionRegistry {
     // Client log + crash ingestion (chunk 3 of the logging strategy). Built at
     // the composition root like every other service; its file sinks open lazily
     // on the first forwarded batch, so a server nobody forwards to opens none.
-    const logs = new LogIngestService()
+    const logs = new LogIngestService({
+      onCrash: (event) => this.bus.emit('client.crashed', event),
+    })
     const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = new Map<SessionId, Session>()
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
