@@ -100,56 +100,32 @@ describe('pane-tinted terminal background (native-pane spec §2.5)', () => {
 })
 
 describe('initial terminal appearance application', () => {
-  it('applies a theme-only tint without a second fit', () => {
+  // REWRITTEN FOR POD-3239 B4. The three cases below used to be about WHEN this
+  // helper was allowed to measure: theme-only (never), a custom metric on a
+  // visible pane (once, with a resize), a custom metric on a hidden one (never).
+  // It measures in none of them now — there is one ask path and this is not it,
+  // so the helper does the one thing its name says and the mount's own
+  // `setAppearance` trigger asks, under the eligibility gate that lives there.
+  it('applies the appearance, and does nothing else', () => {
     const setAppearance = vi.fn()
-    const fit = vi.fn(() => ({ cols: 80, rows: 24 }))
-    const sendResize = vi.fn()
-    const mounted = {
-      view: { setAppearance, cols: () => 80, rows: () => 24, fit },
-      connection: { sendResize },
-    }
 
     applyInitialTerminalAppearance(
-      mounted,
+      { setAppearance },
       { theme: { ...DEFAULT_THEME, background: '#1a1622' } },
-      true,
     )
 
     expect(setAppearance).toHaveBeenCalledTimes(1)
-    expect(fit).not.toHaveBeenCalled()
-    expect(sendResize).not.toHaveBeenCalled()
+    expect(setAppearance).toHaveBeenCalledWith({
+      theme: { ...DEFAULT_THEME, background: '#1a1622' },
+    })
   })
 
-  it('fits and resizes once when a custom metric changes the grid', () => {
+  it('does the same for a custom font metric — measuring is not its job', () => {
     const setAppearance = vi.fn()
-    const fit = vi.fn(() => ({ cols: 100, rows: 30 }))
-    const sendResize = vi.fn()
-    const mounted = {
-      view: { setAppearance, cols: () => 80, rows: () => 24, fit },
-      connection: { sendResize },
-    }
 
-    applyInitialTerminalAppearance(mounted, { fontSize: 18 }, true)
+    applyInitialTerminalAppearance({ setAppearance }, { fontSize: 18 })
 
     expect(setAppearance).toHaveBeenCalledTimes(1)
-    expect(fit).toHaveBeenCalledTimes(1)
-    expect(sendResize).toHaveBeenCalledTimes(1)
-    expect(sendResize).toHaveBeenCalledWith(100, 30)
-  })
-
-  it('does not measure a hidden panel, even when its appearance has metrics', () => {
-    const setAppearance = vi.fn()
-    const fit = vi.fn(() => ({ cols: 100, rows: 30 }))
-    const sendResize = vi.fn()
-    const mounted = {
-      view: { setAppearance, cols: () => 80, rows: () => 24, fit },
-      connection: { sendResize },
-    }
-
-    applyInitialTerminalAppearance(mounted, { fontSize: 18 }, false)
-
-    expect(setAppearance).toHaveBeenCalledTimes(1)
-    expect(fit).not.toHaveBeenCalled()
-    expect(sendResize).not.toHaveBeenCalled()
+    expect(setAppearance).toHaveBeenCalledWith({ fontSize: 18 })
   })
 })

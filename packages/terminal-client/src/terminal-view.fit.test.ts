@@ -1,9 +1,13 @@
 // @vitest-environment happy-dom
 //
-// Unit-guards for TerminalView.fit() zero-size / not-ready detection.
+// Unit-guards for the MEASUREMENT seam's zero-size / not-ready detection.
 // The key invariant: when a container has zero dimensions (hidden tab, collapsed
-// panel), fit() must return undefined rather than silently returning a stale grid.
-// Callers can then retry across rAFs instead of sending a bad resize to the agent.
+// panel), a proposal must be `undefined` rather than a stale grid — a caller that
+// received one would ask the agent for a size nobody is looking at.
+//
+// POD-3239 deleted `TerminalView.fit()`, which MEASURED AND APPLIED in one call.
+// Applying a local measurement is what MODEL rule 2 forbids, so what is left is
+// `proposeFit` / `proposeFitIn`, and the guards below moved onto them.
 import { beforeAll, describe, expect, it } from 'vitest'
 import { TerminalView } from './terminal-view'
 
@@ -57,7 +61,7 @@ describe('TerminalView.isFittable()', () => {
   })
 })
 
-describe('TerminalView.fit() readiness guard', () => {
+describe('the measurement seam’s readiness guard', () => {
   it('proposes a fitted grid without resizing the terminal', () => {
     const el = document.createElement('div')
     const view = new TerminalView()
@@ -96,7 +100,7 @@ describe('TerminalView.fit() readiness guard', () => {
     // zero clientWidth/clientHeight → FitAddon.proposeDimensions() returns undefined
     const view = new TerminalView()
     view.mount(el)
-    const result = view.fit()
+    const result = view.proposeFit()
     // Must signal not-ready; must NOT return a stale default grid
     expect(result).toBeUndefined()
     view.dispose()
@@ -114,9 +118,10 @@ describe('TerminalView.fit() readiness guard', () => {
     fa.proposeDimensions = () => ({ cols: 80, rows: 24 })
     fa.fit = () => {} // no-op; term.cols/rows won't change in headless
 
-    // term.cols/rows stay at the Terminal constructor default (80×24)
-    const result = view.fit()
+    const result = view.proposeFit()
     expect(result).toEqual({ cols: 80, rows: 24 })
+    // …and it stayed a PROPOSAL: nothing was applied to the terminal.
+    expect({ cols: view.cols(), rows: view.rows() }).toEqual({ cols: 80, rows: 24 })
     view.dispose()
   })
 
@@ -130,7 +135,7 @@ describe('TerminalView.fit() readiness guard', () => {
     fa.proposeDimensions = () => ({ cols: 1, rows: 24 })
     fa.fit = () => {}
 
-    expect(view.fit()).toBeUndefined()
+    expect(view.proposeFit()).toBeUndefined()
     view.dispose()
   })
 
@@ -144,7 +149,7 @@ describe('TerminalView.fit() readiness guard', () => {
     fa.proposeDimensions = () => ({ cols: 80, rows: 1 })
     fa.fit = () => {}
 
-    expect(view.fit()).toBeUndefined()
+    expect(view.proposeFit()).toBeUndefined()
     view.dispose()
   })
 
@@ -159,7 +164,7 @@ describe('TerminalView.fit() readiness guard', () => {
       throw new Error('renderer not ready')
     }
 
-    expect(view.fit()).toBeUndefined()
+    expect(view.proposeFit()).toBeUndefined()
     view.dispose()
   })
 })

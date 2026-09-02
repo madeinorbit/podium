@@ -2,7 +2,7 @@ import type { ConnectionState, SessionConnection } from '@podium/client-core/soc
 import type { IssueId, SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native'
-import { useConnected, useHub, useSpawnPending } from '../client/hooks'
+import { useConnected, useHub, useSessions, useSpawnPending } from '../client/hooks'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { color } from '../theme/theme'
 import TerminalDom from './TerminalDom'
@@ -48,6 +48,9 @@ export function TerminalPane({
   const hub = useHub()
   const connected = useConnected()
   const spawnPending = useSpawnPending(sessionId)
+  // The row this pane's grid comes from (POD-3239 B1), marshalled to the DOM
+  // component as two primitives — see TerminalDomProps.
+  const session = useSessions().find((s) => s.sessionId === sessionId)
   // The keyboard belongs to the webview's focus, but UIKit's notifications are
   // app-wide, so the native side still sees it come up. See ACCESSORY_INSET.
   const keyboardUp = useKeyboardHeight() > 0 && Platform.OS === 'ios'
@@ -176,6 +179,9 @@ export function TerminalPane({
           active={active}
           connected={connected}
           spawnPending={spawnPending}
+          cols={session?.geometry.cols}
+          rows={session?.geometry.rows}
+          geometryState={session?.geometryState ?? 'unknown'}
           onAttachTerminal={onAttachTerminal}
           onDetachTerminal={onDetachTerminal}
           onSendInput={onSendInput}

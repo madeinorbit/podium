@@ -549,24 +549,6 @@ export class TerminalView {
   }
 
   /**
-   * Attempt to fit the terminal to the container. Returns the new grid on
-   * success, or `undefined` when the container isn't measurable yet (hidden,
-   * zero-size, or the FitAddon cell measure failed). The caller should retry
-   * across rAFs rather than silently keeping a stale grid.
-   */
-  fit(): { cols: number; rows: number } | undefined {
-    const dims = this.proposeFit()
-    if (!dims) return undefined
-    try {
-      this.fitAddon.fit()
-    } catch (error) {
-      this.emitDiagnostic('fit:unavailable', { reason: 'fit-threw', error: String(error), dims })
-      return undefined
-    }
-    return { cols: this.term.cols, rows: this.term.rows }
-  }
-
-  /**
    * True when the container element has non-zero layout dimensions — the
    * precondition for a successful `fit()`. Can be used as an early-out
    * before attempting a fit (and as an isolated unit-testable guard).

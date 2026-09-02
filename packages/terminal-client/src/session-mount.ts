@@ -84,7 +84,6 @@ export interface MountSessionOptions {
    * crop/pan; it reports its fitted viewport for a later explicit takeover but
    * does not preempt another device merely because the pane became visible.
    */
-  gridMode?: 'control' | 'server-grid'
   /**
    * HOW THIS VIEWER PRESENTS A BOX THAT IS NOT W (POD-3239 B3 / MODEL rule 2).
    *
@@ -101,6 +100,10 @@ export interface MountSessionOptions {
    *
    * There is no `transform: scale` in either mode. A scaled terminal is a
    * picture of a terminal.
+   *
+   * It is ALSO the one thing that separates the two claiming policies
+   * (`claimsOnReveal` below), which is why it replaced `gridMode` outright
+   * rather than sitting beside it. See the note there.
    */
   crop?: 'clip' | 'scroll'
   /**
@@ -177,7 +180,6 @@ export function codexInputReady(
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
   const { hub, sessionId } = opts
-  const gridMode = opts.gridMode ?? 'control'
   const crop = opts.crop ?? 'clip'
   const viewportEl = opts.viewportEl ?? el
   const diagnostics = createTerminalDiagnosticRecorder(sessionId)
@@ -226,7 +228,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       eligible: eligible(),
       authoritative,
       serverGrid: { ...serverGrid },
-      gridMode,
       crop,
       ...data,
       view: view.diagnosticSnapshot(),
@@ -294,11 +295,17 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
    * WHO CLAIMS ON REVEAL (MODEL rule 4 / B5) — today's policy, unchanged.
    *
    * Desktop takes control by being foregrounded (last-foregrounded-wins). A
-   * phone is a spectator that reports its box and claims only when the operator
+   * phone is a spectator that states its box and claims only when the operator
    * says so, because a phone glancing at a session must not resize the desk it
    * is watching.
+   *
+   * READ OFF `crop`, and this is the ONLY place that inference is made. It is
+   * the whole of what `gridMode` used to decide, and the flag is gone (B8): a
+   * scrolling crop and a spectator claim policy are the same client — the
+   * phone — and a fourth combination has no product behind it. If one ever does,
+   * it is this line that grows an option, not five call sites that re-derive one.
    */
-  const claimsOnReveal = (): boolean => gridMode !== 'server-grid'
+  const claimsOnReveal = (): boolean => crop !== 'scroll'
 
   /** The last box this mount stated, so a repeat is not re-sent. Cleared on a
    *  reconnect: a new server has heard nothing from us. */
@@ -545,11 +552,13 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // that nested notification would look like a second role transition and
       // recursively claim again.
       lastRole = state.role
-      if (gridMode === 'server-grid' && roleChanged && eligible()) {
-        // The server made this phone the controller (it is the only viewer), or
+      if (roleChanged && eligible()) {
+        // The server made this client the controller (it is the only viewer), or
         // took it away again. Either way its box is worth stating: as a
         // controller it can be sized to, and as a spectator its recorded
-        // viewport is what a later sole-renderer promotion needs.
+        // viewport is what a later sole-renderer promotion needs. Not
+        // platform-conditional — it is true of any viewer whose role moved — and
+        // the dedup makes it free when the box was already stated.
         ask('role-change', false)
       }
       // Clear only on an in-session epoch bump — a controller takeover repaints the
@@ -643,9 +652,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     // so the precondition it waited for now holds by construction, and holding
     // input on it would only ever be a delay.
     //
-    // A spectator that starts typing means it: take control first so the first
-    // byte lands as controller, on this client's own grid.
-    if (gridMode === 'server-grid' && connection.state().role === 'spectator') takeControl()
+    // A spectator that starts typing means it, on any platform: take control
+    // first so the first byte lands as controller, on this client's own grid.
+    if (connection.state().role === 'spectator') takeControl()
     connection.sendInput(data, inputEventAt)
   }
 

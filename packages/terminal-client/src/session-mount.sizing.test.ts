@@ -21,8 +21,8 @@ function withResizeObserver(): void {
 // cell grid from clientWidth/Height alone (it returns undefined — see
 // terminal-view.fit.test.ts). Patch it to a fixed non-default grid so a fittableHost
 // yields a genuine fitted size synchronously, exercising the resize path the same way
-// a real browser would. 150×50 ≠ the 80×24 server/default grid, so decideResizeAction
-// produces a real 'resize' (not just a 'redraw').
+// a real browser would. 150×50 ≠ the 80×24 server grid, so the ask carries a real
+// change rather than restating what the server already has.
 //
 // The patch mutates a shared prototype, so each patcher is registered for teardown and
 // restored in afterEach — the real zero-size→undefined behaviour must be back in place
@@ -330,7 +330,7 @@ describe('mountSession eligibility-gated sizing', () => {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
-      gridMode: 'server-grid',
+      crop: 'scroll',
     })
     // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
     // the first thing that has any authority over it. A mount that has not
@@ -360,7 +360,7 @@ describe('mountSession eligibility-gated sizing', () => {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
-      gridMode: 'server-grid',
+      crop: 'scroll',
     })
     state(183, 55, 'spectator')
 
@@ -389,7 +389,7 @@ describe('mountSession eligibility-gated sizing', () => {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
-      gridMode: 'server-grid',
+      crop: 'scroll',
     })
     state(183, 55, 'spectator') // desktop-owned PTY geometry
 
@@ -430,7 +430,7 @@ describe('mountSession eligibility-gated sizing', () => {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
-      gridMode: 'server-grid',
+      crop: 'scroll',
     })
     // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
     // the first thing that has any authority over it. A mount that has not

@@ -77,8 +77,8 @@ export interface UseTerminalSessionOptions {
    * — never a remount, so memoize it in the caller. Omit for the defaults.
    */
   appearance?: TerminalAppearance
-  /** Terminal grid reconciliation policy; see MountSessionOptions.gridMode. */
-  gridMode?: 'control' | 'server-grid'
+  /** How this viewer presents a box that is not W; see MountSessionOptions.crop. */
+  crop?: 'clip' | 'scroll'
   /**
    * The session's last-known grid W, from the store row (POD-3239 B1). Read at
    * MOUNT TIME only: it is the size this buffer is BORN at, and after that the
@@ -105,7 +105,7 @@ export interface UseTerminalSessionOptions {
 }
 
 export interface UseTerminalSessionResult {
-  /** Optional outer crop viewport; render around containerRef when gridMode uses it. */
+  /** The outer viewport that IS the box — render it around containerRef (B3). */
   viewportRef: RefObject<HTMLDivElement | null>
   /** Attach to the terminal's container element. */
   containerRef: RefObject<HTMLDivElement | null>
@@ -177,9 +177,9 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   // effect below on the live instance (a font change must not remount the PTY).
   const appearanceRef = useRef(opts.appearance)
   appearanceRef.current = opts.appearance
-  const gridModeRef = useRef(opts.gridMode)
-  gridModeRef.current = opts.gridMode
-  // Mount-time-only, like appearance and gridMode above: the birth grid is a
+  const cropRef = useRef(opts.crop)
+  cropRef.current = opts.crop
+  // Mount-time-only, like appearance and crop above: the birth grid is a
   // property of THIS mount, not a prop the live terminal follows.
   const initialGeometryRef = useRef(opts.initialGeometry)
   initialGeometryRef.current = opts.initialGeometry
@@ -214,7 +214,7 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
               sessionId,
               active: activeRef.current,
               ...(appearanceRef.current ? { appearance: appearanceRef.current } : {}),
-              ...(gridModeRef.current ? { gridMode: gridModeRef.current } : {}),
+              ...(cropRef.current ? { crop: cropRef.current } : {}),
               ...(initialGeometryRef.current
                 ? { initialGeometry: initialGeometryRef.current }
                 : {}),

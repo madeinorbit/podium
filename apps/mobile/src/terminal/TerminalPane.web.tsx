@@ -127,17 +127,12 @@ export function TerminalPane({
       focusOnMount: false,
       focusWhenReady: true,
       appearance: MOBILE_APPEARANCE,
-      // A phone that is merely looking must not resize a desktop-driven PTY.
-      // Keep xterm on the server's one authoritative grid and expose the rest by
-      // panning; the first actual keypress still takes control and applies the
-      // phone viewport that the terminal client records in the background — as
-      // does the header's explicit take-control action, so READING at this
-      // screen's size no longer costs a keystroke into someone's agent (POD-724).
-      gridMode: 'server-grid',
-      // THE BOX SCROLLS (POD-3239 B3). Stated explicitly rather than implied by
-      // the policy flag above — it is what selects the DOM renderer, and the
-      // WebGL canvas not repainting scroll-revealed regions is invisible until
-      // somebody scrolls.
+      // THE BOX SCROLLS (POD-3239 B3), which on this client also means: a phone
+      // that is merely looking must not resize a desktop-driven PTY. It keeps
+      // xterm on the server's one authoritative grid and exposes the rest by
+      // panning; the first actual keypress still takes control, as does the
+      // header's explicit take-control action — so READING at this screen's size
+      // costs no keystroke into someone's agent (POD-724).
       crop: 'scroll',
       // Born at W (POD-3239 B1). A phone crops rather than reflows, so a buffer
       // constructed at 80x24 and then moved is the same wrong first frame here

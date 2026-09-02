@@ -116,43 +116,26 @@ export function toTerminalAppearance(s: TerminalAppearanceSettings): TerminalApp
 }
 
 type InitialAppearanceTarget = {
-  view: {
-    setAppearance(appearance: TerminalAppearance): void
-    cols(): number
-    rows(): number
-    fit(): { cols: number; rows: number } | undefined
-  }
-  connection: {
-    sendResize(cols: number, rows: number): void
-  }
+  setAppearance(appearance: TerminalAppearance): void
 }
 
 /**
- * Apply the web panel's first appearance without scheduling a redundant fit.
- * `useTerminalSession` passes an appearance to `mountSession` and then its
- * initial appearance effect applies the same value again. The panel's usual
- * appearance is theme-only, so the second pass cannot change the grid; custom
- * font metrics are the exception and get one local fit, with a resize only when
- * the grid actually changed.
+ * Apply the web panel's first appearance.
  *
- * `canFit` is supplied by the panel's visibility foundation. A warm hidden
- * panel must receive its theme, but it must not measure a zero-sized terminal.
+ * `useTerminalSession` passes an appearance to `mountSession` and then its
+ * initial appearance effect applies the same value again; this is the panel's
+ * own first pass, applied synchronously in `onMounted` so the terminal never
+ * paints with the wrong tint.
+ *
+ * POD-3239 B4: it no longer measures or resizes anything. It used to fit
+ * locally and `sendResize` when a custom font metric changed the grid — a second
+ * sizing path, with its own idea of when a measurement was allowed. There is one
+ * ask now and `setAppearance` on the mount is a trigger for it, so this does the
+ * one thing its name says.
  */
 export function applyInitialTerminalAppearance(
   mounted: InitialAppearanceTarget,
   appearance: TerminalAppearance,
-  canFit: boolean,
 ): void {
-  mounted.view.setAppearance(appearance)
-
-  const hasMetricOverride =
-    appearance.fontSize !== undefined ||
-    appearance.fontFamily !== undefined ||
-    appearance.lineHeight !== undefined
-  if (!canFit || !hasMetricOverride) return
-
-  const before = { cols: mounted.view.cols(), rows: mounted.view.rows() }
-  const grid = mounted.view.fit()
-  if (!grid || (grid.cols === before.cols && grid.rows === before.rows)) return
-  mounted.connection.sendResize(grid.cols, grid.rows)
+  mounted.setAppearance(appearance)
 }

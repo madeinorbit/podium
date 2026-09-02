@@ -5,8 +5,8 @@
  *
  * What `mountSession` and `TerminalView` actually do today, for the claims the
  * terminal-sizing plan (POD-3190) rests on. Stage 1 (POD-3239) deletes the
- * reveal guard, the retry ladders and `gridMode`; each claim below is rewritten
- * in the commit that changes the behaviour it pins.
+ * reveal guard, the retry ladders and `gridMode` are all gone; each claim below
+ * was rewritten in the commit that changed the behaviour it pinned.
  */
 
 import { readFileSync } from 'node:fs'
@@ -248,55 +248,29 @@ describe('C2 (REWRITTEN for POD-3239 B2): the buffer follows the server whether 
 // C11
 // ---------------------------------------------------------------------------
 
-describe('C11: the reveal guard', () => {
-  it('TerminalView.fit() returns the APPLIED grid, so `grid === applied` can never be false', () => {
-    // The guard at session-mount.ts:455-462 compares fit()'s return against
-    // {view.cols(), view.rows()} read on the next line. fit() returns
-    // {term.cols, term.rows} AFTER the resize and view.cols()/rows() read the
-    // same two fields, so that half of the comparison is tautological.
+describe('C11 (REWRITTEN — the guard and the method it guarded are both gone)', () => {
+  it("SOURCE FACT: `TerminalView.fit()` no longer exists, and the two proposals do", () => {
+    // WHAT C11 FOUND. `fit()` measured TWICE — its own `proposeFit()` probe, and
+    // then `FitAddon.fit()`'s internal one, which is what actually landed — and
+    // returned what LANDED. So the reveal guard's first comparison, `fit()`'s
+    // return against `view.cols()/rows()`, compared a value to itself.
     //
-    // Non-vacuous because fit() MEASURES TWICE: its own proposeFit() probe, and
-    // then FitAddon.fit()'s internal one, which is what actually lands. Feed the
-    // two different answers and fit() still reports the applied grid — the exact
-    // hazard the guard's comment names, and the reason its first check cannot
-    // catch it.
-    const el = host()
+    // The method is deleted (POD-3239 B8) and the finding is why: a call that
+    // measures AND applies is the one shape MODEL rule 2 forbids, because
+    // applying is what puts a buffer at something other than W. What is left
+    // measures and returns, and the caller decides whether to ask.
     const view = new TerminalView({})
-    view.mount(el)
-    try {
-      const answers = [
-        { cols: 150, rows: 50 },
-        { cols: 120, rows: 40 },
-      ]
-      let call = 0
-      withProposal(() => answers[Math.min(call++, answers.length - 1)])
-
-      const grid = view.fit()
-      expect(call).toBeGreaterThan(1) // fit() really did measure more than once
-      const applied = { cols: view.cols(), rows: view.rows() }
-
-      expect(grid).toEqual(applied) // the tautology
-      // …and it is the SECOND measurement that landed, not the probe fit() itself
-      // validated, so the equality above says nothing about the proposal.
-      expect(grid).toEqual({ cols: 120, rows: 40 })
-      expect(grid).not.toEqual(answers[0])
-    } finally {
-      view.dispose()
-    }
+    expect((view as unknown as Record<string, unknown>).fit).toBeUndefined()
+    expect(typeof view.proposeFit).toBe('function')
+    expect(typeof view.proposeFitIn).toBe('function')
+    view.dispose()
   })
 
-  it('REWRITTEN (POD-3239 B3/B4): the guard is gone, and so is the ladder it lived in', () => {
-    // C11's finding was that the reveal guard's first comparison was
-    // TAUTOLOGICAL — it compared `fit()`'s return against the two fields `fit()`
-    // had just written. The test above still proves that about `fit()`. What
-    // this one used to pin was the guard's live half: a post-fit probe that
-    // disagreed with what landed traced `reveal:fit-mismatch` and restarted a
-    // settle streak.
-    //
-    // There is nothing left to land, and nothing left to restart. A reveal
-    // MEASURES the box and asks, once; it does not apply the measurement, so
-    // there is no applied grid for a probe to disagree with, and it does not
-    // retry, so there is no streak. The trace vocabulary says so too:
+  it('REWRITTEN: the guard is gone, and so is the ladder it lived in', () => {
+    // C11's live half pinned the guard's SECOND comparison: a post-fit probe
+    // that disagreed with what landed traced `reveal:fit-mismatch` and restarted
+    // a settle streak. There is nothing left to land and nothing to restart — a
+    // reveal measures the box once and asks. The trace vocabulary says so:
     // `ask:sent` replaced the ladder's `fit:*` and `reveal:*` entries.
     withResizeObserver()
     const { entries } = captureDiagnostics()
@@ -329,9 +303,11 @@ describe("C12 (REWRITTEN for POD-3239 B3): `crop` is the explicit presentation m
   it("crop:'scroll' selects the DOM renderer explicitly ('renderer-selected')", () => {
     // WHAT CHANGED. The DOM renderer used to be selected by `gridMode`, a
     // POLICY flag about who may drive the pty size, which happened to imply a
-    // scrolling crop on the one platform that set it. The two are now separate
-    // and the presentation is stated: WebGL not repainting scroll-revealed
-    // regions is a fact about scrolling, not about who is in control.
+    // scrolling crop on the one platform that set it. The renderer is now chosen
+    // by the presentation that actually determines it: WebGL not repainting
+    // scroll-revealed regions is a fact about SCROLLING. (`gridMode` itself is
+    // gone — see `claimsOnReveal`, the one line that now reads the platform's
+    // claiming policy off `crop`.)
     withResizeObserver()
     withProposal(() => undefined)
     const { entries } = captureDiagnostics()
@@ -364,28 +340,6 @@ describe("C12 (REWRITTEN for POD-3239 B3): `crop` is the explicit presentation m
         .map((e) => e.data.reason as string)
       // It may still END UP on DOM (happy-dom has no WebGL), but never via the
       // crop selection branch — the reason distinguishes the two.
-      expect(reasons).not.toContain('renderer-selected')
-    } finally {
-      mounted.dispose()
-    }
-  })
-
-  it("the POLICY flag no longer picks the renderer: gridMode alone leaves it on auto", () => {
-    // The counterfactual that makes the separation real rather than a rename.
-    withResizeObserver()
-    withProposal(() => undefined)
-    const { entries } = captureDiagnostics()
-    const { hub } = fakeHub()
-    const mounted = mountSession(host(), {
-      hub,
-      sessionId: SESSION,
-      active: false,
-      gridMode: 'server-grid',
-    })
-    try {
-      const reasons = entries
-        .filter((e) => e.event === 'renderer:dom')
-        .map((e) => e.data.reason as string)
       expect(reasons).not.toContain('renderer-selected')
     } finally {
       mounted.dispose()

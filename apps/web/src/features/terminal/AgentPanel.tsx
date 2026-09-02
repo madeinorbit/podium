@@ -600,13 +600,11 @@ export function AgentPanel({
     [termSettings.background, termAppearance, termBg],
   )
   // The hook's mount effect already receives the terminal-client defaults. Apply
-  // the panel tint directly after mount so its initial appearance does not
-  // schedule a second, identical fit. Custom font metrics still get one fit
-  // when the pane is eligible; hidden panes wait for their normal reveal path.
+  // the panel tint directly after mount so the terminal never paints with the
+  // wrong background. It no longer needs an eligibility gate: applying an
+  // appearance measures nothing (POD-3239 B4) — the mount's own `setAppearance`
+  // is what asks, and it is gated there.
   const initialAppearanceAppliedRef = useRef<typeof appearance | null>(null)
-  const canFitInitialAppearance =
-    gates.ptySizingAllowed &&
-    (typeof document === 'undefined' || document.visibilityState === 'visible')
   const echoLatencyEnabled = echoHudEnabled(uiState)
 
   const {
@@ -654,7 +652,7 @@ export function AgentPanel({
     // effect, which also schedules a redundant fit.
     onFrame: () => scheduleSampleRef.current(),
     onMounted: (mounted) => {
-      applyInitialTerminalAppearance(mounted, appearance, canFitInitialAppearance)
+      applyInitialTerminalAppearance(mounted.view, appearance)
       initialAppearanceAppliedRef.current = appearance
       // Seed the file-link provider immediately after mount with whatever paths
       // are already known (from the transcript subscription effect below).
