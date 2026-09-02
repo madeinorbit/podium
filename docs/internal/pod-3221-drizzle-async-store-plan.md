@@ -573,10 +573,17 @@ specific to this codebase, or a trap found by checking such a rule against the c
    text and captures caller stacks at `prepare`; a drizzle `logger` sees the generated SQL and
    parameters synchronously in the same call path, so stacks can be captured there. Generated
    SQL text differs from the hand-written text, so historical top-query comparisons reset once.
-9. **No ORM machinery beyond the builder.** Select, insert, update, delete, expressions,
-   prepared statements and `sql`. No relational query API, no `defineRelations`, no
-   eager-loading, no generic base repository. The relational API is the part of drizzle that
-   changed most between release candidates.
+9. **Builder first; the relational API where a repository assembles an aggregate.** Select,
+   insert, update, delete, expressions, prepared statements and `sql` are the default. The
+   relational query API (v2, `defineRelations`) is used where a repository today loads child
+   tables separately and groups them in JavaScript: issues with labels, deps, comments and
+   mail (`issues.ts` reads from `issue_*` tables 29 times), shipping orders with attempts,
+   steps, holds and receipts (36 child-table reads in `shipping.ts`). There it is one SQL
+   statement with JSON aggregation, generated per dialect, which is both fewer round trips
+   and the portable form of that grouping code. It is not used as a general replacement for
+   selects, and no generic base repository is introduced. Version note: v1 relations were
+   removed from SQLite in rc.4 and v2 switched to array-mode querying in rc.3 and rc.4, so pin
+   the version and expect one more adjustment before 1.0.
 10. **Incremental, and no schema redesign in the same change.** One repository per commit with
     the existing tests as the oracle. The schema changes this plan does call for (mode
     declarations, an explicit primary key where a table is addressed by `rowid`) are additive,
@@ -586,3 +593,21 @@ specific to this codebase, or a trap found by checking such a rule against the c
     or Postgres is a driver substitution and not an architecture change. This is Stage B's
     whole reason, and it is the rule the frame caches, getters and constructor reads in §1.5
     violate today.
+
+## 8. Alternatives considered for the query layer
+
+| Option | For | Against | Verdict |
+|---|---|---|---|
+| Raw SQL over the `SqlDatabase` seam, made async with an executor | No new dependency; total control; the seam exists | No types from the schema; hand-written mappers stay; every dialect difference (`?` vs `$1`, upserts, returning) is hand-managed per site; nothing helps a Postgres twin | Rejected: it is the status quo with `await` added |
+| Drizzle query builder (chosen) | Schema-as-code already exists and is the migration source; `$type` brands flow through inference; light runtime; the migrator is already drizzle | Release candidate; table objects are dialect-bound, so Postgres needs a schema twin; no pool or queue for SQLite (§1.9) | Chosen: it completes an adoption already half made |
+| Drizzle relational API v2 on top | One statement per aggregate, dialect-generated JSON aggregation; removes the grouping code | Most-changed API across the release candidates; aggregations not supported in `extras` | Used where a repository assembles an aggregate (rule 9) |
+| Kysely, with drizzle-kit kept for schema and migrations | Genuinely dialect-agnostic: one typed query, the dialect is a runtime plugin, so SQLite and Postgres run the same repository code; Bun dialects exist for `bun:sqlite` and `Bun.SQL` | Types come from an interface or codegen, not from `schema.ts`, so two type sources of truth; `drizzle-orm/kysely` does not exist at rc.4 to bridge them; a second library beside the one already adopted; community dialects for Bun | Not chosen now; the one option to revisit if Stage C's schema-twin cost proves too high, because it removes the twin at the query level |
+| Prisma | Multi-dialect, generated client, its own migrations | Its own migration system beside drizzle-kit's; generated-client and engine packaging under `bun --compile`; heavy | Rejected |
+| Decorator ORMs (TypeORM, MikroORM, Sequelize) | Unit-of-work, entity graphs | Runtime entity metadata, decorators, and a data model the kernel already owns differently | Rejected |
+
+For reference, Linear's engine, which Podium's kernel resembles in shape: Postgres is the
+source of truth, every create, update and delete persists a model snapshot as a "SyncAction"
+with a database-wide `lastSyncId`, a MongoDB cache serves bootstrap and delta packets at scale,
+and the client hydrates IndexedDB into a MobX object pool with models registered by
+decorators. Podium's Authority with its global `seq`, `bootstrap` and `changesSince` is the same
+design; what Linear's server-side query layer is built on is not publicly documented.
