@@ -89,7 +89,8 @@ shared handle; there is no executor parameter.
 - `packages/sync/src/authority/ports.ts:106` — `TransactPort = <T>(fn: () => T) => T`.
   `AuthorityPort.commit` is sync. `Ledger.commit` (`packages/sync/src/ledger.ts:235-261`) runs the
   entity write and the change-log append in ONE transact span (ADR 2 D10) and rejects an async
-  `write()` explicitly (`authority.ts:211-217`). `onAppended` listeners fire inside the span.
+  `write()` explicitly (`authority.ts:211-217`). Publication is a post-commit tail: `finalize`
+  folds the baseline and broadcasts only after `transact` has returned (`authority.ts:452-488`).
 - ~25 non-test `ledger.commit(` sites in 18 service files; `Ledger` is the single writer of the
   change log, and global `seq` arbitration happens inside that transaction (D12.6).
 - `packages/sync/src/adapters/sqlite/sync-repository.ts:71` derives a contiguous seq range by
@@ -257,13 +258,22 @@ size-one queue is the community's answer and this plan's.
 ### Stage 0 — decide and record
 
 1. Amend ADR 6 D5.3: drizzle becomes the query layer for the server store.
-2. Decide the executor model up front. **A repository set bound to an executor**, not an
-   executor parameter on every method: `store.issues.get(id)` is the set bound to the root
-   executor, and inside `store.transact(async (tx) => tx.issues.get(id))` the same repository
-   classes are bound to the transaction. Method signatures and the 574 service call sites keep
-   their shape; "no repository closes over a connection" holds because the set is built per
-   executor. Ambient depth counting is retired. (Rev 8: replaces the executor-parameter design,
-   review finding 9.)
+2. Decide the executor model up front. **A repository set bound to an executor, with the root
+   set routing ambiently to the active transaction** (rev 10, Fable Stage B review F1):
+   `store.x` is bound to the root, `tx.x` to a transaction, and the root set consults the
+   transaction context in `AsyncLocalStorage`: inside a body, `store.issues.get(id)` runs on
+   that body's transaction; outside, it runs through the scheduler. This is what makes "call
+   sites keep their shape" true: there are 58 span-opening sites in 19 files, and the services
+   they call (`LockService`, the issue service's `persistManyWith`, the messages service, the
+   events repository via `appendEvent`) all hold the root store from construction, so an
+   explicit unit-of-work parameter would have to thread through hundreds of service methods, the
+   executor-parameter design of revision 7 one layer up. Ambient routing is today's semantics
+   (one connection, everything inside the open `BEGIN`) and the server already carries request
+   scope this way (`modules/issues/authority-arbitration.ts:35`). `tx.x` stays available where
+   an author wants the binding visible, and the Authority takes the unit of work explicitly
+   (step 11) because the same-client property must be visible in its types. A stale context
+   (a continuation from a finished body) rejects. Ambient depth counting is retired. (Rev 8:
+   replaces the executor-parameter design, review finding 9.)
    **Repository state is process-scoped and shared between the root and every tx set** (rev 9,
    Codex finding 5). The classes are not stateless query bags: `GrantsRepository` owns the
    visibility audiences and the revision counter the feed cache validates against
@@ -279,6 +289,13 @@ size-one queue is the community's answer and this plan's.
    bound within the set being built, never to the store's root fields. Tests write through a tx
    set and assert that root grants, the feed world, the sync generation and the repo and issue
    caches observe the result, and that a rollback publishes nothing.
+   **Read-your-writes inside a body** (rev 10, F8): the sync repository invalidates its
+   latest-state cache inside the Authority's span and `visibilityEdge` reads it in the same
+   span, so "invalidate at commit" alone would serve a pre-append cache to an in-span read. The
+   transaction-bound set never serves from shared caches: it reads through, or keeps a
+   transaction-local cache discarded at the end. Shared caches are invalidated in the unit of
+   work's after-commit hook (step 12); rollback discards the local cache and may invalidate
+   the shared one.
 3. Decide whether B (async) ships with A or after it. Recommendation below.
 3a. **Tenant topology is postponed, with two seams kept open** (rev 9, Codex finding 8;
    decision 2026-09-02). Multi-tenancy is a later epic; this one is its preparation. The
@@ -294,7 +311,10 @@ size-one queue is the community's answer and this plan's.
    post-commit tail and async close; and a Postgres spike of the transactional feed-head
    allocator through a real pool, proving that a rollback leaves no sequence hole and that the
    entity row and the change row share one checked-out client. Their results fix the interfaces
-   every later issue uses.
+   every later issue uses. The executor prototype settles, with the service-layer count in
+   hand: ambient routing versus an explicit unit-of-work parameter (F1), the three-lane
+   scheduler port (F5) and the after-commit hook (F7); the Postgres spike exercises the `read`
+   lane's snapshot isolation (rev 10).
 4. Driver for the SQLite path: **keep `bun:sqlite`**. `Bun.SQL`'s SQLite mode is a Promise
    wrapper over the same engine on the same thread, ignores transaction modes, and has no queue
    (§1.8), so it buys nothing and loses `serialize/deserialize` (the fast test fixture) and the
@@ -382,6 +402,20 @@ untouched, boot untouched. Reversible per aggregate.
     the retention reads. `StoreDatabaseOpener` becomes `Awaitable`; the fixture's synchronous
     clone opener is wrapped in `Promise.resolve` and its env channel is untouched (rev 9,
     finding 12). Keep the kernel free of drizzle types (the lint rule).
+    The port is `UnitOfWorkPort<Uow> = { write, read }`, where `read` returns a consistent
+    snapshot at one head (rev 10, F5). **Scoping is on the async boundary too** (rev 10, F2):
+    `Authority.broadcast` calls `scope` per subscriber inside the ordered drain, and `scope`
+    calls the synchronous `policy.decide` and `anchors.visibilityEdge`
+    (`authority/scoping.ts:122-128, 210, 234`), whose server implementations read the store per
+    row (`feed-visibility.ts:171, 218`) and, for `visibilityEdge`, load the whole sessions
+    table. Step 14's "rights on the applying transaction" covers a command, where the principal
+    is known; it does not cover phase 3, where the subjects are only known once the batch
+    exists. So the kernel's `FeedVisibilityPolicy` gains `forBatch(refs)` beside the existing
+    `forBootstrap` (`feed/visibility.ts:236, 311`): the adapter prefetches every issue, session
+    and grant list the batch's subjects can reach in one batched read under the writer's lease,
+    and `decide` and `mayRead` stay synchronous over that snapshot, exactly as
+    `BootstrapVisibilityPrefetch` already does for bootstrap. The prefetch is also where
+    `visibilityEdge`'s whole-table session read becomes a keyed read.
 11a. **Land an await-preparation pass before the implementation flip** (rev 9, finding 12):
     `await` on a non-Promise is legal and behaviour-preserving, so tests and call sites gain
     their `await`s while the store is still synchronous, in commits that change no assertion.
@@ -391,11 +425,39 @@ untouched, boot untouched. Reversible per aggregate.
     There is one `bun:sqlite` handle. A read issued while another task's transaction body is
     parked on an `await` runs inside that transaction and sees its uncommitted writes; if the
     body then rolls back, the reader acted on rows that never existed. So:
-    - A size-one async queue owns the connection. A top-level transaction holds it from
-      `BEGIN IMMEDIATE` to `COMMIT`/`ROLLBACK`. Reads outside a transaction run through the
-      same queue while a transaction is open (they are instantaneous on local SQLite, so the
-      cost is the queue hop, not the read). This reproduces today's semantics exactly: today
-      everything is serialized by the thread.
+    - **A scheduler port with three lanes, `read`, `write`, `exclusive`, each with a stated
+      isolation** (rev 10, F5): `read` is a consistent snapshot at one head; `write` is
+      serialised with all writes and sees its own writes; `exclusive` runs alone. The SQLite
+      implementation maps all three onto one lane, a size-one queue that owns the connection: a
+      top-level transaction holds it from `BEGIN IMMEDIATE` to `COMMIT`/`ROLLBACK`, and reads
+      outside a transaction wait behind an open one. That reproduces today's semantics exactly,
+      since today everything is serialised by the thread, and the hop costs about a quarter of
+      a microsecond (measured: 0.73 µs for a sync point read, 0.98 µs through the queue). A
+      Postgres implementation keeps only the write lane serialised and gives `read` a
+      `REPEATABLE READ` snapshot on one checked-out client; it does not inherit total
+      serialisation. The write lane on Postgres implies **exactly one server process per tenant
+      database at a time, including during a rolling deploy**, or the feed-head allocator in
+      step 16 needs a row lock; that constraint is recorded in §5 decision 2.
+    - **The unit of work carries `afterCommit(fn)`, discarded on rollback** (rev 10, F7), and it
+      is the one mechanism for three things: phase 3 (baseline fold, broadcast, shared-state
+      invalidation) registers as the top-level operation's after-commit work, so a `capture` or
+      `reconcile` called inside a body publishes with the outer commit and never before it
+      (today `capture` and `reconcile` finalise immediately with no span of their own,
+      `authority.ts:226-255`, and only a call-site convention, `announce: false` in
+      `core.ts:990` with `announceEvent` after the commit at `:1019`, keeps a feed event from
+      publishing inside a span); side effects from inside bodies (mail, socket sends:
+      `LockService.steal` calls `sendMail` inside its span at `lock/service.ts:519-525`); and
+      the shared cache invalidation in Stage 0 step 2. This turns "no I/O in a body" from a
+      rule plus a watchdog into a shape: the body has nowhere else to put it.
+    - **Publication flush is driven by the scheduler, not a microtask** (rev 10, F4). The
+      funnel and feed serving both coalesce a synchronous burst into one frame per connection
+      by flushing on `queueMicrotask` (`funnel.ts:311`, `feed-serving.ts:652`). Under the
+      queue a burst of N commits is N lease acquisitions, and each commit's flush microtasks
+      run before the caller's next commit, so N frames per connection; the boot reconcile loops
+      and the bind-storm per-session commits are exactly such bursts. The pipe flushes when the
+      scheduler goes idle, bounded by a maximum batch or delay so sustained load cannot starve
+      publication, and "frames per burst" joins the step 17 gate with the boot reconcile and a
+      bind-storm fixture as the two measured bursts.
     - **Re-entrancy by `AsyncLocalStorage`**, not by handle identity: a `store.transact` call
       made from inside a body (the Ledger's `onAppended` subscribers, `funnel.run`, any
       service the body calls) must become a savepoint on the open transaction, not a queue
@@ -424,9 +486,14 @@ untouched, boot untouched. Reversible per aggregate.
       closure or a detached continuation can retain the tx set and the inherited async context
       past commit. So every tx executor carries a token checked on every operation; the token is
       invalidated before the outer callback's result is returned and before the connection is
-      released; a stale context rejects rather than bypassing the queue; root-executor use while
-      a tx context is active fails loudly, so a missed `tx.` conversion cannot pass silently;
-      parallel nested transaction branches are rejected rather than named by depth.
+      released; a stale context rejects rather than bypassing the queue (with ambient routing,
+      Stage 0 step 2, root use inside a body is the normal path, not an error); parallel nested
+      transaction branches are rejected rather than named by depth; an `exclusive` request from
+      a task that holds a lease rejects rather than waiting on itself (rev 10, F10). Drain
+      policy at shutdown (rev 10, F11): a JavaScript continuation cannot be cancelled, so after
+      the grace period the parked holder is rolled back, its token invalidated so its next
+      operation rejects, and the drain proceeds; the same action is what the watchdog escalates
+      to if it ever does more than report.
     - **Every use of the handle goes through the scheduler, including the file-level
       subsystem** (rev 9, finding 7): schema identity, `wal_checkpoint`, backup (which itself
       checkpoints, `backup.ts:82-105`), the transfer fence, boot upgrades, migration and
@@ -451,14 +518,20 @@ untouched, boot untouched. Reversible per aggregate.
     the peer at that head in one turn, "the one place a connection acquires a position"
     (`feed-serving.ts:377`). Once any of these awaits, a commit or prune can land between the
     rows and the head they certify, or after the world is read but before the peer is
-    registered, and that peer gets neither the row nor the delta: ADR 2's worst failure. Two
-    designs, both before Stage B's issue tree: (1) `bootstrap`, `changesSince`, the cursor and
-    floor checks and every paged certified read run in one read-only unit of work and return
-    the rows with the head and floor from that same snapshot; (2) feed admission becomes a
-    state machine `buffering → bootstrapped → live`: register and buffer the peer before the
-    first await, read world and head, publish the world, replay buffered deliveries strictly
-    after that head, then go live. The authorisation revision is read inside the same unit of
-    work. Tests use deterministic barriers to commit and prune inside every await gap.
+    registered, and that peer gets neither the row nor the delta: ADR 2's worst failure.
+    Design for Stage B (rev 10, F3): `bootstrap`, `changesSince`, the cursor and floor checks
+    and every paged certified read run in one `read` unit of work and return the rows with the
+    head and floor from that same snapshot, and **feed admission registers the peer
+    (`publisher.connect`, `retainPrincipal`) inside that same unit of work, before it
+    releases.** On SQLite the lane is the lease, so no commit and therefore no publication can
+    land between the world read and the registration; the gap is closed by that one sentence,
+    and the barrier test only has to prove that a commit issued during admission lands after
+    registration. The authorisation revision is read inside the same unit of work. A
+    `buffering → bootstrapped → live` admission state machine with buffered replay is
+    implementable (`FeedPublisher.emitTo` already filters on `seq > fromSeq`) but is a second
+    mechanism for a gap the first closes; it is recorded as the Postgres-lane alternative to
+    "admission takes the write lane" and decided in B′ with the Postgres feed test, because on
+    Postgres a snapshot read does not block writers.
 13. `SessionStore` gets an async factory (`await SessionStore.open(path, …)`); the constructor
     becomes private so an un-opened store cannot be handed to a registry. Boot heals move into
     `open()` **in the constructor's current order**: the machine-identity upgrade before any
@@ -471,19 +544,29 @@ untouched, boot untouched. Reversible per aggregate.
     called from inside `open()`, and the env channel from `globalSetup` to the forks stays,
     because it is still the only synchronous channel (rev 8, finding 12).
 14. Fix the §1.5 list by design, not by sprinkling `await`:
-    - frame caches (issues, users, relay closed-set): replace the microtask premise with an
-      explicit per-request read scope (a `ReadContext` created at the request boundary and
-      passed down), or drop the cache and measure;
+    - frame caches (issues, users, relay closed-set): their premise is "no write can land
+      inside this frame", and the scheduler's `read` lease gives the same guarantee, so the
+      fan-out passes (the publish flush, the bootstrap read) run inside one `read` unit of work
+      and the caches become unit-of-work-scoped caches in `RepositoryRuntimeState`, valid for
+      the lease's lifetime, the same mechanism the transaction-bound set uses (rev 10, F9).
+      Dropping them is not an option: the profile that created the issue cache was 5,163
+      `getIssue` calls costing 13 seconds of CPU in one frame (`store/issues.ts:33-50`), and
+      threading a read context through the fan-out is the executor-parameter design again.
+      Reads inside the lease do not hop the queue; the step 17 query-count gate is the proof;
     - `get rows()` and lazy hydration → explicit `await service.rows()` or hydrate at boot;
     - constructors that read → `static async create()`;
-    - visibility and authz predicates: **a grant is evaluated live** (ADR 9 D2 rule 4, D16.1;
-      `store.ts:133`, `grants.ts:23-31`). Today "live" and "same synchronous frame" coincide;
-      under async a view computed before an `await` and used after a revoke committed is the
-      "revoked grant that keeps working" D16.1 forbids. So the principal's rights are read on
-      `tx` at the top of the same transaction that applies the command, and the predicate
-      stays sync over that read. The read-only feed path may snapshot per bootstrap and must
-      validate against `grants.visibilityRevision()`. ADR 9 D16.1 gets an amendment naming
-      the transaction as the new "live" boundary (rev 8, finding 6);
+    - visibility and authz predicates: **a grant is evaluated live** (ADR 9 D2 rule 4, which
+      `grants.ts:25, 114` calls "D16.1"; ADR 9 itself has no D16, rev 10 F6). Today "live" and
+      "same synchronous frame" coincide; under async a view computed before an `await` and used
+      after a revoke committed is the revoked grant that keeps working. One definition covers
+      every path: **live means read under the lease that applies or publishes the decision.** A
+      command reads rights under its write lease; phase 3 scoping reads them under the writer's
+      lease at the committed head (the `forBatch` prefetch, step 11); bootstrap reads them under
+      its read lease; the `worldFor` cache validates on `(cursor, authorizationRevision)` read
+      under the same lease. All three are the committed state at one head, the strongest "live"
+      one process can offer and what the synchronous frame gave. The predicates stay sync over
+      those reads. ADR 9 D2 rule 4 gets that sentence as an amendment (rev 8 finding 6, rev 10
+      F6);
     - `SessionRegistry` is `relay.ts`, and its constructor reads settings, sessions, users,
       four shipping lists, repos, closed issues and automations (`relay.ts:431-1210`);
       `memory/service.ts:67` writes in a constructor. These become `static async create()`
@@ -609,9 +692,9 @@ Stage B′.
   deletes and stops resetting columns not named in the statement. Read each of the 15 sites.
 - Frame caches (§1.5.1) become wrong, not just useless, under async. Remove or redesign them
   before converting the code that relies on them.
-- `onAppended` listeners currently fire inside the transaction; under async they must still
-  run before the commit returns to the caller, or broadcast order can diverge from append order
-  (the ordered pipe in `authority.ts:493-524` exists for exactly this).
+- Publication runs after commit today and must stay there; what has to be preserved is that
+  publication order equals commit order (the ordered pipe in `authority.ts:493-524` exists for
+  exactly this), which the after-commit hook and the scheduler-driven flush in step 12 provide.
 - The seq-range arithmetic in `sync-repository.ts:71` is only correct with a single
   interleaving-free writer.
 
@@ -667,7 +750,10 @@ Stage B′.
    and are both in scope. Stage C remains a spike until the cloud architecture decision is
    revisited, but A and B are done so that C needs no rework of the store.
 2. **The size-one transaction queue in front of `bun:sqlite` is the mechanism** for async
-   transactions on SQLite (§1.8, §1.9). No driver switch: `bun:sqlite` stays.
+   transactions on SQLite (§1.8, §1.9). No driver switch: `bun:sqlite` stays. On Postgres the
+   write lane of the scheduler port (step 12) implies exactly one server process per tenant
+   database at a time, including during a rolling deploy; otherwise the feed-head allocator
+   needs a row lock (rev 10, F5).
 3. **Two requirements govern every step.** Podium as it exists keeps running exactly as it does
    today on SQLite, and the server is ready for Postgres at the end. Section 6 turns both into
    checkable criteria.
@@ -691,8 +777,18 @@ aggregate conversion:
   throw rolls back only its own transaction. It also covers: a reader issued while another
   body is open sees only committed rows; a body that calls `store.transact` re-entrantly gets
   a savepoint and does not deadlock; an `onAppended` subscriber that commits from inside a
-  notification; and the watchdog fires for a body parked past its budget. This test exists
-  before the first async repository lands (rev 8, findings 2 and 8).
+  notification; and the watchdog fires for a body parked past its budget, reported through an
+  injectable sink. This test exists before the first async repository lands (rev 8, findings
+  2 and 8). Rev 10 (F10) adds the properties the design is chosen for: commit order equals
+  publication order equals seq order under concurrent top-level transactions; a
+  subscriber-initiated commit lands after the outer publication and after the outer caller's
+  `await` resolves (a semantic change from today, where the re-entrant commit completes
+  synchronously inside `broadcast`, so a caller that reads a derived row immediately after
+  its commit must be found and characterised); a stale token rejects; two nested `transact`
+  calls started in parallel from one body reject; a write then a read in one body sees the
+  write for every cached aggregate; an `exclusive` request from a lease holder rejects; frames
+  per burst equal one for the boot reconcile and a bind-storm fixture. All cases run on one
+  deterministic interleaving harness (barriers the bodies await) shared with step 12a.
 - **Nothing runs after its commit.** The Ledger's thenable guard is replaced by a test that
   fails if a transaction body can touch the connection after `COMMIT`; the `tx` handle is the
   only executor inside a body.
@@ -929,6 +1025,31 @@ Stage A.
 | 11 | "Ordinal column the writer fills" is not a mechanism in SQLite; rule 10 still said "explicit primary key" | high | Classify each rowid use; surrogate key or allocator where order is contractual; step 6, rule 10 |
 | 12 | Opener "async" in step 11 and "stays synchronous" in step 13; the no-same-commit rule is impossible at the Stage B flip | medium | `Awaitable` opener; await-preparation pass; scoped exemption; steps 11, 11a |
 | 13 | The relational API is an avoidable second migration inside Stage A | medium | Out of Stage A; decided later on a remote benchmark; §8.1, rule 9 |
+
+## 11. Third review, Stage B design (Fable 5.1 high, 2026-09-02) and revision 10
+
+A reviewer focused only on the Stage B design. Verdict on revision 9.1: **approve with
+changes**: the size-one scheduler and the three-phase commit model are sound and nothing argues
+for a different mechanism; the layer above them needed four decisions. All twelve findings were
+verified in the code by the author. Its measurements: a sync point read costs 0.73 µs, the same
+read through the queue 0.98 µs, so the hop is not the cost on the hot paths; losing the frame
+cache and burst coalescing would be. Full text: issue artifact "Fable review: Stage B async
+design".
+
+| # | Finding | Severity | Change made |
+|---|---|---|---|
+| F1 | "Call sites keep their shape" and "root use inside a body fails loudly" contradict for every service reached from a write span (58 span sites, services hold the root store) | high | Ambient routing through the transaction context; token kept for stale contexts; Stage 0 step 2 |
+| F2 | Phase 3 scoping calls the kernel's synchronous visibility port per row, and the server's implementation reads the store; step 11 did not list it | high | `forBatch` prefetch beside `forBootstrap`; predicates stay sync; step 11 |
+| F3 | Snapshot reads plus an admission state machine were both mandated; on SQLite registering the peer inside the read unit of work closes the gap alone | high | Register inside the read unit of work; state machine recorded as the Postgres-lane alternative; step 12a |
+| F4 | Microtask-driven flush regresses burst coalescing to one frame per commit | high | Scheduler-idle flush; frames per burst in the step 17 gate; step 12 |
+| F5 | The scheduler was a SQLite mechanism, not a port; Postgres would inherit total serialisation | medium | `read`/`write`/`exclusive` lanes with stated isolation; deployment constraint in §5; step 12 |
+| F6 | Two definitions of "live grant" and a third for the feed; ADR 9 has no D16.1 | medium | One definition: read under the lease that applies or publishes; ADR reference fixed; step 14 |
+| F7 | Publication after commit is a call-site convention today (`announce: false`); `capture` and `reconcile` finalise with no span; `sendMail` runs inside a lock span | medium | `afterCommit(fn)` hook as the one mechanism for phase 3, side effects and invalidation; step 12 |
+| F8 | Invalidate-at-commit breaks read-your-writes inside a span | medium | Tx set reads through or keeps a local cache; Stage 0 step 2 |
+| F9 | The frame-cache replacement was undesigned and dropping it costs 13 s of CPU per fan-out | medium | Unit-of-work-scoped caches under the `read` lease; step 14 |
+| F10 | The queue test did not assert the properties the design is chosen for | medium | Seven cases added, one interleaving harness; §6.1 |
+| F11 | Drain policy for a parked body unstated | low | Roll back the holder, invalidate its token, proceed; step 12 |
+| F12 | §1.4 and §4 still said `onAppended` fires inside the span | low | Fixed |
 
 For reference, Linear's engine, which Podium's kernel resembles in shape: Postgres is the
 source of truth, every create, update and delete persists a model snapshot as a "SyncAction"
