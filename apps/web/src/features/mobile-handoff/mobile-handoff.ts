@@ -11,6 +11,13 @@
  * `location.origin`: a phone cannot resolve the `localhost` address the
  * operator's browser is on, and a code that resolves to nothing is worse than
  * no code at all.
+ *
+ * SPLIT HOSTING (PDM-34): where the UI is a separate origin, the public URL is
+ * the API and has no `/mobile` page of its own — it only redirects to one. The
+ * QR reads `appUrl` and points the phone at the app host in ONE hop. The
+ * redirect stays as the fallback for clients too old to know about `appUrl`;
+ * this is about not spending a round trip, and not showing a person an address
+ * that is not where they end up.
  */
 
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
@@ -31,9 +38,10 @@ export function mobileHandoffUrl(origin: string): string {
 
 /**
  * The URL a phone should open. Starts on this window's origin so the surfaces
- * can render immediately, and upgrades to the configured public URL when the
- * probe answers — the shape Settings → Network validates, and the only address
- * that is reachable from off this machine.
+ * can render immediately, and upgrades when the probe answers to the app host
+ * if the deployment has one, else the configured public URL — the shape
+ * Settings → Network validates, and the only address that is reachable from off
+ * this machine.
  */
 export function useMobileHandoffUrl(trpc: Store['trpc'] | undefined): string {
   const [url, setUrl] = useState(() => mobileHandoffUrl(window.location.origin))
@@ -43,8 +51,11 @@ export function useMobileHandoffUrl(trpc: Store['trpc'] | undefined): string {
     const load = async (): Promise<void> => {
       try {
         const info = await trpc.setup.info.query()
-        if (cancelled || typeof info.publicUrl !== 'string' || info.publicUrl === '') return
-        setUrl(mobileHandoffUrl(info.publicUrl))
+        // `appUrl` first: it is the host that actually SERVES the page, and the
+        // public URL would only bounce the phone here anyway.
+        const origin = info.appUrl || info.publicUrl
+        if (cancelled || typeof origin !== 'string' || origin === '') return
+        setUrl(mobileHandoffUrl(origin))
       } catch {
         // The window's own origin stays — right on any instance reached by the
         // address it is actually served from, which is the common case.

@@ -38,6 +38,8 @@ import {
   applyJoin,
   applyMode,
   applySetup,
+  fetchRemoteAppUrl,
+  fetchTargetAppUrl,
   getUpdateChannel,
   NETWORK_OPTIONS,
   networkOptionCommand,
@@ -333,20 +335,41 @@ export class InstanceService {
   }
 
   /** Daemon onboarding: one pasted join code becomes daemon config. The same core
-   *  `applyJoin` the CLI uses, so web and terminal flows stay identical. */
-  join(code: string) {
+   *  `applyJoin` the CLI uses, so web and terminal flows stay identical.
+   *
+   *  ASKS THE SERVER BEING JOINED WHERE ITS UI IS first (PDM-34). The token
+   *  carries the server URL and nothing else; on a split-hosted deployment the
+   *  UI is a second origin, and this is the moment the machine can be told —
+   *  the desktop shell that restarts next reads the answer out of config and
+   *  has no way to ask for itself. Never fails the join: an unreachable or
+   *  silent server yields `undefined`, which means "the UI is the server", the
+   *  behaviour every self-hosted install already has. */
+  async join(code: string) {
     this.assertNotForced('mode', 'mode')
+    const token = code.trim()
+    const uiUrl = await fetchTargetAppUrl(token)
     try {
-      return applyJoin(code.trim())
+      return applyJoin(token, uiUrl)
     } catch (e) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
     }
   }
 
-  connect(input: { mode: 'all-in-one' | 'client' | 'server'; serverUrl?: string | undefined }) {
+  /** See {@link join} for why the remote is asked for its `appUrl` here. Only a
+   *  client points at a remote; the local modes have no server to ask, and
+   *  passing `undefined` for them is also what clears a `uiUrl` left behind by
+   *  a previous connection. */
+  async connect(input: {
+    mode: 'all-in-one' | 'client' | 'server'
+    serverUrl?: string | undefined
+  }) {
     this.assertNotForced('mode', 'mode')
+    const uiUrl =
+      input.mode === 'client' && input.serverUrl
+        ? await fetchRemoteAppUrl(input.serverUrl)
+        : undefined
     try {
-      return applyMode(input)
+      return applyMode({ ...input, uiUrl })
     } catch (e) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
     }

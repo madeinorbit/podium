@@ -16,6 +16,7 @@ export type ForcedSettingKey =
   | 'updateFeed'
   | 'mode'
   | 'publicUrl'
+  | 'appUrl'
   | 'allowedOrigins'
   | 'updateScope'
   | 'transcriptLake'

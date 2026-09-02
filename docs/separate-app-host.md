@@ -86,6 +86,29 @@ loopback bind; a server bound to `0.0.0.0` must say so.
   `/version`, `/health`, `/mcp`) as 404 rather than HTML, so a stray relative
   fetch fails loudly instead of parsing a page as JSON.
 
+## The desktop app
+
+The desktop shell has to be told, because it is the one client that does not
+start from a page on the app host — it starts from a `config.json` and opens a
+window. It learns the address at the moment it is pointed at the server: `podium
+setup`, `podium join-config`, `podium set-server` and the setup screen all read
+the remote's `/version`, and persist its `appUrl` as `uiUrl` on the machine's own
+config.
+
+From then on, a shell in client or daemon mode opens `uiUrl` in the window and
+grants its native bridge — window controls, external links, the replica database,
+the updater — to that origin, because that is where the page it is talking to
+actually lives. Everything else still follows `serverUrl`: the daemon's
+connection, the update feed, the session cookie. Nothing changes for a server
+that serves its own UI.
+
+Two consequences worth knowing:
+
+- **Changing `appUrl` on a live server does not reach machines already joined.**
+  They keep the value they learned. `podium set-server <same-url>` re-reads it.
+- **The shell's bundled copy of the UI is never shown in this mode.** There is no
+  offline fallback for a split-hosted install; an outage shows the outage.
+
 ## Reproducing it locally
 
 `localtest.me` and every subdomain resolve to `127.0.0.1`, and it is not a public

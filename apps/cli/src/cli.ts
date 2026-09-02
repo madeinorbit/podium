@@ -1460,7 +1460,7 @@ export async function main(
     case 'join-config': {
       const { applyJoinToken } = await import('./cli-join')
       try {
-        const { name, warning } = applyJoinToken(plan.token)
+        const { name, warning } = await applyJoinToken(plan.token)
         console.log(`podium configured to join as "${name}"`)
         if (warning) console.warn(`\nWarning: ${warning}`)
       } catch (e) {
@@ -1476,9 +1476,11 @@ export async function main(
       return
     }
     case 'set-server': {
-      const { applyServerUrl } = await import('@podium/runtime/setup')
+      const { applyServerUrl, fetchTargetAppUrl } = await import('@podium/runtime/setup')
       try {
-        const res = applyServerUrl(plan.target)
+        // Re-point the UI origin with the server URL (PDM-34): a rotated URL can be a
+        // different deployment, and the previous one's app host would then be wrong.
+        const res = applyServerUrl(plan.target, await fetchTargetAppUrl(plan.target))
         console.log(`podium server URL set to ${res.serverUrl}`)
         if (res.warning) console.warn(`\nWarning: ${res.warning}`)
         console.log('Restart the daemon to apply (e.g. `podium stop && podium`).')

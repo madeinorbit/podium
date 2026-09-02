@@ -430,7 +430,7 @@ export async function runJoinSetup(
 ): Promise<{ name: string; warning?: string; result: StartBackendResult }> {
   const startBackend = deps.startBackend ?? startBackendEngine
   const waitForEnrollment = deps.waitForEnrollment ?? waitForDaemonEnrollment
-  const { name, warning } = applyJoinToken(token)
+  const { name, warning } = await applyJoinToken(token)
   const result = await startBackend({ persistence, mode: 'daemon', port })
   savePersistence(result.effectivePersistence)
   await waitForEnrollment()
@@ -519,7 +519,7 @@ async function joinStep(
       return
     }
     try {
-      const { name, warning } = applyJoinToken(token)
+      const { name, warning } = await applyJoinToken(token)
       if (warning) io.print(`\nWarning: ${warning}`)
       await persistenceStep(io, port, 'daemon', startBackend)
       await waitForEnrollment()

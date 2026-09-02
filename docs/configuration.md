@@ -141,6 +141,29 @@ either layer, the toggle renders locked **at the value the deployment chose**,
 naming the layer: a disabled control that is also wrong would be worse than no
 control at all.
 
+## `uiUrl` — the client-side mirror of `appUrl`
+
+`appUrl` is what a **server** advertises. `uiUrl` is what a **joined machine or
+client** remembers about the server it dials, and it is written into that
+machine's own `config.json` by `podium join-config`, `podium set-server` and the
+setup screen, from the remote's `/version`. It has no env layer and is not
+something to set by hand.
+
+The two are separate keys because they answer opposite questions on the same
+file: `appUrl` is "the UI I advertise", `uiUrl` is "the UI for the server I
+dial". A box that is a client today and a server tomorrow would otherwise have
+one field holding two answers.
+
+The desktop shell is the only reader. In client or daemon mode it loads `uiUrl`
+in the window instead of the server URL, and grants its native bridge to that
+origin; everything else — the daemon's connection, the update feed, the session
+cookie — still keys off `serverUrl`. Absent, which is every self-hosted install,
+means "the UI is the server" and the shell behaves exactly as it always has.
+
+Re-pointing a machine always re-decides it, including clearing it: a rotated
+server URL can be a different deployment, and the previous one's app host would
+then be an address the window must not open.
+
 ## The file-only keys, and why
 
 Two keys have **no** env layer, deliberately:

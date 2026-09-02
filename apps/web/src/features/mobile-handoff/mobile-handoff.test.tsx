@@ -101,6 +101,27 @@ describe('the footer chip', () => {
     await waitFor(() => expect(screen.queryByTestId('mobile-handoff-sheet')).toBeNull())
   })
 
+  /**
+   * PDM-34: on a split-hosted deployment the public URL is the API, which has no
+   * `/mobile` page — only a redirect to one. The code has to name the host that
+   * actually serves it, so the phone lands in one hop and the address a person
+   * reads is the address they end up on.
+   */
+  it('carries the app host when the UI is served from one', async () => {
+    withOneTask()
+    fixture.infoQuery.mockResolvedValue({
+      publicUrl: 'https://api.meetpodium.com',
+      appUrl: 'https://app.meetpodium.com',
+    })
+    render(<MobileHandoffChip />)
+    fireEvent.click(screen.getByTestId('mobile-handoff-chip'))
+    await waitFor(() =>
+      expect(screen.getByTestId('mobile-handoff-qr').getAttribute('aria-label')).toBe(
+        'Opens app.meetpodium.com/mobile',
+      ),
+    )
+  })
+
   it('carries the public URL once the instance reports one', async () => {
     withOneTask()
     fixture.infoQuery.mockResolvedValue({ publicUrl: 'https://podium.example.com' })

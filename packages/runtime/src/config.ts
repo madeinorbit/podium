@@ -184,6 +184,22 @@ export const PodiumConfig = z.object({
    */
   appUrl: z.string().optional(),
   /**
+   * WHERE THE UI LIVES FOR THE SERVER *THIS BOX POINTS AT* — the client-side
+   * mirror of `appUrl`, learned at connect/join time from the remote's
+   * `/version` and re-learned whenever the server URL is re-pointed.
+   *
+   * It is a SEPARATE key rather than a reuse of `appUrl` because the two mean
+   * opposite things on the same file: `appUrl` is "the UI I advertise", set by
+   * whoever runs a server; `uiUrl` is "the UI for the server I dial", set by
+   * whoever joined this machine. A daemon that is also, later, a server would
+   * otherwise have one field answering two questions with one value.
+   *
+   * The desktop shell reads it (and only it) to decide what the window loads in
+   * client and daemon mode; absent means "load the server's own URL", which is
+   * every self-hosted install (PDM-34).
+   */
+  uiUrl: z.string().optional(),
+  /**
    * Browser origins allowed to make CREDENTIALED cross-site requests to this
    * instance (consumed by the CORS/WS checks, PDM-24). A DEPLOYMENT FACT — the
    * hosted control plane serves its web app from a different origin than its API

@@ -10,6 +10,8 @@ interface NetworkInfo {
   mode: string | null
   publicUrl: string | null
   serverUrl: string | null
+  /** Where the web UI is served from, when it is not this server (PDM-26). */
+  appUrl?: string | null
   /** Credentialed cross-site origins this deployment allows. */
   allowedOrigins?: string[]
 }
@@ -28,6 +30,7 @@ export function NetworkSection({
 } = {}): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const forcedPublicUrl = useForcedSetting('publicUrl')
+  const forcedAppUrl = useForcedSetting('appUrl')
   const forcedOrigins = useForcedSetting('allowedOrigins')
   // undefined = loading, null = failed. Do not guess that this is a host until mode is known:
   // the host form can change topology, so briefly showing it on a worker is unsafe.
@@ -107,6 +110,31 @@ export function NetworkSection({
         </>
       ) : (
         <NetworkStep embedded trpc={trpc} onSaved={load} onSaveStateChange={onSaveStateChange} />
+      )}
+      {/*
+        WHERE THE UI IS, when it is not here. Read-only and shown only when set:
+        an operator who never split their hosting has no such thing, and a row
+        saying "not set" would invite them to look for a setting that would only
+        break their install. Split hosting is configured by the deployment, so
+        the value arrives through the environment and there is nothing to edit
+        here — the provenance notice says which variable holds it.
+      */}
+      {info.appUrl && (
+        <>
+          <Row
+            label="Web app URL"
+            description="Browsers and desktop apps are sent here for the interface; this server answers the API."
+          >
+            <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
+              {info.appUrl}
+            </span>
+          </Row>
+          {forcedAppUrl.forced && (
+            <p className="mt-2 settings-prose text-muted-foreground">
+              {forcedNotice(forcedAppUrl.env)}
+            </p>
+          )}
+        </>
       )}
       {(info.allowedOrigins?.length ?? 0) > 0 && (
         <>
