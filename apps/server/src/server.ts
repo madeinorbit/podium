@@ -20,7 +20,15 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { loadConfig, resolveDevArtifactOrigin, resolveInstanceId } from '@podium/runtime/config'
+import {
+  loadConfig,
+  resolveDevArtifactOrigin,
+  resolveInstanceId,
+  resolveMode,
+  resolvePublicUrl,
+  resolveTranscriptLake,
+  resolveUpdateScope,
+} from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
   readOrCreateDaemonSecret,
@@ -421,6 +429,14 @@ export async function startServer(
     /** Advertise the safe local all-in-one first-run default to loopback web clients. */
     localSetupDefault?: boolean
     /**
+     * Whether this process mirrors daemon transcripts into the lake (PDM-26).
+     *
+     * A composition root that knows its own storage story may state it directly;
+     * otherwise it is resolved from PODIUM_TRANSCRIPT_LAKE → config.transcriptLake
+     * → 'on', which is every install that exists today.
+     */
+    transcriptLake?: 'on' | 'off'
+    /**
      * The janitor worker client injected by the composition root so this app
      * never imports another app. Presence means this server owns the janitor
      * thread; server constructions without the injection remain janitor-free.
@@ -443,6 +459,14 @@ export async function startServer(
   const appVersion = captureServerBuildVersion()
   const appSourceDigest = serverBuildSourceDigest()
   const instanceId = resolveInstanceId()
+  // THE DEPLOYMENT'S ANSWERS, resolved once at boot (PDM-26). Every one of these
+  // is `env → config.json → default`; reading them here rather than at each use
+  // site keeps this process's shape decided in one place, and makes the env
+  // layer's "boot-time, never stale" property literally true.
+  const envMode = resolveMode(config, process.env)
+  const updateScope = resolveUpdateScope(config, process.env)
+  const fleetOnly = updateScope === 'fleet-only'
+  const lakeEnabled = (opts.transcriptLake ?? resolveTranscriptLake(config, process.env)) === 'on'
   ensureInstanceStateIdentity({ instanceId })
   // Role composition (roles.ts): which optional module groups this process
   // activates. Explicit opts win; else the H1 shape, core + hub.
@@ -866,6 +890,8 @@ export async function startServer(
   const readiness = createServerReadiness({
     bootConfig: config,
     hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
+    // An env-set mode is this process's mode, and the file cannot contradict it.
+    ...(envMode ? { envMode } : {}),
   })
   let targetsResolvedOnBoot = false
   const app = new Hono()

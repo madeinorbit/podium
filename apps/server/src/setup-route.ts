@@ -1,5 +1,5 @@
 import type { ServerReadiness } from '@podium/model'
-import { loadConfig } from '@podium/runtime/config'
+import { loadConfig, resolveSetting } from '@podium/runtime/config'
 import type { Hono } from 'hono'
 
 /**
@@ -26,9 +26,14 @@ export function registerSetupRoute(
     if (readiness.state === 'unconfigured' && opts.localSetupDefault === true) {
       c.header('X-Podium-Local-Setup', 'all-in-one')
     }
+    const mode = resolveSetting('mode', config)
     return c.json({
       needsSetup: required,
-      mode: config.mode ?? null,
+      mode: mode.value ?? null,
+      // WHICH LAYER answered (PDM-26). The web SetupView skips the mode step on
+      // 'env': offering a choice the deployment already made is a dead control
+      // on the one screen a first-time operator has no context to read it on.
+      modeSource: mode.source,
       state: readiness.state,
       reason: readiness.reason,
       dataPlane: readiness.dataPlane,

@@ -32,6 +32,12 @@ export type ServerReadinessReason =
  * without being replaced. POD-2766 happened because a credential write reached a
  * field on this list by accident, so the list is now named rather than inlined in
  * the comparison.
+ *
+ * `mode` is EXEMPT when the ENVIRONMENT set it (`PODIUM_MODE`, PDM-26). Env is
+ * read once at boot and cannot change under a running process, so an env-set
+ * mode can never be the thing a restart would adopt. The list itself is
+ * unchanged; the exemption lives in the server's readiness derivation, which is
+ * the only place that knows what this process actually booted from.
  */
 export const BOOT_RELEVANT_CONFIG_FIELDS = ['mode', 'persistence'] as const
 export type BootRelevantConfigField = (typeof BOOT_RELEVANT_CONFIG_FIELDS)[number]
