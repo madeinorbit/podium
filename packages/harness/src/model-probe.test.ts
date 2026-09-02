@@ -5,6 +5,7 @@ import {
   parseCursorModels,
   parseGrokModels,
   parseOpencodeModels,
+  parsePiModels,
   probeAgentModels,
   probeAllModels,
   probeClaudeModels,
@@ -32,6 +33,12 @@ Tip: use --model <id> (or /model <id> in interactive mode) to switch.
 const OPENCODE = `opencode/big-pickle
 openai/gpt-5.5
 xai/grok-4.3
+`
+
+/** `pi --list-models` (pi 0.84.4): a whitespace-columned table on stdout. */
+const PI = `provider   model                    context  max-out  thinking  images
+anthropic  claude-sonnet-4-5        200K     64K      yes       yes
+fake       fake-model               128K     4.1K     no        no
 `
 
 const CODEX = JSON.stringify({
@@ -94,6 +101,15 @@ describe('model-probe parsers', () => {
     expect(parseGrokModels('')).toEqual([])
     expect(parseCursorModels('nonsense\n')).toEqual([])
     expect(parseOpencodeModels('not a model line')).toEqual([])
+  })
+
+  it('parses the pi table into provider/model ids with thinking levels only where offered', () => {
+    expect(parsePiModels(PI).map((m) => [m.value, m.efforts?.length])).toEqual([
+      ['anthropic/claude-sonnet-4-5', 7],
+      ['fake/fake-model', 0],
+    ])
+    expect(parsePiModels('')).toEqual([])
+    expect(parsePiModels('No models found')).toEqual([])
     expect(parseCodexModels('not json')).toEqual([])
   })
 })
@@ -190,13 +206,14 @@ describe('probe (injected exec — no shelling out)', () => {
     expect(models).toEqual([])
   })
 
-  it('probeAllModels fans out over all five agents, keyed by agent kind', async () => {
+  it('probeAllModels fans out over all six agents, keyed by agent kind', async () => {
     const byAgent = await probeAllModels({
       exec: async (argv) => {
         if (argv[0] === 'grok') return GROK
         if (argv[0] === 'cursor-agent') return CURSOR
         if (argv[0] === 'opencode') return OPENCODE
         if (argv[0] === 'codex') return CODEX
+        if (argv[0] === 'pi') return PI
         return ''
       },
       claude: {
@@ -210,6 +227,15 @@ describe('probe (injected exec — no shelling out)', () => {
       'cursor',
       'grok',
       'opencode',
+      'pi',
+    ])
+    expect(byAgent.pi).toEqual([
+      {
+        value: 'anthropic/claude-sonnet-4-5',
+        label: 'anthropic/claude-sonnet-4-5',
+        efforts: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      },
+      { value: 'fake/fake-model', label: 'fake/fake-model', efforts: [] },
     ])
     expect(byAgent['claude-code']?.[0]?.value).toBe('claude-sonnet-5')
     expect(byAgent.codex?.length).toBe(2)

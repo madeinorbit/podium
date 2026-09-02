@@ -27,6 +27,7 @@ const AGENT_LABELS: Record<AgentKind, string> = {
   grok: 'Grok',
   opencode: 'OpenCode',
   cursor: 'Cursor',
+  pi: 'Pi',
   shell: 'Shell',
 }
 

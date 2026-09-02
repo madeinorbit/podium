@@ -92,6 +92,25 @@ export function CursorIcon({ size = 24, className, variant, ...props }: IconProp
   )
 }
 
+/** Pi has no published brand mark; a plain π glyph in the surrounding tone. */
+export function PiIcon({ size = 24, className, variant, ...props }: IconProps): JSX.Element {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill={colorFill(variant)}
+      fillRule="evenodd"
+      width={size}
+      height={size}
+      className={className}
+      {...props}
+    >
+      <title>Pi</title>
+      <path d="M3.5 5.5h17V8h-2.75v10.5h-2.5V8h-6.5v10.5h-2.5V8H3.5z" />
+    </svg>
+  )
+}
+
 export function OpenCodeIcon({ size = 24, className, variant, ...props }: IconProps): JSX.Element {
   return (
     <svg

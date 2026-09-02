@@ -179,7 +179,7 @@ export function buildSuperagentTools(
           properties: {
             agentKind: {
               type: 'string',
-              enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'],
+              enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi', 'shell'],
             },
             cwd: {
               type: 'string',

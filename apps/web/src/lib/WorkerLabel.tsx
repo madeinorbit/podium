@@ -10,6 +10,7 @@ import {
   GrokIcon,
   OpenAIcon,
   OpenCodeIcon,
+  PiIcon,
 } from '@/lib/icons/AgentIcons'
 
 /**
@@ -81,6 +82,7 @@ const KIND_ICON: Record<AgentKind, IconComponent> = {
   grok: GrokIcon,
   opencode: OpenCodeIcon,
   cursor: CursorIcon,
+  pi: PiIcon,
   shell: SquareChevronRight,
 }
 

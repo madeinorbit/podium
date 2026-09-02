@@ -23,6 +23,7 @@ import { codexManifest } from './manifests/codex.js'
 import { cursorManifest } from './manifests/cursor.js'
 import { grokManifest } from './manifests/grok.js'
 import { opencodeManifest } from './manifests/opencode.js'
+import { piManifest } from './manifests/pi.js'
 
 /**
  * THE harness registry (#158/POD-303): one manifest per driveable harness kind.
@@ -45,6 +46,7 @@ export const AGENT_MANIFESTS: Record<BuiltinHarnessKind, AgentManifest> = {
   grok: grokManifest,
   opencode: opencodeManifest,
   cursor: cursorManifest,
+  pi: piManifest,
 }
 
 /**

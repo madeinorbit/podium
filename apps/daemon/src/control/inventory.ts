@@ -248,6 +248,9 @@ async function runModelProbe(
               ...(snapshot.executables.get('codex')
                 ? { codex: snapshot.executables.get('codex')!.path }
                 : {}),
+              ...(snapshot.executables.get('pi')
+                ? { pi: snapshot.executables.get('pi')!.path }
+                : {}),
             },
             env: snapshot.commandEnvironment.env,
           }

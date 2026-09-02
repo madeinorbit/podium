@@ -28,7 +28,15 @@
 
 import { z } from 'zod'
 
-export const AgentKind = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'])
+export const AgentKind = z.enum([
+  'claude-code',
+  'codex',
+  'grok',
+  'opencode',
+  'cursor',
+  'pi',
+  'shell',
+])
 export type AgentKind = z.infer<typeof AgentKind>
 
 /** Type guard for the wire kind (superagent metadata, hook payloads, …). */
@@ -37,7 +45,7 @@ export function isAgentKind(v: unknown): v is AgentKind {
 }
 
 /** The non-interactive harness surfaces the daemon can drive (AgentKind minus 'shell'). */
-export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor'])
+export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'])
 export type HarnessAgent = z.infer<typeof HarnessAgent>
 
 /**

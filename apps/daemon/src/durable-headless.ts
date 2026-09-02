@@ -20,8 +20,8 @@ import {
   declaredValue,
   type HarnessHeadless,
   harnessAdapterFor,
-  resolvedHarnessPath,
   type ResolvedHarnessInventory,
+  resolvedHarnessPath,
 } from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import {
@@ -44,6 +44,7 @@ import {
   type HeadlessTurnOutcome,
   type HeadlessTurnSpec,
 } from './headless-drivers.js'
+import { createPiStreamReducer } from './pi-stream.js'
 
 interface DurableResult {
   ok: boolean
@@ -272,7 +273,10 @@ function prepareInvocation(
   }
   let sessionId = spec.resumeValue ?? spec.sessionUuid
   if (headless.resumeIdAllocation === 'create-chat' && !sessionId)
-    sessionId = cursorSessionId(paths, snapshot, { ...snapshot.commandEnvironment.env, ...spec.env })
+    sessionId = cursorSessionId(paths, snapshot, {
+      ...snapshot.commandEnvironment.env,
+      ...spec.env,
+    })
   const exec = buildHeadlessExec(
     spec.agent,
     {
@@ -350,6 +354,7 @@ function outcomeFromOutput(
   const exitCode = Number.parseInt(readFileSync(paths.exit, 'utf8').trim(), 10)
   let harnessSessionId = knownSessionId ?? spec.resumeValue ?? spec.sessionUuid ?? ''
   let output = ''
+  let piError: string | undefined
 
   if (outputFormat === 'claude-stream-json') {
     for (const line of stdout.split('\n')) {
@@ -405,6 +410,13 @@ function outcomeFromOutput(
       } catch {}
     }
     output = output.trim()
+  } else if (outputFormat === 'pi-jsonl') {
+    const reducer = createPiStreamReducer()
+    for (const line of stdout.split('\n')) reducer.pushLine(line)
+    const result = reducer.result()
+    if (result.sessionId) harnessSessionId = result.sessionId
+    output = result.output
+    piError = result.error
   } else {
     output = stdout.trim()
   }
@@ -415,6 +427,8 @@ function outcomeFromOutput(
       harnessSessionId || undefined,
     )
   }
+  // pi exits 0 on a provider/agent error; the verdict lives in its event stream.
+  if (piError) throw new HeadlessTurnError(piError, harnessSessionId || undefined)
   if (!harnessSessionId) {
     throw new Error(`${spec.agent} turn ended without reporting a session id`)
   }
@@ -440,6 +454,7 @@ export function createDurableProgressParser(
   let partialText = ''
   let partialItem = ''
   let opencodeText = ''
+  const pi = outputFormat === 'pi-jsonl' ? createPiStreamReducer() : undefined
 
   const emitPartial = (text: string, itemHint?: string): void => {
     if (!text || (text === partialText && itemHint === partialItem)) return
@@ -458,6 +473,17 @@ export function createDurableProgressParser(
     try {
       event = JSON.parse(line) as Record<string, unknown>
     } catch {
+      return
+    }
+
+    if (pi) {
+      const effect = pi.push(event)
+      if (!effect) return
+      if (effect.sessionId) {
+        emit({ kind: 'status', status: 'running', harnessSessionId: effect.sessionId })
+      }
+      if (effect.toolLabel) emit({ kind: 'status', status: 'tool', label: effect.toolLabel })
+      if (effect.partialText) emitPartial(effect.partialText, effect.itemHint)
       return
     }
 

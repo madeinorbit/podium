@@ -7,6 +7,7 @@ import {
   type HarnessHeadless,
   type HeadlessExecOptions,
   harnessAdapterFor,
+  LineDecoder,
   type ResolvedHarnessInventory,
   resolvedHarnessPath,
 } from '@podium/harness'
@@ -14,6 +15,7 @@ import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { runClaudeSdkChildTurn } from './claude-sdk-client.js'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
+import { createPiStreamReducer, type PiStreamEffect } from './pi-stream.js'
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
 
@@ -172,7 +174,7 @@ export function buildHeadlessExec(
   agent: HarnessAgent,
   opts: HeadlessExecOptions,
   snapshot: ResolvedHarnessInventory,
-): { cmd: string; args: string[]; env?: Record<string, string> } {
+): { cmd: string; args: string[]; env?: Record<string, string>; stdin?: string } {
   const manifest = harnessAdapterFor(agent)
   const headless = manifest && declaredValue(manifest.headless)
   const buildExec = headless && declaredValue(headless.buildExec)
@@ -195,12 +197,15 @@ function runChild<T>(
   timeoutMs: number,
   env: Record<string, string> | undefined,
   consume: (child: ChildProcess) => Promise<T>,
+  /** Delivered on stdin, then EOF (pi reads its prompt there). Absent ⇒ EOF at once. */
+  stdin?: string,
 ): { child: ChildProcess; done: Promise<T> } {
   const child = spawn(cmd, args, {
     cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: headlessChildEnv(agent, env),
   })
+  if (stdin !== undefined) child.stdin?.write(stdin)
   child.stdin?.end()
   let timedOut = false
   const timer = setTimeout(() => {
@@ -453,8 +458,64 @@ function runResumeExecTurn(
         )
       }
     }
-    const { cmd, args } = buildHeadlessExec(spec.agent, { ...common, sessionId }, snapshot)
-    const turn = runChild(spec.agent, cmd, args, spec.cwd, timeoutMs, spec.env, readAllStdout)
+    const { cmd, args, stdin } = buildHeadlessExec(spec.agent, { ...common, sessionId }, snapshot)
+    if (headless.outputFormat === 'pi-jsonl') {
+      // pi: the id is pinned like grok's, but the turn streams `--mode json`
+      // events — partial text, tool labels, and the in-turn error verdict that
+      // its exit code (always 0) does not carry.
+      const pinned = sessionId
+      const turn = runChild(
+        spec.agent,
+        cmd,
+        args,
+        spec.cwd,
+        timeoutMs,
+        spec.env,
+        async (child) => {
+          const stderrTail = collectStderr(child)
+          const reducer = createPiStreamReducer()
+          // Pi's JSONL is `\n`-only; U+2028/2029 may appear inside strings, so
+          // no readline here.
+          const decoder = new LineDecoder()
+          const apply = (effect: PiStreamEffect | undefined): void => {
+            if (!effect) return
+            if (effect.toolLabel) emit({ kind: 'status', status: 'tool', label: effect.toolLabel })
+            if (effect.partialText) {
+              emit({
+                kind: 'partial-text',
+                text: effect.partialText,
+                ...(effect.itemHint ? { itemHint: effect.itemHint } : {}),
+              })
+            }
+          }
+          child.stdout?.on('data', (d: Buffer) => {
+            for (const line of decoder.push(d)) apply(reducer.pushLine(line))
+          })
+          child.stdout?.on('end', () => {
+            const last = decoder.flush()
+            if (last) apply(reducer.pushLine(last))
+          })
+          await childExit(child, stderrTail)
+          const result = reducer.result()
+          if (result.error) throw new HeadlessTurnError(result.error, result.sessionId ?? pinned)
+          return { harnessSessionId: result.sessionId ?? pinned, output: result.output }
+        },
+        stdin,
+      )
+      interrupt = () => turn.child.kill('SIGKILL')
+      emit({ kind: 'status', status: 'running', harnessSessionId: pinned })
+      return await turn.done
+    }
+    const turn = runChild(
+      spec.agent,
+      cmd,
+      args,
+      spec.cwd,
+      timeoutMs,
+      spec.env,
+      readAllStdout,
+      stdin,
+    )
     interrupt = () => turn.child.kill('SIGKILL')
     emit({ kind: 'status', status: 'running' })
     const output = await turn.done

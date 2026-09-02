@@ -44,6 +44,7 @@ const snapshot = testHarnessSnapshot({
   grok: 'grok',
   opencode: resolveOpencodeBin(),
   cursor: resolveCursorBin(),
+  pi: 'pi',
 })
 const identity = (agent: HarnessAgent) => ({
   accountId: asAccountId(`native:${agent}:smoke`),
@@ -169,7 +170,24 @@ const resumeExecCases = [
     available: hasBin('grok'),
     tokenPrefix: 'NEWT',
   },
+  {
+    agent: 'pi' as const,
+    label: 'pi',
+    // `pi` is a tiny name; the help banner proves this is the coding agent.
+    available: hasBin('pi') && piHelpIsCodingAgent(),
+    tokenPrefix: 'ORYX',
+  },
 ]
+
+function piHelpIsCodingAgent(): boolean {
+  try {
+    return /\bpi - AI coding assistant\b/.test(
+      execFileSync('pi', ['--help'], { timeout: 15_000, stdio: 'pipe' }).toString(),
+    )
+  } catch {
+    return false
+  }
+}
 
 for (const smoke of resumeExecCases) {
   describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !smoke.available)(

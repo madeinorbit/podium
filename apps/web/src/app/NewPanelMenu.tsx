@@ -55,6 +55,7 @@ const NEW_AGENT_LABELS: readonly (readonly [AgentKind, string])[] = [
   ['grok', 'New Grok'],
   ['opencode', 'New OpenCode'],
   ['cursor', 'New Cursor'],
+  ['pi', 'New Pi'],
   ['shell', 'New Shell'],
 ]
 

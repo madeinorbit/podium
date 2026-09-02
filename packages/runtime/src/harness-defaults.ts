@@ -67,6 +67,7 @@ export const SUPERAGENT_HARNESS_DEFAULTS: Readonly<Record<HarnessAgent, HarnessR
   // without an answer here.
   opencode: { model: 'auto', effort: 'auto' },
   cursor: { model: 'auto', effort: 'auto' },
+  pi: { model: 'auto', effort: 'auto' },
 }
 
 /** One harness as the caller's fleet reports it. */

@@ -44,7 +44,7 @@ it('sessionRelayEnv withholds the agent-identity relay from a shell session', ()
 })
 
 it('sessionRelayEnv binds the agent-identity relay for every non-shell kind', () => {
-  for (const kind of ['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const) {
+  for (const kind of ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'] as const) {
     const env = sessionRelayEnv(asSessionId('s1'), 'http://127.0.0.1:45778/agent/s1', 'blue', kind)
     expect(env.PODIUM_AGENT_RELAY, kind).toBe('http://127.0.0.1:45778/agent/s1')
   }

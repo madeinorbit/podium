@@ -4,17 +4,17 @@ import { join } from 'node:path'
 import type { CommandEnvironment } from '@podium/runtime/command-environment'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  buildInventory as buildInventoryWithEnv,
-  type LoginProbeExec,
-  type ProbeExec,
-} from './build-inventory.js'
-import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
-import { harnessLoginReadEnv } from '../registry.js'
-import {
   fingerprintForLoginIdentity,
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
 } from '../codex-auth-identity.js'
+import { harnessLoginReadEnv } from '../registry.js'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
+import {
+  buildInventory as buildInventoryWithEnv,
+  type LoginProbeExec,
+  type ProbeExec,
+} from './build-inventory.js'
 
 let home: string
 let childEnv: NodeJS.ProcessEnv
@@ -104,10 +104,10 @@ describe('buildInventory', () => {
     expect(inv.podiumVersion).toBe(process.env.PODIUM_APP_VERSION ?? 'dev')
   })
 
-  it('reports all 5 kinds, absent when every candidate fails', async () => {
+  it('reports all 6 kinds, absent when every candidate fails', async () => {
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
     expect(inv.agents.map((a) => a.kind).sort()).toEqual(
-      ['claude-code', 'codex', 'cursor', 'grok', 'opencode'].sort(),
+      ['claude-code', 'codex', 'cursor', 'grok', 'opencode', 'pi'].sort(),
     )
     for (const a of inv.agents) {
       expect(a.installed).toBe(false)

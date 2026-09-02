@@ -21,6 +21,7 @@ import {
   GrokIcon,
   OpenAIcon,
   OpenCodeIcon,
+  PiIcon,
 } from '@/lib/icons/AgentIcons'
 import { cn } from '@/lib/utils'
 
@@ -36,6 +37,7 @@ const QUOTA_PANEL_ICONS: Record<AccountQuotaGroup['agent'], typeof ClaudeCodeIco
   grok: GrokIcon,
   opencode: OpenCodeIcon,
   cursor: CursorIcon,
+  pi: PiIcon,
   shell: null,
 }
 

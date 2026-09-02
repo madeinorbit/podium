@@ -308,7 +308,7 @@ export interface HarnessHeadless {
   driver: 'claude-sdk' | 'codex-json' | 'resume-exec'
   /** The stdout protocol emitted by one headless turn. The daemon parses this
    * transport shape without branching on which harness selected it. */
-  outputFormat: 'claude-stream-json' | 'codex-jsonl' | 'opencode-jsonl' | 'text'
+  outputFormat: 'claude-stream-json' | 'codex-jsonl' | 'opencode-jsonl' | 'pi-jsonl' | 'text'
   /**
    * How the persistent session id is allocated on the FIRST turn:
    *   'sdk-session-uuid' — server-minted UUID passed via the SDK's sessionId;
@@ -324,7 +324,13 @@ export interface HarnessHeadless {
    *  merged over the child's environment — codex passes its MCP bearer token here
    *  (POD-1021). */
   buildExec: Declared<
-    (opts: HeadlessExecOptions) => { cmd: string; args: string[]; env?: Record<string, string> }
+    (opts: HeadlessExecOptions) => {
+      cmd: string
+      args: string[]
+      env?: Record<string, string>
+      /** Delivered on the child's stdin (then EOF) — pi reads its prompt there. */
+      stdin?: string
+    }
   >
 }
 

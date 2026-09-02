@@ -29,6 +29,7 @@ import {
   GrokIcon,
   OpenAIcon,
   OpenCodeIcon,
+  PiIcon,
 } from '@/lib/icons/AgentIcons'
 import { cn } from '@/lib/utils'
 import { HealthPopover } from './HealthPopover'
@@ -56,6 +57,7 @@ const QUOTA_HARNESS_ICONS: Record<AccountQuotaGroup['agent'], typeof ClaudeCodeI
   grok: GrokIcon,
   opencode: OpenCodeIcon,
   cursor: CursorIcon,
+  pi: PiIcon,
   shell: null,
 }
 

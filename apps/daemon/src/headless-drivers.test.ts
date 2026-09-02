@@ -1,8 +1,13 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asAccountId } from '@podium/model'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { HeadlessTurnEvent } from '@podium/protocol'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { buildClaudeSdkOptions } from './claude-sdk-host.js'
 import {
   buildHeadlessExec,
+  HeadlessTurnError,
   headlessChildEnv,
   headlessSpawnEnv,
   runHeadlessTurn,
@@ -220,6 +225,40 @@ describe('buildHeadlessExec argv shapes', () => {
     ).toThrow(/cannot enforce a no-tools headless turn/)
   })
 
+  it('pi: pinned --session-id on every turn, prompt on stdin, JSON event stream', () => {
+    const first = buildHeadlessExec(
+      'pi',
+      { prompt: 'hello', sessionId: 'uuid-1', model: 'openai/gpt-5.5', effort: 'high' },
+      snapshot,
+    )
+    expect(first.cmd).toBe('/opt/pi')
+    expect(first.args).toEqual([
+      '-p',
+      '--mode',
+      'json',
+      '--session-id',
+      'uuid-1',
+      '--model',
+      'openai/gpt-5.5',
+      '--thinking',
+      'high',
+      '--no-approve',
+    ])
+    expect(first.stdin).toBe('hello')
+    const resumed = buildHeadlessExec('pi', { prompt: 'again', resumeValue: 'uuid-1' }, snapshot)
+    expect(resumed.args).toEqual(['-p', '--mode', 'json', '--session-id', 'uuid-1', '--no-approve'])
+  })
+
+  it('pi: a repair turn is accepted and runs tool-less', () => {
+    const { args } = buildHeadlessExec(
+      'pi',
+      { prompt: 'repair', sessionId: 'uuid-1', toolPolicy: 'none' },
+      snapshot,
+    )
+    expect(args).toContain('--no-tools')
+    expect(args).toContain('--no-extensions')
+  })
+
   it('opencode: forwards model and variant on first and resumed turns', () => {
     const first = buildHeadlessExec(
       'opencode',
@@ -344,5 +383,99 @@ describe('headlessSpawnEnv', () => {
 
   it('falls back to the command environment when no child environment was supplied', () => {
     expect(headlessSpawnEnv({ execEnv: { X: '1' }, commandEnv })).toEqual({ ...commandEnv, X: '1' })
+  })
+})
+
+/**
+ * The pi driver end to end against a stand-in `pi`: a shell script that speaks
+ * pi 0.84.4's verified `--mode json` stream. Proves the prompt reaches stdin,
+ * the pinned id is honoured, partial text and tool status stream out, and an
+ * in-turn provider error becomes a HeadlessTurnError despite exit 0.
+ */
+describe('pi driver against a stand-in binary', () => {
+  const dirs: string[] = []
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
+  })
+
+  function fakePi(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-fake-pi-'))
+    dirs.push(dir)
+    const script = join(dir, 'pi')
+    writeFileSync(
+      script,
+      `#!/bin/sh
+sid=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--session-id" ]; then shift; sid="$1"; fi
+  shift
+done
+prompt=$(cat)
+# JSON-escape the echoed prompt (newlines only; the fixture has no quotes).
+prompt=$(printf '%s' "$prompt" | sed ':a;N;$!ba;s/\\n/\\\\n/g')
+printf '%s\\n' "{\\"type\\":\\"session\\",\\"version\\":3,\\"id\\":\\"$sid\\",\\"timestamp\\":\\"2026-09-02T09:48:46.898Z\\",\\"cwd\\":\\"/w\\"}"
+printf '%s\\n' '{"type":"agent_start"}'
+printf '%s\\n' '{"type":"message_start","message":{"role":"assistant","content":[],"stopReason":"pending","responseId":"r1"}}'
+case "$prompt" in
+  *FAIL*)
+    printf '%s\\n' '{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"500: simulated provider outage"}}'
+    printf '%s\\n' '{"type":"auto_retry_end","success":false,"attempt":3,"finalError":"500: simulated provider outage"}'
+    ;;
+  *)
+    printf '%s\\n' '{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"ls"}}'
+    printf '%s\\n' '{"type":"message_update","usage":{},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Echo: "}}'
+    printf '%s\\n' "{\\"type\\":\\"message_end\\",\\"message\\":{\\"role\\":\\"assistant\\",\\"content\\":[{\\"type\\":\\"text\\",\\"text\\":\\"Echo: $prompt\\"}],\\"stopReason\\":\\"stop\\"}}"
+    ;;
+esac
+printf '%s\\n' '{"type":"agent_settled"}'
+exit 0
+`,
+    )
+    chmodSync(script, 0o755)
+    return script
+  }
+
+  it('delivers the prompt on stdin, keeps the pinned id, streams partial text and tool status', async () => {
+    const piSnapshot = testHarnessSnapshot({ pi: fakePi() })
+    const events: HeadlessTurnEvent[] = []
+    const handle = runHeadlessTurn(
+      {
+        agent: 'pi',
+        ...identity,
+        cwd: tmpdir(),
+        prompt: 'multi\nline prompt',
+        sessionUuid: '9e804279-978a-4644-adc4-f815f25a5728',
+      },
+      (event) => events.push(event),
+      piSnapshot,
+    )
+    const outcome = await handle.done
+    expect(outcome).toEqual({
+      harnessSessionId: '9e804279-978a-4644-adc4-f815f25a5728',
+      output: 'Echo: multi\nline prompt',
+    })
+    expect(events).toContainEqual({ kind: 'status', status: 'tool', label: 'bash' })
+    expect(events).toContainEqual({ kind: 'partial-text', text: 'Echo: ', itemHint: 'r1' })
+    expect(events.at(-1)).toEqual({
+      kind: 'partial-text',
+      text: 'Echo: multi\nline prompt',
+      itemHint: 'r1',
+    })
+  })
+
+  it('an in-turn provider error fails the turn WITH its session id, despite exit 0', async () => {
+    const piSnapshot = testHarnessSnapshot({ pi: fakePi() })
+    const handle = runHeadlessTurn(
+      { agent: 'pi', ...identity, cwd: tmpdir(), prompt: 'please FAIL', resumeValue: 'resumed-1' },
+      () => {},
+      piSnapshot,
+    )
+    const error = await handle.done.then(
+      () => undefined,
+      (err: unknown) => err,
+    )
+    expect(error).toBeInstanceOf(HeadlessTurnError)
+    expect((error as HeadlessTurnError).message).toBe('500: simulated provider outage')
+    expect((error as HeadlessTurnError).harnessSessionId).toBe('resumed-1')
   })
 })

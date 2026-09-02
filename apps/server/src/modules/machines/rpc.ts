@@ -49,6 +49,7 @@ import type {
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
+import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type {
   RuntimeAttachmentRef,
   RuntimeConfigureResultMessage,
@@ -66,7 +67,6 @@ import type {
   ShippingJobResult,
   ShippingRepairApplyResultMessage,
 } from '@podium/protocol/daemon'
-import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
 import {
@@ -1161,7 +1161,7 @@ export class DaemonRpcService {
 
   /** One-shot `claude -p` / `codex exec` / `grok -p` on a dev machine. */
   harnessExec(input: {
-    agent: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor'
+    agent: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'pi'
     model?: string
     effort?: string
     prompt: string

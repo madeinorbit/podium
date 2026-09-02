@@ -310,6 +310,8 @@ describe('agent manifest registry', () => {
       opencode: 'opencode auth login',
       // Cursor declares no native login; the UI tells the operator to run it by hand.
       cursor: null,
+      // Pi signs in through its in-TUI /login command; there is no argv for it.
+      pi: null,
     })
   })
 
@@ -327,6 +329,7 @@ describe('agent manifest registry', () => {
       grok: ['poll'],
       opencode: ['poll'],
       cursor: ['poll'],
+      pi: ['poll'],
     })
     for (const manifest of Object.values(AGENT_MANIFESTS)) {
       expect(manifest.stateChannels.length, manifest.kind).toBeGreaterThan(0)
@@ -350,6 +353,13 @@ describe('agent manifest registry', () => {
         params: { update: { sessionUpdate: 'user_message_chunk' } },
       },
       cursor: { role: 'user', timestamp: '2026-08-02T10:00:00.000Z' },
+      pi: {
+        type: 'message',
+        id: 'ab00975c',
+        parentId: null,
+        timestamp: '2026-09-02T09:48:47.822Z',
+        message: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      },
     }
     for (const kind of BUILTIN_HARNESS_KINDS) {
       const provider = declaredValue(AGENT_MANIFESTS[kind].state)

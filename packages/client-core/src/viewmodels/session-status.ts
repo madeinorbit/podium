@@ -36,6 +36,7 @@ const PANEL_LABELS: Record<AgentKind, string> = {
   grok: 'Grok',
   opencode: 'OpenCode',
   cursor: 'Cursor',
+  pi: 'Pi',
   shell: 'Shell',
 }
 
@@ -59,6 +60,7 @@ const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
   grok: true,
   opencode: true,
   cursor: true,
+  pi: true,
   shell: false,
 }
 

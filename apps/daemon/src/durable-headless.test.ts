@@ -53,6 +53,46 @@ describe('durable headless invocation', () => {
     })
   })
 
+  it('publishes pi session, tool, and cumulative partial text as its JSON stream lands', () => {
+    const events: Parameters<Parameters<typeof createDurableProgressParser>[1]>[0][] = []
+    const parser = createDurableProgressParser('pi', (event) => events.push(event))
+
+    parser.push(
+      '{"type":"session","version":3,"id":"9e804279-978a-4644-adc4-f815f25a5728","timestamp":"t","cwd":"/w"}\n',
+    )
+    expect(events).toEqual([
+      {
+        kind: 'status',
+        status: 'running',
+        harnessSessionId: '9e804279-978a-4644-adc4-f815f25a5728',
+      },
+    ])
+    parser.push(
+      '{"type":"message_start","message":{"role":"assistant","content":[],"responseId":"r1"}}\n',
+    )
+    parser.push(
+      '{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"ls"}}\n',
+    )
+    expect(events.at(-1)).toEqual({ kind: 'status', status: 'tool', label: 'bash' })
+    // A split line stays buffered until its newline arrives.
+    parser.push('{"type":"message_update","usage":{},"assistantMessageEvent":{"type":"text_delta",')
+    expect(events).toHaveLength(2)
+    parser.push('"contentIndex":0,"delta":"Reply "}}\n')
+    parser.push(
+      '{"type":"message_update","usage":{},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"#2"}}\n',
+    )
+    expect(events.slice(-2)).toEqual([
+      { kind: 'partial-text', text: 'Reply ', itemHint: 'r1' },
+      { kind: 'partial-text', text: 'Reply #2', itemHint: 'r1' },
+    ])
+    parser.push(
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Reply #2 "}],"stopReason":"stop"}}',
+      true,
+    )
+    // The authoritative final text is byte-identical to the streamed one: no duplicate frame.
+    expect(events).toHaveLength(4)
+  })
+
   it('publishes cumulative Claude partial text and tool activity from the journal', () => {
     const events: Parameters<Parameters<typeof createDurableProgressParser>[1]>[0][] = []
     const parser = createDurableProgressParser('claude-code', (event) => events.push(event))

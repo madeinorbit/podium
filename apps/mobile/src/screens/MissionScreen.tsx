@@ -2,13 +2,13 @@ import {
   agentFleetStatus,
   candidateFromAvailability,
   isSessionWorking,
-  machineViewsFromWire,
   type MissionProgress,
+  machineViewsFromWire,
   missionCrewLabel,
   missionProgress,
-  panelLabel,
   missionRootFor,
   missionSessions as missionSessionsOf,
+  panelLabel,
   reposToViews,
   sessionNeedsHuman,
   spawnIssueAgent,
@@ -23,15 +23,15 @@ import {
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronRight, MoreVertical, SquareTerminal } from '../components/icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
 import { Icon } from '../components/Icon'
-import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
+import { IssueColorSheet } from '../components/IssueColorSheet'
+import { ChevronRight, MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -40,8 +40,8 @@ import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
 import { issueAgentKind, modelLabel } from '../lib/agent-models'
-import { mostRelevantSession } from '../lib/mission-session'
 import { issueCloseBlockers } from '../lib/issue-close'
+import { mostRelevantSession } from '../lib/mission-session'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, space } from '../theme/theme'
 
@@ -346,6 +346,7 @@ const LAUNCHABLE: { kind: AgentKind; label: string }[] = [
   { kind: 'grok', label: 'Grok' },
   { kind: 'opencode', label: 'OpenCode' },
   { kind: 'cursor', label: 'Cursor' },
+  { kind: 'pi', label: 'Pi' },
   { kind: 'shell', label: 'Shell' },
 ]
 
