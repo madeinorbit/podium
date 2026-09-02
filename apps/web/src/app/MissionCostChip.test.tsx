@@ -225,6 +225,34 @@ describe('the popover', () => {
     expect(panel.textContent).toContain('900 replies')
   })
 
+  it('still rates a rollup-only mission, which cost.tasks never emits', async () => {
+    // POD-1869's finding: `tasks()` keys off transcript costs carrying an
+    // issueId, so a parent with no cost rows OF ITS OWN is absent from the
+    // cohort dataset entirely. That is not a gap in the rate — the two halves
+    // come from different reads. The NUMERATOR is this mission's own wire
+    // (rollup cost over rollup replies, from cost.task); only the DENOMINATOR
+    // comes from cost.tasks, and a median over other tasks does not need this
+    // one in it.
+    //
+    // Its absence is in fact required: the cohort is OWN cost per task, one row
+    // per task, so an epic cannot count the same work once per ancestor. A
+    // rollup-only parent has no own work, and admitting it would put its
+    // children's money into the denominator a second time.
+    answer = wire({
+      descendantCount: 1,
+      own: { models: [], messages: 0, sessionCount: 0 },
+      rollup: { models: [total(225, 900)], messages: 900, sessionCount: 0 },
+      sessions: [],
+    } as Partial<TaskCostWire>)
+    await mountAndSettle()
+    const panel = await open()
+    // $225 over 900 replies is $0.25/reply; the cohort's only row is $5 over
+    // 25, i.e. $0.20. The multiple is real, and it is measured against a set
+    // this mission is correctly not a member of.
+    expect(panel.textContent).toContain('Rate')
+    expect(panel.textContent).toContain('1.3x median')
+  })
+
   it('labels the multiple, so a bare 1.3x never asks "x what?"', async () => {
     await mountAndSettle()
     const panel = await open()
