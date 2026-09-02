@@ -1275,7 +1275,15 @@ export async function startServer(
      * person who most needs it.
      */
     appUrl: () =>
-      desktopWebDir() || expoMobilePresent() ? undefined : resolveAppUrl(loadConfig(), process.env),
+      // A BUNDLE THAT IS ACTUALLY SERVED, not a directory path. `desktopWebDir()`
+      // answers where the dist WOULD be and is a non-empty string in every
+      // compiled binary, whether or not anything is there — so testing it
+      // directly made this accessor return `undefined` on exactly the API-only
+      // deployment the redirects exist for. This is the same predicate `/version`
+      // publishes as `web.present`, which is what a client is told (PDM-34).
+      servedWebIdentity(desktopWebDir()).present || expoMobilePresent()
+        ? undefined
+        : resolveAppUrl(loadConfig(), process.env),
   })
   // crossOriginIsolated: expo-sqlite web needs SharedArrayBuffer for durable
   // OPFS persistence (POD-541). Without these headers the replica degrades to

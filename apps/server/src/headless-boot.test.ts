@@ -31,6 +31,8 @@ const priorEnv = {
   allowedOrigins: process.env.PODIUM_ALLOWED_ORIGINS,
   updateScope: process.env.PODIUM_UPDATE_SCOPE,
   transcriptLake: process.env.PODIUM_TRANSCRIPT_LAKE,
+  webDir: process.env.PODIUM_WEB_DIR,
+  mobileWebDir: process.env.PODIUM_MOBILE_WEB_DIR,
 }
 
 function restoreEnv(): void {
@@ -42,6 +44,8 @@ function restoreEnv(): void {
     ['PODIUM_ALLOWED_ORIGINS', priorEnv.allowedOrigins],
     ['PODIUM_UPDATE_SCOPE', priorEnv.updateScope],
     ['PODIUM_TRANSCRIPT_LAKE', priorEnv.transcriptLake],
+    ['PODIUM_WEB_DIR', priorEnv.webDir],
+    ['PODIUM_MOBILE_WEB_DIR', priorEnv.mobileWebDir],
   ] as const) {
     if (value === undefined) delete process.env[key]
     else process.env[key] = value
@@ -109,6 +113,12 @@ describe('a headless instance whose UI lives somewhere else', () => {
     process.env.PODIUM_MODE = 'server'
     process.env.PODIUM_PUBLIC_URL = 'https://api.meetpodium.com'
     process.env.PODIUM_APP_URL = 'https://app.meetpodium.com'
+    // API-ONLY, STATED rather than inherited from whether this checkout happens
+    // to have run a web build. That accident is what let the redirect ship
+    // broken once (PDM-34): the guard tested a directory PATH, which a compiled
+    // binary always has, instead of whether a bundle is served from it.
+    process.env.PODIUM_WEB_DIR = join(stateDir, 'no-web')
+    process.env.PODIUM_MOBILE_WEB_DIR = join(stateDir, 'no-mobile-web')
     handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
 
@@ -128,18 +138,27 @@ describe('a headless instance whose UI lives somewhere else', () => {
     expect(setup.appUrl).toBe('https://app.meetpodium.com')
   })
 
-  it('still serves its own page when it HAS one — the app URL never takes a UI away', async () => {
-    // A checkout under test usually has a built web dist, which is exactly the
-    // case the redirect must not fire in: taking a working local UI away from
-    // the operator standing at the box would be worse than the 404 this feature
-    // exists to fix. The redirect ITSELF is pinned in static-web.test.ts, where
-    // the presence of a bundle is a parameter rather than an accident of the
-    // machine running the suite.
-    const response = await fetch(url('/'), { redirect: 'manual' })
-    if (response.status === 302) {
-      expect(response.headers.get('location')).toBe('https://app.meetpodium.com/')
-    } else {
-      expect(response.status).toBe(200)
-    }
+  /**
+   * The end of the chain, through the REAL composition root: a browser that
+   * typed the API address gets sent to the page instead of a 404, and a phone
+   * following a mobile-handoff QR gets sent to the phone shell instead of
+   * bouncing through `/?desktop=1`. The redirect table itself is pinned in
+   * static-web.test.ts; what this asserts is that `server.ts` actually hands it
+   * the app URL, which is the half that was wrong.
+   */
+  it.each([
+    ['/', 'https://app.meetpodium.com/'],
+    ['/desktop', 'https://app.meetpodium.com/desktop'],
+    ['/mobile', 'https://app.meetpodium.com/mobile'],
+    ['/mobile/session/1', 'https://app.meetpodium.com/mobile/session/1'],
+  ])('sends %s to the app host', async (path, location) => {
+    const response = await fetch(url(path), { redirect: 'manual' })
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe(location)
+  })
+
+  it('carries the query string, so a deep link survives the hop', async () => {
+    const response = await fetch(url('/?issue=42'), { redirect: 'manual' })
+    expect(response.headers.get('location')).toBe('https://app.meetpodium.com/?issue=42')
   })
 })
