@@ -23,6 +23,9 @@ function fakeHub(): { hub: SocketHub; frame: (bytes: Uint8Array) => void } {
     sendResize: () => {},
     sendInput: () => {},
     requestControl: () => {},
+    // POD-3239 B4: the one ask. Inert here — these suites are about frames,
+    // readiness and the colour-scheme report, not about sizing.
+    sendViewportRequest: () => {},
     redraw: () => {},
     state: () => ({ role: 'detached', cols: 80, rows: 24, epoch: 0, connected: true }),
   }

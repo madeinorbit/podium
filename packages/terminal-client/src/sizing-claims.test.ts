@@ -128,10 +128,34 @@ function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 
   const calls = {
     resize: [] as Array<[number, number]>,
     claims: [] as Array<{ cols: number; rows: number } | undefined>,
+    asks: [] as Array<{
+      geometry: { cols: number; rows: number }
+      visible: boolean
+      mode: 'native' | 'chat'
+      claimControl: boolean
+    }>,
     requestControl: 0,
     redraw: 0,
   }
   const connection = {
+    // THE ONE ASK (POD-3239 B4). Recorded in `asks` with its full shape, and
+    // ALSO folded into `claims`/`resize` so the assertions those older cases
+    // make still read the same events — a claiming ask is what `requestControl`
+    // used to be, a plain one is what `sendResize`/`reportViewport` used to be.
+    sendViewportRequest: (request: {
+      geometry: { cols: number; rows: number }
+      visible: boolean
+      mode: 'native' | 'chat'
+      claimControl: boolean
+    }) => {
+      calls.asks.push(request)
+      if (request.claimControl) {
+        calls.requestControl += 1
+        calls.claims.push(request.geometry)
+      } else {
+        calls.resize.push([request.geometry.cols, request.geometry.rows])
+      }
+    },
     sendResize: (c: number, r: number) => calls.resize.push([c, r]),
     reportViewport: (c: number, r: number) => calls.resize.push([c, r]),
     sendInput: () => {},
@@ -261,50 +285,40 @@ describe('C11: the reveal guard', () => {
     }
   })
 
-  it('REWRITTEN (POD-3239 B3): the guard is gone, because the thing it guarded is', async () => {
+  it('REWRITTEN (POD-3239 B3/B4): the guard is gone, and so is the ladder it lived in', () => {
     // C11's finding was that the reveal guard's first comparison was
     // TAUTOLOGICAL — it compared `fit()`'s return against the two fields `fit()`
     // had just written. The test above still proves that about `fit()`. What
     // this one used to pin was the guard's live half: a post-fit probe that
-    // disagreed with what landed traced `reveal:fit-mismatch` and restarted the
-    // streak.
+    // disagreed with what landed traced `reveal:fit-mismatch` and restarted a
+    // settle streak.
     //
-    // There is no longer anything to land. A reveal MEASURES the box and asks;
-    // it does not apply the measurement, so there is no applied grid to compare
-    // a probe against and no mismatch to trace. What survives is the part that
-    // was doing real work: consecutive agreeing measurements before the ask, so
-    // a mid-layout reading never becomes daemon geometry.
+    // There is nothing left to land, and nothing left to restart. A reveal
+    // MEASURES the box and asks, once; it does not apply the measurement, so
+    // there is no applied grid for a probe to disagree with, and it does not
+    // retry, so there is no streak. The trace vocabulary says so too:
+    // `ask:sent` replaced the ladder's `fit:*` and `reveal:*` entries.
     withResizeObserver()
     const { entries } = captureDiagnostics()
-
-    let reads = 0
-    withProposal(() => {
-      reads += 1
-      // Two disagreeing reads while the layout settles, then a steady box.
-      if (reads === 1) return { cols: 99, rows: 33 }
-      if (reads === 2) return { cols: 120, rows: 40 }
-      return { cols: 150, rows: 50 }
-    })
+    withProposal(() => ({ cols: 150, rows: 50 }))
 
     const { hub, calls } = fakeHub()
     const mounted = mountSession(host(), { hub, sessionId: SESSION, active: false })
     try {
       mounted.setActive(true)
-      await new Promise((r) => setTimeout(r, 600))
       const events = entries.map((e) => e.event)
       expect(events, 'the guard and its mismatch trace are gone').not.toContain(
         'reveal:fit-mismatch',
       )
-      expect(events).toContain('reveal:measured')
-      expect(calls.requestControl).toBeGreaterThan(0)
-      // The ask carried the SETTLED box, never one of the two transient reads.
+      expect(events, 'and so is the ladder').not.toContain('fit:retry-start')
+      expect(events, 'one ask, named').toContain('ask:sent')
       expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
       // …and nothing moved the buffer, which never attached.
       expect(mounted.view.cols()).toBe(80)
     } finally {
       mounted.dispose()
     }
-  }, 15000)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -458,77 +472,82 @@ describe('C10 (REWRITTEN for POD-3239 B1): the whole chain now reads the session
 // C17 (added at rev 3 from 0a's cold-sized capture, POD-3234)
 // ---------------------------------------------------------------------------
 
-describe('C17: a cold mount claims against the FRESH XTERM, not the server, and settles by resizing the PTY twice for no net change', () => {
-  it('the mount seeds serverGrid from the just-constructed xterm, so it claims a size the server already holds', async () => {
+describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and moves nothing', () => {
+  it('T9: a box that already equals W sends ONE request and asks for no resize', () => {
+    // WHAT C17 FOUND, and what this commit removes. `serverGrid` was seeded from
+    // the JUST-CONSTRUCTED xterm — 80x24, a number with nothing to do with this
+    // session — so `decideResizeAction` compared the measured box against 80x24
+    // rather than against W, and a cold reveal claimed a resize the server was
+    // already at. 0a's cold-sized capture caught the full shape of it: 104x31 →
+    // 104x33 → 104x31, two SIGWINCH repaints for zero net change.
+    //
+    // Three separate changes make that unreachable, and this test is where they
+    // meet: the buffer is CONSTRUCTED at W (B1), so there is no default to
+    // compare against; nothing seeds a grid from xterm (B2); and the one ask
+    // carries the measured box for the SERVER to compare against W (B4/B6).
     withResizeObserver()
-    // The box measures exactly what the server is already at.
     withProposal(() => ({ cols: 104, rows: 31 }))
     const { hub, calls } = fakeHub({ cols: 104, rows: 31 })
 
-    const mounted = mountSession(host(), { hub, sessionId: SESSION, active: true })
+    const mounted = mountSession(host(), {
+      hub,
+      sessionId: SESSION,
+      active: true,
+      initialGeometry: { cols: 104, rows: 31 },
+      geometryState: 'current',
+    })
     try {
-      await new Promise((r) => setTimeout(r, 300))
-      // A redundant claim: `serverGrid` was seeded from `view.cols()/rows()` at
-      // mount (session-mount.ts:172), which is xterm's construction default, so
-      // decideResizeAction compares 104x31 against 80x24 and reports a change.
-      expect(calls.resize).toContainEqual([104, 31])
+      // ONE request — the reveal claim, which rule 4 sends whether or not the
+      // size moved — and it asks for the size the server already holds, so the
+      // server forwards nothing to the daemon (see T9's server half).
+      expect(calls.asks).toEqual([
+        {
+          geometry: { cols: 104, rows: 31 },
+          visible: true,
+          mode: 'native',
+          claimControl: true,
+        },
+      ])
+      // And the buffer was never anywhere else.
+      expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+        cols: 104,
+        rows: 31,
+      })
     } finally {
       mounted.dispose()
     }
-  }, 10000)
+  })
 
-  it('ARMED: a box that measures the construction default sends no resize at all', async () => {
-    withResizeObserver()
-    // Same server grid, but now the box happens to equal xterm's own default —
-    // the ONE case the seeded comparison calls unchanged. It redraws instead.
-    withProposal(() => ({ cols: 80, rows: 24 }))
-    const { hub, calls } = fakeHub({ cols: 104, rows: 31 })
-
-    const mounted = mountSession(host(), { hub, sessionId: SESSION, active: true })
-    try {
-      await new Promise((r) => setTimeout(r, 300))
-      expect(calls.resize).toEqual([])
-      expect(calls.redraw).toBeGreaterThan(0)
-    } finally {
-      mounted.dispose()
-    }
-  }, 10000)
-
-  it('two settling measurements push the PTY away from the server grid and back — two resizes, zero net change', async () => {
-    // 0a's cold-sized capture (POD-3190 artifact cold-sized-trace.json, mount
-    // mtkf7e2h-0): the server was already at 104x31 (rev 2); the mount's first
-    // fit measured a 2-row-taller box and claimed 104x33 (rev 3); the settled
-    // box then fired a second fit that claimed 104x31 back (rev 4). Two PTY
-    // resizes and two SIGWINCH repaints to end exactly where it started.
+  it('a settling box asks ONCE more, at the settled size — never away and back', async () => {
+    // The second half of 0a's capture: the layout settled two rows shorter after
+    // the first measurement. The debounced observer collapses the burst, and the
+    // dedup drops a restatement, so the settled box is asked for exactly once.
     withResizeObserver()
     const observer = withCapturingResizeObserver()
-    let grid = { cols: 104, rows: 33 } // pre-settle: the box is two rows taller
+    let grid = { cols: 104, rows: 33 }
     withProposal(() => grid)
-    const { hub, calls, serverGrid, attached } = fakeHub({ cols: 104, rows: 31 })
+    const { hub, calls } = fakeHub({ cols: 104, rows: 31 })
 
-    const mounted = mountSession(host(), { hub, sessionId: SESSION, active: true })
+    const mounted = mountSession(host(), {
+      hub,
+      sessionId: SESSION,
+      active: true,
+      initialGeometry: { cols: 104, rows: 31 },
+      geometryState: 'current',
+    })
     try {
-      await new Promise((r) => setTimeout(r, 300))
-      expect(calls.resize).toEqual([[104, 33]]) // away from the server's 104x31
+      expect(calls.claims).toEqual([{ cols: 104, rows: 33 }])
 
-      // The attach lands and the server applies the claim: serverGrid := 104x33.
-      attached()
-      serverGrid(104, 33)
-
-      // The layout settles two rows shorter and the observer fires a second fit.
       grid = { cols: 104, rows: 31 }
       observer.fire()
-      await new Promise((r) => setTimeout(r, 400))
-
-      expect(calls.resize).toEqual([
-        [104, 33],
-        [104, 31],
-      ])
-      // Net zero: the PTY ends at the grid the server already held before the
-      // mount ran. Every byte of that round trip is a repaint nobody asked for.
-      expect(calls.resize.at(-1)).toEqual([104, 31])
+      observer.fire()
+      await new Promise((r) => setTimeout(r, 90))
+      expect(calls.resize).toEqual([[104, 31]])
+      observer.fire()
+      await new Promise((r) => setTimeout(r, 90))
+      expect(calls.resize, 'and the settled box is not re-stated').toEqual([[104, 31]])
     } finally {
       mounted.dispose()
     }
-  }, 15000)
+  })
 })

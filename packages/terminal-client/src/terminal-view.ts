@@ -79,7 +79,9 @@ export function colorSchemeReport(background: string | undefined): string {
 
 // A terminal in a proportional font is unreadable and misaligns box-drawing. Pin a
 // monospace stack that resolves to a real mono font on every platform.
-const MONO_STACK =
+/** The default monospace stack. Exported because the font-readiness probe in
+ *  `session-mount` has to ask for each face in it BY NAME (POD-3239 B4). */
+export const MONO_STACK =
   "'Geist Mono Variable', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, 'Cascadia Code', 'DejaVu Sans Mono', Consolas, monospace"
 
 /** Open an external URL in a new tab / the system browser. In installed PWAs,

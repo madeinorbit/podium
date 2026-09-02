@@ -2415,6 +2415,8 @@ export class SessionConnection {
   private cols: number | undefined
   private rows: number | undefined
   private requestedGeometry: Geometry | null = null
+  /** Monotonic per-(connection, session) counter for {@link sendViewportRequest}. */
+  private viewportSeq = 0
   private geometryRevision = 0
   private epoch = 0
   private lastSeq = -1
@@ -2484,6 +2486,43 @@ export class SessionConnection {
    */
   reportViewport(cols: number, rows: number): void {
     this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
+  }
+
+  /**
+   * THE ONE MESSAGE A VIEWER SENDS ABOUT SIZE (POD-3239 B4 / MODEL rule 3).
+   *
+   * `seq` is owned here because it belongs to the (connection, session) pair and
+   * nothing else: it starts at 1 on a fresh connection, only increases, and the
+   * server rejects anything at or below the watermark it has already processed.
+   * A reconnect builds a new `SessionConnection`, which is exactly why starting
+   * again at 1 is correct rather than a collision.
+   *
+   * A CLAIMING ask publishes `requestedGeometry` the way `requestControl` does —
+   * that is real local intent and the UI reads it while the claim is in flight.
+   * A non-claiming one publishes nothing: it is a report about a box, not a
+   * statement about the pty.
+   */
+  sendViewportRequest(request: {
+    geometry: Geometry
+    visible: boolean
+    mode: 'native' | 'chat'
+    claimControl: boolean
+  }): void {
+    this.viewportSeq += 1
+    if (request.claimControl) {
+      this.requestedGeometry = { ...request.geometry }
+      if (this.state().role === 'controller') this.settleRequestedGeometry()
+      this.emit()
+    }
+    this.hub._send({
+      type: 'viewportRequest',
+      sessionId: this.sessionId,
+      geometry: { ...request.geometry },
+      visible: request.visible,
+      mode: request.mode,
+      claimControl: request.claimControl,
+      seq: this.viewportSeq,
+    })
   }
 
   requestControl(geometry?: Geometry): void {
