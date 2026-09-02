@@ -357,7 +357,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     fontDisposers.push(() => fonts.removeEventListener?.('loadingdone', onLoadingDone))
     void Promise.race([
       Promise.all(
-        families.map((family: string) => fonts.load(`${size}px "${family}"`).catch(() => undefined)),
+        families.map((family: string) =>
+          fonts.load(`${size}px "${family}"`).catch(() => undefined),
+        ),
       ),
       new Promise((resolve) => setTimeout(resolve, FONT_READY_TIMEOUT_MS)),
     ]).then(() => settle('load'))
@@ -413,7 +415,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     if (cols === undefined || rows === undefined) return
     serverGrid = { cols, rows }
     if (view.cols() === cols && view.rows() === rows) return
-    trace('connection:apply-server-grid', { state, source })
+    trace('geometry:applied', { state, source })
     view.resize(cols, rows)
     view.clear()
     // A resize/reflow can leave the GPU canvas showing only the cells that moved
@@ -529,15 +531,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         lastGeometryRevision = geometryRevision
       }
       const geometrySuppressed = geometryTimelineResetPending || staleGeometry
-      const applied = { cols: view.cols(), rows: view.rows() }
-      // A state with no grid at all is the pre-attach case (B8): the connection
-      // has not been told one and there is nothing to compare against. Fall back
-      // to what the view already shows, so the comparison below reads "no
-      // disagreement" rather than comparing against a fabricated number.
-      const stateGrid: Grid =
-        state.cols !== undefined && state.rows !== undefined
-          ? { cols: state.cols, rows: state.rows }
-          : applied
       // THE FENCES ARE GONE (POD-3239 B3/B8), and they are gone because their
       // premise is. `assertedControlGrid`, `pendingRequestedGrid` and
       // `holdClaimedGrid` all existed to protect a grid this client had applied

@@ -275,9 +275,7 @@ describe('T3: the seq watermark is per (connection, session), and every rejectio
 // ---------------------------------------------------------------------------
 
 describe('T4: every geometryState transition (MODEL rule 6)', () => {
-  const sessionWith = (
-    over: Partial<ConstructorParameters<typeof Session>[0]> = {},
-  ): Session =>
+  const sessionWith = (over: Partial<ConstructorParameters<typeof Session>[0]> = {}): Session =>
     new Session({
       sessionId: SESSION,
       durableLabel: 'podium-s-request',
@@ -478,11 +476,17 @@ describe('T5: the legacy frames still work, and an old daemon still gets a movin
     })
     const client = controllerOf(terminal, 'c-downgrade')
 
-    terminal.handleViewportRequest(client.id, request({ geometry: { cols: 120, rows: 40 }, seq: 1 }))
+    terminal.handleViewportRequest(
+      client.id,
+      request({ geometry: { cols: 120, rows: 40 }, seq: 1 }),
+    )
     expect(terminal.geometry).toEqual(GEO) // modern path: forwarded only
 
     reports = false
-    terminal.handleViewportRequest(client.id, request({ geometry: { cols: 121, rows: 41 }, seq: 2 }))
+    terminal.handleViewportRequest(
+      client.id,
+      request({ geometry: { cols: 121, rows: 41 }, seq: 2 }),
+    )
     expect(terminal.geometry).toEqual({ cols: 121, rows: 41 }) // fallback path: written
   })
 })
@@ -506,7 +510,11 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(reg)
     const daemon: ControlMessage[] = []
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m: ControlMessage) => daemon.push(m), caps)
+    reg.gateway.attachDaemon(
+      reg.sessionStore.hostMachineId,
+      (m: ControlMessage) => daemon.push(m),
+      caps,
+    )
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(sessionId)
     expect(session).toBeDefined()

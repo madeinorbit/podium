@@ -208,6 +208,52 @@ describe.skipIf(!hasCompiler)(
       expect(await abducoHasSession(LABEL)).toBe(false)
     }, 120_000)
 
+    it('T8 (POD-3239): a REQUESTED resize reaches the child’s winsize, and old bytes may follow it', async () => {
+      // THE HONEST LABEL, EXERCISED. The daemon reports `geometryApplied` after
+      // it DISPATCHES a resize — attach-pty TIOCSWINSZ → SIGWINCH to the abduco
+      // client → MSG_RESIZE → master TIOCSWINSZ + SIGWINCH to the agent — and
+      // the master forwards bytes it had ALREADY READ after applying it. So a
+      // viewer can receive the new W, then a few old-grid bytes, then the
+      // agent's repaint. MODEL.md accepts that residual on purpose; this is
+      // where it is observed rather than asserted from the source.
+      expect(bin).toBeDefined()
+      await killAbducoSession(LABEL)
+
+      const born = await spawnAbducoAgent({
+        label: LABEL,
+        cmd: process.execPath,
+        args: [FIXTURE],
+        cols: 80,
+        rows: 24,
+        backend,
+      })
+      const text = reader(born)
+      await waitFor(() => winches(text.text()).length > 0)
+      const before = winches(text.text()).length
+
+      // The resize a viewer's `viewportRequest` becomes, by the time the daemon
+      // dispatches it: one call on the live session.
+      born.resize(132, 43)
+
+      // IT REACHES THE CHILD'S WINSIZE. Not the attach pty's — the child's own
+      // live TIOCGWINSZ, read inside its SIGWINCH handler.
+      await waitFor(() => winches(text.text()).length > before)
+      const applied = winches(text.text()).at(-1)
+      expect(applied).toMatchObject({ cols: 132, rows: 43 })
+
+      // WHAT THE ORDERING LOOKS LIKE FROM HERE. `resize()` returns before the
+      // child has been signalled — that is the asynchrony the residual names —
+      // so a report emitted synchronously beside this call necessarily precedes
+      // the child's repaint, and anything the master had already read from the
+      // old grid arrives between the two. The daemon's own half of the ordering
+      // (its held output leaves BEFORE the report) is T2, in the unit lane.
+      expect(born.geometry()).toEqual({ cols: 132, rows: 43 })
+
+      born.dispose()
+      await wait(200)
+      await killAbducoSession(LABEL)
+    }, 30_000)
+
     it('C16 (abduco half): attachAbducoAgent nudges a repaint by default, and not when told otherwise', async () => {
       const label = `${LABEL}-repaint`
       await killAbducoSession(label)

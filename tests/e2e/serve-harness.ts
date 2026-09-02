@@ -544,6 +544,65 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
     },
   })
 }
+/**
+ * POD-3239: one LIVE session the SERVER already holds at a NON-DEFAULT grid.
+ *
+ * That is the whole fixture, and the whole point. The reported bug is a terminal
+ * painting at 80x24 for a beat after a chat → CLI switch, and 80x24 is xterm's
+ * own constructor default — so a session sitting at the default cannot tell a
+ * buffer born at W from one born at the default. This one is at 132x43, which is
+ * neither the default nor anything the harness browser's box measures to, so the
+ * first constructed grid names its own source.
+ */
+if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Terminal sizing subject',
+    startNow: false,
+  })
+  // Same inventory race as PODIUM_E2E_PANEL_LIFECYCLE above — retry, do not assume.
+  let sessionId: string | undefined
+  let lastError: unknown
+  for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
+    try {
+      sessionId = server.registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: REPO_ROOT,
+        issueId: issue.id,
+        machineId: hostMachineId(),
+      }).sessionId
+    } catch (err) {
+      lastError = err
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+  if (sessionId === undefined) {
+    throw new Error(
+      `PODIUM_E2E_TERMINAL_SIZING: the agent inventory never arrived — ${String(lastError)}`,
+    )
+  }
+  server.registry.modules.sessions.renameSession({ sessionId, name: 'Sizing panel subject' })
+  const principal = inProcessMachinePrincipal(hostMachineId())
+  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    type: 'agentState',
+    sessionId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'done' },
+      since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+  // MOVE W THROUGH THE ONE WRITER (POD-3239 B6): the daemon's report. Writing
+  // the terminal's geometry directly would be the fixture asserting a value the
+  // production path is supposed to own, and would not exercise the broadcast.
+  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    type: 'geometryApplied',
+    sessionId,
+    geometry: { cols: 132, rows: 43 },
+    cause: 'request',
+  })
+}
 // POD-1595: one LIVE session whose last turn ended with a QUESTION, so its tail
 // carries an attention verdict before anything is sent. That standing verdict is
 // the whole subject — `chatActivity` used to rank it above the operator's own

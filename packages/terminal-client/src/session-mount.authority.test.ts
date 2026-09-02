@@ -17,8 +17,11 @@
  * have them to reproduce.
  */
 
-import { type SocketHub as SocketHubType } from '@podium/client-core/socket-transport'
-import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
+import {
+  SocketHub,
+  type SocketHub as SocketHubType,
+  type WebSocketLike,
+} from '@podium/client-core/socket-transport'
 import { asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { FitAddon } from '@xterm/addon-fit'
@@ -77,6 +80,18 @@ function withResizeObserver(): void {
   }
   restorers.push(() => {
     g.ResizeObserver = original
+  })
+}
+
+/** A measurable box, for the reveal cases. happy-dom cannot measure a cell grid
+ *  on its own, so FitAddon's proposal is patched — `proposeFitIn` derives the
+ *  cell size from `.xterm-screen`, which happy-dom reports as zero. */
+function withProposal(grid: { cols: number; rows: number }): void {
+  const proto = FitAddon.prototype as unknown as { proposeDimensions: () => unknown }
+  const original = proto.proposeDimensions
+  proto.proposeDimensions = () => grid
+  restorers.push(() => {
+    proto.proposeDimensions = original
   })
 }
 
@@ -221,6 +236,95 @@ describe('T1: a mount seeded with a non-default grid is not moved by anything be
     })
     expect({ cols: absent.view.cols(), rows: absent.view.rows() }).toEqual({ cols: 80, rows: 24 })
     absent.dispose()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T6
+// ---------------------------------------------------------------------------
+
+describe('T6: a desktop reveal at an unchanged size still claims, and moves nothing', () => {
+  it('sends ONE request, with claimControl, at the size the server already holds', () => {
+    // MODEL rule 4: the claim is the point. Last-foregrounded-wins is how a
+    // desktop takes a session over, so a reveal has to say so even when the box
+    // has not changed — and saying so must cost nothing, which is the other half
+    // of this test.
+    withResizeObserver()
+    withProposal({ cols: 104, rows: 31 }) // the box already equals W
+    const { hub, socket } = realHub()
+    const mounted = mountSession(host(), {
+      hub,
+      sessionId: SESSION,
+      active: false,
+      initialGeometry: { cols: 104, rows: 31 },
+      geometryState: 'current',
+    })
+    try {
+      socket.deliver(attachedFrame({ cols: 104, rows: 31 }))
+      const sentBefore = socket.sent.length
+
+      mounted.setActive(true)
+
+      const requests = socket.sent
+        .slice(sentBefore)
+        .map((raw) => JSON.parse(raw) as Record<string, unknown>)
+        .filter((msg) => msg.type === 'viewportRequest')
+      expect(requests).toEqual([
+        {
+          type: 'viewportRequest',
+          sessionId: SESSION,
+          geometry: { cols: 104, rows: 31 },
+          visible: true,
+          mode: 'native',
+          claimControl: true,
+          seq: 1,
+        },
+      ])
+      // THE BUFFER DID NOT MOVE. Zero latency, and no frame at any other size —
+      // which is the resolved case MODEL.md names for chat → CLI with W unchanged.
+      expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+        cols: 104,
+        rows: 31,
+      })
+    } finally {
+      mounted.dispose()
+    }
+  })
+
+  it('and the server’s controllerChanged makes it the controller', () => {
+    withResizeObserver()
+    withProposal({ cols: 104, rows: 31 })
+    const { hub, socket } = realHub()
+    const mounted = mountSession(host(), {
+      hub,
+      sessionId: SESSION,
+      active: false,
+      initialGeometry: { cols: 104, rows: 31 },
+      geometryState: 'current',
+    })
+    try {
+      socket.deliver({ type: 'welcome', clientId: 'this-client' } as ServerMessage)
+      socket.deliver(attachedFrame({ cols: 104, rows: 31 }))
+      expect(mounted.connection.state().role).toBe('spectator')
+
+      mounted.setActive(true)
+      socket.deliver({
+        type: 'controllerChanged',
+        sessionId: SESSION,
+        controllerId: 'this-client',
+        controllerIdentity: null,
+        geometry: { cols: 104, rows: 31 },
+        geometryRevision: 1,
+      } as ServerMessage)
+
+      expect(mounted.connection.state().role).toBe('controller')
+      expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+        cols: 104,
+        rows: 31,
+      })
+    } finally {
+      mounted.dispose()
+    }
   })
 })
 
