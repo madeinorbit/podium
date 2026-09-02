@@ -213,7 +213,11 @@ function DockShellTerminal({
       className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       style={{ backgroundColor: termBg }}
     >
-      <div ref={containerRef} className="term min-h-0 min-w-0 flex-1 overflow-hidden px-2 py-1.5" />
+      {/* The BOX and the HOST (POD-3239 B3): the outer element clips, carries the
+      inset and is what gets measured; xterm sizes the inner one. */}
+      <div ref={viewportRef} className="term-viewport min-h-0 min-w-0 flex-1 px-2 py-1.5">
+        <div ref={containerRef} className="term" />
+      </div>
       {!ready && (
         <div
           className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/70"

@@ -108,6 +108,24 @@ function openExternalUrl(uri: string): void {
   a.remove()
 }
 
+/**
+ * The horizontal and vertical padding of an element, in px. Zero when the
+ * platform cannot answer (no `getComputedStyle`, a detached node) — which is the
+ * right failure: an unmeasurable inset is better treated as none than as a guess.
+ */
+function paddingOf(el: HTMLElement): { x: number; y: number } {
+  if (typeof getComputedStyle !== 'function') return { x: 0, y: 0 }
+  const style = getComputedStyle(el)
+  const px = (value: string): number => {
+    const n = Number.parseFloat(value)
+    return Number.isFinite(n) ? n : 0
+  }
+  return {
+    x: px(style.paddingLeft) + px(style.paddingRight),
+    y: px(style.paddingTop) + px(style.paddingBottom),
+  }
+}
+
 export class TerminalView {
   private readonly term: Terminal
   private readonly fitAddon: FitAddon
@@ -493,8 +511,17 @@ export class TerminalView {
 
   /**
    * Measure how many cells fit in a viewport that is distinct from xterm's host.
-   * Crop-and-pan uses a phone-sized outer viewport around a server-grid-sized
-   * terminal host, so FitAddon (which measures the host) cannot answer this.
+   *
+   * THE ONE MEASUREMENT SEAM (POD-3239 B3/B4). Under the two-element structure
+   * the host is sized BY xterm to cols x cell, so FitAddon — which measures the
+   * host's parent — would be measuring its own output. The outer viewport is the
+   * box, and this is how the box is read.
+   *
+   * The viewport's PADDING is subtracted, because padding is not somewhere a
+   * cell can go. The cell size is derived from `.xterm-screen`, which already
+   * excludes it, so measuring the padded rect would over-report the grid by
+   * however much padding the surface carries — on the desktop panel, two columns
+   * and two rows of terminal that do not exist.
    */
   proposeFitIn(viewport: HTMLElement): { cols: number; rows: number } | undefined {
     if (!this.host) return undefined
@@ -508,7 +535,14 @@ export class TerminalView {
     if (!Number.isFinite(cell.width) || !Number.isFinite(cell.height)) return undefined
     if (cell.width <= 0 || cell.height <= 0) return undefined
     const viewportRect = viewport.getBoundingClientRect()
-    const grid = computeGrid({ width: viewportRect.width, height: viewportRect.height }, cell)
+    const inset = paddingOf(viewport)
+    const grid = computeGrid(
+      {
+        width: Math.max(0, viewportRect.width - inset.x),
+        height: Math.max(0, viewportRect.height - inset.y),
+      },
+      cell,
+    )
     return grid.cols >= 2 && grid.rows >= 2 ? grid : undefined
   }
 

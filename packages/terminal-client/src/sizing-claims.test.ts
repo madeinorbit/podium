@@ -125,13 +125,19 @@ function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 
     lastSeq: -1,
     outputSeen: true,
   }
-  const calls = { resize: [] as Array<[number, number]>, requestControl: 0, redraw: 0 }
+  const calls = {
+    resize: [] as Array<[number, number]>,
+    claims: [] as Array<{ cols: number; rows: number } | undefined>,
+    requestControl: 0,
+    redraw: 0,
+  }
   const connection = {
     sendResize: (c: number, r: number) => calls.resize.push([c, r]),
     reportViewport: (c: number, r: number) => calls.resize.push([c, r]),
     sendInput: () => {},
-    requestControl: () => {
+    requestControl: (geometry?: { cols: number; rows: number }) => {
       calls.requestControl += 1
+      calls.claims.push(geometry)
     },
     redraw: () => {
       calls.redraw += 1
@@ -255,32 +261,28 @@ describe('C11: the reveal guard', () => {
     }
   })
 
-  it('INTENDED behaviour: a post-fit probe that disagrees with the applied grid restarts the settle streak', async () => {
+  it('REWRITTEN (POD-3239 B3): the guard is gone, because the thing it guarded is', async () => {
+    // C11's finding was that the reveal guard's first comparison was
+    // TAUTOLOGICAL — it compared `fit()`'s return against the two fields `fit()`
+    // had just written. The test above still proves that about `fit()`. What
+    // this one used to pin was the guard's live half: a post-fit probe that
+    // disagreed with what landed traced `reveal:fit-mismatch` and restarted the
+    // streak.
+    //
+    // There is no longer anything to land. A reveal MEASURES the box and asks;
+    // it does not apply the measurement, so there is no applied grid to compare
+    // a probe against and no mismatch to trace. What survives is the part that
+    // was doing real work: consecutive agreeing measurements before the ask, so
+    // a mid-layout reading never becomes daemon geometry.
     withResizeObserver()
     const { entries } = captureDiagnostics()
 
-    // The guard's SECOND comparison is the live one: `settled`, the probe taken
-    // immediately after fit(), must agree with what landed. Target exactly that
-    // read by flagging the call that follows a fit().
-    let justFitted = false
-    let disagreeOnce = true
-    const origFit = TerminalView.prototype.fit
-    TerminalView.prototype.fit = function patched(this: TerminalView) {
-      const result = origFit.call(this)
-      justFitted = true
-      return result
-    }
-    restorers.push(() => {
-      TerminalView.prototype.fit = origFit
-    })
+    let reads = 0
     withProposal(() => {
-      if (justFitted) {
-        justFitted = false
-        if (disagreeOnce) {
-          disagreeOnce = false
-          return { cols: 99, rows: 33 }
-        }
-      }
+      reads += 1
+      // Two disagreeing reads while the layout settles, then a steady box.
+      if (reads === 1) return { cols: 99, rows: 33 }
+      if (reads === 2) return { cols: 120, rows: 40 }
       return { cols: 150, rows: 50 }
     })
 
@@ -290,13 +292,15 @@ describe('C11: the reveal guard', () => {
       mounted.setActive(true)
       await new Promise((r) => setTimeout(r, 600))
       const events = entries.map((e) => e.event)
-      // The disagreement was SEEN and rejected…
-      expect(events).toContain('reveal:fit-mismatch')
-      // …and the streak restarted rather than aborting: a later attempt measures
-      // and the reveal goes on to claim control at the settled grid.
+      expect(events, 'the guard and its mismatch trace are gone').not.toContain(
+        'reveal:fit-mismatch',
+      )
       expect(events).toContain('reveal:measured')
-      expect(events.indexOf('reveal:fit-mismatch')).toBeLessThan(events.indexOf('reveal:measured'))
       expect(calls.requestControl).toBeGreaterThan(0)
+      // The ask carried the SETTLED box, never one of the two transient reads.
+      expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+      // …and nothing moved the buffer, which never attached.
+      expect(mounted.view.cols()).toBe(80)
     } finally {
       mounted.dispose()
     }
@@ -307,8 +311,53 @@ describe('C11: the reveal guard', () => {
 // C12
 // ---------------------------------------------------------------------------
 
-describe("C12: gridMode:'server-grid' selects the DOM renderer; the desktop panel gets the auto renderer", () => {
-  it("server-grid selects the DOM renderer explicitly ('renderer-selected')", () => {
+describe("C12 (REWRITTEN for POD-3239 B3): `crop` is the explicit presentation mode, and it is what picks the renderer", () => {
+  it("crop:'scroll' selects the DOM renderer explicitly ('renderer-selected')", () => {
+    // WHAT CHANGED. The DOM renderer used to be selected by `gridMode`, a
+    // POLICY flag about who may drive the pty size, which happened to imply a
+    // scrolling crop on the one platform that set it. The two are now separate
+    // and the presentation is stated: WebGL not repainting scroll-revealed
+    // regions is a fact about scrolling, not about who is in control.
+    withResizeObserver()
+    withProposal(() => undefined)
+    const { entries } = captureDiagnostics()
+    const { hub } = fakeHub()
+    const mounted = mountSession(host(), {
+      hub,
+      sessionId: SESSION,
+      active: false,
+      crop: 'scroll',
+    })
+    try {
+      const reasons = entries
+        .filter((e) => e.event === 'renderer:dom')
+        .map((e) => e.data.reason as string)
+      expect(reasons).toContain('renderer-selected')
+    } finally {
+      mounted.dispose()
+    }
+  })
+
+  it("the default (crop:'clip') mount never selects the DOM renderer explicitly", () => {
+    withResizeObserver()
+    withProposal(() => undefined)
+    const { entries } = captureDiagnostics()
+    const { hub } = fakeHub()
+    const mounted = mountSession(host(), { hub, sessionId: SESSION, active: false })
+    try {
+      const reasons = entries
+        .filter((e) => e.event === 'renderer:dom')
+        .map((e) => e.data.reason as string)
+      // It may still END UP on DOM (happy-dom has no WebGL), but never via the
+      // crop selection branch — the reason distinguishes the two.
+      expect(reasons).not.toContain('renderer-selected')
+    } finally {
+      mounted.dispose()
+    }
+  })
+
+  it("the POLICY flag no longer picks the renderer: gridMode alone leaves it on auto", () => {
+    // The counterfactual that makes the separation real rather than a rename.
     withResizeObserver()
     withProposal(() => undefined)
     const { entries } = captureDiagnostics()
@@ -323,24 +372,6 @@ describe("C12: gridMode:'server-grid' selects the DOM renderer; the desktop pane
       const reasons = entries
         .filter((e) => e.event === 'renderer:dom')
         .map((e) => e.data.reason as string)
-      expect(reasons).toContain('renderer-selected')
-    } finally {
-      mounted.dispose()
-    }
-  })
-
-  it('the default (control) mount never selects the DOM renderer explicitly', () => {
-    withResizeObserver()
-    withProposal(() => undefined)
-    const { entries } = captureDiagnostics()
-    const { hub } = fakeHub()
-    const mounted = mountSession(host(), { hub, sessionId: SESSION, active: false })
-    try {
-      const reasons = entries
-        .filter((e) => e.event === 'renderer:dom')
-        .map((e) => e.data.reason as string)
-      // It may still END UP on DOM (happy-dom has no WebGL), but never via the
-      // server-grid selection branch — the reason distinguishes the two.
       expect(reasons).not.toContain('renderer-selected')
     } finally {
       mounted.dispose()
@@ -366,17 +397,18 @@ describe("C12: gridMode:'server-grid' selects the DOM renderer; the desktop pane
       sessionId: SESSION,
       active: false,
       viewportEl: crop,
-      gridMode: 'server-grid',
+      crop: 'scroll',
     })
     expect(targets).toContain(crop)
     expect(targets).not.toContain(inner)
     b.dispose()
   })
 
-  it('SOURCE FACT: the mobile pane wraps an overflow-scroll crop viewport; AgentPanel has none', () => {
-    // Scoped deliberately to the two files the claim names. It is a source
-    // reading, not a runtime observation: it proves the crop container exists
-    // in one and is absent from the other, which is what stage 1's B3 replaces.
+  it('SOURCE FACT: BOTH platforms now wrap the host in an outer viewport', () => {
+    // The claim this inverts: the mobile pane had a crop viewport and the
+    // desktop panel had neither it nor a `viewportEl`, so the desktop measured
+    // the host xterm sizes — which is a box measuring its own output. B3 gives
+    // both platforms the same two elements, differing only in `crop`.
     const read = (rel: string): string =>
       readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
     const mobile = read('../../../apps/mobile/src/terminal/TerminalPane.web.tsx')
@@ -384,11 +416,11 @@ describe("C12: gridMode:'server-grid' selects the DOM renderer; the desktop pane
 
     expect(mobile).toContain('data-terminal-crop-viewport')
     expect(mobile).toContain("overflow: 'auto'")
-    expect(mobile).toContain("gridMode: 'server-grid'")
+    expect(mobile).toContain("crop: 'scroll'")
 
-    expect(desktop).not.toContain('data-terminal-crop-viewport')
-    expect(desktop).not.toContain('gridMode')
-    expect(desktop).not.toContain('viewportEl')
+    expect(desktop).toContain('term-viewport')
+    expect(desktop).toContain('termViewportRef')
+    expect(desktop).toContain("crop: 'clip'")
   })
 })
 

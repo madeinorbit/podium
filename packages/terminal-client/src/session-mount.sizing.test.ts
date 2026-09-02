@@ -586,196 +586,59 @@ describe('mountSession eligibility-gated sizing', () => {
     vi.advanceTimersByTime(1)
   })
 
-  it('reclaims the fitted grid after a stale server state overwrites it', () => {
-    withResizeObserver()
-    withFakeTimedRaf()
-    withFittableAddon()
-    const { hub, calls, state , attached } = fakeHub()
-    const mounted = mountSession(fittableHost(), {
-      hub,
-      sessionId: asSessionId('s1'),
-      active: false,
-    })
-    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
-    // the first thing that has any authority over it. A mount that has not
-    // attached has been told nothing, so nothing may move it — which is why
-    // every state-driven case below has to attach first.
-    attached()
-    state(80, 24)
-    mounted.setActive(true)
-    vi.advanceTimersByTime(16 * 2)
-    expect(calls.claims).toEqual([{ cols: 150, rows: 50 }])
-
-    // The server's delayed 80×24 echo arrives after the correct claim. It must
-    // not reflow the view back to the stale grid; the client must re-assert the
-    // applied fitted grid instead.
-    state(80, 24, 'controller', { cols: 150, rows: 50 })
-    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 150,
-      rows: 50,
-    })
-    vi.advanceTimersByTime(16)
-    expect(calls.claims).toEqual([
-      { cols: 150, rows: 50 },
-      { cols: 150, rows: 50 },
-    ])
-
-    // A second stale echo must remain fenced until the requested geometry is
-    // acknowledged; one repair frame is not enough for the live race.
-    state(80, 24, 'controller', { cols: 150, rows: 50 })
-    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 150,
-      rows: 50,
-    })
-    vi.advanceTimersByTime(16)
-    expect(calls.claims).toEqual([
-      { cols: 150, rows: 50 },
-      { cols: 150, rows: 50 },
-      { cols: 150, rows: 50 },
-    ])
-    mounted.dispose()
-    vi.advanceTimersByTime(1)
-  })
-
-  it('lets a non-pending server resize supersede a stale claim', () => {
-    withResizeObserver()
-    withFakeTimedRaf()
-    withFittableAddon()
-    const { hub, state , attached } = fakeHub()
-    const mounted = mountSession(fittableHost(), {
-      hub,
-      sessionId: asSessionId('s1'),
-      active: false,
-    })
-    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
-    // the first thing that has any authority over it. A mount that has not
-    // attached has been told nothing, so nothing may move it — which is why
-    // every state-driven case below has to attach first.
-    attached()
-    mounted.setActive(true)
-    vi.advanceTimersByTime(16 * 2)
-    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 150,
-      rows: 50,
-    })
-
-    state(80, 24, 'controller', { cols: 150, rows: 50 })
-    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 150,
-      rows: 50,
-    })
-
-    // No pending local claim: this authoritative server resize must win.
-    state(100, 30, 'controller', null, 2)
-    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 100,
-      rows: 30,
-    })
-
-    // A later logical state can still be an older server revision. It must not
-    // overwrite the legitimate superseding resize after the local claim is gone.
-    state(80, 24, 'controller', null, 1)
-    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 100,
-      rows: 30,
-    })
-    mounted.dispose()
-    vi.advanceTimersByTime(1)
-  })
-
-  it('applies a server grid when the local view no longer matches the assertion', () => {
-    withResizeObserver()
-    withFakeTimedRaf()
-    withFittableAddon()
-    const { hub, calls, state , attached } = fakeHub()
-    const mounted = mountSession(fittableHost(), {
-      hub,
-      sessionId: asSessionId('s1'),
-      active: false,
-    })
-    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
-    // the first thing that has any authority over it. A mount that has not
-    // attached has been told nothing, so nothing may move it — which is why
-    // every state-driven case below has to attach first.
-    attached()
-    state(80, 24)
-    mounted.setActive(true)
-    vi.advanceTimersByTime(16 * 3)
-    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
-
-    mounted.view.resize(80, 24)
-    state(70, 20)
-    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 70,
-      rows: 20,
-    })
-    mounted.dispose()
-    vi.advanceTimersByTime(1)
-  })
-
-
-  it('honors a pending requested grid before applying a stale server state', () => {
+  it('REWRITTEN (POD-3239 B2/B3): the buffer follows the server’s grid, and there is nothing left to fence', () => {
+    // WHAT THESE THREE TESTS USED TO PIN. `reclaims the fitted grid after a
+    // stale server state overwrites it`, `lets a non-pending server resize
+    // supersede a stale claim` and `honors a pending requested grid before
+    // applying a stale server state` were all arbitration between two claimants
+    // to this buffer: a grid the client had applied from its OWN measurement,
+    // and the grid the server said. Rule 2 leaves one claimant. The client
+    // measures to decide whether to ASK, and the buffer only ever moves to what
+    // the server reports — so a "stale echo" is now just an older state, and the
+    // geometry revision is the whole of the ordering rule.
     withResizeObserver()
     const observer = withCapturingResizeObserver()
     withFakeTimedRaf()
-    withFittableAddon()
+    withFittableAddon() // the box measures 150×50
     const { hub, calls, state, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
     })
-    // POD-3239 B2: the attach snapshot is the first thing with any authority
-    // over this buffer, and it lands BEFORE any later layout change — which is
-    // the real order, and the order this fence has to survive. So attach first,
-    // and then let the box change, rather than fitting into a mount that has
-    // been told nothing yet.
     attached()
     observer.fire()
     vi.advanceTimersByTime(60)
 
-    // The ordinary fit has applied the local 150×50 grid, but this path has not
-    // made a reveal assertion. The transport's pending request is the only fence
-    // available when the stale 80×24 state arrives.
+    // The box wants 150×50 and the client ASKED for it…
+    expect(calls.resize.at(-1)).toEqual([150, 50])
+    // …and did NOT apply it. The buffer is still at the server's grid.
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 80,
+      rows: 24,
+    })
+
+    // The server applies it and says so. NOW the buffer moves.
+    state(150, 50, 'controller', null, 1)
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
       cols: 150,
       rows: 50,
     })
-    state(80, 24, 'controller', { cols: 150, rows: 50 })
 
+    // A LATER authoritative grid wins outright — no claim to weigh it against.
+    state(100, 30, 'controller', null, 2)
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
-      cols: 150,
-      rows: 50,
+      cols: 100,
+      rows: 30,
     })
-    vi.advanceTimersByTime(16)
-    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
-    mounted.dispose()
-    vi.advanceTimersByTime(1)
-  })
 
-  it('resets the reveal settle streak after an invalid measurement', () => {
-    withResizeObserver()
-    withFakeTimedRaf()
-    withSequencedAddon([
-      { cols: 150, rows: 50 },
-      { cols: 150, rows: 50 },
-      undefined,
-      { cols: 150, rows: 50 },
-      { cols: 150, rows: 50 },
-      { cols: 150, rows: 50 },
-      { cols: 150, rows: 50 },
-    ])
-    const { hub, calls } = fakeHub()
-    const mounted = mountSession(fittableHost(), {
-      hub,
-      sessionId: asSessionId('s1'),
-      active: false,
+    // An OLDER revision is still refused, which is the one ordering rule left.
+    state(70, 20, 'controller', null, 1)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 100,
+      rows: 30,
     })
-    mounted.setActive(true)
-    vi.advanceTimersByTime(16 * 4)
-    expect(calls.claims).toEqual([])
-    vi.advanceTimersByTime(16)
-    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+
     mounted.dispose()
     vi.advanceTimersByTime(1)
   })
@@ -783,26 +646,37 @@ describe('mountSession eligibility-gated sizing', () => {
   it('settles a valid stale fit before claiming foreground geometry', () => {
     withResizeObserver()
     withFakeTimedRaf()
+    // REWRITTEN FOR POD-3239 B3. The streak still exists and still does the one
+    // job it was ever for: stop a MID-LAYOUT reading of the box becoming a
+    // request. What it no longer guards is a grid applied to the buffer — it
+    // guards only the ask. So the shape it now requires is CONSECUTIVE AGREEING
+    // measurements of the box, not agreement between a measurement and what
+    // landed in xterm.
     withSequencedAddon([
       { cols: 80, rows: 24 },
-      { cols: 80, rows: 24 },
-      { cols: 80, rows: 24 },
-      { cols: 80, rows: 24 },
-      { cols: 80, rows: 24 },
+      { cols: 90, rows: 26 }, // the box is still settling: every read disagrees
+      { cols: 110, rows: 30 },
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
       { cols: 150, rows: 50 },
     ])
-    const { hub, calls, state } = fakeHub()
+    const { hub, calls, state, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
     })
+    attached()
     state(80, 24)
     mounted.setActive(true)
-    expect(calls.claims).toEqual([])
-    vi.advanceTimersByTime(16 * 5)
+    expect(calls.claims, 'nothing is claimed from a mid-layout reading').toEqual([])
+    vi.advanceTimersByTime(16 * 6)
     expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
-    expect(calls.resize).toEqual([])
+    // The BUFFER never moved: it is at the server's grid throughout.
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 80,
+      rows: 24,
+    })
     mounted.dispose()
     vi.advanceTimersByTime(1)
   })
@@ -937,31 +811,43 @@ describe('mountSession eligibility-gated sizing', () => {
     vi.advanceTimersByTime(1)
   })
 
-  it('skips in-place recovery on reveal when the fit changes the grid (resize repaints)', async () => {
+  it('REWRITTEN (POD-3239 B3): a reveal ALWAYS recovers the canvas, whatever the box turns out to be', async () => {
+    // The old rule was conditional: a reveal whose fit CHANGED the grid got its
+    // repaint free, from xterm's own resize, and only an unchanged one needed
+    // `repaintRecover`. That rule died with the local resize — a reveal no
+    // longer changes the grid at all, so making the repaint depend on whether it
+    // did would mean never repainting. The canvas the browser freed comes back
+    // blank whatever the size is, so it is recovered unconditionally and FIRST,
+    // before any measurement has been taken.
     withResizeObserver()
-    withFittableAddon() // fit → 150×50, ≠ the 80×24 the panel mounts at
+    withFittableAddon() // the box measures 150×50, ≠ the 80×24 the panel mounts at
     const recover = vi.spyOn(TerminalView.prototype, 'repaintRecover')
     protoPatchRestorers.push(() => recover.mockRestore())
-    const { hub, calls } = fakeHub()
-    // Mount INACTIVE at the 80×24 default; revealing fits to 150×50 — a real size change, so
-    // xterm's resize recomputes geometry and repaints the whole grid, recovering the freed
-    // canvas without extra recovery (the same path a browser-window resize takes).
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
     })
+    attached()
     recover.mockClear()
-    mounted.setActive(true) // reveal: grid changes → resize, no extra recovery
+    mounted.setActive(true)
+    // Recovered synchronously, before the layout has even been measured.
+    expect(recover, 'a revealed pane repaints its freed canvas').toHaveBeenCalled()
+    await new Promise((r) => requestAnimationFrame(() => r(null)))
+    await new Promise((r) => requestAnimationFrame(() => r(null)))
     await new Promise((r) => requestAnimationFrame(() => r(null)))
     await new Promise((r) => requestAnimationFrame(() => r(null)))
     await new Promise((r) => setTimeout(r, 0))
-    expect(calls.claims.at(-1), 'reveal claims the fitted PTY geometry').toEqual({
+    expect(calls.claims.at(-1), 'reveal claims the measured box').toEqual({
       cols: 150,
       rows: 50,
     })
-    expect(calls.resize).toEqual([])
-    expect(recover, 'changed-grid reveal needs no extra recovery').not.toHaveBeenCalled()
+    // …and the buffer stayed at the server's grid throughout.
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 80,
+      rows: 24,
+    })
     mounted.dispose()
   })
 })

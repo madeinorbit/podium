@@ -611,6 +611,7 @@ export function AgentPanel({
 
   const {
     containerRef: termRef,
+    viewportRef: termViewportRef,
     toolbarRef,
     mountedRef,
     ready,
@@ -633,6 +634,10 @@ export function AgentPanel({
     // on the attach snapshot and the daemon's reports are what move the buffer.
     ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
     geometryState: session?.geometryState ?? 'unknown',
+    // THE BOX CLIPS (POD-3239 B3). The desktop pane hides what does not fit and
+    // pads the rest with the terminal background; it never scrolls over the pty
+    // and never scales it.
+    crop: 'clip',
     // The terminal stays mounted across a chat<->native toggle (Task 6): it's
     // kept alive (hidden under the chat overlay) with eligibility flipped here
     // instead of by a remount — see useTerminalSession's own setActive effect.
@@ -1403,18 +1408,29 @@ export function AgentPanel({
               shows a white container edge around the terminal, and a custom
               background a dark one. */}
               <div
-                ref={termSurfaceRef}
+                ref={(node) => {
+                  // ONE ELEMENT, TWO READERS. The offer lift and the switch
+                  // trace already treat this as the terminal's box; POD-3239 B3
+                  // makes that official by handing the same element to the mount
+                  // as its measured viewport.
+                  termSurfaceRef.current = node
+                  termViewportRef.current = node
+                }}
                 data-testid="terminal-surface"
                 className={cn(
                   // `offer-lift-region`: the PTY is what an opened offer fold
                   // pushes up under the header. Its box never changes, so the
                   // terminal is never re-gridded and the TUI never repaints.
-                  'offer-lift-region relative flex min-h-0 flex-1 flex-col',
+                  // `term-viewport`: the clip + inset + terminal background that
+                  // make this element the BOX (B3) rather than a wrapper.
+                  'offer-lift-region term-viewport flex min-h-0 flex-1 flex-col',
                   effectiveMode === 'chat' && 'hidden',
                 )}
                 style={{ backgroundColor: termBg }}
               >
-                <div ref={termRef} className="term min-h-0 flex-1" />
+                {/* The HOST. No flex sizing: xterm sizes it to cols x cell and
+                the box above pads or clips around it. */}
+                <div ref={termRef} className="term" />
                 {overlay.kind !== 'hidden' && (
                   <div
                     className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"

@@ -6259,12 +6259,31 @@ html[data-density="compact"] .brief-shelf {
   letter-spacing: 0;
 }
 
-/* The native CLI is inset on xterm's generated root, not on Podium's host.
-   FitAddon reads the HOST's dimensions but only subtracts padding from `.xterm`;
-   putting these values on `.term` therefore shifted the canvas without shrinking
-   its grid, clipping the last row and rightmost column at the sheet edge. */
-.term > .xterm {
+/* THE TERMINAL'S TWO ELEMENTS (POD-3239 B3).
+
+   `.term-viewport` is THE BOX: it is what gets measured, it is what clips, and
+   it carries the inset — so the measurable area already excludes it and the grid
+   cannot be over-reported by the padding's worth of columns and rows. It also
+   paints the terminal background, which is what surrounds the host when the box
+   is larger than the pty's grid.
+
+   `.term` is the HOST, sized by xterm to cols x cell. It must not stretch: a
+   stretched host is a host whose size is the layout's opinion rather than the
+   pty's, which is the thing this issue removes. `block` + `width: max-content`
+   keeps it at its own content size at the box's top-left.
+
+   The inset used to live on `.term > .xterm` because FitAddon measures the HOST
+   and only subtracts padding from `.xterm`. Nothing measures the host any more —
+   `proposeFitIn` measures this box — so the inset belongs where it reads. */
+.term-viewport {
+  position: relative;
+  overflow: hidden;
   padding: 12px 13px 20px;
+}
+.term {
+  display: block;
+  width: max-content;
+  max-width: 100%;
 }
 
 /* Native-pane offer dock (POD-178): the offer sits BELOW the terminal on its

@@ -134,6 +134,11 @@ export function TerminalPane({
       // does the header's explicit take-control action, so READING at this
       // screen's size no longer costs a keystroke into someone's agent (POD-724).
       gridMode: 'server-grid',
+      // THE BOX SCROLLS (POD-3239 B3). Stated explicitly rather than implied by
+      // the policy flag above — it is what selects the DOM renderer, and the
+      // WebGL canvas not repainting scroll-revealed regions is invisible until
+      // somebody scrolls.
+      crop: 'scroll',
       // Born at W (POD-3239 B1). A phone crops rather than reflows, so a buffer
       // constructed at 80x24 and then moved is the same wrong first frame here
       // as on the desktop — with a scroll position that jumps as well.
