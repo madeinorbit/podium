@@ -373,12 +373,17 @@ pub fn validated_webview_http_url(server_url: &str) -> Result<Url, String> {
     Url::parse(&webview_http_url(server.as_str())).map_err(|error| error.to_string())
 }
 
-/// Apply the transport policy to every top-level document, including redirects and script-driven
-/// navigation. The two Tauri document forms are signed bundled content, not configured servers.
+/// Apply the transport policy to every document the desktop webview reports, including redirects,
+/// script-driven navigation, and subframes. The two Tauri document forms are signed bundled
+/// content. WebKit's hostless `about:blank` and `about:srcdoc` documents are local iframe content,
+/// not configured servers.
 pub fn validate_desktop_navigation(url: &Url) -> Result<(), String> {
     let is_bundled_document = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
         || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost"));
-    if is_bundled_document {
+    let is_hostless_iframe_document = url.scheme() == "about"
+        && url.host_str().is_none()
+        && matches!(url.path(), "blank" | "srcdoc");
+    if is_bundled_document || is_hostless_iframe_document {
         return Ok(());
     }
     validate_server_transport(url.as_str()).map(|_| ())
@@ -1800,6 +1805,28 @@ mod tests {
         ] {
             let url = Url::parse(raw).expect(raw);
             assert!(validate_desktop_navigation(&url).is_ok(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn desktop_navigation_allows_hostless_iframe_documents() {
+        for raw in ["about:blank", "about:srcdoc", "about:srcdoc#preview"] {
+            let url = Url::parse(raw).expect(raw);
+            assert_eq!(url.host_str(), None, "{raw}");
+            assert!(validate_desktop_navigation(&url).is_ok(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn desktop_navigation_rejects_other_hostless_documents() {
+        for raw in [
+            "about:config",
+            "data:text/html,preview",
+            "file:///tmp/preview.html",
+        ] {
+            let url = Url::parse(raw).expect(raw);
+            let error = validate_desktop_navigation(&url).expect_err(raw);
+            assert_eq!(error, "server URL has no host", "{raw}");
         }
     }
 

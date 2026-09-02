@@ -2145,7 +2145,8 @@ fn main() {
                         // Redirects and script-assigned locations do not pass through the link
                         // shim. Reapply the transport policy at the webview boundary so a secure
                         // server cannot move this native-capable window onto plaintext remote
-                        // content after startup.
+                        // content after startup. WebKit reports sandboxed iframe documents here
+                        // too; the validator admits only its local about:blank/srcdoc forms.
                         .on_navigation(move |url| {
                             let Err(error) = bootstrap::validate_desktop_navigation(url) else {
                                 return true;
