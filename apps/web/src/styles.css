@@ -5680,18 +5680,61 @@ html[data-density="compact"] .brief-shelf {
   background: color-mix(in oklab, var(--issue, transparent) 5%, transparent);
 }
 
-/* Handoff is a reading pass through the mission, not another tree. Sections
-   keep one shared left edge and use rules instead of card-stacking. */
+/* Handoff is a compact return brief, built on the linked concept from POD-1842.
+   The shared rail makes current and future state one continuous account instead
+   of a stack of unrelated task cards. */
 .handoff-view {
-  padding-top: 14px;
+  container-type: inline-size;
+  padding: 0 18px 52px 22px;
+}
+.handoff-return-brief {
+  padding: 13px 0 14px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.handoff-return-brief-head,
+.handoff-section-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.handoff-return-brief-head h3,
+.handoff-section-head h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.handoff-return-brief-head h3 {
+  font-size: 12px;
+}
+.handoff-return-brief-head > span,
+.handoff-section-head > span {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  font-weight: 400;
+  line-height: 1;
+  text-align: right;
+}
+.handoff-return-copy {
+  max-width: 70ch;
+  margin-top: 7px;
+  color: var(--muted-foreground);
+}
+.handoff-return-brief > .handoff-empty {
+  margin-top: 7px;
+}
+.handoff-return-copy .handoff-markdown {
+  font-size: 11.5px;
+  line-height: 1.5;
 }
 .handoff-section {
-  padding-inline: 16px 8px;
+  padding-top: 15px;
 }
-.handoff-section + .handoff-section {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--hairline-soft);
+.handoff-section-head {
+  margin-bottom: 9px;
 }
 .handoff-markdown > :first-child {
   margin-top: 0;
@@ -5709,6 +5752,312 @@ html[data-density="compact"] .brief-shelf {
 .handoff-markdown ul,
 .handoff-markdown ol {
   padding-inline-start: 1.25em;
+}
+.handoff-transcript-card {
+  width: 100%;
+  margin: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  background: var(--tabstrip);
+  color: inherit;
+  text-align: left;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+.handoff-transcript-card:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--foreground) 2.5%, var(--tabstrip));
+}
+.handoff-transcript-card:focus-visible,
+.handoff-entry:focus-visible,
+.handoff-error button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.handoff-transcript-card .handoff-markdown {
+  color: var(--foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.handoff-transcript-card--answer {
+  border-color: color-mix(in srgb, var(--info) 46%, var(--border));
+  background: color-mix(in srgb, var(--info) 13%, var(--card));
+}
+.handoff-transcript-card--answer:hover {
+  border-color: color-mix(in srgb, var(--info) 68%, var(--border));
+  background: color-mix(in srgb, var(--info) 17%, var(--card));
+}
+.handoff-transcript-card--answer .handoff-markdown {
+  color: color-mix(in srgb, var(--info) 16%, var(--foreground));
+  font-size: 10.5px;
+}
+.handoff-transcript-card--answer .handoff-markdown > p:first-child {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.handoff-transcript-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-top: 7px;
+  color: var(--text-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  line-height: 1.35;
+}
+.handoff-transcript-meta > span + span::before {
+  content: "\00b7";
+  margin-inline: 5px;
+}
+.handoff-transcript-card--answer .handoff-transcript-meta {
+  color: color-mix(in srgb, var(--info) 50%, var(--text-faint));
+}
+.handoff-transcript-fresh {
+  color: var(--info);
+}
+.handoff-now-divider {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 16px;
+  color: color-mix(in srgb, var(--info) 52%, var(--foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.handoff-now-divider::before,
+.handoff-now-divider::after {
+  height: 1px;
+  background: color-mix(in srgb, var(--info) 52%, transparent);
+  content: "";
+}
+.handoff-now-divider::before {
+  width: 60px;
+}
+.handoff-now-divider::after {
+  flex: 1;
+}
+.handoff-events {
+  position: relative;
+}
+.handoff-events::before {
+  position: absolute;
+  top: 7px;
+  bottom: 8px;
+  left: 69px;
+  width: 1px;
+  background: var(--hairline-soft);
+  content: "";
+}
+.handoff-section--future .handoff-events::before {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--border) 0 3px,
+    transparent 3px 7px
+  );
+}
+.handoff-entry {
+  position: relative;
+  display: grid;
+  grid-template-columns: 54px 11px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: start;
+  width: 100%;
+  padding: 0 0 16px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.handoff-entry:last-child {
+  padding-bottom: 2px;
+}
+.handoff-entry:hover {
+  background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+}
+.handoff-entry-time {
+  padding-top: 3px;
+  color: var(--text-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  line-height: 1.35;
+  text-align: right;
+  text-transform: lowercase;
+}
+.handoff-entry-node {
+  position: relative;
+  z-index: 1;
+  width: 7px;
+  height: 7px;
+  margin: 5px 0 0 2px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  box-shadow: 0 0 0 3px var(--card);
+}
+.handoff-entry-node--working {
+  background: var(--motion-working);
+}
+.handoff-entry-node--review {
+  background: var(--info);
+}
+.handoff-entry-node--attention {
+  background: var(--attention);
+}
+.handoff-entry-node--done {
+  background: var(--success);
+}
+.handoff-entry-node--future {
+  border: 1px solid var(--text-dim);
+  background: var(--card);
+}
+.handoff-entry-copy {
+  min-width: 0;
+}
+.handoff-entry-title,
+.handoff-entry-body,
+.handoff-entry-meta {
+  display: block;
+}
+.handoff-entry-title {
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 590;
+  line-height: 1.35;
+}
+.handoff-entry-title > span {
+  color: color-mix(in srgb, var(--info) 42%, var(--muted-foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  font-weight: 400;
+}
+.handoff-entry-body {
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.handoff-entry-meta {
+  margin-top: 5px;
+  color: var(--text-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  line-height: 1.35;
+}
+.handoff-entry-badge {
+  min-height: 19px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-dim);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+.handoff-entry-badge--working {
+  border-color: color-mix(in srgb, var(--motion-working) 38%, var(--border));
+  color: color-mix(in srgb, var(--motion-working) 58%, var(--foreground));
+}
+.handoff-entry-badge--review {
+  border-color: color-mix(in srgb, var(--info) 45%, var(--border));
+  color: color-mix(in srgb, var(--info) 60%, var(--foreground));
+}
+.handoff-entry-badge--attention {
+  border-color: color-mix(in srgb, var(--attention) 42%, var(--border));
+  color: var(--attention);
+}
+.handoff-entry-badge--future {
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+.handoff-empty {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.handoff-status-summary {
+  margin: -2px 0 10px 74px;
+  color: var(--text-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  line-height: 1.4;
+}
+.handoff-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--destructive) 38%, var(--border));
+  border-radius: var(--radius-row);
+  color: var(--destructive);
+}
+.handoff-error p {
+  margin: 0;
+  font-size: 10.5px;
+}
+.handoff-error button {
+  min-height: 26px;
+  padding-inline: 8px;
+  border: 1px solid color-mix(in srgb, var(--destructive) 40%, var(--border));
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--shell-type-micro);
+}
+.handoff-proposals {
+  margin-top: 25px;
+  padding-top: 4px;
+  border-top: 1px solid var(--hairline-soft);
+}
+.handoff-proposals > section {
+  margin-top: 0;
+  padding-right: 0;
+  padding-left: 0 !important;
+}
+.handoff-proposals .deck-strip {
+  min-height: 29px !important;
+}
+.handoff-events > .mt-1 {
+  margin: 2px 0 0 74px;
+}
+@container (max-width: 430px) {
+  .handoff-section-head {
+    align-items: flex-start;
+  }
+  .handoff-events::before {
+    left: 53px;
+  }
+  .handoff-entry {
+    grid-template-columns: 40px 9px minmax(0, 1fr);
+    gap: 7px;
+  }
+  .handoff-entry-node {
+    margin-left: 1px;
+  }
+  .handoff-entry-badge {
+    grid-column: 3;
+    justify-self: start;
+    margin-top: -10px;
+  }
+  .handoff-status-summary,
+  .handoff-events > .mt-1 {
+    margin-left: 56px;
+  }
+  .handoff-now-divider::before {
+    width: 28px;
+  }
 }
 /* The narrow dock runs the same grammar at its own scale (§2.5). Specificity
    has to match `.chat-compact .transcript-row`, which would otherwise win. */

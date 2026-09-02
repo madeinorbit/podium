@@ -51,13 +51,24 @@ function ReadoutMarkdown({ text, clamp = false }: { text: string; clamp?: boolea
   )
 }
 
-function HandoffSection({ title, children }: { title: string; children: ReactNode }): JSX.Element {
+function HandoffSection({
+  title,
+  meta,
+  future = false,
+  children,
+}: {
+  title: string
+  meta?: ReactNode
+  future?: boolean
+  children: ReactNode
+}): JSX.Element {
   return (
-    <section className="handoff-section">
-      <h3 className="shell-type-micro font-mono font-medium tracking-[0.14em] text-label uppercase">
-        {title}
-      </h3>
-      <div className="mt-2">{children}</div>
+    <section className={cn('handoff-section', future && 'handoff-section--future')}>
+      <div className="handoff-section-head">
+        <h3>{title}</h3>
+        {meta && <span>{meta}</span>}
+      </div>
+      {children}
     </section>
   )
 }
@@ -78,30 +89,23 @@ function TranscriptCard({
   onOpen: () => void
 }): JSX.Element {
   const reference = sessionRef(session)
+  const answer = legacy || label === 'Last answer'
+  const stamp = formatStamp(item.ts)
   return (
     <button
       type="button"
       data-pressable
-      className="handoff-transcript-card w-full rounded-row border border-border bg-card/35 px-3 py-2.5 text-left hover:border-foreground/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn('handoff-transcript-card', answer && 'handoff-transcript-card--answer')}
       onClick={onOpen}
       aria-label={`${legacy ? 'Latest reply' : label} in session ${reference}`}
     >
-      <span className="flex items-center gap-2 font-mono shell-type-micro text-text-faint">
-        <span>{legacy ? 'Latest reply' : label}</span>
-        <span aria-hidden>·</span>
+      <ReadoutMarkdown text={item.text} clamp={label !== 'Last prompt'} />
+      <span className="handoff-transcript-meta">
         <span>{reference}</span>
-        {formatStamp(item.ts) && (
-          <span className="ml-auto tabular-nums">{formatStamp(item.ts)}</span>
-        )}
+        {stamp && <span className="tabular-nums">{stamp}</span>}
+        <span>{answer ? 'open answer' : 'open prompt'}</span>
+        {fresh && <span className="handoff-transcript-fresh">New since your last visit</span>}
       </span>
-      <div className="mt-1.5">
-        <ReadoutMarkdown text={item.text} clamp={label !== 'Last prompt'} />
-      </div>
-      {fresh && (
-        <span className="mt-2 inline-flex font-mono shell-type-micro text-info">
-          New since your last visit
-        </span>
-      )}
     </button>
   )
 }
@@ -164,6 +168,8 @@ function HandoffEntry({
   session,
   state,
   attention,
+  tone,
+  future = false,
   text,
   onOpen,
 }: {
@@ -171,39 +177,46 @@ function HandoffEntry({
   session?: SessionMeta
   state: string
   attention?: boolean
+  tone?: 'working' | 'review' | 'attention' | 'done'
+  future?: boolean
   text: string
   onOpen: () => void
 }): JSX.Element {
+  const reference = issueDisplayRef(issue)
   return (
     <button
       type="button"
       data-pressable
       onClick={onOpen}
-      className="handoff-entry grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 rounded-row px-2.5 py-2 text-left hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      aria-label={`${issueDisplayRef(issue)} ${issue.title}${session ? `, session ${sessionRef(session)}` : ''}, ${state}. ${text}`}
+      className="handoff-entry"
+      aria-label={`${reference} ${issue.title}${session ? `, session ${sessionRef(session)}` : ''}, ${state}. ${text}`}
     >
-      <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
-        <span className="mr-1.5 font-mono shell-type-micro text-text-dim">
-          {issueDisplayRef(issue)}
+      <span className="handoff-entry-time">{state}</span>
+      <span
+        aria-hidden
+        className={cn(
+          'handoff-entry-node',
+          tone && `handoff-entry-node--${tone}`,
+          future && 'handoff-entry-node--future',
+        )}
+      />
+      <span className="handoff-entry-copy">
+        <span className="handoff-entry-title">
+          <span>{reference}</span> {issue.title}
         </span>
-        {issue.title}
+        <span className="handoff-entry-body">{text}</span>
+        {session && <span className="handoff-entry-meta">{sessionRef(session)} · open session</span>}
       </span>
       <span
         className={cn(
-          'font-mono shell-type-micro whitespace-nowrap',
-          attention ? 'text-attention' : 'text-text-dim',
+          'handoff-entry-badge',
+          tone && `handoff-entry-badge--${tone}`,
+          attention && 'handoff-entry-badge--attention',
+          future && 'handoff-entry-badge--future',
         )}
       >
-        {state}
+        {future ? 'condition' : state}
       </span>
-      <span className="shell-type-secondary min-w-0 text-muted-foreground">{text}</span>
-      {session ? (
-        <span className="font-mono shell-type-micro text-right text-text-faint">
-          {sessionRef(session)}
-        </span>
-      ) : (
-        <span />
-      )}
     </button>
   )
 }
@@ -271,6 +284,7 @@ export function FlightDeckHandoff({
   const answer = pair?.answer
   const answerAt = answer?.item.ts ? Date.parse(answer.item.ts) : Number.NaN
   const baselineAt = visitReadAt ? Date.parse(visitReadAt) : Number.NaN
+  const promptStamp = formatStamp(pair?.prompt.item.ts)
   const answerIsFresh =
     visitReadAt !== null &&
     Number.isFinite(answerAt) &&
@@ -285,28 +299,34 @@ export function FlightDeckHandoff({
   ]
 
   return (
-    <div className="handoff-view pb-3" data-testid="flight-deck-handoff">
-      <HandoffSection title="Last update">
+    <div className="handoff-view" data-testid="flight-deck-handoff">
+      <section className="handoff-return-brief">
+        <div className="handoff-return-brief-head">
+          <h3>Last update</h3>
+          {formatStamp(rootIssue.notesUpdatedAt) && (
+            <span className="tabular-nums">{formatStamp(rootIssue.notesUpdatedAt)}</span>
+          )}
+        </div>
         {rootIssue.activityNotes?.trim() ? (
-          <div className="px-2.5">
+          <div className="handoff-return-copy">
             <ReadoutMarkdown text={rootIssue.activityNotes.trim()} />
-            {formatStamp(rootIssue.notesUpdatedAt) && (
-              <p className="mt-1.5 font-mono shell-type-micro tabular-nums text-text-faint">
-                {formatStamp(rootIssue.notesUpdatedAt)}
-              </p>
-            )}
           </div>
         ) : (
-          <p className="px-2.5 shell-type-secondary text-text-dim">
-            No issue update has been recorded.
-          </p>
+          <p className="handoff-empty">No issue update has been recorded.</p>
         )}
-      </HandoffSection>
+      </section>
 
-      <HandoffSection title="Last prompt">
+      <HandoffSection
+        title="Last prompt"
+        meta={
+          transcript.session
+            ? `${sessionRef(transcript.session)}${promptStamp ? ` · ${promptStamp}` : ''}`
+            : undefined
+        }
+      >
         <div aria-live="polite">
           {transcript.status === 'loading' && !transcript.pair ? (
-            <p className="px-2.5 shell-type-secondary text-text-dim">Loading latest prompt…</p>
+            <p className="handoff-empty">Loading latest prompt…</p>
           ) : pair && transcript.session ? (
             <TranscriptCard
               label="Last prompt"
@@ -315,31 +335,29 @@ export function FlightDeckHandoff({
               onOpen={() => onOpenTranscript(pair.sessionId, pair.prompt.anchor.itemKey)}
             />
           ) : transcript.status === 'error' ? (
-            <div className="flex items-center justify-between gap-3 px-2.5">
-              <p className="shell-type-secondary text-destructive">
-                Couldn't load the latest transcript.
-              </p>
+            <div className="handoff-error">
+              <p>Couldn't load the latest transcript.</p>
               <button
                 type="button"
                 data-pressable
-                className="min-h-7 rounded-md px-2 font-mono shell-type-micro text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={transcript.retry}
               >
                 Retry
               </button>
             </div>
           ) : (
-            <p className="px-2.5 shell-type-secondary text-text-dim">
-              No operator prompt is recorded for this mission.
-            </p>
+            <p className="handoff-empty">No operator prompt is recorded for this mission.</p>
           )}
         </div>
       </HandoffSection>
 
-      <HandoffSection title={answer?.legacy ? 'Latest reply' : 'Last answer'}>
+      <HandoffSection
+        title={answer?.legacy ? 'Latest reply' : 'Last answer'}
+        meta={pair ? 'reply to that prompt' : undefined}
+      >
         <div aria-live="polite">
           {transcript.status === 'loading' && !transcript.pair ? (
-            <p className="px-2.5 shell-type-secondary text-text-dim">Loading latest answer…</p>
+            <p className="handoff-empty">Loading latest answer…</p>
           ) : pair && transcript.session && answer ? (
             <TranscriptCard
               label="Last answer"
@@ -350,28 +368,28 @@ export function FlightDeckHandoff({
               onOpen={() => onOpenTranscript(pair.sessionId, answer.anchor.itemKey)}
             />
           ) : transcript.status === 'error' ? null : pair ? (
-            <p className="px-2.5 shell-type-secondary text-text-dim">No final answer yet.</p>
+            <p className="handoff-empty">No final answer yet.</p>
           ) : (
-            <p className="px-2.5 shell-type-secondary text-text-dim">No final answer yet.</p>
+            <p className="handoff-empty">No final answer yet.</p>
           )}
         </div>
       </HandoffSection>
 
-      <div className="handoff-now-divider flex items-center gap-2 px-3 py-3 font-mono shell-type-micro text-label">
+      <div className="handoff-now-divider">
         <span>Now · issue and session state</span>
-        <span aria-hidden className="h-px flex-1 bg-hairline-soft" />
       </div>
 
-      <HandoffSection title="What is happening">
-        <p className="px-2.5 font-mono shell-type-micro text-text-dim">
-          {summaryParts.join(' · ')}
-        </p>
+      <HandoffSection
+        title="What is happening"
+        meta={`${summary.computing} ${summary.computing === 1 ? 'session' : 'sessions'} computing`}
+      >
+        <p className="handoff-status-summary">{summaryParts.slice(1).join(' · ')}</p>
         {current.length === 0 ? (
-          <p className="mt-2 px-2.5 shell-type-secondary text-text-dim">
+          <p className="handoff-empty">
             No work needs explanation right now.
           </p>
         ) : (
-          <div className="mt-2 flex flex-col gap-0.5">
+          <div className="handoff-events">
             {displayedCurrent.map((entry) => {
               const issue = issueById.get(entry.issueId)
               if (!issue) return null
@@ -399,8 +417,17 @@ export function FlightDeckHandoff({
                   key={entry.issueId}
                   issue={issue}
                   session={session}
-                  state={state}
+                  state={state.toLowerCase()}
                   attention={entry.kind === 'needs-you'}
+                  tone={
+                    entry.kind === 'working'
+                      ? 'working'
+                      : entry.kind === 'review'
+                        ? 'review'
+                        : entry.kind === 'needs-you'
+                          ? 'attention'
+                          : undefined
+                  }
                   text={text}
                   onOpen={() =>
                     session
@@ -420,12 +447,12 @@ export function FlightDeckHandoff({
         )}
       </HandoffSection>
 
-      <HandoffSection title="What happens next">
+      <HandoffSection title="What happens next" meta="recorded conditions, no dates" future>
         {next.length === 0 ? (
-          <p className="px-2.5 shell-type-secondary text-text-dim">No recorded next condition.</p>
+          <p className="handoff-empty">No recorded next condition.</p>
         ) : (
-          <div className="flex flex-col gap-0.5">
-            {next.slice(0, nextLimit).map((entry) => {
+          <div className="handoff-events">
+            {next.slice(0, nextLimit).map((entry, index) => {
               const issue = issueById.get(entry.issueId)
               if (!issue) return null
               const session = entry.sessionId ? sessionById.get(entry.sessionId) : undefined
@@ -434,7 +461,8 @@ export function FlightDeckHandoff({
                   key={`${entry.issueId}:${entry.afterIssueId ?? 'ready'}`}
                   issue={issue}
                   session={session}
-                  state="Next"
+                  state={index === 0 ? 'next' : index === 1 ? 'then' : 'after gates'}
+                  future
                   text={entry.text}
                   onOpen={() => onOpenIssue(entry.issueId)}
                 />
@@ -450,7 +478,7 @@ export function FlightDeckHandoff({
         )}
       </HandoffSection>
 
-      {proposed}
+      {proposed && <div className="handoff-proposals">{proposed}</div>}
     </div>
   )
 }
