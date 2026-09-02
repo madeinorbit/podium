@@ -1389,6 +1389,7 @@ export class SessionRegistry {
           issueId: row.id,
           seq: row.seq,
         }),
+      onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueClosed: (input) => stopClosedIssue?.(input),
     })
     // Coordinator defaults are lifecycle-derived, not caller discipline. The

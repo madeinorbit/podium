@@ -9,6 +9,7 @@ import type {
   MachineId,
   SessionId,
   SessionMeta,
+  UserId,
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -294,6 +295,16 @@ export interface IssueDeps {
   onMailSent?(row: IssueRow, message: IssueMessageRow): void
   /** Fired after a durable closed-predicate flip so session teardown can begin. */
   onIssueClosed?(input: { issueId: IssueId }): void
+  /**
+   * An issue came into existence, for a composition root that publishes it
+   * (podium-cloud's analytics subscriber).
+   *
+   * The in-process twin of the `issue.created` row `create()` already appends to
+   * the durable event log, called from the same line — so this is not a fresh
+   * judgement about when an issue is created, it is the existing one, observed.
+   * Best-effort: the call site swallows a throw.
+   */
+  onIssueCreated?(event: { issueId: IssueId; title: string; ownerUserId: UserId }): void
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441) — the server-pull
    *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */

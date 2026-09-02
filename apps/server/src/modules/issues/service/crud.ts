@@ -946,6 +946,14 @@ export class IssueCrudModule {
     // clients, so a create still fans out the full list once (#22).
     this.store.broadcastList()
     this.store.emitEvent('issue.created', row.id, { seq: row.seq, title: row.title })
+    // Best-effort, isolated: an observer must never fail a create.
+    try {
+      this.store.deps.onIssueCreated?.({
+        issueId: row.id,
+        title: row.title,
+        ownerUserId: row.ownerUserId,
+      })
+    } catch {}
     if (input.parentId) wire = this.hierarchy().reparent(row.id, input.parentId)
     if (input.labels?.length) wire = this.setLabels(row.id, input.labels)
     return wire
