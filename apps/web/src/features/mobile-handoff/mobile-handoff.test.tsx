@@ -232,17 +232,24 @@ describe('the footer chip', () => {
    * reads is the address they end up on.
    */
   it('carries the app host when the UI is served from one', async () => {
-    withOneTask()
+    // The address no longer shows up in the plate's label — it is the ORIGIN
+    // scoped into the `podium:` link — so ask the hook that mints it.
     fixture.infoQuery.mockResolvedValue({
       publicUrl: 'https://api.meetpodium.com',
       appUrl: 'https://app.meetpodium.com',
     })
-    render(<MobileHandoffChip />)
-    fireEvent.click(screen.getByTestId('mobile-handoff-chip'))
+    const trpc = fixture.trpc as never
+    const { result } = renderHook(() =>
+      useMobileHandoffUrl(trpc, 'https://local.example', 'a-session'),
+    )
     await waitFor(() =>
-      expect(screen.getByTestId('mobile-handoff-qr').getAttribute('aria-label')).toBe(
-        'Opens app.meetpodium.com/mobile',
+      expect(result.current).toBe(
+        mobileHandoffUrl('https://app.meetpodium.com', 'instance-one', 'a-session'),
       ),
+    )
+    // Not the API, which has no `/mobile` page of its own — only a redirect.
+    expect(result.current).not.toBe(
+      mobileHandoffUrl('https://api.meetpodium.com', 'instance-one', 'a-session'),
     )
   })
 
