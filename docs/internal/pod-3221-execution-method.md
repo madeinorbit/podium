@@ -288,3 +288,44 @@ Waiting for the engine decision: the schema file's form, the `ord` migrations, t
 SQLite-construct lint list, the durability and transfer rewrite, the cutover tool, and the shape
 of Stage B′. Waiting for the query-layer decision: Phase A's first conversion and the writer-guard
 replacement pattern (5d).
+
+## 8. The issue tree (filed 2026-09-02)
+
+Prefix gives the order; edges in the tracker give the real dependencies (`podium issue tree 3221`).
+
+| Prefix | Issue | Depends on |
+|---|---|---|
+| 0.0 | POD-3242 Query layer decision | none |
+| 0.1 | POD-3243 Hot-path measurement baseline | none |
+| 0.2 | POD-3244 Store coverage census | none |
+| 0.3 | POD-3245 Corrupt-blob oracle test | none |
+| 0.4 | POD-3246 Boot upgrades retirement | none |
+| 0.5 | POD-3247 Repos cache invalidation seam | none |
+| 0.6 | POD-3248 Executor prototype and harness | none |
+| 0.7 | POD-3249 Sync adapter table injection | 0.0 |
+| 0.8 | POD-3250 Postgres feed-head allocator slice | 0.6 |
+| 0.9 | POD-3251 PGlite engine spike | none |
+| 0.10 | POD-3252 Store boundary lint family | 0.0 |
+| 0.11 | POD-3253 Issues writer-guard replacement | 0.0 |
+| 0.12 | POD-3254 Shared schema and constructor edits | 0.3, 0.6 |
+| A | POD-3255 Repository conversion waves (placeholder) | 0.0, 0.4, 0.5, 0.10, 0.11, 0.12; related E.2 |
+| B0.1 | POD-3256 Hidden store reads | 0.6 |
+| B0.2 | POD-3257 Array-callback batched reads | none |
+| B0.3 | POD-3258 Timer single-flight guards | none |
+| B0.4 | POD-3259 Mutable process-state models | 0.6 |
+| B0.5 | POD-3260 Span side-effect classification | 0.6 |
+| B0.6 | POD-3261 Read-scope adoption and prefetch | 0.6, 0.1 |
+| B0.7 | POD-3262 Test store helper and awaits | 0.6 |
+| B1 | POD-3263 Async port flip | A, B0.1–B0.7, 0.8 |
+| B2.1 | POD-3264 Scheduler lifecycle and shutdown | B1 |
+| B2.2 | POD-3265 Transaction watchdog | B1 |
+| B2.3 | POD-3266 ADR amendments | B1 |
+| B2.4 | POD-3267 Transitional instrument deletion | B1, B2.1 |
+| E.1 | POD-3268 Engine decision (placeholder) | 0.9 |
+| E.2 | POD-3269 Schema form and journal (placeholder) | E.1 |
+| E.3 | POD-3270 Durability on chosen engine (placeholder) | E.1, B1 |
+| E.4 | POD-3271 Install cutover tool (placeholder) | E.1, E.2 |
+| E.5 | POD-3272 Backend enablement (placeholder) | E.1, B1, E.3 |
+
+Ready at filing time: 0.0 to 0.6, 0.9, B0.2, B0.3. Placeholders (A, E.1 to E.5) are not to be
+decomposed or started until their gating decision is taken.
