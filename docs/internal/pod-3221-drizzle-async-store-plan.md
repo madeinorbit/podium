@@ -133,12 +133,22 @@ These are the places where "make it async" changes correctness, not just signatu
    builds 34 repositories and runs four boot heals in the constructor
    (`store.ts:199-330`). The pre-migrated test fixture states the dependency outright:
    "`SessionStore`'s constructor cannot await anything" (`test-support/pre-migrated-store.ts:50-52`).
+8. **Process-memory mirrors written in the same synchronous frame as a store write, and
+   interval callbacks with no single-flight guard** (rev 10.1, F8). `shipping/service.ts:1792,
+   2311` set `this.leases` after `ledger.commit`, and `tick()` and `reconcile()` read them;
+   `sessions/inbox.ts:688-700` deletes the queued row, then decrements the in-memory count,
+   then persists; `messages/service.ts:850-861` emits and marks delivered after its span.
+   `MessageScheduler.sweep()` (`scheduler.ts:345`) and `approvals.sweepStalledExecutions()`
+   (`relay.ts:2690`) are interval callbacks that are safe today only because they are
+   synchronous; `inbox.drain` already has a single-flight guard. Under async a second `tick()`
+   can see an attempt row whose lease is not yet in memory, and overlapping sweeps can
+   re-inject a message mid-delivery.
 
 ### 1.6 Other processes on the same database file
 
 | Who | Access | Consequence under Postgres |
 |---|---|---|
-| Janitor (`apps/janitor/src/janitor.ts:1250`) | second process, read-only handle, `query_only` | becomes a network client with its own role |
+| Janitor (`apps/janitor/src/janitor.ts:1250`, hosted in a worker thread of the server process since POD-2505, `apps/server/src/janitor-host.ts`) | second connection, read-only, `query_only` | becomes a client with its own role |
 | `podium auth mint-session` (`packages/runtime/src/session-mint.ts:116`) | second **writer** | must go through the server, not the DB |
 | Daemon transfer (`apps/daemon/src/server-transfer.ts:350`) | opens a staged candidate `podium.db` | file-level; no analogue |
 | Migration ledger guard (`packages/runtime/src/migration-ledger.ts:58`) | reads `__drizzle_migrations` | needs a client |
@@ -149,7 +159,7 @@ These are the places where "make it async" changes correctness, not just signatu
 
 | Construct | Count | Portable? |
 |---|---|---|
-| `INSERT OR REPLACE` | 15 | No. And it is not an upsert: it deletes and re-inserts, firing `ON DELETE CASCADE` on children. Converting to `onConflictDoUpdate` changes behaviour. |
+| `INSERT OR REPLACE` | 13 (+1 in `session-mint`) | No. It deletes and re-inserts: fresh rowid, and every unnamed column resets to its default. None of the target tables is a foreign-key parent, so no cascade is involved (rev 10.1). Convert only with every column named. |
 | `INSERT OR IGNORE` | 12 | `onConflictDoNothing` on both dialects |
 | `ON CONFLICT … DO UPDATE` | 38 | yes |
 | `RETURNING` | 1 | yes |
@@ -314,7 +324,13 @@ size-one queue is the community's answer and this plan's.
    every later issue uses. The executor prototype settles, with the service-layer count in
    hand: ambient routing versus an explicit unit-of-work parameter (F1), the three-lane
    scheduler port (F5) and the after-commit hook (F7); the Postgres spike exercises the `read`
-   lane's snapshot isolation (rev 10).
+   lane's snapshot isolation (rev 10). The prototype includes a service-shaped write closure
+   using narrowed deps, and the cross-service span `issues.shippingCommitMany`
+   (`shipping/service.ts:2204-2215`, an issues-service commit whose `write` calls shipping
+   repository methods), because that is the shape the executor design must survive; services
+   hold narrowed dependency lambdas built in `relay.ts`, not the store, so the design cannot
+   assume a `uow` in their deps (rev 10.1, F1). `store.outsideTransaction(fn)` is the one
+   explicit way to read a committed view from inside a body; nothing uses it yet.
 4. Driver for the SQLite path: **keep `bun:sqlite`**. `Bun.SQL`'s SQLite mode is a Promise
    wrapper over the same engine on the same thread, ignores transaction modes, and has no queue
    (§1.8), so it buys nothing and loses `serialize/deserialize` (the fast test fixture) and the
@@ -336,6 +352,14 @@ size-one queue is the community's answer and this plan's.
        so every statement drizzle runs is timed on completion with its rows, failure, normalised
        SQL and caller. A logger may supplement it for generated SQL. Parity tests for `get`,
        `all`, writes and thrown statements land before the first converted repository.
+       Precisely (rev 10.1, F7): drizzle calls the client's `query()`, bun's **cached**
+       statement API keyed by SQL text, and `stmt.values()` for array mode, never `prepare()`;
+       the store today calls `prepare()` per call with no cache. So the wrapper wraps `query`
+       and `prepare`, forwards `exec`, `transaction`, `serialize` and `values`, and registers
+       itself with `aliasBunSqliteClient` so the migrator still finds the raw handle. Stack
+       capture stays gated behind `PODIUM_LOOP_PROFILE`. Every converted query silently moves
+       onto bun's statement cache, one cached statement per distinct SQL text including each
+       `IN (…)` arity; step 17 measures statement count and RSS after a feed bootstrap.
    5b. Replace the repos registry cache's SQL-inspecting `prepare` proxy
        (`store/repos.ts:80-105`) with an invalidation the store owns and every writer calls,
        which its own header comment already asks for once a second bypassing writer exists.
@@ -353,27 +377,59 @@ size-one queue is the community's answer and this plan's.
    Authority's async-write refusal (rev 8, finding 1). Each conversion:
    - queries against `schema.ts` tables; typed selects replace the `as Row` casts;
    - `mode: 'boolean'` on the schema so mappers shrink (schema-only change, no migration);
-     `mode: 'json'` per column and only where a throw on corruption is acceptable (rule 4);
-   - `INSERT OR REPLACE` (14 sites) → decide per site: real upsert with every column named
-     in `onConflictDoUpdate` (`grants.ts:190-199` depends on REPLACE re-stamping owner and
-     created_at), or keep delete-then-insert explicitly;
-   - `rowid`: **classify each use first** (rev 9, Codex finding 11). Every affected table
-     already has a primary key (composite on `pins`, `repos`, `maintenance_commands`; text on
-     `sessions`, `issues`, `messages`, `automation_runs`, `queued_messages`,
-     `upstream_outbox`, `conversations`; only `lock_waiters` is an integer PK), and SQLite
-     does not auto-populate a second integer column, so "an ordinal column the writer fills"
-     is not a mechanism. Where rowid is only a same-timestamp tie-break and any deterministic
-     order is acceptable, order by the timestamp then the natural key and characterise the
-     change. Where insertion order is contractual (FIFO queues, "latest run", "first
-     session"), use a real backend-generated surrogate: on SQLite an `INTEGER PRIMARY KEY`
-     with the old natural key kept `UNIQUE` (a table rebuild with a backfill from `rowid`), on
-     Postgres an identity column or, where gaplessness matters, the transactional allocator
-     from step 16. Each such table is its own migration and lands before the query that uses
-     it. The two FTS external-content tables stay on rowid behind the `SearchIndex` port and
-     are exempt from the lint;
+     `mode: 'json'` is decided per column, in a schema-only commit **before** the aggregate
+     converts: there are 23 such columns today, not five (rev 10.1, F4), and shipping reads all
+     of its own through `jsonArray`/`jsonObject` (`shipping.ts:92-115`), which quarantine a
+     corrupt value; a typed select on the schema as declared would throw inside `claimTrain`,
+     which calls `listOrders()` three times in its transaction, so one corrupt blob would abort
+     every train claim. Shipping keeps quarantine on every json-mode column. Each aggregate
+     conversion adds one characterisation test that plants a corrupt blob and asserts the load
+     survives, because no fixture does today;
+   - `INSERT OR REPLACE` (13 statements in the server once step 9 retires the boot upgrade's,
+     plus `session-mint.ts:186`, which stays until B′ routes the mint through the server): the
+     cascade hazard headlined in earlier revisions **does not apply to any of them**, because
+     none of the target tables (`meta`, `telegram_chat_bindings`, `user_layout`,
+     `user_preferences`, `grants`, `client_sessions`, `accounts`, `user_read_position`,
+     `steward_state`) is a foreign-key parent (rev 10.1, F5). The real per-site differences:
+     REPLACE assigns a fresh rowid (harmless, none of these tables orders by rowid) and resets
+     every column not named in the statement to its default, which an `onConflictDoUpdate`
+     naming only some columns would not. The per-site check is therefore "does the statement
+     name every column"; `grants.ts:199` and `auth.ts:70` name all of theirs;
+   - `rowid`: **classify each use, then an additive ordinal column, never a primary-key
+     change** (rev 9 Codex finding 11; rev 10.1 Fable layers F2). Every affected table already
+     has a primary key, and an `INTEGER PRIMARY KEY` is only the rowid under another name, so
+     the rev 9 surrogate-key rebuild of `sessions`, `issues` and `messages` would have rebuilt
+     the parents of most of the schema's 41 `onDelete` edges inside the foreign-keys-off window
+     (F6) for nothing. The mechanism is `ALTER TABLE t ADD COLUMN ord INTEGER`, a backfill
+     `UPDATE t SET ord = rowid`, an index on `(…, ord)`, and the insert filling `ord` from
+     `COALESCE((SELECT MAX(ord) FROM t), 0) + 1` inside the same write transaction, which is
+     atomic because every write takes the write lane (`BEGIN IMMEDIATE` today, the scheduler's
+     write lane in Stage B); on Postgres the twin declares `ord` as an identity column, gaps
+     being fine for ordering. Classification (the reviewer did it, verified): contractual and
+     getting `ord` are `queued_messages` (FIFO within one `queued_at`), `messages` ("latest
+     send in one tick", ids are random), `automation_runs` ("latest spawned run"), `repos`
+     (registry order that repo discovery documents it depends on); tie-breaks that become
+     "timestamp then natural key" with a characterisation test are `sessions` (resume-value
+     scan), `pins` (`pinned_at, kind, id`; `ord` only if the UI test objects), `issues` (merge
+     keeps the oldest), `automations` lists; `maintenance_commands` uses rowid as a row address
+     and becomes a composite-key `IN` subselect; `upstream_outbox` is archived and must not be
+     migrated (`ORDER BY queued_at, mutation_id`); `conversations` has no bare-rowid query
+     outside the FTS join; `lock_waiters` needs nothing. `transcript_fts` is used as row storage
+     ordered by rowid, so the `SearchIndex` port carries an insertion-order read. Each `ord`
+     migration lands before the query that uses it. The FTS tables are exempt from the lint;
    - `lastInsertRowid` → `RETURNING`;
    - keep FTS behind a small `SearchIndex` port with a SQLite implementation, whole raw
      statements allowed there only.
+6a. **The five large repositories convert in family slices, not one commit each** (rev 10.1,
+   F9). `shipping.ts` has 77 sites across seven families (orders, attempts, steps, holds,
+   receipts, trains, effect envelopes) sharing select prefixes and mappers, and 19 spans that
+   cross families (`commitTrainEffect` touches four). One commit per repository is the
+   long-lived branch §3.6 forbids. Order: shared selects and mappers first (typed selects
+   replacing the row casts, behaviour unchanged), then one family per commit, with each
+   cross-family transaction converted in the commit of the last family it touches. Same for
+   `issues.ts` and `sessions.ts`. `shipping.ts:585, 1491` read the `issues` table directly;
+   route them through `IssuesRepository` or list them as accepted cross-aggregate reads so the
+   writer scans in 5d stay per table.
 7. Use the existing store tests as the oracle: they are 1,840 call sites of characterisation.
    Where a repository has thin coverage, add a golden test before converting it.
 8. (Moved to 5a.)
@@ -416,11 +472,18 @@ untouched, boot untouched. Reversible per aggregate.
     and `decide` and `mayRead` stay synchronous over that snapshot, exactly as
     `BootstrapVisibilityPrefetch` already does for bootstrap. The prefetch is also where
     `visibilityEdge`'s whole-table session read becomes a keyed read.
-11a. **Land an await-preparation pass before the implementation flip** (rev 9, finding 12):
-    `await` on a non-Promise is legal and behaviour-preserving, so tests and call sites gain
-    their `await`s while the store is still synchronous, in commits that change no assertion.
-    The type-shape edits this forces are the one exemption from §6.1's "not the same commit"
-    rule; characterisation assertions stay unchanged.
+11a. **An await-preparation pass for tests and test helpers only** (rev 9 finding 12, corrected
+    by rev 10.1 F3). In production code `await` needs an `async` function, which changes every
+    caller's return type: that is the Stage B flip itself and happens in step 15, one module at
+    a time, in commits that may not touch test assertions. In tests, `await` on a non-Promise
+    is legal, but it still yields to the microtask queue, and the frame caches close on a
+    microtask, so the six suites that assert one query per frame
+    (`store-issues-frame-cache.test.ts`, the superagent and feed-serving principal-wiring
+    suites, `modules/daemon-request.test.ts`) and the six store-constructing suites under fake
+    timers change meaning the moment an `await` lands between two reads. Those convert with
+    step 14's frame-cache replacement; every other test and helper gets its `await`s while the
+    store is still synchronous, in commits that change no assertion. The type-shape edits this
+    forces are the one exemption from §6.1's "not the same commit" rule.
 12. **The queued resource is the connection, not the transaction** (rev 8, findings 2 and 8).
     There is one `bun:sqlite` handle. A read issued while another task's transaction body is
     parked on an `await` runs inside that transaction and sees its uncommitted writes; if the
@@ -505,6 +568,21 @@ untouched, boot untouched. Reversible per aggregate.
       intake and background producers stop, persistence steps are awaited in order, queued work
       drains or is cancelled, then close. Tests cover ordinary shutdown, listen failure,
       snapshot-before-update and the transfer fence with an intentionally parked transaction.
+    - **The migration operation carries the `foreign_keys` OFF/ON bracket on its own
+      connection** (rev 10.1, F6). `PRAGMA foreign_keys` is a no-op inside a transaction
+      (verified on SQLite 3.53), and drizzle's migrator runs every pending migration inside one
+      transaction, so the PRAGMA lines drizzle-kit emits into the 13 rebuild migrations are
+      inert. The only thing protecting those rebuilds from cascade-deleting the children of the
+      table being rebuilt is the store's own OFF before the migrator and ON after
+      (`store.ts:199-216`), which the pre-migrated image also relies on. The scheduler's
+      exclusive migration operation is "OFF, backup, migrate, repair, ON, on this connection,
+      before the scheduler accepts", B′'s open-and-migrate port says the same, and a migrations
+      test runs a rebuild with enforcement on and asserts the refusal.
+    - **The transfer fence is in-process only.** `PRAGMA query_only` is per connection: it
+      stops the server's handle and not `mint-session`'s own connection or the janitor's
+      (rev 10.1, F10). That gap exists today; the scheduler does not close it; B′ closes the
+      second writer by routing the mint through the server, and "a mint during a transfer"
+      joins B′'s acceptance.
     - On Postgres the same queue keeps the Ledger's single-writer invariant (D10/D12.6) true
       without `SELECT … FOR UPDATE` while there is one server process per tenant.
     - ADR 2 D10 and D12.6 get an amendment naming the queue and the post-commit tail as the
@@ -542,7 +620,12 @@ untouched, boot untouched. Reversible per aggregate.
     sites become one mechanical rewrite; module-scope constructions become top-level `await`.
     The pre-migrated image fixture keeps working: the opener seam stays synchronous and is
     called from inside `open()`, and the env channel from `globalSetup` to the forks stays,
-    because it is still the only synchronous channel (rev 8, finding 12).
+    because it is still the only synchronous channel (rev 8, finding 12). Three shared helper
+    modules carry most of the test fan-out (`gateway/feed-test-plumbing.ts:74`,
+    `sessions/oracle-support.ts:177`, `messages/characterization-support.ts:195`) and convert
+    first; `describe`-scope constructions use an async `describe` callback, which this vitest
+    accepts; and because tests rarely `close()` a store, the watchdog and queue timers are
+    `unref`'d or the forks hang (rev 10.1, F12).
 14. Fix the §1.5 list by design, not by sprinkling `await`:
     - frame caches (issues, users, relay closed-set): their premise is "no write can land
       inside this frame", and the scheduler's `read` lease gives the same guarantee, so the
@@ -688,8 +771,9 @@ Stage B′.
 - The `Ledger`'s thenable guard is an invariant, not a nuisance: its async replacement must make
   it impossible for code to run after the commit but believe it is inside the span. Passing `tx`
   explicitly and never capturing it outside the callback is the mechanism.
-- `INSERT OR REPLACE` is delete+insert. Converting it to an upsert silently stops cascading
-  deletes and stops resetting columns not named in the statement. Read each of the 15 sites.
+- `INSERT OR REPLACE` is delete+insert. Converting it to an upsert stops resetting columns not
+  named in the statement; none of its 13 target tables has children, so cascades are not the
+  issue. Read each site for unnamed columns.
 - Frame caches (§1.5.1) become wrong, not just useless, under async. Remove or redesign them
   before converting the code that relies on them.
 - Publication runs after commit today and must stay there; what has to be preserved is that
@@ -844,7 +928,10 @@ specific to this codebase, or a trap found by checking such a rule against the c
    expression composition use the query builder. `sql\`\`` fragments inside a builder query
    (a `coalesce`, a computed order key) are fine anywhere. Whole raw statements and anything
    dialect-specific live behind a named port (`SearchIndex` for FTS) and nowhere else. The
-   Stage B lint forbids the §1.7 construct list, not the `sql` tag itself.
+   Stage B lint forbids the §1.7 construct list, not the `sql` tag itself, and it scans
+   `sql\`…\`` template bodies, because that is where a `rowid` or `PRAGMA` hides after
+   conversion. Behind the port, parameters stay bound: `sql.raw` of a user string is the
+   injection hazard the port would otherwise invite (rev 10.1, F11, F13).
 2. **Drizzle stays inside persistence.** `drizzle-orm` is imported today only from
    `migrations/` (`index.ts`, `schema.ts`, `branded-ref.ts`). After conversion it may also be
    imported from `store/**`, `modules/operations/store.ts` and the sync SQLite adapter, and
@@ -860,8 +947,9 @@ specific to this codebase, or a trap found by checking such a rule against the c
    `JSON.parse` and throws on a corrupt value. `helpers.ts` exists because one corrupt blob
    must not abort a whole table load or crash-loop boot, and eleven read sites depend on that.
    Columns with quarantine semantics keep `text` plus `parseJsonColumn`, or get a `customType`
-   that quarantines; the five columns already declared `mode: 'json'` are only safe where a
-   throw is the intended behaviour. Decide per column, in the conversion commit.
+   that quarantines; the 23 columns already declared `mode: 'json'` are only safe where a
+   throw is the intended behaviour, and shipping's are all read leniently today. Decide per
+   column, in a schema-only commit before the aggregate's conversion (step 6).
 5. **Trust the database's types; enforce invariants in the database.** Do not re-validate every
    row with a schema parser. Where a value is genuinely constrained (roles, state enums), the
    CHECK constraint is the enforcement and `$type` is the annotation; 64 CHECKs already exist,
@@ -890,7 +978,8 @@ specific to this codebase, or a trap found by checking such a rule against the c
    §8.1's evidence and hazards. No generic base repository.
 10. **Incremental, and no schema redesign in the same change.** One repository per commit with
     the existing tests as the oracle. The schema changes this plan does call for (mode
-    declarations, a surrogate key or allocator where a table's `rowid` order is contractual) are additive,
+    declarations, an additive `ord` column where a table's `rowid` order is contractual, never a
+    primary-key change on a parent table) are additive,
     each is its own migration, and none lands in the same commit as a query conversion.
 11. **No synchronous-local-SQLite assumption in any contract.** Repository and port signatures
     are async and repositories are bound to an executor even while the driver underneath is
@@ -1050,6 +1139,30 @@ design".
 | F10 | The queue test did not assert the properties the design is chosen for | medium | Seven cases added, one interleaving harness; §6.1 |
 | F11 | Drain policy for a parked body unstated | low | Roll back the holder, invalidate its token, proceed; step 12 |
 | F12 | §1.4 and §4 still said `onAppended` fires inside the span | low | Fixed |
+
+## 12. Fourth review, untouched layers and Stage A (Fable 5.1 high, 2026-09-02) and revision 10.1
+
+A reviewer focused on what nobody had read: shipping, the outbox path, the other processes on
+the database file, the test plumbing, and Stage A in detail. Verdict on revision 9.1:
+**approve with changes**, none of which reopens the architecture. Thirteen findings, all
+verified by the author; two of them corrected facts every earlier revision had wrong. Full
+text: issue artifact "Fable review: untouched layers and Stage A".
+
+| # | Finding | Severity | Change made |
+|---|---|---|---|
+| F1 | Services hold narrowed dependency lambdas, not the store, so a `uow` parameter would rewrite 45 deps interfaces and their fake-deps tests; confirms the Stage B review's F1 | high | Ambient routing (already in rev 10); `store.outsideTransaction`; cross-service span in the 3b prototype |
+| F2 | The rev 9 rowid fix rebuilt `sessions`, `issues` and `messages`, parents of most cascade edges, to obtain a column `ADD COLUMN` provides | high | Additive `ord` filled under the write lane; full classification adopted; step 6, rule 10 |
+| F3 | The await-preparation pass is the Stage B flip in production code, and in tests an `await` yields to the microtask that closes the frame caches | high | Tests and helpers only; frame-cache and fake-timer suites convert with step 14; step 11a |
+| F4 | 23 json-mode columns, not five; shipping reads its own leniently and `claimTrain` would throw on one corrupt blob | high | Per-column schema commit before conversion; shipping keeps quarantine; corrupt-blob test per aggregate; step 6, rule 4 |
+| F5 | The OR REPLACE cascade hazard applies to none of the 13 target tables; the real difference is unnamed-column reset | medium | Guidance rewritten; step 6, §1.7, §4 |
+| F6 | `PRAGMA foreign_keys` is a no-op inside a transaction and drizzle migrates inside one, so only the store's own bracket protects the 13 rebuilds; the plan never named it | medium | Bracket travels with the migration operation on its connection; test; step 12, B′ |
+| F7 | Drizzle uses bun's cached `query()`, not `prepare()`; the wrapper must forward the full surface and register as an alias; the statement cache is a behaviour and memory change | medium | Step 5a, step 17 |
+| F8 | Post-commit in-memory mirrors and unguarded interval callbacks were a missing §1.5 category | medium | §1.5 item 8; single-flight and mirror-before-await rules |
+| F9 | Shipping cannot convert as one commit | medium | Family slices; step 6a |
+| F10 | The transfer fence is per connection and the plan implied the scheduler closes the gap | medium | Stated as in-process only until B′; step 12 |
+| F11 | Boundary lint is feasible in the existing shape; it must scan `sql` template bodies; the writer guard needs the `sql\`UPDATE issues` pattern | low | Rule 1, step 5d |
+| F12 | Step 13 is executable; three helper modules carry the fan-out; timers must `unref` | low | Step 13 |
+| F13 | Janitor is co-hosted in a worker thread of the server; `conversations` and `upstream_outbox` do not belong on the rowid list; drizzle's transaction nests as a savepoint at depth > 0 so 5c's reason was overstated though the lint stands | low | §1.6, step 6 |
 
 For reference, Linear's engine, which Podium's kernel resembles in shape: Postgres is the
 source of truth, every create, update and delete persists a model snapshot as a "SyncAction"
