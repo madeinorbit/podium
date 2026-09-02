@@ -8,16 +8,20 @@
  *  - a raise ships the minute BEFORE it, from the flight recorder;
  *  - the raise expires by itself, and expiry stops the DETAIL, not the stream;
  *  - a link that is down costs records at a bounded rate, and says how many;
- *  - the sink cannot feed itself through the socket it is describing.
+ *  - the sink cannot feed itself through the socket it is describing;
+ *  - a FLOORED namespace clears the steady stream at its floor, so an update's
+ *    phases reach the coordinator without anybody having raised the daemon.
  */
 
-import { clearSinks, createLogger, resetLevels, setLogLevel } from '@podium/logger'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  type DaemonLogBatch,
-  installDaemonLogForwarding,
-  toWireRecord,
-} from './log-forward'
+  clearSinks,
+  createLogger,
+  resetLevels,
+  setLogLevel,
+  setNamespaceFloor,
+} from '@podium/logger'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { type DaemonLogBatch, installDaemonLogForwarding, toWireRecord } from './log-forward'
 
 const log = createLogger('daemon:test')
 
@@ -491,5 +495,62 @@ describe('toWireRecord', () => {
     expect(wire.err?.message).toHaveLength(8192)
     expect(wire.err?.stack).toHaveLength(8192 * 4)
     expect(wire.truncated).toBe(true)
+  })
+})
+
+/**
+ * THE STEADY FLOOR IS PER-NAMESPACE (POD-3224).
+ *
+ * `warn` is right for a daemon's own chatter and wrong for the update path,
+ * whose whole purpose is to be read later. Before this, a grant that downloaded,
+ * verified, swapped and restarted wrote five `info` lines that never left the
+ * machine — and the raise that would have captured them is the one nobody thinks
+ * to make until after the update they wanted to understand.
+ */
+describe('a floored namespace in the steady stream', () => {
+  const updateLog = createLogger('daemon:update')
+
+  it('forwards a floored namespace at its floor, with nobody having raised anything', () => {
+    setNamespaceFloor('daemon:update', 'info')
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({ boot: 'info', send: t.send })
+
+    updateLog.info('update bundle swapped')
+    log.info('routine daemon chatter')
+    vi.advanceTimersByTime(10_000)
+
+    expect(messages(t.batches)).toContain('update bundle swapped')
+    // The floor lifts ONE namespace, not the steady level everywhere.
+    expect(messages(t.batches)).not.toContain('routine daemon chatter')
+    expect(forwarding.status()).toMatchObject({ raised: false })
+    forwarding.dispose()
+  })
+
+  it('keeps the floored namespace bounded: debug still stays on the machine', () => {
+    setNamespaceFloor('daemon:update', 'info')
+    setLogLevel('debug')
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({ boot: 'debug', send: t.send })
+
+    updateLog.debug('update status reported')
+    vi.advanceTimersByTime(10_000)
+
+    // A per-frame record is exactly what the floor must not put on the wire.
+    expect(messages(t.batches)).not.toContain('update status reported')
+    forwarding.dispose()
+  })
+
+  it('cannot QUIETEN a namespace: a floor below the steady level changes nothing', () => {
+    // `error` is stricter than the steady `warn`. A threshold would silence this
+    // namespace's warnings; a floor composes upwards only, so it must not.
+    setNamespaceFloor('daemon:update', 'error')
+    const t = transport()
+    const forwarding = installDaemonLogForwarding({ boot: 'info', send: t.send })
+
+    updateLog.warn('the grant was refused by this machine')
+    vi.advanceTimersByTime(10_000)
+
+    expect(messages(t.batches)).toContain('the grant was refused by this machine')
+    forwarding.dispose()
   })
 })

@@ -11,7 +11,7 @@ import {
   harnessLoginReadEnv,
   resolvedHarnessPath,
 } from '@podium/harness'
-import { createLogger, resolveLevel } from '@podium/logger'
+import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -107,6 +107,17 @@ import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 
 const log = createLogger('daemon:host')
+/**
+ * THE UPDATE PATH'S OWN NAMESPACE (POD-3224).
+ *
+ * `daemon:host` is the busiest namespace this process has, and the update lines
+ * are the ones an operator wants forwarded to the coordinator without asking.
+ * Splitting them out is what lets `daemon:update` carry an `info` floor —
+ * so the phases of a delivery reach the coordinator even when the socket that
+ * would have reported them is the thing the update took away — while the rest of
+ * the daemon keeps the `warn`+ steady stream it has always had.
+ */
+const updateLog = createLogger('daemon:update')
 
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 
@@ -573,6 +584,26 @@ export async function createDaemonHostRuntime(args: {
         '); applying again will retry it'
     }
 
+    /**
+     * WHAT THIS BOOT CONCLUDED ABOUT THE GRANT IT WAS APPLYING (POD-3224, q13).
+     *
+     * This is the only place that can answer "did the restart land on the
+     * version it was supposed to?", and it answers it from the machine's own
+     * disk rather than from a socket — which matters because the report below is
+     * dropped outright if the coordinator is still coming back up. Without this
+     * line, a machine that rolled back or spent one of its convergence attempts
+     * left the coordinator with silence and left itself with nothing.
+     */
+    updateLog.info('boot reconciled a pending update grant', {
+      grantId: pending.grantId,
+      targetVersion: pending.targetVersion,
+      previousVersion: pending.previousVersion,
+      runningVersion,
+      action: verdict.action,
+      attempts: pending.attempts,
+      reported: state,
+      ...(detail ? { detail } : {}),
+    })
     send({
       type: 'updateStatus',
       grantId: pending.grantId,
@@ -676,11 +707,36 @@ export async function createDaemonHostRuntime(args: {
         requestHandover: (request) => requestParentHandover(request),
         exit: process.exit,
       }),
-    report: (status) => send(status),
+    /**
+     * EVERY REPORT THIS MACHINE SENDS, AND WHETHER IT WENT (POD-3224, q13).
+     *
+     * `send` drops silently when the link is down, which is precisely what
+     * happens while the coordinator is applying its own grant — so a wave that
+     * "stopped hearing from a machine" and a machine that stopped reporting were
+     * the same observation from the coordinator's side, and this side said
+     * nothing at all. `debug`, because a download reports per progress frame;
+     * the PHASE transitions are the `info` lines above.
+     */
+    report: (status) => {
+      updateLog.debug('update status reported', {
+        grantId: status.grantId,
+        state: status.state,
+        version: status.version,
+        ...(status.percent !== undefined ? { percent: status.percent } : {}),
+        ...(status.phaseDetail ? { phaseDetail: status.phaseDetail } : {}),
+        ...(status.detail ? { detail: status.detail } : {}),
+      })
+      send(status)
+    },
     // THE FLIGHT RECORDER FOR AN UPDATE (POD-3170). `send` drops when the link
     // is down, and a coordinator applying its own grant takes the link down —
     // so the phases of a lost delivery are only ever knowable from here.
-    log: (event, fields) => log.info(event, fields),
+    //
+    // On its OWN namespace since POD-3224, so these reach the coordinator's
+    // `logs/fleet/<machine>.ndjson` under the steady stream rather than only
+    // under an operator's raise — which is the raise nobody thinks to make until
+    // after the update they wanted to understand.
+    log: (event, fields) => updateLog.info(event, fields),
     now: Date.now,
   })
   const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) => {
@@ -713,6 +769,24 @@ export async function createDaemonHostRuntime(args: {
    * puts the daemon back where it started rather than at a level written down
    * here that could disagree with it.
    */
+  /**
+   * THE UPDATE PATH IS WORTH MORE THAN THIS DAEMON'S DEFAULT (POD-3224).
+   *
+   * A floor rather than a level: an operator raising this daemon to `debug`
+   * still gets `debug` here, which a most-specific-wins override would have
+   * capped at `info` at the exact moment they were asking.
+   *
+   * It lifts BOTH what the journal keeps and what the steady stream forwards
+   * (`log-forward.ts` reads the same floor), so a delivery's phases —
+   * accepted, download deciles, verified, swapped, restarting, and what the next
+   * boot concluded — reach the coordinator's `logs/fleet/<machine>.ndjson`
+   * without anybody having raised this machine first. That raise is the one
+   * nobody thinks to make until after the update they wanted to understand.
+   *
+   * Bounded by the call sites: per-frame status reports and per-chunk download
+   * progress are `debug` and stay local.
+   */
+  setNamespaceFloor('daemon:update', 'info')
   const logForwarding = installDaemonLogForwarding({
     boot: resolveLevel('daemon'),
     /**

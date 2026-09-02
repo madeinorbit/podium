@@ -21,6 +21,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createLogger } from '@podium/logger'
 import { planConvergence, UpdateTarget } from '@podium/protocol'
 import { readAppliedMigrations } from './migration-ledger'
 import { type DeliveryDeps, fetchArtifact, PODIUM_UPDATE_PUBKEY } from './update-delivery'
@@ -28,6 +29,22 @@ import { swapHeadlessBundle } from './update-install'
 import { createSchemaGate, releaseCarriesNewMigrations } from './update-schema'
 
 export { releaseCarriesNewMigrations } from './update-schema'
+
+/**
+ * THE FOUR STEPS, EACH WITH ITS OWN OUTCOME (POD-3224, question 14).
+ *
+ * The parent process logged one line for the whole swap — "completed" or
+ * "failed" — and the ORDER of the four steps below is the entire safety
+ * argument. So "the update failed on the coordinator" could mean the schema gate
+ * refused before a byte moved, a 300 MB download died, a swap left a bundle
+ * half-written, or the published feed moved under a long download and the
+ * VERSION fence caught it. Those are four different problems with four different
+ * fixes, and the operator was shown one sentence for all of them.
+ *
+ * `runtime:parent` — the same namespace the parent process uses, because from
+ * outside they are one actor.
+ */
+const log = createLogger('runtime:parent')
 
 export interface ParentUpdateSwapDeps {
   installDir: string
@@ -107,6 +124,7 @@ export function createParentUpdateSwap(
     })
 
   return async (target: UpdateTarget): Promise<ParentUpdateSwapResult> => {
+    const startedAt = Date.now()
     const current = installedVersion(installDir)
     let ledgerReadable = true
     const applied = (() => {
@@ -121,23 +139,66 @@ export function createParentUpdateSwap(
       ? releaseCarriesNewMigrations(target, applied)
       : undefined
     if (current === target.version) {
+      log.info('parent swap: the bundle on disk is already the target', {
+        version: current,
+        releaseHadMigrations,
+      })
       return { version: current, releaseHadMigrations, swapped: false }
     }
+    log.info('parent swap: beginning', {
+      from: current,
+      to: target.version,
+      releaseHadMigrations,
+      ledgerReadable,
+    })
     // 1. Schema gate BEFORE the fetch — see the docblock.
     const refusal = createSchemaGate({ readApplied, currentVersion: current })(target)
-    if (refusal) throw new Error(refusal)
+    if (refusal) {
+      // NOTHING WAS DOWNLOADED AND NOTHING WAS WRITTEN. That is the whole point
+      // of the gate being first, and it is the fact the operator most needs:
+      // this machine is exactly as it was.
+      log.error('parent swap: refused by the schema gate before any fetch', {
+        from: current,
+        to: target.version,
+        detail: refusal,
+      })
+      throw new Error(refusal)
+    }
     // 2. Verified fetch.
+    const fetchedAt = Date.now()
     const bytes = await deliver(target, current)
+    log.info('parent swap: artifact fetched and verified', {
+      to: target.version,
+      bytes: bytes.byteLength,
+      fetchMs: Date.now() - fetchedAt,
+    })
     // 3. Atomic swap; retains `.old` for rollback.
+    const swapAt = Date.now()
     if (bytes.byteLength > 0) await swap(bytes, installDir)
     // 4. VERSION re-read fence.
     const installed = installedVersion(installDir)
     if (installed !== target.version) {
+      // THE ROLLING-FEED FENCE FIRING. Distinct from a download that failed:
+      // the bytes arrived, verified and were placed, and they were the wrong
+      // release. Nothing is handed over, and the disk is NOT what it was.
+      log.error('parent swap: the installed version is not the target', {
+        installed: installed || 'unreadable',
+        expected: target.version,
+        swapMs: Date.now() - swapAt,
+      })
       throw new Error(
         `installed ${installed || 'an unknown version'}, expected ${target.version} — ` +
           'the published feed moved while this download was in flight; nothing was handed over.',
       )
     }
+    log.info('parent swap: complete', {
+      from: current,
+      to: installed,
+      swapped: bytes.byteLength > 0,
+      releaseHadMigrations,
+      swapMs: Date.now() - swapAt,
+      totalMs: Date.now() - startedAt,
+    })
     return { version: installed, releaseHadMigrations, swapped: bytes.byteLength > 0 }
   }
 }

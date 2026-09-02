@@ -286,8 +286,27 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const scheduleReconnect = (): void => {
     if (closing || reconnectTimer !== undefined || state === 'unauthorized' || state === 'blocked')
       return
+    const from = state
     state = 'backoff'
     const delay = reconnectBackoffMs
+    /**
+     * THE LINK GOING AWAY, AND COMING BACK (POD-3224, question 13).
+     *
+     * A coordinator applying its own grant takes this link down, so the shape of
+     * the outage is how a machine tells "the server restarted for the update I
+     * am part of" from "the network broke". The status FILE has always carried
+     * the current state; nothing carried the transitions, so afterwards there
+     * was no way to say when the link dropped, how long the backoff had grown,
+     * or how many attempts it took to come back.
+     *
+     * `info` and bounded: one line per drop, one per return. A daemon that stays
+     * connected writes none.
+     */
+    log.info('daemon link lost; backing off before reconnecting', {
+      from,
+      retryBackoffMs: delay,
+      ...(lastSocketError ? { lastError: lastSocketError } : {}),
+    })
     report({
       state: 'disconnected',
       retryBackoffMs: delay,
@@ -387,10 +406,20 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         }
       }
     }
+    const from = state
     state = 'connected'
     acceptedCaps = new Set(caps)
+    const recoveredAfterMs =
+      reconnectBackoffMs === RECONNECT_MIN_MS ? undefined : reconnectBackoffMs
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
+    log.info('daemon link established', {
+      from,
+      // The backoff this attempt had grown to. Absent on a first connection —
+      // which is itself the distinction between "came back" and "just started".
+      ...(recoveredAfterMs !== undefined ? { afterBackoffMs: recoveredAfterMs } : {}),
+      ...(lastSocketError ? { lastError: lastSocketError } : {}),
+    })
     const boot = deps.onConnected() ?? {}
     convergedVersion = boot.convergedVersion ?? convergedVersion
     report({
