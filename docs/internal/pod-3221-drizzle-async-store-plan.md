@@ -14,13 +14,16 @@ different costs:
 |---|---|---|
 | A. Drizzle query builder over the existing sync `bun:sqlite` connection | Typed queries from the schema we already maintain, one truth for column names/types, a query logger, fewer hand-written row mappers | ~530 `prepare()` sites in 45 repository files. Local to the store. |
 | B. Async repositories with an explicit executor (`db` or `tx`) | Driver independence *within the SQLite dialect*: `Bun.SQL`, libsql remote (Turso), Cloudflare D1/DO-SQLite | The whole server domain: ~620 repository methods, ~750 synchronous service methods, the sync kernel's Ledger/Authority ports, boot, 107 test files |
-| C. Postgres dialect | A shared multi-tenant database | A second schema (88 tables), a second migration journal, FTS port, a data-copy tool, and a rewrite of the backup/restore/transfer/snapshot subsystem, which is file-level |
+| B′. Backend enablement | A second backend can boot, migrate, search, back up, shut down and serve the external clients | Ports for open/migrate, search, durability, transfer and the operator clients; per-backend acceptance |
+| C. Postgres dialect | A Postgres backend, in a tenant topology still to be decided (database or schema per tenant, or shared tables with a tenant key everywhere) | A second schema (88 tables), a second migration journal, FTS port, a data-copy tool, a transactional feed-head allocator, and the durability subsystem, which is file-level today |
 
 A and B are worth doing and can be sequenced so that B is a decision gate rather than a
-prerequisite. C should stay a spike until the cloud architecture decision changes, because the
-cloud proposal on record is instance-per-tenant SQLite with no shared database
-(`docs/cloud/multitenant-cloudflare-architecture.md`), and Turso is SQLite-dialect, so B alone
-gets you Turso.
+prerequisite. B′ is what "ready" actually means and was missing from earlier revisions. C stays a
+spike until the cloud architecture decision is taken, because the cloud proposal on record is
+instance-per-tenant SQLite with no shared database
+(`docs/cloud/multitenant-cloudflare-architecture.md`), the current schema is single-tenant by
+construction (`feed_identity.singleton`, `meta.key`, natural keys without a tenant component), and
+Turso is SQLite-dialect, so B plus B′ gets you Turso without a schema twin.
 
 ---
 
@@ -257,12 +260,38 @@ size-one queue is the community's answer and this plan's.
 2. Decide the executor model up front. **A repository set bound to an executor**, not an
    executor parameter on every method: `store.issues.get(id)` is the set bound to the root
    executor, and inside `store.transact(async (tx) => tx.issues.get(id))` the same repository
-   classes are instantiated against the transaction. Method signatures and the 574 service
-   call sites keep their shape; "no repository closes over a connection" holds because the
-   set is built per executor; "never capture `tx` outside the callback" is true by
-   construction because the tx-bound set only exists inside it. Ambient depth counting is
-   retired. (Rev 8: replaces the executor-parameter design, review finding 9.)
+   classes are bound to the transaction. Method signatures and the 574 service call sites keep
+   their shape; "no repository closes over a connection" holds because the set is built per
+   executor. Ambient depth counting is retired. (Rev 8: replaces the executor-parameter design,
+   review finding 9.)
+   **Repository state is process-scoped and shared between the root and every tx set** (rev 9,
+   Codex finding 5). The classes are not stateless query bags: `GrantsRepository` owns the
+   visibility audiences and the revision counter the feed cache validates against
+   (`grants.ts:87-112`, `feed-serving.ts:475-505`); `SyncRepository` owns the latest-state cache
+   and its generation, which keys a larger feed-visibility cache (`sync-repository.ts:29-38`,
+   `feed-visibility.ts:417-449`); issues, users and repos own caches and invalidation. A fresh
+   instance per transaction would bump only its own revision or generation and leave the root's
+   feed cache valid after a grant write, which is stale authorisation after a revoke. So
+   executor-bound query operations are separated from one `RepositoryRuntimeState` graph that
+   root and tx sets share; invalidation and audience/head publication happen after commit
+   (rollback may invalidate, never publish); and the three cross-aggregate callbacks
+   (sessions → observation checkpoints, issues → repos, repos → issues, `store.ts:227-236`) are
+   bound within the set being built, never to the store's root fields. Tests write through a tx
+   set and assert that root grants, the feed world, the sync generation and the repo and issue
+   caches observe the result, and that a rollback publishes nothing.
 3. Decide whether B (async) ships with A or after it. Recommendation below.
+3a. **Decide the Postgres tenant topology before any Postgres design** (rev 9, Codex finding 8):
+   database or schema per tenant keeps the schema as it is and adds migration, pooling and
+   lifecycle obligations per tenant; shared tables need a tenant key in every primary, unique
+   and foreign key and every query, tenant-scoped feed heads, tenant context carried by the
+   executor, and row-level security as defence in depth. Until decided, no revision of this plan
+   may claim "a shared multi-tenant database" as an outcome.
+3b. **Prototype the two hardest boundaries before converting any repository** (rev 9): a tiny
+   executor proof with the connection queue, an active transaction token, nested savepoints, the
+   post-commit tail and async close; and a Postgres spike of the transactional feed-head
+   allocator through a real pool, proving that a rollback leaves no sequence hole and that the
+   entity row and the change row share one checked-out client. Their results fix the interfaces
+   every later issue uses.
 4. Driver for the SQLite path: **keep `bun:sqlite`**. `Bun.SQL`'s SQLite mode is a Promise
    wrapper over the same engine on the same thread, ignores transaction modes, and has no queue
    (§1.8), so it buys nothing and loses `serialize/deserialize` (the fast test fixture) and the
@@ -277,8 +306,13 @@ size-one queue is the community's answer and this plan's.
    `bunSqliteClient`, so anything the wrapper did (query attribution, the repos cache proxy)
    stops seeing converted queries the moment the first one lands. Steps 5a to 5c therefore
    come **before** the first repository conversion (rev 8, review finding 3):
-   5a. Move query attribution to a drizzle `logger` (was step 8). Caller stacks are captured
-       in `logQuery`, which runs synchronously in the call path.
+   5a. Move query attribution to the **execution seam, not drizzle's logger** (rev 9, Codex
+       finding 10). The logger contract is `logQuery(query, params)` with no completion, row
+       count, duration or error; the existing profiler measures wall time and rows including
+       failures. So the raw `bun:sqlite` client handed to drizzle is wrapped at `prepare`/`query`
+       so every statement drizzle runs is timed on completion with its rows, failure, normalised
+       SQL and caller. A logger may supplement it for generated SQL. Parity tests for `get`,
+       `all`, writes and thrown statements land before the first converted repository.
    5b. Replace the repos registry cache's SQL-inspecting `prepare` proxy
        (`store/repos.ts:80-105`) with an invalidation the store owns and every writer calls,
        which its own header comment already asks for once a second bypassing writer exists.
@@ -300,13 +334,20 @@ size-one queue is the community's answer and this plan's.
    - `INSERT OR REPLACE` (14 sites) → decide per site: real upsert with every column named
      in `onConflictDoUpdate` (`grants.ts:190-199` depends on REPLACE re-stamping owner and
      created_at), or keep delete-then-insert explicitly;
-   - `rowid` → an **insertion-ordinal column**, not a primary key: every affected table
-     already has one (composite on `pins`, `repos`, `maintenance_commands`; text on
+   - `rowid`: **classify each use first** (rev 9, Codex finding 11). Every affected table
+     already has a primary key (composite on `pins`, `repos`, `maintenance_commands`; text on
      `sessions`, `issues`, `messages`, `automation_runs`, `queued_messages`,
-     `upstream_outbox`, `conversations`; only `lock_waiters` is already an integer PK).
-     Each is a migration with a hand-written backfill `UPDATE … SET ord = rowid` (drizzle-kit
-     cannot generate it) plus the writer populating it. The two FTS external-content tables
-     stay on rowid behind the `SearchIndex` port and are exempt from the lint;
+     `upstream_outbox`, `conversations`; only `lock_waiters` is an integer PK), and SQLite
+     does not auto-populate a second integer column, so "an ordinal column the writer fills"
+     is not a mechanism. Where rowid is only a same-timestamp tie-break and any deterministic
+     order is acceptable, order by the timestamp then the natural key and characterise the
+     change. Where insertion order is contractual (FIFO queues, "latest run", "first
+     session"), use a real backend-generated surrogate: on SQLite an `INTEGER PRIMARY KEY`
+     with the old natural key kept `UNIQUE` (a table rebuild with a backfill from `rowid`), on
+     Postgres an identity column or, where gaplessness matters, the transactional allocator
+     from step 16. Each such table is its own migration and lands before the query that uses
+     it. The two FTS external-content tables stay on rowid behind the `SearchIndex` port and
+     are exempt from the lint;
    - `lastInsertRowid` → `RETURNING`;
    - keep FTS behind a small `SearchIndex` port with a SQLite implementation, whole raw
      statements allowed there only.
@@ -324,10 +365,25 @@ untouched, boot untouched. Reversible per aggregate.
 
 ### Stage B — async repositories and explicit transactions
 
-11. Change the port types first and let typecheck drive the rest:
-    `TransactPort` → `<T>(fn: (tx) => Promise<T>) => Promise<T>`, `AuthorityPort.commit` and
-    `Ledger.commit` → Promise, `StoreDatabaseOpener` → async. Keep the kernel free of drizzle
-    types (the lint rule); the `tx` type is opaque to the kernel.
+11. Change the port types first and let typecheck drive the rest. **The kernel is
+    parameterised on a unit of work, not handed an opaque `tx`** (rev 9, Codex finding 4):
+    today `Authority.commit` runs zero-argument `authorize`, `arbitrate.current` and `write`
+    callbacks and appends through its root `ChangeStorePort` (`authority.ts:183-224, 444-451`),
+    which is only atomic because one SQLite handle happens to be inside the open `BEGIN`. On a
+    pooled backend the entity write and the change append would commit on different clients.
+    So `TransactPort<Uow>` passes a `Uow`, `AuthorityCommit<Uow, T>` hands it to `authorize`,
+    `current` and `write`, and the Authority resolves its change store from the same `Uow`. At
+    composition the `Uow` is the tx-bound repository set: the feature write uses `uow.issues`,
+    the append uses `uow.sync`. Every storage-backed Authority method becomes async, not only
+    `commit`: baseline seed, `capture`, `reconcile`, `changesSince`, `cursor`, `bootstrap` and
+    the retention reads. `StoreDatabaseOpener` becomes `Awaitable`; the fixture's synchronous
+    clone opener is wrapped in `Promise.resolve` and its env channel is untouched (rev 9,
+    finding 12). Keep the kernel free of drizzle types (the lint rule).
+11a. **Land an await-preparation pass before the implementation flip** (rev 9, finding 12):
+    `await` on a non-Promise is legal and behaviour-preserving, so tests and call sites gain
+    their `await`s while the store is still synchronous, in commits that change no assertion.
+    The type-shape edits this forces are the one exemption from §6.1's "not the same commit"
+    rule; characterisation assertions stay unchanged.
 12. **The queued resource is the connection, not the transaction** (rev 8, findings 2 and 8).
     There is one `bun:sqlite` handle. A read issued while another task's transaction body is
     parked on an `await` runs inside that transaction and sees its uncommitted writes; if the
@@ -349,15 +405,57 @@ untouched, boot untouched. Reversible per aggregate.
       busy timeout.
     - **No I/O other than the database inside a body.** A rule, plus the watchdog to catch
       violations.
-    - **`onAppended` fires inside the span, before the queue releases**, as it does today, so
-      broadcast order stays append order (the ordered pipe in `authority.ts:493-528` and the
-      funnel's "appends arrive synchronously and in seq order" comment at `funnel.ts:301-303`
-      both depend on it). A subscriber that commits from inside a notification is the
-      re-entrancy case above.
+    - **Publication stays on the far side of commit.** Revision 8 said `onAppended` fires inside
+      the span; the code says the opposite and is right (rev 9, Codex finding 2):
+      `Authority.commit` completes `transact` and only then runs `finalize`, the "post-span
+      tail" that folds the baseline and broadcasts (`authority.ts:452-488`), and the Ledger's
+      listeners are driven by `authority.subscribe` (`ledger.ts:211-234`), so nothing observes
+      a row that could still roll back. The async design keeps three phases: the database
+      transaction; commit; then the ordered baseline update and publication. The scheduler may
+      keep its lease through phase 3 so a later commit cannot overtake publication, but the
+      SQL transaction is closed first. Subscriber callbacks stay synchronous and a returned
+      thenable is rejected, so a subscriber that wants to commit queues the next top-level
+      mutation instead of nesting a savepoint whose durability would be fate-shared with the
+      outer write.
+    - **An active transaction token, not only the callback boundary** (rev 9, finding 6). A
+      closure or a detached continuation can retain the tx set and the inherited async context
+      past commit. So every tx executor carries a token checked on every operation; the token is
+      invalidated before the outer callback's result is returned and before the connection is
+      released; a stale context rejects rather than bypassing the queue; root-executor use while
+      a tx context is active fails loudly, so a missed `tx.` conversion cannot pass silently;
+      parallel nested transaction branches are rejected rather than named by depth.
+    - **Every use of the handle goes through the scheduler, including the file-level
+      subsystem** (rev 9, finding 7): schema identity, `wal_checkpoint`, backup (which itself
+      checkpoints, `backup.ts:82-105`), the transfer fence, boot upgrades, migration and
+      `close` are exclusive operations on the same resource, otherwise a snapshot can include
+      a parked transaction or `query_only` can flip under a writer. The file-level behaviour
+      is unchanged; the code is not untouched, which corrects §6.1.
+    - **Lifecycle states `open → accepting → draining → closed`** and an async shutdown:
+      `PersistStep` becomes awaitable (`shutdown.ts:33-48` runs them without awaiting today),
+      intake and background producers stop, persistence steps are awaited in order, queued work
+      drains or is cancelled, then close. Tests cover ordinary shutdown, listen failure,
+      snapshot-before-update and the transfer fence with an intentionally parked transaction.
     - On Postgres the same queue keeps the Ledger's single-writer invariant (D10/D12.6) true
       without `SELECT … FOR UPDATE` while there is one server process per tenant.
-    - ADR 2 D10 and D12.6 get an amendment naming the queue as the mechanism; ADR 6 D5.3 gets
-      the drizzle amendment.
+    - ADR 2 D10 and D12.6 get an amendment naming the queue and the post-commit tail as the
+      mechanism, after the feed-head allocator (step 16) is specified; ADR 6 D5.3 gets the
+      drizzle amendment.
+12a. **The feed's certified reads and admission are redesigned, not audited** (rev 9, Codex
+    finding 3). `Authority.bootstrap` reads `latestChangeStates()` and then `cursor()` in one
+    synchronous pass and documents that as its no-gap argument (`authority.ts:300-339`);
+    `readChangesSince` pages to `max` relying on the synchronous single writer
+    (`change-log.ts:274-319`); `FeedServing.serveWorld` reads the world, sends it and installs
+    the peer at that head in one turn, "the one place a connection acquires a position"
+    (`feed-serving.ts:377`). Once any of these awaits, a commit or prune can land between the
+    rows and the head they certify, or after the world is read but before the peer is
+    registered, and that peer gets neither the row nor the delta: ADR 2's worst failure. Two
+    designs, both before Stage B's issue tree: (1) `bootstrap`, `changesSince`, the cursor and
+    floor checks and every paged certified read run in one read-only unit of work and return
+    the rows with the head and floor from that same snapshot; (2) feed admission becomes a
+    state machine `buffering → bootstrapped → live`: register and buffer the peer before the
+    first await, read world and head, publish the world, replay buffered deliveries strictly
+    after that head, then go live. The authorisation revision is read inside the same unit of
+    work. Tests use deterministic barriers to commit and prune inside every await gap.
 13. `SessionStore` gets an async factory (`await SessionStore.open(path, …)`); the constructor
     becomes private so an un-opened store cannot be handed to a registry. Boot heals move into
     `open()` **in the constructor's current order**: the machine-identity upgrade before any
@@ -398,14 +496,41 @@ untouched, boot untouched. Reversible per aggregate.
     be re-keyed by entity). Either one insert per row with `RETURNING seq` inside the
     transaction, or multi-row `RETURNING seq` sorted ascending and zipped to the chunk, which
     is valid only under a single writer, which the queue guarantees; measure both at 100 rows.
-    `maxChangeSeq` reads `sqlite_sequence` (`sync-repository.ts:131`); the Postgres form is the
-    sequence's `last_value`, behind the same port (rev 8, finding 5).
+    `maxChangeSeq` reads `sqlite_sequence` (`sync-repository.ts:131`), which is transactional
+    on SQLite: a rolled-back append rolls back the counter too, so the feed stays gap-free.
+    **A Postgres sequence cannot stand in for it** (rev 9, Codex finding 1): `nextval` is
+    non-transactional, a rolled-back insert burns its values, and the protocol treats
+    `seq !== cursor + 1` as a gap (`ports.ts:43-52`, ADR 2 D12). The Postgres form is a
+    transactional singleton head row per feed, allocated with
+    `UPDATE feed_head SET seq = seq + n RETURNING seq` inside the same transaction, the range
+    `head − n + 1 … head` assigned explicitly to the inserted rows, and the durable head read
+    from that row. Never `serial`, `identity`, `nextval` or `last_value` for this table. Tests:
+    a throw after allocation, a process restart, pruning, and two clients if failover can ever
+    overlap. This is the step 3b spike.
 17. Benchmarks before and after on the two paths that run thousands of queries per frame:
     feed bootstrap (`gateway/feed-serving.ts`) and issue frame reads
     (`store-issues-frame-cache.test.ts` shape). Assert the query count, not the duration.
 
-Outcome of Stage B: the store runs on any SQLite-dialect driver drizzle supports. Turso remote,
-`Bun.SQL`, D1 and DO-SQLite are configuration plus a driver adapter, not a rewrite.
+Outcome of Stage B, stated narrowly (rev 9, Codex finding 9): **the Bun/SQLite server has
+asynchronous, executor-bound repositories and every dialect-specific statement is isolated
+behind a port.** Nothing else is a configuration change yet: the migrator refuses any handle
+that is not the registered `bun:sqlite` client (`migrations/index.ts:228-258`), boot creates a
+directory, sets file PRAGMAs, builds a file-backed snapshot verifier and creates FTS5 objects,
+and the janitor, `mint-session` and the transfer path open the file themselves. Those are
+Stage B′.
+
+### Stage B′ — backend enablement (new in rev 9)
+
+18a. Ports for what is still SQLite-file-shaped after B: open and migrate, search
+    (`SearchIndex`), durability (backup, restore, snapshot verification, checkpoint), the
+    transfer fence, and the operator and maintenance clients (janitor read-only access,
+    `mint-session`'s write, the daemon's candidate-database validation).
+18b. Per-backend acceptance: a backend is supported only when it can boot a fresh database,
+    upgrade and reopen an existing one, run the full store and service suites, shut down cleanly
+    and satisfy its backup and restore story. For Postgres, the two-tenant collision test and
+    the gap-free feed test are mandatory acceptance, not a confidence sample.
+18c. Turso remote, D1 and DO-SQLite are each a B′ item with their own environment and binding
+    model, not a driver constructor swap.
 
 ### Stage C — Postgres (only if the cloud decision changes)
 
@@ -571,9 +696,13 @@ aggregate conversion:
 - **Hot paths do not regress.** Feed bootstrap and issue frame reads are measured before Stage
   B starts and after it lands; the gate is query count per request, and the budget is "no
   increase". The frame caches are removed only when their replacement holds that number.
-- **The file-level subsystem is untouched by A and B.** Backup, restore, snapshot verification,
-  transfer fence and WAL checkpoint keep working on `bun:sqlite` as they do now; the janitor's
-  read-only handle and the CLI's `mint-session` writer keep working.
+- **The file-level subsystem behaves as it does today.** Backup, restore, snapshot verification,
+  transfer fence and WAL checkpoint keep their semantics on `bun:sqlite`; in Stage B their
+  handle use goes through the scheduler as exclusive operations (step 12), so the code is
+  touched but the behaviour is not. The janitor's read-only handle and the CLI's `mint-session`
+  writer keep working.
+- **Shutdown is ordered and awaited.** Intake stops, producers stop, persistence steps are
+  awaited in order, queued work drains, then close; tested with a parked transaction.
 - **The pre-migrated test fixture keeps its speed.** Store construction in tests stays on the
   page-image path.
 - **Boot order is preserved.** The async `open()` runs migrations, repository construction and
@@ -599,13 +728,13 @@ Checkable at the end of Stage B, and the acceptance for this issue's tree:
   second export, not a rewrite.
 - The one-time boot upgrades and `PRAGMA table_info` probes are retired, not ported.
 - Sequence numbers in the sync repository come from `RETURNING`, never from rowid arithmetic.
-- **The proof:** the Stage C spike runs the store tests for three repositories (locks, accounts,
-  sync) against a real Postgres through the same executor interface, with no change to the
-  services above them. `locks` and `accounts` carry no foreign keys; the sync repository also
-  reads and writes the server-owned `queued_messages` and `upstream_outbox` tables and
-  `sqlite_sequence`, so the spike's twin includes those two tables and the sequence port
-  (rev 8, finding 10). That spike is the acceptance test of "ready", and it is listed as the
-  last sub-issue of Stage B rather than the first of Stage C.
+- **The proof is Stage B′'s acceptance, not a sample** (rev 9, Codex finding 9): "ready for
+  Postgres" is claimed only when a Postgres backend boots a fresh database, upgrades and reopens
+  one, runs the full store and service suites, shuts down cleanly, passes the two-tenant
+  collision test and the gap-free feed test. The three-repository spike (locks, accounts, sync,
+  plus `queued_messages`, `upstream_outbox` and the feed-head allocator that the sync repository
+  needs) moves **early**, to step 3b, where it informs the executor and schema design instead of
+  standing in for acceptance.
 
 ## 7. Working rules for the conversion
 
@@ -653,20 +782,16 @@ specific to this codebase, or a trap found by checking such a rule against the c
    text and captures caller stacks at `prepare`; a drizzle `logger` sees the generated SQL and
    parameters synchronously in the same call path, so stacks can be captured there. Generated
    SQL text differs from the hand-written text, so historical top-query comparisons reset once.
-9. **Builder first; the relational API where a repository assembles an aggregate.** Select,
-   insert, update, delete, expressions, prepared statements and `sql` are the default. The
-   relational query API (v2, `defineRelations`) is used where a repository today loads child
-   tables separately and groups them in JavaScript: issues with labels, deps, comments and
-   mail (`issues.ts` reads from `issue_*` tables 29 times), shipping orders with attempts,
-   steps, holds and receipts (36 child-table reads in `shipping.ts`). There it is one SQL
-   statement with JSON aggregation, generated per dialect, which is both fewer round trips
-   and the portable form of that grouping code. It is not used as a general replacement for
-   selects, and no generic base repository is introduced. Version note: v1 relations were
-   removed from SQLite in rc.4 and v2 switched to array-mode querying in rc.3 and rc.4, so pin
-   the version and expect one more adjustment before 1.0.
+9. **Builder only in Stage A; the relational API is a later, measured change.** Select,
+   insert, update, delete, expressions, prepared statements and `sql`. Aggregate assembly
+   keeps its current multi-query shape (issues read `issue_*` tables 29 times, shipping reads
+   its child tables 36 times), batched with `IN` lists where a loop is an obvious N+1. The
+   relational query API (v2, `defineRelations`) is the right form for those aggregates on a
+   networked backend and is decided separately, after drizzle 1.0 and a remote benchmark, with
+   §8.1's evidence and hazards. No generic base repository.
 10. **Incremental, and no schema redesign in the same change.** One repository per commit with
     the existing tests as the oracle. The schema changes this plan does call for (mode
-    declarations, an explicit primary key where a table is addressed by `rowid`) are additive,
+    declarations, a surrogate key or allocator where a table's `rowid` order is contractual) are additive,
     each is its own migration, and none lands in the same commit as a query conversion.
 11. **No synchronous-local-SQLite assumption in any contract.** Repository and port signatures
     are async and repositories are bound to an executor even while the driver underneath is
@@ -740,14 +865,20 @@ is the right gate (§6.1) because it is the number that changes meaning between 
 - It runs inside transactions (`tx.query.*` exists on the transaction object), so nothing in
   the executor model changes for it.
 
-**Decision.** The relational API is used wherever a read returns an aggregate root with its
-children: issues with labels, deps, comments and mail; sessions with pins, snoozes and drafts;
-shipping orders with attempts, steps, holds and receipts; superagent threads with messages.
-Those are the reads where it replaces grouping code, saves round trips on a networked backend,
-and generates the dialect-specific nesting for free. Everything else uses the builder: flat
-single-table reads gain nothing from it and would inherit the filter hazard for no benefit;
-counts, aggregates, filtering joins, FTS and unions cannot use it. The default in the plan is
-therefore "builder, with the relational API for aggregates", not one or the other everywhere.
+**Decision (revised in rev 9, Codex finding 13).** The relational API is the right tool for
+aggregate-root reads (issues with labels, deps, comments and mail; sessions with pins, snoozes
+and drafts; shipping orders with attempts, steps, holds and receipts; superagent threads with
+messages) **but not in Stage A.** Stage A's job is to replace raw SQL with the builder while
+keeping behaviour identical, and folding an aggregate-loading rewrite into the same commits
+makes characterisation failures harder to localise, adds a second relations definition to any
+future dialect twin, and takes on an API that changed in three consecutive release candidates
+and still has the undefined-filter hazard. Its benefit is round trips on a networked backend,
+which is not a Stage A requirement, and the benchmark above shows no local cost to keeping the
+current grouping shape. So: Stage A keeps the explicit multi-query aggregate assembly on the
+builder, batching obvious N+1 reads with `IN` lists. The relational API is revisited as its own
+measured change after drizzle 1.0 ships and a remote-backend benchmark shows the round trips
+are material, with the undefined-filter lint in place before its first use. The rest of this
+section stands as the evidence for that later decision.
 
 ## 9. Staff review of revision 7 (2026-09-02) and what it changed
 
@@ -769,6 +900,32 @@ three design decisions. The investigation (§1, §1.8, §1.9, §8) stood. Revisi
 | 10 | Postgres spike: the sync repository is not self-contained | medium | `queued_messages`, `upstream_outbox`, sequence port added to the spike (§6.2) |
 | 11 | 14 `INSERT OR REPLACE` sites, not 15; `grants.ts` depends on REPLACE re-stamping every column | low | Step 6 |
 | 12 | The fixture's env channel does not go away: it is still the only synchronous path from `globalSetup` to the forks | low | Step 13 |
+
+## 10. Second review (Codex gpt-5.6-sol, 2026-09-02) and revision 9
+
+A second independent reviewer, on a different model with the falsification prompt, read
+revision 8. Its full text is the issue artifact "Codex sol review of the drizzle plan". Verdict on
+revision 8: **replan before decomposition.** The author verified each finding in the code; all
+thirteen held. Revision 9 is the result, and it changes the plan's shape: a unit of work through
+the kernel, shared repository state, publication after commit, a feed admission state machine,
+a lifecycle-owning scheduler, a new backend-enablement stage, and the relational API out of
+Stage A.
+
+| # | Finding | Severity | Change made |
+|---|---|---|---|
+| 1 | A Postgres sequence is non-transactional; a rolled-back append burns values and the protocol reads `seq ≠ cursor + 1` as a gap | critical | Transactional `feed_head` row allocator; spike in step 3b; step 16 |
+| 2 | Rev 8 moved publication inside the span; the code publishes in a post-commit tail (`authority.ts:452-488`) precisely so nothing observes a row that can roll back | critical | Three phases kept; subscribers stay sync; step 12 |
+| 3 | `bootstrap`, `changesSince` and `serveWorld` are multi-call certified reads in one synchronous turn; an await between rows and head, or between world and registration, is ADR 2's invisible gap | critical | Snapshot unit of work for certified reads; `buffering → bootstrapped → live` admission; step 12a |
+| 4 | The Authority appends through its root store and its callbacks take no executor; atomic today only because one handle is inside `BEGIN`; torn on a pool | critical | `TransactPort<Uow>` through the kernel; all storage-backed Authority methods async; step 11 |
+| 5 | Repositories hold process state (grant revision and audiences, sync generation, caches); per-tx instances split it, giving stale authorisation after revoke | critical | Shared `RepositoryRuntimeState`; post-commit invalidation; callbacks bound within the set; Stage 0 step 2 |
+| 6 | A closure or detached continuation retains the tx set and inherited async context past commit; nothing enforced "nothing runs after commit" | high | Active tx token checked per operation, invalidated before return; stale context rejects; step 12 |
+| 7 | The queue did not own checkpoint, backup, fence, migration or close; shutdown does not await persistence | high | Exclusive operations through the scheduler; `open → accepting → draining → closed`; awaited `PersistStep`; step 12, §6.1 |
+| 8 | "Shared multi-tenant database" claimed with a single-tenant schema and no topology | critical | Topology decision before any Postgres design; claim removed; Stage 0 step 3a |
+| 9 | Stage B did not make any backend a configuration change; the three-repository spike cannot prove readiness before the pg schema exists | high | Stage B outcome narrowed; Stage B′ added; spike moved early; §6.2 |
+| 10 | Drizzle's logger has no completion, rows, duration or errors | high | Attribution at the execution seam around the raw client; step 5a |
+| 11 | "Ordinal column the writer fills" is not a mechanism in SQLite; rule 10 still said "explicit primary key" | high | Classify each rowid use; surrogate key or allocator where order is contractual; step 6, rule 10 |
+| 12 | Opener "async" in step 11 and "stays synchronous" in step 13; the no-same-commit rule is impossible at the Stage B flip | medium | `Awaitable` opener; await-preparation pass; scoped exemption; steps 11, 11a |
+| 13 | The relational API is an avoidable second migration inside Stage A | medium | Out of Stage A; decided later on a remote benchmark; §8.1, rule 9 |
 
 For reference, Linear's engine, which Podium's kernel resembles in shape: Postgres is the
 source of truth, every create, update and delete persists a model snapshot as a "SyncAction"
