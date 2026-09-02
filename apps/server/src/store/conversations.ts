@@ -27,8 +27,20 @@ export class ConversationsRepository {
     this.transcriptIndex = new TranscriptIndexRepository(db)
   }
 
-  ensureFts(): void {
-    this.index.ensureFts()
-    this.transcriptIndex.ensureFts()
+  /**
+   * Per-boot full-text setup, gated by the `command-palette` flag (PDM-25).
+   * Enabled: tables, triggers and a rebuild. Disabled: the conversations
+   * triggers are dropped so writes stop paying for an index nobody reads, and
+   * both repositories report unavailable, which turns search into its LIKE
+   * fallback and the transcript indexer into a no-op.
+   */
+  ensureFts(enabled: boolean): void {
+    if (enabled) {
+      this.index.enableFts()
+      this.transcriptIndex.enableFts()
+      return
+    }
+    this.index.disableFts()
+    this.transcriptIndex.disableFts()
   }
 }

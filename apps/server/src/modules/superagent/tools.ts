@@ -4,12 +4,14 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
-import { asIssueId, spawnedByTag, type ThreadId } from '@podium/model'
 import {
+  asIssueId,
   asSessionId,
+  asThreadId,
   isAgentKind,
   type SessionId,
-  asThreadId,
+  spawnedByTag,
+  type ThreadId,
   type TranscriptItem,
   WorkState,
 } from '@podium/model'
@@ -64,6 +66,9 @@ export const NOT_CONFIRMED_MSG =
 /** issue_create is always allowed (filing issues is safe), EXCEPT with start:true,
  *  which spawns a session — that path takes the same confirmed gate. */
 const CREATE_WITH_START_TOOL = 'issue_create'
+
+/** Tools that can only answer out of the full-text index (PDM-25). */
+const SEARCH_TOOLS = ['search_conversations', 'search_all']
 
 export type Args = Record<string, unknown>
 
@@ -828,6 +833,17 @@ export function buildSuperagentTools(
       },
     },
   ]
+
+  // One switch for search (PDM-25): with `command-palette` off this boot built no
+  // full-text index, so the assistant is never offered a search it cannot back.
+  // The gate reads what the store ACTUALLY built rather than re-resolving the
+  // flag, so the belt and the index can never disagree.
+  if (!store.searchIndexEnabled) {
+    for (const name of SEARCH_TOOLS) {
+      const at = tools.findIndex((t) => t.spec.name === name)
+      if (at >= 0) tools.splice(at, 1)
+    }
+  }
   if (linearKey) {
     tools.push(
       {

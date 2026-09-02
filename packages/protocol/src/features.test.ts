@@ -121,7 +121,8 @@ describe('FEATURES registry', () => {
         {
           id: 'command-palette',
           name: 'Cmd+K search',
-          description: 'Search and navigate Podium from the Cmd+K command palette.',
+          description:
+            'Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.',
           visibility: 'edge',
         },
         {
@@ -204,6 +205,46 @@ describe('resolveFeatureState matrix', () => {
     expect(
       resolveFeatureState(defs.stable, {
         channel: 'stable',
+        devMode: false,
+        configValue: false,
+        userValue: true,
+      }),
+    ).toEqual({ listed: true, enabled: false, source: 'config', locked: true })
+  })
+})
+
+/**
+ * `command-palette` is the ONE switch for search [PDM-25] — the palette AND the
+ * server's full-text index. These pin the three answers the server acts on at
+ * boot, because "off" here means no fts5 tables and no transcript indexing.
+ */
+describe('command-palette resolves search', () => {
+  const def = FEATURES.find((f) => f.id === 'command-palette')
+  if (!def) throw new Error('command-palette must stay registered — the search gate reads it')
+
+  it('is off by default, on every channel', () => {
+    expect(resolveFeatureState(def, { channel: 'edge', devMode: false })).toEqual({
+      listed: true,
+      enabled: false,
+      source: 'default',
+      locked: false,
+    })
+    expect(resolveFeatureState(def, { channel: 'stable', devMode: false }).enabled).toBe(false)
+  })
+
+  it('a user toggle turns it on where the flag is listed', () => {
+    expect(resolveFeatureState(def, { channel: 'edge', devMode: false, userValue: true })).toEqual({
+      listed: true,
+      enabled: true,
+      source: 'user',
+      locked: false,
+    })
+  })
+
+  it('config wins and locks the toggle — how a hosted instance forces search off', () => {
+    expect(
+      resolveFeatureState(def, {
+        channel: 'edge',
         devMode: false,
         configValue: false,
         userValue: true,

@@ -181,7 +181,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     kind: 'runtime-table',
     row: null,
     notEntityState:
-      'An FTS5 index over the `conversations` row, created per boot and rebuilt from it. It is a derived read structure, not durable truth: dropping it costs a reindex and loses nothing that is not in the table it indexes.',
+      'An FTS5 index over the `conversations` row, created per boot when the `command-palette` flag is on and rebuilt from the table. It is a derived read structure, not durable truth: dropping it costs a reindex and loses nothing that is not in the table it indexes.',
     writeSites: [],
   },
   {
@@ -189,7 +189,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     kind: 'runtime-table',
     row: null,
     notEntityState:
-      'An FTS5 index over mirrored transcript text, created per boot from the segments and the lake. Derived read structure, rebuilt from its sources; the classified state is `conversation_segments` and the blobs it points at.',
+      'An FTS5 index over mirrored transcript text, created per boot from the segments and the lake when the `command-palette` flag is on. Derived read structure, rebuilt from its sources; the classified state is `conversation_segments` and the blobs it points at.',
     writeSites: [],
   },
   {

@@ -1,6 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -1189,6 +1191,7 @@
         "src/test-support/capture-logs.ts",
         "src/test-support/client-principal.ts",
         "src/test-support/client-transport.ts",
+        "src/test-support/features.ts",
         "src/test-support/migrated-database.ts",
         "src/test-support/pre-migrated-store.ts",
         "src/title-filter.ts",
@@ -1746,6 +1749,7 @@
         "src/store.outbox.test.ts",
         "src/store.refs.test.ts",
         "src/store.repo-id.test.ts",
+        "src/store.search-index.test.ts",
         "src/store.test.ts",
         "src/store.ts",
         "src/store/accounts.ts",
@@ -1788,6 +1792,7 @@
         "src/store/workflows.ts",
         "src/superagent-concierge.test.ts",
         "src/superagent-headless.test.ts",
+        "src/superagent-search-tools.test.ts",
         "src/superagent.test.ts",
         "src/telemetry.test.ts",
         "src/telemetry.ts",
@@ -1796,6 +1801,7 @@
         "src/test-support/capabilities.ts",
         "src/test-support/capture-logs.ts",
         "src/test-support/client-transport.ts",
+        "src/test-support/features.ts",
         "src/test-support/migrated-database.ts",
         "src/test-support/pre-migrated-store.ts",
         "src/test-support/readiness-queue.ts",

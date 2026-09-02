@@ -61,6 +61,27 @@ UI (⌘K is #49's; SearchView rewire is a follow-on), semantic search, indexing
 non-file harnesses beyond what the lake holds, cross-machine dedup of identical
 conversations.
 
+### 2.6 Feature flag
+
+Both FTS5 indexes are gated by the `command-palette` flag (PDM-25) — the same
+switch that shows Cmd+K, because there is deliberately no second, server-only
+control over search.
+
+The flag is read ONCE, in the `SessionStore` constructor, so a change takes
+effect at the next server start. On: the tables, the three `conversations`
+triggers and a rebuild. Off: the triggers are dropped so writes stop paying for
+an index nobody reads, both FTS repositories report unavailable, and the
+transcript indexer stays inert with `indexed_bytes` parked where it was. The
+tables themselves are never dropped, which is what makes turning search back on
+cheap — `conversations_fts` rebuilds from the table, and `transcript_fts` keeps
+rows that could otherwise only be recovered by re-reading the whole lake.
+
+Off is byte-identical to what a SQLite build without FTS5 already does: search
+falls back to LIKE over `conversations`, and transcript hits are absent. The
+superagent tools `search_conversations` and `search_all` are not registered at
+all when the flag is off, so the assistant is never offered a search it cannot
+back.
+
 ## 3. Testing
 
 - Lake-fallback: daemon detached → readTranscript serves items from a seeded lake

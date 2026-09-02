@@ -1,12 +1,14 @@
-import { asMachineId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
+import { forceFeature } from '../../test-support/features'
 import { DaemonRequestBroker } from '../daemon-request'
 import { TranscriptLake } from './lake'
+import { TranscriptIndexer } from './transcript-indexer'
 
 describe('TranscriptLake mirror fence', () => {
   const cleanups: (() => void)[] = []
@@ -153,5 +155,75 @@ describe('a lake the deployment turned off', () => {
       store.close()
       rmSync(lakeDir, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * SEARCH OFF MEANS INDEX NOTHING, AND LOSE NOTHING [PDM-25].
+ *
+ * The lake keeps mirroring when search is off — the two switches are separate on
+ * purpose. What must hold is that the indexer stays inert and leaves the durable
+ * byte cursor alone, so the bytes that accumulated while it was off are indexed
+ * on the first boot that has an index again, rather than being skipped forever.
+ */
+describe('the transcript indexer follows the search flag', () => {
+  const record = (uuid: string, text: string) =>
+    `${JSON.stringify({
+      type: 'user',
+      uuid,
+      timestamp: '2026-09-01T10:00:00.000Z',
+      message: { role: 'user', content: text },
+    })}\n`
+
+  it('indexes nothing while search is off, then catches up once it is on', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-lake-flag-'))
+    const lakePath = join(dir, 'native-a.jsonl')
+    const bytes = record('u1', 'the flux capacitor drifts under load')
+    writeFileSync(lakePath, bytes)
+    const machineId = asMachineId('22222222-2222-4222-8222-222222222222')
+    const dbPath = join(dir, 'podium.db')
+
+    forceFeature('command-palette', false)
+    const off = new SessionStore(dbPath)
+    off.conversations.registry.ensure({
+      machineId,
+      nativeId: 'native-a',
+      providerId: 'claude-code-jsonl',
+      path: lakePath,
+      sizeBytes: bytes.length,
+    })
+    off.conversations.mirror.setMirrorCursor(
+      machineId,
+      'native-a',
+      bytes.length,
+      new Date().toISOString(),
+    )
+    const idle = new TranscriptIndexer({
+      mirror: off.conversations.mirror,
+      index: off.conversations.transcriptIndex,
+    })
+    idle.onBytes(machineId, 'native-a', lakePath)
+    await idle.settled()
+    // Nothing consumed and, crucially, nothing claimed: the cursor still says
+    // these bytes are unread, which is what makes the catch-up below possible.
+    expect(off.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(0)
+    idle.dispose()
+    off.close()
+
+    forceFeature('command-palette', true)
+    const on = new SessionStore(dbPath)
+    const indexer = new TranscriptIndexer({
+      mirror: on.conversations.mirror,
+      index: on.conversations.transcriptIndex,
+    })
+    indexer.onBytes(machineId, 'native-a', lakePath)
+    await indexer.settled()
+    expect(on.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(bytes.length)
+    expect(
+      on.conversations.transcriptIndex.searchCandidates('capacitor').map((c) => c.nativeId),
+    ).toEqual(['native-a'])
+    indexer.dispose()
+    on.close()
+    rmSync(dir, { recursive: true, force: true })
   })
 })
