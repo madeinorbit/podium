@@ -452,11 +452,11 @@ export async function startServer(
      */
     transcriptLake?: 'on' | 'off'
     /**
-     * The janitor worker client injected by the composition root so this app
-     * never imports another app. Presence means this server owns the janitor
-     * thread; server constructions without the injection remain janitor-free.
+     * TEST ONLY. Replaces the janitor worker client so server tests never spawn
+     * a thread (PDM-27). It is not an opt-out: absent means the real client, and
+     * every server process hosts a janitor. Production callers must not set it.
      */
-    startJanitorWorker?: import('./janitor-host').StartJanitorWorkerFn
+    janitorWorkerForTests?: import('./janitor-host').StartJanitorWorkerFn
   } = {},
 ): Promise<ServerHandle> {
   const config = loadConfig()
@@ -1394,16 +1394,17 @@ export async function startServer(
 
     settled = true
     boundPort = server.port
-    // The server owns the janitor's worker thread. Construction stays off the
-    // listen path, and the client turns faults/stalls into observable degraded
-    // state plus automatic replacement rather than request-loop failure.
+    // EVERY server process owns a janitor worker thread (PDM-27) — dev,
+    // self-hosted and cloud are the same composition, and there is no mode or
+    // environment that turns it off. Construction stays off the listen path,
+    // and the client turns faults/stalls into observable degraded state plus
+    // automatic replacement rather than request-loop failure.
     void (async () => {
-      if (!opts.startJanitorWorker) return
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
         token: bootstrapToken,
-        startJanitorWorker: opts.startJanitorWorker,
+        ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
       if (janitorHostClosing) startedJanitorHost.close()
       else janitorHost = startedJanitorHost

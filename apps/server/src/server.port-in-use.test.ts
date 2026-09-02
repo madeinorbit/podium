@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import { isAddressInUseError, PortInUseError, startServer } from './server'
 
 // Regression for issue #8: on a box where the systemd podium-server already holds
@@ -31,11 +32,14 @@ describe('startServer port-in-use handling', () => {
 
   it('rejects with a typed PortInUseError (never a swallowed throw) when the port is taken', async () => {
     useFreshStateDir('held')
-    held = await startServer({ port: 0 })
+    held = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     const { port } = held
 
     useFreshStateDir('second')
-    const outcome = await startServer({ port }).then(
+    const outcome = await startServer({
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port,
+    }).then(
       (s) => {
         // If it somehow bound, don't leak — close it, then let the assertion fail.
         void s.close()

@@ -33,6 +33,7 @@ import { createHandshakeDialer } from '@podium/protocol'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
+import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
@@ -64,7 +65,7 @@ describe('machine presence (live server, real daemon socket)', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-presence-'))
     process.env.PODIUM_STATE_DIR = stateDir
-    server = await startServer({ port: 0 })
+    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
   afterAll(async () => {
     await server.close()

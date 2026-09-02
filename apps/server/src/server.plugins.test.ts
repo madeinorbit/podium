@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import type { PodiumPluginHooks } from './plugins'
 import { startServer } from './server'
 
@@ -22,6 +23,7 @@ describe('startServer plugin seam', () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-plugin-'))
     process.env.PODIUM_STATE_DIR = stateDir
     handle = await startServer({
+      janitorWorkerForTests: noJanitorWorkerForTests,
       port: 0,
       plugins: [
         {

@@ -35,10 +35,10 @@ import {
   resolveLoggingMode,
   resolvePort,
   resolveRunRecordMode,
-  stateDir,
   resolveUpdateChannel,
   resolveUpdateFeed,
   selectInstance,
+  stateDir,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
@@ -59,14 +59,7 @@ const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
  *  silently fall through and boot the stack (issue #18). */
-const LAUNCH_BARE_WORDS: string[] = [
-  ...SUBCOMMANDS,
-  'all',
-  'setup',
-  'instance',
-  'parent',
-  'janitor',
-]
+const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'instance', 'parent']
 const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
 const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 
@@ -186,7 +179,6 @@ export type LaunchPlan =
   | { kind: 'set-server'; target: string }
   | { kind: 'server-transfer-promote'; transferId: string }
   | { kind: 'server-transfer-retire-daemon' }
-  | { kind: 'janitor'; serverUrl: string; takeover: boolean }
   /** Thin parent: supervises server (+ janitor worker) and optional daemon [POD-2505]. */
   | {
       kind: 'parent'
@@ -237,7 +229,7 @@ export type LaunchPlan =
       kind: 'in-process'
       port: number
       /** Which components this PID hosts. */
-      roles: { server: boolean; janitor: boolean; daemon: boolean }
+      roles: { server: boolean; daemon: boolean }
       /** Run-registry role to claim before binding; undefined = no claim (the
        *  headless `podium setup` path, which only serves the web setup UI). */
       claimRole: 'server' | 'daemon' | 'all-in-one' | undefined
@@ -648,22 +640,15 @@ export function resolvePlan(
   if (argv[0] === 'server-transfer-retire-daemon') {
     return { kind: 'server-transfer-retire-daemon' }
   }
-  // Internal sibling component [spec:SP-c29e]. It is deliberately not a
-  // PodiumMode: operators configure a host/server, and persistence composes the
-  // janitor automatically beside that server. Under the parent model the janitor
-  // runs as a server worker; this subcommand remains for legacy/debug.
+  // The janitor was once a sibling component with its own process and unit
+  // [spec:SP-c29e]. It is now a worker thread every server owns (PDM-27), so
+  // there is nothing here to start — a word an operator or an old script may
+  // still type, answered with the reason rather than "unknown command".
   if (argv[0] === 'janitor') {
-    const componentArgs = argv.slice(1).filter((arg) => arg !== '--takeover')
-    const takeover = argv.includes('--takeover')
-    if (componentArgs.length === 0) {
-      return { kind: 'janitor', serverUrl: localServerUrl(port), takeover }
-    }
-    if (componentArgs.length === 2 && componentArgs[0] === '--server' && componentArgs[1]) {
-      return { kind: 'janitor', serverUrl: componentArgs[1], takeover }
-    }
     return {
       kind: 'usage-error',
-      message: 'usage: podium janitor [--server <http(s)://url>] [--takeover]',
+      message:
+        'podium janitor: the janitor is a worker thread inside every Podium server — there is nothing to start.',
     }
   }
   // Thin parent process [POD-2505]: supervises server + daemon OS children.
@@ -799,17 +784,6 @@ export function resolvePlan(
   // the web setup UI (server only), claim no run-registry role.
   const runServer = forceSetup || modePlan.mode === 'all-in-one' || modePlan.mode === 'server'
   const runDaemon = !forceSetup && (modePlan.mode === 'all-in-one' || modePlan.mode === 'daemon')
-  // The modern parent/all-in-one/desktop shapes own a janitor worker in their
-  // server. A bare explicit server stays janitor-free for compatibility with
-  // legacy split-unit installs, where a sibling janitor still exists during
-  // topology migration.
-  const runJanitor =
-    !forceSetup &&
-    runServer &&
-    (modePlan.mode === 'all-in-one' ||
-      env.PODIUM_UNDER_PARENT === '1' ||
-      env.PODIUM_DESKTOP_SUPERVISED === '1' ||
-      env.PODIUM_HOST_JANITOR === '1')
   const claimRole = forceSetup
     ? undefined
     : modePlan.mode === 'server'
@@ -831,7 +805,7 @@ export function resolvePlan(
   return {
     kind: 'in-process',
     port,
-    roles: { server: runServer, janitor: runJanitor, daemon: runDaemon },
+    roles: { server: runServer, daemon: runDaemon },
     claimRole,
     runRecordMode,
     logSinkMode,
@@ -1091,11 +1065,7 @@ export function alreadyRunningMessage(
  * host modules; every other subcommand path never loads them.
  */
 export interface HostModules {
-  startServer(opts: {
-    port: number
-    /** Injected worker-thread client; keeps the server free of an app→app import. */
-    startJanitorWorker?: HostModules['startJanitorWorker']
-  }): Promise<{
+  startServer(opts: { port: number }): Promise<{
     port: number
     bootstrapToken?: string
     /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
@@ -1108,21 +1078,6 @@ export interface HostModules {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
   ): Promise<unknown>
-  startJanitorWorker(opts: { serverUrl: string; token: string }): Promise<{
-    progressVersion(): number
-    state(): 'running' | 'degraded' | 'stopped'
-    reason(): string | undefined
-    close(): void
-  }>
-  /** Legacy/debug standalone janitor command. Normal server paths use the worker above. */
-  startJanitor(opts: {
-    serverUrl: string
-    token: string
-    onCompatibilityRefusal?: (error: Error) => void
-  }): Promise<{
-    service: { progressVersion(): number }
-    close(): void
-  }>
 }
 
 /** Composition-root work that may touch the selected instance's state directory.
@@ -1211,15 +1166,12 @@ async function runInProcess(
   let serverPort = port
   let localBootstrapToken: string | undefined
   let localDaemonLink: LocalDaemonLink | undefined
-  const host = roles.server || roles.janitor || roles.daemon ? await loadHost() : undefined
+  const host = roles.server || roles.daemon ? await loadHost() : undefined
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
     try {
-      server = await startServer({
-        port,
-        ...(roles.janitor ? { startJanitorWorker: host.startJanitorWorker } : {}),
-      })
+      server = await startServer({ port })
     } catch (err) {
       // The port is taken (the common case on podium-host: the systemd podium-server
       // already owns :18787). Print actionable guidance and exit cleanly rather than
@@ -1377,7 +1329,7 @@ export async function main(
   // ONE-SHOT CONFIG MIGRATIONS, before anything reads the config (POD-333).
   //
   // Here rather than in `loadConfig` because the loader runs in every process —
-  // server, daemon, janitor, each CLI invocation — and a loader that wrote would
+  // server, daemon, each CLI invocation — and a loader that wrote would
   // have all of them racing to save the same result on every boot. This is the
   // one invocation a human ran, and it runs AFTER selectInstance so a named
   // instance migrates its own file rather than the default one's.
@@ -1686,67 +1638,6 @@ export async function main(
           console.error(`podium: topology reconcile failed: ${(error as Error).message}`)
         }
       }
-      return
-    }
-    case 'janitor': {
-      ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
-      // This is a long-lived component, not a CLI command: re-configure logging
-      // under its own role so its records go to janitor.ndjson (or journald)
-      // rather than the console the `cli` role picked.
-      const janitorLogging = configureProcessLogging({ role: 'janitor' })
-      const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
-      if (!plan.takeover) {
-        const holder = liveRecord('janitor')
-        if (holder) {
-          console.error(alreadyRunningMessage('janitor', holder))
-          process.exit(1)
-        }
-      }
-      try {
-        await registerProcess('janitor', {
-          mode: resolveRunRecordMode(process.env),
-        })
-      } catch (error) {
-        console.error((error as Error).message)
-        process.exit(1)
-      }
-      const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
-      const host = await loadHost()
-      let handle: Awaited<ReturnType<HostModules['startJanitor']>>
-      try {
-        handle = await host.startJanitor({
-          serverUrl: plan.serverUrl,
-          token: readOrCreateDaemonSecret(),
-        })
-      } catch (error) {
-        if ((error as Error).name === 'MaintenanceCompatibilityError') {
-          const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
-          console.error(`podium janitor: ${(error as Error).message}`)
-          process.exit(DAEMON_BLOCKED_EXIT_CODE)
-        }
-        throw error
-      }
-      console.log(`podium janitor up → ${plan.serverUrl}`)
-      const { startWatchdog } = await import('@podium/runtime/sd-notify')
-      // A live timer is not proof that maintenance advances: only completed
-      // janitor state-machine phases may keep the watchdog green [spec:SP-c29e].
-      const stopWatchdog = startWatchdog({
-        readProgress: () => handle.service.progressVersion(),
-      })
-      const shutdown = (): void => {
-        stopWatchdog?.()
-        handle.close()
-        // Drain before exiting so the last records of a clean shutdown are
-        // durable. Best-effort: a sink that cannot be closed must not be the
-        // reason a SIGTERM'd janitor fails to exit.
-        void janitorLogging
-          .close()
-          .catch(() => {})
-          .finally(() => process.exit(0))
-      }
-      process.on('SIGINT', shutdown)
-      process.on('SIGTERM', shutdown)
-      await new Promise(() => {})
       return
     }
     case 'repair-config': {

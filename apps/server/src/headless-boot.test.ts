@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
 
 /**
@@ -63,7 +64,7 @@ describe('a headless boot from the environment alone', () => {
     process.env.PODIUM_ALLOWED_ORIGINS = 'https://app.meetpodium.com'
     process.env.PODIUM_UPDATE_SCOPE = 'fleet-only'
     process.env.PODIUM_TRANSCRIPT_LAKE = 'off'
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
 
   afterAll(async () => {
@@ -108,7 +109,7 @@ describe('a headless instance whose UI lives somewhere else', () => {
     process.env.PODIUM_MODE = 'server'
     process.env.PODIUM_PUBLIC_URL = 'https://api.meetpodium.com'
     process.env.PODIUM_APP_URL = 'https://app.meetpodium.com'
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
 
   afterAll(async () => {

@@ -86,7 +86,7 @@
     "test:multi-instance": "bun scripts/test-heavy.ts -- bash -c \"bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts ./scripts/named-dev-release.integration.bun.test.ts && bun --bun node_modules/vitest/vitest.mjs run scripts/managed-account-spawn.integration.test.ts && bash scripts/install-sh.test.sh && bash scripts/repair-stranded-update.test.sh\"",
     "test:browser": "bun scripts/browser-lane.ts",
     "oracle": "bun scripts/oracle.ts",
-    "test:bun": "bun scripts/test-heavy.ts -- bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts --test-name-pattern ''",
+    "test:bun": "bun scripts/test-heavy.ts -- bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts scripts/server-owned-janitor.integration.bun.test.ts --test-name-pattern ''",
     "test:bun:unit": "bun scripts/validation-admission.ts focused --label test:bun:unit -- bun test --conditions=@podium/source packages/runtime/test/sqlite.bun.test.ts --test-name-pattern ''",
     "systemd:render": "bun --conditions=@podium/source scripts/render-systemd.ts --profile dev",
     "systemd:diff": "bun --conditions=@podium/source scripts/systemd-diff.ts",

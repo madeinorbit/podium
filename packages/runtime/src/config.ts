@@ -83,7 +83,6 @@
  * | PODIUM_TLS_CERT_FILE          | — (env-only)            | apps/server `tlsFromEnv()`; pairs with the key file    |
  * | PODIUM_DB_PATH                | — (env-only)            | apps/server migrations/restore.ts (`--db` default)     |
  * | PODIUM_UNDER_PARENT           | — (env-only flag)       | daemon/cli parent-supervision handshake                |
- * | PODIUM_HOST_JANITOR           | — (env-only flag)       | apps/cli janitor host placement                        |
  * | PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT | — (env-only, test) | apps/server local update participant     |
  * | test-only: PODIUM_STUB_*, PODIUM_SKIP_*, PODIUM_GROK_CHAT_OK, PODIUM_CURL_LOG,      |
  * |   PODIUM_DISCOVERY_BENCH_DB, PODIUM_FEED_PORT, PODIUM_HEADLESS_FEED_PORT — fixtures |

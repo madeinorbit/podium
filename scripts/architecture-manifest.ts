@@ -634,6 +634,18 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
 
   // L3 — features / adapters / engine.
   'packages/client-core': { layer: 3, platform: 'browser-safe', features: ['viewmodels'] },
+  // Maintenance/steward jobs (change-log + event prune, auto-archive, message
+  // expiry, connect scan) and the worker client that hosts them. node-only:
+  // node:crypto/node:path/node:worker_threads plus @podium/runtime's sqlite and
+  // config subpaths.
+  //
+  // L3 RATHER THAN AN APP (PDM-27): the loop is an ENGINE, not a composition
+  // root — its dependency profile has always been a package's (logger, model,
+  // protocol, runtime and nothing else), and `apps/server` now owns its
+  // lifecycle, which as an app-to-app edge rule 1 forbids. The same engine is
+  // what a future shared out-of-process janitor service would run, reaching its
+  // servers over the `/maintenance/*` HTTP seam it already uses.
+  'packages/janitor': { layer: 3, platform: 'node-only', features: ['maintenance-jobs'] },
   'packages/terminal-client-react': {
     layer: 3,
     platform: 'browser-safe',
@@ -644,12 +656,6 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   'apps/cli': { layer: 4, platform: 'node-only', features: ['cli-surface'] },
   'apps/daemon': { layer: 4, platform: 'node-only', features: ['daemon-surface'] },
   'apps/desktop': { layer: 4, platform: 'browser-safe', features: ['desktop-shell'] },
-  // Maintenance/steward jobs (change-log + event prune, auto-archive, message
-  // expiry, connect scan) lifted out of apps/server into their own composition
-  // root. node-only: node:crypto/node:path plus @podium/runtime's sqlite and
-  // config subpaths. NOT roleTiered — role tiers are file-level and delegated
-  // to apps/server/src/roles.ts, which janitor has no counterpart to.
-  'apps/janitor': { layer: 4, platform: 'node-only', features: ['maintenance-jobs'] },
   'apps/mobile': { layer: 4, platform: 'browser-safe', features: ['mobile-surface'] },
   'apps/server': {
     layer: 4,

@@ -3,7 +3,7 @@
 // path explicitly and worker-client.ts resolves the same path from Bun's virtual filesystem.
 
 /** Repo-relative path passed to `bun build --compile` as an extra entrypoint. */
-export const JANITOR_WORKER_ENTRY = 'apps/janitor/src/janitor-worker.ts'
+export const JANITOR_WORKER_ENTRY = 'packages/janitor/src/janitor-worker.ts'
 
 /** Whether a module URL belongs to a Bun standalone executable's virtual filesystem. */
 export function isCompiledBunfsUrl(url: string): boolean {

@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import type { UpdateGrantMessage } from '@podium/protocol'
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from '../../server/src/janitor-host'
 import { registerDevFeedRoutes } from '../../server/src/modules/updates/artifact-route'
 import { developmentArtifactUrl } from '../../server/src/modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from '../../server/src/modules/updates/signing-key'
@@ -148,7 +149,7 @@ describe('daemon update grant over the live server socket', () => {
       const bytes = packHeadless(stage, toVersion)
       const bundlePath = join(stage, 'bundle.tar.gz')
 
-      server = await startServer({ port: 0 })
+      server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
       // The server's OWN persisted instance key — the same one its handshake
       // hands the daemon to pin. Reading it here signs the artifact as the
       // publisher would; nothing about the trust root is faked.

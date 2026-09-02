@@ -697,6 +697,15 @@ arm_real_release_failure() {
   esac
 }
 
+# The upgraded server RUNS a janitor, rather than merely having no unit for one.
+# "No janitor unit" is satisfied by an install with no janitor at all, which is
+# exactly the regression PDM-27 removed the gate for: the maintenance loop is
+# only really there when /version says the component is running.
+real_janitor_running() {
+  container_http_probe "$REAL_CONSUMER" GET "http://127.0.0.1:18787/version" || return 1
+  jq -e '.components.janitor.state=="running"' >/dev/null <<<"$HTTP_BODY"
+}
+
 real_release_converged() {
   local role units
   units="$(real_exec bash -lc \
@@ -708,7 +717,8 @@ real_release_converged() {
   done
   real_exec systemctl --user is-active --quiet "$REAL_PARENT_UNIT" || return 1
   real_exec systemctl --user is-enabled --quiet "$REAL_PARENT_UNIT" || return 1
-  real_version_is "$REAL_TARGET_VERSION"
+  real_version_is "$REAL_TARGET_VERSION" || return 1
+  real_janitor_running
 }
 
 # ---------------------------------------------------------------------------

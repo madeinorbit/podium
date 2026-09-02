@@ -487,7 +487,7 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'The SQLite driver seam itself — it opens whatever database it is handed. The classes live in the tables, and the callers that own those tables are the entries above.',
     },
     {
-      file: 'apps/janitor/src/janitor.ts',
+      file: 'packages/janitor/src/janitor.ts',
       reason:
         'Opens the server database READ-ONLY to observe expiry, and writes through the maintenance lease/command rows, which are classified. It introduces no store of its own.',
     },

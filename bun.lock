@@ -75,20 +75,6 @@
         "vitest": "5.0.0-beta.6",
       },
     },
-    "apps/janitor": {
-      "name": "@podium/janitor",
-      "version": "0.0.0",
-      "dependencies": {
-        "@podium/logger": "workspace:*",
-        "@podium/model": "workspace:*",
-        "@podium/protocol": "workspace:*",
-        "@podium/runtime": "workspace:*",
-      },
-      "devDependencies": {
-        "typescript": "^6.0.3",
-        "vitest": "5.0.0-beta.6",
-      },
-    },
     "apps/mobile": {
       "name": "@podium/mobile",
       "version": "0.0.0",
@@ -162,6 +148,7 @@
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/issue-client": "workspace:*",
+        "@podium/janitor": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
@@ -357,6 +344,20 @@
         "@podium/protocol": "workspace:*",
         "@trpc/client": "^11.0.0",
         "zod": "^3.24.0",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
+      },
+    },
+    "packages/janitor": {
+      "name": "@podium/janitor",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/logger": "workspace:*",
+        "@podium/model": "workspace:*",
+        "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
       },
       "devDependencies": {
         "typescript": "^6.0.3",
@@ -1266,7 +1267,7 @@
 
     "@podium/issue-client": ["@podium/issue-client@workspace:packages/issue-client"],
 
-    "@podium/janitor": ["@podium/janitor@workspace:apps/janitor"],
+    "@podium/janitor": ["@podium/janitor@workspace:packages/janitor"],
 
     "@podium/keyecho": ["@podium/keyecho@workspace:tests/keyecho"],
 

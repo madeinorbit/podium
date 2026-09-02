@@ -1,6 +1,6 @@
 # Logging (for agents)
 
-Everything Podium runs — server, daemon, janitor, CLI, web, desktop webview, the
+Everything Podium runs — server, daemon, CLI, web, desktop webview, the
 Expo app — logs through **one core**, `@podium/logger`. `console.*` in product
 source is a lint failure (`console-ownership` in
 [`scripts/check-boundaries.ts`](../../scripts/check-boundaries.ts)); the
@@ -87,7 +87,7 @@ absent.
 | role | `v` | set by |
 |------|-----|--------|
 | released binary (any role) | the release version, e.g. `0.9.9` | `PODIUM_APP_VERSION`, baked in by `scripts/build-bun.ts` |
-| server / daemon / janitor / cli from source | `dev+<short sha>`, plus `-dirty` when the tree differs from that commit | `resolveLogVersion` in `packages/runtime/src/logging.ts` |
+| server / daemon / cli from source | `dev+<short sha>`, plus `-dirty` when the tree differs from that commit | `resolveLogVersion` in `packages/runtime/src/logging.ts` |
 | web / desktop (the same bundle) | `PODIUM_APP_VERSION`, or `dev+<short sha>` on a dest host | `pageBuildVersion` in `apps/web/src/lib/logging/build-version.ts`, from `<meta name="podium-version">` or the Vite define |
 | mobile | the build-time inline, else `dev` | `appVersion()` in `apps/mobile/src/lib/logging.ts` |
 
@@ -107,7 +107,7 @@ presence. Those assertions exist now; if you add a role, add one for it too.
 
 | Where | How |
 |---|---|
-| Server / daemon / janitor / CLI | `PODIUM_LOG_LEVEL=debug` for everything |
+| Server / daemon / CLI | `PODIUM_LOG_LEVEL=debug` for everything |
 | One namespace | `PODIUM_LOG='daemon:*=debug'` — comma/space separated, most specific pattern wins |
 | Clients (no env: browser, webview, phone) | `podium logs level debug --role web` from a shell on the server host — see below |
 | A REMOTE machine's daemon (no shell on it) | `podium logs daemon-level debug --machine <id>` from the coordinating server — see below |
@@ -241,7 +241,7 @@ which pushes a `setDaemonLogLevel` control frame down the daemon socket.
 The two process families wire different sink sets, and the difference matters
 when you are wondering where a line went.
 
-**Server family** (server, daemon, janitor, CLI) gets **exactly one** sink,
+**Server family** (server, daemon, CLI) gets **exactly one** sink,
 chosen by how the process is supervised — no double-writing:
 
 | Supervised as | Sink | Destination |

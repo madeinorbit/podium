@@ -14,6 +14,7 @@
     "@podium/logger": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/issue-client": "workspace:*",
+    "@podium/janitor": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",

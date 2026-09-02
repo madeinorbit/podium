@@ -1,6 +1,6 @@
 // Detached spawn + ensure-up for the split headless backend. Under the parent
 // model [POD-2505] a host box starts one detached `parent` which supervises
-// server (+ janitor worker) and optional daemon. Daemon-only joins still spawn
+// server (+ its janitor worker) and optional daemon. Daemon-only joins still spawn
 // a bare daemon. See docs/internal/superpowers/specs/2026-08-20-updater-convergence-spec.md
 import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync, openSync } from 'node:fs'
@@ -36,7 +36,7 @@ export interface SpawnOpts {
 
 /** Spawn one component detached, logging to ~/.podium/logs/<role>.log. Returns its PID. */
 export function spawnDetached(
-  sub: 'parent' | 'server' | 'janitor' | 'daemon',
+  sub: 'parent' | 'server' | 'daemon',
   opts: SpawnOpts = {},
 ): number | undefined {
   mkdirSync(logDir(), { recursive: true })
@@ -119,4 +119,3 @@ export async function ensureDetachedUp(
   if (config.mode !== 'daemon') await waitForHealth(port)
   return { started: ['parent'] }
 }
-

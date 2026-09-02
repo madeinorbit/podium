@@ -5,7 +5,10 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/janitor.ts"
+    ".": "./src/janitor.ts",
+    "./worker-client": "./src/worker-client.ts",
+    "./worker-embed": "./src/janitor-worker-embed.ts",
+    "./worker": "./src/janitor-worker.ts"
   },
   "dependencies": {
     "@podium/logger": "workspace:*",

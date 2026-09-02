@@ -54,7 +54,9 @@ import { developmentLogVersion } from './source-version'
 export type LoggingMode = 'systemd' | 'detached' | 'foreground'
 
 export interface ProcessLoggingOptions {
-  /** `server` | `daemon` | `janitor` | `all-in-one` | `cli` — names the file too. */
+  /** `server` | `daemon` | `all-in-one` | `cli` — names the file too. (`janitor`
+   *  is still a RunRole for retiring legacy installs, but no process claims it:
+   *  the janitor is a thread inside the server and logs through its sink.) */
   role: string
   /** Defaults to `resolveLoggingMode(env)`. */
   mode?: LoggingMode
@@ -99,7 +101,7 @@ export function logFilePath(role: string, dir: string = logDir()): string {
  * The handle from the most recent call, so a second call can replace the first
  * rather than stack a sink on top of it. The CLI needs exactly that: it
  * configures as `cli` before it knows what it was asked to do, and a `podium
- * janitor` re-configures as `janitor` once it does.
+ * server` re-configures as `server` once it does.
  */
 let current: ProcessLogging | undefined
 
@@ -131,7 +133,7 @@ export function resolveLogVersion(env: EnvSource = process.env): string {
  *
  * IDEMPOTENT BY REPLACEMENT: calling it again closes whatever the previous call
  * registered. Without that, the CLI's `cli` sink would still be registered
- * alongside the `janitor` one and every record would be written twice.
+ * alongside the `server` one and every record would be written twice.
  */
 export function configureProcessLogging(options: ProcessLoggingOptions): ProcessLogging {
   const env = options.env ?? process.env

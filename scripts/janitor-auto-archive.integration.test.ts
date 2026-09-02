@@ -24,8 +24,8 @@ import { join } from 'node:path'
 import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { IssueAutoArchiveReader, SessionAutoArchiveReader } from '../apps/janitor/src/janitor'
 import { type IssueRow, type SessionRow, SessionStore } from '../apps/server/src/store'
+import { IssueAutoArchiveReader, SessionAutoArchiveReader } from '../packages/janitor/src/janitor'
 
 const OTHER_USER = asUserId('user:other')
 const READ_OLD = '2026-07-01T00:00:00.000Z'

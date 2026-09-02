@@ -2627,7 +2627,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     sites: [
       '`maintenance_leases`',
       'apps/server/src/store/maintenance.ts',
-      'apps/janitor/src/janitor.ts',
+      'packages/janitor/src/janitor.ts',
       '[spec:SP-c29e]',
     ],
     idMinting: 'Key `name`; the holder is `(generation_id, fencing_token)`',

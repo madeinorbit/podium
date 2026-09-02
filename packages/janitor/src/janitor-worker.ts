@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads'
-import { MaintenanceCompatibilityError, startJanitor, type JanitorHandle } from './janitor'
+import { type JanitorHandle, MaintenanceCompatibilityError, startJanitor } from './janitor'
 import type { JanitorWorkerStartOptions } from './worker-client'
 
 type ControlMessage =
