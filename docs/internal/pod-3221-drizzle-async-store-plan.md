@@ -460,14 +460,69 @@ Outcome of Stage B: the store runs on any SQLite-dialect driver drizzle supports
 
 ---
 
-## 5. Open questions for the human
+## 5. Decisions taken (2026-09-02)
 
-1. Is Postgres in the cloud a real direction, or is instance-per-tenant SQLite still the plan?
-   The answer decides whether Stage C is a spike or a stage.
-2. For self-hosted Turso: remote-only (pure JS, every query over the network) or embedded
-   replica (needs a native addon shipped beside the binary)? They are different products.
-3. Do we accept the async cost on the hot read paths (feed bootstrap, issue frames) as the
-   price of driver independence, or do we want a measured budget before Stage B starts?
-4. Given that async SQLite gives no event-loop relief and needs a queue whatever the driver
-   (§1.8, §1.9), is Stage B worth starting before a networked backend is actually chosen, or
-   should A ship alone and B wait for that decision?
+1. **Postgres on the server is a real direction.** Stages A and B are the preparation for it
+   and are both in scope. Stage C remains a spike until the cloud architecture decision is
+   revisited, but A and B are done so that C needs no rework of the store.
+2. **The size-one transaction queue in front of `bun:sqlite` is the mechanism** for async
+   transactions on SQLite (§1.8, §1.9). No driver switch: `bun:sqlite` stays.
+3. **Two requirements govern every step.** Podium as it exists keeps running exactly as it does
+   today on SQLite, and the server is ready for Postgres at the end. Section 6 turns both into
+   checkable criteria.
+4. Still open, not blocking: self-hosted Turso as remote-only (pure JS) or embedded replica
+   (native addon beside the binary). Nothing in A or B depends on the answer.
+
+## 6. Definition of done
+
+### 6.1 "Keeps running stably as it is today"
+
+Every landed step must satisfy all of these, and they are the review checklist for each
+aggregate conversion:
+
+- **No behaviour change on SQLite.** The existing store and service tests are the oracle and
+  are not rewritten in the same commit as the implementation they cover. Where an
+  `INSERT OR REPLACE` site's cascade was load-bearing, the delete-then-insert stays explicit.
+- **Landed per aggregate, on `main`, each commit revertible on its own.** No long-lived branch.
+  A conversion that cannot land alone is split until it can.
+- **The queue is proven, not assumed.** A test drives concurrent top-level transactions with
+  awaits inside their bodies and asserts no lost update, no interleaved `BEGIN`, and that a
+  throw rolls back only its own transaction. This test exists before the first async
+  repository lands.
+- **Nothing runs after its commit.** The Ledger's thenable guard is replaced by a test that
+  fails if a transaction body can touch the connection after `COMMIT`; the `tx` handle is the
+  only executor inside a body.
+- **Hot paths do not regress.** Feed bootstrap and issue frame reads are measured before Stage
+  B starts and after it lands; the gate is query count per request, and the budget is "no
+  increase". The frame caches are removed only when their replacement holds that number.
+- **The file-level subsystem is untouched by A and B.** Backup, restore, snapshot verification,
+  transfer fence and WAL checkpoint keep working on `bun:sqlite` as they do now; the janitor's
+  read-only handle and the CLI's `mint-session` writer keep working.
+- **The pre-migrated test fixture keeps its speed.** Store construction in tests stays on the
+  page-image path.
+- **Boot order is preserved.** The async `open()` runs migrations, repository construction and
+  the boot heals in the same order the constructor does today, and nothing reads the store
+  before `open()` resolves.
+
+### 6.2 "Ready for Postgres on the server"
+
+Checkable at the end of Stage B, and the acceptance for this issue's tree:
+
+- Every repository method takes an executor (`db` or `tx`) and returns a Promise. No
+  repository closes over a connection. `SessionStore.transact` is the only way to open a
+  transaction and it runs through the queue.
+- No SQLite-only construct remains in a repository query body: no bare `rowid`,
+  `INSERT OR REPLACE`, `PRAGMA`, `sqlite_master`, `lastInsertRowid`, `GLOB`, hand-built `?`
+  placeholder lists, or `? 1 : 0` boolean encodings. A boundaries-style lint over
+  `apps/server/src/store/**` and the sync adapter enforces the list so it cannot regress.
+- Full-text search sits behind a `SearchIndex` port with the SQLite FTS5 implementation as its
+  only member; the `sql\`\`` escape hatch is allowed there and nowhere else.
+- Schema columns declare their modes (`boolean`, `json`, timestamps) so a `pg-core` twin can be
+  generated from the same declarations; `brandedRef` is written so a Postgres variant is a
+  second export, not a rewrite.
+- The one-time boot upgrades and `PRAGMA table_info` probes are retired, not ported.
+- Sequence numbers in the sync repository come from `RETURNING`, never from rowid arithmetic.
+- **The proof:** the Stage C spike runs the store tests for three repositories (locks, accounts,
+  sync) against a real Postgres through the same executor interface, with no change to the
+  services above them. That spike is the acceptance test of "ready", and it is listed as the
+  last sub-issue of Stage B rather than the first of Stage C.
