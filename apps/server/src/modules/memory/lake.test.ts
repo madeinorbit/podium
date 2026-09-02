@@ -110,3 +110,48 @@ describe('TranscriptLake mirror fence', () => {
     expect(readFileSync(lakePath)).toEqual(content)
   })
 })
+
+/**
+ * `transcriptLake: 'off'` (PDM-26) reaches the lake as an ABSENT lake dir, which
+ * is the no-op shape it already supported — the mirror and the indexer are
+ * simply never constructed.
+ */
+describe('a lake the deployment turned off', () => {
+  it('constructs no mirror and no indexer', () => {
+    const store = new SessionStore(':memory:')
+    const daemonRequest = new DaemonRequestBroker({
+      toMachine: () => {},
+      defaultMachine: () => asMachineId('m1'),
+    })
+    const lake = new TranscriptLake(
+      { store: store.conversations, now: Date.now, daemonRequest },
+      {},
+    )
+    try {
+      expect(lake.mirroring).toBe(false)
+    } finally {
+      lake.dispose()
+      store.close()
+    }
+  })
+
+  it('a lake with a dir does mirror — the flag is the only difference', () => {
+    const store = new SessionStore(':memory:')
+    const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-on-'))
+    const daemonRequest = new DaemonRequestBroker({
+      toMachine: () => {},
+      defaultMachine: () => asMachineId('m1'),
+    })
+    const lake = new TranscriptLake(
+      { store: store.conversations, now: Date.now, daemonRequest },
+      { mirrorLakeDir: lakeDir },
+    )
+    try {
+      expect(lake.mirroring).toBe(true)
+    } finally {
+      lake.dispose()
+      store.close()
+      rmSync(lakeDir, { recursive: true, force: true })
+    }
+  })
+})

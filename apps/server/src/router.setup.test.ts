@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FIRST_ADMIN_USER_ID, type ServerReadiness } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
-import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { LAYERED_KEYS, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
@@ -142,9 +142,19 @@ describe('setup tRPC', () => {
   it('info reports the current mode + publicUrl (for Settings → Network)', async () => {
     // appVersion is the baked build version ('dev' from source) [POD-838].
     const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
+    // Every layered value carries the LAYER that answered (PDM-26), so a control
+    // can render disabled and name the variable holding it rather than offering
+    // a write the environment overrides.
     expect(await caller().setup.info()).toEqual({
       mode: null,
+      modeSource: 'default',
       publicUrl: null,
+      publicUrlSource: 'default',
+      publicUrlVerified: null,
+      allowedOrigins: [],
+      allowedOriginsSource: 'default',
+      transcriptLake: 'on',
+      transcriptLakeSource: 'default',
       networkOption: null,
       serverUrl: null,
       appVersion,
@@ -156,7 +166,14 @@ describe('setup tRPC', () => {
     })
     expect(await caller().setup.info()).toEqual({
       mode: 'all-in-one',
+      modeSource: 'file',
       publicUrl: 'https://box.ts.net',
+      publicUrlSource: 'file',
+      publicUrlVerified: null,
+      allowedOrigins: [],
+      allowedOriginsSource: 'default',
+      transcriptLake: 'on',
+      transcriptLakeSource: 'default',
       networkOption: 'tailscale-serve',
       serverUrl: null,
       appVersion,
@@ -454,5 +471,62 @@ describe('fleet default channel refresh ordering', () => {
       if (prior === undefined) delete process.env.PODIUM_UPDATE_CHANNEL
       else process.env.PODIUM_UPDATE_CHANNEL = prior
     }
+  })
+})
+
+/**
+ * ONE provenance surface (PDM-26). The web reads this once and every settings
+ * control asks it the same question, instead of a per-key `envForced` boolean
+ * growing next to each accessor it can drift from.
+ */
+describe('instance provenance', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('names a layer for every layered key', () => {
+    const provenance = new InstanceService({}).provenance()
+    for (const key of LAYERED_KEYS) {
+      expect(provenance[key]).toBeDefined()
+      expect(['env', 'file', 'default']).toContain(provenance[key].source)
+    }
+  })
+
+  it('reports env AND the variable to unset when one is set', () => {
+    vi.stubEnv('PODIUM_UPDATE_CHANNEL', 'edge')
+    vi.stubEnv('PODIUM_MODE', 'server')
+    const provenance = new InstanceService({}).provenance()
+    expect(provenance.updateChannel).toEqual({ source: 'env', env: 'PODIUM_UPDATE_CHANNEL' })
+    expect(provenance.mode).toEqual({ source: 'env', env: 'PODIUM_MODE' })
+  })
+
+  it('reports file when config.json answered, and never leaks the value', () => {
+    saveConfig({ ...loadConfig(), updateChannel: 'edge' })
+    const provenance = new InstanceService({}).provenance()
+    expect(provenance.updateChannel).toEqual({ source: 'file' })
+  })
+
+  it('channel() derives envForced from provenance and reports the update scope', () => {
+    vi.stubEnv('PODIUM_UPDATE_SCOPE', 'fleet-only')
+    expect(new InstanceService({}).channel()).toMatchObject({
+      envForced: false,
+      updateScope: 'fleet-only',
+      updateScopeSource: 'env',
+    })
+  })
+
+  it('refuses setup.connect and setup.join when the environment owns the mode', () => {
+    vi.stubEnv('PODIUM_MODE', 'server')
+    const service = new InstanceService({ callerUserId: FIRST_ADMIN_USER_ID })
+    expect(() => service.connect({ mode: 'all-in-one' })).toThrow(/PODIUM_MODE/)
+    expect(() => service.join('anything')).toThrow(/PODIUM_MODE/)
+  })
+
+  it('refuses setup.complete when the environment owns the public URL', async () => {
+    vi.stubEnv('PODIUM_PUBLIC_URL', 'https://api.example')
+    const service = new InstanceService({ callerUserId: FIRST_ADMIN_USER_ID })
+    await expect(
+      service.complete({ publicUrl: 'https://other.example', acknowledgeNoPassword: true }),
+    ).rejects.toThrow(/PODIUM_PUBLIC_URL/)
   })
 })

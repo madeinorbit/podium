@@ -1,6 +1,7 @@
 /**
- * THE SEVEN INSTANCE QUERIES — `setup.info · setup.options · setup.commandFor ·
- * setup.channel`, `auth.status`, `telemetry.state · telemetry.preview`.
+ * THE EIGHT INSTANCE QUERIES — `setup.info · setup.options · setup.commandFor ·
+ * setup.channel · setup.provenance`, `auth.status`, `telemetry.state ·
+ * telemetry.preview`.
  *
  * Tables rather than read contracts: a `visibility` class describes what a
  * command WRITES and a read writes nothing. Three tables for the same reason
@@ -44,6 +45,17 @@ export const SETUP_QUERIES = {
     (service, input) => service.commandFor(input.option, input.port),
   ),
   channel: query(noInput, (service) => service.channel()),
+  /**
+   * WHICH LAYER ANSWERED, for every key with an env layer (PDM-26).
+   *
+   * NAMES, NEVER VALUES: it reports the variable a key reads and which of env /
+   * file / default won — never what any of them contain — which is what makes
+   * one query safe to serve for every settings control at once.
+   *
+   * On the `setup` family because that is this service's wire family; the
+   * service it comes from is `InstanceService`.
+   */
+  provenance: query(noInput, (service) => service.provenance()),
 } as const
 
 export const AUTH_QUERIES = {

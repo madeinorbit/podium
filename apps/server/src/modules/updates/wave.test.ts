@@ -586,3 +586,55 @@ describe('the coordinator this server runs on', () => {
     expect(planWave(ctx)).toEqual(decideWave(ctx).selected)
   })
 })
+
+/**
+ * `updateScope: 'fleet-only'` (PDM-26) — the deployment replaces the server
+ * binary itself, so the coordinator row is not a machine this planner may act
+ * on. Excluded, not held: a hold is something a human can wait out, and this
+ * one never resolves.
+ */
+describe('a coordinator the deployment owns', () => {
+  const coordinator = (over: Partial<WaveMachine> = {}) =>
+    m({ id: 'z-coordinator', coordinator: true, ...over })
+
+  it('is removed from eligibility entirely, not held', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      coordinatorExcluded: true,
+      machines: [m({ id: 'a' }), coordinator()],
+    })
+    expect(decision.selected).toEqual(['a'])
+    expect(decision.held.map((held) => held.id)).not.toContain('z-coordinator')
+  })
+
+  it('plans EMPTY on a fleet where it is the only machine, never complete', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: false,
+      coordinatorExcluded: true,
+      machines: [coordinator()],
+    })
+    expect(decision.selected).toEqual([])
+    expect(decision.held).toEqual([])
+  })
+
+  it('is still not granted once every other machine has reached the target', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      coordinatorExcluded: true,
+      machines: [m({ id: 'a', version: '0.4.2' }), coordinator()],
+    })
+    expect(decision.selected).toEqual([])
+  })
+
+  it('without the flag, the coordinator is still merely held last', () => {
+    const decision = decideWave({
+      ...base,
+      canaryHealthy: true,
+      machines: [m({ id: 'a' }), coordinator()],
+    })
+    expect(decision.held).toEqual([{ id: 'z-coordinator', reason: 'coordinator-last' }])
+  })
+})

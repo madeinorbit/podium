@@ -71,6 +71,16 @@ export interface UpdatesDeps {
    * `resolveMachineChannel`.
    */
   fleetChannel?(): UpdateChannel
+  /**
+   * IS THIS SERVER'S OWN BINARY OURS TO REPLACE? (PDM-26, `updateScope`)
+   *
+   * `false` under `fleet-only`: the deployment replaces the server out-of-band,
+   * and the coordinator row is dropped from wave planning rather than held
+   * `coordinator-last` — a hold nothing would ever take. Read per call, like
+   * `fleetChannel`, so it follows a Settings write without a restart. Absent
+   * means `all`, which is every self-hosted install.
+   */
+  coordinatorExcluded?(): boolean
   /** Overridable only so tests can exercise the forced-check window. */
   forcedCheckIntervalMs?: number
   /**
@@ -1145,6 +1155,8 @@ export class UpdatesService {
       trust: target.trust,
       // …and never a machine this release contains no bytes for (POD-2783).
       platforms: targetPlatforms(target),
+      // …and never this server itself when the deployment owns its binary.
+      ...(this.deps.coordinatorExcluded?.() ? { coordinatorExcluded: true } : {}),
     })
     const selected = decision.selected
     /**

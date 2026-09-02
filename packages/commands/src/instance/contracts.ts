@@ -156,6 +156,15 @@ export const setupCompleteInput = z.object({
    *  guard, a follow-up telemetry call from the not-yet-logged-in setup page
    *  would 401. Absent = not asked. */
   telemetry: z.object({ usage: z.enum(['on', 'off']), crash: z.enum(['on', 'off']) }).optional(),
+  /**
+   * Acknowledge that replacing an ALREADY-SET public URL strands every joined
+   * machine (PDM-26): the old URL is embedded in every join token issued and
+   * every paired device's record, and none of them can be told about the new
+   * one. Never needed for the first URL, and writing the same URL again is
+   * idempotent — so it is only ever collected when a live deployment's address
+   * is actually being changed.
+   */
+  confirmUrlChange: z.literal(true).optional(),
 })
 
 export const setupCompleteContract = {

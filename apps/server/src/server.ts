@@ -115,17 +115,17 @@ import {
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import type { PodiumPlugin } from './plugins'
 import {
-  authReadinessBoundary,
-  isHostLocalRequest,
-  isHostSetupBootstrap,
-  readinessBoundary,
-} from './readiness-boundary'
-import {
   type PublicUrlProbe,
   type PublicUrlVerification,
   setProcessPublicUrlProbe,
   startPublicUrlProbe,
 } from './public-url-probe'
+import {
+  authReadinessBoundary,
+  isHostLocalRequest,
+  isHostSetupBootstrap,
+  readinessBoundary,
+} from './readiness-boundary'
 import { registerReadinessRoute } from './readiness-route'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -554,7 +554,11 @@ export async function startServer(
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
-    mirrorLakeDir: join(stateDir(), 'transcripts'),
+    // Absent under `transcriptLake: 'off'` (PDM-26), which is the no-op shape
+    // TranscriptLake already supports — the mirror and the indexer are simply
+    // never constructed. Spread rather than `undefined` so its absence keeps
+    // meaning exactly what it means for every test that omits it today.
+    ...(lakeEnabled ? { mirrorLakeDir: join(stateDir(), 'transcripts') } : {}),
     portableStateFence,
     // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
     // owner and revocation at the state-root tier, outside podium.db. Opened
@@ -566,6 +570,10 @@ export async function startServer(
     // local daemon's `hello` path is untouched.
     ...(role.hub ? { pairing: new PairingManager() } : {}),
     updatePubkey: () => updateSigningKey.publicKey,
+    // Under `updateScope: 'fleet-only'` this server's binary belongs to the
+    // deployment, so the wave planner drops the coordinator row instead of
+    // holding it for a step nothing will ever take (PDM-26).
+    ...(fleetOnly ? { coordinatorExcluded: () => true } : {}),
     updateKeyRotations: () => updateSigningKey.rotations,
     // Live model enumeration is only wired in the real process; tests get the empty
     // default and nothing is ever asked of a daemon.
@@ -706,21 +714,31 @@ export async function startServer(
    * parameter did not have.
    */
   let pendingCoordinatorVersion: string | undefined
-  const requestCoordinatorRestart = developmentRuntime.runningFromSource
-    ? createSourceRedeployRequest({ instanceId })
-    : createInstalledCoordinatorRestart({
-        instanceId,
-        port: () => boundPort,
-        pendingVersion: () => pendingCoordinatorVersion,
-      })
-  const prepareCoordinatorUpdate = developmentRuntime.runningFromSource
+  /**
+   * BY CONSTRUCTION, NOT BY PROBE (PDM-26). `canRestartServer` is derived from
+   * `requestCoordinatorRestart` being present (operation.ts), and under
+   * `fleet-only` the deployment replaces this binary itself — so the honest way
+   * to say "there is no server step here" is to not have one, rather than to
+   * rely on a container happening to have no parent supervisor.
+   */
+  const requestCoordinatorRestart = fleetOnly
     ? undefined
-    : createInstalledCoordinatorUpdate({
-        pinnedPubkey: updateSigningKey.publicKey,
-        onInstalled: (version) => {
-          pendingCoordinatorVersion = version
-        },
-      })
+    : developmentRuntime.runningFromSource
+      ? createSourceRedeployRequest({ instanceId })
+      : createInstalledCoordinatorRestart({
+          instanceId,
+          port: () => boundPort,
+          pendingVersion: () => pendingCoordinatorVersion,
+        })
+  const prepareCoordinatorUpdate =
+    fleetOnly || developmentRuntime.runningFromSource
+      ? undefined
+      : createInstalledCoordinatorUpdate({
+          pinnedPubkey: updateSigningKey.publicKey,
+          onInstalled: (version) => {
+            pendingCoordinatorVersion = version
+          },
+        })
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
@@ -798,16 +816,20 @@ export async function startServer(
    * process listing and a pidfile to explain.
    *
    * A packaged coordinator declining is the surprising case and the one worth a
-   * warning; a source checkout is the documented shape and stays at debug.
+   * warning; a source checkout, and a deployment that has DECLARED it owns this
+   * binary (`updateScope: 'fleet-only'`), are documented shapes and stay quiet.
    */
   if (localUpdateParticipant === undefined) {
-    const why = developmentRuntime.runningFromSource
-      ? 'this coordinator runs from source'
-      : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
-        ? 'the local participant is disabled for this run'
-        : 'no supervising parent is discoverable in the run registry'
+    const why = fleetOnly
+      ? 'this deployment owns the server binary (updateScope=fleet-only)'
+      : developmentRuntime.runningFromSource
+        ? 'this coordinator runs from source'
+        : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
+          ? 'the local participant is disabled for this run'
+          : 'no supervising parent is discoverable in the run registry'
     const note = `this machine will not report its build or appear online in its own fleet: ${why}`
-    if (developmentRuntime.runningFromSource) log.debug(note)
+    if (fleetOnly) log.info(note)
+    else if (developmentRuntime.runningFromSource) log.debug(note)
     else log.warn(note)
   }
 

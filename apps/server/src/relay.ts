@@ -196,6 +196,13 @@ interface SessionRegistryOptions {
   /** Signed transition path to the current update key. */
   updateKeyRotations?: () => readonly UpdateKeyRotation[]
   /**
+   * Is this server's own binary the deployment's to replace rather than the
+   * updater's? (PDM-26, `updateScope: 'fleet-only'`.) Stated by the composition
+   * root, which is the only place that reads the deployment's environment.
+   * Absent means `all` — every self-hosted install.
+   */
+  coordinatorExcluded?: () => boolean
+  /**
    * This installation's own `dev` feed — address, origin fence, trust root and
    * machine credential. Read PER RESOLVE, because a Settings write to Public URL
    * or a remote machine joining the fleet both change the answer.
@@ -615,6 +622,7 @@ export class SessionRegistry {
       channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),
       now: this.now,
+      ...(options.coordinatorExcluded ? { coordinatorExcluded: options.coordinatorExcluded } : {}),
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       nextGrantId: () => randomUUID(),
       // EVERY channel through one resolver (spec §1). `dev` needs this
