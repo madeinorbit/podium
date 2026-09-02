@@ -52,21 +52,19 @@ import type {
 } from '@podium/protocol'
 import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type {
+  ControlMessage,
+  DaemonMessage,
   RuntimeAttachmentRef,
   RuntimeConfigureResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
   RuntimeStageAttachmentResultMessage,
-  TurnDelivery,
-  TurnReceipt,
-} from '@podium/protocol/daemon'
-import type {
-  ControlMessage,
-  DaemonMessage,
   ShippingEvidenceResultMessage,
   ShippingJobRequestMessage,
   ShippingJobResult,
   ShippingRepairApplyResultMessage,
+  TurnDelivery,
+  TurnReceipt,
 } from '@podium/protocol/daemon'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
@@ -79,9 +77,9 @@ import {
 import type { LakeReadSession, MemoryService } from '../memory/service'
 import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
-import { mergeLatestTranscriptPage } from '../sessions/terminal'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
+import { mergeLatestTranscriptPage } from '../sessions/terminal'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
