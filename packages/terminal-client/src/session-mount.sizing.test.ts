@@ -313,7 +313,7 @@ describe('mountSession eligibility-gated sizing', () => {
   it('keeps a server-grid spectator on the authoritative grid and only reports its viewport', () => {
     withResizeObserver()
     withFittableAddon() // phone container proposes 150×50
-    const { hub, calls, role, state } = fakeHub()
+    const { hub, calls, role, state , attached } = fakeHub()
     role('spectator')
     const mounted = mountSession(fittableHost(), {
       hub,
@@ -321,6 +321,11 @@ describe('mountSession eligibility-gated sizing', () => {
       active: true,
       gridMode: 'server-grid',
     })
+    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
+    // the first thing that has any authority over it. A mount that has not
+    // attached has been told nothing, so nothing may move it — which is why
+    // every state-driven case below has to attach first.
+    attached()
 
     state(183, 55, 'spectator') // desktop-owned PTY geometry
 
@@ -405,7 +410,7 @@ describe('mountSession eligibility-gated sizing', () => {
   it('fits a server-grid client that the server made controller', () => {
     withResizeObserver()
     withFittableAddon()
-    const { hub, calls, role, state } = fakeHub()
+    const { hub, calls, role, state , attached } = fakeHub()
     role('spectator')
     const mounted = mountSession(fittableHost(), {
       hub,
@@ -413,6 +418,11 @@ describe('mountSession eligibility-gated sizing', () => {
       active: true,
       gridMode: 'server-grid',
     })
+    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
+    // the first thing that has any authority over it. A mount that has not
+    // attached has been told nothing, so nothing may move it — which is why
+    // every state-driven case below has to attach first.
+    attached()
 
     state(80, 24, 'controller') // first/only attached client receives control
 
@@ -580,12 +590,17 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFakeTimedRaf()
     withFittableAddon()
-    const { hub, calls, state } = fakeHub()
+    const { hub, calls, state , attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
     })
+    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
+    // the first thing that has any authority over it. A mount that has not
+    // attached has been told nothing, so nothing may move it — which is why
+    // every state-driven case below has to attach first.
+    attached()
     state(80, 24)
     mounted.setActive(true)
     vi.advanceTimersByTime(16 * 2)
@@ -626,12 +641,17 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFakeTimedRaf()
     withFittableAddon()
-    const { hub, state } = fakeHub()
+    const { hub, state , attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
     })
+    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
+    // the first thing that has any authority over it. A mount that has not
+    // attached has been told nothing, so nothing may move it — which is why
+    // every state-driven case below has to attach first.
+    attached()
     mounted.setActive(true)
     vi.advanceTimersByTime(16 * 2)
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
@@ -667,12 +687,17 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFakeTimedRaf()
     withFittableAddon()
-    const { hub, calls, state } = fakeHub()
+    const { hub, calls, state , attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
     })
+    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
+    // the first thing that has any authority over it. A mount that has not
+    // attached has been told nothing, so nothing may move it — which is why
+    // every state-driven case below has to attach first.
+    attached()
     state(80, 24)
     mounted.setActive(true)
     vi.advanceTimersByTime(16 * 3)
@@ -691,14 +716,23 @@ describe('mountSession eligibility-gated sizing', () => {
 
   it('honors a pending requested grid before applying a stale server state', () => {
     withResizeObserver()
+    const observer = withCapturingResizeObserver()
     withFakeTimedRaf()
     withFittableAddon()
-    const { hub, calls, state } = fakeHub()
+    const { hub, calls, state, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
     })
+    // POD-3239 B2: the attach snapshot is the first thing with any authority
+    // over this buffer, and it lands BEFORE any later layout change — which is
+    // the real order, and the order this fence has to survive. So attach first,
+    // and then let the box change, rather than fitting into a mount that has
+    // been told nothing yet.
+    attached()
+    observer.fire()
+    vi.advanceTimersByTime(60)
 
     // The ordinary fit has applied the local 150×50 grid, but this path has not
     // made a reveal assertion. The transport's pending request is the only fence
@@ -800,12 +834,17 @@ describe('mountSession eligibility-gated sizing', () => {
     withFittableAddon()
     const repaint = vi.spyOn(TerminalView.prototype, 'forceRepaint')
     protoPatchRestorers.push(() => repaint.mockRestore())
-    const { hub, state } = fakeHub()
+    const { hub, state , attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
     })
+    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
+    // the first thing that has any authority over it. A mount that has not
+    // attached has been told nothing, so nothing may move it — which is why
+    // every state-driven case below has to attach first.
+    attached()
     // Mounting active reveals the panel → becomeEligible → forceRepaint.
     expect(repaint, 'repaint on reveal').toHaveBeenCalled()
     repaint.mockClear()
@@ -820,7 +859,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withFittableAddon() // fit → 150×50
     const recover = vi.spyOn(TerminalView.prototype, 'repaintRecover')
     protoPatchRestorers.push(() => recover.mockRestore())
-    const { hub, calls, state } = fakeHub()
+    const { hub, calls, state , attached } = fakeHub()
     // Mount INACTIVE (hidden), then bring the term + server grid to the size fit() will
     // propose, so the reveal fit is a no-op — the case where a same-size resize can't repaint
     // the canvas that display:none freed, so we must repaint the renderer in place.
@@ -829,6 +868,11 @@ describe('mountSession eligibility-gated sizing', () => {
       sessionId: asSessionId('s1'),
       active: false,
     })
+    // POD-3239 B2: the buffer follows the SERVER, and the attach snapshot is
+    // the first thing that has any authority over it. A mount that has not
+    // attached has been told nothing, so nothing may move it — which is why
+    // every state-driven case below has to attach first.
+    attached()
     state(150, 50) // term + serverGrid now match what fit() proposes
     recover.mockClear()
     calls.resize.length = 0

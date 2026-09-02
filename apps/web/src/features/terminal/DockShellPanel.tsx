@@ -140,7 +140,7 @@ export function DockShellPanel({
       {terminalShown && mapped ? (
         // 'starting' holds the mount: the PTY may not exist server-side yet, and
         // the terminal's one-shot attach would be dropped and never retried.
-        <DockShellTerminal key={mapped} sessionId={mapped} hub={hub} />
+        <DockShellTerminal key={mapped} sessionId={mapped} hub={hub} session={session} />
       ) : (
         <div className="p-3 text-xs text-muted-foreground/70">Starting shell…</div>
       )}
@@ -166,9 +166,12 @@ export function resolveShellMachineLabel(
 function DockShellTerminal({
   sessionId,
   hub,
+  session,
 }: {
   sessionId: SessionId
   hub: Parameters<typeof useTerminalSession>[0]['hub']
+  /** The row this shell's grid comes from (POD-3239 B1). */
+  session: SessionMeta | undefined
 }): JSX.Element {
   const { settings, appearance } = useTerminalAppearance()
   const termBg = settings.background ?? TERMINAL_DEFAULTS.background
@@ -180,6 +183,11 @@ function DockShellTerminal({
     sessionId,
     appearance,
     focusWhenReady: true,
+    // Born at W, exactly as the agent panel is (POD-3239 B1). A dock shell is a
+    // terminal like any other; constructing it at 80x24 and moving it is the
+    // same wrong first frame.
+    ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
+    geometryState: session?.geometryState ?? 'unknown',
     // Human-facing ref links (#474 / POD-529): clickable PREFIX-N tokens with
     // live stage-coloured underlines when the issue is known.
     onMounted: (mounted) => {

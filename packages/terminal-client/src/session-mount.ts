@@ -83,6 +83,27 @@ export interface MountSessionOptions {
    * does not preempt another device merely because the pane became visible.
    */
   gridMode?: 'control' | 'server-grid'
+  /**
+   * THE SIZE THIS BUFFER IS BORN AT (POD-3239 B1 / MODEL rule 2).
+   *
+   * The session's last-known grid W, straight from the store. A terminal that
+   * knows W constructs at W, so the very first painted frame is already the right
+   * shape — no default is ever painted and nothing has to move it afterwards.
+   *
+   * Omitted only when there is genuinely no last-known grid (an older server that
+   * does not send one). xterm's own 80x24 default then stands, and the attach
+   * corrects it.
+   */
+  initialGeometry?: { cols: number; rows: number }
+  /**
+   * What {@link initialGeometry} is WORTH (MODEL rule 6). `unknown` — the
+   * default — RENDERS: inside the system W can only change through the daemon,
+   * so last-known is right until the first ask corrects it. `absent` means there
+   * is no pty and the caller should not be mounting at all; the panel's own gate
+   * owns that decision, and this is here so a mount cannot silently paint a grid
+   * for a session that has none.
+   */
+  geometryState?: 'current' | 'unknown' | 'absent'
 }
 
 export interface MountedSession {
@@ -152,8 +173,13 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const gridMode = opts.gridMode ?? 'control'
   const viewportEl = opts.viewportEl ?? el
   const diagnostics = createTerminalDiagnosticRecorder(sessionId)
+  // BORN AT W (B1). `absent` is the one state that must not paint a grid — there
+  // is no pty behind the row — so it falls back to xterm's own default, which the
+  // panel keeps behind its transcript/overlay.
+  const birthGeometry = opts.geometryState === 'absent' ? undefined : opts.initialGeometry
   const view = new TerminalView({
     ...(opts.appearance ?? {}),
+    ...(birthGeometry ? { cols: birthGeometry.cols, rows: birthGeometry.rows } : {}),
     // xterm's WebGL canvas does not repaint sections revealed by scrolling an
     // independent overflow ancestor. Server-grid mode deliberately uses that
     // crop layout, so keep its rendering phone-local and deterministic with the
@@ -169,6 +195,18 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   let lastBackground = (opts.appearance?.theme ?? DEFAULT_THEME).background
 
   let active = opts.active ?? true
+  /**
+   * HAS THE SERVER TOLD US ANYTHING YET? (POD-3239 B2 / MODEL rule 1.)
+   *
+   * False until `onAttached`. Before that, every `onState` is ignored FOR
+   * GEOMETRY — a pre-attach state carries no grid at all now, and the emits that
+   * used to carry a fabricated one (`requestControl`, `welcome`) are exactly how
+   * a mounted terminal got dragged to 80x24 before the attach had said anything.
+   *
+   * After it, the attach snapshot is W and the buffer follows the server
+   * unconditionally: visible or hidden, controller or spectator.
+   */
+  let authoritative = false
   let serverGrid: Grid = { cols: view.cols(), rows: view.rows() }
   const pageVisible = (): boolean =>
     typeof document === 'undefined' || document.visibilityState === 'visible'
@@ -178,6 +216,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       active,
       pageVisible: pageVisible(),
       eligible: eligible(),
+      authoritative,
       serverGrid: { ...serverGrid },
       gridMode,
       ...data,
@@ -543,6 +582,26 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     })
   }
 
+  /**
+   * Move the buffer to the server's grid, and only ever to the server's grid
+   * (MODEL rule 2). The clear + repaint are kept: xterm reflows the old buffer
+   * into the new shape, and for an alt-screen TUI that content is garbage until
+   * the app's own SIGWINCH repaint arrives, so blank-then-clean beats shredded
+   * mid-width fragments.
+   */
+  function applyServerGrid(state: ConnectionState, source: string): void {
+    const { cols, rows } = state
+    if (cols === undefined || rows === undefined) return
+    serverGrid = { cols, rows }
+    if (view.cols() === cols && view.rows() === rows) return
+    trace('connection:apply-server-grid', { state, source })
+    view.resize(cols, rows)
+    view.clear()
+    // A resize/reflow can leave the GPU canvas showing only the cells that moved
+    // or changed (the "caret at top, my text at bottom, rest black" symptom).
+    view.forceRepaint()
+  }
+
   let lastEpoch = -1
   // Defense in depth for embedders that deliver onState directly. Production
   // geometry ordering is enforced before emission by
@@ -576,6 +635,12 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('connection:attached', { reconnect: everAttached, connection: connection.state() })
       markReady('attach')
       geometryTimelineResetPending = false
+      // THE ATTACH SNAPSHOT IS THE FIRST AUTHORITATIVE W, AND IT IS APPLIED HERE
+      // (B2). `attached` sets cols/rows and emits its state BEFORE this callback
+      // runs (0b C3), so there is no later event to wait for — a mount that
+      // waited would sit at its birth grid until something unrelated moved it.
+      authoritative = true
+      applyServerGrid(connection.state(), 'attach')
       // RECONNECT re-fit. A server reload rebuilds the session at the 80×24 default and
       // the 'attached' message carries that grid; _ingest emits onState (serverGrid →
       // 80×24, the view shrinks) BEFORE this callback, so re-fitting here sees the
@@ -648,7 +713,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         clearRevealMouseInput('other-controller')
       }
       const applied = { cols: view.cols(), rows: view.rows() }
-      const stateGrid = { cols: state.cols, rows: state.rows }
+      // A state with no grid at all is the pre-attach case (B8): the connection
+      // has not been told one and there is nothing to fence against. Fall back
+      // to what the view already shows, so every comparison below reads "no
+      // disagreement" rather than comparing against a fabricated number.
+      const stateGrid: Grid =
+        state.cols !== undefined && state.rows !== undefined
+          ? { cols: state.cols, rows: state.rows }
+          : applied
       const requested = state.requestedGeometry ?? null
       if (
         !geometrySuppressed &&
@@ -696,34 +768,23 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         (state.role === 'controller' ||
           state.controllerId === null ||
           (state.requestedGeometry !== null && sameGrid(state.requestedGeometry, asserted)))
-      if (
-        !geometrySuppressed &&
-        !holdClaimedGrid &&
-        (view.cols() !== state.cols || view.rows() !== state.rows)
-      ) {
-        trace('connection:apply-server-grid', { state })
-        view.resize(state.cols, state.rows)
-        // xterm reflows the existing buffer into the new grid. For alt-screen
-        // agent TUIs that content was painted at the previous winsize and is
-        // garbage at the new size until the app's SIGWINCH repaint arrives —
-        // wipe so the operator sees blank→clean rather than shredded mid-width
-        // fragments. Control-mode fits already match local size before geometry
-        // acks, so this branch is mostly the server-grid phone path (and genuine
-        // controller takeovers that change winsize).
-        view.clear()
-        // A resize/reflow can leave the GPU canvas showing only the cells that moved or
-        // changed (the "caret at top, my text at bottom, rest black" symptom). Force a
-        // full repaint so the whole grid redraws at the new geometry.
-        view.forceRepaint()
+      // NOT AUTHORITATIVE YET ⇒ NOTHING HERE MAY MOVE THE BUFFER (B2). Before
+      // the attach, a state carries no grid at all; after it, the attach
+      // snapshot has already been applied in `onAttached` and every later state
+      // is the server telling us W changed.
+      if (authoritative && !geometrySuppressed && !holdClaimedGrid) {
+        applyServerGrid(state, 'state')
       }
-      if (!geometrySuppressed && holdClaimedGrid) {
+      if (authoritative && !geometrySuppressed && holdClaimedGrid) {
         if (asserted !== null) {
           assertedControlGrid = { ...asserted }
         }
         trace('connection:hold-claimed-grid', { state, asserted })
         scheduleControlRepair(state)
+        if (state.cols !== undefined && state.rows !== undefined) {
+          serverGrid = { cols: state.cols, rows: state.rows }
+        }
       }
-      if (!geometrySuppressed) serverGrid = { cols: state.cols, rows: state.rows }
       const roleChanged = state.role !== lastRole
       // Update before an atomic claim emits its local pending state; otherwise
       // that nested notification would look like a second role transition and

@@ -138,11 +138,16 @@ function closeEventCause(ev: unknown): SocketCloseCause {
   }
 }
 
-export interface ConnectionViewport {
-  cols: number
-  rows: number
-  dpr: number
-}
+/**
+ * THE `hello` FRAME'S VIEWPORT FIELD, and nothing else.
+ *
+ * It is required by the wire schema and read by no server code. It once seeded
+ * every `SessionConnection`'s birth grid, which is what put a hardcoded 80x24
+ * inside a terminal that had never asked for one (POD-3239 B8). It no longer
+ * does, so a fixed transport bootstrap is the honest value: there is no session
+ * here to have a size.
+ */
+const HELLO_VIEWPORT = { cols: 80, rows: 24 } as const
 
 export type TerminalOutcome = 'unauthorized' | 'unreachable' | 'unsupported'
 
@@ -154,8 +159,18 @@ export interface ConnectionState {
   outcome: TerminalOutcome | null
   sessionId: SessionId
   role: 'controller' | 'spectator'
-  cols: number
-  rows: number
+  /**
+   * THE SERVER'S GRID, or `undefined` until this connection has been told one
+   * (POD-3239 B2/B8).
+   *
+   * It used to be born at the hub's `hello` viewport — a hardcoded 80x24 that
+   * had nothing to do with any session — and that birth value was emitted
+   * synchronously by `requestControl` and by `welcome`, which is how a mounted
+   * terminal got moved to 80x24 before the attach had said anything. There is no
+   * honest number to put here before `attached`, so there is no number.
+   */
+  cols: number | undefined
+  rows: number | undefined
   /** Server-issued monotonic revision for the authoritative geometry timeline.
    * Optional for older servers/embedders; current server messages populate it. */
   geometryRevision?: number
@@ -207,7 +222,6 @@ export interface SessionCallbacks {
 
 export interface SocketHubOptions {
   url: string
-  viewport: ConnectionViewport
   makeSocket?: (url: string) => WebSocketLike
   onError?: (message: string, event?: unknown) => void
   /** Opaque wire-v1 Replica adapter. Transport only drives lifecycle and forwards envelopes. */
@@ -846,7 +860,7 @@ export class SocketHub {
       this.sendRaw({
         type: 'hello',
         clientId: this.clientIdValue,
-        viewport: { ...this.opts.viewport },
+        viewport: { ...HELLO_VIEWPORT, dpr: globalThis.devicePixelRatio ?? 1 },
         // Legacy feed capability negotiation is keyed only by the presence of the
         // opaque Replica sink. Transport never reads its position or stamp.
         // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
@@ -1223,7 +1237,7 @@ export class SocketHub {
   attach(sessionId: SessionId, cb: SessionCallbacks = {}): SessionConnection {
     let conn = this.connections.get(sessionId)
     if (conn === undefined) {
-      conn = new SessionConnection(this, sessionId, cb, this.opts.viewport)
+      conn = new SessionConnection(this, sessionId, cb)
       this.connections.set(sessionId, conn)
       if (this.connectedFlag) this.sendRaw({ type: 'attach', sessionId })
     } else {
@@ -2398,8 +2412,8 @@ export class SessionConnection {
   private controllerId: string | null = null
   private controllerIdentity: PresenceIdentity | null = null
   private outcome: TerminalOutcome | null = null
-  private cols: number
-  private rows: number
+  private cols: number | undefined
+  private rows: number | undefined
   private requestedGeometry: Geometry | null = null
   private geometryRevision = 0
   private epoch = 0
@@ -2413,17 +2427,10 @@ export class SessionConnection {
   private frameSeen = false
   private readonly echo = new EchoLatencyTracker()
 
-  constructor(
-    hub: SocketHub,
-    sessionId: SessionId,
-    cb: SessionCallbacks,
-    viewport: ConnectionViewport,
-  ) {
+  constructor(hub: SocketHub, sessionId: SessionId, cb: SessionCallbacks) {
     this.hub = hub
     this.sessionId = sessionId
     this.cb = cb
-    this.cols = viewport.cols
-    this.rows = viewport.rows
   }
 
   setCallbacks(cb: SessionCallbacks): void {

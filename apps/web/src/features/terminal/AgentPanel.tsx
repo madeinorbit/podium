@@ -626,6 +626,13 @@ export function AgentPanel({
     // server-side yet (#119) either — its one-shot attach would be dropped and
     // never retried, so `spawnConfirmed` holds the mount until the reconcile.
     enabled: gates.terminalMounted && terminalRuntimeRequestedRef.current,
+    // BORN AT W (POD-3239 B1 / MODEL rule 2). The server has always published
+    // this session's grid on its row and nothing read it, so every terminal was
+    // constructed at xterm's 80x24 and dragged to the real size afterwards —
+    // which is the quadrant the operator saw. Read at mount time only; from then
+    // on the attach snapshot and the daemon's reports are what move the buffer.
+    ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
+    geometryState: session?.geometryState ?? 'unknown',
     // The terminal stays mounted across a chat<->native toggle (Task 6): it's
     // kept alive (hidden under the chat overlay) with eligibility flipped here
     // instead of by a remount — see useTerminalSession's own setActive effect.

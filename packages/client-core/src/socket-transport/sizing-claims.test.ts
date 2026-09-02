@@ -2,10 +2,11 @@
  * SIZING PLAN ASSUMPTION TESTS — transport half (POD-3235, spec artifact SPEC-0b.md rev 2).
  *
  * The claims the terminal-sizing plan (POD-3190) makes about `SocketHub` /
- * `SessionConnection` today, executed against the real classes. Stage 1
- * (POD-3239) deletes the hub's hardcoded viewport and moves the authoritative
- * snapshot into `onAttached`; these tests are what make that a safe cut, and
- * they are rewritten in the same commit that changes the behaviour.
+ * `SessionConnection`, executed against the real classes.
+ *
+ * C1 has been REWRITTEN by POD-3239 B2/B8, which is the cut these tests existed
+ * to make safe: the hub's hardcoded viewport is gone and a connection now has no
+ * geometry until `attached`. C3 is unchanged and is what B2 rests on.
  */
 
 import { asSessionId } from '@podium/model'
@@ -45,14 +46,13 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function makeHub(viewport = { cols: 80, rows: 24, dpr: 1 }): {
+function makeHub(): {
   hub: SocketHub
   socket: FakeSocket
 } {
   let socket!: FakeSocket
   const hub = new SocketHub({
     url: 'ws://sizing.test',
-    viewport,
     makeSocket: () => {
       socket = new FakeSocket()
       return socket
@@ -68,21 +68,24 @@ function makeHub(viewport = { cols: 80, rows: 24, dpr: 1 }): {
 // C1
 // ---------------------------------------------------------------------------
 
-describe('C1: a SessionConnection is born at the hub viewport and emits that state before any `attached`', () => {
-  it('the birth grid is the hub option, not a constant inside SessionConnection', () => {
-    const standard = makeHub()
-    expect(standard.hub.attach(SESSION).state()).toMatchObject({ cols: 80, rows: 24 })
-
-    // A different viewport lands a different birth grid — so 80x24 is the value
-    // the composition root supplies, and stage 1's cut is at that call site.
-    const wide = makeHub({ cols: 200, rows: 60, dpr: 1 })
-    expect(wide.hub.attach(SESSION).state()).toMatchObject({ cols: 200, rows: 60 })
+describe('C1 (REWRITTEN for POD-3239 B2/B8): a SessionConnection has NO geometry until `attached`', () => {
+  it('a fresh connection reports no grid at all — there is no number to invent', () => {
+    // WHAT THIS REPLACES. The connection used to be born at the hub's `hello`
+    // viewport, a hardcoded 80x24 with nothing to do with any session, and it
+    // EMITTED that birth grid synchronously (see the two tests below). A mounted
+    // terminal following `onState` was therefore moved to 80x24 before the
+    // attach had said anything — the top-left quadrant, at its source.
+    const { hub } = makeHub()
+    expect(hub.attach(SESSION).state()).toMatchObject({ cols: undefined, rows: undefined })
   })
 
-  it('the composition root hardcodes 80x24 into every engine hub', () => {
-    const seen: Array<{ cols: number; rows: number }> = []
+  it('the composition root supplies no viewport at all any more', () => {
+    // The cut is AT THE CALL SITE, which is why this reads the composition root
+    // rather than the class: `SocketHubOptions` no longer has the field, so
+    // there is nowhere left for a birth grid to come from.
+    const seen: Array<Record<string, unknown>> = []
     const createHub: CreateHub = (opts) => {
-      seen.push({ cols: opts.viewport.cols, rows: opts.viewport.rows })
+      seen.push(opts as unknown as Record<string, unknown>)
       return { dispose: () => {} } as unknown as SocketHub
     }
     const replica = createReplica({ storage: memoryStorage() })
@@ -101,13 +104,13 @@ describe('C1: a SessionConnection is born at the hub viewport and emits that sta
       onFatalError: () => {},
       createHub,
     })
-    expect(seen).toEqual([
-      { cols: 80, rows: 24 },
-      { cols: 80, rows: 24 },
-    ])
+    expect(seen).toHaveLength(2)
+    for (const opts of seen) expect(opts).not.toHaveProperty('viewport')
   })
 
-  it('requestControl(geometry) emits the 80x24 state SYNCHRONOUSLY, before any attach has landed', () => {
+  it('requestControl(geometry) still emits synchronously — carrying NO grid, only the request', () => {
+    // The emit is kept: `requestedGeometry` is real local intent and the UI reads
+    // it. What is gone is the fabricated `cols`/`rows` it used to carry.
     const { hub } = makeHub()
     const states: ConnectionState[] = []
     const events: string[] = []
@@ -121,17 +124,15 @@ describe('C1: a SessionConnection is born at the hub viewport and emits that sta
 
     conn.requestControl({ cols: 150, rows: 50 })
 
-    // One synchronous emit, at the BIRTH grid — the claimed 150x50 rides only in
-    // requestedGeometry. This is the emit that moves a mounted view to 80x24.
-    expect(events).toEqual(['state:80x24'])
+    expect(events).toEqual(['state:undefinedxundefined'])
     expect(states.at(-1)).toMatchObject({
-      cols: 80,
-      rows: 24,
+      cols: undefined,
+      rows: undefined,
       requestedGeometry: { cols: 150, rows: 50 },
     })
   })
 
-  it('`welcome` re-emits the same 80x24 state through _notifyHubChange, still before `attached`', () => {
+  it('`welcome` re-emits through _notifyHubChange, and it too carries no grid', () => {
     const { hub, socket } = makeHub()
     const events: string[] = []
     hub.attach(SESSION, {
@@ -141,7 +142,16 @@ describe('C1: a SessionConnection is born at the hub viewport and emits that sta
 
     socket.deliver({ type: 'welcome', clientId: 'client-1' } as ServerMessage)
 
-    expect(events).toEqual(['state:80x24'])
+    expect(events).toEqual(['state:undefinedxundefined'])
+  })
+
+  it('the hello frame still carries a viewport, because the wire requires one', () => {
+    // It is a transport bootstrap and no server code reads it. Pinned so nobody
+    // deletes the field and breaks the handshake schema while tidying up.
+    const { hub, socket } = makeHub()
+    void hub
+    const hello = socket.sent.find((m) => m.type === 'hello')
+    expect(hello?.viewport).toMatchObject({ cols: 80, rows: 24 })
   })
 })
 

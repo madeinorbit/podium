@@ -26,7 +26,6 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
-const viewport = { cols: 80, rows: 24, dpr: 1 }
 
 const rawBootstrap = (
   last: boolean,
@@ -93,7 +92,6 @@ describe('SocketHub feed ingress drain', () => {
     const frames: unknown[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport,
       makeSocket: () => sock,
       feed: {
         helloFields: () => null,
@@ -125,7 +123,6 @@ describe('SocketHub feed ingress drain', () => {
     const frames: unknown[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport,
       makeSocket: () => {
         const socket = new FakeSocket()
         sockets.push(socket)
@@ -184,7 +181,6 @@ describe('SocketHub feed ingress drain', () => {
     const starved: Array<() => void> = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport,
       makeSocket: () => {
         const sock = new FakeSocket()
         sockets.push(sock)

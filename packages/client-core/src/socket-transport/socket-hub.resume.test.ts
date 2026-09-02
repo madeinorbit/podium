@@ -49,7 +49,6 @@ function setup(fields: () => FeedHelloFields | null) {
   }
   const hub = new SocketHub({
     url: 'ws://x',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => {
       const socket = new FakeSocket()
       sockets.push(socket)

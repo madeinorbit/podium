@@ -5,7 +5,7 @@ import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-cli
 import { Mic } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
-import { useConnected, useHub, useIssues, useSpawnPending } from '../client/hooks'
+import { useConnected, useHub, useIssues, useSessions, useSpawnPending } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { color, font, mono, sans, space } from '../theme/theme'
 import { LEGACY_MOBILE_KEYBOARD_THEME, MOBILE_APPEARANCE } from './terminal-appearance'
@@ -39,6 +39,9 @@ export function TerminalPane({
   const hub = useHub()
   const connected = useConnected()
   const issues = useIssues()
+  // The row this pane's grid comes from (POD-3239 B1). Read once at mount by
+  // `useTerminalSession`; a later row update never remounts the terminal.
+  const session = useSessions().find((s) => s.sessionId === sessionId)
   // Live reads for callbacks the terminal keeps for the lifetime of the mount:
   // the overlay asks for a stage on every repaint, and a closure that captured
   // one render's projection would underline a stage the board has left behind.
@@ -131,6 +134,11 @@ export function TerminalPane({
       // does the header's explicit take-control action, so READING at this
       // screen's size no longer costs a keystroke into someone's agent (POD-724).
       gridMode: 'server-grid',
+      // Born at W (POD-3239 B1). A phone crops rather than reflows, so a buffer
+      // constructed at 80x24 and then moved is the same wrong first frame here
+      // as on the desktop — with a scroll position that jumps as well.
+      ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
+      geometryState: session?.geometryState ?? 'unknown',
       test: new URLSearchParams(window.location.search).get('e2e') === '1',
       // Ref underlines are configured at mount so the very first replayed frame
       // is already marked — the desktop AgentPanel arms them in the same place.

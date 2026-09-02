@@ -619,7 +619,6 @@ export function createEngineHub(args: {
   if (args.feed !== undefined) {
     return make({
       url: args.wsClientUrl,
-      viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
       onError: (message) => {
         if (!isInitialConnectivityError(message)) args.onFatalError(message)
       },
@@ -629,7 +628,6 @@ export function createEngineHub(args: {
   }
   return make({
     url: args.wsClientUrl,
-    viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
     onError: (message) => args.onFatalError(message),
     ...heartbeat,
     issuesNormalized: true,

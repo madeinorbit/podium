@@ -38,7 +38,6 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
-const viewport = { cols: 80, rows: 24, dpr: 1 }
 
 afterEach(() => {
   vi.useRealTimers()
@@ -49,7 +48,6 @@ describe('PresenceRooms over a real SocketHub', () => {
     const socket = new FakeSocket()
     const hub = new SocketHub({
       url: 'ws://transport.test',
-      viewport,
       makeSocket: () => socket,
       feed: { helloFields: () => null, connected: vi.fn(), disconnected: vi.fn(), frame: vi.fn() },
     })

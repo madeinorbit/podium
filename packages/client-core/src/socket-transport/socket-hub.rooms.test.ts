@@ -31,7 +31,6 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
-const viewport = { cols: 80, rows: 24, dpr: 1 }
 
 afterEach(() => {
   vi.useRealTimers()
@@ -49,7 +48,6 @@ describe('SocketHub rooms and principal lifecycle', () => {
     }
     const hub = new SocketHub({
       url: 'ws://transport.test',
-      viewport,
       makeSocket: () => new FakeSocket(),
       legacyFeed,
     })
@@ -60,7 +58,6 @@ describe('SocketHub rooms and principal lifecycle', () => {
     const socket = new FakeSocket()
     const hub = new SocketHub({
       url: 'ws://transport.test',
-      viewport,
       makeSocket: () => socket,
       feed: {
         helloFields: () => null,
@@ -108,7 +105,6 @@ describe('SocketHub rooms and principal lifecycle', () => {
     const socket = new FakeSocket()
     const hub = new SocketHub({
       url: 'ws://transport.test',
-      viewport,
       makeSocket: () => socket,
     })
     const room = { kind: 'session' as const, id: asSessionId('s-room') }
@@ -131,7 +127,6 @@ describe('SocketHub rooms and principal lifecycle', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://transport.test',
-      viewport,
       makeSocket: () => {
         const socket = new FakeSocket()
         sockets.push(socket)
@@ -201,7 +196,6 @@ describe('SocketHub rooms and principal lifecycle', () => {
     const unreachable = asSessionId('s-offline')
     const hub = new SocketHub({
       url: 'ws://transport.test',
-      viewport,
       makeSocket: () => {
         const socket = new FakeSocket()
         sockets.push(socket)
@@ -235,7 +229,6 @@ describe('SocketHub rooms and principal lifecycle', () => {
     const firstSocket = new FakeSocket()
     const first = new SocketHub({
       url: 'ws://transport.test',
-      viewport,
       makeSocket: () => firstSocket,
     })
     const sessionId = asSessionId('s-old-principal')
@@ -250,7 +243,6 @@ describe('SocketHub rooms and principal lifecycle', () => {
     const nextSocket = new FakeSocket()
     const next = new SocketHub({
       url: 'ws://transport.test',
-      viewport,
       makeSocket: () => nextSocket,
     })
     next.connect()

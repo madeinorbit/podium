@@ -191,6 +191,16 @@ export function panelGates(
     readonly switchAlreadyOffered: boolean
     /** Login repair is only actionable in the native terminal. */
     readonly loginRequired?: boolean
+    /**
+     * The server's own answer to "is there a pty behind this row?" (POD-3239
+     * B1 / MODEL rule 6). `absent` means there is not.
+     *
+     * The status-derived `live` below already says the same thing for every case
+     * this panel can see, and that is the point: the two must agree, and when
+     * they can differ the SERVER's answer wins, because it is the one holding
+     * the daemon. Absent from an older server, which gates nothing.
+     */
+    readonly geometryState?: 'current' | 'unknown' | 'absent'
   },
 ): PanelGates {
   const live = surface.kind === 'live'
@@ -207,7 +217,11 @@ export function panelGates(
      * it — which is exactly why it is stated here rather than assumed. A gate
      * that holds only because another module happens to agree is not a gate.
      */
-    terminalMounted: live && input.spawnConfirmed && input.terminalCapable,
+    terminalMounted:
+      live &&
+      input.spawnConfirmed &&
+      input.terminalCapable &&
+      input.geometryState !== 'absent',
     nativePaneRendered: live && input.terminalCapable,
     // The sticky switcher's landing place. Reachable only when a session that
     // once had a terminal stopped having one, which is the one case the sticky

@@ -161,19 +161,28 @@ function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 
 // C2
 // ---------------------------------------------------------------------------
 
-describe('C2: onState resizes the view while the pane is NOT eligible', () => {
-  it('a pane mounted inactive still follows a server grid change', () => {
+describe('C2 (REWRITTEN for POD-3239 B2): the buffer follows the server whether or not the pane is eligible — but only AFTER the attach', () => {
+  it('a pane mounted inactive follows a server grid change, once it has attached', () => {
+    // The claim SURVIVES: there is deliberately no eligibility gate here, and
+    // MODEL rule 2 makes that a rule rather than an oversight — every viewer's
+    // buffer is always at W, hidden or not, so a reveal has nothing to catch up
+    // on. What CHANGED is that the following is now conditional on having been
+    // told a W at all (B2): before the attach, nothing may move this buffer.
     withResizeObserver()
     withProposal(() => undefined) // never measurable: no fit can move the grid
-    const { hub, serverGrid } = fakeHub()
+    const { hub, serverGrid, attached } = fakeHub()
     const mounted = mountSession(host(), { hub, sessionId: SESSION, active: false })
     try {
       expect(mounted.view.cols()).toBe(80)
+
+      // NOT AUTHORITATIVE YET — this state is ignored for geometry.
+      serverGrid(99, 29)
+      expect(mounted.view.cols()).toBe(80)
       expect(mounted.view.rows()).toBe(24)
 
+      attached()
       serverGrid(132, 43)
 
-      // No eligibility gate on this branch — the hidden pane is resized.
       expect(mounted.view.cols()).toBe(132)
       expect(mounted.view.rows()).toBe(43)
     } finally {
@@ -192,9 +201,10 @@ describe('C2: onState resizes the view while the pane is NOT eligible', () => {
     })
     expect(document.visibilityState).toBe('hidden')
 
-    const { hub, serverGrid } = fakeHub()
+    const { hub, serverGrid, attached } = fakeHub()
     const mounted = mountSession(host(), { hub, sessionId: SESSION, active: true })
     try {
+      attached()
       serverGrid(120, 40)
       expect(mounted.view.cols()).toBe(120)
       expect(mounted.view.rows()).toBe(40)
@@ -386,12 +396,15 @@ describe("C12: gridMode:'server-grid' selects the DOM renderer; the desktop pane
 // C10 (the "nobody reads it" half)
 // ---------------------------------------------------------------------------
 
-describe('C10: nothing in the mount/hook/panel chain reads SessionMeta.geometry today', () => {
-  it('SOURCE FACT: no session-geometry read in mountSession, useTerminalSession, AgentPanel or the hub connection', () => {
-    // Positive-only by construction (a grep cannot prove a negative in
-    // general), so it is scoped to exactly the four files SPEC-0b names and
-    // exists to FAIL LOUDLY if a reader is added before stage 1 wires one on
-    // purpose. Stage 1's B1 adds `initialGeometry` here and rewrites this test.
+describe('C10 (REWRITTEN for POD-3239 B1): the whole chain now reads the session geometry it always had', () => {
+  it('SOURCE FACT: `initialGeometry` runs through mountSession, useTerminalSession and AgentPanel', () => {
+    // THE CLAIM THIS INVERTS. `SessionMeta.geometry` reached the panel and
+    // nobody read it, so every terminal was constructed at xterm's 80x24 and
+    // then moved. B1 threads it through the same three files, which is what
+    // makes the first painted frame the right shape.
+    //
+    // Still positive-only and still scoped to the named files — its job is to
+    // fail loudly if any link in the chain is unwired, in either direction.
     const read = (rel: string): string =>
       readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
     const files = {
@@ -400,9 +413,12 @@ describe('C10: nothing in the mount/hook/panel chain reads SessionMeta.geometry 
       'AgentPanel.tsx': read('../../../apps/web/src/features/terminal/AgentPanel.tsx'),
     }
     for (const [name, source] of Object.entries(files)) {
-      expect({ [name]: /session[^\n]*\.geometry\b/.test(source) }).toEqual({ [name]: false })
-      expect({ [name]: source.includes('initialGeometry') }).toEqual({ [name]: false })
+      expect({ [name]: source.includes('initialGeometry') }).toEqual({ [name]: true })
+      expect({ [name]: source.includes('geometryState') }).toEqual({ [name]: true })
     }
+    // …and the panel reads it off the SESSION ROW, which is the value the server
+    // has been publishing all along.
+    expect(files['AgentPanel.tsx']).toMatch(/session\?\.geometry\b/)
   })
 })
 

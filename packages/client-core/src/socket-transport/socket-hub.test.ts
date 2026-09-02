@@ -72,7 +72,6 @@ function setup() {
   const sock = new FakeSocket()
   const hub = new SocketHub({
     url: 'ws://x',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => sock,
   })
   return { sock, hub }
@@ -82,7 +81,10 @@ const b64Bytes = (...bytes: number[]): string => btoa(String.fromCharCode(...byt
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
 
 describe('SocketHub', () => {
-  it('sends hello with the viewport on open', () => {
+  it('sends hello on open, carrying the transport bootstrap viewport the wire requires', () => {
+    // POD-3239: the viewport field is no longer a hub OPTION — nothing supplies
+    // one and no session is born at it. It stays on the frame because the
+    // handshake schema requires it and no server code reads it.
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
@@ -97,7 +99,6 @@ describe('SocketHub', () => {
     const sock = new BrowserSocket()
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
     })
     const frames: Uint8Array[] = []
@@ -125,7 +126,6 @@ describe('SocketHub', () => {
     const sock = new BinaryInputSocket()
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
     })
     const conn = hub.attach(asSessionId('s1'))
@@ -166,7 +166,6 @@ describe('SocketHub', () => {
     const sock = new BinaryInputSocket()
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
     })
     const conn = hub.attach(asSessionId('s1'))
@@ -188,7 +187,6 @@ describe('SocketHub', () => {
     const sock = new BrowserSocket()
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
     })
     hub.connect()
@@ -210,7 +208,6 @@ describe('SocketHub', () => {
     const feedFrames: unknown[] = []
     const malformedHub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => (socketIndex++ === 0 ? malformed : replacement),
       feed: {
         helloFields: () => null,
@@ -269,7 +266,6 @@ describe('SocketHub', () => {
     const unnegotiated = new NonBinarySocket()
     const legacyHub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => unnegotiated,
     })
     legacyHub.connect()
@@ -293,7 +289,6 @@ describe('SocketHub', () => {
     const timings: unknown[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
         helloFields: () => null,
@@ -348,7 +343,6 @@ describe('SocketHub', () => {
     const frames: unknown[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
         helloFields: () => null,
@@ -392,7 +386,6 @@ describe('SocketHub', () => {
     let disconnects = 0
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
         // No position to present: these cases are about the backlog bound, and a
@@ -442,7 +435,6 @@ describe('SocketHub', () => {
     const frames: unknown[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
         helloFields: () => null,
@@ -678,7 +670,6 @@ describe('SocketHub', () => {
     const sock = new ConnectingSocket()
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
     })
     hub.connect()
@@ -749,7 +740,6 @@ describe('SocketHub', () => {
     const errors: string[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       onError: (message) => errors.push(message),
     })
@@ -763,7 +753,6 @@ describe('SocketHub', () => {
     const errors: string[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       onError: (message) => errors.push(message),
     })
@@ -816,9 +805,12 @@ describe('SessionConnection (hub-backed)', () => {
     expect(sent).toContainEqual({ type: 'input', sessionId: 's1', data: b64('x') })
     expect(sent).toContainEqual({ type: 'resize', sessionId: 's1', cols: 120, rows: 40 })
     expect(sent).toContainEqual({ type: 'resize', sessionId: 's1', cols: 63, rows: 28 })
+    // POD-3239 B8: a connection that has never attached reports NO grid. The
+    // request it sent is real local intent and is still visible; the size the
+    // server holds is not a thing this connection can claim to know yet.
     expect(conn.state()).toMatchObject({
-      cols: 80,
-      rows: 24,
+      cols: undefined,
+      rows: undefined,
       requestedGeometry: { cols: 120, rows: 40 },
     })
     expect(sent).toContainEqual({ type: 'requestControl', sessionId: 's1' })
@@ -1094,7 +1086,6 @@ describe('SocketHub reconnect + heartbeat', () => {
     const errors: string[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1233,7 +1224,6 @@ describe('connection health', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1345,7 +1335,6 @@ describe('resume + offline input queue', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1417,7 +1406,6 @@ describe('resume + offline input queue', () => {
     const sockets: BinaryInputSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const socket = new BinaryInputSocket()
         sockets.push(socket)
@@ -1586,7 +1574,6 @@ describe('transcript delta forwarding', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1645,7 +1632,6 @@ describe('transcript delta forwarding', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1742,7 +1728,6 @@ describe('view state', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1864,7 +1849,6 @@ describe('SocketHub reconnect jitter and connectNow', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
