@@ -54,8 +54,7 @@ export const unitTestExclude = [
   'apps/daemon/src/daemon.test.ts',
   // Boots real daemons against real held ports (POD-1229 boot degradation).
   'apps/daemon/src/daemon.port-conflict.test.ts',
-  // Spawn real child processes (bun install/typecheck; memory sampling).
-  'scripts/redeploy-wait.test.ts',
+  // Spawns real child processes for memory sampling.
   'apps/daemon/src/memory-breakdown.test.ts',
   // Heavy process/PTY/server-boot suites — run in the integration lane instead
   // (mirrored in vitest.integration.config.ts's include list).
