@@ -118,6 +118,44 @@ describe('T3: the seq watermark is per (connection, session), and every rejectio
     expect(terminal.requestsGated).toBe(0)
   })
 
+  it('a CLAIMING request that overtakes its viewState is accepted too — and its size lands', () => {
+    // The same race as the test above, on the path where getting it wrong is
+    // worse: `requestControl` reads the connection's STORED visibility, so a
+    // claim that overtook its own `viewState` used to transfer control and then
+    // decline the geometry — leaving the pty at the grid the PREVIOUS viewer had
+    // while the new controller rendered something else. The message's own
+    // `visible` travels with the claim.
+    const { terminal, toDaemon } = makeTerminal(true)
+    const owner = controllerOf(terminal, 'c-owner')
+    const claimer = makeClient('c-early-claim')
+    terminal.attachClient(claimer)
+    expect(claimer.viewVisible.has(SESSION)).toBe(false) // viewState has not landed
+    toDaemon.length = 0
+    owner.sent.length = 0
+
+    terminal.handleViewportRequest(claimer.id, request({ claimControl: true }))
+
+    expect(terminal.controllerId).toBe(claimer.id)
+    expect(resizesTo(toDaemon)).toEqual([{ cols: 132, rows: 43 }])
+  })
+
+  it('ARMED: a claim that says it is NOT rendering takes control without moving the pty', () => {
+    // The counterfactual. `visible: false` is a client saying "I am not showing
+    // this" — a chat surface claiming input, say — and a size from something not
+    // on screen must not become the pty's.
+    const { terminal, toDaemon } = makeTerminal(true)
+    controllerOf(terminal, 'c-owner')
+    const claimer = makeClient('c-blind-claim')
+    claimer.viewVisible.add(SESSION)
+    terminal.attachClient(claimer)
+    toDaemon.length = 0
+
+    terminal.handleViewportRequest(claimer.id, request({ claimControl: true, visible: false }))
+
+    expect(terminal.controllerId).toBe(claimer.id)
+    expect(resizesTo(toDaemon)).toEqual([])
+  })
+
   it('a duplicate seq is REJECTED and counted, and nothing about it is applied', () => {
     const { terminal, toDaemon } = makeTerminal(true)
     const client = controllerOf(terminal, 'c-dupe')

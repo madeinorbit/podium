@@ -789,7 +789,7 @@ export class SessionTerminal {
     const watermark = client.viewportSeq.get(sessionId) ?? 0
     if (request.seq <= watermark) {
       this.requestsDuplicate += 1
-      log.debug('viewport request rejected as a duplicate', {
+      log.debug('request:duplicate', {
         sessionId,
         clientId,
         seq: request.seq,
@@ -803,7 +803,13 @@ export class SessionTerminal {
     client.viewports.set(sessionId, { ...request.geometry })
 
     if (request.claimControl) {
-      this.requestControl(clientId, request.geometry)
+      // The message's own `visible` travels with the claim, for the same reason
+      // the gate below reads it: a reveal sends its `viewState` and its claim in
+      // the same tick, and either can arrive first. `requestControl` otherwise
+      // reads the connection's STORED visibility, which would refuse the
+      // geometry on the claim that overtook it — transferring control and
+      // leaving the pty at the grid the previous viewer had.
+      this.requestControl(clientId, request.geometry, request.visible && request.mode === 'native')
       return true
     }
     if (!request.visible || request.mode !== 'native') {
@@ -826,7 +832,9 @@ export class SessionTerminal {
    */
   private gateRequest(clientId: string, request: ViewportRequest, reason: string): void {
     this.requestsGated += 1
-    log.debug('viewport request gated', {
+    // `request:gated` — the same token the client traces use, so a session's
+    // refusals can be read against its asks on one timeline (POD-3239).
+    log.debug('request:gated', {
       sessionId: this.init.sessionId,
       clientId,
       reason,
@@ -925,12 +933,11 @@ export class SessionTerminal {
    * W any more, so the `controllerChanged` frame carries the current cached W —
    * it describes who is driving, never what size the pty is now.
    *
-   * `visible` is read from the connection's stored `viewState` here because a
-   * claim can arrive on the legacy `requestControl` frame, which carries no
-   * visibility of its own. A claim that came in on a `viewportRequest` has
-   * already been judged on the message's own fields by the caller.
+   * `visible` defaults to the connection's stored `viewState`, because a claim
+   * can arrive on the legacy `requestControl` frame, which carries no visibility
+   * of its own. A `viewportRequest` passes its OWN — see the caller.
    */
-  requestControl(clientId: string, claimedGeometry?: Geometry): void {
+  requestControl(clientId: string, claimedGeometry?: Geometry, visible?: boolean): void {
     const client = this.clients.get(clientId)
     if (!client) return
     if (claimedGeometry) client.viewports.set(this.init.sessionId, { ...claimedGeometry })
@@ -946,7 +953,8 @@ export class SessionTerminal {
     const geometryDiffers =
       viewport !== undefined &&
       (this.geometry.cols !== viewport.cols || this.geometry.rows !== viewport.rows)
-    if (client.viewVisible.has(this.init.sessionId) && viewport) {
+    const rendering = visible ?? client.viewVisible.has(this.init.sessionId)
+    if (rendering && viewport) {
       this.driveGeometry(viewport)
       // Today's redraw rule, unchanged: a transfer repaints for the new owner,
       // and a size change asks the agent to repaint at it. A claim at an
