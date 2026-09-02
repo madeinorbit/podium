@@ -59,7 +59,14 @@ const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
  *  silently fall through and boot the stack (issue #18). */
-const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'instance', 'parent', 'janitor']
+const LAUNCH_BARE_WORDS: string[] = [
+  ...SUBCOMMANDS,
+  'all',
+  'setup',
+  'instance',
+  'parent',
+  'janitor',
+]
 const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
 const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 
@@ -1272,7 +1279,9 @@ async function runInProcess(
         ? {
             onBlocked: async ({ type, reason }: { type: string; reason: string }) => {
               const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
-              console.error(`podium daemon: blocked-exit hook invoked pid=${process.pid} type=${type} reason=${reason}`)
+              console.error(
+                `podium daemon: blocked-exit hook invoked pid=${process.pid} type=${type} reason=${reason}`,
+              )
               console.error(
                 `podium daemon: blocked by the server (${type}: ${reason}) — exiting ${DAEMON_BLOCKED_EXIT_CODE}. Run \`podium status\` for recovery steps.`,
               )
@@ -1890,7 +1899,13 @@ export async function main(
         input: process.stdin,
         output: process.stdout,
       })
-      await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
+      await runCliSetup(
+        { prompt: (q) => rl.question(q), print: (s) => console.log(s) },
+        plan.port,
+        // `--confirm-url-change` answers the "this strands joined machines"
+        // question ahead of time, for a run that cannot answer a prompt.
+        argv.includes('--confirm-url-change') ? { confirmUrlChange: true } : {},
+      )
       rl.close()
       return
     }
