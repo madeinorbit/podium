@@ -197,6 +197,9 @@ describe('server preflight', () => {
       'omit',
       'omit',
     ])
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ cache: 'no-store', credentials: 'omit' }),
+    )
   })
 
   it('blocks LAN, Tailscale 100.x HTTP, and public HTTP natively', async () => {
@@ -275,6 +278,9 @@ describe('server preflight', () => {
       'omit',
       'omit',
     ])
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ cache: 'no-store', credentials: 'omit' }),
+    )
   })
 })
 

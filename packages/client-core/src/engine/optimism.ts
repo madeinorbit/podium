@@ -40,7 +40,6 @@ import type {
   SessionMeta,
 } from '@podium/model'
 import { asIssueId, asMutationId, asSessionId, dedupeSessionsByResume } from '@podium/model'
-import type { RuntimeContractRequest } from '@podium/protocol'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { OutboxEntry } from '../outbox'
@@ -48,6 +47,7 @@ import {
   assertSpawnPlacement,
   createDraftAgent,
   createIssueAgent,
+  type SpawnDraftAgentArgs,
   type SpawnTarget,
   type TaskSpawnOutcome,
 } from '../spawn-agent'
@@ -677,17 +677,14 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
   /** The #119 placeholder pair: paint a starting session and its draft issue
    *  before the create round-trips, and settle them when it answers. */
-  spawnDraftAgent(args: {
-    target: SpawnTarget
-    agentKind: AgentKind
-    firstPrompt?: string
-    model?: string
-    effort?: string
-    runtimeContract?: RuntimeContractRequest
-  }): { sessionId: SessionId; issueId: IssueId; settled: Promise<boolean> } {
+  spawnDraftAgent(args: SpawnDraftAgentArgs): {
+    sessionId: SessionId
+    issueId: IssueId
+    settled: Promise<boolean>
+  } {
     assertSpawnPlacement(args.target)
-    const sessionId = asSessionId(randomUUID())
-    const issueId = asIssueId(`iss_${randomUUID()}`)
+    const sessionId = args.sessionId ?? asSessionId(randomUUID())
+    const issueId = args.issueId ?? asIssueId(`iss_${randomUUID()}`)
     const nowIso = new Date().toISOString()
     const sortKey = optimisticDraftSortKey(
       this.ports.paintedIssues(),
@@ -720,6 +717,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
           trpc: this.ports.api,
           sessionId,
           issueId,
+          ...(args.mutationId ? { mutationId: args.mutationId } : {}),
+          ...(args.draftArtifacts?.length ? { draftArtifacts: args.draftArtifacts } : {}),
           target: args.target,
           agentKind: args.agentKind,
           firstPrompt: args.firstPrompt,

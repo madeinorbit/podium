@@ -540,6 +540,51 @@ export const UsageBucketWire = z.object({
 })
 export type UsageBucketWire = z.infer<typeof UsageBucketWire>
 
+/**
+ * `USE` — one transcript file's usage, with the file kept as the key.
+ *
+ * The bucket set above answers "what did this host spend, by hour and model" and
+ * deliberately forgets which session each record came from. That erasure is what
+ * makes per-task cost impossible without a second walk of the same 4GB, so this
+ * shape carries the one fact the fold discards: the PATH the records were read
+ * from. The server turns a path into a session (and therefore an issue) with one
+ * indexed lookup per FILE — never per record, which is the whole reason
+ * attribution is affordable at all.
+ *
+ * TWO FOLDS, ON PURPOSE. `windowModels` covers the records inside the requested
+ * window and is what the usage sheet's by-task section reads; `models` covers the
+ * whole file and is what the durable per-session row stores, because "what did
+ * this task cost" outlives any window. Sending the underlying hour buckets
+ * instead would be the same data an order of magnitude larger, and no reader
+ * wants a per-task figure resolved to the hour.
+ */
+export const UsageModelTotalWire = z.object({
+  model: z.string(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cacheReadTokens: z.number().int().nonnegative(),
+  cacheCreationTokens: z.number().int().nonnegative(),
+  cacheCreation1hTokens: z.number().int().nonnegative().optional(),
+  messages: z.number().int().nonnegative(),
+})
+export type UsageModelTotalWire = z.infer<typeof UsageModelTotalWire>
+
+export const UsageSourceWire = z.object({
+  /** Absolute path of the transcript this usage was read from. */
+  path: z.string(),
+  /** Which harness wrote it. The FLOOR mark keys off this and nothing else. */
+  harness: z.enum(['claude-code', 'codex', 'grok']),
+  /** Bytes of this file consumed so far — the incremental cursor, exact. */
+  scannedBytes: z.number().int().nonnegative(),
+  firstTsMs: z.number().int().nonnegative(),
+  lastTsMs: z.number().int().nonnegative(),
+  /** Every record in the file, folded by model. */
+  models: z.array(UsageModelTotalWire),
+  /** The subset at or after the scan's `sinceMs`, folded by model. */
+  windowModels: z.array(UsageModelTotalWire),
+})
+export type UsageSourceWire = z.infer<typeof UsageSourceWire>
+
 // ── Agent plan-quota (rate-limit windows). Distinct from UsageBucketWire, which
 // is transcript-harvested token-cost analytics. Quota is the share of each rolling
 // plan window consumed + when it resets, read live from each agent's own usage

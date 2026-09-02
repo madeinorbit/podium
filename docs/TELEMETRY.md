@@ -132,7 +132,7 @@ adds one. If a field isn't in the tables above, it cannot be sent.
 ## Where it goes
 
 ```
-your machine  ──POST──▶  telemetry.podium.dev  ──▶  PostHog Cloud
+your machine  ──POST──▶  pulse.meetpodium.com/v1/u  ──▶  PostHog Cloud
                          (Podium-operated relay:
                           validate → drop your IP → forward)
 ```

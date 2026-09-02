@@ -5,7 +5,7 @@ import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import type { SocketHub } from '../socket-transport'
 import type { Router } from '../ui-state'
-import { emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../viewmodels'
+import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../viewmodels'
 import {
   COMMAND_ACTIONS,
   createEngineActions,
@@ -53,6 +53,11 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
     paletteOpen: false,
     selectedWorktree: null,
     selectedIssueId: null,
+    transcriptReveal: null as {
+      nonce: number
+      sessionId: typeof sessionId
+      itemKey: string
+    } | null,
     workspaces: {},
     paneA: null,
     paneB: null,
@@ -169,6 +174,28 @@ describe('engine action ownership boundary', () => {
     h.actions.setPanelMode(sessionId, 'chat')
     h.actions.preferPanelMode(sessionId, 'native')
     expect(mode()).toBe('chat')
+  })
+
+  it('opens one permanent tab with a nonce-guarded transcript reveal', () => {
+    const h = harness()
+
+    h.actions.openSessionAtTranscript(sessionId, 'cursor-1', { permanent: true })
+    const first = h.state().transcriptReveal
+    expect(first).toMatchObject({ sessionId, itemKey: 'cursor-1' })
+    expect(first?.nonce).toBeTypeOf('number')
+    expect(h.state().paneA).toBe(sessionId)
+
+    h.actions.openSessionAtTranscript(sessionId, 'cursor-2', { permanent: true })
+    const second = h.state().transcriptReveal
+    expect(second?.nonce).toBeGreaterThan(first?.nonce ?? 0)
+    expect(allTabIds((h.state().workspaces as Record<string, WorkspaceLayout>).none!)).toEqual([
+      sessionId,
+    ])
+
+    h.actions.clearTranscriptReveal(first?.nonce ?? 0)
+    expect(h.state().transcriptReveal).toEqual(second)
+    h.actions.clearTranscriptReveal(second?.nonce ?? 0)
+    expect(h.state().transcriptReveal).toBeNull()
   })
 
   it('queues an offer dismissal through the Outbox, carrying the offer it names', async () => {

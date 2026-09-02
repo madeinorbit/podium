@@ -1,0 +1,481 @@
+/**
+ * WHAT A TASK COST, IN MONEY (POD-1858) — the client half of the cost read path.
+ *
+ * The server ships tokens and this module prices them, through
+ * `bucketCostUsd` — THE price table, imported rather than restated. Its header
+ * records why there must never be a second copy: two tables quote two dollar
+ * figures for the same tokens the first time a model id lands on a different
+ * row, and the sheet's total would stop agreeing with its own by-task
+ * breakdown. This file adds no rate, no fallback and no rounding rule of its
+ * own; it is arithmetic over that one table.
+ *
+ * SHARED, NOT WEB-LOCAL, for the same reason `usage.ts` is: the phone's Pulse
+ * tab and the desktop's four cost surfaces ask the identical questions.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT DO is decide how a figure is WORDED. `state`,
+ * `floor` and `provisional` are passed through untouched — "No sessions", "Not
+ * recorded" and the hedge sentence are the surface's copy, and a viewmodel that
+ * pre-rendered them would put the same sentence in four places.
+ */
+
+import type {
+  CostFloor,
+  CostHarness,
+  CostModelTotalWire,
+  CostTotalsWire,
+  SessionCostWire,
+  TaskCostRowWire,
+  TaskCostState,
+  TaskCostWire,
+} from '@podium/model'
+import { bucketCostUsd, bucketProvider, type UsageProvider } from './usage'
+
+/**
+ * The API-equivalent cost of one model's token total.
+ *
+ * Routed through the bucket shape because that is the price table's argument —
+ * an hour×model bucket and a per-task model total are the same six numbers, and
+ * borrowing the function is what keeps them priced identically.
+ */
+export function modelTotalCostUsd(m: CostModelTotalWire): number {
+  return bucketCostUsd({
+    hour: '',
+    model: m.model,
+    inputTokens: m.inputTokens,
+    outputTokens: m.outputTokens,
+    cacheReadTokens: m.cacheReadTokens,
+    cacheCreationTokens: m.cacheCreationTokens,
+    cacheCreation1hTokens: m.cacheCreation1hTokens,
+    messages: m.messages,
+  })
+}
+
+export const modelTotalTokens = (m: CostModelTotalWire): number =>
+  m.inputTokens + m.outputTokens + m.cacheReadTokens + m.cacheCreationTokens
+
+export interface CostModelRow {
+  model: string
+  provider: UsageProvider
+  estCostUsd: number
+  totalTokens: number
+  messages: number
+}
+
+/** One side of the rollup split, priced. */
+export interface CostAmount {
+  estCostUsd: number
+  totalTokens: number
+  messages: number
+  sessionCount: number
+  /** Dearest first — the model split the popover and the panel both draw. */
+  models: CostModelRow[]
+}
+
+export interface SessionCostView {
+  sessionId: string | null
+  title: string | null
+  harness: CostHarness
+  running: boolean
+  estCostUsd: number
+  totalTokens: number
+  messages: number
+  firstTsMs: number
+  lastTsMs: number
+}
+
+export interface TaskCostView {
+  state: TaskCostState
+  own: CostAmount
+  rollup: CostAmount
+  descendantCount: number
+  provisional: boolean
+  floor: CostFloor
+  harnesses: CostHarness[]
+  /** Sessions in scope with no cost row yet — the "not counted yet" half of the
+   *  floor, which `harnesses` cannot express. Surfaces phrase it; see `floorOf`. */
+  uncostedSessionCount: number
+  /** Own sessions, dearest first. */
+  sessions: SessionCostView[]
+  /** When this figure was last read — absent when nothing has been read for it.
+   *  Follow the usage sheet's `UsageStamp`: show a last-read time only when what
+   *  is on screen is not current, never as a clock in the corner. */
+  sampledAt: string | null
+  /** Rolled-up cost per reply; null when there are no replies to divide by. */
+  ratePerReplyUsd: number | null
+  /**
+   * This task's rate over the cohort median — the "2.3× median" reading. Null
+   * without a cohort, and null for a task with no replies: a multiple with no
+   * denominator is the kind of number that gets screenshotted.
+   */
+  rateVsMedian: number | null
+}
+
+const EMPTY_AMOUNT: CostAmount = {
+  estCostUsd: 0,
+  totalTokens: 0,
+  messages: 0,
+  sessionCount: 0,
+  models: [],
+}
+
+function amountOf(totals: CostTotalsWire): CostAmount {
+  const models = totals.models
+    .map(
+      (m): CostModelRow => ({
+        model: m.model,
+        provider: bucketProvider(m.model),
+        estCostUsd: modelTotalCostUsd(m),
+        totalTokens: modelTotalTokens(m),
+        messages: m.messages,
+      }),
+    )
+    .sort((a, b) => b.estCostUsd - a.estCostUsd)
+  return {
+    estCostUsd: models.reduce((n, m) => n + m.estCostUsd, 0),
+    totalTokens: models.reduce((n, m) => n + m.totalTokens, 0),
+    messages: totals.messages,
+    sessionCount: totals.sessionCount,
+    models,
+  }
+}
+
+/**
+ * THE RATE, AND THE ONLY DEFINITION OF IT — ROLLUP COST OVER ROLLUP REPLIES.
+ *
+ * One function, called by both surfaces, because two definitions that agree by
+ * convention do not: the panel divided the rollup and the sheet divided own
+ * cost, so POD-1673 read 1.97x in one place and 2.51x in the other — for a
+ * number whose entire job is comparison.
+ *
+ * Rollup, because the rate has to match the headline figure beside it and the
+ * headline is always the rollup. Null when there are no replies: a rate with no
+ * denominator is not zero, it is unmeasured.
+ *
+ * THE ASYMMETRY BELOW IS DELIBERATE AND WILL LOOK LIKE A BUG. The cohort this
+ * rate is compared against is built from OWN cost over OWN replies, one row per
+ * task — because a cohort of rollups counts an epic's work once for the epic and
+ * again for every ancestor above it, dragging the median up with every tree.
+ * Both sides are USD per reply, so the comparison is still like with like; what
+ * differs is which SET each side is drawn from, and that is the point. Do not
+ * "fix" one to match the other.
+ */
+export function taskRateUsd(estCostUsd: number, messages: number): number | null {
+  return messages > 0 ? estCostUsd / messages : null
+}
+
+/**
+ * THE RATE COHORT'S ENTRY BAR — more than twenty replies.
+ *
+ * Measured over ALL-TIME figures, matching the per-task rate it is compared
+ * against. A window cohort beside an all-time task rate would print a multiple
+ * of two different things.
+ *
+ * A task with three replies has a rate, and it is noise: one expensive turn
+ * moves it by a factor the reader would read as a finding. Measured over this
+ * machine's corpus the qualifying set is ~200 tasks, which is a cohort; the
+ * unfiltered set is dominated by tasks that barely ran.
+ */
+export const RATE_COHORT_MIN_REPLIES = 20
+
+export interface CostCohort {
+  /** Median USD per reply across qualifying tasks; null when none qualify. */
+  medianUsdPerReply: number | null
+  /** How many tasks the median was taken over — the honesty of the multiple. */
+  taskCount: number
+}
+
+/**
+ * The cohort a "× median" reading is measured against — OWN cost per task.
+ *
+ * See `taskRateUsd` for why this side is own while the displayed rate is rollup.
+ *
+ * WHAT THE COHORT INCLUDES, decided and measured rather than assumed. It
+ * EXCLUDES deleted tasks (`deleted_at`, filtered server-side — a tombstoned task
+ * kept its row and shifted the median every surface compares against) and
+ * INCLUDES archived and closed ones. Measured over the same corpus:
+ *   nothing excluded      $0.09353/reply over 152 tasks
+ *   excluding archived    $0.09476/reply over  63 tasks
+ *   excluding closed      $0.10325/reply over  38 tasks
+ * A cohort that sheds tasks as they finish makes the multiple non-comparable
+ * over time — the same task's "2.3x" would drift purely because its peers got
+ * closed — and 38 tasks is far too thin a bar to hang every "x median" in the
+ * product on. Recorded here because the next reader will otherwise re-derive it
+ * or "fix" the filter to match their intuition.
+ *
+ * WHAT THE COHORT CANNOT CONTAIN, and must not. `cost.tasks` emits a row only
+ * for a task that has its OWN cost rows, so a rollup-only parent — own 0, a
+ * real rollup beneath it — is absent from `rows` entirely. That absence is
+ * REQUIRED, not tolerated: the cohort is own cost per task, one row per task,
+ * precisely so an epic cannot count the same work once per ancestor. A
+ * rollup-only parent has no own work; admitting it
+ * would put its children's money into the denominator a second time. The rate
+ * still reads for such a task, because the two halves come from different
+ * reads — the numerator is that task's own rollup cost over rollup replies from
+ * `cost.task`, and only the DENOMINATOR touches `cost.tasks`. A median taken
+ * over other tasks does not need this one in it.
+ */
+export function costCohort(rows: readonly TaskCostRowWire[]): CostCohort {
+  const rates: number[] = []
+  for (const row of rows) {
+    if (row.messages <= RATE_COHORT_MIN_REPLIES) continue
+    const usd = row.models.reduce((n, m) => n + modelTotalCostUsd(m), 0)
+    if (usd > 0) rates.push(usd / row.messages)
+  }
+  if (rates.length === 0) return { medianUsdPerReply: null, taskCount: 0 }
+  rates.sort((a, b) => a - b)
+  const mid = rates.length >> 1
+  const median =
+    rates.length % 2 === 1
+      ? (rates[mid] as number)
+      : ((rates[mid - 1] as number) + (rates[mid] as number)) / 2
+  return { medianUsdPerReply: median, taskCount: rates.length }
+}
+
+/** One task's wire, priced. `cohort` adds the comparative reading. */
+export function taskCostView(wire: TaskCostWire, cohort?: CostCohort): TaskCostView {
+  const own = wire.own.models.length === 0 ? EMPTY_AMOUNT : amountOf(wire.own)
+  const rollup = wire.rollup.models.length === 0 ? EMPTY_AMOUNT : amountOf(wire.rollup)
+  const ratePerReplyUsd = taskRateUsd(rollup.estCostUsd, rollup.messages)
+  const median = cohort?.medianUsdPerReply ?? null
+  return {
+    state: wire.state,
+    own,
+    rollup,
+    descendantCount: wire.descendantCount,
+    provisional: wire.provisional,
+    floor: wire.floor,
+    harnesses: wire.harnesses,
+    uncostedSessionCount: wire.uncostedSessionCount,
+    sessions: foldSessionCosts(wire.sessions),
+    ratePerReplyUsd,
+    rateVsMedian:
+      ratePerReplyUsd !== null && median !== null && median > 0 ? ratePerReplyUsd / median : null,
+    sampledAt: wire.sampledAt ?? null,
+  }
+}
+
+/**
+ * ONE ROW PER SESSION, NOT PER TRANSCRIPT — and this is a correctness fix, not
+ * a tidy-up (POD-1592's review of POD-1860).
+ *
+ * `TaskCostWire.sessions` carries one entry per transcript FILE, and the read
+ * path deliberately attributes a delegate's transcript to the session that
+ * SPAWNED it: `resolveOwners` climbs the parent edge, which is how roughly $85
+ * of otherwise invisible Claude spend got counted at all — 32 of 112 Claude
+ * transcripts in a window are `subagents/` files. That hop is right and must
+ * stay.
+ *
+ * The consequence is that several wire entries legitimately share one
+ * `sessionId`, so rendering them one-to-one gave a session with twelve
+ * delegates thirteen identical rows, every one keyed on the same id. Duplicate
+ * React keys, a list that disagrees with `sessionCount`, and a reader invited to
+ * add up the same session over and over.
+ *
+ * So the costs fold and the row is the session. A NULL id is not an identity and
+ * never merges: those are transcripts with no surviving session row, and two of
+ * them are two different pieces of work that happen to be equally anonymous.
+ */
+export function foldSessionCosts(rows: readonly SessionCostWire[]): SessionCostView[] {
+  const bySession = new Map<string, SessionCostView>()
+  const anonymous: SessionCostView[] = []
+  for (const row of rows) {
+    const view = sessionCostView(row)
+    if (row.sessionId === null) {
+      anonymous.push(view)
+      continue
+    }
+    const seen = bySession.get(row.sessionId)
+    if (!seen) {
+      bySession.set(row.sessionId, view)
+      continue
+    }
+    seen.estCostUsd += view.estCostUsd
+    seen.totalTokens += view.totalTokens
+    seen.messages += view.messages
+    // The session spans every transcript written under it, so its window is the
+    // union: a delegate that started first started the session's work.
+    seen.firstTsMs = Math.min(seen.firstTsMs, view.firstTsMs)
+    seen.lastTsMs = Math.max(seen.lastTsMs, view.lastTsMs)
+    // Live if ANY of its transcripts is: the flag comes from the session row, so
+    // every entry sharing an id agrees, but folding with `||` keeps that an
+    // observation rather than an assumption.
+    seen.running = seen.running || view.running
+    // The parent's own transcript carries the name; a delegate file may not.
+    seen.title = seen.title ?? view.title
+  }
+  return [...bySession.values(), ...anonymous].sort((a, b) => b.estCostUsd - a.estCostUsd)
+}
+
+function sessionCostView(s: SessionCostWire): SessionCostView {
+  return {
+    sessionId: s.sessionId,
+    title: s.title,
+    harness: s.harness,
+    running: s.running,
+    estCostUsd: s.models.reduce((n, m) => n + modelTotalCostUsd(m), 0),
+    totalTokens: s.models.reduce((n, m) => n + modelTotalTokens(m), 0),
+    messages: s.models.reduce((n, m) => n + m.messages, 0),
+    firstTsMs: s.firstTsMs,
+    lastTsMs: s.lastTsMs,
+  }
+}
+
+export interface TaskCostRowView {
+  issueId: string
+  seq: number
+  /** `POD-1234` — the ref the rest of the app prints. The wire has carried this
+   *  since f01cc8c50 and the VIEW did not copy it, so every row in the sheet
+   *  measured `displayRef=(none)` and fell back to `#1234`: a ref you cannot
+   *  paste is a ref you cannot chase. Optional exactly as on the wire, so an
+   *  older payload still renders through `issueDisplayRef`'s `#seq` fallback. */
+  displayRef?: string
+  title: string
+  stage: string
+  estCostUsd: number
+  totalTokens: number
+  messages: number
+  /** The same task inside the harvest's window — what the sheet's stats row
+   *  compares against the host's own 7-day total. Zero for a task whose work
+   *  is all older than the window, which is the honest reading. */
+  windowCostUsd: number
+  windowMessages: number
+  /** The task plus every descendant — the figure `ratePerReplyUsd` divides, and
+   *  the same one the task-detail panel shows. */
+  rollupCostUsd: number
+  rollupMessages: number
+  sessionCount: number
+  floor: CostFloor
+  harnesses: CostHarness[]
+  /** Own sessions with no cost row yet — see `TaskCostView.uncostedSessionCount`. */
+  uncostedSessionCount: number
+  ratePerReplyUsd: number | null
+  rateVsMedian: number | null
+  /** When this row was last read — see `TaskCostView.sampledAt`. */
+  sampledAt: string | null
+}
+
+/**
+ * The sheet's ranked table, dearest first, with the cohort computed from the
+ * same rows — the multiple and the ranking are then guaranteed to be one
+ * reading of one set rather than two answers taken at different moments.
+ */
+export function taskCostRows(rows: readonly TaskCostRowWire[]): {
+  rows: TaskCostRowView[]
+  cohort: CostCohort
+} {
+  const cohort = costCohort(rows)
+  const median = cohort.medianUsdPerReply
+  const priced = rows.map((row): TaskCostRowView => {
+    const estCostUsd = row.models.reduce((n, m) => n + modelTotalCostUsd(m), 0)
+    const rollupCostUsd = row.rollupModels.reduce((n, m) => n + modelTotalCostUsd(m), 0)
+    // The SAME definition the panel uses — see `taskRateUsd`. The column beside
+    // it is own cost, and that is not an inconsistency: the ranking is per task,
+    // the rate is a property of the task and everything under it.
+    const rate = taskRateUsd(rollupCostUsd, row.rollupMessages)
+    return {
+      issueId: row.issueId,
+      seq: row.seq,
+      displayRef: row.displayRef,
+      title: row.title,
+      stage: row.stage,
+      estCostUsd,
+      totalTokens: row.models.reduce((n, m) => n + modelTotalTokens(m), 0),
+      messages: row.messages,
+      windowCostUsd: row.windowModels.reduce((n, m) => n + modelTotalCostUsd(m), 0),
+      windowMessages: row.windowMessages,
+      rollupCostUsd,
+      rollupMessages: row.rollupMessages,
+      sessionCount: row.sessionCount,
+      floor: row.floor,
+      harnesses: row.harnesses,
+      uncostedSessionCount: row.uncostedSessionCount,
+      ratePerReplyUsd: rate,
+      rateVsMedian: rate !== null && median !== null && median > 0 ? rate / median : null,
+      sampledAt: row.sampledAt ?? null,
+    }
+  })
+  priced.sort((a, b) => b.estCostUsd - a.estCostUsd)
+  return { rows: priced, cohort }
+}
+
+// ---------------------------------------------------------------------------
+// How a figure is WORDED — the rounding, the hedge and the attribution
+// ---------------------------------------------------------------------------
+//
+// The module header says a viewmodel must not pre-render a surface's copy, and
+// that still holds for the STATE words: "No sessions" and "Not recorded" are
+// each surface's own sentence. What lives here is the opposite kind of string —
+// the ones the design (POD-1604 §07) requires to be IDENTICAL everywhere, for
+// the same reason the price table is single: four surfaces rounding a figure
+// four ways would quote four numbers for one cost, and the mission chip would
+// stop agreeing with the panel it opens onto.
+
+/**
+ * `$226` — the ROUNDED reading, which is what a figure means outside the one
+ * place the full sentence fits. Three significant figures, and no cents at all
+ * above $10: a rounded figure reads as a measurement, and a figure to the cent
+ * reads as an invoice (POD-1604 §03).
+ *
+ * Below $10 the cents ARE the significant figures — `$4.80` is the honest
+ * reading of a cheap task, and `$4.8` looks like a truncation.
+ */
+export function formatCostRounded(usd: number): string {
+  if (usd >= 10) {
+    const mag = Math.floor(Math.log10(usd))
+    const factor = 10 ** Math.max(0, mag - 2)
+    return `$${(Math.round(usd / factor) * factor).toLocaleString('en-US')}`
+  }
+  return `$${usd.toFixed(2)}`
+}
+
+/**
+ * `$225.81` — the figure to the cent, for the one place per surface that also
+ * carries {@link COST_HEDGE}. Zero prints `$0` rather than `$0.00`: it appears
+ * only as the OWN side of a rollup split (POD-1484 spent nothing itself), where
+ * two decimal places on a nil figure read as a measured zero rather than an
+ * absence. It is never the headline — a task with no cost renders a state word,
+ * never a figure.
+ */
+export function formatCostExact(usd: number): string {
+  if (usd === 0) return '$0'
+  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+/**
+ * The rounded figure under its PROVENANCE MARK.
+ *
+ * `≈` is an estimate of the whole; `≥` is a lower bound, and the difference is
+ * not decoration — a partly-attributed task's real cost is above what we can
+ * count, so `≈` there would be a claim we cannot make. The mark keys off
+ * `floor`, which keys off harness and nothing else.
+ */
+export function formatCostMark(usd: number, floor: CostFloor): string {
+  return `${floor === 'partial' ? '≥' : '≈'}${formatCostRounded(usd)}`
+}
+
+/** The hedge, in ONE place. POD-1604 §07: reused verbatim on every surface that
+ *  shows a figure to the cent, never paraphrased into a second wording. */
+export const COST_HEDGE = 'at list price for the same tokens — not what you were billed'
+
+const HARNESS_WORD: Record<CostHarness, string> = {
+  'claude-code': 'Claude',
+  codex: 'Codex',
+  grok: 'Grok',
+}
+
+/**
+ * WHY a figure is a floor, in the reader's words: `all Codex`, `Claude + Codex`,
+ * `Codex + Grok`.
+ *
+ * Built from the harness LIST rather than from an arm per harness, which is the
+ * mistake this replaces: POD-1484 really does read `[codex, grok]`, and a
+ * three-armed enum would have printed "all Codex" over a task with Grok in it —
+ * a label that states a falsehood as a fact. A lone harness gets `all` because
+ * that is the claim ("nothing else contributed"); two or more are simply named.
+ */
+export function costHarnessLabel(harnesses: readonly CostHarness[]): string {
+  const words = harnesses.map((h) => HARNESS_WORD[h])
+  if (words.length === 0) return ''
+  if (words.length === 1) return `all ${words[0] as string}`
+  return words.join(' + ')
+}

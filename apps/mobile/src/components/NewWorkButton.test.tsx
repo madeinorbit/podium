@@ -8,7 +8,7 @@
  */
 
 import type { GitRepositoryWire } from '@podium/model'
-import { cleanup, fireEvent, screen } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
@@ -90,5 +90,53 @@ describe('the phone launch sheet', () => {
     fireEvent.click(screen.getByLabelText('Model, Auto'))
     fireEvent.click(screen.getByLabelText('No agent Shell'))
     expect(screen.getByLabelText('Model, Shell')).toBeTruthy()
+  })
+
+  it('starts an agent with the written first prompt', async () => {
+    const create = vi.fn(async () => ({ sessionId: 'created' }))
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium')],
+      api: { sessions: { create: { mutate: create } } },
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    fireEvent.change(screen.getByLabelText('First prompt, optional'), {
+      target: { value: '  Fix the login race  ' },
+    })
+    fireEvent.click(screen.getByLabelText('Start in podium'))
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ initialPrompt: 'Fix the login race' }),
+      ),
+    )
+  })
+
+  it('keeps the first prompt until the optimistic spawn settles', async () => {
+    let confirmSpawn: ((value: { sessionId: string }) => void) | undefined
+    const create = vi.fn(
+      () =>
+        new Promise<{ sessionId: string }>((resolve) => {
+          confirmSpawn = resolve
+        }),
+    )
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium')],
+      api: { sessions: { create: { mutate: create } } },
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    fireEvent.change(screen.getByLabelText('First prompt, optional'), {
+      target: { value: 'Keep this through settle' },
+    })
+    fireEvent.click(screen.getByLabelText('Start in podium'))
+
+    fireEvent.click(screen.getByLabelText('New work'))
+    expect((screen.getByLabelText('First prompt, optional') as HTMLInputElement).value).toBe(
+      'Keep this through settle',
+    )
+
+    confirmSpawn?.({ sessionId: 'created' })
+    await waitFor(() =>
+      expect((screen.getByLabelText('First prompt, optional') as HTMLInputElement).value).toBe(''),
+    )
   })
 })

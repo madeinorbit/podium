@@ -238,6 +238,9 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
      to collapse and no split to remember. Stale rows on old devices are inert —
      nothing reads these keys. */
   'podium:superagent:width',
+  /** Flight Deck overview density and its separately resized overview width. */
+  'podium.flightDeck.display',
+  'podium:flightDeck:expandedWidth',
   'podium:rightdock:width',
   /**
    * THE PHONE LAUNCH SHEET'S LAST PICKS (POD-1354) — model, effort, machine and
@@ -261,6 +264,9 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
    *  agent state, and a phone has no business inheriting a desktop's folds. */
   'podium.flightDeck.mode',
   'podium.flightDeck.folds',
+  /** Per-device geometry for the Flight Deck waterfall. */
+  'podium.flightDeck.waterfallRowZoom',
+  'podium.flightDeck.waterfallTaskWidth',
   /**
    * The mission-brief cutoff as a fraction of this screen's Flight Deck height.
    * It applies to every mission on the device, but does not travel to a phone or
@@ -322,6 +328,10 @@ export const NEW_WORK_REPO_KEY = 'podium.newWork.repo'
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
 export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
 export const FLIGHT_DECK_BRIEF_CUTOFF_KEY = 'podium.flightDeck.briefCutoff'
+export const FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY = 'podium.flightDeck.waterfallRowZoom'
+export const FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY = 'podium.flightDeck.waterfallTaskWidth'
+export const FLIGHT_DECK_DISPLAY_KEY = 'podium.flightDeck.display'
+export const FLIGHT_DECK_EXPANDED_WIDTH_KEY = 'podium:flightDeck:expandedWidth'
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const DIFF_SHEET_WRAP_KEY = 'podium:diff-sheet:wrap'

@@ -1,10 +1,16 @@
 import {
   boardIssues,
+  type BoardFilter,
+  filterBoardIssues,
+  filterBoardScope,
   flattenRowGroups,
   type IssueRow,
   issueRowsByStage,
   orderIssues,
   partitionIssueTree,
+  type TaskProgress,
+  taskProgressMap,
+  type IssuesOrdering,
 } from '@podium/client-core/viewmodels'
 import type { IssueBoardStage, IssueWire } from '@podium/model'
 import { STAGE_LABEL } from '../theme/stage'
@@ -81,6 +87,20 @@ export interface TaskBoardSection {
   rows: IssueRow<IssueWire>[]
 }
 
+/** Full-subtree progress for the roots currently represented on the phone board. */
+export function taskBoardProgress(
+  issues: readonly IssueWire[],
+  sections: readonly TaskBoardSection[],
+  workingByIssue: ReadonlyMap<string, number>,
+): Map<string, TaskProgress | null> {
+  const published = issues.filter((issue) => !issue.archived && !issue.deletedAt)
+  return taskProgressMap(
+    published,
+    sections.flatMap((section) => section.rows.map((row) => row.issue.id)),
+    workingByIssue,
+  )
+}
+
 /**
  * The board's sections, in phone order, empty stages dropped.
  *
@@ -92,24 +112,72 @@ export interface TaskBoardSection {
  */
 export function taskBoardSections(
   issues: IssueWire[],
-  opts: { showDone: boolean; expanded?: ReadonlySet<string> },
+  opts: {
+    showDone: boolean
+    expanded?: ReadonlySet<string>
+    filter?: BoardFilter
+    ordering?: IssuesOrdering
+    showAgentTasks?: boolean
+  },
 ): TaskBoardSection[] {
   const expanded = opts.expanded ?? EMPTY_EXPANDED
-  // "Show done" filters the POPULATION, not the sections. It used to drop the
-  // Done section at the end, which was the same thing while children could not
-  // be revealed — now a done sub-task would ride into view under an expanded
-  // parent (children sit in the PARENT's section whatever their own stage) and
-  // walk straight past the operator's filter, with the parent's sub-task count
-  // disagreeing about how many rows the chevron owes.
-  const scoped = boardIssues(issues).filter((issue) => opts.showDone || issue.stage !== 'done')
-  const groups = issueRowsByStage(scoped, TASK_BOARD_ORDERING, { flatten: false, expanded })
+  const boardScope = filterBoardScope(issues, opts.showAgentTasks ?? false).filter(
+    (issue) => opts.showDone || issue.stage !== 'done',
+  )
+  const matches = filterBoardIssues(boardScope, opts.filter ?? {})
+  const matchedIds = new Set(matches.map((issue) => issue.id))
+  // Filtering a tree as a flat array promotes an isolated matching child to a
+  // root. Retain its ancestor chain so the root-only phone board keeps the work
+  // context; decomposition children remain reachable on that root's detail.
+  const retainedIds = new Set(matchedIds)
+  const byId = new Map(boardScope.map((issue) => [issue.id, issue]))
+  for (const match of matches) {
+    const seen = new Set<string>([match.id])
+    let parentId = match.parentId
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId)
+      const parent = byId.get(parentId)
+      if (!parent) break
+      retainedIds.add(parent.id)
+      parentId = parent.parentId
+    }
+  }
+  const scoped = boardScope.filter((issue) => retainedIds.has(issue.id))
+  const ordering = opts.ordering ?? TASK_BOARD_ORDERING
+  const promoted = buildScreeningQueue(scoped).filter(
+    (issue) => Boolean(issue.parentId) && matchedIds.has(issue.id),
+  )
+  const promotedIds = new Set(promoted.map((issue) => issue.id))
+  // A screenable proposal is a decision row of its own, even while its
+  // approved parent is expanded. Remove the proposal and its subtree from the
+  // ordinary tree before deriving rows; promotion below adds that subtree back
+  // under Proposed. Deriving after removal also keeps the parent's disclosure
+  // count honest instead of promising a child that was moved elsewhere.
+  const ordinaryScope =
+    promotedIds.size === 0
+      ? scoped
+      : scoped.filter((issue) => {
+          const seen = new Set<string>()
+          let current: IssueWire | undefined = issue
+          while (current && !seen.has(current.id)) {
+            if (promotedIds.has(current.id)) return false
+            seen.add(current.id)
+            current = current.parentId ? byId.get(current.parentId) : undefined
+          }
+          return true
+        })
+  const groups = issueRowsByStage(ordinaryScope, ordering, {
+    flatten: false,
+    expanded,
+  })
   const byStage = new Map(groups.map((g) => [g.stage, [...g.rows]]))
-  promoteScreenableProposals(scoped, byStage, expanded)
+  promoteScreenableProposals(scoped, byStage, expanded, ordering, promoted)
   return TASK_STAGE_ORDER.map((stage) => ({
     stage,
     title: STAGE_LABEL[stage],
     rows: byStage.get(stage) ?? [],
-  })).filter((section) => section.rows.length > 0)
+  }))
+    .filter((section) => section.rows.length > 0)
 }
 
 /**
@@ -133,10 +201,12 @@ function promoteScreenableProposals(
   scoped: IssueWire[],
   byStage: Map<IssueBoardStage, IssueRow<IssueWire>[]>,
   expanded: ReadonlySet<string>,
+  ordering: IssuesOrdering,
+  promoted: readonly IssueWire[],
 ): void {
   const listed = new Set([...byStage.values()].flatMap((rows) => rows.map((row) => row.issue.id)))
   const { childrenByParent } = partitionIssueTree(scoped)
-  const extras = buildScreeningQueue(scoped).filter((issue) => !listed.has(issue.id))
+  const extras = promoted.filter((issue) => !listed.has(issue.id))
   if (extras.length === 0) return
 
   const emit = (issue: IssueWire, depth: number, out: IssueRow<IssueWire>[]): void => {
@@ -146,7 +216,7 @@ function promoteScreenableProposals(
     const open = children.length > 0 && expanded.has(issue.id)
     out.push({ issue, depth, childCount: children.length, expanded: open })
     if (!open) return
-    for (const child of orderIssues(children, TASK_BOARD_ORDERING)) emit(child, depth + 1, out)
+    for (const child of orderIssues(children, ordering)) emit(child, depth + 1, out)
   }
 
   const blocks = rootBlocks(byStage.get('proposed') ?? [])
@@ -162,7 +232,7 @@ function promoteScreenableProposals(
     'proposed',
     orderIssues(
       blocks.map((block) => (block[0] as IssueRow<IssueWire>).issue),
-      TASK_BOARD_ORDERING,
+      ordering,
     ).flatMap((issue) => byRootId.get(issue.id) ?? []),
   )
 }

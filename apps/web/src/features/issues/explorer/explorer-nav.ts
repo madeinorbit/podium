@@ -33,9 +33,15 @@ export function popToDepth(stack: ExplorerStack, depth: number): string[] {
  * a step in that trail. Retargeting to the task already showing keeps the
  * existing stack, so clicking around inside one task's sessions does not
  * repeatedly throw away the relations you walked from it.
+ *
+ * Retargeting to NOTHING lands on level 0. A trail is a route to a subject, so
+ * once the shell has no subject the route describes nowhere: holding it up says
+ * the panel is still scoped to a task the operator has just removed (POD-1471).
+ * What counts as nothing is the CALLER's call — an empty replica is a reconnect
+ * mid-flight, not an absence, and must never be resolved to null and passed in.
  */
 export function resetTo(stack: ExplorerStack, id: string | null): string[] {
-  if (!id) return [...stack]
+  if (!id) return []
   if (stack.length === 1 && stack[0] === id) return [...stack]
   return [id]
 }

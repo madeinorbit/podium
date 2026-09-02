@@ -27,6 +27,7 @@ describe('first-task activation draft', () => {
       machineId: '',
       title: 'Ship onboarding',
       description: 'Keep this prompt.',
+      launchKind: '',
       pendingIssueId: '',
       createIssueId: '',
       createSessionId: '',

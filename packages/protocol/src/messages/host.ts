@@ -10,6 +10,7 @@ import {
   ProjectMemoryWire,
   SessionIdField,
   UsageBucketWire,
+  UsageSourceWire,
 } from '@podium/model'
 import { z } from 'zod'
 
@@ -167,6 +168,9 @@ export const UsageRequestMessage = z.object({
   requestId: z.string(),
   /** Only count activity at/after this epoch ms (default: 7 days back). */
   sinceMs: z.number().optional(),
+  /** Also return the per-file breakdown behind the buckets (POD-1858). Opt-in:
+   *  the status chip polls this message every 90s and wants only the buckets. */
+  withSources: z.boolean().optional(),
 })
 export const UsageResultMessage = z.object({
   type: z.literal('usageResult'),
@@ -175,6 +179,18 @@ export const UsageResultMessage = z.object({
   /** When the daemon completed the transcript scan behind these buckets. */
   sampledAt: z.string().optional(),
   buckets: z.array(UsageBucketWire),
+  /** One entry per transcript the scan touched — the same records folded by
+   *  FILE instead of by hour. Present only for a `withSources` request; the
+   *  server folds it into per-task cost and does not pass it to clients. */
+  sources: z.array(UsageSourceWire).optional(),
+  /**
+   * THE WINDOW THE `sources` FOLDS ACTUALLY COVER — which is the memo's, not
+   * the request's. `buckets` are re-filtered to whatever this caller asked for;
+   * a per-file fold cannot be, so within the memo TTL the two can disagree and
+   * the server must stamp the durable rows with THIS rather than its own
+   * `sinceMs` (POD-1858 review).
+   */
+  sourcesSinceMs: z.number().optional(),
 })
 
 // ── Agent plan-quota (rate-limit windows). Distinct from UsageBucketWire, which

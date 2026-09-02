@@ -81,6 +81,7 @@ import { SettingsAuditRepository } from './store/settings-audit'
 import { ShippingRepository } from './store/shipping'
 import { SuperagentRepository } from './store/superagent'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
+import { TranscriptCostsRepository } from './store/transcript-costs'
 import { UserLayoutRepository } from './store/user-layout'
 import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
@@ -147,6 +148,9 @@ export class SessionStore {
   /** One row per run of a plan quota window (POD-1571) — the only place Podium
    *  keeps a quota number after the live read that produced it goes stale. */
   readonly quotaHistory: QuotaHistoryRepository
+  /** One row per transcript the usage harvest has read (POD-1858) — what a task
+   *  cost, after the harvest's 7-day window has rolled past the work. */
+  readonly transcriptCosts: TranscriptCostsRepository
   /** Unified agent messaging (#237) [spec:SP-34d7]. */
   readonly messages: MessagesRepository
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
@@ -266,6 +270,7 @@ export class SessionStore {
     this.events = new EventsRepository(this.db)
     this.notificationFacts = new NotificationFactsRepository(this.db)
     this.quotaHistory = new QuotaHistoryRepository(this.db)
+    this.transcriptCosts = new TranscriptCostsRepository(this.db)
     this.messages = new MessagesRepository(this.db)
     this.readWatermarks = new ReadWatermarksRepository(this.db)
     this.workflows = new WorkflowsRepository(this.db)

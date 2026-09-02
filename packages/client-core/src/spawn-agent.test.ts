@@ -1,4 +1,4 @@
-import { asIssueId, asMachineId, asSessionId } from '@podium/model'
+import { asIssueId, asMachineId, asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from './api'
 import { agentAcceptsArgvPrompt, createDraftAgent } from './spawn-agent'
@@ -69,6 +69,50 @@ describe('spawn machine-USE placement', () => {
     for (const field of ['actor', 'owner', 'ownerId', 'origin']) {
       expect(createdKeys, `spawn payload asserts attribution field '${field}'`).not.toContain(field)
     }
+  })
+
+  it('carries stable mutation ids through create and fallback prompt retries', async () => {
+    const { trpc, create, resumeAndSend } = api()
+    await createDraftAgent({
+      ...base,
+      agentKind: 'opencode',
+      mutationId: asMutationId('launch-1'),
+      firstPrompt: 'retry safely',
+      trpc,
+      target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
+    })
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ mutationId: 'launch-1' }))
+    expect(resumeAndSend).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      text: 'retry safely',
+      mutationId: 'launch-1:first-prompt',
+    })
+  })
+
+  it('puts direct attachments on the draft create rather than in the prompt', async () => {
+    const { trpc, create } = api()
+    await createDraftAgent({
+      ...base,
+      trpc,
+      target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
+      firstPrompt: 'Review the mock',
+      draftArtifacts: [
+        {
+          id: 'att-1',
+          filename: 'mock.png',
+          mimeType: 'image/png',
+          dataBase64: 'UE5H',
+        },
+      ],
+    })
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialPrompt: 'Review the mock',
+        draftArtifacts: [expect.objectContaining({ filename: 'mock.png', dataBase64: 'UE5H' })],
+      }),
+    )
   })
 })
 

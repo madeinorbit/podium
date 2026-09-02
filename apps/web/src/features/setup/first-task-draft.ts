@@ -19,6 +19,9 @@ export type FirstTaskDraft = {
   effort: string
   title: string
   description: string
+  /** Distinguishes current draft-session launches from persisted pre-POD-1838
+   * named-issue retries, which must finish through their original mutation. */
+  launchKind: 'draft' | 'issue' | ''
   /** Set once the tracked task exists; retries start this issue instead of creating another. */
   pendingIssueId: IssueId | ''
   /** Reserved optimistic identities survive an ambiguous create response, so a
@@ -42,6 +45,7 @@ export const EMPTY_FIRST_TASK_DRAFT: FirstTaskDraft = {
   effort: 'auto',
   title: '',
   description: '',
+  launchKind: '',
   pendingIssueId: '',
   createIssueId: '',
   createSessionId: '',
@@ -63,6 +67,8 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
       effort: typeof value.effort === 'string' && value.effort ? value.effort : 'auto',
       title: typeof value.title === 'string' ? value.title : '',
       description: typeof value.description === 'string' ? value.description : '',
+      launchKind:
+        value.launchKind === 'draft' || value.launchKind === 'issue' ? value.launchKind : '',
       pendingIssueId:
         typeof value.pendingIssueId === 'string' && value.pendingIssueId
           ? asIssueId(value.pendingIssueId)

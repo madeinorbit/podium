@@ -1,7 +1,8 @@
 import type { JSX } from 'react'
-import { lazy, StrictMode, Suspense, useState } from 'react'
+import { lazy, StrictMode, Suspense, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LoginGate } from '@/features/setup/LoginGate'
+import { restartPodiumShell } from '@/features/setup/restart-shell'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { startWebLogging } from '@/lib/logging'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -31,6 +32,30 @@ const IterationModeFrame = import.meta.env.PODIUM_ITERATION_MODE
       })),
     )
   : null
+
+function AuthenticatedPodiumApp({
+  initialPodiumHref,
+}: {
+  initialPodiumHref: string | null
+}): JSX.Element {
+  // Login and auth transitions may replace AppShell. Keep the canonical cold
+  // address above that boundary until a host activates or expires it, then
+  // clear it so a later shell cannot activate the same startup address twice.
+  const pendingInitialPodiumHref = useRef(initialPodiumHref)
+  return (
+    <LoginGate>
+      {(auth) => (
+        <AppShell
+          auth={auth}
+          initialPodiumHref={pendingInitialPodiumHref.current}
+          onInitialPodiumHrefConsumed={() => {
+            pendingInitialPodiumHref.current = null
+          }}
+        />
+      )}
+    </LoginGate>
+  )
+}
 
 // Deliberately EAGER, unlike the frame above: this is the screen shown when the
 // payload could not start, so it must not depend on fetching another chunk from
@@ -85,6 +110,31 @@ function PayloadUnavailablePage({ reason }: { reason?: string }): JSX.Element {
   )
 }
 
+function ServerTransportBlockedPage({ reason }: { reason?: string }): JSX.Element {
+  return (
+    <BootScreen
+      eyebrow="Server / blocked"
+      headline="This server needs a secure connection"
+      prose="Podium Desktop allows HTTP and WS only for localhost and loopback IP addresses. Change every other server URL to HTTPS or WSS."
+      fields={[
+        {
+          label: 'Connection refusal',
+          value: reason ?? 'The configured server uses an insecure transport',
+          tone: 'fault',
+        },
+        { label: 'Blocked server access', value: 'Not granted' },
+      ]}
+      trace={{ from: 'Desktop app', to: 'Remote server' }}
+      detail={reason}
+      primary={{
+        label: 'Restart Podium',
+        onClick: () => void restartPodiumShell(),
+      }}
+      panelLabel="Connection policy"
+    />
+  )
+}
+
 // FIRST, before anything can throw: the global handlers and the flight recorder
 // are what turn a crash during boot into a report on the user's own server
 // [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
@@ -100,6 +150,11 @@ const payloadUnavailable =
   true
 const payloadStartupError = (globalThis as { __PODIUM_PAYLOAD_ERROR__?: string })
   .__PODIUM_PAYLOAD_ERROR__
+const serverTransportBlocked =
+  (globalThis as { __PODIUM_SERVER_TRANSPORT_BLOCKED__?: boolean })
+    .__PODIUM_SERVER_TRANSPORT_BLOCKED__ === true
+const serverTransportError = (globalThis as { __PODIUM_SERVER_TRANSPORT_ERROR__?: string })
+  .__PODIUM_SERVER_TRANSPORT_ERROR__
 
 // A phone reaching the desktop shell means a cached service worker beat the
 // server's redirect to it (POD-359) — send it on before mounting anything.
@@ -112,7 +167,9 @@ if (!redirectPhoneToMobileApp()) {
     <StrictMode>
       <AppStarted />
       <ThemeProvider>
-        {payloadUnavailable ? (
+        {serverTransportBlocked ? (
+          <ServerTransportBlockedPage reason={serverTransportError} />
+        ) : payloadUnavailable ? (
           <PayloadUnavailablePage reason={payloadStartupError} />
         ) : (
           <>
@@ -135,9 +192,7 @@ if (!redirectPhoneToMobileApp()) {
                 <MotionDemo />
               </Suspense>
             ) : (
-              <LoginGate>
-                {(auth) => <AppShell auth={auth} initialPodiumHref={initialPodiumHref} />}
-              </LoginGate>
+              <AuthenticatedPodiumApp initialPodiumHref={initialPodiumHref} />
             )}
           </>
         )}

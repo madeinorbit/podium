@@ -42,6 +42,15 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
     updates: 'settings renders update audit copy from the updater operation view model',
   },
   setup: { chat: 'the first-task composer reuses chat attachment state and rendering' },
+  // The cost seams (POD-1859). `cost` is a shared SURFACE rather than a screen
+  // of its own: the same section is mounted by the issue panel today and by the
+  // task page next, which is why it is a feature and not a folder under
+  // `issues`. Both directions are declared because both are real.
+  cost: {
+    issues: 'the Cost section is a DockPart in the issue panel and wears its row chrome',
+    usage: "the cold state IS the usage sheet's Unfilled slot — one treatment for one meaning",
+  },
+  issues: { cost: 'the issue panel mounts the Cost section and the roster meta it reads' },
 }
 
 const walk = (dir: string): string[] =>

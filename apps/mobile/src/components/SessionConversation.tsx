@@ -7,6 +7,7 @@ import {
   pendingAskFromState,
 } from '@podium/client-core/viewmodels'
 import {
+  type ConversationPendingTurn,
   createConversationController,
   nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
@@ -15,19 +16,14 @@ import { createTranscriptController } from '@podium/client-core/transcript'
 import { asMutationId, type IssueWire, type SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { StyleSheet, View } from 'react-native'
-import {
-  useHub,
-  useIssues,
-  useMobileStore,
-  useSessionDraft,
-  useSessions,
-} from '../client/hooks'
+import { StyleSheet, Text, View } from 'react-native'
+import Svg, { Circle } from 'react-native-svg'
+import { useHub, useIssues, useMobileStore, useSessionDraft, useSessions } from '../client/hooks'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { interruptSession } from '../lib/interrupt-session'
 import { sendOfferAction } from '../lib/send-offer-action'
-import { color } from '../theme/theme'
+import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { PendingInteractionBand } from './PendingInteractionBand'
 import { Composer } from './Composer'
@@ -37,8 +33,9 @@ import { SessionActionCard } from './SessionActionCard'
 import { MobileSessionLifecycle } from './SessionLifecycle'
 import { TaskSheet } from './TaskSheet'
 import { type PendingTurn, TranscriptList } from './TranscriptList'
-import { EmptyState } from './ui'
 import { type SentAttachment, useComposerAttachments } from './useComposerAttachments'
+import { WorkingMark } from './WorkingMark'
+import { WORKING_MARK_DOTS, workingMarkRadius } from './WorkingMark.shared'
 
 /**
  * A pending turn plus the exact string that was put on the wire.
@@ -55,6 +52,43 @@ type LocalPendingTurn = PendingTurn & { wire: string }
 function withoutOffer(session: SessionMeta): SessionMeta {
   const { offer: _answered, ...rest } = session
   return rest as SessionMeta
+}
+
+/** The working mark's dot grid at rest, drawn as SVG so device fonts cannot
+ * replace the braille glyph with a missing-character box. */
+function RestingMark({ size = 24 }: { size?: number }) {
+  const radius = workingMarkRadius(size)
+  return (
+    <View
+      testID="resting-mark"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <Svg viewBox="0 0 66 100" width={Math.round(size * 0.66)} height={size}>
+        {WORKING_MARK_DOTS.map(([cx, cy]) => (
+          <Circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={radius} fill={color.textMicro} />
+        ))}
+      </Svg>
+    </View>
+  )
+}
+
+/** An empty idle session asks for input; an empty working session promises the
+ * transcript that is already on its way. */
+function EmptyTranscript({ warming }: { warming: boolean }) {
+  return (
+    <View style={styles.empty} testID="transcript-empty">
+      <View style={styles.emptyMark}>
+        {warming ? <WorkingMark size={24} label={null} /> : <RestingMark size={24} />}
+      </View>
+      <Text style={styles.emptyTitle}>{warming ? 'The agent is on it' : 'Nothing here yet'}</Text>
+      <Text style={styles.emptyBody}>
+        {warming
+          ? 'Its transcript streams in here as it works.'
+          : 'Send a message below — the agent’s transcript streams in here.'}
+      </Text>
+    </View>
+  )
 }
 
 /**
@@ -79,6 +113,9 @@ export function SessionConversation({
   issue,
   onOpenTerminalRef,
   findRequest = 0,
+  initialPendingText,
+  onInitialPendingSettled,
+  deferInitialTranscript = false,
 }: {
   session: SessionMeta
   /** The task this session belongs to; drives task context and the plan bridge. */
@@ -88,6 +125,12 @@ export function SessionConversation({
   onOpenTerminalRef?: (issue: IssueWire) => void
   /** Incremented by screen chrome to open transcript search. */
   findRequest?: number
+  /** First turn supplied by the shared spawn optimism engine. */
+  initialPendingText?: string
+  /** Called once the transcript carries the engine-seeded first turn. */
+  onInitialPendingSettled?: () => void
+  /** Wait until the authority recognizes a client-minted session id. */
+  deferInitialTranscript?: boolean
 }) {
   const store = useMobileStore()
   const hub = useHub()
@@ -132,12 +175,32 @@ export function SessionConversation({
   )
   const items = transcript.items
   const loaded = transcript.initialLoaded
+  // The controller owns this seed after construction. The engine may retire its
+  // copy when the provisional session settles, but only a transcript echo may
+  // retire the pending turn shown here.
+  const initialPending: ConversationPendingTurn[] = initialPendingText
+    ? [
+        {
+          id: 'pending-first-turn',
+          deliveryId: 'pending-first-turn',
+          text: initialPendingText,
+          wire: initialPendingText,
+          at: Date.now(),
+          state: 'sent',
+          kind: 'message',
+          acceptsAppendedBrief: true,
+        },
+      ]
+    : []
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the spawn seed belongs to this session's controller lifetime
   const conversationController = useMemo(
     () =>
       createConversationController({
         sessionId,
         transcript: transcriptController,
         initialDraft: draftSeed,
+        initialPending,
+        initialJustSent: initialPendingText !== undefined,
         onDraftChange: (text) => store.setSessionDraft(sessionId, text),
         createDeliveryId: () => `msg_${randomUUID()}`,
         deliver: async (turn) => {
@@ -212,6 +275,9 @@ export function SessionConversation({
       .map((entry) => entry.value)
   }, [conversation.projected])
   const justSent = conversation.justSent
+  const pendingSeedSession = useRef<SessionMeta['sessionId'] | null>(
+    initialPendingText ? sessionId : null,
+  )
   const attachments = useComposerAttachments(sessionId)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
@@ -221,9 +287,10 @@ export function SessionConversation({
   const [askHeight, setAskHeight] = useState(0)
   const [peekIssue, setPeekIssue] = useState<IssueWire | null>(null)
   useEffect(() => {
+    if (deferInitialTranscript) return
     void transcriptController.start()
     return () => transcriptController.stop()
-  }, [transcriptController])
+  }, [deferInitialTranscript, transcriptController])
 
   useEffect(() => {
     transcriptController.markRendered()
@@ -237,6 +304,14 @@ export function SessionConversation({
   useEffect(() => {
     conversationController.replaceDraft(storedDraft)
   }, [conversationController, storedDraft])
+
+  useEffect(() => {
+    if (initialPendingText) pendingSeedSession.current = sessionId
+    if (pendingSeedSession.current !== sessionId) return
+    if (conversation.pending.some((turn) => turn.id === 'pending-first-turn')) return
+    pendingSeedSession.current = null
+    onInitialPendingSettled?.()
+  }, [conversation.pending, initialPendingText, onInitialPendingSettled, sessionId])
 
   const latestOperatorPrompt = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index--) {
@@ -342,6 +417,8 @@ export function SessionConversation({
   // question the operator just answered, which is the same stale claim the
   // hidden card was.
   const activity = chatActivity(answered ? withoutOffer(session) : session, justSent)
+  // A newly spawned process is working before its first agent-state frame.
+  const warming = session.status === 'starting' || activity?.tone === 'working'
   // A parked or ended session is present but has no process. It gets the
   // recovery banner; when there is also no conversation to show, the banner is
   // the WHOLE screen rather than a header over an empty transcript [POD-1758].
@@ -454,11 +531,7 @@ export function SessionConversation({
                 pendingTurns.length === 0 &&
                 !offer &&
                 !pendingQuestion ? (
-                  <EmptyState
-                    fill
-                    title="No transcript yet"
-                    body="Send a message to get things moving."
-                  />
+                  <EmptyTranscript warming={warming} />
                 ) : undefined
               }
               onAnswer={answerAsk}
@@ -550,5 +623,35 @@ const styles = StyleSheet.create({
   },
   askLayer: {
     backgroundColor: color.engraved,
+  },
+  /** Claims the feed remainder so the floating composer stays anchored. */
+  empty: {
+    flex: 1,
+    minHeight: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.xxl,
+    paddingVertical: space.xxl,
+  },
+  /** Fixed for both moods, so changing the mark does not move the copy. */
+  emptyMark: {
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space.xs,
+  },
+  emptyTitle: {
+    ...sans(600),
+    color: color.textDim,
+    fontSize: font.small,
+  },
+  emptyBody: {
+    ...sans(400),
+    maxWidth: 260,
+    color: color.textFaint,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
+    textAlign: 'center',
   },
 })

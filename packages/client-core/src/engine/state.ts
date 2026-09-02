@@ -57,7 +57,7 @@ import {
 } from '../viewmodels'
 import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import { EMPTY_ID_SET } from './overlay'
-import type { Store, UserFocus } from './types'
+import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } from './types'
 
 /** The runtime's mutable data slices — exactly the non-function fields of Store
  *  that change over time (constants like hub/trpc/replica live outside it). */
@@ -110,6 +110,8 @@ export interface EngineState {
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
+  issueVisitBaseline: IssueVisitBaseline | null
+  transcriptReveal: TranscriptRevealRequest | null
   /**
    * Editor-style tab workspaces (POD-710), one per task in the left sidebar,
    * keyed by {@link workspaceKeyForState}. THE source of truth for what is open:
@@ -701,6 +703,8 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
     selectedWorktree: seed.persisted.selectedWorktree,
     selectedIssueId: seed.persisted.selectedIssueId,
+    issueVisitBaseline: null,
+    transcriptReveal: null,
     // Restored exactly, across task switches AND across reloads (POD-710). The
     // pane scalars below were flushed from the same layouts, so they already
     // agree with them and need no boot-time re-derivation.

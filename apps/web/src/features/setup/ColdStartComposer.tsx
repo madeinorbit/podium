@@ -45,6 +45,7 @@ import {
   readFirstTaskDraft,
   serializeFirstTaskDraft,
 } from './first-task-draft'
+import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import { SetupError } from './SetupFeedback'
 
 function repoLabel(repo: { path: string; name?: string }): string {
@@ -111,12 +112,9 @@ function promptTitle(prompt: string): string {
 /**
  * THE BRIEF IS WHERE THE ATTACHED PATHS GO (POD-1203).
  *
- * A started issue's first prompt is `description` then `brief`, joined
- * ([spec:SP-6144]) — so either field reaches the agent. The brief is the right
- * half: the description is prose a HUMAN reads, on the issue card, in the
- * sidebar and as the source of the title, and three absolute upload paths
- * stapled to the front of it would be the first thing they see about their own
- * mission. The brief is where technical detail belongs, and the agent reads both.
+ * Persisted launches from before direct issue attachments still carry daemon
+ * paths. Keep those retries readable without putting paths into human-facing
+ * issue metadata. New launches send browser bytes to the draft issue instead.
  *
  * The chat composer's own convention is paths first, then prose; the ordering
  * differs here for the same reason the fields do — an issue leads with its
@@ -135,6 +133,7 @@ function attachmentBrief(paths: readonly string[]): string {
 function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
   return {
     ...draft,
+    launchKind: '',
     createIssueId: '',
     createSessionId: '',
     createMutationId: '',
@@ -442,29 +441,14 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     })
   }, [authorized, selectedMachine])
 
-  /**
-   * ATTACHING BEFORE THERE IS ANYTHING TO ATTACH TO (POD-1203).
-   *
-   * The same hook, the same mutation and the same daemon that the session chat
-   * composer uses — a second upload path would be a second set of size limits,
-   * failure shapes and GC rules to keep in step, for no gain. The two things it
-   * has to be told are the two the session normally answers:
-   *
-   *  - WHICH MACHINE. The chosen one, because the paths that come back have to be
-   *    valid on the disk this mission is about to run on. The hook re-uploads by
-   *    itself if that choice changes underneath an attachment.
-   *  - WHICH FOLDER. Uploads are filed per session, and this one has no session.
-   *    A scope id minted here stands in for it: the daemon treats it as an opaque
-   *    directory name (it deliberately validates no session — a client may upload
-   *    before the PTY is live), so the bytes land beside every other upload and
-   *    are swept by the same 24h TTL. It is NOT a session id in disguise; nothing
-   *    ever looks it up, and the session this mission spawns gets its own.
-   */
+  /** The home composer has no issue yet. Keep picked bytes in browser memory;
+   *  `sessions.create` snapshots them onto the new draft before its agent runs.
+   *  Existing-session chat keeps using daemon workspace uploads. */
   const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
   const attachments = useAttachments({
     sessionId: uploadScope,
     trpc,
-    ...(selectedMachine ? { machineId: selectedMachine.id } : {}),
+    destination: 'issue',
   })
 
   /**
@@ -504,6 +488,24 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
   const [focused, setFocused] = useState(false)
+  useColdStartPromptAutoGrow({
+    taRef: inputRef,
+    expanded,
+    value: draft.title,
+    layoutKey: [
+      attachments.attachments.length,
+      error,
+      machineDenied,
+      ready,
+      draft.pendingIssueId,
+      first,
+      selectedRepo?.path,
+      selectedMachine?.id,
+      agent,
+      draft.model,
+      draft.effort,
+    ].join('\u0000'),
+  })
   /**
    * THE FOCUS CHORD (POD-993). The session prompt already answers ⌘/ (and ⌘L
    * from the macOS View menu). This box is the prompt when nothing is open, so
@@ -605,6 +607,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       createIssueId: '',
       createSessionId: '',
       createMutationId: '',
+      launchKind: '',
       startMutationId: '',
       attachmentPaths: [],
       launchError: '',
@@ -689,8 +692,10 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     setBusy(true)
     setError(null)
     try {
+      const readyAttachments = attachments.ready()
       const attachmentPaths =
-        draft.attachmentPaths.length > 0 ? draft.attachmentPaths : attachments.ready().paths
+        draft.attachmentPaths.length > 0 ? draft.attachmentPaths : readyAttachments.paths
+      const draftArtifacts = readyAttachments.draftArtifacts
       const brief = attachmentBrief(attachmentPaths)
       // Drafts left by the old two-mutation path may already have a durable issue.
       // Finish those in place; every new launch uses the single optimistic path.
@@ -714,8 +719,78 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         return
       }
 
+      // A pre-POD-1838 checkpoint may already name a real issue mutation. Finish
+      // that exact launch instead of changing its meaning during a retry.
+      const legacyIssueId = draft.createIssueId || undefined
+      const legacySessionId = draft.createSessionId || undefined
+      const legacyMutationId = draft.createMutationId || undefined
+      if (
+        draft.launchKind !== 'draft' &&
+        legacyIssueId !== undefined &&
+        legacySessionId !== undefined &&
+        legacyMutationId !== undefined
+      ) {
+        const launchDraft: FirstTaskDraft = {
+          ...draft,
+          launchKind: 'issue',
+          title: prompt,
+          attachmentPaths: [...attachmentPaths],
+          launchError: '',
+        }
+        setDraft(launchDraft)
+        const started = spawnIssueAgent({
+          issueId: legacyIssueId,
+          sessionId: legacySessionId,
+          mutationId: legacyMutationId,
+          target: {
+            path: selectedCheckout.path,
+            repoPath: selectedCheckout.path,
+            machineId: asMachineId(selectedMachine.id),
+            ...(selectedRepo.repoId !== undefined ? { repoId: selectedRepo.repoId } : {}),
+          },
+          title: promptTitle(prompt),
+          description: prompt,
+          ...(brief ? { brief } : {}),
+          ...(selectedCheckout.branch?.trim()
+            ? { parentBranch: selectedCheckout.branch.trim() }
+            : {}),
+          agentKind: agent,
+          ...(draft.model !== AUTO ? { model: draft.model } : {}),
+          ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
+        })
+        attachments.clear()
+        void started.outcome.then((outcome) => {
+          if (outcome === 'started') {
+            clearFirstTaskDraft(uiState)
+            return
+          }
+          if (outcome === 'issue-only') {
+            setDraft({
+              ...launchDraft,
+              pendingIssueId: started.issueId,
+              createIssueId: '',
+              createSessionId: '',
+              createMutationId: '',
+              launchError: "The task was saved, but its agent couldn't start.",
+            })
+          } else {
+            setDraft({ ...launchDraft, launchError: "Couldn't start the task." })
+          }
+          setBusy(false)
+        })
+        setSelectedIssueId(started.issueId)
+        setSelectedWorktree(selectedCheckout.path)
+        setPanelMode(started.sessionId, 'chat')
+        setPane('A', started.sessionId)
+        setView('workspace')
+        return
+      }
+
       const retryCreate =
-        draft.createIssueId && draft.createSessionId && draft.createMutationId
+        draft.launchKind === 'draft' &&
+        draft.createIssueId &&
+        draft.createSessionId &&
+        draft.createMutationId
           ? {
               issueId: draft.createIssueId,
               sessionId: draft.createSessionId,
@@ -728,6 +803,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             }
       const launchDraft: FirstTaskDraft = {
         ...draft,
+        launchKind: 'draft',
         title: prompt,
         pendingIssueId: '',
         createIssueId: retryCreate.issueId,
@@ -739,49 +815,32 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       }
       // Persist BEFORE dispatch. If this tab dies after the authority accepts
       // the mutation, the next Launch reuses these exact identities instead of
-      // minting a second task around a response it never saw.
+      // minting a second draft session around a response it never saw.
       setDraft(launchDraft)
-      const started = spawnIssueAgent({
+      const started = spawnDraftAgent({
         ...retryCreate,
+        ...(draftArtifacts.length ? { draftArtifacts } : {}),
         target: {
           path: selectedCheckout.path,
           repoPath: selectedCheckout.path,
           machineId: asMachineId(selectedMachine.id),
           ...(selectedRepo.repoId !== undefined ? { repoId: selectedRepo.repoId } : {}),
         },
-        title: promptTitle(prompt),
-        description: prompt,
-        ...(brief ? { brief } : {}),
-        ...(selectedCheckout.branch?.trim()
-          ? { parentBranch: selectedCheckout.branch.trim() }
-          : {}),
+        firstPrompt: [prompt, brief].filter(Boolean).join('\n\n'),
         agentKind: agent,
         ...(draft.model !== AUTO ? { model: draft.model } : {}),
         ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
       })
-      attachments.clear()
       // Keep prompt, attachments and ids until the authority has accepted the
-      // whole create+start. The same ids make an ambiguous retry duplicate-safe;
-      // an issue-only result moves onto the older, explicit start retry path.
-      void started.outcome.then((outcome) => {
-        if (outcome === 'started') {
+      // draft vessel and its first session. The mutation and client-minted ids
+      // make an ambiguous retry duplicate-safe.
+      void started.settled.then((settled) => {
+        if (settled) {
+          attachments.clear()
           clearFirstTaskDraft(uiState)
           return
         }
-        if (outcome === 'issue-only') {
-          const launchError = "The task was saved, but its agent couldn't start."
-          setDraft({
-            ...launchDraft,
-            pendingIssueId: started.issueId,
-            createIssueId: '',
-            createSessionId: '',
-            createMutationId: '',
-            launchError,
-          })
-        } else {
-          const launchError = "Couldn't start the task."
-          setDraft({ ...launchDraft, launchError })
-        }
+        setDraft({ ...launchDraft, launchError: "Couldn't start the agent." })
         setBusy(false)
       })
       setSelectedIssueId(started.issueId)
@@ -810,7 +869,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     // The promptless path has no way to deliver uploaded files to the agent.
     (!draft.pendingIssueId && !hasPrompt && attachments.attachments.length > 0)
 
-  /** What Launch and ⌘↵ do. Text selects the mission path; no text starts a bare session. */
+  /** What Launch and ⌘↵ do. Text starts the agent on that prompt in a draft
+   *  issue (or resumes a mission a previous Launch already created); no text
+   *  starts a bare session. Neither side is refused. */
   const launch = (): void => {
     if (launchBlocked) return
     // Starting work on a harness is what makes it the operator's harness — see
@@ -869,8 +930,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           overflows the "drop here" frame would sit above the visible area and
           scroll with it. Splitting the two puts the veil over the pane and
           leaves the scrolling exactly where it was. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="cold-start-body">
+      <div data-cold-start-bounds className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div data-cold-start-body className="cold-start-body">
           {/* ONE SENTENCE, SET AS TEXT (POD-1184). The headline used to be a
               wrapping FLEX row of three items — sentence, project pill, tail —
               and a flex line break is not a text line break: at a ~680px pane

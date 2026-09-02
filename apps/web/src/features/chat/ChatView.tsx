@@ -369,6 +369,7 @@ export function ChatView({
             blocks={chat.blocks}
             markdownHtml={chat.markdownHtml}
             search={chat.search}
+            revealedRow={chat.revealedRow}
             moreAbove={chat.moreAbove}
             loadingOlder={chat.loadingOlder}
             loadOlder={chat.loadOlder}

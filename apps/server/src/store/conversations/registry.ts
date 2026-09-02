@@ -19,6 +19,127 @@ export class ConversationRegistryRepository {
     return row?.podium_id
   }
 
+  /**
+   * PATH → SEGMENT, for many paths at once (POD-1858).
+   *
+   * The one lookup the cost harvest does PER FILE. It is a batch rather than a
+   * loop of `get`s because the harvest resolves every transcript the walk
+   * touched in one pass, and because the 500-row chunking keeps it under
+   * SQLite's variable limit on a box with a thousand active transcripts.
+   */
+  segmentsByPaths(
+    machineId: MachineId,
+    paths: readonly string[],
+  ): Map<string, { machineId: MachineId; nativeId: string; podiumId: ConversationId }> {
+    const out = new Map<
+      string,
+      { machineId: MachineId; nativeId: string; podiumId: ConversationId }
+    >()
+    const unique = [...new Set(paths)]
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      const rows = this.db
+        .prepare(
+          // SCOPED BY MACHINE, like every other lookup in this file. The caller
+          // trusts the returned `machine_id` as the transcript's identity, so an
+          // unscoped match would let a path that also exists in another host's
+          // segment rows attribute this daemon's spend to that host's session
+          // and bank it under the wrong (machine_id, native_id) key.
+          `SELECT machine_id, native_id, podium_id, path FROM conversation_segments
+           WHERE machine_id = ? AND path IN (${chunk.map(() => '?').join(',')})`,
+        )
+        .all(machineId, ...chunk) as {
+        machine_id: MachineId
+        native_id: string
+        podium_id: ConversationId
+        path: string
+      }[]
+      for (const row of rows) {
+        if (out.has(row.path)) continue
+        out.set(row.path, {
+          machineId: row.machine_id,
+          nativeId: row.native_id,
+          podiumId: row.podium_id,
+        })
+      }
+    }
+    return out
+  }
+
+  /**
+   * The conversation each of these conversations is a child of.
+   *
+   * A subagent transcript has a segment row and no session of its own — its
+   * cost belongs to the session that SPAWNED it, and this edge is how the
+   * harvest finds that session. Fully populated on this machine: every one of
+   * the 282 `subagents/` segments carries a parent.
+   */
+  parentPodiumIds(podiumIds: readonly ConversationId[]): Map<ConversationId, ConversationId> {
+    const out = new Map<ConversationId, ConversationId>()
+    const unique = [...new Set(podiumIds)]
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      const rows = this.db
+        .prepare(
+          `SELECT podium_id, parent_podium_id FROM conversation_identities
+           WHERE parent_podium_id IS NOT NULL AND podium_id IN (${chunk.map(() => '?').join(',')})`,
+        )
+        .all(...chunk) as { podium_id: ConversationId; parent_podium_id: ConversationId }[]
+      for (const row of rows) out.set(row.podium_id, row.parent_podium_id)
+    }
+    return out
+  }
+
+  /** The native ids evidencing each of these conversations, earliest segment first. */
+  nativeIdsByPodiumIds(podiumIds: readonly ConversationId[]): Map<ConversationId, string[]> {
+    const out = new Map<ConversationId, string[]>()
+    const unique = [...new Set(podiumIds)]
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      const rows = this.db
+        .prepare(
+          `SELECT podium_id, native_id FROM conversation_segments
+           WHERE podium_id IN (${chunk.map(() => '?').join(',')})
+           ORDER BY seq_in_conv`,
+        )
+        .all(...chunk) as { podium_id: ConversationId; native_id: string }[]
+      for (const row of rows) {
+        const list = out.get(row.podium_id)
+        if (list) list.push(row.native_id)
+        else out.set(row.podium_id, [row.native_id])
+      }
+    }
+    return out
+  }
+
+  /**
+   * The transcript path recorded for each of these native ids, batched.
+   *
+   * The cost read asks this about every session on a task at once — one query
+   * rather than one per session, which on the biggest epic on this machine is 67
+   * round trips saved from a panel's first paint.
+   */
+  pathsByNativeIds(machineId: MachineId, nativeIds: readonly string[]): Map<string, string> {
+    const out = new Map<string, string>()
+    const unique = [...new Set(nativeIds)]
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      const rows = this.db
+        .prepare(
+          `SELECT native_id, path FROM conversation_segments
+           WHERE machine_id = ? AND path IS NOT NULL
+             AND native_id IN (${chunk.map(() => '?').join(',')})`,
+        )
+        .all(machineId, ...chunk) as { native_id: string; path: string }[]
+      for (const row of rows) out.set(row.native_id, row.path)
+    }
+    return out
+  }
+
   segmentPath(machineId: MachineId, nativeId: string): string | undefined {
     const row = this.db
       .prepare('SELECT path FROM conversation_segments WHERE machine_id=? AND native_id=?')
@@ -136,7 +257,10 @@ export class ConversationRegistryRepository {
     return out
   }
 
-  siblingSegments(machineId: MachineId, nativeId: string): { machineId: MachineId; nativeId: string }[] {
+  siblingSegments(
+    machineId: MachineId,
+    nativeId: string,
+  ): { machineId: MachineId; nativeId: string }[] {
     const podiumId = this.podiumId(machineId, nativeId)
     if (!podiumId) return []
     const rows = this.db

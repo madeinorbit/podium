@@ -22,6 +22,20 @@ export type EvidenceSource =
 
 export type EvidenceStatus = 'passed' | 'failed' | 'unavailable'
 
+export const PACKAGE_TRUST_MECHANISMS = [
+  'apple-notarized-developer-id',
+  'windows-authenticode',
+  'tauri-minisign-signature',
+] as const
+
+export type PackageTrustMechanism = (typeof PACKAGE_TRUST_MECHANISMS)[number]
+
+const validPackageTrustMechanisms = new Set<string>(PACKAGE_TRUST_MECHANISMS)
+
+function isPackageTrustMechanism(value: unknown): value is PackageTrustMechanism {
+  return typeof value === 'string' && validPackageTrustMechanisms.has(value)
+}
+
 export type ProofCheck = {
   id: string
   title: string
@@ -34,6 +48,8 @@ export type ProofCheck = {
   expectedOsVersion?: string
   expectedPackage?: RegExp
   expectedPackageDescription?: string
+  expectedTrustMechanisms?: readonly PackageTrustMechanism[]
+  expectedTrustDescription?: string
   covers: string[]
 }
 
@@ -149,9 +165,11 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: CURRENT_MACOS_VERSION,
     expectedPackage: /^Podium_.+_aarch64\.dmg$/,
     expectedPackageDescription: 'Podium_<version>_aarch64.dmg',
+    expectedTrustMechanisms: ['apple-notarized-developer-id'],
+    expectedTrustDescription: 'apple-notarized-developer-id',
     covers: [
       'Apple Silicon signed, notarized, stapled DMG',
-      'fresh install, launch, native chrome, opener, file dialog, clipboard, and updater restart',
+      'fresh install, launch, native chrome, opener, file dialog, clipboard, notification, cold and warm deep-link activation, and updater restart',
       'VoiceOver and keyboard traversal on the packaged application',
     ],
   },
@@ -166,9 +184,11 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: CURRENT_MACOS_VERSION,
     expectedPackage: /^Podium_.+_x64\.dmg$/,
     expectedPackageDescription: 'Podium_<version>_x64.dmg',
+    expectedTrustMechanisms: ['apple-notarized-developer-id'],
+    expectedTrustDescription: 'apple-notarized-developer-id',
     covers: [
       'Intel signed, notarized, stapled DMG',
-      'fresh install, launch, native chrome, opener, file dialog, clipboard, and updater restart',
+      'fresh install, launch, native chrome, opener, file dialog, clipboard, notification, cold and warm deep-link activation, and updater restart',
       'VoiceOver and keyboard traversal on the packaged application',
     ],
   },
@@ -183,9 +203,12 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: 'Windows 11 24H2',
     expectedPackage: /^Podium_.+_x64-setup\.exe$/,
     expectedPackageDescription: 'Podium_<version>_x64-setup.exe',
+    expectedTrustMechanisms: ['windows-authenticode'],
+    expectedTrustDescription: 'windows-authenticode',
     covers: [
       'NSIS install and uninstall on Windows 11 x86_64',
-      'WebView2 launch, native opener and dialogs, clipboard, ConPTY, and updater restart',
+      'verified Authenticode publisher, SmartScreen behavior, and WebView2 launch',
+      'native opener and dialogs, clipboard, notification, cold and warm deep-link activation, ConPTY, and updater restart',
       'Narrator and keyboard traversal; preview remains until this check passes',
     ],
   },
@@ -200,9 +223,12 @@ export const PROOF_CHECKS: ProofCheck[] = [
     expectedOsVersion: 'Ubuntu 24.04.3 LTS',
     expectedPackage: /^Podium_.+_amd64\.AppImage$/,
     expectedPackageDescription: 'Podium_<version>_amd64.AppImage',
+    expectedTrustMechanisms: ['tauri-minisign-signature'],
+    expectedTrustDescription: 'tauri-minisign-signature',
     covers: [
       'AppImage launch on Ubuntu 24.04 x86_64 under an isolated X11 session',
-      'native opener and dialogs, clipboard, PTY, replacement, and updater restart',
+      'verified AppImage provenance plus native opener and dialogs',
+      'clipboard, notification, cold and warm deep-link activation, PTY, replacement, and updater restart',
       'Orca and keyboard traversal; preview remains until this check passes',
     ],
   },
@@ -219,6 +245,16 @@ export type EvidenceEntry = {
   artifacts?: string[]
   packageName?: string
   packageSha256?: string
+  packageTrust?: {
+    mechanism: PackageTrustMechanism
+    identity: string
+    verified: boolean
+  }
+  desktopBoundaryResults?: {
+    notification: 'passed' | 'failed'
+    deepLinkCold: 'passed' | 'failed'
+    deepLinkWarm: 'passed' | 'failed'
+  }
   notes: string
 }
 
@@ -279,6 +315,45 @@ export function parseEvidence(value: unknown): EvidenceFile {
         throw new Error(`evidence.checks.${id}.artifacts must contain non-empty strings`)
       }
     }
+    let packageTrust: EvidenceEntry['packageTrust']
+    if (entry.packageTrust !== undefined) {
+      const trust = asObject(entry.packageTrust, `evidence.checks.${id}.packageTrust`)
+      if (!isPackageTrustMechanism(trust.mechanism)) {
+        throw new Error(
+          `evidence.checks.${id}.packageTrust.mechanism must be one of ${PACKAGE_TRUST_MECHANISMS.join(', ')}`,
+        )
+      }
+      if (typeof trust.identity !== 'string' || trust.identity === '') {
+        throw new Error(`evidence.checks.${id}.packageTrust.identity must be a non-empty string`)
+      }
+      if (typeof trust.verified !== 'boolean') {
+        throw new Error(`evidence.checks.${id}.packageTrust.verified must be a boolean`)
+      }
+      packageTrust = {
+        mechanism: trust.mechanism,
+        identity: trust.identity,
+        verified: trust.verified,
+      }
+    }
+    let desktopBoundaryResults: EvidenceEntry['desktopBoundaryResults']
+    if (entry.desktopBoundaryResults !== undefined) {
+      const results = asObject(
+        entry.desktopBoundaryResults,
+        `evidence.checks.${id}.desktopBoundaryResults`,
+      )
+      for (const key of ['notification', 'deepLinkCold', 'deepLinkWarm'] as const) {
+        if (results[key] !== 'passed' && results[key] !== 'failed') {
+          throw new Error(
+            `evidence.checks.${id}.desktopBoundaryResults.${key} must be passed or failed`,
+          )
+        }
+      }
+      desktopBoundaryResults = {
+        notification: results.notification as 'passed' | 'failed',
+        deepLinkCold: results.deepLinkCold as 'passed' | 'failed',
+        deepLinkWarm: results.deepLinkWarm as 'passed' | 'failed',
+      }
+    }
     for (const key of [
       'observedAt',
       'platform',
@@ -304,6 +379,8 @@ export function parseEvidence(value: unknown): EvidenceFile {
       ...(entry.artifacts ? { artifacts: entry.artifacts as string[] } : {}),
       ...(entry.packageName ? { packageName: entry.packageName as string } : {}),
       ...(entry.packageSha256 ? { packageSha256: entry.packageSha256 as string } : {}),
+      ...(packageTrust ? { packageTrust } : {}),
+      ...(desktopBoundaryResults ? { desktopBoundaryResults } : {}),
     }
   }
   return {
@@ -366,6 +443,35 @@ export function validateEvidence(
     }
     if (check.expectedPackage && !/^[a-f0-9]{64}$/i.test(entry.packageSha256 ?? '')) {
       errors.push(`${check.id}: packageSha256 must be the package's 64-character SHA-256`)
+    }
+    if (check.expectedPackage && entry.status === 'passed') {
+      if (!entry.packageTrust) {
+        errors.push(`${check.id}: passed package evidence needs packageTrust`)
+      } else if (!entry.packageTrust.verified) {
+        errors.push(`${check.id}: package trust verification did not pass`)
+      } else {
+        if (
+          !isPackageTrustMechanism(entry.packageTrust.mechanism) ||
+          (check.expectedTrustMechanisms &&
+            !check.expectedTrustMechanisms.includes(entry.packageTrust.mechanism))
+        ) {
+          errors.push(
+            `${check.id}: expected ${check.expectedTrustDescription}, found ${entry.packageTrust.mechanism}`,
+          )
+        }
+        if (/unknown|unsigned|unverified/i.test(entry.packageTrust.identity)) {
+          errors.push(`${check.id}: package trust identity is not verified`)
+        }
+      }
+      if (!entry.desktopBoundaryResults) {
+        errors.push(`${check.id}: passed package evidence needs desktopBoundaryResults`)
+      } else {
+        for (const [boundary, result] of Object.entries(entry.desktopBoundaryResults)) {
+          if (result !== 'passed') {
+            errors.push(`${check.id}: desktop boundary ${boundary} did not pass`)
+          }
+        }
+      }
     }
     if (entry.status === 'passed' && (entry.artifacts?.length ?? 0) === 0) {
       errors.push(`${check.id}: passed evidence needs at least one artifact or run URL`)

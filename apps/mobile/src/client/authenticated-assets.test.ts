@@ -10,6 +10,7 @@ vi.mock('react-native', () => ({ Platform: runtimePlatform }))
 import {
   authenticatedAssetHeaders,
   authenticatedImageSource,
+  authenticatedVideoSource,
   AUTHENTICATED_TEXT_PREVIEW_CAP,
   fetchAuthenticatedAsset,
   readAuthenticatedTextPreview,
@@ -36,6 +37,12 @@ describe('protected file transport', () => {
       uri: 'https://podium.example/files/artifact',
       headers: { Authorization: 'Bearer phone-token' },
     })
+    expect(
+      authenticatedVideoSource('https://podium.example/files/artifact.mp4', 'phone-token'),
+    ).toEqual({
+      uri: 'https://podium.example/files/artifact.mp4',
+      headers: { Authorization: 'Bearer phone-token' },
+    })
   })
 
   it('keeps web file requests cookie-only even if a token is supplied accidentally', () => {
@@ -43,6 +50,9 @@ describe('protected file transport', () => {
     expect(authenticatedAssetHeaders('must-not-leak')).toBeUndefined()
     expect(authenticatedImageSource('/files/asset', 'must-not-leak')).toEqual({
       uri: '/files/asset',
+    })
+    expect(authenticatedVideoSource('/files/asset.mp4', 'must-not-leak')).toEqual({
+      uri: '/files/asset.mp4',
     })
   })
 
@@ -154,16 +164,13 @@ describe('protected text previews', () => {
     new Headers({ 'content-length': '6' }),
     new Headers({ 'content-length': '' }),
     new Headers({ 'content-encoding': 'gzip', 'content-length': '4' }),
-  ])(
-    'refuses an unbounded one-shot fallback',
-    async (headers) => {
-      const arrayBuffer = vi.fn()
-      const response = { body: null, headers, arrayBuffer } as unknown as Response
+  ])('refuses an unbounded one-shot fallback', async (headers) => {
+    const arrayBuffer = vi.fn()
+    const response = { body: null, headers, arrayBuffer } as unknown as Response
 
-      await expect(readAuthenticatedTextPreview(response, 5)).rejects.toThrow(
-        'This file is too large to preview safely on this device.',
-      )
-      expect(arrayBuffer).not.toHaveBeenCalled()
-    },
-  )
+    await expect(readAuthenticatedTextPreview(response, 5)).rejects.toThrow(
+      'This file is too large to preview safely on this device.',
+    )
+    expect(arrayBuffer).not.toHaveBeenCalled()
+  })
 })

@@ -172,7 +172,7 @@ export function repoBranchForCwd(
 /** Most-recent session activity per raw repo wire (containment over the repo
  *  root and its linked worktrees) — for sorting repo pickers by recent use. */
 export function repoUsageAt(
-  repo: GitRepositoryWire,
+  repo: { path: string; worktrees: readonly { path: string }[] },
   sessions: { cwd: string; lastActiveAt: string }[],
 ): number {
   const roots = [repo.path, ...repo.worktrees.map((w) => w.path)]

@@ -20,11 +20,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 import { cn } from '@/lib/utils'
-import {
-  ChatBlockView,
-  type ProcessPosition,
-  type TurnPosition,
-} from './ChatBlockView'
+import { ChatBlockView, type ProcessPosition, type TurnPosition } from './ChatBlockView'
 import type { ProjectedPendingItem, QueuedChatMessage } from './chat'
 import type { DeadLetteredChatMessage } from './chat'
 import { MetaGlyph } from './MetaGlyph'
@@ -230,6 +226,7 @@ export function TranscriptFeed({
   blocks,
   markdownHtml,
   search,
+  revealedRow,
   moreAbove,
   loadingOlder,
   loadOlder,
@@ -273,6 +270,8 @@ export function TranscriptFeed({
   /** Unsafe HTML produced by the shared worker; ChatBlockView sanitizes it. */
   markdownHtml: ReadonlyMap<string, string>
   search: TranscriptSearchState
+  /** Absolute row requested by an external transcript deep-link. */
+  revealedRow?: number
   moreAbove: boolean
   loadingOlder: boolean
   loadOlder: () => void
@@ -456,8 +455,8 @@ export function TranscriptFeed({
                 key={identity}
                 row={row}
                 index={idx}
-                highlighted={idx === search.activeRow}
-                forceOpen={expandRuns || idx === search.activeRow}
+                highlighted={idx === search.activeRow || idx === revealedRow}
+                forceOpen={expandRuns || idx === search.activeRow || idx === revealedRow}
                 dimmed={search.filtering && !row.blockIndices.some((bi) => searchMatches.has(bi))}
                 // The work line names an in-flight call only when it is the
                 // trailing row. The permanent tail below remains the one owner of
@@ -479,7 +478,7 @@ export function TranscriptFeed({
                 block={row.block}
                 index={idx}
                 markdownHtml={markdownHtml}
-                highlighted={idx === search.activeRow}
+                highlighted={idx === search.activeRow || idx === revealedRow}
                 dimmed={search.filtering && !searchMatches.has(row.blockIndex)}
                 sessionId={sessionId}
                 cwd={cwd}

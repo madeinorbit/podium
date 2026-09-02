@@ -181,6 +181,9 @@ function ctxFor(
 
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    attachDraftArtifacts: async (issueId, artifacts) => {
+      for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
+    },
     discardUnlaunchedDraft: (issueId) => modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: () => undefined,
     access: {

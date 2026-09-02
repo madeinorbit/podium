@@ -40,6 +40,14 @@
  *
  * Ordinary within-window movement trips neither: small decreases are a rolling
  * window shedding old turns, and `peakPercent` absorbs them.
+ *
+ * AND ONE THING THAT LOOKS LIKE A RESET AND IS NOT. The same rolling anchor that
+ * makes the second signal necessary degenerates to `now + window` once the pool
+ * is EMPTY: with no oldest usage to age out, the reset time simply tracks the
+ * clock. Sampled every fifteen minutes it then advances fifteen minutes a poll,
+ * past the tolerance, and the first signal fires on a window that never ended.
+ * `isCreep` is the exemption, and it turns on the advance measured AGAINST
+ * ELAPSED TIME rather than against zero.
  */
 
 import type { AgentKind } from './entities/agent'
@@ -145,8 +153,47 @@ export function isSameInstance(instance: QuotaWindowInstance, sample: QuotaSampl
   ) {
     return false
   }
-  const tolerance = resetToleranceMs(sample.windowMinutes || instance.windowMinutes)
-  return Math.abs(sample.resetsAtMs - instance.resetsAtMs) <= tolerance
+  const windowMinutes = sample.windowMinutes || instance.windowMinutes
+  const tolerance = resetToleranceMs(windowMinutes)
+  if (Math.abs(sample.resetsAtMs - instance.resetsAtMs) <= tolerance) return true
+  return isCreep(instance, sample, windowMinutes, tolerance)
+}
+
+/**
+ * A ROLLING ANCHOR TRACKS *NOW*, AND MUST NOT BE READ AS A RESET.
+ *
+ * Codex computes `resetsAt` from when the oldest usage will age out. An EMPTY
+ * pool has no oldest usage, so the answer degenerates to `now + window` — and
+ * the reset time then advances at exactly the speed of the clock. That is
+ * invisible while a tab is open and the samples are ~90 s apart, and fatal when
+ * they are not: the sampler's own interval is fifteen minutes, three times the
+ * jitter tolerance, so one idle hour on an empty pool minted five brand-new
+ * "windows", each holding one sample and 0%. They landed in the ledger as five
+ * columns of zero length, and dragged the observed cadence down to `0–2 days`.
+ *
+ * The two cases separate cleanly on WHAT THE ADVANCE EXCEEDS THE CLOCK BY. A
+ * real reset moves the reset time on by about a whole window in the seconds
+ * between two polls; creep moves it by exactly the time that passed. So the test
+ * is `advance - elapsed`, not `advance`, and it is only allowed to conclude
+ * "same window" while the advance is small against the window — otherwise a
+ * sampler that was down for one window's worth of time would find `advance ≈
+ * elapsed` across a rollover it genuinely missed and swallow it.
+ */
+function isCreep(
+  instance: QuotaWindowInstance,
+  sample: QuotaSample,
+  windowMinutes: number,
+  toleranceMs: number,
+): boolean {
+  const elapsed = sample.atMs - instance.lastSeenMs
+  // Backfill walks files rather than the clock, so an older sample can arrive
+  // late. Creep is a forward-in-time argument and has nothing to say about one.
+  if (elapsed < 0) return false
+  const advance = sample.resetsAtMs - instance.resetsAtMs
+  if (advance < 0) return false
+  const windowMs = windowMinutes * 60_000
+  if (windowMs > 0 && advance >= windowMs / 2) return false
+  return Math.abs(advance - elapsed) <= toleranceMs
 }
 
 /** `resetsAt - windowMinutes`, or undefined when the provider reports no duration. */
@@ -155,7 +202,28 @@ export function windowStartMs(resetsAtMs: number, windowMinutes: number): number
 }
 
 /**
- * Was this window already under way when we first saw it?
+ * How much of a window may run unwatched before the row stops being trustworthy.
+ *
+ * `partial` is a claim with a consequence — the chart hatches the column and the
+ * tooltip says the peak may understate what was really spent — so the threshold
+ * has to be the point where that is actually true, and it scales with the pool.
+ *
+ * One sampling interval, the old rule, is not that point. Fifteen minutes missed
+ * from a SEVEN-DAY window is a tenth of a percent of it, and a Grok window first
+ * seen 1 h 47 m in at 2% spent was flagged "joined mid-window" on the strength of
+ * it. Nothing was missed; the row said otherwise anyway. Five percent of the
+ * window — eight hours of a week — is a span in which real spending could
+ * plausibly have gone unrecorded, and it still flags the cases that matter: a
+ * Claude week first seen three days in, a Codex pool first seen after sixteen.
+ *
+ * The sampling interval remains the floor, because a gap smaller than one poll
+ * cannot be evidence of anything, and it is the only bound available for a
+ * provider that reports no window length.
+ */
+export const PARTIAL_MISSED_FRACTION = 0.05
+
+/**
+ * Was a MEANINGFUL part of this window already over when we first saw it?
  *
  * NOT `firstPercent > 0`. A window legitimately opens above zero when work is in
  * flight across the boundary — the rollover measured above opened at 1% on its
@@ -166,9 +234,12 @@ export function isPartial(
   firstSeenMs: number,
   startedAtMs: number | undefined,
   samplingIntervalMs: number,
+  windowMinutes = 0,
 ): boolean {
   if (startedAtMs === undefined) return false
-  return firstSeenMs - startedAtMs > samplingIntervalMs
+  const windowMs = windowMinutes > 0 ? windowMinutes * 60_000 : 0
+  const threshold = Math.max(samplingIntervalMs, windowMs * PARTIAL_MISSED_FRACTION)
+  return firstSeenMs - startedAtMs > threshold
 }
 
 function appendTrail(
@@ -218,7 +289,7 @@ export function openInstance(sample: QuotaSample, samplingIntervalMs: number): Q
     peakPercent: sample.usedPercent,
     lastPercent: sample.usedPercent,
     sampleCount: 1,
-    partial: isPartial(sample.atMs, startedAtMs, samplingIntervalMs),
+    partial: isPartial(sample.atMs, startedAtMs, samplingIntervalMs, sample.windowMinutes),
     source: sample.source,
     trail: appendTrail([], anchorMs, sample),
   }
@@ -247,14 +318,15 @@ export function foldSample(
   const anchorMs = instance.startedAtMs ?? instance.firstSeenMs
   const startedAtMs = instance.startedAtMs ?? windowStartMs(sample.resetsAtMs, sample.windowMinutes)
   const firstSeenMs = Math.min(instance.firstSeenMs, sample.atMs)
+  // A provider that reported no duration may start reporting one later.
+  const windowMinutes = sample.windowMinutes || instance.windowMinutes
   return {
     ...instance,
     label: sample.label || instance.label,
     scopeModel: sample.scopeModel ?? instance.scopeModel,
     plan: sample.plan ?? instance.plan,
     resetsAtMs: isNewer ? sample.resetsAtMs : instance.resetsAtMs,
-    // A provider that reported no duration may start reporting one later.
-    windowMinutes: sample.windowMinutes || instance.windowMinutes,
+    windowMinutes,
     startedAtMs,
     firstSeenMs,
     lastSeenMs: Math.max(instance.lastSeenMs, sample.atMs),
@@ -266,7 +338,7 @@ export function foldSample(
     // sample arriving late proves the window was watched sooner than we thought —
     // and a row that keeps its old `partial` then goes on claiming "start not
     // observed" about a start we can now show we observed.
-    partial: isPartial(firstSeenMs, startedAtMs, samplingIntervalMs),
+    partial: isPartial(firstSeenMs, startedAtMs, samplingIntervalMs, windowMinutes),
     source: instance.source === 'backfill' && sample.source === 'live' ? 'live' : instance.source,
     trail: isNewer ? appendTrail(instance.trail, anchorMs, sample) : instance.trail,
   }

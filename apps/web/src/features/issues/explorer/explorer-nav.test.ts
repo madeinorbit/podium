@@ -35,8 +35,13 @@ describe('explorer stack', () => {
     expect(resetTo(['a', 'b'], 'a')).toEqual(['a'])
   })
 
-  it('keeps what it has when there is nothing to point at', () => {
-    expect(resetTo(['a'], null)).toEqual(['a'])
+  it('lands on the list when there is nothing to point at', () => {
+    // The trail is a route to a subject. With no subject the route describes
+    // nowhere, and a panel left showing the old one reads as still scoped to a
+    // task the operator has just removed (POD-1471).
+    expect(resetTo(['a'], null)).toEqual([])
+    expect(resetTo(['a', 'b', 'c'], null)).toEqual([])
+    expect(resetTo([], null)).toEqual([])
   })
 })
 

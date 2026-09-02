@@ -57,7 +57,6 @@ import type {
   SessionId,
 } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { RuntimeContractRequest } from '@podium/protocol'
 import type { PodiumClientApi } from '../api'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
@@ -68,7 +67,6 @@ import { createReadPositionClient, type ReadPositionPort } from '../read-positio
 import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
-import type { SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
   createRouterUiState,
@@ -952,6 +950,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
     if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
+      this.reactions.updateIssueVisitBaseline()
+    if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
       this.reactions.updateIssueMarkReadTimer()
   }
 
@@ -1302,14 +1302,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.optimism.enqueueOverlayed(kind, input),
       revealFileTab: (args) => this.revealFileTab(args),
       recordRecentFile: (entry) => this.recordRecentFile(entry),
-      spawnDraftAgent: (args: {
-        target: SpawnTarget
-        agentKind: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]['agentKind']
-        firstPrompt?: string
-        model?: string
-        effort?: string
-        runtimeContract?: RuntimeContractRequest
-      }) => this.optimism.spawnDraftAgent(args),
+      spawnDraftAgent: (args: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]) =>
+        this.optimism.spawnDraftAgent(args),
       spawnIssueAgent: (args: Parameters<OptimismLedger<TApi>['spawnIssueAgent']>[0]) =>
         this.optimism.spawnIssueAgent(args),
       waitForSpawnConfirmed: (sessionId) => this.optimism.waitForSpawnConfirmed(sessionId),

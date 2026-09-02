@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   cadenceLabel,
   formatLedgerSpan,
+  formatWindowDuration,
   isLedgerWindow,
   quotaLedger,
   windowDurationDays,
@@ -219,6 +220,71 @@ describe('window length', () => {
     // Linear: the seven-day column is drawn seven times the one-day column.
     expect((days?.[1] as number) / (days?.[0] as number)).toBe(7)
   })
+
+  it('uses the observed successor when a nominal week ended after two days', () => {
+    const view = quotaLedger([
+      // The successor arrives first and advertises an earlier reset. Observation
+      // order, not provider reset order or input order, defines the succession.
+      row({
+        resetsAt: '2026-09-09T07:00:00Z',
+        firstSeenAt: '2026-09-02T07:00:00Z',
+        windowMinutes: 10080,
+        peakPercent: 32,
+        closed: false,
+      }),
+      row({
+        resetsAt: '2026-09-10T07:00:00Z',
+        firstSeenAt: '2026-08-31T07:00:00Z',
+        windowMinutes: 10080,
+        peakPercent: 71,
+        closed: false,
+      }),
+    ])
+    expect(view.strips[0]?.columns.map((column) => column.peakPercent)).toEqual([71, 32])
+    expect(view.strips[0]?.columns.map((column) => column.durationDays)).toEqual([2, 7])
+    expect(view.strips[0]?.columns.map((column) => column.closed)).toEqual([true, false])
+    expect(view.strips[0]?.columns[0]?.endLabel).toMatch(/Sep 2/)
+    expect(view.completedCount).toBe(1)
+  })
+
+  it('does not mistake an offline observation gap for a longer-than-plan window', () => {
+    const current = row({ firstSeenAt: '2026-08-01T07:00:00Z', windowMinutes: 10080 })
+    const successor = row({ firstSeenAt: '2026-08-20T07:00:00Z' })
+    expect(windowDurationDays(current, successor)).toBe(7)
+  })
+})
+
+describe('poll artifacts', () => {
+  it('drops a stored window that was seen once and never showed any spend', () => {
+    // The fold used to open one of these per poll while an idle Codex pool sat
+    // empty and its reset time tracked the clock. Each landed in the chart as a
+    // column of no length and no fill, and dragged the observed cadence down.
+    const view = quotaLedger([
+      row({ firstSeenAt: '2026-08-20T07:00:00Z', resetsAt: '2026-08-22T07:00:00Z' }),
+      row({
+        firstSeenAt: '2026-08-22T07:15:00Z',
+        resetsAt: '2026-08-29T07:15:00Z',
+        sampleCount: 1,
+        peakPercent: 0,
+      }),
+      row({ firstSeenAt: '2026-08-22T07:30:00Z', resetsAt: '2026-08-29T07:30:00Z' }),
+    ])
+    expect(view.strips[0]?.columns).toHaveLength(2)
+  })
+
+  it('keeps a window that just opened, which has the same shape for its first poll', () => {
+    const view = quotaLedger([
+      row({ firstSeenAt: '2026-08-20T07:00:00Z', resetsAt: '2026-08-22T07:00:00Z' }),
+      row({
+        firstSeenAt: '2026-08-22T07:15:00Z',
+        resetsAt: '2026-08-29T07:15:00Z',
+        sampleCount: 1,
+        peakPercent: 0,
+        closed: false,
+      }),
+    ])
+    expect(view.strips[0]?.columns).toHaveLength(2)
+  })
 })
 
 describe('cadence label', () => {
@@ -231,8 +297,26 @@ describe('cadence label', () => {
   })
 
   it('gives the observed range when the rhythm is not weekly at all', () => {
-    expect(cadenceLabel([1, 2, 3])).toBe('1–3 days')
-    expect(cadenceLabel([2, 2])).toBe('2 days')
+    expect(cadenceLabel([1, 2, 3])).toBe('every 1–3 days')
+    expect(cadenceLabel([2, 2])).toBe('every 2 days')
+  })
+
+  it('reads as a rhythm rather than a bare quantity', () => {
+    // Set beside a harness name and upcased, `1–3 DAYS` looks like a label with
+    // its verb missing — a length, a limit, a countdown, no way to tell.
+    expect(cadenceLabel([1, 2, 3])?.startsWith('every ')).toBe(true)
+  })
+
+  it('drops to hours rather than rounding a short window to nothing', () => {
+    // A Codex pool that rolled after seven minutes was printed as `0 days`,
+    // which is not an approximation of the truth but a contradiction of it.
+    expect(formatWindowDuration(7 / 1440)).toBe('7 min')
+    expect(formatWindowDuration(17 / 24)).toBe('17 h')
+    expect(formatWindowDuration(1)).toBe('1 day')
+    expect(formatWindowDuration(1.52)).toBe('1.5 days')
+    expect(formatWindowDuration(7)).toBe('7 days')
+    expect(cadenceLabel([7 / 1440, 1.2])).toBe('every 7 min – 1.2 days')
+    expect(cadenceLabel([1.176, 1.52])).toBe('every 1.2–1.5 days')
   })
 
   it('says NOTHING from a single observation', () => {
@@ -252,7 +336,17 @@ describe('cadence label', () => {
       row({ resetsAt: '2026-08-20T07:00:00Z', windowMinutes: 1440, label: 'Weekly' }),
       row({ resetsAt: '2026-08-22T07:00:00Z', windowMinutes: 2880, label: 'Weekly' }),
     ])
-    expect(view.strips[0]?.windowLabel).toBe('1–2 days')
+    expect(view.strips[0]?.windowLabel).toBe('every 1–2 days')
+  })
+
+  it('derives cadence from observed handoffs when every provider duration says weekly', () => {
+    const view = quotaLedger([
+      row({ firstSeenAt: '2026-08-20T07:00:00Z', closed: false }),
+      row({ firstSeenAt: '2026-08-21T07:00:00Z', closed: false }),
+      row({ firstSeenAt: '2026-08-23T07:00:00Z', closed: false }),
+    ])
+    expect(view.strips[0]?.columns.map((column) => column.durationDays)).toEqual([1, 2, 7])
+    expect(view.strips[0]?.windowLabel).toBe('every 1–2 days')
   })
 
   it('withholds the cadence until a second window has closed', () => {

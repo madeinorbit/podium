@@ -1,3 +1,5 @@
+import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
+import { readSharedIssuesDisplay, writeSharedIssuesDisplay } from '@podium/client-core/viewmodels'
 import { asIssueId, asSessionId, type SessionMeta } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
 import { makeIssue as issue } from '@/lib/test-issue'
@@ -6,6 +8,7 @@ import {
   computeEpicProgress,
   computeEpicProgressMap,
   DEFAULT_DISPLAY,
+  DISPLAY_KEY,
   filterBoardScope,
   readIssuesDisplay,
   writeIssuesDisplay,
@@ -59,6 +62,28 @@ describe('readIssuesDisplay', () => {
   })
   it('keeps an explicitly persisted ordering over the default', () => {
     expect(readIssuesDisplay(JSON.stringify({ ordering: 'updated' })).ordering).toBe('updated')
+  })
+  it('preserves desktop-only preferences when mobile updates the shared display row', () => {
+    const desktop = {
+      layout: 'list' as const,
+      ordering: 'created' as const,
+      flatten: true,
+      showAgentTasks: false,
+      badges: { labels: false, type: true, estimate: false, due: true, sessions: false },
+    }
+    const mobile = readSharedIssuesDisplay(writeIssuesDisplay(desktop))
+    const persisted = writeSharedIssuesDisplay({
+      ...mobile,
+      ordering: 'updated',
+      showAgentTasks: true,
+    })
+
+    expect(DISPLAY_KEY).toBe(ISSUES_DISPLAY_KEY)
+    expect(readIssuesDisplay(persisted)).toEqual({
+      ...desktop,
+      ordering: 'updated',
+      showAgentTasks: true,
+    })
   })
 })
 

@@ -6,7 +6,6 @@ import {
   isDraftAgentVessel,
   issueDisplayTitle,
   missionProgress,
-  pendingDecisionLabel,
   rowAwaitsTuck,
   rowCanBringBack,
   rowHasWorkingSession,
@@ -712,18 +711,12 @@ const WorkRow = memo(function WorkRow({
   const attention = waiting > 0
   const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
   const rowUnread = rowUnreadEmphasized(row)
-  // The row's own progress, at the scope it speaks for: its whole mission. The
-  // deck's derivation, imported rather than restated — the two must never
-  // disagree about how far a mission is.
-  // UNSPREAD ON PURPOSE: `missionProgress` memoizes in a WeakMap keyed on the
-  // ARRAY IDENTITIES of the slices, so passing the stable store arrays directly
-  // is what lets every visible row share one compute per snapshot. A defensive
-  // `[...]` copy here minted fresh identities per row per render and turned the
-  // memo into a guaranteed miss (O(board) per row).
-  const progress = useMemo(
-    () => (issue ? missionProgress(issues, allSessions, issue.id) : null),
-    [allSessions, issue, issues],
-  )
+  // The published row carries the Flight Deck's child-task rollup. Direct
+  // component fixtures use the same derivation as a fallback.
+  const progress = issue
+    ? ((row.kind === 'issue' ? row.missionRollup?.progress : null) ??
+      missionProgress(issues, allSessions, issue.id))
+    : null
   // A draft vessel's only content is its agents — its row IS the agent, so it
   // clicks straight into the session (desktop POD-282).
   const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
@@ -737,8 +730,7 @@ const WorkRow = memo(function WorkRow({
     ? issueDisplayTitle(issue, allSessions, allWorktreePaths)
     : `${worktree?.repoName ?? ''}${worktree?.branch ? ` · ${worktree.branch}` : ''}`
   const stamp = timeStamp(row, now)
-  const statusLine =
-    issue && decision ? pendingDecisionLabel(issue, decision) : rowStatusLine(row, now, 0)
+  const statusLine = rowStatusLine(row, now, 0)
   // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
   // issue this one was spun off from — one quiet ⤷ tick on line 2.
   const originDep = issue?.deps.find((d) => d.type === 'discovered-from')

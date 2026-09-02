@@ -384,8 +384,10 @@ export function TaskStrip({
         />
       ) : null}
       <PressableScale
+        accessibilityRole="button"
         onPress={onPress}
         onLongPress={onLongPress}
+        accessibilityHint={onLongPress ? 'Open task. Long press for task actions.' : 'Open task'}
         accessibilityLabel={stripLabel({
           displayRef,
           title,

@@ -15,6 +15,7 @@ import type {
   SessionId,
   TranscriptItem,
   UsageBucketWire,
+  UsageSourceWire,
 } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import type {
@@ -220,6 +221,7 @@ const USAGE = daemonRequestKind<{
   hostname: string
   sampledAt?: string
   buckets: UsageBucketWire[]
+  sources?: UsageSourceWire[]
 }>('us')
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
 const QUOTA_HISTORY = daemonRequestKind<{ samples: QuotaHistorySampleWire[] }>('qh')
@@ -316,6 +318,7 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
       hostname: msg.hostname,
       ...(msg.sampledAt === undefined ? {} : { sampledAt: msg.sampledAt }),
       buckets: msg.buckets,
+      ...(msg.sources === undefined ? {} : { sources: msg.sources }),
     }),
   agentQuotaResult: (broker, machineId, msg) =>
     void broker.settle(AGENT_QUOTA, msg.requestId, machineId, {
@@ -416,6 +419,17 @@ export class DaemonRpcService {
 
   /** Globally-unique requestId mint — shared with the headless module so its
    *  turn/bind ids can never collide with an RPC id. */
+  /**
+   * The machine an UNROUTED request lands on — the one `usage()` answered from.
+   *
+   * The cost fold needs it: a transcript path is only unique within a host, so
+   * the segment lookup that turns a path into a session has to be scoped to the
+   * daemon whose walk produced it (POD-1858).
+   */
+  answeringMachineId(): MachineId {
+    return this.deps.defaultMachine()
+  }
+
   nextRequestId(prefix: string): string {
     return this.broker.nextRequestId(prefix)
   }
@@ -539,11 +553,25 @@ export class DaemonRpcService {
     )
   }
 
-  /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
-  usage(sinceMs?: number): Promise<{
+  /**
+   * Token-usage buckets from the daemon's transcript harvest (empty on timeout).
+   *
+   * `withSources` also returns the per-FILE breakdown behind the buckets, which
+   * is what per-task cost is folded from (POD-1858). Opt-in because it is an
+   * order of magnitude larger than the buckets and has exactly one reader: the
+   * cost fold on `usage.summary`, which strips it before the payload reaches a
+   * client. The status chip's 90-second poll asks without it.
+   */
+  usage(
+    sinceMs?: number,
+    withSources?: boolean,
+  ): Promise<{
     hostname: string
     sampledAt?: string
     buckets: UsageBucketWire[]
+    sources?: UsageSourceWire[]
+    /** The window the `sources` folds cover — the daemon's memo, not `sinceMs`. */
+    sourcesSinceMs?: number
   }> {
     return this.request(
       USAGE,
@@ -553,6 +581,7 @@ export class DaemonRpcService {
         type: 'usageRequest',
         requestId,
         ...(sinceMs !== undefined ? { sinceMs } : {}),
+        ...(withSources ? { withSources } : {}),
       }),
     )
   }
@@ -1424,7 +1453,7 @@ export class DaemonRpcService {
 
   readAsset(
     input:
-      | { sessionId: SessionId; path: string }
+      | { sessionId: SessionId; path: string; offset?: number; length?: number }
       | {
           machineId?: MachineId
           root: string
@@ -1448,6 +1477,8 @@ export class DaemonRpcService {
           cwd: session.cwd,
           path: input.path,
           knownPath,
+          ...(input.offset !== undefined ? { offset: input.offset } : {}),
+          ...(input.length !== undefined ? { length: input.length } : {}),
         }),
         session.machineId, // the asset lives in the session's cwd on its machine
       )

@@ -185,6 +185,20 @@ export interface MissionProgress {
   wait: number
 }
 
+/**
+ * The progress counts plus the fact that decides what they describe.
+ *
+ * When `fromChildren` is true, the mission root is a container and its status
+ * comes from the accepted tasks beneath it. Otherwise the root itself is the
+ * unit. Keeping that fact beside the counts stops task surfaces from guessing
+ * from `total`, which is one in both cases for a lone task and a task with one
+ * child.
+ */
+export interface MissionRollup {
+  progress: MissionProgress
+  fromChildren: boolean
+}
+
 /** The mission's name for {@link sessionPresentOnTask} — one presence rule for
  *  the whole client (POD-756), spelled once in `./fleet`. */
 const openSession = sessionPresentOnTask
@@ -1126,9 +1140,14 @@ const EMPTY_PROGRESS: MissionProgress = Object.freeze({
   wait: 0,
 })
 
+const EMPTY_ROLLUP: MissionRollup = Object.freeze({
+  progress: EMPTY_PROGRESS,
+  fromChildren: false,
+})
+
 const missionProgressCache = new WeakMap<
   readonly IssueNavigationModel[],
-  WeakMap<readonly SessionMeta[], Map<string, MissionProgress>>
+  WeakMap<readonly SessionMeta[], Map<string, MissionRollup>>
 >()
 let missionProgressComputes = 0
 
@@ -1214,21 +1233,30 @@ export function missionProgress(
   sessions: readonly SessionMeta[],
   rootId: string | null | undefined,
 ): MissionProgress {
-  if (!rootId) return EMPTY_PROGRESS
+  return missionRollup(issues, sessions, rootId).progress
+}
+
+/** The task-status companion to {@link missionProgress}. */
+export function missionRollup(
+  issues: readonly IssueNavigationModel[],
+  sessions: readonly SessionMeta[],
+  rootId: string | null | undefined,
+): MissionRollup {
+  if (!rootId) return EMPTY_ROLLUP
   // FROZEN, AND SHARED. Four surfaces ask this about the same root inside one
   // publish (`UnifiedIssueRow` per row, `SidebarRail` per root, the deck and its
   // folded bar); they all read the six counts and none writes, and the freeze is
   // what keeps it that way now that they read the same object.
   return memoBySlices(missionProgressCache, issues, sessions, rootId, () =>
-    Object.freeze(computeMissionProgress(issues, sessions, rootId)),
+    Object.freeze(computeMissionRollup(issues, sessions, rootId)),
   )
 }
 
-function computeMissionProgress(
+function computeMissionRollup(
   issues: readonly IssueNavigationModel[],
   sessions: readonly SessionMeta[],
   rootId: string,
-): MissionProgress {
+): MissionRollup {
   missionProgressComputes += 1
   const ids = missionIssueIds(issues, rootId, sessions)
   // `missionIssueIndex` already paid the one full-slice walk for this publish.
@@ -1252,18 +1280,19 @@ function computeMissionProgress(
   )
   // The root can be abandoned too, and then there is nothing to measure at all
   // rather than one cancelled unit sitting in a band of its own.
-  const units = (
-    members.length > 0 ? members : scope.filter((issue) => issue.id === rootId)
-  ).filter((issue) => {
-    if (issueAbandoned(issue)) return false
-    // `isVacatedOrigin` is deliberately still asked about the issue's OWN
-    // sessions and nothing else — that is what decides which spin-off tips it
-    // can see, and widening it here would change the answer. The subset is now
-    // a lookup rather than a scan of the whole slice per unit, which is the line
-    // the profile named.
-    const own = sessionsOnIssue(sessions, issue.id)
-    return !isVacatedOrigin(issue, own, byId)
-  })
+  const fromChildren = members.length > 0
+  const units = (fromChildren ? members : scope.filter((issue) => issue.id === rootId)).filter(
+    (issue) => {
+      if (issueAbandoned(issue)) return false
+      // `isVacatedOrigin` is deliberately still asked about the issue's OWN
+      // sessions and nothing else — that is what decides which spin-off tips it
+      // can see, and widening it here would change the answer. The subset is now
+      // a lookup rather than a scan of the whole slice per unit, which is the line
+      // the profile named.
+      const own = sessionsOnIssue(sessions, issue.id)
+      return !isVacatedOrigin(issue, own, byId)
+    },
+  )
   const staffed = staffedSubtreeIds(issues, sessions)
   let done = 0
   let run = 0
@@ -1282,13 +1311,16 @@ function computeMissionProgress(
   }
   const total = units.length
   return {
-    total,
-    done,
-    run,
-    review,
-    stall,
-    block,
-    wait: Math.max(0, total - done - run - review - stall - block),
+    progress: Object.freeze({
+      total,
+      done,
+      run,
+      review,
+      stall,
+      block,
+      wait: Math.max(0, total - done - run - review - stall - block),
+    }),
+    fromChildren,
   }
 }
 

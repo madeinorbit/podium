@@ -70,6 +70,7 @@ export function MobileHandoffQr({
 export function mobileHandoffLabel(url: string): string {
   try {
     const parsed = new URL(url)
+    if (parsed.protocol === 'podium:') return 'the current session in Podium'
     return `${parsed.host}${parsed.pathname}`
   } catch {
     return url

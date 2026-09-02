@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageView } from './UsageView'
 import { resetQuotaLedgerCache } from './useQuotaLedger'
+import { resetTaskCostsCache } from './useTaskCosts'
 import { PENDING_REVEAL_MS, resetUsageCache } from './useUsageFeed'
 
 /**
@@ -16,6 +17,9 @@ const summary = vi.hoisted(() => vi.fn())
 // The sheet reads a SECOND source since POD-1571: the quota window ledger. It is
 // a separate poll with its own cache, so it gets its own stub and its own reset.
 const history = vi.hoisted(() => vi.fn())
+// A THIRD source since POD-1861: the per-task cost rows behind "Where it went —
+// by task". Its own poll, its own cache, its own stub.
+const tasks = vi.hoisted(() => vi.fn())
 // ONE store object for the whole file. Handing the selector a fresh literal each
 // render would change `trpc`'s identity every pass and re-run the feed's effect
 // forever — the real store returns the same client every time.
@@ -23,6 +27,7 @@ const store = vi.hoisted(() => ({
   trpc: {
     usage: { summary: { query: summary } },
     quota: { history: { query: history } },
+    cost: { tasks: { query: tasks } },
   },
 }))
 
@@ -56,11 +61,14 @@ const body = (): HTMLElement => screen.getByTestId('usage-sheet').querySelector(
 beforeEach(() => {
   resetUsageCache()
   resetQuotaLedgerCache()
+  resetTaskCostsCache()
   summary.mockReset()
   history.mockReset()
+  tasks.mockReset()
   // The ledger is empty unless a test says otherwise: most of these assert the
   // token sheet, and an empty ledger is the honest default for a fresh install.
   history.mockResolvedValue([])
+  tasks.mockResolvedValue([])
 })
 afterEach(() => {
   cleanup()
@@ -76,8 +84,10 @@ describe('UsageView loading', () => {
     // fit-height sheet from snapping to a new size when the answer lands.
     expect(screen.getByText('Last 7 days · API-equivalent')).toBeTruthy()
     expect(screen.getByText('Cost per hour')).toBeTruthy()
-    expect(screen.getByText('Where it went')).toBeTruthy()
-    expect(screen.getByText('API-equivalent')).toBeTruthy()
+    // Two "Where it went" heads since POD-1861 — by provider, then by task —
+    // and both tables name an API-equivalent column.
+    expect(screen.getAllByText('Where it went')).toHaveLength(2)
+    expect(screen.getAllByText('API-equivalent')).toHaveLength(2)
     // Seven days of 24 hour slots — the trace's geometry is known before any
     // reading is, which is the whole reason the sheet does not resize on arrival.
     expect(body().querySelectorAll('.usage-trace-day')).toHaveLength(7)
@@ -94,10 +104,19 @@ describe('UsageView loading', () => {
       screen.getByTestId('usage-sheet').querySelector('.usage-window-span .usage-unfilled'),
     ).toBeTruthy()
     // All three supporting rates hold their own slot in the masthead — they are
-    // cells beside the figure now, not a sentence under it.
+    // cells beside the figure now, not a sentence under it. SCOPED to the
+    // masthead: the by-task section reuses the same divided-cell grammar, and an
+    // unscoped `.usage-readings` count would silently absorb its five slots too.
     expect(
-      body().querySelectorAll('.usage-readings .usage-reading-value .usage-unfilled'),
+      body().querySelectorAll('.usage-summary .usage-reading-value .usage-unfilled'),
     ).toHaveLength(3)
+    // The by-task section's own five readings, plus three placeholder rows in
+    // its ranking — the region is drawn at its landing height before the cost
+    // read answers, exactly as the model table is.
+    expect(
+      body().querySelectorAll('.usage-task-readings .usage-reading-value .usage-unfilled'),
+    ).toHaveLength(5)
+    expect(body().querySelectorAll('.usage-tasks tbody tr')).toHaveLength(3)
     // The reset ledger is a region like any other and holds its own three slots,
     // so the sheet does not grow a block when the quota read lands.
     expect(
@@ -186,9 +205,7 @@ describe('UsageView loading', () => {
 
     expect(screen.getByText('grok-4.6')).toBeTruthy()
     expect(screen.getAllByText('xAI').length).toBeGreaterThan(0)
-    expect(
-      screen.getByText('Claude Code, Codex, and Grok sessions on this machine'),
-    ).toBeTruthy()
+    expect(screen.getByText('Claude Code, Codex, and Grok sessions on this machine')).toBeTruthy()
     expect(screen.getByText('Grok uses last session size, not each reply.')).toBeTruthy()
   })
 

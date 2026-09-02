@@ -33,6 +33,7 @@
 
 import {
   type CommandDef,
+  type DraftIssueArtifactInput,
   sessionCommandPlane,
   type sessionCommandPlaneInputs,
 } from '@podium/commands'
@@ -159,6 +160,11 @@ export interface SessionCommandDeps {
       createdByOnBehalfOf: import('@podium/model').UserId
     },
   ): { id: IssueId }
+  /** Persist user uploads on the draft issue before its agent can run prime. */
+  attachDraftArtifacts(
+    issueId: IssueId,
+    artifacts: readonly DraftIssueArtifactInput[],
+  ): Promise<void>
   /** Compensate only the draft created by this launch when createSession throws. */
   discardUnlaunchedDraft(issueId: IssueId): boolean
   issueOwner(issueId: IssueId): import('@podium/model').UserId | undefined
@@ -573,7 +579,7 @@ type Handler = (ctx: SessionCommandCtx, input: any) => unknown
  */
 export const SESSION_COMMAND_HANDLERS = {
   create: async (ctx: SessionCommandCtx, input: CreateInput) => {
-    const { draftIssue, mutationId: _mutationId, ...rest } = input
+    const { draftIssue, draftArtifacts, mutationId: _mutationId, ...rest } = input
     // Explicit placement is gated BEFORE the target is prepared, because
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
@@ -597,6 +603,10 @@ export const SESSION_COMMAND_HANDLERS = {
     // one: the session and its vessel resolve the same owner because they
     // resolve it from the same principal.
     try {
+      if (draftArtifacts?.length) {
+        if (!createdDraftId) throw new Error('draft artifacts require a newly-created draft issue')
+        await ctx.deps.attachDraftArtifacts(createdDraftId, draftArtifacts)
+      }
       return ctx.sessions.createSession({
         ...rest,
         ...target,

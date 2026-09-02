@@ -1,19 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Podium desktop default capabilities",
-  "windows": [
-    "main"
-  ],
-  "permissions": [
-    "core:default",
-    "core:window:allow-create",
-    "core:webview:allow-create-webview-window",
-    "updater:default",
-    "dialog:default",
-    "process:default",
-    "process:allow-restart",
-    "sql:default",
-    "sql:allow-execute"
-  ]
+  "description": "Local event subscription for the Podium desktop window; every OS effect is granted at runtime by launch mode and origin",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

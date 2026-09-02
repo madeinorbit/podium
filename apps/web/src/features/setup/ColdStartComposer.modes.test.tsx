@@ -11,8 +11,9 @@
  *   CLOSED  — always available; starts the chosen agent on the chosen machine
  *             with NO prompt, in a new tab. This is the action the sidebar's
  *             deleted `New <Agent> in <Repo>` chip used to be.
- *   OPEN    — starts the chosen agent with NO prompt when empty, or creates the
- *             mission and starts it once text is present.
+ *   OPEN    — never refused either. With nothing written it takes the same
+ *             promptless path as CLOSED; with text it starts the chosen agent
+ *             on that prompt in a draft issue the agent will name.
  *
  * The fold is DERIVED, which is the part worth guarding: a persisted draft with
  * words in it has to come back open, or the sentence the operator was halfway
@@ -195,15 +196,15 @@ describe('the launch box unfolds', () => {
     expect(spawnIssueAgent).not.toHaveBeenCalled()
   })
 
-  it('creates the mission rather than a bare session once there is a prompt', () => {
+  it('starts a draft session with the written prompt', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
     fireEvent.click(launch())
 
-    expect(spawnIssueAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ description: 'Fix the flaky test' }),
+    expect(spawnDraftAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ firstPrompt: 'Fix the flaky test' }),
     )
-    expect(spawnDraftAgent).not.toHaveBeenCalled()
+    expect(spawnIssueAgent).not.toHaveBeenCalled()
   })
 
   it('closes by CLEARING, so a dismissed prompt cannot launch behind the placeholder', () => {
@@ -362,22 +363,50 @@ describe('the launch chooses the panel surface', () => {
   })
 })
 
-/* The fold is a HEIGHT animation on one element, not a swap between two — see
- * the note in styles.css for why `height` rather than `min-height`. Neither the
- * transition nor the two heights show up in a happy-dom render, so assert the
- * rules that carry them. */
-describe('the fold is one element changing height', () => {
-  it('animates height between a closed line and the prompt well', () => {
+/* The fold and subsequent auto-growth are HEIGHT changes on one element, not a
+ * swap between two. Happy DOM has no layout engine, so assert the rules that
+ * carry those states and leave the sizing arithmetic to its pure unit tests. */
+describe('the prompt is one element changing height', () => {
+  it('keeps the two fold heights and gives growth its own transition', () => {
     expect(styles).toMatch(/\.cold-start-input\s*\{[^}]*height:\s*46px/)
-    expect(styles).toMatch(/\.cold-start-input\s*\{[^}]*transition:[^}]*height 240ms/)
     expect(styles).toMatch(
       /\.cold-start-field\[data-expanded="true"\] \.cold-start-input\s*\{[^}]*height:\s*clamp\(72px/,
     )
+    expect(styles).toMatch(/\.cold-start-input\s*\{[^}]*transition-property:\s*height, padding/)
+    expect(styles).toMatch(/\.cold-start-input\[data-capped="true"\]\s*\{[^}]*overflow-y:\s*auto/)
   })
 
   it('honours prefers-reduced-motion', () => {
     expect(styles).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{\s*\.cold-start-input\s*\{\s*transition: none/,
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.cold-start-input\[data-grow\]\s*\{\s*transition-duration:\s*0s/,
     )
+  })
+})
+
+describe('the open prompt uses the pane height', () => {
+  it('grows with the draft, then caps and scrolls at the available height', () => {
+    render(<ColdStartComposer first />)
+    const textarea = field()
+    const bounds = document.querySelector<HTMLElement>('[data-cold-start-bounds]')
+    const body = document.querySelector<HTMLElement>('[data-cold-start-body]')
+    if (!bounds || !body) throw new Error('cold-start prompt bounds are missing')
+
+    let contentHeight = 420
+    Object.defineProperty(textarea, 'offsetHeight', { configurable: true, get: () => 132 })
+    Object.defineProperty(textarea, 'scrollHeight', {
+      configurable: true,
+      get: () => contentHeight,
+    })
+    Object.defineProperty(bounds, 'clientHeight', { configurable: true, get: () => 700 })
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, get: () => 300 })
+
+    fireEvent.change(textarea, { target: { value: 'A prompt that fits in the pane' } })
+    expect(textarea.style.height).toBe('420px')
+    expect(textarea.dataset.capped).toBe('false')
+
+    contentHeight = 900
+    fireEvent.change(textarea, { target: { value: 'A much longer prompt that fills the pane' } })
+    expect(textarea.style.height).toBe('532px')
+    expect(textarea.dataset.capped).toBe('true')
   })
 })

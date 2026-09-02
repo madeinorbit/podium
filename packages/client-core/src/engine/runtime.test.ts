@@ -1459,6 +1459,46 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     return api
   }
 
+  it('reuses caller-reserved draft identities and mutation id', async () => {
+    const api = spawnApi()
+    let createInput: Record<string, unknown> | undefined
+    api.sessions.create = {
+      mutate: vi.fn(async (input: Record<string, unknown>) => {
+        createInput = input
+      }),
+    }
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+
+    const made = engine.getSnapshot().spawnDraftAgent({
+      issueId: asIssueId('reserved-issue'),
+      sessionId: asSessionId('reserved-session'),
+      mutationId: asMutationId('reserved-mutation'),
+      draftArtifacts: [
+        {
+          id: 'att-1',
+          filename: 'mock.png',
+          mimeType: 'image/png',
+          dataBase64: 'UE5H',
+        },
+      ],
+      target: { path: '/w', repoPath: '/w' },
+      agentKind: 'codex',
+      firstPrompt: 'Name this work',
+    })
+
+    expect(made).toMatchObject({ issueId: 'reserved-issue', sessionId: 'reserved-session' })
+    expect(createInput).toMatchObject({
+      sessionId: 'reserved-session',
+      mutationId: 'reserved-mutation',
+      initialPrompt: 'Name this work',
+      draftArtifacts: [expect.objectContaining({ filename: 'mock.png', dataBase64: 'UE5H' })],
+      draftIssue: { repoPath: '/w', issueId: 'reserved-issue' },
+    })
+    engine.dispose()
+  })
+
   it.each([
     'unauthorized',
     'unreachable',
@@ -2256,9 +2296,36 @@ describe('eager mark-read-on-view (POD-272)', () => {
     )
     await settle()
     expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1) // leading edge
+    // THE SERVER'S ECHO, and the test is wrong without it. `sessions.markRead`
+    // carries only the session id — the server stamps its own readAt when it
+    // processes the mutation — so while that pass is in flight its optimistic
+    // overlay holds the row at `unread: false`, and everything arriving behind
+    // it is already covered by the stamp the server has yet to make. A second
+    // mutation there would be redundant, which is why the reaction declines to
+    // send one, and why the tail below is only meaningful once the read lands.
     engine.replica.applyChanges(
       'sessions',
-      [active('s1', { lastActiveAt: '2026-07-01T00:02:00.000Z', unread: true })],
+      [
+        active('s1', {
+          lastActiveAt: '2026-07-01T00:01:00.000Z',
+          readAt: '2026-07-01T00:01:30.000Z',
+          unread: false,
+        }),
+      ],
+      [],
+    )
+    await settle()
+    expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1)
+    // Fresh activity AFTER that confirmed read, still inside the throttle window.
+    engine.replica.applyChanges(
+      'sessions',
+      [
+        active('s1', {
+          lastActiveAt: '2026-07-01T00:02:00.000Z',
+          readAt: '2026-07-01T00:01:30.000Z',
+          unread: true,
+        }),
+      ],
       [],
     )
     await settle()
@@ -2710,5 +2777,69 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
     engine.dispose()
     document.dispatchEvent(new Event('visibilitychange'))
     expect(hub.connectNowCount).toBe(1)
+  })
+})
+
+describe('issue visit baseline', () => {
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+  })
+
+  it('keeps the pre-read cursor for one visit and refreshes it across mission and visibility changes', async () => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    const { engine } = makeEngine()
+    engine.start()
+    await settle(40)
+    const first = {
+      id: 'iss_1',
+      seq: 1,
+      title: 'First',
+      stage: 'in_progress',
+      readAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-02T00:00:00.000Z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      archived: false,
+    } as unknown as IssueWire
+    const second = {
+      ...first,
+      id: 'iss_2',
+      seq: 2,
+      title: 'Second',
+      readAt: '2026-07-03T00:00:00.000Z',
+      updatedAt: '2026-07-04T00:00:00.000Z',
+    } as IssueWire
+    engine.replica.applyChanges('issues', [first, second], [])
+    await settle()
+
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_1'))
+    engine.getSnapshot().setView('workspace')
+    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+      issueId: 'iss_1',
+      readAt: first.readAt,
+    })
+
+    void engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
+    expect(engine.getSnapshot().issues.find((issue) => issue.id === 'iss_1')?.readAt).not.toBe(
+      first.readAt,
+    )
+    expect(engine.getSnapshot().issueVisitBaseline?.readAt).toBe(first.readAt)
+
+    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_2'))
+    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+      issueId: 'iss_2',
+      readAt: second.readAt,
+    })
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(engine.getSnapshot().issueVisitBaseline).toBeNull()
+    const visibleReadAt = engine.getSnapshot().issues.find((issue) => issue.id === 'iss_2')?.readAt
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+      issueId: 'iss_2',
+      readAt: visibleReadAt,
+    })
   })
 })

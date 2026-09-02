@@ -358,6 +358,31 @@ export class EventsRepository {
     return [...(prior ? [rowToEvent(prior)] : []), ...rows.map(rowToEvent)]
   }
 
+  /**
+   * One event kind for ONE subject over a time window, plus the last row
+   * before the window — the per-subject sibling of `listKindSinceWithPrior`,
+   * served by `idx_podium_events_subject`. A per-session step-function reader
+   * (session.phase) needs the carried-in value exactly like the fleet one does.
+   */
+  listKindSubjectSinceWithPrior(kind: string, subject: string, since: string): PodiumEventRecord[] {
+    const prior = this.db
+      .prepare(
+        `SELECT * FROM podium_events
+         WHERE kind = ? AND subject = ? AND ts < ?
+         ORDER BY ts DESC, id DESC
+         LIMIT 1`,
+      )
+      .get(kind, subject, since) as Record<string, unknown> | undefined
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM podium_events
+         WHERE kind = ? AND subject = ? AND ts >= ?
+         ORDER BY ts ASC, id ASC`,
+      )
+      .all(kind, subject, since) as Record<string, unknown>[]
+    return [...(prior ? [rowToEvent(prior)] : []), ...rows.map(rowToEvent)]
+  }
+
   /** The highest event id in the log (0 when empty) — the "now" mark for
    *  seeding a consumer cursor that must not replay history. */
   maxEventId(): number {

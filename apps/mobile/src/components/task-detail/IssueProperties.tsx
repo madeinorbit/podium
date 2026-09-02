@@ -1,4 +1,9 @@
-import { groupRelations, ISSUE_STAGE_LABELS, sessionTitle } from '@podium/client-core/viewmodels'
+import {
+  groupRelations,
+  type IssueEdge,
+  ISSUE_STAGE_LABELS,
+  sessionTitle,
+} from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronRight, ExternalLink, Plus, X } from '../icons'
@@ -37,6 +42,7 @@ export function IssueProperties({
   issue,
   sessions,
   parent,
+  resolveEdge,
   busy,
   commands,
   open,
@@ -51,6 +57,8 @@ export function IssueProperties({
   sessions: SessionMeta[]
   /** The parent row, when the replica holds it. */
   parent: IssueWire | undefined
+  /** Shared cross-boundary policy, closed over this replica's exit record. */
+  resolveEdge: (id: string | undefined | null) => IssueEdge
   busy: boolean
   commands: IssueCommands
   open: boolean
@@ -62,6 +70,7 @@ export function IssueProperties({
 }) {
   const [label, setLabel] = useState('')
   const relations = groupRelations(issue)
+  const parentEdge = resolveEdge(issue.parentId)
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
 
@@ -101,7 +110,7 @@ export function IssueProperties({
         </Row>
 
         <Row label="Parent">
-          {parent ? (
+          {parentEdge.render === 'issue' && parent ? (
             <PressableScale
               accessibilityRole="button"
               accessibilityLabel={`Open parent ${issueDisplayRef(parent)}`}
@@ -116,11 +125,10 @@ export function IssueProperties({
               {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
               <Icon as={ChevronRight} size={13} color={color.textFaint} />
             </PressableScale>
-          ) : issue.parentId ? (
-            // The replica does not hold the parent. That is NOT "deleted" — under
-            // a scoped feed it may simply not be ours to see — so the id is shown
-            // inert and nothing is claimed about it.
-            <Text style={styles.inert}>{issue.parentId}</Text>
+          ) : parentEdge.render === 'opaque' ? (
+            <Text style={styles.opaque}>an issue you do not have access to</Text>
+          ) : parentEdge.render === 'pending' ? (
+            <Text style={styles.inert}>Referenced task is loading</Text>
           ) : (
             <Text style={styles.none}>None</Text>
           )}
@@ -138,30 +146,45 @@ export function IssueProperties({
           {relations.map((group) => (
             <View key={group.section} style={styles.relGroup}>
               <MachineLabel>{group.section}</MachineLabel>
-              {group.entries.map((entry) => (
-                <View key={`${entry.direction}:${entry.type}:${entry.id}`} style={styles.relRow}>
-                  <PressableScale
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open ${entry.id}`}
-                    onPress={() => onOpenIssue(entry.id)}
-                    style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.inert} numberOfLines={1}>
-                      {entry.id}
-                    </Text>
-                  </PressableScale>
-                  <PressableScale
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove relation to ${entry.id}`}
-                    accessibilityState={{ disabled: busy }}
-                    disabled={busy}
-                    hitSlop={8}
-                    onPress={() => commands.removeRelation(entry)}
-                  >
-                    <Icon as={X} size={13} color={color.textFaint} />
-                  </PressableScale>
-                </View>
-              ))}
+              {group.entries.map((entry) => {
+                const edge = resolveEdge(entry.id)
+                if (edge.render === 'hidden') return null
+                const target = edge.render === 'issue' ? edge.resolution.value : undefined
+                return (
+                  <View key={`${entry.direction}:${entry.type}:${entry.id}`} style={styles.relRow}>
+                    {target ? (
+                      <PressableScale
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${issueDisplayRef(target)} ${target.title}`}
+                        onPress={() => onOpenIssue(target.id)}
+                        style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
+                      >
+                        <StageGlyph stage={target.stage} size={13} />
+                        <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
+                        <Text style={styles.linkTitle} numberOfLines={1}>
+                          {target.title}
+                        </Text>
+                      </PressableScale>
+                    ) : (
+                      <Text style={edge.render === 'opaque' ? styles.opaque : styles.inert}>
+                        {edge.render === 'opaque'
+                          ? 'an issue you do not have access to'
+                          : 'Referenced task is loading'}
+                      </Text>
+                    )}
+                    <PressableScale
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${entry.type} relation`}
+                      accessibilityState={{ disabled: busy }}
+                      disabled={busy}
+                      hitSlop={8}
+                      onPress={() => commands.removeRelation(entry)}
+                    >
+                      <Icon as={X} size={13} color={color.textFaint} />
+                    </PressableScale>
+                  </View>
+                )
+              })}
             </View>
           ))}
           <Ghost label="Add relation" busy={busy} onPress={onAddRelation} icon />
@@ -538,6 +561,12 @@ const styles = StyleSheet.create({
     color: color.textFaint,
     fontSize: font.micro,
   },
+  opaque: {
+    ...sans(400),
+    color: color.textFaint,
+    fontSize: font.tiny,
+    fontStyle: 'italic',
+  },
   none: {
     ...sans(400),
     color: color.textMicro,
@@ -567,6 +596,9 @@ const styles = StyleSheet.create({
   relOpen: {
     flex: 1,
     minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
     justifyContent: 'center',
     minHeight: 34,
   },

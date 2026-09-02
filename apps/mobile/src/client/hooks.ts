@@ -100,6 +100,11 @@ export function useReplica(): MobileStore['replica'] {
   return useStoreSelector<MobileStore['replica'], MobileTrpc>((s) => s.replica)
 }
 
+/** The coarse shared clock used for stable working/progress projections. */
+export function useCoarseNow(): number {
+  return useStoreSelector<number, MobileTrpc>((s) => s.coarseNow)
+}
+
 /** Connected machines. Array identity moves only on machinesChanged. */
 export function useMachines(): MachineWire[] {
   return useStoreSelector<MachineWire[], MobileTrpc>((s) => s.machines)
@@ -189,6 +194,15 @@ export function useSessionDraft(id: SessionId): string {
 export function useSpawnPending(id: SessionId | undefined): boolean {
   return useStoreSelector<boolean, MobileTrpc>((s) =>
     id === undefined ? false : s.pendingSpawnIds.has(id),
+  )
+}
+
+/** The first turn painted by the shared spawn optimism engine. The engine owns
+ * it until the authoritative session row arrives; the conversation host then
+ * keeps it through any settle-time remount until the transcript echoes it. */
+export function useSpawnPrompt(id: SessionId | undefined): string | undefined {
+  return useStoreSelector<string | undefined, MobileTrpc>((s) =>
+    id === undefined ? undefined : s.pendingSpawnPrompts.get(id),
   )
 }
 

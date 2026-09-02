@@ -1341,6 +1341,16 @@ describe('test lane configuration', () => {
       osVersion: 'macOS 26.6.2',
       packageName: 'Podium_1.2.3_aarch64.dmg',
       packageSha256: 'a'.repeat(64),
+      packageTrust: {
+        mechanism: 'apple-notarized-developer-id',
+        identity: 'Developer ID Application: Podium',
+        verified: true,
+      },
+      desktopBoundaryResults: {
+        notification: 'passed',
+        deepLinkCold: 'passed',
+        deepLinkWarm: 'passed',
+      },
       artifacts: ['apple-silicon-run.mp4'],
       notes: 'Apple Silicon package passed.',
     }
@@ -1366,6 +1376,88 @@ describe('test lane configuration', () => {
     }
     expect(validateEvidence(wrongDesktopPackage, { releaseReady: false })).toContain(
       'desktop-windows-package: expected package Podium_<version>_x64-setup.exe, found desktop-notes.txt',
+    )
+
+    const untrustedWindowsPackage = structuredClone(baseline)
+    untrustedWindowsPackage.checks['desktop-windows-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'Dell XPS 13 9340',
+      osVersion: 'Windows 11 24H2',
+      packageName: 'Podium_1.2.3_x64-setup.exe',
+      packageSha256: 'b'.repeat(64),
+      packageTrust: {
+        mechanism: 'windows-authenticode',
+        identity: 'Unknown publisher',
+        verified: false,
+      },
+      artifacts: ['windows-run.mp4'],
+      notes: 'The installer ran, but its publisher trust did not verify.',
+    }
+    expect(validateEvidence(untrustedWindowsPackage, { releaseReady: false })).toContain(
+      'desktop-windows-package: package trust verification did not pass',
+    )
+
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'desktop-windows-package': {
+            ...untrustedWindowsPackage.checks['desktop-windows-package'],
+            packageTrust: {
+              mechanism: 'Authenticode check failed',
+              identity: 'Acme Corp',
+              verified: true,
+            },
+          },
+        },
+      }),
+    ).toThrow(
+      'desktop-windows-package.packageTrust.mechanism must be one of apple-notarized-developer-id, windows-authenticode, tauri-minisign-signature',
+    )
+
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'desktop-linux-package': {
+            ...baseline.checks['desktop-linux-package'],
+            packageTrust: {
+              mechanism: 'sha256',
+              identity: 'release digest',
+              verified: true,
+            },
+          },
+        },
+      }),
+    ).toThrow(
+      'desktop-linux-package.packageTrust.mechanism must be one of apple-notarized-developer-id, windows-authenticode, tauri-minisign-signature',
+    )
+
+    const wrongPlatformTrust = structuredClone(untrustedWindowsPackage)
+    wrongPlatformTrust.checks['desktop-windows-package']!.packageTrust = {
+      mechanism: 'tauri-minisign-signature',
+      identity: 'Podium release key',
+      verified: true,
+    }
+    expect(validateEvidence(wrongPlatformTrust, { releaseReady: false })).toContain(
+      'desktop-windows-package: expected windows-authenticode, found tauri-minisign-signature',
+    )
+
+    const missingDesktopBoundaries = structuredClone(oneMacArchitecture)
+    delete missingDesktopBoundaries.checks['desktop-macos-apple-silicon-package']!
+      .desktopBoundaryResults
+    expect(validateEvidence(missingDesktopBoundaries, { releaseReady: false })).toContain(
+      'desktop-macos-apple-silicon-package: passed package evidence needs desktopBoundaryResults',
+    )
+
+    const failedDesktopBoundary = structuredClone(oneMacArchitecture)
+    failedDesktopBoundary.checks['desktop-macos-apple-silicon-package']!
+      .desktopBoundaryResults!.deepLinkWarm = 'failed'
+    expect(validateEvidence(failedDesktopBoundary, { releaseReady: false })).toContain(
+      'desktop-macos-apple-silicon-package: desktop boundary deepLinkWarm did not pass',
     )
   })
 

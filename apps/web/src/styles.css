@@ -3547,7 +3547,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   padding-inline-start: 16px;
 }
 .transcript-process-row::before {
-  content: '';
+  content: "";
   position: absolute;
   inset-block: 0;
   inset-inline-start: 0;
@@ -3708,8 +3708,7 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   display: flex;
   justify-content: center;
   box-sizing: border-box;
-  padding: 11px
-    max(32px, calc((100% - var(--chat-reading-measure) - var(--chat-rail-w, 0px)) / 2))
+  padding: 11px max(32px, calc((100% - var(--chat-reading-measure) - var(--chat-rail-w, 0px)) / 2))
     0;
   pointer-events: none;
   animation: brief-shelf-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -5679,6 +5678,37 @@ html[data-density="compact"] .brief-shelf {
   outline: 1px solid color-mix(in oklab, var(--issue, var(--info)) 68%, var(--foreground));
   outline-offset: 4px;
   background: color-mix(in oklab, var(--issue, transparent) 5%, transparent);
+}
+
+/* Handoff is a reading pass through the mission, not another tree. Sections
+   keep one shared left edge and use rules instead of card-stacking. */
+.handoff-view {
+  padding-top: 14px;
+}
+.handoff-section {
+  padding-inline: 16px 8px;
+}
+.handoff-section + .handoff-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline-soft);
+}
+.handoff-markdown > :first-child {
+  margin-top: 0;
+}
+.handoff-markdown > :last-child {
+  margin-bottom: 0;
+}
+.handoff-markdown p + p,
+.handoff-markdown p + ul,
+.handoff-markdown p + ol,
+.handoff-markdown ul + p,
+.handoff-markdown ol + p {
+  margin-top: 0.55em;
+}
+.handoff-markdown ul,
+.handoff-markdown ol {
+  padding-inline-start: 1.25em;
 }
 /* The narrow dock runs the same grammar at its own scale (§2.5). Specificity
    has to match `.chat-compact .transcript-row`, which would otherwise win. */
@@ -8083,6 +8113,90 @@ a.ref-link--session::before {
   font-size: 11.5px;
   line-height: 1.4;
 }
+
+/* ── Where it went · by task (POD-1861) ──────────────────────────────────────
+   THE SAME DIVIDED INSTRUMENT AS THE MASTHEAD, WITHOUT ITS ONE SIZE JUMP. The
+   masthead is closed (POD-596): one figure at 24px and nothing else on the
+   surface takes that step, so this section's headline reading leads its row by
+   ink and by position instead. `.usage-readings` already carries the hairline
+   grammar; all this adds is a lead cell pinned to the left edge while the four
+   readings that size it keep the sheet's one right edge. */
+.usage-task-readings {
+  align-self: stretch;
+  margin-left: 0;
+}
+.usage-task-readings .usage-reading[data-lead] {
+  padding-left: 0;
+  border-left: 0;
+  text-align: left;
+}
+/* The four readings sit at the right edge; the lead one holds the left. The
+   auto margin goes on the cell AFTER the lead rather than on the group, so the
+   division between them stays a hairline and not a gap of unexplained width. */
+.usage-task-readings .usage-reading[data-lead] + .usage-reading {
+  margin-left: auto;
+}
+/* The section's answer, loud by INK rather than by size — the one move left
+   once the 24px step is spoken for. */
+.usage-task-readings .usage-reading[data-lead] .usage-reading-value {
+  font-weight: 600;
+}
+/* The seam between a window reading and all-time ones, stated in the sheet's
+   interpretive voice — the register the cache counterfactual uses, one step
+   quieter because it qualifies a row rather than interpreting a figure. */
+.usage-task-note {
+  margin: -2px 0 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+/* A task title is a SENTENCE, not an identifier: it takes the room the model
+   column does not need and ellipses rather than wrapping a ranking into three
+   lines per row. The rail still absorbs the slack — this column is capped, not
+   greedy. */
+/* Width 1%, like every other column but the rail: the rail is what absorbs the
+   slack (the model table's rule), and a task title left to take it collapsed the
+   share bar to a 15px stub. The clamp below is what stops `width: 1%` from
+   simply growing to the longest title instead. */
+.usage-th-task {
+  width: 1%;
+  white-space: nowrap;
+}
+.usage-td-task {
+  color: var(--foreground);
+}
+/* The clamp lives on an inner block, not on the cell: `max-width` on a `td` in
+   an auto-layout table is advisory at best, and a title that ignored it would
+   push the six right-aligned columns off the sheet's one right edge. */
+.usage-td-task-inner {
+  display: block;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-td-task-ref {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.usage-th-stage {
+  width: 1%;
+  white-space: nowrap;
+}
+.usage-td-stage {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.usage-td-rate {
+  color: var(--muted-foreground);
+}
+/* The lower-bound mark rides one rung below the figure it qualifies: it is a
+   caveat ON the number, not a second number. */
+.usage-td-floor {
+  color: var(--text-dim);
+  font-weight: 500;
+}
 .usage-provider-name {
   color: var(--foreground);
   font-size: 13px;
@@ -8601,6 +8715,7 @@ a.ref-link--session::before {
 .usage-body[data-arrive] .usage-cache-saving,
 .usage-body[data-arrive] .usage-provider-cost,
 .usage-body[data-arrive] .usage-provider-sub,
+.usage-body[data-arrive] .usage-task-note,
 .usage-body[data-arrive] .usage-axis-tick,
 .usage-body[data-arrive] .usage-figure-peak,
 .usage-body[data-arrive] .usage-day-total,
@@ -8645,6 +8760,7 @@ a.ref-link--session::before {
   .usage-body[data-arrive] .usage-cache-saving,
   .usage-body[data-arrive] .usage-provider-cost,
   .usage-body[data-arrive] .usage-provider-sub,
+  .usage-body[data-arrive] .usage-task-note,
   .usage-body[data-arrive] .usage-axis-tick,
   .usage-body[data-arrive] .usage-figure-peak,
   .usage-body[data-arrive] .usage-day-total,
@@ -9600,6 +9716,896 @@ a.ref-link--session::before {
 .deck-rows {
   container-type: inline-size;
   container-name: deck-rows;
+}
+
+/* ── MISSION WATERFALL (POD-1854) ───────────────────────────────────────────
+   A real timeline, not a decorated list. Geometry comes from a zoomable
+   viewport (flight-deck-waterfall.ts): the component writes --waterfall-now
+   (the Now line's percent within the track) and per-bar --waterfall-left /
+   --waterfall-width. The axis is sticky under the deck chrome; both are opaque
+   and layered ABOVE the rows, because the one filed screenshot of this view was
+   rows bleeding through the mission header. */
+.flight-waterfall {
+  --waterfall-label-col: 148px;
+  --waterfall-row-zoom: 1;
+  --waterfall-bar-height: 20px;
+  --waterfall-lane-height: 24px;
+  --waterfall-row-gap: 2px;
+  --waterfall-row-padding: 4px;
+  position: relative;
+  min-width: 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  background: color-mix(in srgb, var(--card) 96%, var(--chip));
+  container-type: inline-size;
+  container-name: flight-waterfall;
+}
+.waterfall-axis,
+.waterfall-issue-row,
+.waterfall-now-line {
+  display: grid;
+  grid-template-columns: minmax(0, var(--waterfall-label-col)) minmax(0, 1fr);
+}
+.waterfall-axis {
+  position: sticky;
+  top: var(--waterfall-chrome-offset, 0px);
+  z-index: 7;
+  min-height: 32px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-strong) 65%, transparent);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  backdrop-filter: blur(16px) saturate(140%);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.waterfall-axis-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding-inline: 10px 6px;
+  border-right: 1px solid var(--hairline-soft);
+  text-transform: uppercase;
+}
+.waterfall-row-zoom {
+  display: inline-flex;
+  height: 20px;
+  min-width: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: var(--radius-md);
+  color: var(--text-faint);
+  cursor: ns-resize;
+  font-size: 8px;
+  letter-spacing: 0;
+  touch-action: none;
+  transition-property: background-color, color, scale;
+  transition-duration: 100ms;
+  transition-timing-function: ease-out;
+}
+.waterfall-row-zoom:hover,
+.waterfall-row-zoom:focus-visible {
+  background: var(--muted);
+  color: var(--text-strong);
+}
+.waterfall-row-zoom:active {
+  scale: 0.96;
+}
+.waterfall-row-zoom:focus-visible {
+  outline: 2px solid var(--issue);
+  outline-offset: 1px;
+}
+.waterfall-column-resizer {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  bottom: 0;
+  left: var(--waterfall-label-col);
+  width: 9px;
+  cursor: ew-resize;
+  touch-action: none;
+  translate: -50% 0;
+}
+.waterfall-column-resizer::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 100ms ease-out;
+}
+.waterfall-column-resizer:hover::after,
+.waterfall-column-resizer:focus-visible::after,
+.waterfall-column-resizer[data-dragging]::after {
+  background: var(--issue);
+}
+.waterfall-column-resizer:focus-visible {
+  outline: none;
+}
+.waterfall-axis-track {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+.waterfall-axis-controls {
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--hairline-bar) 75%, transparent);
+}
+.waterfall-axis-controls > button {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+}
+.waterfall-axis-controls > button:active {
+  scale: 0.96;
+}
+.waterfall-axis-controls > button:hover {
+  background: var(--muted);
+  color: var(--text-strong);
+}
+.waterfall-axis-labels {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.waterfall-axis-tick {
+  position: absolute;
+  top: 11px;
+  translate: -50% 0;
+  white-space: nowrap;
+}
+.waterfall-axis-track .waterfall-axis-now {
+  position: absolute;
+  top: 11px;
+  translate: -50% 0;
+  color: var(--motion-working);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* At the frame's right edge the centred label would clip; hang it leftward. */
+.waterfall-axis-track .waterfall-axis-now[data-edge] {
+  translate: calc(-100% - 2px) 0;
+}
+.waterfall-live-resume {
+  position: absolute;
+  top: 7px;
+  right: 62px;
+  display: inline-flex;
+  height: 17px;
+  align-items: center;
+  gap: 3px;
+  padding-inline: 5px;
+  border: 1px solid color-mix(in srgb, var(--motion-working) 55%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--motion-working) 12%, var(--card));
+  color: var(--motion-working);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.waterfall-live-resume:hover {
+  background: color-mix(in srgb, var(--motion-working) 24%, var(--card));
+}
+/* Real gridlines, one per axis tick, so the lines running down the rows are
+   the same ruler the labels name — never a decorative quarter-split. */
+.waterfall-gridlines {
+  position: absolute;
+  z-index: 1;
+  inset: 32px 0 0;
+  display: grid;
+  grid-template-columns: minmax(0, var(--waterfall-label-col)) minmax(0, 1fr);
+  pointer-events: none;
+}
+.waterfall-gridlines-track {
+  position: relative;
+  grid-column: 2;
+  overflow: hidden;
+}
+.waterfall-gridlines-track > span {
+  position: absolute;
+  inset-block: 0;
+  width: 1px;
+  background: var(--hairline-soft);
+  opacity: 0.55;
+}
+.waterfall-now-line {
+  position: absolute;
+  z-index: 3;
+  inset: 32px 0 0;
+  pointer-events: none;
+}
+.waterfall-now-line::after {
+  content: "";
+  grid-column: 2;
+  width: 1px;
+  height: 100%;
+  margin-left: var(--waterfall-now);
+  background: color-mix(in srgb, var(--motion-working) 52%, transparent);
+}
+.waterfall-rows {
+  position: relative;
+  z-index: 2;
+}
+.waterfall-issue-row {
+  min-height: calc(
+    var(--waterfall-lane-height) +
+    var(--waterfall-row-padding) +
+    var(--waterfall-row-padding)
+  );
+  border-bottom: 1px solid var(--hairline-soft);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+  transition-property: background-color;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
+}
+.waterfall-issue-row:last-child {
+  border-bottom: 0;
+}
+.waterfall-issue-cell {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 4px;
+  padding: calc(var(--waterfall-row-padding) + 2px) 7px var(--waterfall-row-padding)
+    calc(7px + var(--waterfall-depth) * 12px);
+  border-right: 1px solid var(--hairline-soft);
+  /* One quiet step off the track ground; `--chip` is the raised tier. (The
+     old `var(--panel)` here named no token, so the whole mix silently never
+     painted — the label column ran transparent.) */
+  background: color-mix(in srgb, var(--chip) 32%, var(--card));
+}
+.waterfall-issue-row[data-focused="true"] .waterfall-issue-cell {
+  background: color-mix(in srgb, var(--issue) calc(9 * var(--issue-tint-scale, 1%)), var(--card));
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--issue) 70%, transparent);
+}
+.waterfall-issue-row[data-attention="true"]:not([data-focused="true"]) .waterfall-issue-cell {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--attention) 78%, transparent);
+}
+.waterfall-tree-guides {
+  position: absolute;
+  inset-block: 0;
+  left: calc(10px + var(--waterfall-depth) * 12px);
+  width: 1px;
+  background: color-mix(in srgb, var(--issue) 38%, var(--hairline-soft));
+  opacity: min(1, var(--waterfall-depth));
+}
+.waterfall-tree-guides::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--issue) 38%, var(--hairline-soft));
+}
+.waterfall-fold {
+  display: inline-flex;
+  width: 16px;
+  height: 20px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+button.waterfall-fold:hover {
+  color: var(--text-strong);
+}
+.waterfall-issue-open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding-block: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+.waterfall-issue-meta {
+  width: 100%;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.waterfall-issue-title {
+  width: 100%;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 550;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.waterfall-issue-open[aria-current="true"] .waterfall-issue-title {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.waterfall-track-cell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--waterfall-row-gap);
+  padding-block: var(--waterfall-row-padding);
+  overflow: hidden;
+  touch-action: pan-y;
+}
+.waterfall-session-lane {
+  position: relative;
+  min-height: var(--waterfall-lane-height);
+}
+.waterfall-session-lane[data-offscreen="true"] {
+  min-height: 12px;
+}
+.waterfall-offscreen {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  width: 14px;
+  height: 12px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1;
+  translate: 0 -50%;
+}
+.waterfall-offscreen[data-side="start"] {
+  left: 0;
+}
+.waterfall-offscreen[data-side="end"] {
+  right: 0;
+}
+.waterfall-offscreen:hover {
+  background: var(--muted);
+  color: var(--text-strong);
+}
+.waterfall-session-bar {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: var(--waterfall-left);
+  display: flex;
+  width: max(var(--waterfall-width), 3px);
+  height: var(--waterfall-bar-height);
+  align-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: calc(var(--radius-md) + 1px);
+  background: color-mix(in srgb, var(--text-faint) 12%, var(--bar));
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--hairline-bar);
+  cursor: pointer;
+  text-align: left;
+  translate: 0 -50%;
+  transition:
+    left 160ms ease-out,
+    width 160ms ease-out,
+    background-color 120ms ease-out,
+    box-shadow 120ms ease-out,
+    opacity 120ms ease-out,
+    scale 100ms ease-out;
+}
+/* A streamed zoom/pan writes fresh geometry every frame; settle transitions
+   would trail the pointer and repaint twice. The gesture suppresses them. */
+.flight-waterfall[data-interacting] .waterfall-session-bar {
+  transition: none;
+}
+.waterfall-session-bar[data-clipped-start="true"] {
+  border-left: 1px dashed var(--text-faint);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+/* Solid (un-segmented) state colors — the honest fallback without history. */
+.waterfall-session-bar[data-state="working"]:not([data-segmented]) {
+  background: color-mix(in srgb, var(--motion-working) 24%, var(--bar));
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--motion-working) 62%, transparent);
+}
+.waterfall-session-bar[data-state="live"]:not([data-segmented]) {
+  background: color-mix(in srgb, var(--text-faint) 9%, var(--bar));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 36%, transparent);
+}
+.waterfall-session-bar[data-state="attention"]:not([data-segmented]) {
+  background: color-mix(in srgb, var(--attention) 24%, var(--bar));
+  color: color-mix(in srgb, var(--attention) 76%, var(--text-strong));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 78%, transparent);
+}
+.waterfall-session-bar[data-state="finished"]:not([data-segmented]) {
+  background: color-mix(in srgb, var(--text-faint) 9%, var(--bar));
+  color: var(--text-dim);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 32%, transparent);
+  opacity: 0.58;
+}
+/* Segmented bars: a quiet idle track under working / attention stretches. */
+.waterfall-session-bar[data-segmented] {
+  background: color-mix(in srgb, var(--text-faint) 7%, var(--bar));
+  box-shadow: inset 0 0 0 1px var(--hairline-bar);
+}
+.waterfall-session-bar[data-segmented][data-state="working"],
+.waterfall-session-bar[data-segmented][data-state="attention"] {
+  color: var(--text-strong);
+}
+.waterfall-session-bar[data-segmented][data-state="attention"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--attention) 78%, transparent);
+}
+.waterfall-session-bar[data-segmented][data-state="attention"]::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset-block: 2px;
+  right: 1px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--attention);
+}
+.waterfall-session-bar[data-segmented][data-state="finished"] {
+  opacity: 0.78;
+}
+.waterfall-seg-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.waterfall-seg {
+  position: absolute;
+  inset-block: 0;
+  min-width: 2px;
+}
+.waterfall-seg[data-kind="working"] {
+  background: color-mix(in srgb, var(--motion-working) 34%, var(--bar));
+  box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--motion-working) 70%, transparent);
+}
+.waterfall-seg[data-kind="attention"] {
+  background: color-mix(in srgb, var(--attention) 26%, var(--bar));
+  box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--attention) 66%, transparent);
+}
+.waterfall-seg[data-kind="idle"] {
+  background: transparent;
+}
+/* The live edge is a still lit cap. Perpetual motion belongs to the working
+   mark alone (Agent State Grammar) — a breathing edge here would be a second
+   pulse the system's stillness budget forbids. */
+.waterfall-session-bar[data-live][data-state="working"]::after {
+  content: "";
+  position: absolute;
+  inset-block: 2px;
+  right: 1px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--motion-working);
+}
+.waterfall-session-bar:hover {
+  box-shadow:
+    inset 0 0 0 1px var(--text-dim),
+    0 2px 7px color-mix(in srgb, black 13%, transparent);
+  opacity: 1;
+}
+.waterfall-session-bar:active {
+  scale: 0.985 0.96;
+}
+.waterfall-session-bar[data-selected="true"] {
+  box-shadow:
+    inset 0 0 0 1px var(--issue),
+    0 0 0 2px color-mix(in srgb, var(--issue) 34%, transparent),
+    0 3px 8px color-mix(in srgb, black 15%, transparent);
+  opacity: 1;
+}
+.waterfall-session-bar[data-coordinator="true"]:not([data-selected="true"]) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--issue) 68%, transparent);
+}
+.waterfall-session-lane[data-pointed="true"] .waterfall-session-bar:not([data-selected="true"]) {
+  box-shadow:
+    inset 0 0 0 1px var(--flow),
+    inset 0 -2px 0 color-mix(in srgb, var(--flow) 56%, transparent);
+}
+/* Tab-strip → waterfall reveal: one pulse, then it is just the selection. */
+.waterfall-session-bar[data-flash] {
+  animation: waterfall-flash 1.5s ease-out 1;
+}
+@keyframes waterfall-flash {
+  0% {
+    box-shadow:
+      inset 0 0 0 1px var(--issue),
+      0 0 0 4px color-mix(in srgb, var(--issue) 45%, transparent);
+  }
+  100% {
+    box-shadow:
+      inset 0 0 0 1px var(--issue),
+      0 0 0 0 transparent;
+  }
+}
+.waterfall-session-lane[data-unread="true"] .waterfall-session-name {
+  color: var(--text-strong);
+  font-weight: 650;
+}
+.waterfall-session-bar:focus-visible,
+.waterfall-native-toggle:focus-visible,
+.waterfall-native-worker:focus-visible,
+.waterfall-issue-open:focus-visible,
+.waterfall-offscreen:focus-visible,
+.waterfall-live-resume:focus-visible,
+.waterfall-axis-controls > button:focus-visible,
+.waterfall-fold:focus-visible {
+  outline: 2px solid var(--issue);
+  outline-offset: 1px;
+}
+.waterfall-bar-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 6px;
+}
+.waterfall-session-lane[data-has-native="true"] .waterfall-bar-content {
+  padding-right: 24px;
+}
+.waterfall-session-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: clamp(9.5px, calc(9px + var(--waterfall-row-zoom) * 1px), 11px);
+  font-weight: 500;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.waterfall-session-time {
+  flex: none;
+  color: currentColor;
+  font-size: 8px;
+  line-height: 1;
+  opacity: 0.82;
+}
+/* The floated label when the bar is too narrow to hold its own name. */
+.waterfall-bar-tag {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  display: inline-flex;
+  height: var(--waterfall-bar-height);
+  max-width: 45%;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  padding-inline: 4px;
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1;
+  pointer-events: none;
+  translate: 0 -50%;
+  white-space: nowrap;
+}
+.waterfall-bar-tag[data-side="after"] {
+  left: calc(var(--waterfall-left) + max(var(--waterfall-width), 3px) + 2px);
+}
+.waterfall-bar-tag[data-side="before"] {
+  left: auto;
+  right: calc(100% - var(--waterfall-left) + 2px);
+}
+.waterfall-bar-tag[data-state="attention"] {
+  color: var(--attention);
+}
+.waterfall-bar-tag-time {
+  color: var(--text-faint);
+  font-size: 8px;
+}
+.waterfall-history-summary {
+  background: var(--chip);
+  color: var(--text-dim);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.waterfall-history-summary[data-open="true"] {
+  background: color-mix(in srgb, var(--info) 10%, var(--chip));
+  color: var(--text-muted);
+}
+.waterfall-history-summary {
+  gap: 4px;
+  padding-inline: 5px;
+}
+/* Anchored to the bar itself, not the label: the mark must survive a bar too
+   narrow to carry its name. */
+.waterfall-unread-dot {
+  position: absolute;
+  z-index: 2;
+  top: 2px;
+  right: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--issue);
+}
+.waterfall-session-tools {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: calc(var(--waterfall-left) + max(var(--waterfall-width), 3px));
+  display: flex;
+  height: var(--waterfall-bar-height);
+  align-items: center;
+  gap: 1px;
+  padding-inline: 1px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bar) 92%, transparent);
+  translate: -100% -50%;
+}
+.waterfall-native-toggle {
+  display: inline-flex;
+  height: calc(var(--waterfall-bar-height) - 4px);
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--text-faint);
+}
+.waterfall-native-toggle {
+  min-width: 16px;
+  padding-inline: 3px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1;
+}
+.waterfall-native-toggle[aria-expanded="true"],
+.waterfall-native-toggle:hover {
+  background: var(--muted);
+  color: var(--text-strong);
+}
+.waterfall-session-editor {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: var(--waterfall-left);
+  width: max(var(--waterfall-width), 96px);
+  height: var(--waterfall-bar-height);
+  padding: 1px 4px;
+  border: 1px solid var(--issue);
+  border-radius: var(--radius-md);
+  background: var(--bar);
+  translate: 0 -50%;
+}
+.waterfall-native-list {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: calc(100% - var(--waterfall-left));
+  min-width: 120px;
+  flex-direction: column;
+  gap: 1px;
+  margin-left: var(--waterfall-left);
+  padding-top: calc(var(--waterfall-bar-height) + 3px);
+  padding-left: 8px;
+  border-left: 1px solid var(--hairline-soft);
+}
+.waterfall-native-worker {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 18px;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 4px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 1.2;
+  text-align: left;
+}
+.waterfall-native-worker:hover {
+  background: var(--muted);
+  color: var(--text-dim);
+}
+.waterfall-native-worker-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.waterfall-future-label {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  max-width: calc(100% - min(var(--waterfall-now), 78%) - 10px);
+  min-height: 18px;
+  align-items: center;
+  gap: 4px;
+  margin-left: calc(min(var(--waterfall-now), 78%) + 5px);
+  padding: 1px 5px;
+  overflow: hidden;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.waterfall-future-label strong {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.waterfall-future-label span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.waterfall-future-label[data-state="attention"] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--attention);
+}
+.waterfall-attention-mark {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--attention);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention) 12%, transparent);
+}
+.waterfall-future-label[data-state="blocked"] strong {
+  color: var(--text-muted);
+}
+.waterfall-track-cell:has(.waterfall-future-label)::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: min(var(--waterfall-now), 78%);
+  width: 5px;
+  border-top: 1px dashed var(--border-strong);
+}
+
+/* Hover card — dense, same facts the detail pane would show, on the shell's
+   own popover material: panel ink under the transient-tier shadow, never the
+   generic tooltip's inverted slab. */
+.waterfall-hover-content {
+  max-width: 264px;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline-bar);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  box-shadow: var(--shadow-popover);
+  color: var(--text-muted);
+}
+.waterfall-hover-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  line-height: 1.35;
+}
+.waterfall-hover-card strong {
+  color: var(--text-strong);
+}
+.waterfall-hover-mono {
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+.waterfall-hover-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+}
+.waterfall-hover-head strong {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.waterfall-hover-ref {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  opacity: 0.7;
+}
+.waterfall-hover-line {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.waterfall-hover-line[data-state="working"] {
+  color: var(--motion-working);
+  opacity: 1;
+}
+.waterfall-hover-line[data-state="attention"] {
+  color: var(--attention);
+  opacity: 1;
+}
+.waterfall-hover-reason {
+  padding-top: 1px;
+  border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  font-style: italic;
+  opacity: 0.9;
+}
+
+@container flight-waterfall (max-width: 390px) {
+  .waterfall-issue-title {
+    font-size: 10.5px;
+  }
+  .waterfall-bar-content {
+    gap: 2px;
+    padding-inline: 3px;
+  }
+  .waterfall-bar-content > :first-child {
+    display: none;
+  }
+  .waterfall-session-time,
+  .waterfall-future-label span:not(.waterfall-attention-mark) {
+    display: none;
+  }
+  .waterfall-native-list {
+    min-width: 92px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waterfall-session-bar {
+    transition: none;
+    animation: none;
+  }
+  .waterfall-session-bar[data-flash] {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .waterfall-axis {
+    background: var(--card);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .waterfall-axis {
+    background: var(--card);
+    border-bottom-color: var(--text-faint);
+  }
+  .waterfall-session-bar {
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
 }
 
 /* At this measure, a useful 160px name plus ref, role, state and gaps no longer
@@ -10766,19 +11772,18 @@ a.ref-link--session::before {
 
 /* ── THE WELL'S TWO HEIGHTS [POD-1469] ───────────────────────────────────────
    The box has a CLI mode and a prompt mode (see ColdStartComposer), and the
-   whole difference in geometry is this element's height. Both are set as an
-   explicit `height` rather than `min-height`, so the transition has one number
-   to walk: with a min-height the box would sit at the textarea's intrinsic size
-   until the animated value overtook it, which is a beat of stillness at the head
-   of a gesture whose job is to feel like the box opening.
+   fold starts from the two explicit heights below. Once open,
+   `useColdStartPromptAutoGrow` replaces the resting height with a measured pixel
+   height as the operator writes. It takes all remaining room in the pane before
+   the field scrolls, while keeping the headline and launch row reachable.
 
    `rows={1}` is what makes the closed height honest — a textarea's intrinsic
    height comes from its rows, and a two-row default would fight the number
    below.
 
-   The prompt height is the one the deck has always used: about a fifth of a
-   short window, capped at the old desktop 132px, so the whole instrument stays
-   on screen down to a 240px pane before the deck scrolls.
+   The prompt's RESTING height remains the one the deck has always used: about a
+   fifth of a short window, capped at 132px. That is the starting size, no longer
+   the writing cap.
 
    THE OPEN BOX GIVES ITS RIGHT SHOULDER TO THE CLOSE CONTROL. 46px of right
    padding rather than 22 — the X sits at top:9/right:10 and the first line of a
@@ -10796,15 +11801,26 @@ a.ref-link--session::before {
      easeOutCubic is at ~51% at the same instant, so the motion is visible for
      most of its duration and still lands decelerating. 240ms is inside the
      design's 200–260ms window for structural motion. */
-  transition:
-    height 240ms cubic-bezier(0.33, 1, 0.68, 1),
-    padding 240ms cubic-bezier(0.33, 1, 0.68, 1);
+  transition-property: height, padding;
+  transition-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  transition-duration: 0s;
 }
 .cold-start-field[data-expanded="true"] .cold-start-input {
   height: clamp(72px, 19dvh, 132px);
   padding-block: clamp(12px, 2dvh, 20px) 10px;
   padding-right: 46px;
+}
+.cold-start-input[data-capped="true"] {
   overflow-y: auto;
+}
+.cold-start-input[data-grow="fold"] {
+  transition-duration: 240ms;
+}
+.cold-start-input[data-grow="up"] {
+  transition-duration: 150ms;
+}
+.cold-start-input[data-grow="down"] {
+  transition-duration: 240ms;
 }
 /* THE CLOSED LINE GIVES ITS RIGHT SHOULDER TO THE FOCUS CHORD. Same reason
    the open box pads for the X: a 46px row with the placeholder running under
@@ -10816,8 +11832,8 @@ a.ref-link--session::before {
   padding-right: 96px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .cold-start-input {
-    transition: none;
+  .cold-start-input[data-grow] {
+    transition-duration: 0s;
   }
 }
 
@@ -11055,7 +12071,7 @@ a.ref-link--session::before {
   border-radius: 3px;
   color: var(--muted-foreground);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--shell-type-micro);
   font-weight: 600;
   line-height: 13px;
 }
@@ -11158,28 +12174,35 @@ a.ref-link--session::before {
 .quota-groove[data-unknown-length] {
   background: color-mix(in srgb, var(--foreground) 4%, transparent);
 }
+/* THE FILL IS A TOKEN, NOT A BACKGROUND, so the two things a column can say —
+   "still running" and "start not observed" — compose instead of overwriting each
+   other. Both used to set `background` at the same specificity, so the later rule
+   simply won: a running window whose start was missed was painted solid, while
+   its own tooltip said "joined mid-window". The chart and the words disagreed on
+   the running column of every pool that had one. Now `--ink`/`--hatch` carry the
+   running state and the hatch draws itself out of them. */
 .quota-groove i {
+  --ink: color-mix(in srgb, var(--live) 82%, transparent);
+  --hatch: color-mix(in srgb, var(--live) 62%, transparent);
   display: block;
   width: 100%;
   height: var(--u);
   border-radius: 1.5px;
-  background: color-mix(in srgb, var(--live) 82%, transparent);
+  background: var(--ink);
   transition: height 360ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-/* A window whose start was never observed: its peak may understate what was
-   really spent, so it is hatched rather than drawn as a solid claim. */
-.quota-groove[data-partial] i {
-  background: repeating-linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--live) 62%, transparent) 0 3px,
-    transparent 3px 6px
-  );
-}
 .quota-groove[data-now] i {
-  background: var(--live);
+  --ink: var(--live);
+  --hatch: color-mix(in srgb, var(--live) 78%, transparent);
+}
+/* A window whose start was never observed: its peak may understate what was
+   really spent, so it is hatched rather than drawn as a solid claim. Last, so it
+   wins the background in both the closed and the running case. */
+.quota-groove[data-partial] i {
+  background: repeating-linear-gradient(135deg, var(--hatch) 0 3px, transparent 3px 6px);
 }
 .quota-groove[data-now]::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: -2px -1px;
   border: 1px solid color-mix(in srgb, var(--live) 70%, transparent);
@@ -11188,7 +12211,7 @@ a.ref-link--session::before {
 /* The plan changed here, so the pool underneath is a different size and the
    percentages either side are not comparable. */
 .quota-groove[data-plan-break]::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -11235,6 +12258,65 @@ a.ref-link--session::before {
   }
 }
 
+/* THE COLUMN HOVER CARD. Layout and rhythm only — every colour is inherited from
+   the tooltip chip it sits in, so the card cannot drift away from the app's other
+   tooltips, and the rules below stay clear of the utilities that paint it. */
+.quota-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.45;
+}
+.quota-tip-span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+/* The number the whole chart is about, given the size that says so. */
+.quota-tip-figure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+.quota-tip-figure em {
+  font-size: 15px;
+  font-style: normal;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.quota-tip-figure > span {
+  opacity: 0.72;
+}
+/* The mirror of the figure: on this chart the negative space is the message. */
+.quota-tip-figure i {
+  flex-basis: 100%;
+  font-style: normal;
+  opacity: 0.72;
+}
+.quota-tip-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 10px;
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, currentcolor 22%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.quota-tip-rows b {
+  font-weight: 400;
+  opacity: 0.6;
+}
+/* A caveat about how far the number above can be trusted, so it reads as prose
+   under the reading rather than as another field beside it. */
+.quota-tip-note {
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, currentcolor 22%, transparent);
+  opacity: 0.72;
+  text-wrap: pretty;
+}
+
 .quota-legend {
   display: flex;
   flex-wrap: wrap;
@@ -11257,17 +12339,17 @@ a.ref-link--session::before {
 /* The track is 7% ink by design — enough to read as a groove behind a fill, but
    as a lone 11px chip in a legend it all but disappears. The rim is what makes
    it legible as a swatch without changing the material it stands for. */
-.quota-swatch[data-k='track'] {
+.quota-swatch[data-k="track"] {
   border: 1px solid var(--usage-rule);
   background: var(--usage-scale);
 }
-.quota-swatch[data-k='used'] {
+.quota-swatch[data-k="used"] {
   background: color-mix(in srgb, var(--live) 82%, transparent);
 }
-.quota-swatch[data-k='now'] {
+.quota-swatch[data-k="now"] {
   background: var(--live);
 }
-.quota-swatch[data-k='partial'] {
+.quota-swatch[data-k="partial"] {
   background: repeating-linear-gradient(
     135deg,
     color-mix(in srgb, var(--live) 62%, transparent) 0 3px,
@@ -11279,4 +12361,87 @@ a.ref-link--session::before {
   .quota-groove i {
     transition: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Cost · what a task cost (POD-1859)
+
+   Two marks and one figure, all of them ink steps of --foreground. NO HUE:
+   nothing about a cost is good or bad, and colouring either half of the split
+   would be the section's only opinion in a column of facts.
+   --------------------------------------------------------------------------- */
+
+/* The rollup headline. Large enough to be the section's subject, tabular so a
+   figure that ticks up on a live task does not shuffle the digits beside it. */
+.cost-figure {
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* THE ROLLUP SPLIT — one rail, two segments, a hairline of daylight between
+   them. The track shows through only where a segment is genuinely absent, which
+   is what keeps a 2% descendant share visible as a sliver rather than rounding
+   away to nothing. */
+.cost-split {
+  display: flex;
+  height: 7px;
+  gap: 1.5px;
+  overflow: hidden;
+  border-radius: 3.5px;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+/* PUSHED WELL PAST THE ORIGINAL 52/22. At those two strengths the segments read
+   as one bar with a seam on this ground, and the legend underneath ended up
+   doing all the work the bar exists to do — which is a bar that costs 7px of
+   height and earns none of it. The job here is that the COMPOSITION lands before
+   the reader gets to the words, so the two steps have to be far enough apart to
+   separate at a glance and at a distance. Still one ink at two strengths, never
+   two hues: neither half of a cost is good or bad. */
+.cost-split-own {
+  background: color-mix(in srgb, var(--foreground) 68%, transparent);
+}
+/* Descendants sit BELOW the task's own share in the ink ramp: the section is
+   about this task, and its children are the context around that figure. */
+.cost-split-kid {
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+
+.cost-splitkey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  /* The shell's floor, not a size of this legend's own. A hardcoded 10px here
+     is a sub-floor rule the type gate rejects, and it would also stop tracking
+     the compact theme, where the floor is deliberately held at 10.5px while
+     everything above it steps down. */
+  font-size: var(--shell-type-micro);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.cost-splitkey b {
+  font-weight: 500;
+  color: var(--text-strong);
+}
+
+/* The legend's key back to the rail. 7px square at the micro floor sits on the
+   x-height rather than the baseline, so it reads as part of the label. */
+.cost-swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.cost-swatch-own {
+  background: color-mix(in srgb, var(--foreground) 68%, transparent);
+}
+.cost-swatch-kid {
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
 }

@@ -2,7 +2,12 @@ import { X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
-import { useHasFirstTask, useMobileHandoffUrl, useMobilePromoDismissed } from './mobile-handoff'
+import {
+  useFocusedHandoffSessionId,
+  useHasFirstTask,
+  useMobileHandoffUrl,
+  useMobilePromoDismissed,
+} from './mobile-handoff'
 
 /**
  * THE PROMO CARD on the work column's floor (POD-1320, design 1c).
@@ -22,10 +27,12 @@ import { useHasFirstTask, useMobileHandoffUrl, useMobilePromoDismissed } from '.
  */
 export function MobilePromoCard(): JSX.Element | null {
   const trpc = useStoreSelector((s) => s.trpc)
-  const url = useMobileHandoffUrl(trpc)
+  const httpOrigin = useStoreSelector((s) => s.httpOrigin)
+  const sessionId = useFocusedHandoffSessionId()
+  const url = useMobileHandoffUrl(trpc, httpOrigin, sessionId)
   const hasFirstTask = useHasFirstTask()
   const [dismissed, setDismissed] = useMobilePromoDismissed()
-  if (!hasFirstTask || dismissed) return null
+  if (!hasFirstTask || dismissed || !url) return null
   return (
     <div className="mobile-promo-card" data-testid="mobile-promo-card">
       <DeferredMobileHandoffQr url={url} size={56} />

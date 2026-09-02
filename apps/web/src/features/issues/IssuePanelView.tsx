@@ -44,6 +44,9 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
+import { rosterCostMeta } from '../cost/cost-format'
+import { costSectionMeta, TaskCostSection } from '../cost/TaskCostSection'
+import { useTaskCost } from '../cost/useTaskCost'
 import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
 import {
@@ -844,6 +847,7 @@ export function IssuePanelView({
   const {
     sessions,
     repos,
+    trpc,
     updateIssue,
     setPane,
     setView,
@@ -854,6 +858,7 @@ export function IssuePanelView({
     (s) => ({
       sessions: s.sessions,
       repos: s.repos,
+      trpc: s.trpc,
       updateIssue: s.updateIssue,
       setPane: s.setPane,
       setView: s.setView,
@@ -875,6 +880,11 @@ export function IssuePanelView({
         : null,
     [issues, sessions, cwd, sessionId, issueId],
   )
+  // WHAT THIS TASK COST. Read here rather than inside the section so the hook
+  // sits above this component's own early return for an unresolvable id — and
+  // so the section stays a pure render of a view, which is what lets the task
+  // detail page reuse it against its own feed.
+  const { view: costView } = useTaskCost(trpc, issue?.id ?? null)
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   // The same derivation the Flight Deck makes from the same slice — every
   // worktree root the shell knows, for `issueDisplayTitle` below.
@@ -892,7 +902,6 @@ export function IssuePanelView({
   // whispers (⤷ tick), this panel names every edge.
   const relations = useMemo(() => (issue ? groupRelations(issue) : []), [issue])
   const [showCompleted, setShowCompleted] = useState(false)
-  const [showAllActive, setShowAllActive] = useState(false)
   const [showRetired, setShowRetired] = useState(false)
 
   /**
@@ -940,7 +949,8 @@ export function IssuePanelView({
   // like, and it is a place you can act from. This used to render an intake
   // canvas written for a chat that had not become work yet, which on a level
   // pointed at a real-but-unshowable task read as a panel about nothing
-  // (POD-1277). The trail collapses to match, in the explorer's own effect.
+  // (POD-1277). The trail collapses to match, in the explorer provider's own
+  // effect — which also runs while this panel is unmounted (POD-1471).
   if (!issue) {
     return <IssueExplorerList />
   }
@@ -952,9 +962,11 @@ export function IssuePanelView({
   ).length
 
   const all = issueSessions(issue, sessions)
-  // Needs-you first — the answer affordance now lives on the session row, and
-  // the roster folds at five, so a waiting agent must never be the one behind
-  // the fold. Then the coordinator, then most-recently-active.
+  // Needs-you first — the answer affordance lives on the session row, so a
+  // waiting agent belongs where the eye starts. Then the coordinator, then
+  // most-recently-active. The five-row fold this ordering was written to
+  // survive is gone (POD-1859): the roster lists EVERY open session, and the
+  // Cost section below accounts for the ones it will never show.
   const activeSessions = all.filter(isOpenSession).sort((a, b) => {
     const aNeeds = sessionNeedsHuman(a)
     const bNeeds = sessionNeedsHuman(b)
@@ -964,7 +976,6 @@ export function IssuePanelView({
     return b.lastActiveAt.localeCompare(a.lastActiveAt)
   })
   const retiredSessions = all.filter((s) => !isOpenSession(s))
-  const shownSessions = showAllActive ? activeSessions : activeSessions.slice(0, 5)
   // Total over the stage vocabulary since POD-516/9a05afd59: the only null is
   // "this issue has live sessions", which is the branch that renders agent rows
   // instead. No local fallback — a second set of words here is what drifts.
@@ -1188,9 +1199,28 @@ export function IssuePanelView({
           )}
         </DockPart>
 
-        <DockPart title="Agents & sessions" count={activeSessions.length} testId="dock-sessions">
+        {/* The roster is live-only, so on a long task it shows two agents out of
+            ten and says nothing about the other eight. `meta` is the slot for
+            one machine-voice fact ABOUT a section, and this is the fact that
+            stops the list lying by omission — the same rollup figure the Cost
+            section below states in full, over the session count it was read
+            from. */}
+        <DockPart
+          title="Agents & sessions"
+          count={activeSessions.length}
+          meta={
+            costView?.state === 'costed'
+              ? rosterCostMeta(
+                  costView.rollup.estCostUsd,
+                  costView.rollup.sessionCount,
+                  costView.own.sessionCount,
+                )
+              : undefined
+          }
+          testId="dock-sessions"
+        >
           {activeSessions.length > 0
-            ? shownSessions.map((session) => (
+            ? activeSessions.map((session) => (
                 <IssueSessionRow
                   key={session.sessionId}
                   session={session}
@@ -1205,13 +1235,6 @@ export function IssuePanelView({
               // it, in the FLIGHT DECK'S OWN WORDS (mission.ts owns the vocabulary),
               // so one task never reads two ways in two columns.
               presence && <PresenceLine note={presence} />}
-          {activeSessions.length > 5 && (
-            <FoldRow
-              open={showAllActive}
-              label={showAllActive ? 'Show fewer' : `${activeSessions.length - 5} more active`}
-              onToggle={() => setShowAllActive((v) => !v)}
-            />
-          )}
           {retiredSessions.length > 0 && (
             <>
               <FoldRow
@@ -1232,6 +1255,11 @@ export function IssuePanelView({
                 ))}
             </>
           )}
+        </DockPart>
+
+        {/* The accounting for the sessions the roster above will never show. */}
+        <DockPart title="Cost" meta={costSectionMeta(costView)} testId="dock-cost">
+          <TaskCostSection view={costView} />
         </DockPart>
 
         {/* Where the work happens — an address, not a check. */}

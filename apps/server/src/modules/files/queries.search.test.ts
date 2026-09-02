@@ -27,7 +27,14 @@ const ROOT = new URL('../../../../..', import.meta.url).pathname.replace(/\/$/, 
  *  (and asserted there, in `repo-op.test.ts`). The daemon is not imported: it is
  *  a different app, and a server test reaching into it would be a layering the
  *  runtime does not have. */
-const LS_FILES = ['--no-optional-locks', 'ls-files', '-z']
+const LS_FILES = [
+  '--no-optional-locks',
+  'ls-files',
+  '--cached',
+  '--others',
+  '--exclude-standard',
+  '-z',
+]
 
 /** A file state whose daemon is this process: same argv, real git, real repo. */
 const stateFor = (allowedRoots: string[]): FileState =>
@@ -58,10 +65,7 @@ describe('files.search', () => {
     expect(paths).toContain('apps/server/src/modules/files/queries.ts')
   })
 
-  it('offers TRACKED paths only — a file git does not know is not a candidate', async () => {
-    // `ls-files` reads the index, so a brand-new untracked file cannot be
-    // mentioned until it is added. That is the deliberate cost of not walking
-    // the working tree on every keystroke.
+  it('keeps ignored dependency paths out of the search index', async () => {
     const { paths } = await search(stateFor([ROOT]), 'node_modules/vitest')
     expect(paths).toEqual([])
   })

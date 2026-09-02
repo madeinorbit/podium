@@ -10,7 +10,7 @@
     "windows": [],
     "macOSPrivateApi": true,
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; font-src 'self' data:; media-src 'self' data: blob: http: https:; connect-src 'self' ipc: http://ipc.localhost http: https: ws: wss:; frame-src 'self' data: blob:; worker-src 'self' blob:; form-action 'self'"
     }
   },
   "bundle": {
@@ -33,6 +33,11 @@
     "createUpdaterArtifacts": true
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["podium"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI5RkE0OUFBNjMwNENDQjcKUldTM3pBUmpxa242dVd6V3FGbi9NRnhlU0lmR0s1RGhqZys2aXpQV0d5VnBXUHVhZ3lGa1Z1d0QK",
       "endpoints": ["https://github.com/madeinorbit/podium/releases/latest/download/latest.json"]

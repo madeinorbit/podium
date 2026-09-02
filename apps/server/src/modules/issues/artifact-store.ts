@@ -1,7 +1,7 @@
-import { asArtifactId, type ArtifactId, type IssueId, type MachineId } from '@podium/model'
 import { randomBytes } from 'node:crypto'
 import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { type ArtifactId, asArtifactId, type IssueId, type MachineId } from '@podium/model'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 
 /**
@@ -40,6 +40,8 @@ const CONTENT_TYPES: Record<string, string> = {
   md: 'text/markdown; charset=utf-8',
   html: 'text/html; charset=utf-8',
   htm: 'text/html; charset=utf-8',
+  csv: 'text/csv; charset=utf-8',
+  tsv: 'text/tab-separated-values; charset=utf-8',
   woff: 'font/woff',
   woff2: 'font/woff2',
   ttf: 'font/ttf',
@@ -47,8 +49,14 @@ const CONTENT_TYPES: Record<string, string> = {
   mp4: 'video/mp4',
   webm: 'video/webm',
   mov: 'video/quicktime',
+  m4v: 'video/x-m4v',
+  ogv: 'video/ogg',
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
   pdf: 'application/pdf',
 }
 
@@ -76,6 +84,12 @@ export interface ArtifactSnapshotInput {
   machineId?: MachineId
   sourcePath: string
   extraPaths?: string[]
+}
+
+export interface ArtifactUploadInput {
+  issueId: IssueId
+  filename: string
+  dataBase64: string
 }
 
 /** The two daemon RPCs the snapshotter rides (DaemonRpcService, structurally). */
@@ -131,6 +145,55 @@ export class IssueArtifactStore {
   async snapshot(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
     const write = () => this.snapshotWritable(o)
     return this.writeFence ? this.writeFence.runWriter(write) : write()
+  }
+
+  /** Store browser-provided bytes as an issue artifact without first writing a
+   *  source file into a checkout or daemon upload directory. */
+  async upload(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
+    const write = () => this.uploadWritable(o)
+    return this.writeFence ? this.writeFence.runWriter(write) : write()
+  }
+
+  private async uploadWritable(o: ArtifactUploadInput): Promise<ArtifactSnapshot> {
+    if (
+      !o.filename ||
+      o.filename === '.' ||
+      o.filename === '..' ||
+      o.filename.includes('/') ||
+      o.filename.includes('\\') ||
+      o.filename.includes('\0')
+    ) {
+      throw new Error('artifact filename must be a plain filename')
+    }
+    const bytes = Buffer.from(o.dataBase64, 'base64')
+    if (bytes.length > ARTIFACT_FILE_CAP_BYTES) {
+      throw new Error(
+        `${o.filename} is ${bytes.length} bytes (per-file cap ${ARTIFACT_FILE_CAP_BYTES / (1024 * 1024)}MB)`,
+      )
+    }
+    const artifactId = asArtifactId(randomBytes(6).toString('hex'))
+    const dir = this.artifactDir(o.issueId, artifactId)
+    const target = join(dir, o.filename)
+    this.assertInBase(target)
+    try {
+      await mkdir(dir, { recursive: true })
+      const fh = await open(target, 'w')
+      try {
+        await fh.writeFile(bytes)
+        await fh.sync()
+      } finally {
+        await fh.close()
+      }
+      return {
+        artifactId,
+        entry: o.filename,
+        files: [{ path: o.filename, size: bytes.length }],
+        sourcePaths: [],
+      }
+    } catch (error) {
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
+      throw error
+    }
   }
 
   private async snapshotWritable(o: ArtifactSnapshotInput): Promise<ArtifactSnapshot> {
@@ -258,7 +321,8 @@ export class IssueArtifactStore {
     issueId: IssueId,
     artifactId: ArtifactId,
     relPath: string,
-  ): Promise<{ bytes: Buffer; contentType: string } | null> {
+    range?: { offset: number; length: number },
+  ): Promise<{ bytes: Buffer; contentType: string; size: number } | null> {
     let dir: string
     try {
       dir = this.artifactDir(issueId, artifactId)
@@ -270,7 +334,27 @@ export class IssueArtifactStore {
     try {
       const st = await stat(target)
       if (!st.isFile()) return null
-      return { bytes: await readFile(target), contentType: artifactContentType(target) }
+      if (!range) {
+        return {
+          bytes: await readFile(target),
+          contentType: artifactContentType(target),
+          size: st.size,
+        }
+      }
+      const length = Math.min(range.length, Math.max(0, st.size - range.offset))
+      const buffer = Buffer.alloc(length)
+      const fh = await open(target, 'r')
+      let bytesRead = 0
+      try {
+        ;({ bytesRead } = await fh.read(buffer, 0, length, range.offset))
+      } finally {
+        await fh.close()
+      }
+      return {
+        bytes: buffer.subarray(0, bytesRead),
+        contentType: artifactContentType(target),
+        size: st.size,
+      }
     } catch {
       return null
     }

@@ -19,9 +19,28 @@ import {
 } from '@/lib/podium-link-click'
 import { resolvePodiumTarget } from '@/lib/podium-link-open'
 
+export const PODIUM_LINK_RESOLUTION_TIMEOUT_MS = 5_000
+export const PODIUM_LINK_QUEUE_CAPACITY = 32
+
+interface PendingPodiumHref {
+  href: string
+  expiresAt: number | null
+  acknowledge: () => void
+  nativeOwned: boolean
+}
+
+function pendingPodiumHref(
+  href: string,
+  acknowledge = (): void => {},
+  nativeOwned = false,
+): PendingPodiumHref {
+  return { href, expiresAt: null, acknowledge, nativeOwned }
+}
+
 /**
- * Makes Podium addresses live in this tab (POD-1606). Mounted once at app root
- * beside <RefMiniviewHost>, whose shape it copies; renders nothing.
+ * Makes Podium addresses live in this tab (POD-1606). The page-local native
+ * bridge owns accepted work across host remounts; this component acknowledges
+ * a URL only after activation or finite expiry. It renders nothing.
  *
  * TWO REGISTRATIONS, BOTH OF WHICH ONLY THIS LAYER KNOWS:
  *
@@ -34,7 +53,15 @@ import { resolvePodiumTarget } from '@/lib/podium-link-open'
  *    render so the activator always closes over the current issue rows —
  *    resolving `POD-1606` needs live data, exactly like the ref activator.
  */
-export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | null }): null {
+export function PodiumLinkHost({
+  initialHref = null,
+  onInitialHrefConsumed,
+  replicaReady = true,
+}: {
+  initialHref?: string | null
+  onInitialHrefConsumed?: () => void
+  replicaReady?: boolean
+}): null {
   const {
     httpOrigin,
     sessions,
@@ -56,7 +83,9 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
     shallowEqual,
   )
   const issues = useReplicaIssues()
-  const pendingHref = useRef<string | null>(initialHref)
+  const pendingHrefs = useRef<PendingPodiumHref[]>(
+    initialHref ? [pendingPodiumHref(initialHref, () => onInitialHrefConsumed?.())] : [],
+  )
   const [pendingRevision, setPendingRevision] = useState(0)
 
   useEffect(() => {
@@ -132,32 +161,82 @@ export function PodiumLinkHost({ initialHref = null }: { initialHref?: string | 
 
   // Startup addresses are captured before createRouter can normalize its
   // unknown path to /workspace. Keep retrying while replica rows arrive: refs,
-  // sessions and artifact panel entries all need live data to resolve.
+  // sessions and artifact panel entries all need live data to resolve. Stop at
+  // an unresolved head so a later URL cannot overtake it and become the wrong
+  // final destination. An unavailable target expires after a bounded wait so
+  // untrusted input cannot wedge every later native activation. The deadline
+  // begins only after the initial replica is ready: cold data transfer can take
+  // longer than the eviction window without making a valid target look absent.
   useEffect(() => {
-    const href = pendingHref.current
-    if (href && activatePodiumHref(href)) pendingHref.current = null
-  }, [issues, sessions, pendingRevision])
+    if (!replicaReady) return
+    const now = Date.now()
+    for (const pending of pendingHrefs.current) {
+      pending.expiresAt ??= now + PODIUM_LINK_RESOLUTION_TIMEOUT_MS
+    }
+    while (pendingHrefs.current.length > 0) {
+      const pending = pendingHrefs.current[0]
+      if (pending === undefined) break
+      if (
+        activatePodiumHref(pending.href) ||
+        (pending.expiresAt !== null && pending.expiresAt <= now)
+      ) {
+        pendingHrefs.current.shift()
+        pending.acknowledge()
+        continue
+      }
+      if (pending.expiresAt === null) return
+      const retry = window.setTimeout(
+        () => setPendingRevision((value) => value + 1),
+        pending.expiresAt - now,
+      )
+      return () => window.clearTimeout(retry)
+    }
+  }, [issues, sessions, pendingRevision, replicaReady])
 
   // Native capture and window focus belong to POD-1710. This is the narrow web
   // half of that contract: one raw URL event, validated and routed through the
   // same resolver as every rendered link. No native-specific parser lives here.
   useEffect(() => {
+    const nativeBridge = globalThis as {
+      __PODIUM_NATIVE_OPEN_READY__?: (ready?: boolean) => void
+      __PODIUM_NATIVE_OPEN_ACK__?: (raw: string) => void
+    }
     const onNativeOpen = (event: Event): void => {
       const detail = (event as CustomEvent<unknown>).detail
       if (typeof detail !== 'string') return
+      const nativeOwned = typeof nativeBridge.__PODIUM_NATIVE_OPEN_ACK__ === 'function'
+      const acknowledge = (): void => nativeBridge.__PODIUM_NATIVE_OPEN_ACK__?.(detail)
       const link = classifyPodiumLink(detail)
       if (
         link?.kind !== 'internal' ||
         hasServerSelector(detail) ||
         hasUnsupportedTypedDetail(link.target)
       ) {
+        acknowledge()
         return
       }
-      pendingHref.current = detail
+      // React StrictMode replays effects without discarding refs. READY(false)
+      // deliberately makes the page resend its unacknowledged head, so retain
+      // the first local claim instead of queueing that same in-flight work twice.
+      if (
+        nativeOwned &&
+        pendingHrefs.current.some((pending) => pending.nativeOwned && pending.href === detail)
+      ) {
+        return
+      }
+      if (pendingHrefs.current.length >= PODIUM_LINK_QUEUE_CAPACITY) {
+        acknowledge()
+        return
+      }
+      pendingHrefs.current.push(pendingPodiumHref(detail, acknowledge, nativeOwned))
       setPendingRevision((value) => value + 1)
     }
     window.addEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)
-    return () => window.removeEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)
+    nativeBridge.__PODIUM_NATIVE_OPEN_READY__?.(true)
+    return () => {
+      nativeBridge.__PODIUM_NATIVE_OPEN_READY__?.(false)
+      window.removeEventListener(PODIUM_NATIVE_OPEN_EVENT, onNativeOpen)
+    }
   }, [])
 
   return null

@@ -43,6 +43,7 @@ import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
 import { type TurnPreview, useTurnPreview } from './use-turn-preview'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
+import { useTranscriptReveal } from './use-transcript-reveal'
 import { RENDER_WINDOW, type TranscriptFreshness, useTranscriptWindow } from './useTranscriptWindow'
 
 /**
@@ -183,6 +184,8 @@ export interface ChatSurface {
   scrollerRef: RefObject<HTMLDivElement | null>
   scroll: UseTranscriptScrollResult
   visibleRows: ChatRow[]
+  /** Absolute row temporarily revealed by an external transcript jump. */
+  revealedRow: number | undefined
 
   // -- misc UI ---------------------------------------------------------------
   lightbox: string | null
@@ -218,6 +221,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     attachedSessionId,
     clearAttachedSession,
     superThreads,
+    transcriptReveal,
+    clearTranscriptReveal,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -234,6 +239,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       attachedSessionId: s.attachedSessionId,
       clearAttachedSession: s.clearAttachedSession,
       superThreads: s.superThreads,
+      transcriptReveal: s.transcriptReveal,
+      clearTranscriptReveal: s.clearTranscriptReveal,
     }),
     shallowEqual,
   )
@@ -380,6 +387,28 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     moreAbove,
     loadOlder,
     rowsToRender,
+  })
+  const revealLoadOlder = scroll.loadOlder
+  const revealScrollToBlock = scroll.scrollToBlock
+
+  // A Handoff card carries the transcript item's stable cursor/id, not a row
+  // number. The reveal consumer owns paging, window expansion and the centered
+  // scroll while this surface continues to own transcript data and geometry.
+  const revealedRow = useTranscriptReveal({
+    active,
+    sessionId,
+    request: transcriptReveal,
+    blocks,
+    rows,
+    initialLoaded,
+    computeReady,
+    loadingOlder,
+    moreAbove,
+    renderStart,
+    setRenderCount,
+    loadOlder: revealLoadOlder,
+    scrollToBlock: revealScrollToBlock,
+    clear: clearTranscriptReveal,
   })
 
   // THE THREAD'S BACKEND (POD-782) — what the prompt box's two pills read and
@@ -760,6 +789,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     scrollerRef,
     scroll,
     visibleRows,
+    revealedRow,
 
     lightbox,
     setLightbox,

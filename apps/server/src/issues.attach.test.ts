@@ -479,6 +479,22 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain('draft work item')
     expect(text).toContain('podium issue attach --id')
     expect(text).toContain('--title')
+    expect(text).toContain('--description')
+  })
+
+  it('bound draft issue names its direct attachments for the agent', () => {
+    const { svc } = harness()
+    const d = svc.createDraftFor('/r')
+    svc.panelApply(d.id, {
+      op: 'artifact-add',
+      path: 'attachments/att-1/mock.png',
+      title: 'mock.png',
+    })
+
+    const text = svc.prime({ boundIssueId: d.id })
+    expect(text).toContain('User attachments on this draft:')
+    expect(text).toContain('1. mock.png')
+    expect(text).toContain(`podium issue artifact ${d.seq} --get <number>`)
   })
 
   it('bound real issue gets the spinoff-vs-subissue litmus re-home line (POD-85)', () => {

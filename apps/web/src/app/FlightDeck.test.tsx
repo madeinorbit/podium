@@ -1,11 +1,16 @@
 // @vitest-environment happy-dom
-import { FLIGHT_DECK_BRIEF_CUTOFF_KEY } from '@podium/client-core/ui-state'
+import {
+  FLIGHT_DECK_BRIEF_CUTOFF_KEY,
+  FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
+  FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
+} from '@podium/client-core/ui-state'
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { DOUBLE_CLICK_MS } from './click-intent'
+import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
 import {
   briefCutoffLayout,
   continuationPresenceLine,
@@ -41,7 +46,11 @@ const harness = vi.hoisted(() => ({
   machines: [] as unknown[],
   selectedIssueId: null as string | null,
   paneA: null as string | null,
+  coarseNow: Date.parse('2026-01-01T00:10:00.000Z'),
+  display: 'compact' as 'compact' | 'expanded',
+  onDisplayChange: vi.fn(),
   openSessionTab: vi.fn(),
+  openSessionAtTranscript: vi.fn(),
   focusIssueSession: vi.fn(async () => null),
   setPanelMode: vi.fn(),
   preferPanelMode: vi.fn(),
@@ -54,12 +63,35 @@ const harness = vi.hoisted(() => ({
   setPlacement: vi.fn(async (_input: unknown) => undefined),
   startIssue: vi.fn(async (_input: unknown) => undefined),
   addSession: vi.fn(async (_input: unknown) => undefined),
+  transcriptRead: vi.fn(
+    async (_input: unknown): Promise<{ items: unknown[]; hasMore: boolean; head?: string }> => ({
+      items: [],
+      hasMore: false,
+    }),
+  ),
+  issueEvents: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
+  issueVisitBaseline: null as { issueId: string; readAt: string | null; openedAt: string } | null,
+  replica: {
+    transcriptWindow: vi.fn(() => undefined),
+    putTranscriptWindow: vi.fn(),
+  },
   trpc: {
     features: { state: { query: async () => null } },
+    // The mission header asks what the mission cost (POD-1862). These decks
+    // have no figure, which is the ordinary case and renders no chip at all —
+    // but the procedure has to EXIST, or the read throws inside the effect.
+    cost: {
+      task: { query: async () => null },
+      tasks: { query: async () => [] },
+    },
     issues: {
       setPlacement: { mutate: (input: unknown) => harness.setPlacement(input) },
       start: { mutate: (input: unknown) => harness.startIssue(input) },
       addSession: { mutate: (input: unknown) => harness.addSession(input) },
+      events: { query: (input: unknown) => harness.issueEvents(input) },
+    },
+    sessions: {
+      transcriptRead: { query: (input: unknown) => harness.transcriptRead(input) },
     },
   } as unknown,
 }))
@@ -89,11 +121,13 @@ vi.mock('./store', () => ({
       paneB: null,
       split: false,
       drafts: {},
-      coarseNow: Date.parse('2026-01-01T00:10:00.000Z'),
+      coarseNow: harness.coarseNow,
       uiState,
       setSelectedWorktree: vi.fn(),
       setSelectedIssueId: harness.setSelectedIssueId,
       openSessionTab: harness.openSessionTab,
+      openSessionAtTranscript: harness.openSessionAtTranscript,
+      issueVisitBaseline: harness.issueVisitBaseline,
       focusIssueSession: harness.focusIssueSession,
       setPanelMode: harness.setPanelMode,
       preferPanelMode: harness.preferPanelMode,
@@ -115,10 +149,16 @@ vi.mock('./store', () => ({
       // The shared task menu and `Add agent` read these; the deck's own
       // projection never does.
       machines: harness.machines,
+      replica: harness.replica,
       trpc: harness.trpc,
     }),
   useReplicaIssues: () => harness.issues,
   useSessionDraft: () => '',
+}))
+
+const developerFeature = vi.hoisted(() => ({ enabled: false }))
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: () => developerFeature.enabled,
 }))
 
 type Issue = Record<string, unknown>
@@ -173,7 +213,11 @@ function DeckHarness() {
             reads it to know which task the dock is already showing — so the
             harness supplies the real provider rather than the default context. */}
         <IssueExplorerProvider>
-          <FlightDeck onCollapse={vi.fn()} />
+          <FlightDeck
+            onCollapse={vi.fn()}
+            display={harness.display}
+            onDisplayChange={harness.onDisplayChange}
+          />
         </IssueExplorerProvider>
       </OperatorFocusProvider>
     </ConfirmProvider>
@@ -181,6 +225,12 @@ function DeckHarness() {
 }
 
 const deck = (): ReturnType<typeof render> => render(<DeckHarness />)
+
+const waterfallDeck = (): ReturnType<typeof render> => {
+  developerFeature.enabled = true
+  harness.ui.set('podium.flightDeck.mode', 'waterfall')
+  return deck()
+}
 
 /** The single-click action is deferred by the double-click window. */
 const settle = (): void => {
@@ -197,7 +247,12 @@ beforeEach(() => {
   harness.machines = []
   harness.selectedIssueId = 'root'
   harness.paneA = null
+  harness.coarseNow = Date.parse('2026-01-01T00:10:00.000Z')
+  developerFeature.enabled = false
+  harness.display = 'compact'
+  harness.onDisplayChange.mockClear()
   harness.openSessionTab.mockClear()
+  harness.openSessionAtTranscript.mockClear()
   harness.focusIssueSession.mockClear()
   harness.setPanelMode.mockClear()
   harness.preferPanelMode.mockClear()
@@ -208,6 +263,11 @@ beforeEach(() => {
   harness.startIssue.mockClear()
   harness.addSession.mockClear()
   harness.setPlacement.mockClear()
+  harness.transcriptRead.mockClear()
+  harness.issueEvents.mockClear()
+  harness.replica.transcriptWindow.mockClear()
+  harness.replica.putTranscriptWindow.mockClear()
+  harness.issueVisitBaseline = null
   harness.issues = [
     issue('root', { title: 'Mission' }),
     // One session, no children — the strip that should arrive CLOSED.
@@ -233,6 +293,28 @@ const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
   'scrollHeight',
 )
+
+describe('waterfall automatic geometry', () => {
+  it('uses the available height for sparse and crowded crews', () => {
+    expect(defaultWaterfallRowZoom(700, [1, 1, 2])).toBe(1.55)
+    expect(defaultWaterfallRowZoom(240, [3, 4, 2, 5, 3])).toBe(0.72)
+    const middle = defaultWaterfallRowZoom(320, [2, 2, 2, 2])
+    expect(middle).toBeGreaterThan(0.72)
+    expect(middle).toBeLessThan(1.55)
+  })
+
+  it('gives long task titles more room while preserving the timeline', () => {
+    const short = defaultWaterfallTaskWidth(['Build'], 680, true)
+    const long = defaultWaterfallTaskWidth(
+      ['Coordinate the production database migration and verification'],
+      680,
+      true,
+    )
+    expect(long).toBeGreaterThan(short)
+    expect(long).toBeLessThanOrEqual(300)
+    expect(defaultWaterfallTaskWidth(['Long task title'], 300, false)).toBe(168)
+  })
+})
 
 afterEach(() => {
   for (const off of afterEachListeners.splice(0)) off()
@@ -495,6 +577,137 @@ describe('the cold deck (POD-1112)', () => {
     harness.selectedIssueId = null as unknown as string
     deck()
     expect(screen.getByTestId('flight-empty')).toBeTruthy()
+  })
+})
+
+describe('the developer Flight Deck views', () => {
+  it('keeps the original list and does no Handoff reads when development is off', () => {
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
+    deck()
+
+    expect(screen.queryByRole('button', { name: 'Waterfall' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Handoff' })).toBeNull()
+    expect(screen.getByTestId('flight-deck-rows').className).toContain('deck-rows')
+    expect(screen.queryByTestId('flight-deck-waterfall')).toBeNull()
+    expect(screen.queryByTestId('flight-deck-handoff')).toBeNull()
+    expect(harness.transcriptRead).not.toHaveBeenCalled()
+    expect(harness.issueEvents).not.toHaveBeenCalled()
+    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
+    expect(screen.getByRole('button', { name: 'Full spine' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+  })
+
+  it('orders Waterfall and Handoff after the three spine views', () => {
+    developerFeature.enabled = true
+    deck()
+
+    const views = ['Full spine', 'Working', 'Needs you', 'Waterfall', 'Handoff'].map((name) =>
+      screen.getByRole('button', { name }),
+    )
+    expect(views.map((view) => view.textContent)).toEqual([
+      'Full spine',
+      'Working',
+      'Needs you',
+      'Waterfall',
+      'Handoff',
+    ])
+    fireEvent.click(views[4] as HTMLElement)
+
+    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
+    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Handoff' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    )
+  })
+
+  it('falls back without overwriting Handoff and restores it when the gate returns', () => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
+    const view = deck()
+    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
+
+    developerFeature.enabled = false
+    view.rerender(<DeckHarness />)
+    expect(screen.queryByTestId('flight-deck-handoff')).toBeNull()
+    expect(screen.getByTestId('flight-deck-rows')).toBeTruthy()
+    expect(harness.ui.get('podium.flightDeck.mode')).toBe('handoff')
+
+    developerFeature.enabled = true
+    view.rerender(<DeckHarness />)
+    expect(screen.getByTestId('flight-deck-handoff')).toBeTruthy()
+  })
+
+  it('renders return context in order and opens the stable transcript item', async () => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'handoff')
+    harness.issueVisitBaseline = {
+      issueId: 'root',
+      readAt: '2026-01-01T00:05:00.000Z',
+      openedAt: '2026-01-01T00:10:00.000Z',
+    }
+    harness.issues = harness.issues.map((candidate) =>
+      (candidate as Issue).id === 'root'
+        ? {
+            ...(candidate as Issue),
+            activityNotes: 'Ready for the operator.',
+            notesUpdatedAt: '2026-01-01T00:04:00.000Z',
+          }
+        : candidate,
+    )
+    harness.sessions = harness.sessions.map((candidate) =>
+      (candidate as SessionMeta).sessionId === 's1'
+        ? session('s1', {
+            issueId: 't1',
+            displayRef: 'POD-1-A',
+            name: 'Private display name',
+            lastInputAt: '2026-01-01T00:08:00.000Z',
+            lastActiveAt: '2026-01-01T00:09:00.000Z',
+            transcriptAvailable: true,
+          })
+        : candidate,
+    )
+    harness.transcriptRead.mockResolvedValueOnce({
+      items: [
+        { id: 'prompt-id', cursor: 'prompt-cursor', role: 'user', text: 'Where are we?' },
+        {
+          id: 'answer-id',
+          cursor: 'answer-cursor',
+          role: 'assistant',
+          text: 'Ready to land.',
+          answer: true,
+          ts: '2026-01-01T00:07:00.000Z',
+        },
+      ],
+      hasMore: false,
+    })
+
+    deck()
+    await waitFor(() => expect(screen.getByText('Where are we?')).toBeTruthy())
+    const headings = [...screen.getByTestId('flight-deck-handoff').querySelectorAll('h3')].map(
+      (heading) => heading.textContent,
+    )
+    expect(headings).toEqual([
+      'Last update',
+      'Last prompt',
+      'Last answer',
+      'What is happening',
+      'What happens next',
+      'Proposed',
+    ])
+    expect(screen.getByTestId('flight-deck-handoff').textContent).toContain(
+      'Ready for the operator.',
+    )
+    expect(screen.queryByText('Stored issue update')).toBeNull()
+    expect(screen.queryByText('Private display name')).toBeNull()
+    expect(screen.getAllByText('POD-1-A').length).toBeGreaterThan(0)
+    expect(screen.getByText('New since your last visit')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Last prompt in session POD-1-A/ }))
+    expect(harness.setPanelMode).toHaveBeenCalledWith('s1', 'chat')
+    expect(harness.openSessionAtTranscript).toHaveBeenCalledWith('s1', 'prompt-cursor', {
+      permanent: true,
+    })
   })
 })
 
@@ -791,13 +1004,15 @@ describe('flight deck unread (POD-912)', () => {
       session('s2', { issueId: 't2', unread: true, lastActiveAt: '2026-01-01T00:20:00.000Z' }),
       session('s3', { issueId: 't2', unread: false }),
     ]
-    deck()
+    waterfallDeck()
     const task = document.querySelector('[data-flight-issue="t2"]') as HTMLElement
-    expect(task.querySelector('.deck-strip [data-testid="row-unread-dot"]')).toBeNull()
+    expect(task.querySelector('.waterfall-issue-cell .waterfall-unread-dot')).toBeNull()
     const unreadSession = document.querySelector('[data-flight-session="s2"]') as HTMLElement
-    expect(unreadSession.querySelector('[data-testid="row-unread-dot"]')).toBeTruthy()
+    expect(unreadSession.getAttribute('data-unread')).toBe('true')
+    expect(unreadSession.querySelector('.waterfall-unread-dot')).toBeTruthy()
     const readSession = document.querySelector('[data-flight-session="s3"]') as HTMLElement
-    expect(readSession.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
+    expect(readSession.getAttribute('data-unread')).toBeNull()
+    expect(readSession.querySelector('.waterfall-unread-dot')).toBeNull()
   })
 
   it('a collapsed parent stays unread when a child session is new', () => {
@@ -819,13 +1034,19 @@ describe('flight deck unread (POD-912)', () => {
 })
 
 describe('flight deck click semantics (POD-710 §4.1)', () => {
+  beforeEach(() => {
+    developerFeature.enabled = true
+    harness.ui.set('podium.flightDeck.mode', 'waterfall')
+  })
+
   const sessionRow = (id: string): HTMLElement => {
-    const row = document.querySelector(`[data-flight-session="${id}"] button`)
+    const container = document.querySelector(`[data-flight-session="${id}"]`)
+    const row = container?.matches('button') ? container : container?.querySelector('button')
     if (!row) throw new Error(`no session row ${id}`)
     return row as HTMLElement
   }
   const taskRow = (id: string): HTMLElement => {
-    const row = document.querySelectorAll(`[data-flight-issue="${id}"] button`)[1]
+    const row = document.querySelector(`[data-flight-issue="${id}"] .waterfall-issue-open`)
     if (!row) throw new Error(`no task row ${id}`)
     return row as HTMLElement
   }
@@ -838,11 +1059,68 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
 
-  it('lands a native worker row on the terminal without overruling a Chat pick', () => {
-    // POD-1702. These rows are navigation — "take me to the agent running this
-    // worker, on the terminal it is running in" — so they SUGGEST the CLI. They
-    // used to write it as the session's mode, which overwrote an explicit Chat
-    // pick and persisted it, so the session reopened on the terminal too.
+  it('contracts an expanded waterfall after opening a session preview', () => {
+    harness.display = 'expanded'
+    deck()
+    fireEvent.click(sessionRow('s2'))
+    settle()
+    expect(harness.onDisplayChange).toHaveBeenCalledWith('compact')
+    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
+  })
+
+  it('expands a compact waterfall when the selected bar is clicked again', () => {
+    harness.paneA = 's2'
+    deck()
+    expect(sessionRow('s2').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(sessionRow('s2'))
+    settle()
+    expect(harness.onDisplayChange).toHaveBeenCalledWith('expanded')
+  })
+
+  it('swaps to a different preview without expanding the compact waterfall', () => {
+    harness.paneA = 's2'
+    deck()
+    fireEvent.click(sessionRow('s3'))
+    settle()
+    expect(harness.onDisplayChange).not.toHaveBeenCalled()
+    expect(harness.openSessionTab.mock.calls).toEqual([['s3', { permanent: false }]])
+  })
+
+  it('advances active bar geometry with the shared clock while Now stays anchored', () => {
+    harness.sessions = harness.sessions.map((raw) => {
+      const candidate = raw as SessionMeta
+      return candidate.sessionId === 's2'
+        ? { ...candidate, createdAt: '2026-01-01T00:05:00.000Z' }
+        : candidate
+    })
+    const view = deck()
+    const initialLane = sessionRow('s2').closest('.waterfall-session-lane') as HTMLElement
+    const initialLeft = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-left'))
+    const initialWidth = Number.parseFloat(initialLane.style.getPropertyValue('--waterfall-width'))
+    // The Now anchor is a property of the auto-fit viewport, written once on
+    // the waterfall root; while following it must not drift with the clock.
+    const waterfall = screen.getByTestId('flight-deck-waterfall')
+    const initialNow = waterfall.style.getPropertyValue('--waterfall-now')
+    expect(Number.parseFloat(initialNow)).toBeGreaterThan(50)
+    expect(Number.parseFloat(initialNow)).toBeLessThanOrEqual(100)
+
+    harness.coarseNow += 10 * 60_000
+    view.rerender(<DeckHarness />)
+
+    const advancedLane = sessionRow('s2').closest('.waterfall-session-lane') as HTMLElement
+    const advancedLeft = Number.parseFloat(advancedLane.style.getPropertyValue('--waterfall-left'))
+    const advancedWidth = Number.parseFloat(
+      advancedLane.style.getPropertyValue('--waterfall-width'),
+    )
+    expect(advancedLeft).toBeLessThan(initialLeft)
+    expect(advancedWidth).toBeGreaterThan(initialWidth)
+    expect(Number.parseFloat(waterfall.style.getPropertyValue('--waterfall-now'))).toBeCloseTo(
+      Number.parseFloat(initialNow),
+      6,
+    )
+  })
+
+  it('opens a native worker through its owning session without overriding panel choice', () => {
     harness.sessions = [
       session('s1', { issueId: 't1' }),
       session('s2', {
@@ -854,13 +1132,106 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     ]
     deck()
 
-    const worker = document.querySelector('[data-testid="flight-native-agents"] button')
-    expect(worker).toBeTruthy()
-    fireEvent.click(worker as HTMLElement)
-    settle()
+    const toggle = screen.getByRole('button', { name: 'Show 1 native worker for s2' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const worker = screen.getByRole('button', {
+      name: 'Open s2 native panel for general-purpose worker w1',
+    })
+    expect(worker.tagName).toBe('BUTTON')
+    expect((worker as HTMLButtonElement).tabIndex).toBe(0)
+    fireEvent.click(worker)
 
-    expect(harness.preferPanelMode.mock.calls).toEqual([['s2', 'native']])
+    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
+    expect(harness.preferPanelMode).toHaveBeenCalledWith('s2', 'native')
     expect(harness.setPanelMode).not.toHaveBeenCalled()
+    expect(harness.onDisplayChange).not.toHaveBeenCalled()
+  })
+
+  it('opens the shared session lifecycle menu from a waterfall bar', () => {
+    deck()
+    expect(screen.queryByRole('button', { name: 'Session actions for s2' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Task actions for Task t2' })).toBeNull()
+    fireEvent.contextMenu(sessionRow('s2'))
+    expect(screen.getByRole('menu', { name: 'Session actions' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeTruthy()
+  })
+
+  it('zooms rows vertically and keeps the scale on this device', () => {
+    deck()
+    const control = screen.getByRole('slider', { name: 'Timeline row height' })
+    expect(control.getAttribute('aria-valuenow')).toBe('100')
+
+    fireEvent.keyDown(control, { key: 'ArrowUp' })
+
+    expect(control.getAttribute('aria-valuenow')).toBe('108')
+    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.08')
+    expect(
+      screen.getByTestId('flight-deck-waterfall').style.getPropertyValue('--waterfall-row-zoom'),
+    ).toBe('1.08')
+
+    control.setPointerCapture = vi.fn()
+    fireEvent.pointerDown(control, { button: 0, clientY: 100, pointerId: 7 })
+    fireEvent.pointerMove(control, { clientY: 76, pointerId: 7 })
+    expect(control.getAttribute('aria-valuenow')).toBe('128')
+    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.08')
+
+    fireEvent.pointerUp(control, { clientY: 76, pointerId: 7 })
+    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe('1.28')
+
+    fireEvent.keyDown(control, { key: '0' })
+    expect(harness.ui.has(FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY)).toBe(false)
+    expect(control.getAttribute('aria-valuetext')).toContain('automatic')
+  })
+
+  it('resizes task details, saves the width, and restores automatic sizing', () => {
+    deck()
+    const divider = screen.getByRole('separator', { name: 'Task details width' })
+    const initial = Number(divider.getAttribute('aria-valuenow'))
+    expect(initial).toBeGreaterThan(148)
+    expect(divider.getAttribute('aria-valuetext')).toContain('automatic')
+
+    fireEvent.keyDown(divider, { key: 'ArrowRight' })
+    expect(harness.ui.get(FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY)).toBe(String(initial + 12))
+    expect(divider.getAttribute('aria-valuetext')).toContain('saved')
+
+    fireEvent.keyDown(divider, { key: 'Escape' })
+    expect(harness.ui.has(FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY)).toBe(false)
+    expect(divider.getAttribute('aria-valuetext')).toContain('automatic')
+  })
+
+  it('explains how to return after leaving the current timeline', () => {
+    deck()
+    expect(screen.queryByRole('button', { name: 'Follow current work and time' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    const follow = screen.getByRole('button', { name: 'Follow current work and time' })
+    expect(follow.textContent).toContain('Follow now')
+    expect(follow.getAttribute('title')).toContain('keep the timeline moving')
+
+    fireEvent.click(follow)
+    expect(screen.queryByRole('button', { name: 'Follow current work and time' })).toBeNull()
+  })
+
+  it('uses amber alone for a session that needs attention', () => {
+    harness.sessions = harness.sessions.map((raw) => {
+      const item = raw as SessionMeta
+      return item.sessionId === 's2'
+        ? session('s2', {
+            issueId: 't2',
+            agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
+          })
+        : item
+    })
+    deck()
+
+    const bar = sessionRow('s2')
+    expect(bar.getAttribute('data-state')).toBe('attention')
+    expect(bar.textContent).not.toContain('Needs you')
+    expect(
+      bar.closest('.waterfall-session-lane')?.querySelector('.waterfall-wait-reason'),
+    ).toBeNull()
   })
 
   it('reopens the Task dock when an issue is picked', () => {
@@ -1575,9 +1946,7 @@ describe('flight deck spine (POD-758)', () => {
     ).toBe(true)
   })
 
-  // Nothing in the spine is hidden by default any more: the roster's own
-  // "N finished agents" fold is gone, and the view bar does that job.
-  it('shows every root agent, with no roster fold', () => {
+  it('folds excess completed sessions into one truthful elapsed span', () => {
     harness.issues = harness.issues.map((raw) => {
       const candidate = raw as Issue
       return candidate.id === 'root'
@@ -1590,8 +1959,16 @@ describe('flight deck spine (POD-758)', () => {
         session(id, { issueId: 'root', status: 'exited', name: `Retired ${id}` }),
       ),
     ]
-    deck()
-    expect(screen.queryByTestId('flight-roster-fold')).toBeNull()
+    // The history fold is the waterfall's own density valve; the plain deck
+    // never rendered it, and this ran green only while the view was ungated.
+    waterfallDeck()
+    const summary = screen.getByRole('button', { name: /Expand 4 completed sessions/ })
+    for (const id of ['r1', 'r2', 'r3', 'r4']) {
+      expect(document.querySelector(`[data-flight-session="${id}"]`)).toBeNull()
+    }
+
+    fireEvent.click(summary)
+    expect(summary.getAttribute('aria-expanded')).toBe('true')
     for (const id of ['r1', 'r2', 'r3', 'r4']) {
       expect(document.querySelector(`[data-flight-session="${id}"]`)).not.toBeNull()
     }

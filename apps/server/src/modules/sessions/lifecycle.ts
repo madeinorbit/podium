@@ -156,6 +156,7 @@ export type { SessionSpawnResult }
 // it at a re-export is what went stale after the extraction.
 export { DEFAULT_GEOMETRY }
 
+import type { SessionActivityHistory, SessionActivityHistoryResult } from './activity-history'
 import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './concurrency-history'
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionMachineReconciler } from './machine-reconciler'
@@ -353,6 +354,8 @@ export class SessionLifecycle {
   private readonly bindingReceipts!: SessionBindingReceipts
   /** Durable 12-hour fleet-concurrency read model for the global status strip. */
   private readonly concurrencyHistory!: AgentConcurrencyHistory
+  /** Durable per-session phase-transition log for the waterfall's segments. */
+  private readonly activityHistory!: SessionActivityHistory
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
   private readonly activityFlushTimer = setInterval(() => this.repository.flushActivity(), 12_000)
@@ -378,6 +381,7 @@ export class SessionLifecycle {
     // the next bind re-drains it.
     this.inbox.dispose()
     this.concurrencyHistory.dispose()
+    this.activityHistory.dispose()
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
     this.browserOpen.dispose()
@@ -430,6 +434,9 @@ export class SessionLifecycle {
   }
   agentConcurrencyHistory(): AgentConcurrencyHistoryResult {
     return this.concurrencyHistory.history()
+  }
+  sessionActivityHistory(sessionIds: readonly SessionId[]): SessionActivityHistoryResult {
+    return this.activityHistory.history(sessionIds)
   }
   /** The member sessions of ONE issue, without wiring the rest [POD-1639].
    *  Same set and same fields as `sessionsForIssue(path, listSessions(), id)`;

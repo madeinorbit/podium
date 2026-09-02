@@ -179,6 +179,10 @@ describe('IssuePanelView inspector', () => {
       'Subtasks',
       'Relations',
       'Agents & sessions',
+      // The accounting sits directly under the roster it accounts for: the
+      // roster answers "who is on this now", Cost answers it for every session
+      // that ever was (POD-1859).
+      'Cost',
       'Branch & worktree',
     ])
   })
@@ -346,7 +350,11 @@ describe('IssuePanelView inspector', () => {
     expect(within(agents).queryByTestId('dock-presence-note')).toBeNull()
   })
 
-  it('folds the overflow and the retired sessions rather than listing everything', () => {
+  // The roster is live-only BY DESIGN, and since POD-1859 it is also complete:
+  // every open session is listed, however many there are. Retired sessions stay
+  // folded — they are a different question, and the Cost section below answers
+  // it with the money rather than with another list of names.
+  it('lists every active session and keeps the retired ones folded', () => {
     mockSessions = [
       ...Array.from({ length: 6 }, (_, i) => session({ sessionId: `s${i}`, name: `Agent ${i}` })),
       session({ sessionId: 'gone', name: 'Retired agent', archived: true }),
@@ -354,9 +362,8 @@ describe('IssuePanelView inspector', () => {
     render(<IssuePanelView cwd="/r" />)
 
     const agents = screen.getByTestId('dock-sessions')
-    expect(within(agents).queryByText('Agent 5')).toBeNull()
-    fireEvent.click(within(agents).getByText(/1 more active/))
-    expect(within(agents).getByText('Agent 5')).toBeTruthy()
+    for (let i = 0; i < 6; i++) expect(within(agents).getByText(`Agent ${i}`)).toBeTruthy()
+    expect(within(agents).queryByText(/more active/)).toBeNull()
 
     expect(within(agents).queryByText('Retired agent')).toBeNull()
     fireEvent.click(within(agents).getByText(/Retired · 1/))

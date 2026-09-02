@@ -616,7 +616,19 @@ export async function startServer(
    * discipline every other read on this path uses.
    */
   let devChannelFeed: (() => ChannelFeed | undefined) | undefined
-  const registry = new SessionRegistry(store, undefined, {
+  // ANNOTATED BECAUSE THE INITIALIZER REFERS TO ITSELF. `modelProbe` below closes
+  // over `registry`, so inferring the type means inferring it from an expression
+  // that already needs it. TypeScript tolerates that only while it can resolve
+  // `SessionRegistry` without walking back through this binding, and the router
+  // type graph has now grown past that point: `tsc` reports TS7022 here and
+  // TS7023/TS7006 downstream of it. Naming the type cuts the cycle at the site,
+  // which is why it does not come back the next time a procedure is added.
+  //
+  // NOTE FOR ANYONE WHO CANNOT REPRODUCE IT: the repo's `typecheck` task runs
+  // `tsgo`, which does not report this family; `tsc --noEmit` in apps/server
+  // does. That difference is why the same tree was honestly reported as both
+  // clean and broken by different readers (POD-1858, POD-1862).
+  const registry: SessionRegistry = new SessionRegistry(store, undefined, {
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
     // The server's baked product label is the Phase 1 target identity. The richer
@@ -1178,7 +1190,12 @@ export async function startServer(
   app.use('/files/*', cors())
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
-  registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
+  registerAssetRoute(app, {
+    readAsset: (a) => registry.modules.rpc.readAsset(a),
+    allowsRoot: (root, machineId) =>
+      repos.inferFromPath(root, machineId ?? registry.modules.machines.defaultMachine()) !==
+      undefined,
+  })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
   registerArtifactRoute(app, registry.modules.issueArtifacts)
   // In-process MCP server exposing the superagent's orchestrator tools to a

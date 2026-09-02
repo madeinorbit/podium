@@ -4963,7 +4963,17 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
         : { ok: true, output: '' },
     )
     h.deps.repoOp = repoOp as typeof h.deps.repoOp
-    h.deps.artifacts = { snapshot, read, remove, removeIssue: vi.fn(async () => {}) }
+    h.deps.artifacts = {
+      snapshot,
+      upload: vi.fn(async (o: { filename: string; dataBase64: string }) => ({
+        artifactId: asArtifactId(`art${++n}`),
+        entry: o.filename,
+        files: [{ path: o.filename, size: Buffer.from(o.dataBase64, 'base64').length }],
+      })),
+      read,
+      remove,
+      removeIssue: vi.fn(async () => {}),
+    }
     const svc = new IssueService(h.deps)
     return { ...h, svc, snapshot, remove, read, stored, repoOp, sessions }
   }
@@ -5194,6 +5204,11 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
     )
     h.deps.artifacts = {
       snapshot,
+      upload: vi.fn(async (o: { filename: string; dataBase64: string }) => ({
+        artifactId: asArtifactId(`art${++n}`),
+        entry: o.filename,
+        files: [{ path: o.filename, size: Buffer.from(o.dataBase64, 'base64').length }],
+      })),
       read,
       remove: vi.fn(async () => {}),
       removeIssue: vi.fn(async () => {}),
