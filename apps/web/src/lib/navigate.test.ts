@@ -1,3 +1,4 @@
+import { setActiveLogFlusher } from '@podium/client-core/logging'
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { navigateReload } from './navigate'
@@ -23,6 +24,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetLogging()
+  setActiveLogFlusher(null)
 })
 
 describe('navigateReload', () => {
@@ -78,5 +80,54 @@ describe('navigateReload', () => {
       'the page could not be reloaded',
     ])
     expect(logged[1]).toMatchObject({ level: 'error', site: 'wire-skew' })
+  })
+})
+
+/**
+ * THE RECORD MUST OUTLIVE THE NAVIGATION IT DESCRIBES (POD-3224 follow-up).
+ *
+ * This is the defect the first two live traces found: the click, the handshake
+ * outcome and the navigation line were all written within ~200 ms of a reload,
+ * the forwarding sink batches on a five-second timer, and not one of the three
+ * arrived. The logging was correct and the delivery was not, which from the
+ * operator's side is the same thing as no logging at all.
+ */
+describe('delivery across the navigation', () => {
+  it('hands the buffer to the browser BEFORE it replaces the document', () => {
+    const order: string[] = []
+    setActiveLogFlusher(() => {
+      order.push('flush')
+      return 1
+    })
+    const reload = vi.fn(() => {
+      order.push('reload')
+    })
+
+    navigateReload('handshake', 'replacement-ready', {}, { location: { reload } })
+
+    // Order is the whole assertion: a flush after the reload call is a flush
+    // that never happened.
+    expect(order).toEqual(['flush', 'reload'])
+  })
+
+  it('still navigates when the flush throws — logging cannot veto a reload', () => {
+    setActiveLogFlusher(() => {
+      throw new Error('transport is gone')
+    })
+    const reload = vi.fn()
+
+    expect(() =>
+      navigateReload('force-reload', 'reset-cached-interface', {}, { location: { reload } }),
+    ).not.toThrow()
+    expect(reload).toHaveBeenCalledOnce()
+  })
+
+  it('navigates when nothing is installed to flush', () => {
+    setActiveLogFlusher(null)
+    const reload = vi.fn()
+
+    navigateReload('setup', 'setup-retry', {}, { location: { reload } })
+
+    expect(reload).toHaveBeenCalledOnce()
   })
 })

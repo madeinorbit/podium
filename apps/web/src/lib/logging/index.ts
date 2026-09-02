@@ -8,7 +8,7 @@ import { pageLogTransport } from './transport'
 export { pageBuildVersion } from './build-version'
 export { installGlobalHandlers } from './global-handlers'
 export { installWebLogging, type LogTransport, type WebLoggingOptions } from './install'
-export { pageLogTransport, trpcLogTransport } from './transport'
+export { pageLogTransport, trpcLogTransport, unloadLogTransport } from './transport'
 
 /**
  * Start client logging for the real page. Called from `main.tsx` BEFORE React

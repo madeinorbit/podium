@@ -1,3 +1,4 @@
+import { flushLogsBeforeUnload } from '@podium/client-core/logging'
 import { reloadLog } from '@/lib/logging/update-logs'
 
 /**
@@ -70,6 +71,20 @@ export function navigateReload(
   win: ReloadWindow = globalThis as unknown as ReloadWindow,
 ): void {
   reloadLog.info('reloading the page', { site, reason, ...fields })
+  /**
+   * THE LINE ABOVE MUST OUTLIVE THE LINE BELOW (POD-3224 follow-up).
+   *
+   * The forwarding sink batches on a five-second timer, and a navigation is
+   * faster than that by two orders of magnitude — so on the first live traces
+   * the click, the handshake outcome and this very record were all written and
+   * all lost, which is the one thing this seam exists to prevent. `pagehide`
+   * covers most of it, but firing here is what makes the ordering certain: the
+   * hand-off happens while the document is unambiguously still alive.
+   *
+   * Synchronous and best-effort. It cannot fail the navigation — see
+   * `flushLogsBeforeUnload`, which swallows its own errors for that reason.
+   */
+  flushLogsBeforeUnload()
   try {
     win.location.reload()
   } catch (err) {

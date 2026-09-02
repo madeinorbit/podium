@@ -20,7 +20,7 @@ import {
   type LevelController,
   setActiveLevelController,
 } from './level-command'
-import { setActiveCrashReporter } from './runtime'
+import { setActiveCrashReporter, setActiveLogFlusher } from './runtime'
 
 /**
  * THE CLIENT COMPOSITION ROOT, shared by every client that ships logs to its
@@ -65,6 +65,17 @@ export interface LogTransport {
   crash(input: LogsCrashInput): Promise<void>
 }
 
+/**
+ * The transport for a document that is about to stop existing.
+ *
+ * Separate from {@link LogTransport} because the RETURN TYPE is the contract: it
+ * answers whether the browser accepted the payload for delivery, synchronously,
+ * rather than promising an outcome nobody will be around to read.
+ */
+export interface UnloadLogTransport {
+  forward(input: LogsForwardInput): boolean
+}
+
 export interface ClientLoggingOptions {
   transport: LogTransport
   /** `web` | `desktop` | `mobile`. The client's own self-description. */
@@ -86,6 +97,12 @@ export interface ClientLoggingOptions {
   platform?: string
   /** Client default. Spec: `warn`. */
   level?: LogLevel
+  /**
+   * How to ship the buffer when the page is going away — a `keepalive` fetch or
+   * `navigator.sendBeacon`. Without one, {@link ClientLogging.flushOnUnload}
+   * does nothing and a record written just before a navigation is lost with it.
+   */
+  unloadTransport?: UnloadLogTransport
   /**
    * NAMESPACES WORTH MORE THAN THE CLIENT DEFAULT — `{ 'web:updates*': 'info' }`.
    *
@@ -130,6 +147,11 @@ export interface ClientLogging {
   snapshot(): LogRecord[]
   /** Settle whatever the forwarding sink is holding. */
   flush(): Promise<void>
+  /**
+   * Hand the buffer over synchronously, for `pagehide` and for the moment before
+   * a self-triggered navigation. Returns how many records were handed off.
+   */
+  flushOnUnload(): number
   dispose(): void
 }
 
@@ -179,6 +201,16 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
     // server can mark the gap in the per-origin file at the place the gap is,
     // and count it apart from its own drops (POD-3167).
     send: (records, meta) => options.transport.forward({ origin: origin(), records, ...meta }),
+    ...(options.unloadTransport
+      ? {
+          sendOnUnload: (records, meta) =>
+            (options.unloadTransport as UnloadLogTransport).forward({
+              origin: origin(),
+              records,
+              ...meta,
+            }),
+        }
+      : {}),
     ...(options.batchSize !== undefined ? { batchSize: options.batchSize } : {}),
     ...(options.flushIntervalMs !== undefined ? { flushIntervalMs: options.flushIntervalMs } : {}),
   })
@@ -206,14 +238,17 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
     },
   })
   setActiveCrashReporter(reporter)
+  setActiveLogFlusher(() => forwarding.flushOnUnload())
 
   return {
     reporter,
     levels,
     snapshot: () => ring.snapshot(),
     flush: () => forwarding.flush(),
+    flushOnUnload: () => forwarding.flushOnUnload(),
     dispose: () => {
       for (const [pattern] of floors) setNamespaceFloor(pattern, null)
+      setActiveLogFlusher(null)
       setActiveCrashReporter(null)
       setActiveLevelController(null)
       levels.dispose()

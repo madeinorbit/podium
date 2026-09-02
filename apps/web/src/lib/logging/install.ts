@@ -2,11 +2,13 @@ import {
   type ClientLoggingOptions,
   installClientLogging,
   type LogTransport,
+  type UnloadLogTransport,
 } from '@podium/client-core/logging'
 import { asMachineId, type MachineId } from '@podium/model/browser'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { pageBuildVersion } from './build-version'
 import { installGlobalHandlers } from './global-handlers'
+import { unloadLogTransport } from './transport'
 import { UPDATE_LOG_FLOORS } from './update-logs'
 
 /**
@@ -33,7 +35,7 @@ import { UPDATE_LOG_FLOORS } from './update-logs'
  * phone answers the same questions under different names.
  */
 
-export type { LogTransport }
+export type { LogTransport, UnloadLogTransport }
 
 export interface WebLoggingOptions
   extends Omit<ClientLoggingOptions, 'role' | 'platform' | 'version'> {
@@ -65,6 +67,9 @@ export function installWebLogging(options: WebLoggingOptions): () => void {
     // Before the spread, so a caller may still say something else — a test that
     // wants the floors off, or a future surface with its own set.
     floors: UPDATE_LOG_FLOORS,
+    // A page that is going away gets one synchronous hand-off; see
+    // `unloadLogTransport`. Before the spread, so a test can replace it.
+    unloadTransport: unloadLogTransport(),
     ...options,
     role: options.role ?? detectRole(),
     version: options.version ?? pageBuildVersion(),
@@ -75,9 +80,47 @@ export function installWebLogging(options: WebLoggingOptions): () => void {
     ...(platform ? { platform } : {}),
   })
   const removeHandlers = installGlobalHandlers(window, logging.reporter)
+  const removeUnloadFlush = installUnloadFlush(window, document, logging.flushOnUnload)
 
   return () => {
+    removeUnloadFlush()
     removeHandlers()
     logging.dispose()
+  }
+}
+
+/**
+ * FLUSH WHEN THE PAGE IS TAKEN AWAY, whoever takes it (POD-3224 follow-up).
+ *
+ * Two events, because neither is enough on its own:
+ *
+ *  - `pagehide` fires for a navigation, a tab close and a bfcache suspend, and
+ *    is the reliable one on WebKit — which is the surface this arrived from.
+ *  - `visibilitychange` to `hidden` fires first when a tab is merely backgrounded
+ *    and, on mobile, is often the LAST event a page gets before it is discarded
+ *    without any `pagehide` at all.
+ *
+ * Both are safe to fire on a page that then carries on living: the sink only
+ * empties its queue when the browser accepted the hand-off, so a backgrounded
+ * tab that returns has simply shipped early rather than lost anything.
+ *
+ * `unload` is deliberately NOT among them: listening for it disqualifies a page
+ * from the bfcache in every current browser, which would be a real behaviour
+ * change made for a log line.
+ */
+function installUnloadFlush(
+  win: Pick<Window, 'addEventListener' | 'removeEventListener'>,
+  doc: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'>,
+  flush: () => number,
+): () => void {
+  const onPageHide = (): void => void flush()
+  const onVisibility = (): void => {
+    if (doc.visibilityState === 'hidden') flush()
+  }
+  win.addEventListener('pagehide', onPageHide)
+  doc.addEventListener('visibilitychange', onVisibility)
+  return () => {
+    win.removeEventListener('pagehide', onPageHide)
+    doc.removeEventListener('visibilitychange', onVisibility)
   }
 }

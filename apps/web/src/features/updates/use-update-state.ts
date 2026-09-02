@@ -574,6 +574,34 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       ])
       return { operation: live, latest, fleet, serverRaw, buildRaw, proposal }
     },
+    /**
+     * A READING THE PANEL ASKED FOR AND DID NOT GET (POD-3224 follow-up).
+     *
+     * On the first live trace the server answered the update mutation in 337 ms
+     * and this panel only entered `running` 5.4 s later. The gap was not the
+     * server and not the network: `run()` calls `refresh()` the moment the
+     * mutation returns, a read was already in flight, and `usePolledQuery` drops
+     * a reading rather than queueing it (its property 3). Nothing recorded that,
+     * so the five seconds were unattributable.
+     *
+     * A `superseded` answer is `info`: it means a reading that had already been
+     * paid for was thrown away and the wait restarted, which is bounded by how
+     * often something calls `refresh()` — actions, not time. A dropped `tick` is
+     * `debug`: at the 1 s active cadence a slow read produces one per second,
+     * which is exactly what must not reach the wire.
+     *
+     * NOT what the follow-up predicted, and worth saying so: an explicit
+     * `refresh()` is never dropped by the in-flight guard, because it restarts
+     * the effect. It abandons the read in flight instead — see `onDropped`.
+     */
+    onDropped: (reason) => {
+      const fields = { reason, cadence: active ? ACTIVE_POLL_MS : IDLE_POLL_MS }
+      if (reason === 'superseded') {
+        updatesLog.info('an update reading arrived after its poll was restarted', fields)
+      } else {
+        updatesLog.debug('an update poll tick was dropped; a read was already running', fields)
+      }
+    },
     // Folded in the read's OWN turn: a reading routed through `data` and a
     // follow-up effect lands one flush late, and the panel is supposed to move
     // when the answer does.
