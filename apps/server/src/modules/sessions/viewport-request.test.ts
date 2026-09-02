@@ -513,6 +513,39 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     return { reg, session: session as Session, daemon }
   }
 
+  it('a geometry report republishes the ROW, not only the geometry frame', () => {
+    // THE GAP THE BROWSER CHECK FOUND. `applyDaemonGeometry` moved W and
+    // broadcast a `geometry` frame, and stopped there — so `SessionMeta.geometry`
+    // stayed at whatever it was. That field is now what a terminal is CONSTRUCTED
+    // at (B1), so a stale row means the next mount builds at the wrong size: the
+    // exact failure this issue removes, reintroduced one layer up.
+    const { reg, session } = attachWith([CAP_DAEMON_GEOMETRY_APPLIED])
+    const sessionId = session.sessionId
+    let broadcasts = 0
+    const sessions = reg.modules.sessions as unknown as { broadcastSessions: () => void }
+    const original = sessions.broadcastSessions.bind(sessions)
+    sessions.broadcastSessions = () => {
+      broadcasts += 1
+      original()
+    }
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'geometryApplied',
+      sessionId,
+      geometry: { cols: 132, rows: 43 },
+      cause: 'request',
+    })
+
+    const row = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
+    expect(row?.geometryState).toBe('current')
+    // …AND IT WAS PUBLISHED. The row above is derived from the live object on
+    // demand, so reading it back proves the write and nothing about the wire —
+    // which is precisely how the gap survived the first time. The broadcast is
+    // what carries it to a client's replica, so the broadcast is what is pinned.
+    expect(broadcasts).toBeGreaterThan(0)
+  })
+
   it('a session on a machine whose daemon advertised the cap takes the report path', () => {
     const { session, daemon } = attachWith([CAP_DAEMON_GEOMETRY_APPLIED])
     const client = controllerOf(session.terminal, 'c-wired')

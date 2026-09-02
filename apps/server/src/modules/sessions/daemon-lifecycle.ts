@@ -333,7 +333,19 @@ export class SessionDaemonLifecycle {
         // THE DAEMON REPORTED THE GRID IT APPLIED (POD-3239, MODEL rule 5).
         // Straight to the terminal's writer: nothing above the daemon gets to
         // second-guess the size the pty is actually running at.
-        this.sessions.get(msg.sessionId)?.terminal.applyDaemonGeometry(msg.geometry)
+        const session = this.sessions.get(msg.sessionId)
+        if (session) {
+          session.terminal.applyDaemonGeometry(msg.geometry)
+          // AND REPUBLISH THE ROW. `SessionMeta.geometry` is what a terminal is
+          // now CONSTRUCTED at (B1), so a report that moved W without moving the
+          // row would leave the next mount building at a stale size — the exact
+          // failure this issue exists to remove, reintroduced one layer up. It is
+          // persisted for the same reason: a server restart rehydrates from the
+          // row, and `geometryState` is `unknown` precisely because the row is
+          // last-known rather than confirmed.
+          this.persist(session)
+          this.broadcastSessions()
+        }
         break
       }
       case 'bind': {
