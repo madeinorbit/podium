@@ -118,6 +118,39 @@ together — one knob, so a client's reported level and its visible level can
 never disagree. On the server family, `PODIUM_LOG_LEVEL`/`PODIUM_LOG` always
 beat the process's own default; nothing pins its own threshold.
 
+### Namespace floors — a namespace worth more than the default
+
+A few namespaces exist to be read *after the fact*, by an operator, from a log
+file. The update path is the canonical case: a client's default is `warn`, so
+every line describing what a Reload click actually did was written at `info` and
+forwarded nowhere, and every question about it was unanswerable (POD-3224).
+
+```ts
+setNamespaceFloor('web:updates', 'info')   // at a composition root
+PODIUM_LOG_FLOOR='daemon:update=info'      // or from the environment
+```
+
+A floor says **at least this much**, and that is the whole difference from
+`setNamespaceLevel`. Rules resolve most-specific-wins, so `web:updates=info`
+would beat a global raise to `debug` and silently *cap* the one namespace an
+operator raised the client to `debug` in order to read. A floor folds in with
+`moreVerbose`, so it can only ever make a namespace louder — never quieter than
+what somebody asked for, and never quieter than the default.
+
+The daemon's steady forwarded stream reads the same floors, so a floored
+namespace leaves the machine at its floor without an operator having raised
+anything. That makes the floor a **call-site obligation**: what goes at `info`
+in a floored namespace must be a transition or an outcome, bounded by the thing
+being described. Anything that repeats on a timer goes at `debug`, where it
+costs the flight recorder and nothing else.
+
+Floored today: `web:updates`, `web:sw`, `web:reload`, `web:version-guard`,
+`web:chunk-recovery`, `web:boot` (declared in
+[`apps/web/src/lib/logging/update-logs.ts`](../../apps/web/src/lib/logging/update-logs.ts))
+and `daemon:update` (declared in `apps/daemon/src/host-runtime.ts`). What each of
+those lines answers, and how to follow one update across all three log sources:
+[reading-an-update-from-logs.md](reading-an-update-from-logs.md).
+
 ### Raising a client you are not sitting at
 
 A browser, webview or phone has no env to set, and the whole point of forwarding
