@@ -1065,6 +1065,7 @@
         "src/modules/sessions/spawn-name.test.ts",
         "src/modules/sessions/stop.test.ts",
         "src/modules/sessions/terminal-proof.ts",
+        "src/modules/sessions/terminal-sizing-claims.test.ts",
         "src/modules/sessions/terminal.ts",
         "src/modules/sessions/trpc.ts",
         "src/modules/sessions/turn-preview-flag.ts",
