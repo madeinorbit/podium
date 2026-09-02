@@ -280,12 +280,15 @@ size-one queue is the community's answer and this plan's.
    set and assert that root grants, the feed world, the sync generation and the repo and issue
    caches observe the result, and that a rollback publishes nothing.
 3. Decide whether B (async) ships with A or after it. Recommendation below.
-3a. **Decide the Postgres tenant topology before any Postgres design** (rev 9, Codex finding 8):
-   database or schema per tenant keeps the schema as it is and adds migration, pooling and
-   lifecycle obligations per tenant; shared tables need a tenant key in every primary, unique
-   and foreign key and every query, tenant-scoped feed heads, tenant context carried by the
-   executor, and row-level security as defence in depth. Until decided, no revision of this plan
-   may claim "a shared multi-tenant database" as an outcome.
+3a. **Tenant topology is postponed, with two seams kept open** (rev 9, Codex finding 8;
+   decision 2026-09-02). Multi-tenancy is a later epic; this one is its preparation. The
+   direction on record is tenant- or workspace-keyed tables, with the **workspace as the feed
+   boundary**, and it is not decided here. Stages A and B do not depend on it as long as:
+   (i) the feed-head allocator (step 16) is keyed by feed, never a singleton, so a workspace
+   key is a column added later and not a redesign; and (ii) the executor and unit of work have
+   a place to carry a context value (today empty), so tenant scoping can later travel with the
+   transaction rather than with each query. Stage C and the Postgres schema twin wait for the
+   decision. No revision of this plan claims "a shared multi-tenant database" as an outcome.
 3b. **Prototype the two hardest boundaries before converting any repository** (rev 9): a tiny
    executor proof with the connection queue, an active transaction token, nested savepoints, the
    post-commit tail and async close; and a Postgres spike of the transactional feed-head
