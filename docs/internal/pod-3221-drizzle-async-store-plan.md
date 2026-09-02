@@ -18,8 +18,13 @@ different costs:
 | C. Postgres dialect | A Postgres backend, in a tenant topology still to be decided (database or schema per tenant, or shared tables with a tenant key everywhere) | A second schema (88 tables), a second migration journal, FTS port, a data-copy tool, a transactional feed-head allocator, and the durability subsystem, which is file-level today |
 
 A and B are worth doing and can be sequenced so that B is a decision gate rather than a
-prerequisite. B′ is what "ready" actually means and was missing from earlier revisions. C stays a
-spike until the cloud architecture decision is taken, because the cloud proposal on record is
+prerequisite. **This issue's outcome is "prepared for Postgres", proven by a dual-backend
+vertical slice, not "Postgres-ready"** (rev 11, final review finding 1): B′ acceptance can only
+run against a backend that C builds, and no stage in this issue implements Postgres query
+bodies, which the SQLite drizzle tables cannot provide. A functioning Postgres backend, its
+concurrency model, its rollout from SQLite and its acceptance are a later epic; this document
+records their requirements in Stage C so that nothing done here forecloses them. C stays out of
+scope until the cloud architecture decision is taken, because the cloud proposal on record is
 instance-per-tenant SQLite with no shared database
 (`docs/cloud/multitenant-cloudflare-architecture.md`), the current schema is single-tenant by
 construction (`feed_identity.singleton`, `meta.key`, natural keys without a tenant component), and
@@ -143,6 +148,20 @@ These are the places where "make it async" changes correctness, not just signatu
    synchronous; `inbox.drain` already has a single-flight guard. Under async a second `tick()`
    can see an attempt row whose lease is not yet in memory, and overlapping sweeps can
    re-inject a message mid-delivery.
+9. **Mutable process-owned objects mutated before commit and restored by assignment on
+   failure** (rev 11, final review finding 2). Issue rows are map-owned mutable objects:
+   `update` applies `Object.assign(row, patch)` and then persists (`issues/service/crud.ts:
+   959-1007`); `persistWith` documents the mutate-then-commit order as a synchronous assumption,
+   snapshots the row, mutates it, calls `ledger.commit`, and on a throw restores the snapshot
+   into the same object (`issues/service/core.ts:875-924`). Sessions are the same shape:
+   `mutateSessionMeta` mutates the live `Session` inside the write callback
+   (`session-meta-ops.ts:323-332`) and the repository restores captured state into it on
+   rollback (`sessions/repository.ts:326-359`). Once acquiring the write lane is an await, the
+   map holds uncommitted values while another request reads or mutates it, and a later rollback
+   restores an old snapshot over a second operation's committed change. The scheduler
+   serialises the database executor; it does not serialise reads of `IssueService.rows`, live
+   `Session` objects, shipping leases or any other process-owned projection. Step 14a is the
+   audit.
 
 ### 1.6 Other processes on the same database file
 
@@ -318,10 +337,16 @@ size-one queue is the community's answer and this plan's.
    decision. No revision of this plan claims "a shared multi-tenant database" as an outcome.
 3b. **Prototype the two hardest boundaries before converting any repository** (rev 9): a tiny
    executor proof with the connection queue, an active transaction token, nested savepoints, the
-   post-commit tail and async close; and a Postgres spike of the transactional feed-head
-   allocator through a real pool, proving that a rollback leaves no sequence hole and that the
-   entity row and the change row share one checked-out client. Their results fix the interfaces
-   every later issue uses. The executor prototype settles, with the service-layer count in
+   post-commit tail and async close; and **a dual-backend vertical slice** (rev 11, finding 1,
+   replacing the allocator-only spike): locks, one representative aggregate with joins and JSON
+   columns, the sync append with the transactional feed-head allocator, boot and shutdown, on
+   real SQLite and real Postgres through a real pool. The slice proves that a rollback leaves no
+   sequence hole and that the entity row and the change row share one checked-out client, and
+   it **chooses the dialect-query strategy** from measured code: explicit SQLite and Postgres
+   repository adapters under shared domain mappers, generated dialect-specific query modules
+   from a constrained description, or a dialect-neutral builder (the Kysely alternative in §8).
+   It also chooses the schema-twin technique (§Stage C step 18). Their results fix the
+   interfaces every later issue uses. The executor prototype settles, with the service-layer count in
    hand: ambient routing versus an explicit unit-of-work parameter (F1), the three-lane
    scheduler port (F5) and the after-commit hook (F7); the Postgres spike exercises the `read`
    lane's snapshot isolation (rev 10). The prototype includes a service-shaped write closure
@@ -501,17 +526,37 @@ untouched, boot untouched. Reversible per aggregate.
       serialisation. The write lane on Postgres implies **exactly one server process per tenant
       database at a time, including during a rolling deploy**, or the feed-head allocator in
       step 16 needs a row lock; that constraint is recorded in §5 decision 2.
-    - **The unit of work carries `afterCommit(fn)`, discarded on rollback** (rev 10, F7), and it
-      is the one mechanism for three things: phase 3 (baseline fold, broadcast, shared-state
-      invalidation) registers as the top-level operation's after-commit work, so a `capture` or
-      `reconcile` called inside a body publishes with the outer commit and never before it
-      (today `capture` and `reconcile` finalise immediately with no span of their own,
-      `authority.ts:226-255`, and only a call-site convention, `announce: false` in
-      `core.ts:990` with `announceEvent` after the commit at `:1019`, keeps a feed event from
-      publishing inside a span); side effects from inside bodies (mail, socket sends:
-      `LockService.steal` calls `sendMail` inside its span at `lock/service.ts:519-525`); and
-      the shared cache invalidation in Stage 0 step 2. This turns "no I/O in a body" from a
-      rule plus a watchdog into a shape: the body has nowhere else to put it.
+    - **Post-commit work is three mechanisms with separate failure contracts, run under an
+      explicit "no transaction" context, not one `afterCommit` list** (rev 10 F7, corrected by
+      rev 11 finding 3). Once `COMMIT` has succeeded there is no rollback, so a tail failure can
+      leave the durable log ahead of the baseline, cache revisions stale, subscribers untold, or
+      the caller holding an error for an operation that committed; and a root store call from a
+      tail callback would either inherit the finished transaction context and reject on its
+      dead token, or queue behind the lease its own caller holds and deadlock. So phase 3 runs
+      under a distinct post-commit `AsyncLocalStorage` value that routes to the root, inside the
+      scheduler's ordered operation, and consists of:
+      (1) **internal commit application**: the baseline fold and mandatory cache invalidation,
+      in a defined order, not skippable by any other hook; an invariant failure here marks the
+      store unhealthy and forces a reseed or restart rather than returning an ordinary
+      transaction error, which is today's contract (`authority.ts:457-489` folds before it
+      broadcasts and isolates each subscriber);
+      (2) **durable follow-up writes**: today `capture` and `reconcile` finalise with no span of
+      their own (`authority.ts:226-255`) and only the `announce: false` convention
+      (`core.ts:990, 1019`) keeps a feed event from publishing inside a span; and "mail" is
+      not merely I/O: `IssueService.sendMail` is a durable repository write followed by a
+      best-effort nudge (`issues/service/mail.ts:57-79`), and `LockService.steal` calls it
+      inside the lock transaction (`lock/service.ts:500-539`). Each such nested write is
+      decided individually: it stays in the original unit of work, or it becomes an idempotent
+      reaction enqueued as a scheduler follow-up or a transactional outbox row. Durable mail is
+      never silently reclassified as best-effort;
+      (3) **external effects**: sockets, notifications, process callbacks; run independently,
+      caught per effect, with stated retry or demotion.
+      The spec states which of the three the outer promise waits for. Failure injection at
+      every hook position: an ambient root-store call from a tail, an async visibility-prefetch
+      rejection (it must demote or retry the subscriber, never corrupt the baseline or report
+      a committed write as rolled back), a durable follow-up rejection, a subscriber that
+      throws. This still turns "no I/O in a body" into a shape: the body has nowhere else to
+      put it.
     - **Publication flush is driven by the scheduler, not a microtask** (rev 10, F4). The
       funnel and feed serving both coalesce a synchronous burst into one frame per connection
       by flushing on `queueMicrotask` (`funnel.ts:311`, `feed-serving.ts:652`). Under the
@@ -656,6 +701,18 @@ untouched, boot untouched. Reversible per aggregate.
       and are their own Stage B sub-issue (rev 8, finding 7);
     - array-callback store calls → batch reads (`WHERE id IN (…)`) before the loop, which is
       also the N+1 fix.
+14a. **Process-state transaction audit before the async port flip** (rev 11, finding 2).
+    Inventory every mutable registry and every capture-and-restore path (issue rows, sessions,
+    shipping leases and in-flight sets, service registries) and choose one explicit model per
+    registry: acquire the write unit of work before reading or mutating it and make every
+    reader take the read lease; or build an immutable draft from a committed snapshot, persist
+    the draft, and install the new object only after commit (for issues, drafts plus a revision
+    check are simpler than keeping rollback-by-assignment); or move the projection behind its
+    own versioned mutex independent of the database scheduler. For sessions, separate the
+    durable metadata snapshot from live terminal state and say which fields may change while
+    persistence is awaiting. Deterministic barrier tests: two updates to the same issue and the
+    same session, a rollback racing a successful update, and a pure in-memory read while a
+    database write is parked.
 15. Convert services top-down: relay, then modules. ~750 sync method bodies in
     `apps/server/src/modules` become async; tRPC procedures (28 sync today) become async. Do it
     one module at a time behind a green typecheck; do not leave a half-async module.
@@ -703,21 +760,46 @@ Stage B′.
 
 ### Stage C — Postgres (only if the cloud decision changes)
 
-18. A second schema module against `pg-core` (88 tables), generated from one source. Do not
-    hand-maintain two files: write a small dialect-neutral column DSL (extend the existing
-    `brandedRef` helper layer) that emits both `sqliteTable` and `pgTable`, and a test that
-    diffs column names and nullability between the two.
+18. A second schema module against `pg-core` (88 tables). **No runtime-generic table DSL is
+    mandated** (rev 11, finding 8): the schema is about 2,400 lines with branded and
+    self-referential foreign keys, composite keys, partial expression indexes, JSON defaults,
+    autoincrement keys and 64 checks including dialect-specific `GLOB`, and a generic DSL over
+    both drizzle dialects becomes a lossy third schema API or leans on casts that erase the
+    inference this work exists to gain. The step 3b slice prototypes the technique and picks
+    between generated concrete drizzle schema files from a narrow data manifest, and explicit
+    dialect schemas sharing brands and domain column descriptors, checked by a structural
+    parity test. The query strategy chosen in 3b decides how repository bodies get their
+    Postgres implementation; a schema twin alone does not.
 19. A second drizzle journal (`out: migrations/pg`). This is exactly the two-ordering-authorities
     problem POD-305 refused; the rule has to be "every schema change is authored for both
     dialects in one commit" with a CI check that both heads name the same logical change.
     Postgres starts from a fresh baseline; the 87 SQLite migrations do not replay.
 20. FTS: `tsvector` implementation of the `SearchIndex` port.
-21. A SQLite → Postgres data-copy tool for existing tenants, with the JSON-text and 0/1 columns
-    mapped to `jsonb` and `boolean`.
-22. Locking: every read-decide-write span that relies on SQLite's single writer
-    (`BEGIN IMMEDIATE`) needs either the in-process mutex from step 12 (fine for one server
-    process per tenant) or row locks / `SERIALIZABLE` if there is ever more than one writer
-    process.
+21. **Rollout from SQLite is a fenced, restartable migration state machine, not a copy tool**
+    (rev 11, finding 6). Podium's own restore code spends its header on the lesson
+    (`migrations/restore.ts:1-65`): restoring sequence history without moving the feed epoch in
+    the same step produces silent permanent divergence, and the daemon's transfer proof
+    validates integrity, target identity, feed id and epoch, and migration head before
+    promotion (`server-transfer.ts:320-379`). The cutover: stop intake and every writer
+    (including the operator clients, since the SQLite fence is connection-local); take a source
+    snapshot; record source schema, feed identity and head; copy into a fresh target with a
+    per-table checkpoint so a failure halfway through 88 tables is retryable; classify and
+    quarantine invalid JSON rather than failing or silently loading it into `jsonb`; validate
+    counts, key sets, constraints, the latest-state projection, the feed head and sampled
+    payload hashes; mint a new feed epoch or prove exact continuity, atomically; switch
+    configuration; define the point after which rollback needs a reverse migration rather than
+    reopening the stale SQLite file. Crash-and-retry tests at every phase, and a pre-cutover
+    client cursor exercised against the promoted backend.
+22. **Single-writer on Postgres is enforced or replaced, never assumed** (rev 11, finding 5).
+    Nothing in boot today can make "one server process per tenant database" true, and rolling
+    replacement and crash recovery are exactly when overlap is normal. Either the server takes a
+    database advisory or fencing lease before accepting traffic, a second server provably
+    refuses or stands by, and takeover after lease loss is defined; or multiple writers are
+    supported with row locks or guarded updates or `SERIALIZABLE`, bounded transaction retries
+    and idempotent command outcomes. The feed-head `UPDATE … RETURNING` already takes a row
+    lock and is tested with two clients unconditionally. Retry and idempotency rules for
+    serialisation failures, deadlocks, connection loss during `COMMIT` and an ambiguous commit
+    result are specified; none of these exist on the in-process SQLite path.
 23. Backup, restore, snapshot verification, transfer fence, `wal_checkpoint`, Litestream:
     replace with `pg_dump`/managed backups behind a backend-specific `Durability` port.
 24. Janitor and `mint-session` become clients (§1.6).
@@ -831,8 +913,12 @@ Stage B′.
 ## 5. Decisions taken (2026-09-02)
 
 1. **Postgres on the server is a real direction.** Stages A and B are the preparation for it
-   and are both in scope. Stage C remains a spike until the cloud architecture decision is
-   revisited, but A and B are done so that C needs no rework of the store.
+   and are both in scope. Stage C remains out of scope until the cloud architecture decision is
+   revisited. A and B are done so that C reuses the executor model, the ports and the domain
+   mappers; C will still have to implement the Postgres query bodies under whichever
+   dialect-query strategy the vertical slice (step 3b) selects, because drizzle's SQLite and
+   Postgres table types are different type universes (§4). "No rework of the store" is not
+   claimed (rev 11, finding 1).
 2. **The size-one transaction queue in front of `bun:sqlite` is the mechanism** for async
    transactions on SQLite (§1.8, §1.9). No driver switch: `bun:sqlite` stays. On Postgres the
    write lane of the scheduler port (step 12) implies exactly one server process per tenant
@@ -853,7 +939,15 @@ aggregate conversion:
 
 - **No behaviour change on SQLite.** The existing store and service tests are the oracle and
   are not rewritten in the same commit as the implementation they cover. Where an
-  `INSERT OR REPLACE` site's cascade was load-bearing, the delete-then-insert stays explicit.
+  `INSERT OR REPLACE` site named only some columns, the reset of the others stays explicit.
+  **For Stage B the oracle is a captured trace, not a mechanically awaited copy of the tests**
+  (rev 11, finding 7): a rewritten suite can encode the new timing by accident, exactly as
+  finding 4 shows. Before the flip, a backend-neutral conformance suite records, from the
+  synchronous Stage A implementation, the externally observable sequence per scenario: results
+  and errors, database rows, in-memory projections, bus events, feed frames, timer scheduling
+  and relative completion order. The async implementation replays the same scenarios and is
+  compared against the trace, plus the same-entity concurrency scenarios of step 14a. The
+  synchronous implementation stays available behind a test adapter until parity holds.
 - **Landed per aggregate, on `main`, each commit revertible on its own.** No long-lived branch.
   A conversion that cannot land alone is split until it can.
 - **The queue is proven, not assumed.** A test drives concurrent top-level transactions with
@@ -864,11 +958,16 @@ aggregate conversion:
   notification; and the watchdog fires for a body parked past its budget, reported through an
   injectable sink. This test exists before the first async repository lands (rev 8, findings
   2 and 8). Rev 10 (F10) adds the properties the design is chosen for: commit order equals
-  publication order equals seq order under concurrent top-level transactions; a
-  subscriber-initiated commit lands after the outer publication and after the outer caller's
-  `await` resolves (a semantic change from today, where the re-entrant commit completes
-  synchronously inside `broadcast`, so a caller that reads a derived row immediately after
-  its commit must be found and characterised); a stale token rejects; two nested `transact`
+  publication order equals seq order under concurrent top-level transactions; **a
+  subscriber-initiated durable commit is complete before the outer caller's `await`
+  resolves**, while batch N still reaches every subscriber before batch N+1: today the
+  re-entrant commit is durable before its call returns and only its delivery is queued
+  (`authority.ts:499-527`), so a caller that reads a derived row right after its commit sees
+  it, and revision 10's "lands after the outer await, find and characterise the callers" was a
+  knowing semantic change under a "no behaviour change" definition of done (rev 11, finding
+  4). The mechanism is an ordered follow-up slot that the outer operation awaits before
+  resolving, and the durable re-entrant subscribers are enumerated with caller-visible
+  before-and-after tests; a stale token rejects; two nested `transact`
   calls started in parallel from one body reject; a write then a read in one body sees the
   write for every cached aggregate; an `exclusive` request from a lease holder rejects; frames
   per burst equal one for the boot reconcile and a bind-storm fixture. All cases run on one
@@ -911,13 +1010,16 @@ Checkable at the end of Stage B, and the acceptance for this issue's tree:
   second export, not a rewrite.
 - The one-time boot upgrades and `PRAGMA table_info` probes are retired, not ported.
 - Sequence numbers in the sync repository come from `RETURNING`, never from rowid arithmetic.
-- **The proof is Stage B′'s acceptance, not a sample** (rev 9, Codex finding 9): "ready for
-  Postgres" is claimed only when a Postgres backend boots a fresh database, upgrades and reopens
-  one, runs the full store and service suites, shuts down cleanly, passes the two-tenant
-  collision test and the gap-free feed test. The three-repository spike (locks, accounts, sync,
-  plus `queued_messages`, `upstream_outbox` and the feed-head allocator that the sync repository
-  needs) moves **early**, to step 3b, where it informs the executor and schema design instead of
-  standing in for acceptance.
+- **The proof for this issue is the dual-backend vertical slice of step 3b** (rev 11, finding
+  1): locks, one aggregate with joins and JSON, the sync append with feed-head allocation, boot
+  and shutdown, running on real SQLite and real Postgres through the same executor interface,
+  with the dialect-query strategy and the schema-twin technique chosen from that measured code.
+  That is what "prepared for Postgres" means here. "Postgres-ready" in the B′ sense (a backend
+  that boots a fresh database, upgrades and reopens one, runs the full store and service suites,
+  shuts down cleanly, passes the tenant-isolation test for the chosen topology, the gap-free feed
+  test with two independent pools, and a fenced cutover from SQLite) is the acceptance of the
+  later Postgres epic, and it runs unconditionally there, not on the assumption that deploys
+  never overlap.
 
 ## 7. Working rules for the conversion
 
@@ -1163,6 +1265,24 @@ text: issue artifact "Fable review: untouched layers and Stage A".
 | F11 | Boundary lint is feasible in the existing shape; it must scan `sql` template bodies; the writer guard needs the `sql\`UPDATE issues` pattern | low | Rule 1, step 5d |
 | F12 | Step 13 is executable; three helper modules carry the fan-out; timers must `unref` | low | Step 13 |
 | F13 | Janitor is co-hosted in a worker thread of the server; `conversations` and `upstream_outbox` do not belong on the rowid list; drizzle's transaction nests as a savepoint at depth > 0 so 5c's reason was overstated though the lint stands | low | §1.6, step 6 |
+
+## 13. Fifth review, whole spec (Codex gpt-5.6-sol xhigh, 2026-09-02) and revision 11
+
+A final reviewer read revision 10.1 end to end with every earlier finding marked untrusted.
+Verdict: **replan before decomposition**: Stage A credible; the whole spec did not yet satisfy
+either governing requirement. Eight findings, all verified by the author. Full text: issue
+artifact "Codex sol final review of the whole spec".
+
+| # | Finding | Severity | Change made |
+|---|---|---|---|
+| 1 | "Postgres-ready" had no executable path: B′ needs a backend only C builds, and no stage implements Postgres query bodies, which the SQLite drizzle tables cannot supply; "no rework of the store" contradicted §4 | critical | Outcome renamed "prepared for Postgres", proven by a dual-backend vertical slice that also chooses the dialect-query strategy; §5, §6.2, step 3b |
+| 2 | Issue rows and sessions are mutable objects mutated before commit and restored by assignment on failure; an await on lease acquisition exposes uncommitted values and lets a rollback clobber a committed change | critical | §1.5 category 9; process-state audit with a model per registry and barrier tests; step 14a |
+| 3 | One `afterCommit` list had no valid ambient context (dead token or self-deadlock) and no failure contract; durable mail is a nested write, not I/O | critical | Three mechanisms under a distinct post-commit context with separate failure contracts and failure injection; step 12 |
+| 4 | Subscriber-initiated commit timing was a knowing semantic change under a "no behaviour change" definition of done | high | Parity chosen: ordered follow-up slot awaited before the outer operation resolves; §6.1 |
+| 5 | Single-writer on Postgres was unenforced and its failure model missing; the feed-head update already row-locks | high | Advisory lease or multi-writer support, retries and idempotency, two-pool tests unconditionally; Stage C step 22 |
+| 6 | SQLite-to-Postgres rollout was a one-sentence copy tool; the epoch lesson in `restore.ts` and the transfer proofs were ignored | high | Fenced restartable migration state machine; Stage C step 21 |
+| 7 | Mechanically awaited tests cannot prove parity; a rewritten suite encodes the new timing by accident | high | Captured-trace conformance suite from the sync implementation, kept behind a test adapter; §6.1 |
+| 8 | A generic dual-dialect table DSL is a premature third schema API | medium | No DSL mandated; technique chosen on the slice; Stage C step 18 |
 
 For reference, Linear's engine, which Podium's kernel resembles in shape: Postgres is the
 source of truth, every create, update and delete persists a model snapshot as a "SyncAction"
