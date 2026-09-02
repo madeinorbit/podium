@@ -224,6 +224,29 @@ Other facts:
   `sqlite-proxy` (real loop relief, but read-decide-write transactions still need a queue inside
   the worker), or run a server (`sqld`, Postgres), which is Stage C.
 
+**The drizzle maintainers' position, from their issue tracker (checked 2026-09-02).**
+
+- drizzle-orm #2275 "sqlite transactions can't be async for 4 of 5 implementations" (open since
+  2024-05, labels `bug`, `priority`, 38 thumbs-up) and #1472 "Async SQLite transaction will not
+  rollback" (open since 2023-11, 15 thumbs-up) are the two open issues under
+  `qb/transactions` + `db/sqlite`. Both describe exactly the failure in the first bullet above.
+- The only maintainer reply on either is a 2025-08-30 status message sent in batch to every open
+  issue, describing the drizzle-kit rewrite and other branches; it does not mention SQLite
+  transactions. The one contributor reply with content (#1723, 2024-02) is "Bettersqlite3 is
+  only synchronous". The transactions documentation page still carries no SQLite warning.
+- The community workarounds in #2275 are the two shapes described above: a userland
+  `BEGIN`/`COMMIT`/`ROLLBACK` wrapper plus a single-flight promise queue so a second transaction
+  waits for the first, or Expo's `withExclusiveTransactionAsync`, which opens a new connection
+  per transaction. A community PR to add Bun.SQL SQLite support (#5103) was closed unmerged; the
+  maintainers shipped their own `bun-sql/sqlite` driver in the 1.0 release candidates, and it
+  delegates to `Bun.SQL`'s `begin()` with no queue, which is the behaviour measured in §1.8.
+- rc.4's changelog: "Split SQLite into `async`, `effect` versions (`sync` remains subtype of
+  `async`)". The 1.0 direction is async-shaped types for every SQLite driver, with the sync
+  drivers' transaction callbacks left synchronous.
+
+Net: after two and a half years there is no drizzle-level answer, and none is signalled. The
+size-one queue is the community's answer and this plan's.
+
 ---
 
 ## 2. What we need to do
