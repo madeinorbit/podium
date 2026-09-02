@@ -14,6 +14,7 @@ import type {
   MachineId,
   ThreadId,
 } from '@podium/model'
+import type { LogOrigin } from '@podium/commands'
 import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './sessions/inbox'
@@ -35,6 +36,12 @@ const log = createLogger('server:bus')
  *   down the mutation path that emitted).
  */
 export interface EventMap {
+  /**
+   * A human client authenticated (POST /auth/login, either delivery shape).
+   * Emitted AFTER the session row is written, so a login that failed to persist
+   * is never reported as one.
+   */
+  'auth.login': { userId: UserId; delivery: 'cookie' | 'native'; platform?: string }
   /** A session's agent runtime state changed (daemon agentState message). */
   'session.stateChanged': {
     sessionId: SessionId
@@ -88,6 +95,13 @@ export interface EventMap {
       }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
   'session.openUrl': SessionOpenUrlMessage
+  /**
+   * An issue was created by the create funnel — NOT any later mutation. The
+   * in-process twin of the `issue.created` row `crud.ts` already appends to the
+   * durable event log, emitted from the same line, so the two can never disagree
+   * about when an issue came into existence.
+   */
+  'issue.created': { issueId: IssueId; title: string; ownerUserId: UserId }
   /** One issue changed and was published (single-issue fast path, issue #22). */
   'issue.updated': { issue: IssueWire }
   /** An issue reached the closed stage. */
@@ -161,6 +175,15 @@ export interface EventMap {
     harness?: HarnessAgent
     harnessErrorKind?: HarnessErrorKind
   }
+  /**
+   * A client crash was stored (modules/logs/service.ts).
+   *
+   * Carries the serialized error AS IT ARRIVED and deliberately NOT
+   * `input.snapshot`: the snapshot is the client's whole log ring buffer, which
+   * is what makes the durable crash event useful to support and exactly what a
+   * subscriber that only needs the error has no business forwarding anywhere.
+   */
+  'client.crashed': { origin: LogOrigin; err: unknown; crashId?: string }
 }
 
 export type EventName = keyof EventMap
