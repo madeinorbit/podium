@@ -832,7 +832,17 @@ async function installPortableFile(
 }
 
 async function persistTargetConfig(publicUrl: string, port?: number): Promise<void> {
-  applySetup({ mode: 'server', publicUrl, ...(port === undefined ? {} : { port }) })
+  // `confirmUrlChange` because THIS IS the confirmation: an operator asked for
+  // the server to move here, and a target that was previously a host of its own
+  // legitimately carries a stale publicUrl the transfer is replacing. The guard
+  // exists to catch a re-run of setup that changes the URL by accident, which is
+  // not what a transfer is (PDM-26).
+  applySetup({
+    mode: 'server',
+    publicUrl,
+    confirmUrlChange: true,
+    ...(port === undefined ? {} : { port }),
+  })
   const path = configPath()
   const handle = await open(path, 'r')
   try {

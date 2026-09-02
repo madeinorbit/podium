@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from './config'
 import { encodeJoin } from './join'
 import {
@@ -297,5 +297,58 @@ describe('setup core', () => {
     setUpdateChannel('stable')
     expect(getUpdateChannel()).toBe('stable')
     expect(loadConfig().updateChannel).toBe('stable')
+  })
+})
+
+const priorStateDirForEnvTests = process.env.PODIUM_STATE_DIR!
+
+describe('the deployment owns mode and public URL (PDM-26)', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-setup-env-'))
+    process.env.PODIUM_STATE_DIR = dir
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    process.env.PODIUM_STATE_DIR = priorStateDirForEnvTests
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('applySetup refuses when PODIUM_MODE is set', () => {
+    vi.stubEnv('PODIUM_MODE', 'server')
+    expect(() => applySetup({ publicUrl: 'https://a.example' })).toThrow(/PODIUM_MODE/)
+  })
+
+  it('applySetup refuses when PODIUM_PUBLIC_URL is set', () => {
+    vi.stubEnv('PODIUM_PUBLIC_URL', 'https://a.example')
+    expect(() => applySetup({ publicUrl: 'https://b.example' })).toThrow(/PODIUM_PUBLIC_URL/)
+  })
+
+  it('applyMode and applyJoin refuse under PODIUM_MODE, before they parse anything', () => {
+    vi.stubEnv('PODIUM_MODE', 'server')
+    expect(() => applyMode({ mode: 'all-in-one' })).toThrow(/PODIUM_MODE/)
+    expect(() => applyJoin('not-even-a-token')).toThrow(/PODIUM_MODE/)
+  })
+
+  it('applyLocalSetupDefault is blocked under PODIUM_MODE — it must not contradict the env', () => {
+    vi.stubEnv('PODIUM_MODE', 'server')
+    expect(applyLocalSetupDefault()).toBe('blocked')
+    expect(loadConfig().mode).toBeUndefined()
+  })
+
+  it('a SECOND, different public URL needs confirmation; the same URL is idempotent', () => {
+    expect(applySetup({ publicUrl: 'https://a.example' }).publicUrl).toBe('https://a.example')
+    expect(() => applySetup({ publicUrl: 'https://b.example' })).toThrow(
+      /already set to https:\/\/a\.example/,
+    )
+    expect(applySetup({ publicUrl: 'https://a.example' }).publicUrl).toBe('https://a.example')
+    expect(applySetup({ publicUrl: 'https://b.example', confirmUrlChange: true }).publicUrl).toBe(
+      'https://b.example',
+    )
+  })
+
+  it('confirmUrlChange is a flag, never a config key', () => {
+    applySetup({ publicUrl: 'https://a.example', confirmUrlChange: true })
+    expect(loadConfig()).not.toHaveProperty('confirmUrlChange')
   })
 })

@@ -1,8 +1,11 @@
 import {
+  type EnvSource,
   type FleetUpdateChannel,
   inspectConfig,
+  LAYERED_ENV,
   loadConfig,
   type PodiumConfig,
+  resolveSetting,
   saveConfig,
 } from './config'
 import { decodeJoin } from './join'
@@ -163,14 +166,65 @@ export function assertConfigWritable(): void {
   }
 }
 
+/**
+ * A key the ENVIRONMENT set is not writable from setup.
+ *
+ * Refusing beats writing a value the environment overrides anyway: a silent
+ * no-op reads as success in the wizard and in the CLI, and leaves the box
+ * running something else entirely. Same shape and same sentence as
+ * `InstanceService.setChannel` has used for PODIUM_UPDATE_CHANNEL since
+ * POD-1882 — this generalizes it to the keys a hosted deployment owns.
+ */
+function assertNotForced(key: 'mode' | 'publicUrl', env: EnvSource, owns: string): void {
+  if (resolveSetting(key, {}, env).source !== 'env') return
+  throw new Error(
+    `${LAYERED_ENV[key]} is set in this deployment's environment; the deployment owns ${owns}.`,
+  )
+}
+
+/** The mode belongs to the deployment when `PODIUM_MODE` is set. */
+export function assertModeWritable(env: EnvSource = process.env): void {
+  assertNotForced('mode', env, 'the mode')
+}
+
+/** The public URL belongs to the deployment when `PODIUM_PUBLIC_URL` is set. */
+export function assertPublicUrlWritable(env: EnvSource = process.env): void {
+  assertNotForced('publicUrl', env, 'the public URL')
+}
+
 export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
   port?: number
   networkOption?: NetworkOption
+  /** Acknowledge that replacing an already-set public URL strands joined machines. */
+  confirmUrlChange?: boolean
 }): PodiumConfig {
   assertConfigWritable()
+  assertModeWritable()
+  assertPublicUrlWritable()
   const prev = loadConfig()
+  /**
+   * ONE PUBLIC URL, AND CHANGING IT IS DELIBERATE.
+   *
+   * The URL is embedded into every join token already issued and into every
+   * paired device's record; replacing it strands all of them with no way back.
+   * The flow that would replace it — re-running setup — is also the flow an
+   * operator runs for entirely unrelated reasons, so the change has to be
+   * asked for rather than fallen into. Writing the SAME URL stays idempotent,
+   * so a re-run that changes nothing is never blocked.
+   */
+  if (
+    prev.publicUrl !== undefined &&
+    prev.publicUrl !== '' &&
+    prev.publicUrl !== input.publicUrl &&
+    input.confirmUrlChange !== true
+  ) {
+    throw new Error(
+      `public URL is already set to ${prev.publicUrl}; changing it strands every joined ` +
+        'machine. Re-run with --confirm-url-change to change it anyway.',
+    )
+  }
   // Explicit mode wins (the web reachability step now runs for BOTH all-in-one and server-only).
   // Else preserve an already-chosen host mode — a relay-only `server` box setting its URL later
   // (e.g. from Settings → Machines) must stay `server`. First run (mode unset) defaults to
@@ -220,6 +274,7 @@ export function applySetup(input: {
  */
 export function applyJoin(token: string): { name: string; warning?: string } {
   assertConfigWritable()
+  assertModeWritable()
   const p = decodeJoin(token)
   const {
     publicUrl: _hostOnly,
@@ -253,6 +308,7 @@ export function applyMode(input: {
   serverUrl?: string
 }): PodiumConfig {
   assertConfigWritable()
+  assertModeWritable()
   const serverUrl = input.serverUrl?.trim()
   if (input.mode === 'client' && !serverUrl) {
     throw new Error('client mode needs a server URL')
@@ -271,6 +327,11 @@ export function applyMode(input: {
  * Existing choices always win, and an invalid config is left untouched for `setup --repair`.
  */
 export function applyLocalSetupDefault(): 'applied' | 'configured' | 'blocked' {
+  // The environment already answered. Writing `all-in-one` underneath it would
+  // put a contradicting value in the file that readiness then has to ignore —
+  // and `blocked` is already the value a launcher reads as "do not assume a
+  // local default", which is exactly the right instruction here.
+  if (resolveSetting('mode', {}, process.env).source === 'env') return 'blocked'
   const inspection = inspectConfig()
   if (inspection.state === 'corrupt') return 'blocked'
   const config = inspection.config
