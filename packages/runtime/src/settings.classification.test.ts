@@ -163,6 +163,11 @@ describe('the composed blob still parses exactly as before', () => {
         },
         superagent: { accountId: '', model: 'auto', effort: 'auto' },
         background: { accountId: '', model: 'google/gemini-2.5-flash', effort: 'auto' },
+        // The bounded shipping-repair role. Its leaves were already IN the
+        // classification counts when the role was added — this literal is the
+        // one place that was missed, which is exactly the gap this test exists
+        // to close: a default nobody wrote down is a default nobody reviewed.
+        shipwright: { accountId: '', model: 'auto', effort: 'auto' },
       },
       apiKeys: { openrouter: '', anthropic: '', openai: '' },
       integrations: { linearApiKey: '' },
