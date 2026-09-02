@@ -3,8 +3,18 @@ import type { Hono } from 'hono'
 
 /** Public, non-secret lifecycle status. This route stays independent from the
  * setup compatibility route so setup composition can evolve in its owner lane. */
-export function registerReadinessRoute(app: Hono, readiness: () => ServerReadiness): void {
-  app.get('/readiness', (c) => c.json(readiness()))
+export function registerReadinessRoute(
+  app: Hono,
+  readiness: () => ServerReadiness,
+  instanceId: string,
+): void {
+  /**
+   * The instance id rides along so an instance probing its OWN public URL can
+   * tell "my front door works" from "something else answers there" (PDM-26).
+   * It is not a secret — /version already publishes it on the same
+   * unauthenticated tier — and it names nothing about the work being done here.
+   */
+  app.get('/readiness', (c) => c.json({ ...readiness(), instanceId }))
   app.get('/setup/mobile', (c) => {
     const status = readiness()
     if (status.dataPlane === 'available') return c.redirect('/')

@@ -13,7 +13,7 @@ import {
   WorkState,
 } from '@podium/model'
 import { clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
-import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
+import { loadConfig, resolvePublicUrl, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
@@ -42,6 +42,7 @@ import {
 } from './cloud-runtime'
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
+import { processPublicUrlVerification } from './public-url-probe'
 import { accountFamilyProcedures } from './modules/accounts/trpc'
 import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { interactionFamilyProcedures } from './modules/interactions/trpc'
@@ -252,7 +253,7 @@ import type { PinState, SnoozeMap } from './store/types'
 const fleet = fleetProcedures({
   joinCommand: (pairCode, podiumManaged) => {
     const config = loadConfig()
-    const publicUrl = config.publicUrl
+    const publicUrl = resolvePublicUrl(config, process.env)
     return publicUrl
       ? buildJoinCommand({
           publicUrl,
@@ -262,6 +263,10 @@ const fleet = fleetProcedures({
         })
       : null
   },
+  // Read process-globally for the same reason `loadConfig()` above is: these
+  // ports are built at module load, before any server exists. See
+  // `setProcessPublicUrlProbe`.
+  publicUrlVerified: processPublicUrlVerification,
 })
 
 export const appRouter = t.router({

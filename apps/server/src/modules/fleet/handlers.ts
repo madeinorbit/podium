@@ -35,6 +35,13 @@ export interface FleetPorts {
    * at the composition root.
    */
   joinCommand: (pairCode: string, podiumManaged?: boolean) => string | null
+  /**
+   * Whether this server has verified it can reach its own public URL (PDM-26).
+   * `null` = no probe, or the first check is still outstanding; only a KNOWN
+   * failure refuses. Optional so a composition root without a probe (the fleet
+   * handler suites) behaves exactly as it did before.
+   */
+  publicUrlVerified?: () => { ok: boolean; error?: string } | null
 }
 
 /**
@@ -234,6 +241,17 @@ export const machinePairingCodeHandler = ({
   // payload (ADR 3 D7). A code minted by nobody — a system principal, which has
   // no human — carries `null`, and a machine paired with it is owned by nobody
   // and usable by nobody, which is the fail-closed arm rather than a crash.
+  // BEFORE THE MINT, deliberately. A join command is a promise about this
+  // server's public URL that the joining machine cannot renegotiate, and a code
+  // minted here is persisted whether or not a command comes back — so refusing
+  // after the mint would leave a live pairing code behind on every refused call.
+  const verified = ports.publicUrlVerified?.()
+  if (verified && !verified.ok) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `public URL not verified reachable: ${verified.error ?? 'unknown error'}`,
+    })
+  }
   const pairer = onBehalfOfUser(fleetAuthzDeps(ctx).principal)
   const code = mods(ctx).machines.mintPairingCode({
     ...(pairer === null ? {} : { ownerUserId: pairer }),

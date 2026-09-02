@@ -120,6 +120,12 @@ import {
   isHostSetupBootstrap,
   readinessBoundary,
 } from './readiness-boundary'
+import {
+  type PublicUrlProbe,
+  type PublicUrlVerification,
+  setProcessPublicUrlProbe,
+  startPublicUrlProbe,
+} from './public-url-probe'
 import { registerReadinessRoute } from './readiness-route'
 import { SessionRegistry } from './relay'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -312,6 +318,15 @@ export function registerVersionRoute(
     web?: () => ServedWebIdentity
     /** Parent health gate + settings: is the local daemon connected? */
     daemonConnected?: () => boolean
+    /**
+     * Whether this server has verified it can reach its OWN public URL
+     * (PDM-26). `null` while the first check is still outstanding, and absent
+     * entirely on a server assembled without a probe. Published here because it
+     * is the same question /version already answers for every other "what is
+     * this deployment" fact, and because an operator diagnosing a machine that
+     * enrolled but never connected reaches for this route first.
+     */
+    publicUrlVerified?: () => PublicUrlVerification | null
     /** Janitor co-host status for DEGRADED projection [POD-2505]. */
     janitor?: () =>
       | {
@@ -362,6 +377,7 @@ export function registerVersionRoute(
       ...(sourceDigest ? { sourceDigest } : {}),
       ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
+      ...(deps.publicUrlVerified ? { publicUrlVerified: deps.publicUrlVerified() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
       components,
@@ -905,8 +921,18 @@ export async function startServer(
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let janitorHostClosing = false
+  /**
+   * LATE-BOUND, because the probe must not run before this process is listening:
+   * its very first request goes out through the front door and comes back to
+   * this same server, and a check that raced the listener would record a failure
+   * that says nothing about the deployment. Started immediately after boot
+   * resolves, below.
+   */
+  let publicUrlProbe: PublicUrlProbe | undefined
+  const publicUrlVerified = (): PublicUrlVerification | null => publicUrlProbe?.state() ?? null
   registerVersionRoute(app, {
     instanceId,
+    publicUrlVerified,
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,
     installKind: () => (developmentRuntime.runningFromSource ? 'source' : 'installed'),
@@ -992,7 +1018,7 @@ export async function startServer(
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
   app.use('/setup/*', podiumCors())
   app.use('/readiness', podiumCors())
-  registerReadinessRoute(app, readiness)
+  registerReadinessRoute(app, readiness, instanceId)
   registerSetupRoute(app, {
     readiness,
     // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
@@ -1027,7 +1053,11 @@ export async function startServer(
   registerMobilePairingRoutes(app, {
     store: store.auth,
     pairing: mobilePairing,
-    serverIdentity: () => ({ publicUrl: loadConfig().publicUrl, instanceId }),
+    serverIdentity: () => ({
+      publicUrl: resolvePublicUrl(loadConfig(), process.env),
+      instanceId,
+      publicUrlVerified: publicUrlVerified(),
+    }),
     loginRequired: credentialsRequired,
     // Pairing and device management require a real credential. Open-mode's
     // synthetic first-admin principal must never authorize session mutation.
@@ -1529,6 +1559,14 @@ export async function startServer(
         schedule: timerSchedule,
       })
       targetsResolvedOnBoot = true
+      // Can this instance reach itself through its own front door (PDM-26)? It
+      // never blocks serving — see startPublicUrlProbe — and it runs for a
+      // file-layer URL too, so a self-hoster gets the same signal.
+      publicUrlProbe = startPublicUrlProbe({
+        publicUrl: resolvePublicUrl(config, process.env),
+        instanceId,
+      })
+      setProcessPublicUrlProbe(publicUrlProbe)
       resolve({
         port: server.port,
         instanceId,
@@ -1563,6 +1601,15 @@ export async function startServer(
               // (POD-611 made it deterministic and fast), and a report is worth
               // less than a fast stop. The queue is durable — it goes next boot.
               ['telemetry.stop', () => telemetry.stop()],
+              // An armed retry that outlived the server would keep fetching a
+              // URL nothing is listening on, forever, once per five minutes.
+              [
+                'publicUrlProbe.stop',
+                () => {
+                  publicUrlProbe?.stop()
+                  setProcessPublicUrlProbe(undefined)
+                },
+              ],
               // Release the per-origin client log descriptors. The sink writes
               // synchronously, so nothing is buffered and this loses no records —
               // it closes fds a long-lived process would otherwise hold.

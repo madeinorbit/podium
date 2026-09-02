@@ -146,7 +146,17 @@ function transportReadiness(serverUrl: string) {
 export interface MobilePairingRouteOptions {
   store: AuthRepository
   pairing: MobilePairingManager
-  serverIdentity: () => { publicUrl?: string; instanceId: string }
+  serverIdentity: () => {
+    publicUrl?: string
+    instanceId: string
+    /**
+     * Whether this server has verified it can reach its own public URL
+     * (PDM-26). `null`/absent means the first check has not completed — pairing
+     * proceeds, because refusing during the first seconds of uptime would be a
+     * new flake rather than a safety property. Only a KNOWN failure refuses.
+     */
+    publicUrlVerified?: { ok: boolean; error?: string } | null
+  }
   loginRequired: () => boolean
   resolveUserId: (headers: ClientCredentialHeaders) => UserId | undefined
   now?: () => number
@@ -206,6 +216,17 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       serverUrl = normalizeHttpOrigin(identity.publicUrl)
     } catch {
       return c.json({ error: 'public URL is invalid' }, 409)
+    }
+    // A pairing payload is a PROMISE about this URL that the phone cannot
+    // renegotiate: it is what the device dials from then on. Handing one out
+    // while we know the URL does not answer produces a paired device that can
+    // never connect, and nothing on the phone can explain why (PDM-26).
+    const verified = identity.publicUrlVerified
+    if (verified && !verified.ok) {
+      return c.json(
+        { error: `public URL not verified reachable: ${verified.error ?? 'unknown error'}` },
+        409,
+      )
     }
 
     if (!opts.loginRequired()) {
