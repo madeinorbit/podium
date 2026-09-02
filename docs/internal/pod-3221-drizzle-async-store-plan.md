@@ -254,11 +254,14 @@ size-one queue is the community's answer and this plan's.
 ### Stage 0 — decide and record
 
 1. Amend ADR 6 D5.3: drizzle becomes the query layer for the server store.
-2. Decide the executor model up front, because it is the one thing that changes every
-   repository signature once: **every repository method takes an executor** (`db` or `tx`) as
-   an explicit parameter or is constructed per-transaction; ambient depth counting is retired.
-   This is drizzle's own transaction model (`db.transaction(async (tx) => …)`) and the only one
-   that survives a connection pool.
+2. Decide the executor model up front. **A repository set bound to an executor**, not an
+   executor parameter on every method: `store.issues.get(id)` is the set bound to the root
+   executor, and inside `store.transact(async (tx) => tx.issues.get(id))` the same repository
+   classes are instantiated against the transaction. Method signatures and the 574 service
+   call sites keep their shape; "no repository closes over a connection" holds because the
+   set is built per executor; "never capture `tx` outside the callback" is true by
+   construction because the tx-bound set only exists inside it. Ambient depth counting is
+   retired. (Rev 8: replaces the executor-parameter design, review finding 9.)
 3. Decide whether B (async) ships with A or after it. Recommendation below.
 4. Driver for the SQLite path: **keep `bun:sqlite`**. `Bun.SQL`'s SQLite mode is a Promise
    wrapper over the same engine on the same thread, ignores transaction modes, and has no queue
@@ -270,22 +273,46 @@ size-one queue is the community's answer and this plan's.
 5. Add a `Database` type = drizzle instance built from the schema
    (`drizzle(client, { schema })`), created in `store.ts` next to the migrator on the same raw
    handle. Keep the `SqlDatabase` seam alive for the non-store consumers in §1.6.
+   **Drizzle bypasses the `SqlDatabase` wrapper**: it runs on the raw `bun:sqlite` handle from
+   `bunSqliteClient`, so anything the wrapper did (query attribution, the repos cache proxy)
+   stops seeing converted queries the moment the first one lands. Steps 5a to 5c therefore
+   come **before** the first repository conversion (rev 8, review finding 3):
+   5a. Move query attribution to a drizzle `logger` (was step 8). Caller stacks are captured
+       in `logQuery`, which runs synchronously in the call path.
+   5b. Replace the repos registry cache's SQL-inspecting `prepare` proxy
+       (`store/repos.ts:80-105`) with an invalidation the store owns and every writer calls,
+       which its own header comment already asks for once a second bypassing writer exists.
+   5c. Lint-forbid drizzle's `db.transaction` / `tx.transaction` everywhere; the only
+       transaction boundary is the store's transact port. Drizzle's defaults to `deferred` and
+       would emit a second `BEGIN` inside a wrapper-issued one.
+   5d. The issues writer guard (`store-issues-row-cache-writers.test.ts`) finds writers by
+       regexing SQL text; it is replaced by a scan for `.insert(issues)` / `.update(issues)` /
+       `.delete(issues)` in the same sub-issue that converts `issues.ts`.
 6. Convert repositories one aggregate at a time, smallest first (locks, accounts, read-watermarks,
    messaging-topics, approvals) to settle the patterns, then the five large ones last
-   (shipping 2,683 lines, issues, sessions, messages, workflows). Each conversion:
+   (shipping 2,683 lines, issues, sessions, messages, workflows). **Stage A uses the sync
+   forms only** (`.all()`, `.get()`, `.run()`): a body that awaits makes the method async, and
+   in Stage A that trips the frame caches, the transaction helper's thenable guard and the
+   Authority's async-write refusal (rev 8, finding 1). Each conversion:
    - queries against `schema.ts` tables; typed selects replace the `as Row` casts;
-   - `mode: 'boolean'` / `mode: 'json'` on the schema so mappers shrink (schema-only change,
-     no migration);
-   - `INSERT OR REPLACE` → decide per site: real upsert (`onConflictDoUpdate`) or keep
-     delete-then-insert explicitly when the cascade was the point;
-   - `rowid` → explicit PK column (migration where the table lacks one);
+   - `mode: 'boolean'` on the schema so mappers shrink (schema-only change, no migration);
+     `mode: 'json'` per column and only where a throw on corruption is acceptable (rule 4);
+   - `INSERT OR REPLACE` (14 sites) → decide per site: real upsert with every column named
+     in `onConflictDoUpdate` (`grants.ts:190-199` depends on REPLACE re-stamping owner and
+     created_at), or keep delete-then-insert explicitly;
+   - `rowid` → an **insertion-ordinal column**, not a primary key: every affected table
+     already has one (composite on `pins`, `repos`, `maintenance_commands`; text on
+     `sessions`, `issues`, `messages`, `automation_runs`, `queued_messages`,
+     `upstream_outbox`, `conversations`; only `lock_waiters` is already an integer PK).
+     Each is a migration with a hand-written backfill `UPDATE … SET ord = rowid` (drizzle-kit
+     cannot generate it) plus the writer populating it. The two FTS external-content tables
+     stay on rowid behind the `SearchIndex` port and are exempt from the lint;
    - `lastInsertRowid` → `RETURNING`;
-   - keep FTS behind a small `SearchIndex` port with a SQLite implementation, raw `sql\`\``
-     allowed there only.
+   - keep FTS behind a small `SearchIndex` port with a SQLite implementation, whole raw
+     statements allowed there only.
 7. Use the existing store tests as the oracle: they are 1,840 call sites of characterisation.
    Where a repository has thin coverage, add a golden test before converting it.
-8. Replace the `PODIUM_LOOP_PROFILE` prepare-wrapper (`packages/runtime/src/sqlite/query-attribution.ts`)
-   with a drizzle `logger` implementation so the attribution survives.
+8. (Moved to 5a.)
 9. Retire the one-time boot upgrades that are past their deletion horizon instead of porting
    them (machine identity `store.ts:595`, repo identity `store.ts:349-391`, the
    `PRAGMA table_info` probes). Each is an introspection site that has no dialect-neutral form.
@@ -301,33 +328,78 @@ untouched, boot untouched. Reversible per aggregate.
     `TransactPort` → `<T>(fn: (tx) => Promise<T>) => Promise<T>`, `AuthorityPort.commit` and
     `Ledger.commit` → Promise, `StoreDatabaseOpener` → async. Keep the kernel free of drizzle
     types (the lint rule); the `tx` type is opaque to the kernel.
-12. Add a **size-one async pool** in front of the connection: top-level transactions queue,
-    each gets exclusive use of the connection from `BEGIN IMMEDIATE` to `COMMIT`, nested calls
-    become savepoints. This is what every async-SQLite ORM does internally (§1.9); drizzle's
-    own bun:sqlite transaction cannot be used for an async body because its callback is
-    synchronous. On SQLite the queue is mandatory (§1.8). On Postgres it keeps the Ledger's
-    single-writer invariant (D10/D12.6) true without `SELECT … FOR UPDATE` while there is one
-    server process per tenant. Reads stay unqueued.
+12. **The queued resource is the connection, not the transaction** (rev 8, findings 2 and 8).
+    There is one `bun:sqlite` handle. A read issued while another task's transaction body is
+    parked on an `await` runs inside that transaction and sees its uncommitted writes; if the
+    body then rolls back, the reader acted on rows that never existed. So:
+    - A size-one async queue owns the connection. A top-level transaction holds it from
+      `BEGIN IMMEDIATE` to `COMMIT`/`ROLLBACK`. Reads outside a transaction run through the
+      same queue while a transaction is open (they are instantaneous on local SQLite, so the
+      cost is the queue hop, not the read). This reproduces today's semantics exactly: today
+      everything is serialized by the thread.
+    - **Re-entrancy by `AsyncLocalStorage`**, not by handle identity: a `store.transact` call
+      made from inside a body (the Ledger's `onAppended` subscribers, `funnel.run`, any
+      service the body calls) must become a savepoint on the open transaction, not a queue
+      wait on itself, which would park every writer in the process forever. The transaction
+      context travels with the async task. Verified: Bun's `AsyncLocalStorage` survives
+      `await`.
+    - **A transaction watchdog**: a body holding the connection longer than a budget logs its
+      stack. Today an await inside a transaction is impossible by construction; under Stage B
+      it is the failure mode that wedges the server and makes `mint-session` fail after its
+      busy timeout.
+    - **No I/O other than the database inside a body.** A rule, plus the watchdog to catch
+      violations.
+    - **`onAppended` fires inside the span, before the queue releases**, as it does today, so
+      broadcast order stays append order (the ordered pipe in `authority.ts:493-528` and the
+      funnel's "appends arrive synchronously and in seq order" comment at `funnel.ts:301-303`
+      both depend on it). A subscriber that commits from inside a notification is the
+      re-entrancy case above.
+    - On Postgres the same queue keeps the Ledger's single-writer invariant (D10/D12.6) true
+      without `SELECT … FOR UPDATE` while there is one server process per tenant.
+    - ADR 2 D10 and D12.6 get an amendment naming the queue as the mechanism; ADR 6 D5.3 gets
+      the drizzle amendment.
 13. `SessionStore` gets an async factory (`await SessionStore.open(path, …)`); the constructor
-    stops doing work. Boot heals move into `open()`. Update the 8 non-test constructions and
-    the test helpers; give tests one `openTestStore()` helper so the 475 `new SessionStore(`
-    sites become one mechanical rewrite. The pre-migrated image fixture keeps working (the
-    image is still `bun:sqlite`), but the env-passing hack for the sync constructor goes.
+    becomes private so an un-opened store cannot be handed to a registry. Boot heals move into
+    `open()` **in the constructor's current order**: the machine-identity upgrade before any
+    reader (POD-318, `store.ts:283-292`), then FTS, the seed, the repos import, the
+    repo-identity upgrade, the worktree-identity upgrade, the seq renumber, the dangling-ref
+    heal. Update the 9 non-test constructions (including the daemon's recovery-worker fixture)
+    and the test helpers; give tests one `openTestStore()` helper so the 475 `new SessionStore(`
+    sites become one mechanical rewrite; module-scope constructions become top-level `await`.
+    The pre-migrated image fixture keeps working: the opener seam stays synchronous and is
+    called from inside `open()`, and the env channel from `globalSetup` to the forks stays,
+    because it is still the only synchronous channel (rev 8, finding 12).
 14. Fix the §1.5 list by design, not by sprinkling `await`:
     - frame caches (issues, users, relay closed-set): replace the microtask premise with an
       explicit per-request read scope (a `ReadContext` created at the request boundary and
       passed down), or drop the cache and measure;
     - `get rows()` and lazy hydration → explicit `await service.rows()` or hydrate at boot;
     - constructors that read → `static async create()`;
-    - visibility and authz predicates → precompute the principal's view once per request
-      (they already read the same rows per call), then the predicate stays sync;
+    - visibility and authz predicates: **a grant is evaluated live** (ADR 9 D2 rule 4, D16.1;
+      `store.ts:133`, `grants.ts:23-31`). Today "live" and "same synchronous frame" coincide;
+      under async a view computed before an `await` and used after a revoke committed is the
+      "revoked grant that keeps working" D16.1 forbids. So the principal's rights are read on
+      `tx` at the top of the same transaction that applies the command, and the predicate
+      stays sync over that read. The read-only feed path may snapshot per bootstrap and must
+      validate against `grants.visibilityRevision()`. ADR 9 D16.1 gets an amendment naming
+      the transaction as the new "live" boundary (rev 8, finding 6);
+    - `SessionRegistry` is `relay.ts`, and its constructor reads settings, sessions, users,
+      four shipping lists, repos, closed issues and automations (`relay.ts:431-1210`);
+      `memory/service.ts:67` writes in a constructor. These become `static async create()`
+      and are their own Stage B sub-issue (rev 8, finding 7);
     - array-callback store calls → batch reads (`WHERE id IN (…)`) before the loop, which is
       also the N+1 fix.
 15. Convert services top-down: relay, then modules. ~750 sync method bodies in
     `apps/server/src/modules` become async; tRPC procedures (28 sync today) become async. Do it
     one module at a time behind a green typecheck; do not leave a half-async module.
-16. The sync repository's seq-range arithmetic (§1.4) → `RETURNING seq` per row or a
-    single-statement multi-row `RETURNING`.
+16. The sync repository's seq-range arithmetic (§1.4). `RETURNING` order is unspecified in
+    SQLite and Postgres, and `applyLatestChangeStates(chunk, first)` needs a seq per row
+    positionally (a chunk may hold an upsert and a remove for the same entity, so rows cannot
+    be re-keyed by entity). Either one insert per row with `RETURNING seq` inside the
+    transaction, or multi-row `RETURNING seq` sorted ascending and zipped to the chunk, which
+    is valid only under a single writer, which the queue guarantees; measure both at 100 rows.
+    `maxChangeSeq` reads `sqlite_sequence` (`sync-repository.ts:131`); the Postgres form is the
+    sequence's `last_value`, behind the same port (rev 8, finding 5).
 17. Benchmarks before and after on the two paths that run thousands of queries per frame:
     feed bootstrap (`gateway/feed-serving.ts`) and issue frame reads
     (`store-issues-frame-cache.test.ts` shape). Assert the query count, not the duration.
@@ -365,13 +437,14 @@ Outcome of Stage B: the store runs on any SQLite-dialect driver drizzle supports
 1. **Stage A first, on the sync driver, without touching call sites.** It is mechanical,
    reversible per aggregate, and it is where most of the typed-query value is. It also
    surfaces every SQLite-ism (§1.7) as a visible decision instead of a hidden one.
-2. **Design the executor parameter into Stage A even though the driver is sync.** Repository
-   methods take `(exec, …args)` from the start, and query bodies are written in drizzle's
-   awaitable form rather than the sync `.all()` form. This is the one signature change worth
-   paying for early: Stage B then changes return types and call sites, not query bodies.
-   Stage B itself cannot be done per aggregate, because a transaction spans repositories (the
-   Ledger spans an entity write and the change append), so the transact port flips for everyone
-   at once. That is why A must be landable per aggregate and B must be short-lived.
+2. **Build the bound repository set in Stage A even though the driver is sync.** Repositories
+   are instantiated against an executor from the start, so `store.issues` and `tx.issues` exist
+   in Stage A with synchronous bodies (`.all()`, `.get()`, `.run()`). Stage B then changes
+   return types and the transact port, not query bodies and not call-site shapes. Stage B
+   itself cannot be done per aggregate, because a transaction spans repositories (the Ledger
+   spans an entity write and the change append), so the transact port flips for everyone at
+   once. That is why A must be landable per aggregate and B must be short-lived. (Rev 8: the
+   earlier "awaitable form in Stage A" was self-contradictory, finding 1.)
 2a. **Do the §1.5 refactors before B, as ordinary work.** Hidden reads in constructors and
    getters, store calls inside array callbacks, and per-row authz reads are design debts
    independent of async, and their fixes (explicit `create()`, batched reads, a precomputed
@@ -487,8 +560,11 @@ aggregate conversion:
   A conversion that cannot land alone is split until it can.
 - **The queue is proven, not assumed.** A test drives concurrent top-level transactions with
   awaits inside their bodies and asserts no lost update, no interleaved `BEGIN`, and that a
-  throw rolls back only its own transaction. This test exists before the first async
-  repository lands.
+  throw rolls back only its own transaction. It also covers: a reader issued while another
+  body is open sees only committed rows; a body that calls `store.transact` re-entrantly gets
+  a savepoint and does not deadlock; an `onAppended` subscriber that commits from inside a
+  notification; and the watchdog fires for a body parked past its budget. This test exists
+  before the first async repository lands (rev 8, findings 2 and 8).
 - **Nothing runs after its commit.** The Ledger's thenable guard is replaced by a test that
   fails if a transaction body can touch the connection after `COMMIT`; the `tx` handle is the
   only executor inside a body.
@@ -508,9 +584,10 @@ aggregate conversion:
 
 Checkable at the end of Stage B, and the acceptance for this issue's tree:
 
-- Every repository method takes an executor (`db` or `tx`) and returns a Promise. No
-  repository closes over a connection. `SessionStore.transact` is the only way to open a
-  transaction and it runs through the queue.
+- Every repository method returns a Promise, and every repository instance is bound to an
+  executor (`store.x` to the root, `tx.x` to a transaction). No repository closes over a
+  connection. `SessionStore.transact` is the only way to open a transaction and it runs
+  through the connection queue.
 - No SQLite-only construct remains in a repository query body: no bare `rowid`,
   `INSERT OR REPLACE`, `PRAGMA`, `sqlite_master`, `lastInsertRowid`, `GLOB`, hand-built `?`
   placeholder lists, or `? 1 : 0` boolean encodings. A boundaries-style lint over
@@ -524,7 +601,10 @@ Checkable at the end of Stage B, and the acceptance for this issue's tree:
 - Sequence numbers in the sync repository come from `RETURNING`, never from rowid arithmetic.
 - **The proof:** the Stage C spike runs the store tests for three repositories (locks, accounts,
   sync) against a real Postgres through the same executor interface, with no change to the
-  services above them. That spike is the acceptance test of "ready", and it is listed as the
+  services above them. `locks` and `accounts` carry no foreign keys; the sync repository also
+  reads and writes the server-owned `queued_messages` and `upstream_outbox` tables and
+  `sqlite_sequence`, so the spike's twin includes those two tables and the sequence port
+  (rev 8, finding 10). That spike is the acceptance test of "ready", and it is listed as the
   last sub-issue of Stage B rather than the first of Stage C.
 
 ## 7. Working rules for the conversion
@@ -589,7 +669,8 @@ specific to this codebase, or a trap found by checking such a rule against the c
     declarations, an explicit primary key where a table is addressed by `rowid`) are additive,
     each is its own migration, and none lands in the same commit as a query conversion.
 11. **No synchronous-local-SQLite assumption in any contract.** Repository and port signatures
-    are async and take an executor even while the driver underneath is synchronous, so Turso
+    are async and repositories are bound to an executor even while the driver underneath is
+    synchronous, so Turso
     or Postgres is a driver substitution and not an architecture change. This is Stage B's
     whole reason, and it is the rule the frame caches, getters and constructor reads in §1.5
     violate today.
@@ -667,6 +748,27 @@ and generates the dialect-specific nesting for free. Everything else uses the bu
 single-table reads gain nothing from it and would inherit the filter hazard for no benefit;
 counts, aggregates, filtering joins, FTS and unions cannot use it. The default in the plan is
 therefore "builder, with the relational API for aggregates", not one or the other everywhere.
+
+## 9. Staff review of revision 7 (2026-09-02) and what it changed
+
+An independent reviewer with no prior context read revision 7 against the code; the author
+verified every load-bearing claim separately. Verdict on revision 7: **replan, scoped** to
+three design decisions. The investigation (§1, §1.8, §1.9, §8) stood. Revision 8 is the result.
+
+| # | Finding | Severity | Change made |
+|---|---|---|---|
+| 1 | Stage A "awaitable form with call sites untouched" was self-contradictory: an awaiting body is an async method, which in Stage A trips the frame caches, the transaction helper's thenable guard and the Authority's async-write refusal | critical | Stage A uses sync forms only (§3.2, step 6) |
+| 2 | "Reads stay unqueued" on one shared connection: a read during another task's open transaction sees uncommitted writes; a body awaiting a re-entrant `store.transact` waits on the queue for itself and parks every writer | critical | Queue owns the connection; `AsyncLocalStorage` re-entrancy → savepoint; watchdog; no non-DB I/O in a body (step 12) |
+| 3 | Drizzle runs on the raw handle and bypasses the `SqlDatabase` wrapper in Stage A already: repos registry cache invalidation goes stale, query attribution goes dark, drizzle's own `deferred` transaction can be reached | high | Steps 5a–5d before the first conversion |
+| 4 | "rowid → explicit PK": every affected table already has a PK, three composite | high | Insertion-ordinal column with hand-written backfill, per table (step 6); FTS tables exempt |
+| 5 | `RETURNING` cannot replace the seq arithmetic as written: order unspecified, positional use downstream; `sqlite_sequence` read was unlisted | high | Step 16 rewritten |
+| 6 | "Precompute the principal's view per request" contradicts ADR 9 D2 rule 4 / D16.1 (grants evaluated live) | high | Rights read on `tx` inside the applying transaction; feed snapshot validated by `visibilityRevision`; ADR 9 amendment (step 14) |
+| 7 | `SessionRegistry` is `relay.ts`; its constructor reads eight aggregates; the POD-318 boot order must be reproduced | medium | Private constructor + `open()` in the current order (step 13); relay reads as their own sub-issue (step 14) |
+| 8 | Ordered pipe and funnel assume appends arrive synchronously; a subscriber committing from inside a notification is the re-entrancy deadlock | medium | `onAppended` inside the span before release; ADR 2 amendment; test case (step 12, §6.1) |
+| 9 | Executor parameter on ~620 methods is not the simplest design | medium | Bound repository set (`store.x` / `tx.x`), Stage 0 step 2 |
+| 10 | Postgres spike: the sync repository is not self-contained | medium | `queued_messages`, `upstream_outbox`, sequence port added to the spike (§6.2) |
+| 11 | 14 `INSERT OR REPLACE` sites, not 15; `grants.ts` depends on REPLACE re-stamping every column | low | Step 6 |
+| 12 | The fixture's env channel does not go away: it is still the only synchronous path from `globalSetup` to the forks | low | Step 13 |
 
 For reference, Linear's engine, which Podium's kernel resembles in shape: Postgres is the
 source of truth, every create, update and delete persists a model snapshot as a "SyncAction"
