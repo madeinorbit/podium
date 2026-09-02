@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   CONFIG_MIGRATIONS,
   CURRENT_CONFIG_VERSION,
+  LAYERED_ENV,
+  LAYERED_KEYS,
   configPath,
   inspectConfig,
   loadConfig,
@@ -17,17 +19,23 @@ import {
   resolveAgentHomeDir,
   resolveAgentRelay,
   resolveAgentRelayPort,
+  resolveAllowedOrigins,
   resolveDevArtifactOrigin,
   resolveFeatureOverrides,
   resolveHookPort,
   resolveInstallDir,
   resolveLocalServerHost,
   resolveLoggingMode,
+  resolveMode,
   resolvePort,
+  resolvePublicUrl,
   resolveRunRecordMode,
   resolveSessionRelay,
+  resolveSetting,
+  resolveTranscriptLake,
   resolveUpdateChannel,
   resolveUpdateFeed,
+  resolveUpdateScope,
   resolveUpdateTarget,
   saveConfig,
 } from './config'
@@ -585,5 +593,152 @@ describe('config versioning and one-shot migrations (POD-333)', () => {
     expect(CONFIG_MIGRATIONS.map((m) => m.to)).toEqual(CONFIG_MIGRATIONS.map((_, i) => i + 2))
     expect(CONFIG_MIGRATIONS.at(-1)?.to).toBe(CURRENT_CONFIG_VERSION)
     for (const m of CONFIG_MIGRATIONS) expect(m.describe.length).toBeGreaterThan(0)
+  })
+})
+
+describe('the layered keys a cloud deployment sets (PDM-26)', () => {
+  it('resolveMode: env wins, then file, then undefined', () => {
+    expect(resolveMode({}, {})).toBeUndefined()
+    expect(resolveMode({ mode: 'all-in-one' }, {})).toBe('all-in-one')
+    expect(resolveMode({ mode: 'all-in-one' }, { PODIUM_MODE: 'server' })).toBe('server')
+  })
+
+  it('resolveMode: an unknown PODIUM_MODE throws, naming the accepted values', () => {
+    expect(() => resolveMode({}, { PODIUM_MODE: 'sever' })).toThrow(
+      /PODIUM_MODE.*all-in-one, daemon, client, server/,
+    )
+  })
+
+  it('resolvePublicUrl: env wins and is normalized to a bare origin', () => {
+    expect(resolvePublicUrl({ publicUrl: 'https://a.example' }, {})).toBe('https://a.example')
+    expect(
+      resolvePublicUrl(
+        { publicUrl: 'https://a.example' },
+        { PODIUM_PUBLIC_URL: 'https://b.example/' },
+      ),
+    ).toBe('https://b.example')
+  })
+
+  it('resolvePublicUrl: env must be https unless the host is loopback', () => {
+    expect(() => resolvePublicUrl({}, { PODIUM_PUBLIC_URL: 'http://api.example' })).toThrow(
+      /PODIUM_PUBLIC_URL.*https/,
+    )
+    expect(resolvePublicUrl({}, { PODIUM_PUBLIC_URL: 'http://127.0.0.1:8080' })).toBe(
+      'http://127.0.0.1:8080',
+    )
+    // The FILE layer is deliberately unchanged: a self-hosted http:// URL keeps working.
+    expect(resolvePublicUrl({ publicUrl: 'http://box.lan:18787' }, {})).toBe('http://box.lan:18787')
+  })
+
+  it('resolvePublicUrl: env rejects a path, query or fragment', () => {
+    for (const bad of ['https://a.example/podium', 'https://a.example?x=1', 'https://a.example#f']) {
+      expect(() => resolvePublicUrl({}, { PODIUM_PUBLIC_URL: bad })).toThrow(/PODIUM_PUBLIC_URL/)
+    }
+  })
+
+  it('resolveAllowedOrigins: env list wins, trims, drops empties, dedupes in order', () => {
+    expect(resolveAllowedOrigins({}, {})).toEqual([])
+    expect(resolveAllowedOrigins({ allowedOrigins: ['https://a.example'] }, {})).toEqual([
+      'https://a.example',
+    ])
+    expect(
+      resolveAllowedOrigins(
+        { allowedOrigins: ['https://file.example'] },
+        { PODIUM_ALLOWED_ORIGINS: ' https://b.example , ,https://a.example,https://b.example ' },
+      ),
+    ).toEqual(['https://b.example', 'https://a.example'])
+  })
+
+  it('resolveAllowedOrigins: a PRESENT but empty variable is an explicit empty list', () => {
+    expect(
+      resolveAllowedOrigins(
+        { allowedOrigins: ['https://file.example'] },
+        { PODIUM_ALLOWED_ORIGINS: '' },
+      ),
+    ).toEqual([])
+  })
+
+  it('resolveAllowedOrigins: rejects wildcards and anything past the origin', () => {
+    for (const bad of ['*', 'https://*.example', 'https://a.example/app', 'a.example']) {
+      expect(() => resolveAllowedOrigins({}, { PODIUM_ALLOWED_ORIGINS: bad })).toThrow(
+        /PODIUM_ALLOWED_ORIGINS/,
+      )
+    }
+  })
+
+  it('resolveUpdateScope: env → file → all', () => {
+    expect(resolveUpdateScope({}, {})).toBe('all')
+    expect(resolveUpdateScope({ updateScope: 'fleet-only' }, {})).toBe('fleet-only')
+    expect(resolveUpdateScope({ updateScope: 'fleet-only' }, { PODIUM_UPDATE_SCOPE: 'all' })).toBe(
+      'all',
+    )
+    expect(() => resolveUpdateScope({}, { PODIUM_UPDATE_SCOPE: 'none' })).toThrow(
+      /PODIUM_UPDATE_SCOPE.*all, fleet-only/,
+    )
+  })
+
+  it('resolveTranscriptLake: env → file → on', () => {
+    expect(resolveTranscriptLake({}, {})).toBe('on')
+    expect(resolveTranscriptLake({ transcriptLake: 'off' }, {})).toBe('off')
+    expect(resolveTranscriptLake({ transcriptLake: 'off' }, { PODIUM_TRANSCRIPT_LAKE: 'on' })).toBe(
+      'on',
+    )
+    expect(() => resolveTranscriptLake({}, { PODIUM_TRANSCRIPT_LAKE: 'yes' })).toThrow(
+      /PODIUM_TRANSCRIPT_LAKE.*on, off/,
+    )
+  })
+
+  it('the new config keys round-trip through the file', () => {
+    saveConfig({
+      mode: 'server',
+      allowedOrigins: ['https://app.example'],
+      updateScope: 'fleet-only',
+      transcriptLake: 'off',
+    })
+    expect(loadConfig()).toMatchObject({
+      allowedOrigins: ['https://app.example'],
+      updateScope: 'fleet-only',
+      transcriptLake: 'off',
+    })
+  })
+})
+
+describe('resolveSetting provenance', () => {
+  it('reports the layer each value came from', () => {
+    expect(resolveSetting('updateChannel', {}, {})).toEqual({ value: 'stable', source: 'default' })
+    expect(resolveSetting('updateChannel', { updateChannel: 'edge' }, {})).toEqual({
+      value: 'edge',
+      source: 'file',
+    })
+    expect(
+      resolveSetting('updateChannel', { updateChannel: 'edge' }, { PODIUM_UPDATE_CHANNEL: 'dev' }),
+    ).toEqual({ value: 'dev', source: 'env', env: 'PODIUM_UPDATE_CHANNEL' })
+  })
+
+  it('an absent optional key with no file value reports the default layer', () => {
+    expect(resolveSetting('publicUrl', {}, {})).toEqual({ value: undefined, source: 'default' })
+    expect(resolveSetting('mode', {}, { PODIUM_MODE: 'server' })).toEqual({
+      value: 'server',
+      source: 'env',
+      env: 'PODIUM_MODE',
+    })
+  })
+
+  it('every layered key resolves and names a PODIUM_ variable', () => {
+    for (const key of LAYERED_KEYS) {
+      expect(LAYERED_ENV[key]).toMatch(/^PODIUM_/)
+      expect(resolveSetting(key, {}, {}).source).toBe('default')
+    }
+  })
+
+  it('the shipped accessors and resolveSetting cannot disagree', () => {
+    const config = { port: 1234, updateChannel: 'edge' as const, agentHome: '/tmp/h' }
+    const env = { PODIUM_UPDATE_FEED: 'https://feed.example' }
+    expect(resolveSetting('port', config, env).value).toBe(resolvePort(config, env))
+    expect(resolveSetting('updateChannel', config, env).value).toBe(
+      resolveUpdateChannel(config, env),
+    )
+    expect(resolveSetting('updateFeed', config, env).value).toBe(resolveUpdateFeed(config, env))
+    expect(resolveSetting('agentHome', config, env).value).toBe(resolveAgentHomeDir(config, env))
   })
 })
