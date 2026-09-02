@@ -9,10 +9,18 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
  * because the answer is a property of the page rather than of the panel: it is
  * true before the update chunk has even been fetched.
  *
- * Five of six operations on the reference fleet ran on `desktop-remote`, and a
- * webview has no service worker — so four of the ten findings in the audit that
- * produced POD-3224 could not apply to them, and nobody could tell, because no
- * client log said which surface it was written from.
+ * Five of six operations on the reference fleet ran on `desktop-remote`, and no
+ * client log said so — which mattered because every service-worker explanation
+ * for "Reload does nothing" turns on which surface was looking.
+ *
+ * NOT "the webview has no service worker". That claim is false and was believed
+ * for a while: `~/.podium/logs/clients/desktop-*.ndjson` shows the macOS webview
+ * ATTEMPTING a registration and failing it — 24 `Script …/sw.js load failed`
+ * rejections across three Macs. So the API is present, the registration fails,
+ * and no active worker is ever observed; why the script will not load is not
+ * settled by any log that exists today, and `web:sw`'s registration line is what
+ * will settle it. Recorded here because a comment asserting the stronger claim
+ * is how it survived four review passes.
  */
 export type PageSurface = 'web' | 'desktop-all-in-one' | 'desktop-remote' | 'mobile'
 

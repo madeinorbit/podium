@@ -356,3 +356,45 @@ describe('what the handshake forwards', () => {
     expect(phases).toContain('reloading')
   })
 })
+
+/**
+ * THE BRANCH THAT NEARLY BECAME UNREACHABLE (POD-3224 review).
+ *
+ * `finish()` wraps `deps.reload()` so that a refused navigation is reported as
+ * `failed` — "the new interface activated, but reload failed" — with the Reset
+ * affordance switched on. Routing the production caller through
+ * `navigateReload` puts a try/catch in front of that, and an early version of
+ * the seam swallowed the throw: the branch below stopped being reachable and
+ * every refused reload reported `outcome: 'reloading'` instead. The seam now
+ * rethrows, and this is what holds it to that.
+ */
+describe('a reload the browser refuses', () => {
+  it('is reported as failed, with Reset offered — not as a reload that happened', async () => {
+    const containerEvents = eventTarget()
+    const replacement = worker('activated')
+    const reg = registration({ waiting: replacement.worker })
+    const statuses: ReloadHandshakeStatus[] = []
+    const refusal = new Error('SecurityError: reload is not allowed here')
+
+    const outcome = await startReloadHandshake({
+      serviceWorker: {
+        addEventListener: containerEvents.addEventListener,
+        removeEventListener: containerEvents.removeEventListener,
+        controller: null,
+      } as ReloadHandshakeDeps['serviceWorker'],
+      registration: reg.registration as unknown as ReloadHandshakeDeps['registration'],
+      waitingWorker: replacement.worker,
+      onStatus: (status) => statuses.push(status),
+      reload: () => {
+        throw refusal
+      },
+      setTimer: () => {},
+    })
+
+    expect(outcome.outcome).toBe('failed')
+    expect(outcome.detail).toContain('reload is not allowed here')
+    expect(statuses.at(-1)).toMatchObject({ phase: 'failed', canReset: true })
+    // And the forwarded record says so, rather than claiming a navigation.
+    expect(logged.at(-1)).toMatchObject({ level: 'warn', outcome: 'failed' })
+  })
+})

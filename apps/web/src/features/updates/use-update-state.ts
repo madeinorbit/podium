@@ -884,45 +884,55 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * `hide()` clears it — so "the panel says Reload and the page is current" is a
    * statement about which of these six disagreed, and it was unanswerable.
    *
-   * The signature deliberately excludes the operation's step progress, so an
-   * update running for two minutes writes a handful of these rather than one a
-   * second. See {@link changeReporter}.
+   * TWO THINGS KEEP THIS OFF THE PER-SECOND WIRE, and both are deliberate:
+   *
+   *  - the signature carries VERDICTS ONLY. Not the operation's step progress,
+   *    and not `view.indicator`: the indicator is recomputed against `now` every
+   *    second and flips on a liveness threshold, so including it would forward a
+   *    record a second by construction. It is still LOGGED, as context read at
+   *    the moment a verdict moved — just never the reason a record exists.
+   *  - the emit is in an EFFECT, not in render. The gate is a ref, and a
+   *    concurrent render that React discards would otherwise advance it, losing
+   *    the very transition the line exists for.
    */
-  reportInputs.current(
-    [
-      String(options.needRefresh),
-      skew,
-      assets,
-      String(behind),
-      surface,
-      view.state,
-      view.indicator,
-      operationTargetVersion ?? '',
-      String(canInstallDesktop),
-      pending ?? '',
-    ].join('|'),
-    () =>
-      updatesLog.info('update panel inputs changed', {
-        surface,
-        needRefresh: options.needRefresh,
-        skew,
-        assets,
-        behind,
-        state: view.state,
-        indicator: view.indicator,
-        ...(view.operationId ? { operationId: view.operationId } : {}),
-        ...(operationTargetVersion ? { operationTargetVersion } : {}),
-        ...(operationTarget?.artifacts?.web?.digest
-          ? { operationTargetWebDigest: operationTarget.artifacts.web.digest }
-          : {}),
-        pageVersion: localVersion,
-        ...(pageBuildDigest() ? { pageDigest: pageBuildDigest() } : {}),
-        pageBundle: pageBundleVersion() ?? 'unhashed',
-        canInstallDesktop,
-        canReload: options.reload !== undefined,
-        ...(pending ? { pending } : {}),
-      }),
-  )
+  const inputsSignature = [
+    String(options.needRefresh),
+    skew,
+    assets,
+    String(behind),
+    surface,
+    view.state,
+    operationTargetVersion ?? '',
+    String(canInstallDesktop),
+    pending ?? '',
+  ].join('|')
+  const inputsFieldsRef = useRef<Record<string, unknown>>({})
+  inputsFieldsRef.current = {
+    surface,
+    needRefresh: options.needRefresh,
+    skew,
+    assets,
+    behind,
+    state: view.state,
+    indicator: view.indicator,
+    ...(view.operationId ? { operationId: view.operationId } : {}),
+    ...(operationTargetVersion ? { operationTargetVersion } : {}),
+    ...(operationTarget?.artifacts?.web?.digest
+      ? { operationTargetWebDigest: operationTarget.artifacts.web.digest }
+      : {}),
+    pageVersion: localVersion,
+    ...(pageBuildDigest() ? { pageDigest: pageBuildDigest() } : {}),
+    pageBundle: pageBundleVersion() ?? 'unhashed',
+    canInstallDesktop,
+    canReload: options.reload !== undefined,
+    ...(pending ? { pending } : {}),
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the signature is the subject; the fields are read through a ref at the moment it moves
+  useEffect(() => {
+    reportInputs.current(inputsSignature, () =>
+      updatesLog.info('update panel inputs changed', inputsFieldsRef.current),
+    )
+  }, [inputsSignature])
 
   /**
    * THE OPERATION THIS PAGE IS LOOKING AT, whenever it becomes a different one
@@ -930,20 +940,26 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * (question 8); this is the CLIENT's view of it, which is the half that
    * explains what the user was shown and when.
    */
-  reportOperation.current([operation?.id ?? 'none', operation?.state ?? '-'].join('|'), () =>
-    updatesLog.info('the operation this page is watching changed', {
-      ...(operation
-        ? {
-            operationId: operation.id,
-            state: operation.state,
-            watched: watched.current.has(operation.id),
-            ...(operation.error?.code ? { errorCode: operation.error.code } : {}),
-          }
-        : { operationId: 'none' }),
-      live: live === undefined ? 'unread' : live === null ? 'none' : live.state,
-      latest: latest === undefined ? 'unread' : latest === null ? 'none' : latest.state,
-    }),
-  )
+  const operationSignature = [operation?.id ?? 'none', operation?.state ?? '-'].join('|')
+  const operationFieldsRef = useRef<Record<string, unknown>>({})
+  operationFieldsRef.current = {
+    ...(operation
+      ? {
+          operationId: operation.id,
+          state: operation.state,
+          watched: watched.current.has(operation.id),
+          ...(operation.error?.code ? { errorCode: operation.error.code } : {}),
+        }
+      : { operationId: 'none' }),
+    live: live === undefined ? 'unread' : live === null ? 'none' : live.state,
+    latest: latest === undefined ? 'unread' : latest === null ? 'none' : latest.state,
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: as above — the signature is the subject
+  useEffect(() => {
+    reportOperation.current(operationSignature, () =>
+      updatesLog.info('the operation this page is watching changed', operationFieldsRef.current),
+    )
+  }, [operationSignature])
 
   const run = useCallback(
     async (kind: PanelActionKind): Promise<void> => {

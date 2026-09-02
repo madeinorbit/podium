@@ -2,6 +2,7 @@ import { useRegisterSW as useRegisterSWVirtual } from 'virtual:pwa-register/reac
 import type { RegisterSWOptions } from 'vite-plugin-pwa/types'
 import { swLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
+import { serviceWorkerContainer } from '@/lib/sw-container'
 import { observeServiceWorker, workerFacts } from '@/lib/sw-observer'
 
 /**
@@ -34,7 +35,9 @@ import { observeServiceWorker, workerFacts } from '@/lib/sw-observer'
  * intercept.
  */
 export function useRegisterSW(options?: RegisterSWOptions) {
-  const container = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker
+  // Never a bare `navigator.serviceWorker`: on an opaque origin that getter
+  // THROWS rather than answering undefined (POD-3224 review).
+  const container = serviceWorkerContainer()
   return useRegisterSWVirtual({
     ...options,
     onRegisteredSW(swUrl, registration) {
@@ -54,9 +57,10 @@ export function useRegisterSW(options?: RegisterSWOptions) {
       options?.onRegisteredSW?.(swUrl, registration)
     },
     onRegisterError(error: unknown) {
-      // THE LINE THAT WAS MISSING. The browser's console said the script failed
-      // to load; nothing said which script, from which page, on which surface,
-      // or with what error — and none of it was forwarded.
+      // THE LINE THAT EXPLAINS THE macOS DESKTOP CASE. The container is present
+      // there and the script fails to load; before this the only trace was the
+      // browser's own bare "Script …/sw.js load failed" landing in `web:crash`
+      // as an unhandled rejection, with no page, surface or scope attached.
       swLog.error('service worker registration failed', {
         available: container !== undefined,
         err: error,

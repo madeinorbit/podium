@@ -20,11 +20,49 @@ import type { Context, Hono } from 'hono'
  * reports as `assets === 'replaced'` and as a Vite preload error, observed from
  * the other end, and it needs no cooperation from the page.
  *
- * `server:updates`, because the reader is following an update; `info`, because
- * the volume is set by how many stale documents exist and how many chunks they
- * still want, and on a converged fleet it is zero.
+ * `server:updates`, because the reader is following an update.
+ *
+ * RATE-LIMITED, AND ITS INPUTS CLAMPED, because unlike every other line in this
+ * issue this one is driven by an UNAUTHENTICATED request whose path and
+ * `Referer` an outsider chooses. A converged fleet emits none of these; a
+ * scanner walking hashed-looking URLs would otherwise emit one per request, with
+ * its own text in them. So: at most {@link STALE_ASSET_LOG_PER_MINUTE} a minute,
+ * with the suppressed count carried on the next line that gets through, and
+ * every attacker-controlled string cut to {@link STALE_ASSET_FIELD_MAX}.
+ *
+ * The cap is well above what a real stale page produces — a document has tens of
+ * unloaded chunks, not hundreds — so the signal survives the limit intact.
  */
 const log = createLogger('server:updates')
+
+const STALE_ASSET_LOG_PER_MINUTE = 30
+const STALE_ASSET_FIELD_MAX = 256
+
+let staleWindowStartedAt = 0
+let staleInWindow = 0
+let staleSuppressed = 0
+
+/** Clamp a caller-supplied string to something a log line can hold. */
+function clampField(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  return value.length <= STALE_ASSET_FIELD_MAX ? value : `${value.slice(0, STALE_ASSET_FIELD_MAX)}…`
+}
+
+/** May this occurrence be logged? Counts the ones it refuses. */
+function admitStaleAssetLog(now: number): { admit: boolean; suppressed: number } {
+  if (now - staleWindowStartedAt >= 60_000) {
+    staleWindowStartedAt = now
+    staleInWindow = 0
+  }
+  if (staleInWindow >= STALE_ASSET_LOG_PER_MINUTE) {
+    staleSuppressed += 1
+    return { admit: false, suppressed: staleSuppressed }
+  }
+  staleInWindow += 1
+  const suppressed = staleSuppressed
+  staleSuppressed = 0
+  return { admit: true, suppressed }
+}
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
@@ -571,12 +609,18 @@ export function registerWebStatic(
     // to the shell [POD-421].
     if (!isNavigationRequest(pathname, c)) {
       if (isImmutableAsset(filePath)) {
-        log.info('a page asked for an asset this dist no longer has', {
-          path: pathname,
-          asset: basename(filePath),
-          ...(c.req.header('referer') ? { referer: c.req.header('referer') } : {}),
-          ...(c.req.header('sec-fetch-dest') ? { dest: c.req.header('sec-fetch-dest') } : {}),
-        })
+        const gate = admitStaleAssetLog(Date.now())
+        if (gate.admit) {
+          const referer = clampField(c.req.header('referer'))
+          log.info('a page asked for an asset this dist no longer has', {
+            path: clampField(pathname),
+            asset: clampField(basename(filePath)),
+            ...(referer ? { referer } : {}),
+            ...(c.req.header('sec-fetch-dest') ? { dest: c.req.header('sec-fetch-dest') } : {}),
+            // Says a gap exists rather than letting one pass unremarked.
+            ...(gate.suppressed > 0 ? { suppressedSinceLast: gate.suppressed } : {}),
+          })
+        }
       }
       return c.notFound()
     }

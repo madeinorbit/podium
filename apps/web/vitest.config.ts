@@ -20,6 +20,16 @@ export default defineConfig({
   resolve: {
     ...sharedVitestConfig.resolve,
     alias: [
+      // The VitePWA plugin mints `virtual:pwa-register/react` at build time and
+      // does not run in this lane. Without a stand-in, `src/app/pwa-register.ts`
+      // cannot be imported at all — which is why its wrapper went untested
+      // (POD-3224); every suite mocked the wrapper instead.
+      {
+        find: /^virtual:pwa-register\/react$/,
+        replacement: fileURLToPath(
+          new URL('./src/app/pwa-register-virtual.vitest.ts', import.meta.url),
+        ),
+      },
       {
         find: /^@\/features\/chat\/TranscriptFeedBoundary$/,
         replacement: fileURLToPath(

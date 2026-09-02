@@ -1,4 +1,5 @@
 import { swLog } from '@/lib/logging/update-logs'
+import { serviceWorkerContainer } from '@/lib/sw-container'
 
 /**
  * EVERY SERVICE-WORKER EVENT THIS PAGE OBSERVES, WRITTEN DOWN (POD-3224).
@@ -69,9 +70,9 @@ const observed = new WeakSet<object>()
 
 export function observeServiceWorker(
   registration: ObservableRegistration,
-  container: ObservableContainer | undefined = typeof navigator === 'undefined'
-    ? undefined
-    : (navigator.serviceWorker as unknown as ObservableContainer | undefined),
+  container: ObservableContainer | undefined = serviceWorkerContainer() as unknown as
+    | ObservableContainer
+    | undefined,
 ): void {
   if (observed.has(registration)) return
   observed.add(registration)

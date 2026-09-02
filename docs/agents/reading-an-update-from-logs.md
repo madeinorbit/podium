@@ -27,6 +27,23 @@ is forwarded together — the "one knob" property the boot level already has. A
 second channel would need its own batching and back-pressure, and would bypass
 the console and the flight recorder.
 
+### What these lines now put on the wire
+
+`@podium/logger` has no redaction layer, so flooring a namespace is a decision
+about content as well as volume. Three fields are worth naming:
+
+- `web:boot` forwards `userAgent` (first 256 chars) and `referrer` — the page the
+  user came from — to their own server, and `origin`/`path` with it.
+- `server:updates`'s stale-asset line records the request `Referer`, which on an
+  unauthenticated route is chosen by whoever made the request. It is clamped to
+  256 chars and rate-limited to 30 a minute for that reason.
+- `web:reload` and `web:sw` carry service-worker `scriptURL`s, which are origin
+  URLs of the user's own server.
+
+All of it goes to the user's own Podium and nowhere else — the same hop the
+existing `warn`+ stream already used — but it is more than that stream carried,
+and an operator sharing a client log file should know what is in it.
+
 **Floored to `info`:** `web:updates`, `web:sw`, `web:reload`,
 `web:version-guard`, `web:chunk-recovery`, `web:boot`, `daemon:update`.
 The daemon's steady forwarded stream reads the same floors, so those lines leave
@@ -51,7 +68,7 @@ reload-handshake phase.
 
 | # | Question | Line | ns / level |
 |---|---|---|---|
-| 1 | surface, page build + bundle hash + source digest, platform, `navigator.serviceWorker` present, controller state | `web client booted` — `surface`, `v`, `sourceDigest`, `bundle`, `userAgent`, `serviceWorker`, `controller`, `controllerScriptURL`, `origin`, `path` | `web:boot` info |
+| 1 | surface, page build + bundle hash + source digest, platform, whether the SW container is reachable, controller state | `web client booted` — `surface`, `v`, `sourceDigest`, `bundle`, `userAgent`, `serviceWorker` (`available` / `no-navigator` / `unsupported` / `refused`), `controller`, `controllerScriptURL`, `origin`, `path`. `available` is not a claim that a worker exists — see the registration line below | `web:boot` info |
 | 1 | registration outcome, with the error | `service worker registered` (`swUrl`, `scope`, all four slots) / `service worker registration failed` (`err`, `available`) / `service worker registration resolved without a registration` | `web:sw` info / **error** / warn |
 | 1 | waiting/installing state at registration | the four `controller`/`active`/`installing`/`waiting` fields on every `web:sw` line | `web:sw` info |
 | 2 | `updatefound` | `service worker updatefound` | `web:sw` info |
@@ -215,10 +232,19 @@ CLIENT   web client booted                          the new bundle
 ### Answering the three disputes the audit could not settle
 
 - **"Which surface was the user on?"** — the boot record's `surface`. Five of six
-  operations on the reference fleet were `desktop-remote`, which has no service
-  worker; the boot record now says `serviceWorker: false`, which is the complete
-  explanation for a silent `web:sw` namespace and rules out four of the ten
-  findings by construction.
+  operations on the reference fleet were `desktop-remote` and no log said so.
+  The boot record now also carries `serviceWorker`, which is *why* there is no
+  container when there is none — `no-navigator`, `unsupported` or `refused` (an
+  opaque origin whose getter throws) — rather than a bare boolean.
+
+  It is **not** true that the desktop webview has no service worker: the
+  forwarded desktop logs show 24 `Script …/sw.js load failed` rejections across
+  three Macs, so the API is present and the *registration* fails. On that surface
+  the boot record will read `serviceWorker: available, controller: none`, and the
+  new `service worker registration failed` line (`web:sw`, error, with the scope
+  and the error) is what says which of the two it was. Why that script will not
+  load is not answered by any log that exists today — it is now merely
+  *observable*, which is the whole scope of this issue.
 - **"Click Reload and nothing happens."** — exactly one forwarded
   `web:reload` record per click. `outcome: no-replacement` at `warn` is the
   reported symptom, and it names the worker slots as they stood.

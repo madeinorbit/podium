@@ -33,6 +33,7 @@ import { serverConfig } from '@/app/trpc'
 import { forceReload } from '@/lib/force-reload'
 import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
+import { serviceWorkerContainer } from '@/lib/sw-container'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
@@ -127,7 +128,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
    * action below.
    */
   const reload = useCallback(async () => {
-    const serviceWorker = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker
+    const serviceWorker = serviceWorkerContainer()
     const currentRegistration = registration
     await startReloadHandshake({
       serviceWorker,

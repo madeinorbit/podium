@@ -1,5 +1,6 @@
 import { createLogger } from '@podium/logger'
 import { pageSurface } from '@/lib/page-surface'
+import { serviceWorkerAvailability, serviceWorkerContainer } from '@/lib/sw-container'
 import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from './build-version'
 import { installWebLogging } from './install'
 import { pageLogTransport } from './transport'
@@ -26,10 +27,8 @@ export function startWebLogging(): () => void {
    *
    * `web:boot` is floored at `info` (see `update-logs.ts`), so unlike before
    * this line is FORWARDED — which is the point. Reading a forwarded update
-   * trace previously meant guessing the surface, and the guess mattered: a
-   * `desktop-remote` webview has no service worker at all, so a whole family of
-   * explanations for "Reload does nothing" cannot apply there, and nothing in
-   * the log said which kind of page had been looking.
+   * trace previously meant guessing which kind of page had been looking, and
+   * every guess about a service worker turns on that answer.
    *
    * Each field is a question somebody had to answer by hand:
    *
@@ -39,26 +38,36 @@ export function startWebLogging(): () => void {
    *    the only one that moves when a rebuild of one commit replaces the dist
    *    under a live page, which is exactly the case `assets === 'replaced'` is
    *    about.
-   *  - `serviceWorker` — whether the container exists AT ALL, before any
-   *    registration is attempted. `false` here is the complete explanation for a
-   *    silent `web:sw` namespace, and its absence was previously indistinguishable
-   *    from a registration that never got as far as failing.
+   *  - `serviceWorker` — whether the container is reachable, and when it is not,
+   *    WHICH of the three reasons: no navigator, no such property, or a getter
+   *    that threw (an opaque origin). Note that `available` is NOT a claim that
+   *    a worker exists: on the macOS desktop webview the API is present and the
+   *    registration then fails to load its script, which is a different fault
+   *    with a different fix, and `web:sw`'s registration line is what tells them
+   *    apart.
    *  - `controller` — whether this document was loaded UNDER a worker. A page
    *    that boots uncontrolled is the stranded case the audit could not construct
    *    from logs, because nothing recorded it.
    */
-  const serviceWorker = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker
+  const serviceWorker = serviceWorkerContainer()
+  const availability = serviceWorkerAvailability()
+  let controller: ServiceWorker | null | undefined
+  try {
+    controller = serviceWorker?.controller
+  } catch {
+    // Same opaque-origin hazard one level down; the boot record must not be the
+    // thing that throws at module scope.
+    controller = undefined
+  }
   createLogger('web:boot').info('web client booted', {
     surface: pageSurface(),
     v: pageBuildVersion(),
     ...(pageBuildDigest() ? { sourceDigest: pageBuildDigest() } : {}),
     ...(pageBundleVersion() ? { bundle: pageBundleVersion() } : {}),
     ...(typeof navigator === 'undefined' ? {} : { userAgent: navigator.userAgent.slice(0, 256) }),
-    serviceWorker: serviceWorker !== undefined,
-    controller: serviceWorker?.controller?.state ?? 'none',
-    ...(serviceWorker?.controller?.scriptURL
-      ? { controllerScriptURL: serviceWorker.controller.scriptURL }
-      : {}),
+    serviceWorker: availability,
+    controller: controller?.state ?? 'none',
+    ...(controller?.scriptURL ? { controllerScriptURL: controller.scriptURL } : {}),
     origin: window.location.origin,
     path: window.location.pathname,
     ...(document.referrer ? { referrer: document.referrer } : {}),

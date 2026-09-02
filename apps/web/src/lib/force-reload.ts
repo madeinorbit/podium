@@ -1,4 +1,3 @@
-import { reloadLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
 
 /**
@@ -37,11 +36,11 @@ export async function forceReload(reason = 'force-reload'): Promise<void> {
     // best-effort: cache eviction failures should not block the reload
     refused ??= err instanceof Error ? err.message : String(err)
   }
-  reloadLog.info('evicted the cached interface before reloading', {
-    reason,
+  // ONE record, not two: the counts ride on the navigation line rather than on a
+  // line of their own, because they describe the same event.
+  navigateReload('force-reload', reason, {
     unregistered,
     cachesDeleted,
-    ...(refused ? { refused } : {}),
+    ...(refused ? { evictionRefused: refused } : {}),
   })
-  navigateReload('force-reload', reason, { unregistered, cachesDeleted })
 }

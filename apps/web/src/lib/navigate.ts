@@ -19,17 +19,23 @@ import { reloadLog } from '@/lib/logging/update-logs'
  * boot record lands in the same file seconds later, so a lost line shows up as a
  * gap between a reason and a boot rather than as silence).
  *
- * The one behaviour it adds is the `catch`: `location.reload()` can throw in a
- * sandboxed or cross-origin-embedded frame, and a navigation that did NOT happen
- * used to look exactly like one that did.
+ * IT LOGS AND RETHROWS, and the rethrow is not optional. `location.reload()` can
+ * throw in a sandboxed or cross-origin-embedded frame, and two callers DECIDE on
+ * that throw: `reload-handshake.ts` turns it into the `failed` phase with "the
+ * new interface activated, but reload failed" and a Reset affordance, and
+ * `version-guard.ts` must not answer `'reloaded'` about a page that is still
+ * sitting there. Swallowing it here would make the first branch unreachable and
+ * the second one lie — a second, unsanctioned behaviour change, which is exactly
+ * what this seam must not be.
  */
 export type NavigationSite =
   /** `reload-handshake.ts` — a takeover was observed and the page follows it. */
   | 'handshake'
   /** `force-reload.ts` — caches and registrations evicted first. */
   | 'force-reload'
-  /** `AppErrorPage.reloadApp` — the crash screen's own button, and the library's
-   *  `onNeedReload`. */
+  /** `AppErrorPage.reloadApp` — the crash screen's own button, and every other
+   *  caller of `reloadApp`. (The library's `onNeedReload` is NOT this one; it is
+   *  `workbox-controlling` below.) */
   | 'app-error'
   /** `WireSkewBanner` — the server speaks a different wire version. */
   | 'wire-skew'
@@ -68,7 +74,10 @@ export function navigateReload(
     win.location.reload()
   } catch (err) {
     // A reload that could not happen is the failure most easily mistaken for a
-    // reload that did: the page stays exactly as it was either way.
+    // reload that did: the page stays exactly as it was either way. So it is
+    // recorded here — and handed straight back, because the caller is the one
+    // that knows what to say about it.
     reloadLog.error('the page could not be reloaded', { site, reason, ...fields, err })
+    throw err
   }
 }

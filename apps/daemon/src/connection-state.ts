@@ -411,6 +411,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     acceptedCaps = new Set(caps)
     const recoveredAfterMs =
       reconnectBackoffMs === RECONNECT_MIN_MS ? undefined : reconnectBackoffMs
+    // READ BEFORE THEY ARE CLEARED. Both of these describe the outage that just
+    // ended, and clearing them first is how the field that names the cause ends
+    // up permanently absent from the line that exists to report it.
+    const recoveredFrom = lastSocketError
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
     log.info('daemon link established', {
@@ -418,7 +422,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       // The backoff this attempt had grown to. Absent on a first connection —
       // which is itself the distinction between "came back" and "just started".
       ...(recoveredAfterMs !== undefined ? { afterBackoffMs: recoveredAfterMs } : {}),
-      ...(lastSocketError ? { lastError: lastSocketError } : {}),
+      ...(recoveredFrom ? { recoveredFrom } : {}),
     })
     const boot = deps.onConnected() ?? {}
     convergedVersion = boot.convergedVersion ?? convergedVersion
