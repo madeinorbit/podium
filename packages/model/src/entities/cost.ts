@@ -81,12 +81,13 @@ export type TaskCostState = z.infer<typeof TaskCostState>
  * unlinked would look complete precisely when it is most wrong.
  *
  * COMPLETENESS IS THE TEST; HARNESS IS ONLY ONE REASON (corrected after
- * POD-1604 measured it against the live corpus). Keying the floor off harness
- * alone asserted completeness it could not see: a task can be WHOLLY CLAUDE, every transcript
- * present and attributed, and still be missing most of itself because the 7-day
- * harvest never read its older sessions. POD-1574 rendered `none` — a positive
- * claim that the figure is NOT a lower bound — while 8 of its 10 costed sessions
- * had never been harvested and its figure was about a THIRD of real spend. That
+ * POD-1869 counted the false verdicts against the live corpus). Keying the floor
+ * off harness alone asserted completeness it could not see: a task can be WHOLLY
+ * CLAUDE, every transcript present and attributed, and still be missing most of
+ * itself because the 7-day harvest never read its older sessions. POD-1574
+ * rendered `none` — a positive claim that the figure is NOT a lower bound —
+ * while 9 of its 11 sessions had never been harvested and its figure was about a
+ * THIRD of real spend. That
  * is the confident-zero mistake in another costume, and this type exists to stop
  * exactly that. So `partial` is raised when the figure is a lower bound FOR ANY
  * REASON: any session in scope with no cost row, or any non-Claude harness.

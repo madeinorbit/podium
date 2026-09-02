@@ -78,6 +78,20 @@ describe('floorLabel', () => {
   it('still says the figure is a bound when it cannot say why', () => {
     expect(floorLabel([])).toBe('≥ floor')
   })
+
+  it('names unread sessions, the reason a wholly-Claude task can still be short', () => {
+    // POD-1574 read "≥ floor" with nothing after it while 8 of its 10 costed
+    // sessions had never been harvested. The harness list cannot say that, and
+    // "may be undercounted" is not the same fact as "most of it is not counted".
+    expect(floorLabel(['claude-code'], 8)).toBe('≥ floor · 8 sessions unread')
+    expect(floorLabel(['claude-code'], 1)).toBe('≥ floor · 1 session unread')
+  })
+
+  it('names both reasons when both hold, in the order they qualify the figure', () => {
+    expect(floorLabel(['claude-code', 'codex'], 2)).toBe(
+      '≥ floor · Claude + Codex · 2 sessions unread',
+    )
+  })
 })
 
 describe('rosterCostMeta', () => {

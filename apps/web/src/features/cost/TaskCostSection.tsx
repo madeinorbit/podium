@@ -389,7 +389,7 @@ export function TaskCostSection({ view }: { view: TaskCostView | null }): JSX.El
           it, and a task whose every session was Claude never draws it. */}
       {view.floor === 'partial' && (
         <CostRow label="Attribution" faint>
-          {floorLabel(view.harnesses)}
+          {floorLabel(view.harnesses, view.uncostedSessionCount)}
         </CostRow>
       )}
 

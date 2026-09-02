@@ -92,18 +92,32 @@ export function rateLabel(rateVsMedian: number): string {
 /**
  * "≥ floor · all Codex" — the figure is a LOWER BOUND, and why.
  *
- * The mark keys off harness and nothing else: every Claude transcript that
- * carries usage has a segment row, and a good share of Codex rollouts have none,
- * so any non-Claude participation makes the total a floor.
+ * TWO REASONS, AND THEY DO NOT READ ALIKE. A figure is a floor because some of
+ * it ran on a harness whose rollouts are not all linked (every Claude transcript
+ * that carries usage has a segment row; a good share of Codex ones have none),
+ * or because sessions in scope have never been harvested at all. "may be
+ * undercounted" and "most of this has not been counted yet" are different facts
+ * to an operator, so both are named and neither stands in for the other.
  *
  * THE HARNESSES ARE NAMED, NEVER ASSUMED. "all Codex" over a task that also ran
  * Grok is a lie told confidently, and POD-1484 really does read `[codex, grok]`.
  * One harness gets "all X"; several get them joined, in the alphabetical order
  * the wire sends.
  */
-export function floorLabel(harnesses: readonly CostHarness[]): string {
-  const named = costHarnessLabel(harnesses)
-  return named === '' ? '≥ floor' : `≥ floor · ${named}`
+export function floorLabel(
+  harnesses: readonly CostHarness[],
+  /** Sessions in scope with no cost row yet — `TaskCostView.uncostedSessionCount`. */
+  uncostedSessionCount = 0,
+): string {
+  const parts: string[] = []
+  // A wholly-Claude task now reaches this label (its floor can come from the
+  // unread count alone) and "all Claude" would state a reason that is never
+  // true, so the harness clause is drawn only when a non-Claude harness ran.
+  const named = harnesses.some((h) => h !== 'claude-code') ? costHarnessLabel(harnesses) : ''
+  if (named !== '') parts.push(named)
+  if (uncostedSessionCount > 0)
+    parts.push(`${uncostedSessionCount} session${uncostedSessionCount === 1 ? '' : 's'} unread`)
+  return parts.length === 0 ? '≥ floor' : `≥ floor · ${parts.join(' · ')}`
 }
 
 /**

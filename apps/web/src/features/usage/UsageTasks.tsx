@@ -109,23 +109,41 @@ export function taskCostStats(rows: readonly TaskCostRowView[]): TaskCostStats {
 }
 
 /**
- * A LOWER BOUND, AND WHY — two fields, never one enum (POD-1858).
+ * A LOWER BOUND, AND WHY — the verdict is one field, the reasons hang off it
+ * (POD-1858).
  *
- * `floor` says the figure understates; `harnesses` says which transcripts it was
- * read from. The reason to keep them apart is that "all Codex" over a task that
- * also ran Grok would be a lie, and a task really can read `[codex, grok]`. Only
- * the non-Claude harnesses are named: every Claude transcript that carries usage
- * has a segment row, so a Claude session is never the reason a figure is short.
+ * `floor` says the figure understates; `harnesses` and `uncostedSessionCount`
+ * say why, and they are two different sentences to whoever reads them. A harness
+ * hedge means "some of this ran on Codex and may be undercounted"; an unread
+ * count means "most of this has not been counted yet" — a task can be WHOLLY
+ * CLAUDE and still be missing most of itself because the harvest never read its
+ * older sessions. Collapsing them would print the wrong reason with the same
+ * confidence as the right one.
+ *
+ * Only the non-Claude harnesses are named: every Claude transcript that carries
+ * usage has a segment row, so a Claude session is never the harness reason a
+ * figure is short. "all Codex" over a task that also ran Grok would be a lie,
+ * and a task really can read `[codex, grok]`.
  */
-function floorReason(harnesses: readonly CostHarness[]): string {
+function floorReason(harnesses: readonly CostHarness[], uncostedSessionCount: number): string {
   const named = harnesses.filter((h) => h !== 'claude-code').map((h) => HARNESS_LABEL[h])
-  const list =
-    named.length === 0
-      ? 'some'
-      : named.length === 1
+  const reasons: string[] = []
+  if (named.length > 0) {
+    const list =
+      named.length === 1
         ? (named[0] as string)
         : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`
-  return `At least this much. Not every ${list} transcript is linked to a task, so this figure counts only what could be attributed to one.`
+    reasons.push(
+      `Not every ${list} transcript is linked to a task, so this counts only what could be attributed to one.`,
+    )
+  }
+  if (uncostedSessionCount > 0)
+    reasons.push(
+      uncostedSessionCount === 1
+        ? 'One session of this task has no cost on record yet, so its spend is not in this figure.'
+        : `${uncostedSessionCount} sessions of this task have no cost on record yet, so their spend is not in this figure.`,
+    )
+  return ['At least this much.', ...reasons].join(' ')
 }
 
 /**
@@ -370,7 +388,7 @@ export function UsageTasks({ feed, cold }: { feed: TaskCostsFeed; cold: boolean 
                     </td>
                     <td className="usage-th-num usage-td-cost">
                       {row.floor === 'partial' ? (
-                        <span title={floorReason(row.harnesses)}>
+                        <span title={floorReason(row.harnesses, row.uncostedSessionCount)}>
                           <span className="usage-td-floor">≥</span> {formatUsdExact(row.estCostUsd)}
                         </span>
                       ) : (

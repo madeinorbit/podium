@@ -29,6 +29,7 @@ const view = (over: Partial<TaskCostView> = {}): TaskCostView => ({
   provisional: false,
   floor: 'none',
   harnesses: ['claude-code'],
+  uncostedSessionCount: 0,
   sessions: [],
   // The read-time stamp the wire carries (POD-1858). This section deliberately
   // draws nothing from it — the display decision is the coordinator's — but the

@@ -47,6 +47,7 @@ const row = (over: Partial<TaskCostRowWire> = {}): TaskCostRowWire => {
     sessionCount: 2,
     floor: 'none',
     harnesses: ['claude-code'],
+    uncostedSessionCount: 0,
     ...over,
   }
 }
@@ -159,6 +160,26 @@ describe('UsageTasks', () => {
     // Both harnesses, never "all Codex" over a task that also ran Grok.
     expect(cost.getAttribute('title')).toContain('Codex and Grok')
     expect(screen.getByText(/marks a lower bound/)).toBeTruthy()
+  })
+
+  it('marks a wholly-Claude task whose sessions were never harvested', () => {
+    // The other half of the floor: no harness to blame, and the old copy read
+    // "Not every some transcript is linked to a task" — a broken sentence
+    // stating the wrong reason with a confident face.
+    render(
+      <UsageTasks
+        feed={feedOf([
+          row({ seq: 1, floor: 'partial', harnesses: ['claude-code'], uncostedSessionCount: 8 }),
+        ])}
+        cold={false}
+      />,
+    )
+
+    const cost = section().querySelector('.usage-td-cost span') as HTMLElement
+    expect(cost.textContent).toContain('≥')
+    const title = cost.getAttribute('title') as string
+    expect(title).toContain('8 sessions of this task have no cost on record yet')
+    expect(title).not.toContain('transcript is linked')
   })
 
   it('never ranks a task with nothing counted, rather than printing it as zero', () => {
