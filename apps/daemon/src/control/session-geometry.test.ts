@@ -46,7 +46,7 @@ function daemonContext(): DaemonContext {
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     durableLabels: new Map<SessionId, string>(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
-    outputScheduler: { enqueue: () => {}, remove: () => {} },
+    outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },
     primeInjector: { reset: () => {} },

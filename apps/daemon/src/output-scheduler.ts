@@ -76,6 +76,22 @@ export class OutputScheduler {
     if (p.frames.length > 0) this.flush(sessionId) // don't strand buffered output across a tier change
   }
 
+  /**
+   * Send whatever this session is holding, right now.
+   *
+   * The resize path calls this before it dispatches (POD-3239 B7): bytes the
+   * scheduler is sitting on were produced at the OLD grid, so they have to leave
+   * ahead of the report that announces the new one. Without it a P2/P3 session
+   * can hold up to `coalesceMs` of old-grid output and deliver it AFTER the
+   * viewer has already resized its buffer, which is the shredded-frame transient
+   * the model calls unacceptable on the daemon-held side of the boundary.
+   *
+   * Idempotent and cheap: a session holding nothing does nothing.
+   */
+  flushNow(sessionId: SessionId): void {
+    this.flush(sessionId)
+  }
+
   private flush(sessionId: SessionId): void {
     const p = this.pending.get(sessionId)
     if (!p) return

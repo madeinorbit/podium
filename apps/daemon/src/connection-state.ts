@@ -3,6 +3,7 @@ import { hostname } from 'node:os'
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
+  CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   createHandshakeDialer,
@@ -605,6 +606,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         ),
         CAP_TERMINAL_OUTPUT_BINARY_V1,
         CAP_TERMINAL_INPUT_BINARY_V1,
+        // POD-3239: this daemon reports the grid it applied after every resize
+        // it dispatches, which is what licenses the server to stop writing the
+        // session's geometry from the request side. Offered from the commit that
+        // makes it true, so the advertisement is never ahead of the behaviour.
+        CAP_DAEMON_GEOMETRY_APPLIED,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {

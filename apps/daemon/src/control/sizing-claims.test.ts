@@ -4,8 +4,9 @@
  * The daemon-side facts the terminal-sizing plan (POD-3190) relies on: how a
  * resize that arrives before a bridge is handled, what `bridge.resize()` gives
  * back, how long the output scheduler may hold bytes, and the post-bind repaint
- * nudge. Stage 1 (POD-3239 B7) inserts a flush + `geometryApplied` report into
- * this path and keeps everything pinned here.
+ * nudge. Stage 1 (POD-3239 B7) has now inserted the flush + `geometryApplied`
+ * report into this path; everything the claims pin is unchanged around it, and
+ * T2 below is the new ordering guarantee.
  */
 
 import { tmpdir } from 'node:os'
@@ -51,7 +52,7 @@ function daemonContext(over: Partial<DaemonContext> = {}): DaemonContext {
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     durableLabels: new Map<SessionId, string>(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
-    outputScheduler: { enqueue: () => {}, remove: () => {} },
+    outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },
     primeInjector: { reset: () => {} },

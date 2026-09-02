@@ -44,8 +44,13 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     attach,
     lease: { release },
   }
+  const sent: unknown[] = []
   const ctx = {
-    outputScheduler: { setPriority: vi.fn() },
+    outputScheduler: { setPriority: vi.fn(), flushNow: vi.fn() },
+    // POD-3239: a driver-owned session that takes a resize reports the grid it
+    // applied, exactly as a bridged one does — so this fixture needs the daemon's
+    // outbound channel.
+    send: (msg: unknown) => sent.push(msg),
     clientTerminals,
     nativeClientRequests: new Set([SESSION]),
     nativeClientTransitions: new Map(),
@@ -58,7 +63,7 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     observers: { recordInputOrigin: vi.fn() },
     composerEngine: { onInputByte: vi.fn(), onResize: vi.fn() },
   } as unknown as DaemonContext
-  return { ctx, attach, release, clientTerminals }
+  return { ctx, attach, release, clientTerminals, sent }
 }
 
 /** The frame the daemon already emits on every phase change, as this session. */
@@ -133,6 +138,40 @@ describe('server-family native client control', () => {
     expect(clientTerminals.resize).toHaveBeenCalledWith(SESSION, 91, 33)
     expect(clientTerminals.redraw).toHaveBeenCalledWith(SESSION, true)
     expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+  })
+
+  it('REPORTS the grid a client terminal applied (POD-3239 B7)', () => {
+    // A server-family session has no pty bridge, but its size is still the
+    // server's W — and after B6 the daemon's report is the only thing that may
+    // move it, so a resize this path swallows silently would freeze the grid for
+    // every viewer of an opencode-server session.
+    const { ctx, clientTerminals, sent } = world()
+    clientTerminals.resize.mockReturnValue(true)
+
+    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 91, rows: 33 })
+
+    expect(clientTerminals.resize).toHaveBeenCalledWith(SESSION, 91, 33)
+    expect(sent).toEqual([
+      {
+        type: 'geometryApplied',
+        sessionId: SESSION,
+        geometry: { cols: 91, rows: 33 },
+        cause: 'request',
+      },
+    ])
+    expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+  })
+
+  it('does NOT report a resize no client terminal took — it holds it instead', () => {
+    // The arming counterfactual for the test above: `resize` answering false
+    // means nothing applied anything, so there is no applied grid to report.
+    const { ctx, clientTerminals, sent } = world()
+    clientTerminals.resize.mockReturnValue(false)
+
+    sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 91, rows: 33 })
+
+    expect(sent).toEqual([])
+    expect(ctx.pendingResizes.get(SESSION)).toEqual({ cols: 91, rows: 33 })
   })
 
   it('drops stale client-terminal input after Chat releases Native', () => {

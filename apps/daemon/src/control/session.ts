@@ -430,6 +430,26 @@ function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): vo
  * applied — that is what `bind` must report, so the server is not told the PTY is
  * 80x24 when we just sized it to the client's fitted grid (POD-628).
  */
+/**
+ * Tell the server the grid we just dispatched to this session's pty (POD-3239
+ * B7 / MODEL rule 5).
+ *
+ * Sent SYNCHRONOUSLY, inside the handler that dispatched the resize, so no
+ * output the daemon produces afterwards can overtake it. Honest label:
+ * dispatched, not acknowledged — see the ordering note in the `resize` handler.
+ */
+function reportGeometryApplied(
+  ctx: DaemonContext,
+  msg: { sessionId: SessionId; cols: number; rows: number },
+): void {
+  ctx.send({
+    type: 'geometryApplied',
+    sessionId: msg.sessionId,
+    geometry: { cols: msg.cols, rows: msg.rows },
+    cause: 'request',
+  })
+}
+
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
@@ -2239,14 +2259,51 @@ export const sessionHandlers: Pick<
     ),
   resize: (ctx, msg) => {
     const bridge = ctx.bridges.get(msg.sessionId)
-    // No bridge yet = the spawn this resize belongs to is still in flight. Hold the
-    // request for wireBridge instead of dropping it: the server has already moved
-    // its own geometry (and told the browser), so a drop here is what leaves the
-    // PTY at 80x24 under a client rendering a fitted grid (POD-628). Last one wins
-    // — an in-flight session has no screen to reflow, only a size to be born at.
-    if (bridge) bridge.resize(msg.cols, msg.rows)
-    else if (!ctx.clientTerminals?.resize(msg.sessionId, msg.cols, msg.rows))
+    // THE DAEMON APPLIES, THEN REPORTS (POD-3239 B7 / MODEL rule 5).
+    //
+    // Order is the whole point, and all of it happens before this handler
+    // yields:
+    //
+    //   1. FLUSH what the scheduler is holding for this session. Those bytes
+    //      were produced at the OLD grid; a P2/P3 session can sit on up to
+    //      `coalesceMs` of them, and delivering them after the report would put
+    //      old-grid output on a viewer that has already resized.
+    //   2. DISPATCH the resize to the pty.
+    //   3. REPORT the grid we dispatched. This frame is the only thing that
+    //      moves the server's W, so it must not be able to arrive behind output
+    //      the daemon itself was withholding.
+    //
+    // "Dispatched", not "acknowledged": for an abduco session the attach pty's
+    // TIOCSWINSZ reaches the master asynchronously, and the master may forward
+    // already-read old bytes after applying it. That transient is one SIGWINCH
+    // propagation plus one repaint and is what every terminal shows during a
+    // resize — see MODEL.md "Accepted residuals". What this ordering DOES buy is
+    // the half the daemon owns: nothing it was holding lands after the report.
+    //
+    // The three-way branch below keeps today's order exactly (0b C7): a
+    // driver-owned (server-family) session takes the resize through
+    // `clientTerminals` and never touches `pendingResizes`; only a session with
+    // no bridge and no client terminal holds. A HELD request gets no report —
+    // there is no applied grid to report yet. `wireBridge` applies it at bind
+    // and `bind` carries the effective geometry, which is that session's report.
+    if (bridge) {
+      ctx.outputScheduler.flushNow(msg.sessionId)
+      bridge.resize(msg.cols, msg.rows)
+      reportGeometryApplied(ctx, msg)
+    } else if (ctx.clientTerminals?.resize(msg.sessionId, msg.cols, msg.rows)) {
+      // A driver-owned (server-family) session took it. Its output travels
+      // through the same scheduler, and its W has to move for the same reason,
+      // so it flushes and reports exactly as a bridged session does.
+      ctx.outputScheduler.flushNow(msg.sessionId)
+      reportGeometryApplied(ctx, msg)
+    } else {
+      // No bridge yet = the spawn this resize belongs to is still in flight. Hold the
+      // request for wireBridge instead of dropping it: the server has already moved
+      // its own geometry (and told the browser), so a drop here is what leaves the
+      // PTY at 80x24 under a client rendering a fitted grid (POD-628). Last one wins
+      // — an in-flight session has no screen to reflow, only a size to be born at.
       ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+    }
     ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
     ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
   },
