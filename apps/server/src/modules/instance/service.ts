@@ -29,6 +29,7 @@ import {
   loadConfig,
   resolvePublicUrl,
   resolveSetting,
+  resolveTranscriptLakeSetting,
   resolveUpdateChannel,
   type SettingSource,
   saveConfig,
@@ -98,6 +99,14 @@ export interface InstanceDeps {
    * than pretending it restarted.
    */
   readonly requestCoordinatorRestart?: (() => void) | undefined
+  /**
+   * The stored "mirror transcripts to this server" toggle (PDM-26), or
+   * `undefined` when nobody has set it. It is the BOTTOM layer under
+   * `PODIUM_TRANSCRIPT_LAKE` and `config.transcriptLake`, so `info()` can report
+   * the effective value together with the layer that decided it. Read through a
+   * function because a Settings write must be followed without a restart.
+   */
+  readonly transcriptMirrorSetting?: (() => boolean | undefined) | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
@@ -146,7 +155,7 @@ export class InstanceService {
     const publicUrl = resolveSetting('publicUrl', c)
     const appUrl = resolveSetting('appUrl', c)
     const allowedOrigins = resolveSetting('allowedOrigins', c)
-    const transcriptLake = resolveSetting('transcriptLake', c)
+    const transcriptLake = resolveTranscriptLakeSetting(this.deps.transcriptMirrorSetting?.(), c)
     return {
       mode: mode.value ?? null,
       modeSource: mode.source,

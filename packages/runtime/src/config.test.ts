@@ -35,6 +35,7 @@ import {
   resolveSessionRelay,
   resolveSetting,
   resolveTranscriptLake,
+  resolveTranscriptLakeSetting,
   resolveUpdateChannel,
   resolveUpdateFeed,
   resolveUpdateScope,
@@ -683,15 +684,38 @@ describe('the layered keys a cloud deployment sets (PDM-26)', () => {
     )
   })
 
-  it('resolveTranscriptLake: env → file → on', () => {
-    expect(resolveTranscriptLake({}, {})).toBe('on')
-    expect(resolveTranscriptLake({ transcriptLake: 'off' }, {})).toBe('off')
-    expect(resolveTranscriptLake({ transcriptLake: 'off' }, { PODIUM_TRANSCRIPT_LAKE: 'on' })).toBe(
-      'on',
-    )
-    expect(() => resolveTranscriptLake({}, { PODIUM_TRANSCRIPT_LAKE: 'yes' })).toThrow(
+  it('resolveTranscriptLake: env → file → the Settings toggle → on', () => {
+    expect(resolveTranscriptLake(undefined, {}, {})).toBe('on')
+    expect(resolveTranscriptLake(undefined, { transcriptLake: 'off' }, {})).toBe('off')
+    expect(
+      resolveTranscriptLake(undefined, { transcriptLake: 'off' }, { PODIUM_TRANSCRIPT_LAKE: 'on' }),
+    ).toBe('on')
+    expect(() => resolveTranscriptLake(undefined, {}, { PODIUM_TRANSCRIPT_LAKE: 'yes' })).toThrow(
       /PODIUM_TRANSCRIPT_LAKE.*on, off/,
     )
+  })
+
+  it('the Settings toggle answers when nothing above it does, and is overridden when they do', () => {
+    // An untouched toggle is not "off" — it is nobody having chosen.
+    expect(resolveTranscriptLakeSetting(undefined, {}, {})).toEqual({
+      value: 'on',
+      source: 'default',
+    })
+    expect(resolveTranscriptLakeSetting(false, {}, {})).toEqual({
+      value: 'off',
+      source: 'settings',
+    })
+    expect(resolveTranscriptLakeSetting(true, {}, {})).toEqual({ value: 'on', source: 'settings' })
+    // …and a deployment that states it takes the choice away, saying which layer did.
+    expect(resolveTranscriptLakeSetting(true, { transcriptLake: 'off' }, {})).toEqual({
+      value: 'off',
+      source: 'file',
+    })
+    expect(resolveTranscriptLakeSetting(true, {}, { PODIUM_TRANSCRIPT_LAKE: 'off' })).toEqual({
+      value: 'off',
+      source: 'env',
+      env: 'PODIUM_TRANSCRIPT_LAKE',
+    })
   })
 
   it('the new config keys round-trip through the file', () => {

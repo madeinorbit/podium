@@ -40,8 +40,8 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
-    // 42 + the shell-idle and backstop hibernation controls.
-    expect(blobLeaves().length).toBe(48)
+    // 42 + the shell-idle and backstop hibernation controls + transcripts.mirror.
+    expect(blobLeaves().length).toBe(49)
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('roles.shipwright.accountId')
@@ -98,6 +98,7 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
     ['autoContinue', model.AutoContinuePreferences],
     ['experimental', model.ExperimentalFlags],
     ['worktreeGc', model.WorktreeGcPolicy],
+    ['transcripts', model.TranscriptPolicy],
   ]
 
   it('pins EVERY composable member, not a sample', () => {
@@ -182,6 +183,8 @@ describe('the composed blob still parses exactly as before', () => {
       autoContinue: { enabled: false, promptDismissed: false },
       experimental: {},
       worktreeGc: { mode: 'propose', afterDays: 14 },
+      // Absent, not `false`: nobody has chosen, and the built-in answer is on.
+      transcripts: {},
     })
   })
 
@@ -202,6 +205,7 @@ describe('the composed blob still parses exactly as before', () => {
       // Appended, never slotted by topic: this list IS the serialized order of
       // a persisted blob (POD-564).
       'worktreeGc',
+      'transcripts',
     ])
     expect(Object.keys(parsed.notifications)).toEqual([
       'web',

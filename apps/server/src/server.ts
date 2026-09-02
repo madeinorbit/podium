@@ -471,7 +471,6 @@ export async function startServer(
   assertAppUrlCompatible(config, process.env)
   const updateScope = resolveUpdateScope(config, process.env)
   const fleetOnly = updateScope === 'fleet-only'
-  const lakeEnabled = (opts.transcriptLake ?? resolveTranscriptLake(config, process.env)) === 'on'
   ensureInstanceStateIdentity({ instanceId })
   // Role composition (roles.ts): which optional module groups this process
   // activates. Explicit opts win; else the H1 shape, core + hub.
@@ -523,6 +522,18 @@ export async function startServer(
       durationMs: bootPrune.metrics.totalDurationMs,
     })
   }
+  // The Settings toggle is the bottom layer; env and config.json sit above it.
+  // Read at boot because the lake's presence decides how the registry is built —
+  // flipping the toggle takes effect on the next start, which is what the
+  // settings copy says.
+  const lakeEnabled =
+    (opts.transcriptLake ??
+      resolveTranscriptLake(
+        store.settings.getSettings().transcripts.mirror,
+        config,
+        process.env,
+      )) === 'on'
+
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.

@@ -672,8 +672,16 @@ export type TranscriptLakeMode = 'on' | 'off'
 // that edit cannot forget the provenance half.
 // ---------------------------------------------------------------------------
 
-/** Which layer answered. */
-export type SettingSource = 'env' | 'file' | 'default'
+/**
+ * Which layer answered.
+ *
+ * `settings` is the persisted instance-tier settings row, and it exists for the
+ * one key that is a USER-FACING CHOICE first and a deployment override second:
+ * transcript mirroring is a toggle in Settings, and env / config.json sit above
+ * it so a deployment can take the choice away. It never appears for a key with
+ * no settings row.
+ */
+export type SettingSource = 'env' | 'file' | 'settings' | 'default'
 
 /**
  * A resolved value and where it came from. `env` names the VARIABLE and is
@@ -1120,12 +1128,38 @@ export function resolveUpdateScope(
   return resolveSetting('updateScope', config, env).value
 }
 
-/** Transcript mirroring: PODIUM_TRANSCRIPT_LAKE → config.transcriptLake → 'on'. */
+/**
+ * Transcript mirroring: PODIUM_TRANSCRIPT_LAKE → config.transcriptLake →
+ * the Settings toggle → 'on'.
+ *
+ * FOUR LAYERS, and the extra one is the point: this is a choice a user makes in
+ * Settings ("mirror transcripts to this server"), which a deployment may
+ * override but does not otherwise own. `settings` is the stored toggle —
+ * `undefined` when nobody has touched it, which is not the same as `false` and
+ * resolves to the built-in `'on'`.
+ *
+ * The settings value is PASSED IN rather than read here because @podium/runtime
+ * has no database; the server reads the row and hands it down.
+ */
 export function resolveTranscriptLake(
+  settings: boolean | undefined,
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
 ): TranscriptLakeMode {
-  return resolveSetting('transcriptLake', config, env).value
+  return resolveTranscriptLakeSetting(settings, config, env).value
+}
+
+/** {@link resolveTranscriptLake} with the layer that answered, for the toggle
+ *  that has to render itself locked and say by what. */
+export function resolveTranscriptLakeSetting(
+  settings: boolean | undefined,
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): Resolved<TranscriptLakeMode> {
+  const layered = resolveSetting('transcriptLake', config, env)
+  if (layered.source !== 'default') return layered
+  if (settings === undefined) return layered
+  return { value: settings ? 'on' : 'off', source: 'settings' }
 }
 
 /**

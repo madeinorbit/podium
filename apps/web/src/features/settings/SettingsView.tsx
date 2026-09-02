@@ -9,8 +9,8 @@ import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
-import { throughRestarts } from '@/lib/chunk-recovery'
 import type { NetworkSaveController } from '@/features/setup/network-step'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
@@ -222,7 +222,7 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   machines: () => <MachinesPanel />,
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
   // Self-persisting (config.json, not the settings blob) — see privacy.tsx.
-  privacy: () => <PrivacySection />,
+  privacy: ({ settings, patch }) => <PrivacySection settings={settings} patch={patch} />,
   updates: () => (
     <Suspense fallback={<p className="settings-micro py-6">Loading updates…</p>}>
       <UpdatesSection />
