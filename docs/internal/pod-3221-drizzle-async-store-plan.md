@@ -605,6 +605,69 @@ specific to this codebase, or a trap found by checking such a rule against the c
 | Prisma | Multi-dialect, generated client, its own migrations | Its own migration system beside drizzle-kit's; generated-client and engine packaging under `bun --compile`; heavy | Rejected |
 | Decorator ORMs (TypeORM, MikroORM, Sequelize) | Unit-of-work, entity graphs | Runtime entity metadata, decorators, and a data model the kernel already owns differently | Rejected |
 
+### 8.1 Builder versus relational API: the decision and its evidence
+
+This is a conscious choice, so here is what it rests on (all measured 2026-09-02 against
+`drizzle-orm@1.0.0-rc.4` and `bun:sqlite` with SQLite 3.53).
+
+**What the relational API is.** A read API: `findMany` and `findFirst` with `with`, `where`,
+`columns`, `orderBy`, `limit`, `offset` and `extras`. Every insert, update and delete is the
+builder regardless. So the choice is only about reads, and the store's statement mix is
+roughly 140 selects to 106 writes among the single-line sites, 284 `SELECT` lines in total.
+
+**What it generates.** One statement per query. On SQLite each relation becomes a correlated
+subquery `coalesce((select json_group_array(json_object(...)) from (...) t), json_array())`;
+on Postgres each becomes `left join lateral (select coalesce(json_agg(row_to_json(t.*)), '[]')
+...)`. The nesting is therefore generated per dialect from one definition, which is the
+portability argument for it.
+
+**What it cannot express.** Of the 284 select lines, about 65 use constructs outside its
+reach: 11 `JOIN` for filtering rather than nesting, 4 `GROUP BY`, 38 aggregate calls
+(`COUNT`, `MAX`, `MIN`, `SUM`), 9 `EXISTS`, 1 `UNION`, 2 FTS `MATCH`, 3 `CASE WHEN`. Its
+`extras` clause does not support aggregations. Those stay on the builder or behind a port.
+
+**Performance on local SQLite** (5,000 issues, 3 labels and 4 comments each, one repo of 7,
+715 issues returned, mean of 5 runs):
+
+| Shape | Time |
+|---|---|
+| Three flat selects with joins, grouped in JavaScript | 20.1 ms |
+| Relational-API shape: JSON-aggregating subqueries plus `JSON.parse` | 13.6 ms |
+| N+1: one prepared child select per issue | 8.4 ms |
+
+Two lessons. The relational shape is not slower than today's grouping code on SQLite, so
+adopting it for aggregates costs nothing locally. And N+1 is the fastest shape on a local
+in-process database, because a prepared statement costs microseconds; the N+1 problem only
+exists over a network, which is exactly the Turso and Postgres case. Query count per request
+is the right gate (§6.1) because it is the number that changes meaning between backends.
+
+**Hazards specific to the relational API.**
+
+- **Undefined filter values.** In rc.4 a `where: { userId: maybeUndefined }` silently drops the
+  field and returns every row (drizzle-orm #5636, filed as a security issue and still open);
+  the rc.5 snapshots throw at runtime instead while the types still accept `undefined`
+  (#6180). Podium scopes most reads by principal. The rule is that no possibly-undefined value
+  ever reaches a `where` object; a typed lint rule as described in #6180 enforces it.
+- **No prepared statements.** The relational query object has `findMany`, `findFirst` and
+  `toSQL` only; the builder's `.prepare()` has no equivalent, so SQL is regenerated per call.
+  Irrelevant for aggregate loads, relevant on a per-row hot path.
+- **Version churn.** v1 relations removed from SQLite in rc.4; v2 switched to array mode in
+  rc.3 and rc.4; the undefined semantics changed again for rc.5. Pin the version and budget one
+  adjustment before 1.0.
+- **Relations are a second definition beside the tables**, so a Postgres twin needs a twin
+  relations file too, or generation from one source (Stage C step 18 already assumes that).
+- It runs inside transactions (`tx.query.*` exists on the transaction object), so nothing in
+  the executor model changes for it.
+
+**Decision.** The relational API is used wherever a read returns an aggregate root with its
+children: issues with labels, deps, comments and mail; sessions with pins, snoozes and drafts;
+shipping orders with attempts, steps, holds and receipts; superagent threads with messages.
+Those are the reads where it replaces grouping code, saves round trips on a networked backend,
+and generates the dialect-specific nesting for free. Everything else uses the builder: flat
+single-table reads gain nothing from it and would inherit the filter hazard for no benefit;
+counts, aggregates, filtering joins, FTS and unions cannot use it. The default in the plan is
+therefore "builder, with the relational API for aggregates", not one or the other everywhere.
+
 For reference, Linear's engine, which Podium's kernel resembles in shape: Postgres is the
 source of truth, every create, update and delete persists a model snapshot as a "SyncAction"
 with a database-wide `lastSyncId`, a MongoDB cache serves bootstrap and delta packets at scale,
