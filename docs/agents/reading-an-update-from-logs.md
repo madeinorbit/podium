@@ -27,6 +27,24 @@ is forwarded together — the "one knob" property the boot level already has. A
 second channel would need its own batching and back-pressure, and would bypass
 the console and the flight recorder.
 
+### Delivery across a navigation
+
+The records that describe a reload are written a few hundred milliseconds before
+the document stops existing, and the forwarding sink batches on a five-second
+timer — so for the first two traced clicks the click, the handshake outcome and
+the navigation line were all written and all lost.
+
+They now survive: the sink hands its buffer to the browser synchronously on
+`pagehide`, on `visibilitychange`-hidden, and from `navigateReload` one line
+before it navigates, using a `keepalive` fetch that outlives the page. The
+hand-off drains from the TAIL — the newest records are the ones that prompted it
+— and anything that will not fit the 48 KB budget is reported as `dropped` on the
+batch that does go, so a gap is stated rather than silent.
+
+If you see a `reloading the page` with no `web client booted` after it, the
+navigation failed; if you see a boot with no preceding reload line, the flush was
+refused, and the batch that follows will carry a `dropped` count saying so.
+
 ### What these lines now put on the wire
 
 `@podium/logger` has no redaction layer, so flooring a namespace is a decision
@@ -72,7 +90,8 @@ reload-handshake phase.
 | 1 | registration outcome, with the error | `service worker registered` (`swUrl`, `scope`, all four slots) / `service worker registration failed` (`err`, `available`) / `service worker registration resolved without a registration` | `web:sw` info / **error** / warn |
 | 1 | waiting/installing state at registration | the four `controller`/`active`/`installing`/`waiting` fields on every `web:sw` line | `web:sw` info |
 | 2 | `updatefound` | `service worker updatefound` | `web:sw` info |
-| 2 | `statechange` per worker, with which worker | `service worker seen` / `service worker state changed` — `slot`, `state`, `scriptURL` | `web:sw` info |
+| 2 | WHICH worker — they all share one `scriptURL` | `served sw.js identity` — `when` (`registered` / `updatefound`), `hash` (sha-256 prefix), `indexRevision` (the precache build identity), `bytes`, or `error`. Compare the `updatefound` identity against the `registered` one to see whether an installing worker is byte-identical | `web:sw` info |
+| 2 | `statechange` per worker, with which worker | `service worker seen` / `service worker state changed` — `slot`, `state`, `scriptURL`, `ageMs` (since this worker was first seen) and all four slots | `web:sw` info |
 | 2 | a worker that went redundant | `service worker became redundant` | `web:sw` **warn** |
 | 2 | `controllerchange` | `service worker controllerchange` | `web:sw` info |
 | 2 | the library's `needRefresh` | `the library reported a new build is ready` | `web:sw` info |
@@ -92,6 +111,7 @@ reload-handshake phase.
 | 6 | the action's outcome and error class | `update action finished` (`elapsedMs`) / `update action failed` (`code`, `detail`, `err`) / `update action lost its answer to the restart it asked for` | `web:updates` info / **warn** / info |
 | 6 | a cancel the server refused | `the server refused to cancel this operation` — `refused`, `step` | `web:updates` **warn** |
 | 6 | the poll's cadence and per-arm success/failure | `update poll landed` — `cadence`, and `live`/`latest`/`fleet`/`server`/`build`/`proposal` each `unread` or their value | `web:updates` **debug** |
+| 6 | why the panel lagged a fact the server had already given it | `an update reading arrived after its poll was restarted` — `reason: superseded`. A `refresh()` during a slow read abandons that read; the answer is discarded and the wait restarts. A dropped tick is `debug` | `web:updates` info |
 | 6 | when the server's facts change | `the server this page reads from changed identity` — `appVersion`, `sourceDigest`, `installKind`, `servedBundle`, `servedDigest`, `targetVersion`, `pageBundle`, `pageVersion` | `web:updates` info |
 | 7 | the 60 s interval and visibility checks | `periodic service-worker update check finished` / `periodic service-worker update check was rejected` — `why: interval\|visible`, `elapsedMs`, `err` | `web:sw` **debug** |
 
