@@ -2607,6 +2607,10 @@ export class MessageDeliveryService {
           ...(opts?.cause ? { deliveryDeferredAt: at, deliveryDeferredReason: opts.cause } : {}),
         },
         'message.dead_letter',
+        // The event names WHY [POD-3226]. The row records only when, and the
+        // sender's notice is best-effort; without this, most dead-letter events
+        // on a live instance said nothing about the cause.
+        { reason },
       )
       if (opts?.notifySender) this.notifyDeadLetter(message, reason)
     }

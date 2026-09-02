@@ -1414,6 +1414,13 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(r.disposition).toBe('dead_letter')
     expect(r.reason).toContain('session no longer exists')
     expect(store.messages.getMessage(r.message.id)!.status).toBe('dead_letter')
+    // The transition names WHY [POD-3226]: 67 of 82 dead-letter events on the
+    // live ledger carried no reason, so the trail stopped exactly where the
+    // question started.
+    const transitions = store.events
+      .listEventsSince(0, { kinds: ['message.dead_letter'] })
+      .filter((e) => e.subject === r.message.id)
+    expect(transitions).toMatchObject([{ payload: { reason: 'session no longer exists' } }])
   })
 
   it('issue-addressed wake with no live member resurrects the most recent parked agent', () => {

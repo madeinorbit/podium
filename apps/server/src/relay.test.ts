@@ -6936,6 +6936,75 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     }
   })
 
+  /**
+   * A WORKER'S QUEUED REPLY REACHES ITS COORDINATOR (POD-3226).
+   *
+   * The drain re-authorizes every row before typing it. It used to end with the
+   * issue-EDIT scope gate, so a worker scoped to the child issue got
+   * `confirm-required` for the coordinator's session on the parent issue and
+   * the row was dead-lettered as "session no longer exists" — but only on this
+   * queued path; an idle coordinator was typed into directly with no check, so
+   * the same reply landed or died on timing. The unit test pins the verdict;
+   * this pins the wiring: the row rides the real inbox, the real
+   * `authorizeAtDrain`, and comes out of the daemon gateway as input.
+   */
+  it('delivers a child worker\'s queued reply to the coordinator on the parent issue', async () => {
+    vi.useFakeTimers()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const parent = registry.modules.issues.create({
+        repoPath: '/repo',
+        title: 'Epic',
+        startNow: false,
+      })
+      const child = registry.modules.issues.create({
+        repoPath: '/repo',
+        title: 'Child',
+        startNow: false,
+        parentId: parent.id,
+      })
+      const coordinator = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo/.worktrees/epic',
+        issueId: parent.id,
+      }).sessionId
+      const worker = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo/.worktrees/child',
+        issueId: child.id,
+        spawnedBy: `session:${coordinator}`,
+      }).sessionId
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(coordinator))
+
+      registry.modules.sessions.queueText({
+        sessionId: coordinator,
+        text: 'reply from the child worker',
+        principal: {
+          kind: 'agent',
+          principalRef: worker,
+          delegation: asDelegationRef(worker),
+          attribution: {
+            actor: actorAgent(asAgentIdentityId(worker)),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+        },
+      })
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      const typed = daemon
+        .filter((message) => message.type === 'input')
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+      expect(typed.filter((data) => data.includes('reply from the child worker'))).toHaveLength(1)
+    } finally {
+      registry.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   describe('message startup recovery isolation [POD-842] [spec:SP-c29e]', () => {
     it('keeps registry boot alive when the recovery job throws', () => {
       const reconcile = vi

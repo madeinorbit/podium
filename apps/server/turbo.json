@@ -1028,6 +1028,7 @@
         "src/modules/sessions/runtime-gateway.ts",
         "src/modules/sessions/runtime-transcript.ts",
         "src/modules/sessions/session-access.ts",
+        "src/modules/sessions/session-authz.drain-mail.test.ts",
         "src/modules/sessions/session-authz.ts",
         "src/modules/sessions/session-binding.ts",
         "src/modules/sessions/session-by-id.ts",
