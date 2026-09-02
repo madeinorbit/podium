@@ -1092,6 +1092,7 @@ export async function startServer(
     trustedProxyHops,
     readiness,
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
+    onLogin: (event) => registry.modules.bus.emit('auth.login', event),
   })
   registerMobilePairingRoutes(app, {
     store: store.auth,
