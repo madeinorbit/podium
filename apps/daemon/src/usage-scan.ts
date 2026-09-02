@@ -826,11 +826,19 @@ async function scanJsonlTranscript(
 
   // FOLDED, NOT SPREAD. `Math.min(...stamps)` passes one argument per usage
   // record, and the cold path no longer filters by `sinceMs`, so `stamps` is the
-  // whole transcript rather than the window. Past the engine's argument limit
-  // (~125k records — well inside what a long-lived 4GB transcript reaches) the
+  // whole transcript rather than the window. Past the engine's argument limit the
   // spread throws RangeError, `scanJsonlTranscripts` swallows it per file, and
   // the transcript vanishes from the buckets AND the sources silently, forever,
   // re-failing on every walk because it is never cached either.
+  //
+  // NAME THE ENGINE, BECAUSE THE TWO LIMITS DIFFER BY AN ORDER OF MAGNITUDE. The
+  // ~125k figure quoted for this failure is NODE/V8's. The daemon runs on
+  // BUN/JSC, where the limit is roughly 500k-1M — measured, and a 1.1M-record
+  // 262MB transcript was built to confirm the old code threw there while this
+  // fold does not. So on the runtime that actually runs this, the bug needed a
+  // far larger transcript than "125k records" suggests. The fold stays
+  // regardless: an unbounded spread over attacker-free but unbounded input is a
+  // landmine whatever the constant, and folding costs nothing.
   let minTsMs = Number.POSITIVE_INFINITY
   let maxTsMs = 0
   for (const list of [complete, torn]) {

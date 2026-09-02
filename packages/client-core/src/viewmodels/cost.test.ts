@@ -61,6 +61,8 @@ const row = (seq: number, over: Partial<TaskCostRowWire> = {}): TaskCostRowWire 
     sessionCount: 1,
     floor: 'none',
     harnesses: ['claude-code'],
+    uncostedSessionCount: 0,
+    displayRef: `POD-${seq}`,
     ...over,
   }) as TaskCostRowWire
 
@@ -157,6 +159,18 @@ describe('the rate cohort', () => {
 
   it('has no multiple without a cohort', () => {
     expect(taskCostView(wire()).rateVsMedian).toBeNull()
+  })
+})
+
+describe('what the sheet row carries through', () => {
+  // f01cc8c50 put displayRef on the wire and the VIEW did not copy it, so every
+  // row measured displayRef=(none) and the sheet printed #1234 where the rest of
+  // the app prints POD-1234.
+  it('copies displayRef and the uncosted count into the view', () => {
+    const { rows } = taskCostRows([row(7, { uncostedSessionCount: 2, floor: 'partial' })])
+    expect(rows[0]?.displayRef).toBe('POD-7')
+    expect(rows[0]?.uncostedSessionCount).toBe(2)
+    expect(rows[0]?.floor).toBe('partial')
   })
 })
 

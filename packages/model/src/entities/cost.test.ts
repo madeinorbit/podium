@@ -58,6 +58,26 @@ describe('the floor rule', () => {
   it('does not mark a task with nothing counted — that is a cold state', () => {
     expect(floorOf([])).toBe('none')
   })
+
+  // The correction POD-1869 measured: harness alone asserted a completeness it
+  // could not see. POD-1574 was wholly Claude, fully attributed, and read 'none'
+  // while 8 of its 10 sessions had never been harvested — a figure a third of
+  // real spend, presented as complete.
+  it('marks a wholly-Claude task whose sessions were never harvested', () => {
+    expect(floorOf(['claude-code'], 1)).toBe('partial')
+    expect(floorOf(['claude-code'], 8)).toBe('partial')
+  })
+
+  it('leaves a fully harvested all-Claude task unmarked', () => {
+    expect(floorOf(['claude-code'], 0)).toBe('none')
+  })
+
+  it('marks on either reason, and the reasons stay separable', () => {
+    // Harness only, everything harvested.
+    expect(floorOf(['codex'], 0)).toBe('partial')
+    // Completeness only, all Claude.
+    expect(floorOf(['claude-code'], 3)).toBe('partial')
+  })
 })
 
 describe('the four states', () => {

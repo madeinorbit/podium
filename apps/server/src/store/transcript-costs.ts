@@ -124,6 +124,13 @@ export class TranscriptCostsRepository {
          -- window resolves to nothing, and a plain assignment would write NULL
          -- over an attribution this table exists to keep. Every other column is
          -- a re-measurement and may be overwritten; these two are history.
+         --
+         -- COALESCE PROTECTS, IT CANNOT REPAIR. Any attribution a pre-fix build
+         -- already nulled stays nulled forever, and invisibly: the owner lookup
+         -- skips tombstones, so it will never resolve that session again and no
+         -- later harvest can put the id back. A task missing spend it once had
+         -- is the shape to look for; the row is still there, with session_id and
+         -- issue_id NULL and its token totals intact.
          session_id = COALESCE(excluded.session_id, transcript_costs.session_id),
          issue_id = COALESCE(excluded.issue_id, transcript_costs.issue_id),
          scanned_bytes = MAX(transcript_costs.scanned_bytes, excluded.scanned_bytes),

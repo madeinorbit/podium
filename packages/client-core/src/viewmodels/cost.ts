@@ -91,6 +91,9 @@ export interface TaskCostView {
   provisional: boolean
   floor: CostFloor
   harnesses: CostHarness[]
+  /** Sessions in scope with no cost row yet — the "not counted yet" half of the
+   *  floor, which `harnesses` cannot express. Surfaces phrase it; see `floorOf`. */
+  uncostedSessionCount: number
   /** Own sessions, dearest first. */
   sessions: SessionCostView[]
   /** When this figure was last read — absent when nothing has been read for it.
@@ -185,6 +188,31 @@ export interface CostCohort {
  * The cohort a "× median" reading is measured against — OWN cost per task.
  *
  * See `taskRateUsd` for why this side is own while the displayed rate is rollup.
+ *
+ * WHAT THE COHORT INCLUDES, decided and measured rather than assumed. It
+ * EXCLUDES deleted tasks (`deleted_at`, filtered server-side — a tombstoned task
+ * kept its row and shifted the median every surface compares against) and
+ * INCLUDES archived and closed ones. Measured over the same corpus:
+ *   nothing excluded      $0.09353/reply over 152 tasks
+ *   excluding archived    $0.09476/reply over  63 tasks
+ *   excluding closed      $0.10325/reply over  38 tasks
+ * A cohort that sheds tasks as they finish makes the multiple non-comparable
+ * over time — the same task's "2.3x" would drift purely because its peers got
+ * closed — and 38 tasks is far too thin a bar to hang every "x median" in the
+ * product on. Recorded here because the next reader will otherwise re-derive it
+ * or "fix" the filter to match their intuition.
+ *
+ * WHAT THE COHORT CANNOT CONTAIN, and must not. `cost.tasks` emits a row only
+ * for a task that has its OWN cost rows, so a rollup-only parent — own 0, a
+ * real rollup beneath it — is absent from `rows` entirely. That absence is
+ * REQUIRED, not tolerated: the cohort is own cost per task, one row per task,
+ * precisely so an epic cannot count the same work once per ancestor. A
+ * rollup-only parent has no own work; admitting it
+ * would put its children's money into the denominator a second time. The rate
+ * still reads for such a task, because the two halves come from different
+ * reads — the numerator is that task's own rollup cost over rollup replies from
+ * `cost.task`, and only the DENOMINATOR touches `cost.tasks`. A median taken
+ * over other tasks does not need this one in it.
  */
 export function costCohort(rows: readonly TaskCostRowWire[]): CostCohort {
   const rates: number[] = []
@@ -217,6 +245,7 @@ export function taskCostView(wire: TaskCostWire, cohort?: CostCohort): TaskCostV
     provisional: wire.provisional,
     floor: wire.floor,
     harnesses: wire.harnesses,
+    uncostedSessionCount: wire.uncostedSessionCount,
     sessions: foldSessionCosts(wire.sessions),
     ratePerReplyUsd,
     rateVsMedian:
@@ -294,6 +323,12 @@ function sessionCostView(s: SessionCostWire): SessionCostView {
 export interface TaskCostRowView {
   issueId: string
   seq: number
+  /** `POD-1234` — the ref the rest of the app prints. The wire has carried this
+   *  since f01cc8c50 and the VIEW did not copy it, so every row in the sheet
+   *  measured `displayRef=(none)` and fell back to `#1234`: a ref you cannot
+   *  paste is a ref you cannot chase. Optional exactly as on the wire, so an
+   *  older payload still renders through `issueDisplayRef`'s `#seq` fallback. */
+  displayRef?: string
   title: string
   stage: string
   estCostUsd: number
@@ -311,6 +346,8 @@ export interface TaskCostRowView {
   sessionCount: number
   floor: CostFloor
   harnesses: CostHarness[]
+  /** Own sessions with no cost row yet — see `TaskCostView.uncostedSessionCount`. */
+  uncostedSessionCount: number
   ratePerReplyUsd: number | null
   rateVsMedian: number | null
   /** When this row was last read — see `TaskCostView.sampledAt`. */
@@ -338,6 +375,7 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
     return {
       issueId: row.issueId,
       seq: row.seq,
+      displayRef: row.displayRef,
       title: row.title,
       stage: row.stage,
       estCostUsd,
@@ -350,6 +388,7 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
       sessionCount: row.sessionCount,
       floor: row.floor,
       harnesses: row.harnesses,
+      uncostedSessionCount: row.uncostedSessionCount,
       ratePerReplyUsd: rate,
       rateVsMedian: rate !== null && median !== null && median > 0 ? rate / median : null,
       sampledAt: row.sampledAt ?? null,

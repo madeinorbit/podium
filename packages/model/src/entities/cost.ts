@@ -80,11 +80,23 @@ export type TaskCostState = z.infer<typeof TaskCostState>
  * check can only see what it found, so a task whose every Codex rollout went
  * unlinked would look complete precisely when it is most wrong.
  *
- * TWO FIELDS, NOT A THREE-ARMED ENUM. `floor` is the mark — is this figure a
- * lower bound — and `harnesses` is what the reader needs to say WHY ("all
- * Codex", "Claude + Codex"). Folding both into one enum meant inventing an arm
- * for every future harness and pretending Grok is Codex, which the label on
- * screen would have printed as a fact.
+ * COMPLETENESS IS THE TEST; HARNESS IS ONLY ONE REASON (corrected after
+ * POD-1604 measured it against the live corpus). Keying the floor off harness
+ * alone asserted completeness it could not see: a task can be WHOLLY CLAUDE, every transcript
+ * present and attributed, and still be missing most of itself because the 7-day
+ * harvest never read its older sessions. POD-1574 rendered `none` — a positive
+ * claim that the figure is NOT a lower bound — while 8 of its 10 costed sessions
+ * had never been harvested and its figure was about a THIRD of real spend. That
+ * is the confident-zero mistake in another costume, and this type exists to stop
+ * exactly that. So `partial` is raised when the figure is a lower bound FOR ANY
+ * REASON: any session in scope with no cost row, or any non-Claude harness.
+ *
+ * THE VERDICT IS ONE FIELD; THE REASONS HANG OFF IT. `floor` says whether to
+ * hedge, `harnesses` says "some of this ran on Codex", and
+ * `uncostedSessionCount` says "this much of it has not been counted yet" — two
+ * hedges that read completely differently to an operator and must not collapse
+ * into one word. A second floor field would have made the verdict ambiguous;
+ * an arm per harness would have printed "all Codex" over a Grok task.
  */
 export const CostFloor = z.enum(['none', 'partial'])
 export type CostFloor = z.infer<typeof CostFloor>
@@ -133,6 +145,10 @@ export const TaskCostWire = z.object({
   /** Which harnesses the rolled-up figure was read from, alphabetical. What the
    *  floor mark is explained WITH: "≥ floor · all Codex". */
   harnesses: z.array(CostHarness),
+  /** Sessions under the ROLLUP that have no cost row yet — the other reason a
+   *  figure is a floor, and the one a harness list cannot express. Zero means
+   *  every session in scope has been read. */
+  uncostedSessionCount: z.number().int().nonnegative(),
   /** Own sessions, dearest first. Descendants are not listed here. */
   sessions: z.array(SessionCostWire),
   /**
@@ -202,6 +218,9 @@ export const TaskCostRowWire = z.object({
   sessionCount: z.number().int().nonnegative(),
   floor: CostFloor,
   harnesses: z.array(CostHarness),
+  /** Sessions of this task's OWN that have no cost row yet. The row's floor
+   *  describes its own figure, which is the column the sheet ranks by. */
+  uncostedSessionCount: z.number().int().nonnegative(),
   /** When this row's figures were last read — see `TaskCostWire.sampledAt`. */
   sampledAt: z.string().optional(),
 })
@@ -266,7 +285,12 @@ export const messagesOf = (models: CostModelTotalWire[]): number =>
  * The floor mark for a set of harnesses. Empty reads `none`: a task with nothing
  * to count is not a lower bound, it is one of the three cold states.
  */
-export function floorOf(harnesses: Iterable<CostHarness>): CostFloor {
+export function floorOf(
+  harnesses: Iterable<CostHarness>,
+  /** Sessions in scope with NO cost row — never harvested, or not recorded. */
+  uncostedSessionCount = 0,
+): CostFloor {
+  if (uncostedSessionCount > 0) return 'partial'
   for (const h of harnesses) if (h !== 'claude-code') return 'partial'
   return 'none'
 }

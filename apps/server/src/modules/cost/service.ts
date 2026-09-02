@@ -286,6 +286,12 @@ export class CostService {
       if (recordedPaths.has(session.id)) pendingSessionCount += 1
     }
 
+    // THE FLOOR'S OTHER REASON. A session in scope with no cost row at all has
+    // never been harvested (or its transcript is gone), so the figure is a lower
+    // bound whatever harness ran it — see `floorOf`. Counted over the ROLLUP
+    // scope, because that is the figure the mark describes.
+    const uncostedSessionCount = sessions.filter((s) => !readSessions.has(s.id)).length
+
     return {
       issueId,
       state: taskCostState({
@@ -297,8 +303,9 @@ export class CostService {
       rollup,
       descendantCount: descendants.length,
       provisional: sessions.some((s) => RUNNING.has(s.status)),
-      floor: floorOf(harnesses),
+      floor: floorOf(harnesses, uncostedSessionCount),
       harnesses,
+      uncostedSessionCount,
       // The newest harvest behind ANY row under this task, own or descendant —
       // the figure is only as fresh as the least recently read row it contains,
       // but the reading a surface reports is when we last looked at all.
@@ -337,6 +344,17 @@ export class CostService {
       else byIssue.set(cost.issueId, [cost])
     }
     const issues = this.store.issues.getIssues([...byIssue.keys()])
+    // Sessions per task, in ONE query rather than one per row, so the sheet can
+    // say which figures are floors for lack of a harvest as well as for harness.
+    const sessionsByIssue = new Map<string, string[]>()
+    for (const session of this.store.sessions.findSessionsByIssueIds([
+      ...byIssue.keys(),
+    ] as IssueId[])) {
+      if (!session.issueId) continue
+      const list = sessionsByIssue.get(session.issueId)
+      if (list) list.push(session.id)
+      else sessionsByIssue.set(session.issueId, [session.id])
+    }
     // ROLLUP FOR EVERY COSTED TASK, IN ONE LINEAR PASS. Each costed task pushes
     // its own folds onto itself and every ancestor, rather than each task
     // walking down its own subtree — the same totals, without re-reading a deep
@@ -381,6 +399,12 @@ export class CostService {
       const harnesses = [
         ...new Set(list.filter((c) => c.messages > 0).map((c) => c.harness)),
       ].sort() as CostHarness[]
+      // Own scope: this row's floor describes this row's own figure, which is
+      // the column the sheet ranks by.
+      const read = new Set(list.filter((c) => c.sessionId).map((c) => c.sessionId as string))
+      const uncostedSessionCount = (sessionsByIssue.get(issueId) ?? []).filter(
+        (id) => !read.has(id),
+      ).length
       const prefix = this.store.repos.prefixForPath(issue.repoPath)
       rows.push({
         issueId: issueId as IssueId,
@@ -398,8 +422,9 @@ export class CostService {
         rollupModels,
         rollupMessages: messagesOf(rollupModels),
         sessionCount: totals.sessionCount,
-        floor: floorOf(harnesses),
+        floor: floorOf(harnesses, uncostedSessionCount),
         harnesses,
+        uncostedSessionCount,
         ...stampOf(list),
       })
     }

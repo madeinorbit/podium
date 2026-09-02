@@ -357,6 +357,44 @@ describe('states', () => {
     expect(service.task(codexTask.id)).toMatchObject({ floor: 'partial', harnesses: ['codex'] })
   })
 
+  // The read path's half of the same correction: an unharvested session in scope
+  // must raise the floor even when every harness is Claude.
+  it('marks an all-Claude task whose second session was never harvested', () => {
+    const task = issue()
+    const harvested = session({ issueId: task.id })
+    ingest([source(transcript(harvested.resumeValue as string))])
+    // A second session exists, its transcript is on disk, nothing read it.
+    const unread = session({ issueId: task.id })
+    transcript(unread.resumeValue as string)
+
+    const cost = service.task(task.id)
+    expect(cost.harnesses).toEqual(['claude-code'])
+    expect(cost.uncostedSessionCount).toBe(1)
+    expect(cost.floor).toBe('partial')
+  })
+
+  it('leaves a fully harvested all-Claude task unmarked', () => {
+    const task = issue()
+    const ses = session({ issueId: task.id })
+    ingest([source(transcript(ses.resumeValue as string))])
+    const cost = service.task(task.id)
+    expect(cost.uncostedSessionCount).toBe(0)
+    expect(cost.floor).toBe('none')
+  })
+
+  it('counts an unharvested DESCENDANT session against the rollup floor', () => {
+    const epic = issue()
+    const epicSes = session({ issueId: epic.id })
+    ingest([source(transcript(epicSes.resumeValue as string))])
+    const child = issue({ parentId: epic.id })
+    const childSes = session({ issueId: child.id })
+    transcript(childSes.resumeValue as string) // never ingested
+
+    const cost = service.task(epic.id)
+    expect(cost.uncostedSessionCount).toBe(1)
+    expect(cost.floor).toBe('partial')
+  })
+
   it('marks a mixed task a floor and names both harnesses', () => {
     const task = issue()
     const a = session({ issueId: task.id })
