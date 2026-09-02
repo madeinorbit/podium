@@ -159,18 +159,70 @@ These are the places where "make it async" changes correctness, not just signatu
 | Hand-built `?` placeholder lists with 999-variable chunking | several | Drizzle builds these; Postgres limit is 65,535 |
 | `? 1 : 0` booleans, `=== 1` decodes | 16 / 72 | typed columns remove them |
 
-### 1.8 Verified driver facts
+### 1.8 Verified driver facts (measured 2026-09-02 on Bun 1.3.14 and on the 1.4.0 binary)
 
-- `Bun.SQL` SQLite: two concurrent `begin()` transactions on one connection fail with
-  `cannot start a transaction within a transaction`. There is no implicit queue. An async store
-  needs its own write serialization.
-- `@libsql/client` for a **local file or embedded replica** loads a native `libsql` addon, and
-  `bun build --compile` does not carry it (open Bun issue #18909). Only the remote HTTP/WebSocket
-  client (`@libsql/client/web`, hrana) is pure JS. "Turso in self-hosted" therefore means every
-  query is a network round trip, unless the addon is shipped beside the binary.
+| Probe | 1.3.14 | 1.4.0 |
+|---|---|---|
+| `Bun.SQL` SQLite heavy query (535 ms) with a 1 ms timer running | 0 ticks: runs **on the event-loop thread** | same |
+| Three concurrent `begin()` on one `Bun.SQL` SQLite connection | `cannot start a transaction within a transaction` | same |
+| `begin("IMMEDIATE")` | not honoured | same |
+| Two `Bun.SQL` connections on one file, concurrent read-then-write, busy_timeout 3 s | `database is locked` | not re-run |
+| Two **bun:sqlite** connections, `BEGIN IMMEDIATE`, busy_timeout 3 s, an `await` inside the body | `database is locked` | not re-run |
+
+The Bun docs state the model outright: "SQLite doesn't use connection pooling … Each `SQL`
+instance represents a single connection", "SQLite executes queries synchronously … The API still
+returns Promises", and `max` does not apply to SQLite. The 1.4 release notes change nothing here.
+
+The last table row is the structural fact. SQLite's busy wait is synchronous. On one thread a
+second connection waiting for the write lock blocks the very event loop that has to run for the
+first connection's `await` to resolve and commit. Engine-level serialization therefore cannot
+work for async transactions inside one thread, whatever the driver. Serialization has to be
+done by whoever hands out the connection: a pool with many connections and a server that
+arbitrates (Postgres), or a queue in front of the one connection (every in-process SQLite).
+
+Other facts:
+
+- Async over an in-process synchronous engine adds interleaving risk without adding
+  concurrency. It buys portability to a networked database and nothing else. That is the honest
+  trade of Stage B and the reason the store should not go async before there is a backend that
+  benefits.
+- `@libsql/client` for a **local file or embedded replica** loads a native `libsql` addon
+  through a runtime loader with nine platform packages. `@tursodatabase/database` 0.7.2 (the new
+  Rust engine) and `@tursodatabase/sync` are the same shape with four platform packages
+  (darwin-arm64, linux-x64-gnu, linux-arm64-gnu, win32-x64; no darwin-x64, no musl). Bun can embed
+  a `.node` file in a compiled executable only when it is required directly by path; the
+  loader-based packages are what the open Bun issue #18909 is about. So local or embedded Turso
+  is possible with a per-platform explicit require in `scripts/build-bun.ts`, at the price of the
+  first native library in a binary that deliberately has none. `@libsql/client/web` and
+  `@tursodatabase/serverless` are pure-JS remote clients and need none of this, at the price of
+  a network round trip per query.
+- libsql's local mode ignores `busy_timeout` and fails interleaving transactions immediately
+  (libsql-client-ts issue #288); the community answer is a userland queue-and-retry package.
 - Drizzle's `bun-sql/sqlite` migrator and `bun-sqlite` migrator both write `__drizzle_migrations`;
   the downgrade guard and the daemon convergence gate read that table, so the ledger format has
   to be confirmed identical before switching drivers.
+
+### 1.9 What drizzle and the rest of the ecosystem do about async SQLite
+
+- **Drizzle's bun:sqlite and better-sqlite3 drivers make the transaction callback synchronous.**
+  `drizzle-orm/bun-sqlite/session.js` wraps the callback in bun:sqlite's own sync
+  `db.transaction()` and returns whatever the callback returned. An async callback returns a
+  Promise, the transaction commits at once, and the body runs afterwards in autocommit. That is
+  the bug Podium's thenable guard exists to catch. Drizzle's answer for in-process SQLite is
+  therefore the model the store already has.
+- **Drizzle's async SQLite drivers do not serialize.** `sqlite-proxy` issues `begin`/`commit`
+  on whatever callback you give it; `libsql` calls `client.transaction()` per transaction; both
+  interleave on one connection and fail. Drizzle has no pool layer for SQLite; it delegates
+  concurrency to the driver.
+- **Drizzle's Postgres drivers need no application queue** because `db.transaction()` checks a
+  dedicated connection out of `pg.Pool` and the server serializes. That is the one setup where
+  the queue is somebody else's.
+- **Every ORM that offers async SQLite ships the queue inside itself.** Prisma, Knex, TypeORM and
+  Sequelize all run SQLite on a pool of size one, which is a queue by another name. A size-one
+  async pool is about thirty lines. It is not an invention; drizzle just does not include it.
+- Alternatives that avoid the queue and their cost: run the store on a worker thread with
+  `sqlite-proxy` (real loop relief, but read-decide-write transactions still need a queue inside
+  the worker), or run a server (`sqld`, Postgres), which is Stage C.
 
 ---
 
@@ -185,10 +237,10 @@ These are the places where "make it async" changes correctness, not just signatu
    This is drizzle's own transaction model (`db.transaction(async (tx) => …)`) and the only one
    that survives a connection pool.
 3. Decide whether B (async) ships with A or after it. Recommendation below.
-4. Decide the target driver for the SQLite path: keep `bun:sqlite` via `drizzle-orm/bun-sqlite`
-   (sync driver, async-shaped API available), or move to `Bun.SQL` via `drizzle-orm/bun-sql`
-   (async native). Both are builtins and survive `--compile`. `bun:sqlite` keeps
-   `serialize/deserialize` (the fast test fixture) and the file-level backup path unchanged.
+4. Driver for the SQLite path: **keep `bun:sqlite`**. `Bun.SQL`'s SQLite mode is a Promise
+   wrapper over the same engine on the same thread, ignores transaction modes, and has no queue
+   (§1.8), so it buys nothing and loses `serialize/deserialize` (the fast test fixture) and the
+   file-level backup path. Both are builtins and survive `--compile`.
 
 ### Stage A — drizzle query layer (sync driver, unchanged call sites)
 
@@ -226,10 +278,13 @@ untouched, boot untouched. Reversible per aggregate.
     `TransactPort` → `<T>(fn: (tx) => Promise<T>) => Promise<T>`, `AuthorityPort.commit` and
     `Ledger.commit` → Promise, `StoreDatabaseOpener` → async. Keep the kernel free of drizzle
     types (the lint rule); the `tx` type is opaque to the kernel.
-12. Add an **in-process write mutex** around top-level transactions (a single async queue in
-    the store). On SQLite this is mandatory (§1.8); on Postgres it keeps the Ledger's
-    single-writer invariant (D10/D12.6) true without `SELECT … FOR UPDATE` on day one. Reads
-    stay unqueued.
+12. Add a **size-one async pool** in front of the connection: top-level transactions queue,
+    each gets exclusive use of the connection from `BEGIN IMMEDIATE` to `COMMIT`, nested calls
+    become savepoints. This is what every async-SQLite ORM does internally (§1.9); drizzle's
+    own bun:sqlite transaction cannot be used for an async body because its callback is
+    synchronous. On SQLite the queue is mandatory (§1.8). On Postgres it keeps the Ledger's
+    single-writer invariant (D10/D12.6) true without `SELECT … FOR UPDATE` while there is one
+    server process per tenant. Reads stay unqueued.
 13. `SessionStore` gets an async factory (`await SessionStore.open(path, …)`); the constructor
     stops doing work. Boot heals move into `open()`. Update the 8 non-test constructions and
     the test helpers; give tests one `openTestStore()` helper so the 475 `new SessionStore(`
@@ -288,8 +343,18 @@ Outcome of Stage B: the store runs on any SQLite-dialect driver drizzle supports
    reversible per aggregate, and it is where most of the typed-query value is. It also
    surfaces every SQLite-ism (§1.7) as a visible decision instead of a hidden one.
 2. **Design the executor parameter into Stage A even though the driver is sync.** Repository
-   methods take `(exec, …args)` from the start. This is the one signature change worth paying
-   for early, because Stage B then only changes return types.
+   methods take `(exec, …args)` from the start, and query bodies are written in drizzle's
+   awaitable form rather than the sync `.all()` form. This is the one signature change worth
+   paying for early: Stage B then changes return types and call sites, not query bodies.
+   Stage B itself cannot be done per aggregate, because a transaction spans repositories (the
+   Ledger spans an entity write and the change append), so the transact port flips for everyone
+   at once. That is why A must be landable per aggregate and B must be short-lived.
+2a. **Do the §1.5 refactors before B, as ordinary work.** Hidden reads in constructors and
+   getters, store calls inside array callbacks, and per-row authz reads are design debts
+   independent of async, and their fixes (explicit `create()`, batched reads, a precomputed
+   principal view) are what a remote backend needs anyway. The frame caches are the exception:
+   they exploit a real JavaScript guarantee, and their replacement is an explicit request-scoped
+   read context that makes the same idea visible.
 3. **Stage B as its own project with its own issue tree**, started by changing the kernel port
    types and following the red. The §1.5 list is the real work; the `await` sprinkling is not.
    Do not start B until A has converted the large repositories, or the two will fight over the
@@ -328,10 +393,14 @@ Outcome of Stage B: the store runs on any SQLite-dialect driver drizzle supports
 
 **Runtime and packaging**
 
-- Only Bun builtins (`bun:sqlite`, `Bun.SQL`) and pure-JS clients survive `bun --compile`. No
-  `@libsql/client` local mode, no embedded replicas, no `better-sqlite3`.
-- `Bun.SQL` SQLite has no transaction queue (§1.8). Without a mutex, two concurrent requests
-  that both open a transaction crash one of them.
+- Bun builtins (`bun:sqlite`, `Bun.SQL`) and pure-JS clients survive `bun --compile` as they
+  are. libsql and Turso local or embedded modes need a per-platform explicit `.node` require in
+  the build (§1.8), and Turso's new engine ships fewer platforms than the release targets.
+- Async SQLite runs on the event-loop thread with every driver Bun offers (§1.8). Stage B does
+  not relieve loop blocking; only a worker thread or a server does.
+- No driver serializes async transactions on one SQLite connection, and engine-level locking
+  cannot do it inside one thread (§1.8). The size-one pool in step 12 is the mechanism, and it
+  must wrap every top-level transaction, including the Ledger's.
 - The pre-migrated test fixture (`serialize`/`deserialize`) is `bun:sqlite`-only. Switching the
   test driver to `Bun.SQL` or libsql costs the 469 ms → 65 ms store construction win across
   475 constructions.
@@ -376,5 +445,6 @@ Outcome of Stage B: the store runs on any SQLite-dialect driver drizzle supports
    replica (needs a native addon shipped beside the binary)? They are different products.
 3. Do we accept the async cost on the hot read paths (feed bootstrap, issue frames) as the
    price of driver independence, or do we want a measured budget before Stage B starts?
-4. Should Stage A ship on `bun:sqlite` (keeps every existing file-level tool) or on `Bun.SQL`
-   (async-native, but new backup/snapshot story)?
+4. Given that async SQLite gives no event-loop relief and needs a queue whatever the driver
+   (§1.8, §1.9), is Stage B worth starting before a networked backend is actually chosen, or
+   should A ship alone and B wait for that decision?
