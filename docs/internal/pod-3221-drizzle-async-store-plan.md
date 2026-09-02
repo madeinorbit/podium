@@ -940,14 +940,17 @@ aggregate conversion:
 - **No behaviour change on SQLite.** The existing store and service tests are the oracle and
   are not rewritten in the same commit as the implementation they cover. Where an
   `INSERT OR REPLACE` site named only some columns, the reset of the others stays explicit.
-  **For Stage B the oracle is a captured trace, not a mechanically awaited copy of the tests**
-  (rev 11, finding 7): a rewritten suite can encode the new timing by accident, exactly as
-  finding 4 shows. Before the flip, a backend-neutral conformance suite records, from the
-  synchronous Stage A implementation, the externally observable sequence per scenario: results
-  and errors, database rows, in-memory projections, bus events, feed frames, timer scheduling
-  and relative completion order. The async implementation replays the same scenarios and is
-  compared against the trace, plus the same-entity concurrency scenarios of step 14a. The
-  synchronous implementation stays available behind a test adapter until parity holds.
+  **For Stage B the oracle is the existing suite as awaited under step 11a, green on the
+  synchronous implementation before the flip and on the asynchronous one after, with no
+  assertion changed between** (rev 11.1, replacing rev 11 finding 7's captured-trace suite on
+  the execution-method review's finding F3). Finding 7's concern was that a mechanically
+  awaited suite can encode the new timing by accident; step 11a answers it by landing the
+  test `await`s while the store is still synchronous, so the suite that is green on both
+  implementations changed nothing in between, and the reviewer rule at the flip is mechanical
+  (changed test lines differ only by `await`, `async` or the helper rename). The timing the
+  suite cannot see is covered by the scheduler's interleaving tests and the step 14a model
+  tests over an injected async persistence function. No trace suite is built and the
+  synchronous implementation is not kept behind a test adapter; both would outlive the flip.
 - **Landed per aggregate, on `main`, each commit revertible on its own.** No long-lived branch.
   A conversion that cannot land alone is split until it can.
 - **The queue is proven, not assumed.** A test drives concurrent top-level transactions with

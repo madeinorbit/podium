@@ -1,113 +1,147 @@
 # Execution method for the drizzle async store epic (POD-3221)
 
-Companion to `pod-3221-drizzle-async-store-plan.md` (the specification, revision 11). That
+Companion to `pod-3221-drizzle-async-store-plan.md` (the specification, revision 11.1). That
 document says what the end state is and which rules apply. This one says in what order the work
 lands, how every occurrence is found, how each one is judged, and how a problem that no rule
 covers becomes an architectural decision instead of a local fix.
 
-Revision 2 (2026-09-02). Revision 1 proposed a fifteen-family CI ratchet, six question sets and
-per-slice reviewers. That was the v3 rearchitecture's shape, and the v3 lessons apply: it took
-too long, its instruments outlived it, and implementers spent their time on ratchets instead of
-the work. This revision keeps the four things that carry load, deletes the rest, and gives
-every remaining instrument a deletion date.
+Revision 3 (2026-09-02). Revision 1 proposed a fifteen-family CI ratchet, six question sets and
+per-slice reviewers: the v3 rearchitecture's shape, whose lessons apply (it took too long, its
+instruments outlived it, implementers spent their time on ratchets). Revision 2 cut it to what
+carries load. Revision 3 folds an independent review of revision 2 (issue artifact "Fable
+review: execution method"), which verified that the shape is right and found seven places where
+the method as written could not execute, could not say no, or contradicted the specification.
+The changes are marked "rev 3".
 
 ## 1. What actually threatens completion, and what answers it
 
 | Threat | Answer | Cost |
 |---|---|---|
-| A repository is left half-converted, or a site is missed | Two database types during Stage A; converted repositories take the drizzle one; when the last converts, the legacy type is deleted and the compiler reports anything left. Stage B does the same with the port types: change them, follow the red until green. | None ongoing. The types are deleted at the gate. |
-| A conversion changes behaviour and the tests are rewritten to match | Conversion commits may not modify an existing test assertion. The existing 1,840 store call sites in tests are the oracle. | None. A reviewer rule. |
-| Interfaces are guessed and the reviews' rework repeats | The two prototypes of spec step 3b before the large repositories convert. | A few days, once. They decide the executor, scheduler, post-commit and dialect-query shapes. |
-| An async hazard the compiler cannot see (frame cache, hidden read, mutable object, timer, I/O in a span) survives the flip | One inventory script, run at the B-prep gate, listing sites by category. The counts are in the tens, not hundreds, and the reviews already listed most of them with file and line. | One script, deleted after the flip. |
-| The scheduler is wrong in a way the store tests cannot see | About ten deterministic interleaving tests of the scheduler itself: serialisation, re-entrancy, stale token, publication order, re-entrant commit timing, frames per burst, parked body at shutdown. | Permanent, fast: they test a new component. |
-| A JSON column loses its quarantine | One table-driven test over the 23 json-mode columns that plants a corrupt blob per column and asserts the load survives. | One file, permanent. |
+| A repository is left half-converted, or raw SQL survives on the drizzle type | **One lint rule family** over `store/**`, `modules/operations/store.ts` and the sync SQLite adapter, outside the search port: no import of `@podium/runtime/sqlite`, no `.prepare(`, no whole raw statement (`db.all/get/run/values(sql\`…\`)`), and the spec's §1.7 constructs inside `sql` template bodies. Its only allowlist is the `// DECISION POD-<n>` marker (§4). Deleting the executor's legacy handle field at Phase A exit is a second, free check. (Rev 3: type deletion alone cannot see a raw statement passed to drizzle's own `db.all(sql\`…\`)`.) | One permanent rule, proven to fire on a fixture in `check-boundaries.test.ts`. |
+| A conversion changes behaviour and the tests are rewritten to match | Conversion commits may not modify an existing test assertion; test **setup** edits (direct repository constructions, probe seams) are allowed and listed in the commit message. The existing 1,840 store call sites in tests are the oracle. At the flip the rule is mechanical: changed test lines may differ only by `await`, `async`, or the helper rename. | None. A reviewer rule. |
+| A call site drops a promise at the flip | **The flip is a codemod, not a hand edit** (rev 3): a script that inserts `await` before every call whose callee resolves to a repository or store method, regardless of position. Hundreds of store calls sit in statement position with the result discarded, and seven inside `if (…)`; after the port flip they compile clean and drop or always-pass. No floating-promise lint exists in this repo. Under the codemod every such site becomes "await in a non-async function" and the compiler enumerates them. Every branch that rebases across the flip runs the codemod before landing. | One script, deleted at Phase B exit. |
+| Interfaces are guessed and the reviews' rework repeats | The two prototypes of spec step 3b before the large repositories convert. | A few days, once. |
+| An async hazard the compiler cannot see survives the flip | **A ledger table in the flip issue**, one row per site by symbol: category, model chosen, commit that applied it (rev 3: replaces the inventory script, because mutable-state and I/O-in-span sites are not statically detectable, so a script would list zero for them by construction). The compiler under the codemod finds the detectable categories at the flip. | None in the repo. |
+| The scheduler is wrong in a way the store tests cannot see | About ten deterministic interleaving tests of the scheduler, plus the step 14a **model tests** over an injected async persistence function that parks on a barrier (rev 3: a barrier test against the synchronous store cannot park anything and passes for any implementation). | Permanent, fast, small. |
+| A JSON column loses its quarantine | The 23-column corrupt-blob table test, **written first, by the coordinator, against today's implementation**, its column list derived from `schema.ts` so a 24th column fails by name (rev 3: written after conversion by the worker who chose the behaviour it is a receipt, not an oracle). | One file, permanent. |
 | Drizzle's own transaction or a drizzle import leaks out of the store | Two rules in `scripts/check-boundaries.ts`, beside the existing sync-kernel rule. | Permanent, cheap. |
-| Hot paths regress in a way duration cannot show | Query count per request and frames per burst, captured by a script at the gates. Two numbers, compared by hand. | A script, not a test. |
+| Hot paths regress in a way duration cannot show | **One script on the 5a attribution seam** (the raw-client wrapper), `--baseline <file>`, exit non-zero on increase; baselines are issue artifacts, never committed files. Frames per burst is one of the scheduler tests. (Rev 3: the existing query-count probes patch the `SqlDatabase` wrapper, which drizzle bypasses, so a script at that seam would read zero for every converted repository forever; 5a lands the seam and edits those probes before issues, users and repos convert.) | One script. |
 
-Nothing else is added. There is no CI baseline file, no `--phase` close gate, no conformance
-trace suite, no per-slice reviewer, no decision digest. Every instrument above has a deletion
-date in §5 except the four permanent ones (the scheduler tests, the corrupt-blob test, the two
-lint rules, and the two measurement scripts).
+Nothing else is added. Every temporary instrument is paired with a deletion issue in the tracker
+(§5). Permanent additions: the lint rule family, the scheduler and model tests, the corrupt-blob
+test, the two boundary rules, the measurement script.
 
 ## 2. The sequence
 
-Four phases. Each exit gate is a command that exits zero or a number that did not go up.
+Four phases. Each exit gate is a command that exits zero, or is named as a human gate.
 
-### Phase 0 — decide the interfaces
+### Phase 0 — decide the interfaces and make every shared edit once
 
-1. Capture the two measurements (query count on feed bootstrap and issue frame reads; frames
-   per burst on the boot reconcile).
-2. The executor prototype: queue, token, savepoints, the three post-commit mechanisms, ambient
-   routing, async close, a service-shaped closure and the cross-service span.
-3. The dual-backend vertical slice: locks, one aggregate with joins and JSON, the sync append
-   with the feed-head allocator, boot and shutdown, on real SQLite and Postgres. It chooses the
-   dialect-query strategy and the schema-twin technique.
-4. Stage A prerequisites 5a to 5d: attribution at the execution seam, repos-cache invalidation,
-   the two lint rules, the writer-guard replacement.
-5. The scheduler's interleaving tests exist (they are written against the prototype).
+1. Stage A prerequisite 5a (attribution at the execution seam) lands first, editing the three
+   existing probe tests onto the new seam; then the two measurements are captured on it.
+2. The executor prototype, now including the production scheduler with its tests, the token,
+   ambient routing, the three post-commit mechanisms with synchronous implementations, and the
+   **executor object** every repository will take: `{ drizzle, transact, legacy }`, where
+   `transact` is a method (the raw handle is never exposed) and `legacy` is the field deleted at
+   Phase A exit. The 14a model tests are written here too.
+3. The dual-backend vertical slice (spec step 3b), unchanged.
+4. Stage A prerequisites 5b to 5d; spec step 9 (retire the boot upgrades, so `store.ts` holds no
+   raw SQL and the lint needs no allowlist); and the `queued_messages` and `upstream_outbox`
+   table objects injected into the sync adapter's constructor, typed as drizzle tables, because
+   the adapter reads those server-owned tables and a package cannot import from `apps/server`.
+5. **The shared edits, once, by the coordinator** (rev 3): one commit makes the 34 constructor
+   lines in `store.ts` take the executor; one commit sets `mode: 'boolean'` on every 0/1 column
+   and records the 23 json-mode decisions (the drizzle snapshots do not record `mode`, so no
+   migration results); the four `ord` migrations (`queued_messages`, `messages`,
+   `automation_runs`, `repos`) land serially. No worker authors a migration or edits `schema.ts`
+   or `store.ts` in Stage A.
+6. The corrupt-blob table test, all 23 columns, against the synchronous implementation.
+7. Coverage over `store/**`, once (`vitest --coverage`, scoped, not a gate): 18 of 38 repository
+   files have no direct test file and about 131 of 455 public repository methods are never named
+   in any test. Each brief carries its repository's list of uncovered methods.
+8. The lint rule family lands with a fixture test proving it fires.
 
-Exit: the decisions from 2 and 3 are written into the spec as rules; 5a to 5d landed.
+Exit: items 2 and 3 written into the spec as rules (human gate); items 1 and 4 to 8 landed;
+`bun run lint:boundaries` green.
 
-### Phase A — builder conversion, one agent per repository
+### Phase A — builder conversion, one agent per package, in waves
 
-Stage A is embarrassingly parallel: 34 repositories, each a file, each converted against the
-same spec, each touching one line of the composition root. So it runs as waves of workers, one
-per repository, five to eight at a time as the box allows, each in its own worktree, each
-producing one commit (two where a schema-only commit precedes it). The coordinator lands them
-serially behind the merge lock; the composition-root line is the only overlap and rebases
-cleanly.
+Stage A is embarrassingly parallel once the shared edits are done. The five large repositories
+convert by family (shared selects and mappers first, one family per worker or commit,
+cross-family spans with the last family). The small repositories convert in groups of three to
+five by adjacency, one wave. Five to eight workers at a time as the box allows, each in its own
+worktree, each producing one commit.
 
-Order: the small aggregates in the first waves, the five large repositories last, each of those
-split by family (shared selects and mappers first, then one family per worker or per commit,
-cross-family spans with the last family).
+A worker's commit is its repository files, its golden tests (written **before** the conversion,
+against the synchronous code, for the uncovered methods in its brief), and the setup edits of
+tests that construct the repository directly. No `schema.ts`, no `store.ts`, no migration, no
+corrupt-blob edit. Every site is answered against the Stage A checklist (§3), converted on the
+sync forms, existing assertions untouched. A "no rule" site is converted literally with the
+`// DECISION POD-<n>` marker and its decision issue is filed with the exact command in the brief;
+the worker lands the rest of its package without waiting.
 
-Per repository, the worker answers the Stage A checklist (§3) for every site, converts on the
-sync forms, leaves existing tests untouched, adds its rows to the corrupt-blob table test, and
-stops on any "no rule" (§4).
+Review: one reviewer per wave against the Stage A checklist and the spec's §6.1, reading the
+removed lines of any test file first; two reviewers for the five large repositories.
 
-Review: one review pass per wave, by one reviewer, against the Stage A checklist and the spec's
-§6.1, with the removed lines of any test file read first. The five large repositories get two
-reviewers.
-
-Exit: the legacy database type is deleted and typecheck is green; the SQLite-construct grep over
-`store/**` outside the search port returns nothing; the corrupt-blob test covers all 23 columns;
-the two measurements did not go up.
+Exit: `bun run lint:boundaries` green with zero `DECISION` markers (a `grep` for the marker
+is part of the gate script); `executor.legacy` deleted and
+`bun run typecheck -- --filter=@podium/server` green; the corrupt-blob test green; the
+measurement script green against the Phase 0 baseline.
 
 ### Phase B-prep — remove the async hazards while everything is still synchronous
 
-Most of Stage B's real work, none of it needing the async ports, all of it landable in small
-commits on main. One agent per hazard category rather than per file, because a category is a
-few to a dozen sites that want one consistent treatment:
+Most of Stage B's real work, none of it needing the async ports, landable in small commits on
+main. One agent per hazard category:
 
 1. Hidden reads: constructors to `create()` shapes, getters to methods.
 2. Array-callback store calls: batched reads before the loop.
 3. Timers: single-flight guards.
-4. Mutable process state: the step 14a audit, one model per registry, the same-entity barrier
-   tests written against the synchronous implementation.
-5. I/O inside spans: each nested write classified into the three post-commit mechanisms.
-6. The read-scope and transact API shapes, introduced with synchronous implementations so the
-   fan-out passes and the frame caches adopt the read scope before its semantics change.
-7. The `openTestStore()` helper and the three shared test helper modules; the await-preparation
-   for tests, scoped as spec step 11a.
+4. Mutable process state: the step 14a audit, one model per registry, each model a small object
+   over an injected persistence function, tested with an async fake that parks on a barrier.
+5. I/O inside spans: each nested write classified into the three post-commit mechanisms, on the
+   API shapes fixed by Phase 0 item 2.
+6. The read-scope adoption: the fan-out passes and the frame caches move onto the synchronous
+   read scope; the `forBatch` prefetch and admission-inside-the-read-scope land here under the
+   synchronous implementation.
+7. `SessionStore.open`, `openTestStore()`, the three shared test helper modules, the 481 test
+   constructions; the await-preparation for tests, scoped as spec step 11a.
 
-Exit: the inventory script lists zero sites in categories 1 to 6, or each remaining site is
-named in the flip issue with a reason.
+Exit: every row of the ledger table in the flip issue has a commit or a decision issue; the
+twelve timing-sensitive suites the spec names are listed by name in the flip issue.
 
-### Phase B — the flip, then the modules
+### Phase B.1 — the minimal flip
 
-1. The flip: one branch, one agent plus the coordinator, days not weeks, under a freeze on the
-   store, the sync package and the relay that other sessions respect through a lock name. It
-   changes the port types, lands the scheduler, the token, ambient routing, the post-commit
-   mechanisms, admission inside the read unit of work, the `forBatch` prefetch and
-   `SessionStore.open`, and follows the red until typecheck is green. Two reviewers. The
-   scheduler tests and the existing suite are its gate.
-2. Modules top-down, one agent per module in waves as in Phase A, each converting its store
-   call sites and its constructor reads, each reviewed against the Stage B checklist.
-3. Delete the synchronous transaction helper and the synchronous port types; typecheck proves
-   nothing needs them.
+Freeze on `apps/server/src/**` and `packages/sync/src/**` (rev 3: the flip's red runs through
+every module, and the modules take about forty commits a day), under the named lock
+`freeze:pod-3221-flip`, renewed by the coordinator, stated in every concurrent session's brief
+because a mailbox message does not reach a working agent. One integration branch. The
+coordinator changes the port types and wires the scheduler built in Phase 0; the codemod awaits
+every store call; the red is followed to green, in worktrees off the flip branch per module if
+the box allows, merged into the flip branch. The twelve suites convert in the branch. A "no rule"
+during the flip is resolved by the coordinator inside the freeze, not filed for later. Two
+reviewers; the test-diff rule is mechanical. Every branch that rebases across the landed flip runs
+the codemod before it lands, and the coordinator checks its output is empty at each landing
+until the codemod is deleted.
 
-Exit: existing suite green; scheduler tests green; the two measurements did not go up; the
-synchronous helper deleted; the three ADR amendments landed.
+Sizing (rev 3): with the scheduler, `open()`, `forBatch` and admission already landed, the flip
+is about 620 repository signatures (codemod), 574 service call sites and their enclosing bodies
+(codemod plus the red loop), 28 tRPC procedures, and the test constructions and call sites
+already prepared. The mechanical closure is a day or two. What makes it longer: the twelve
+suites, hazards B-prep could not see surfacing as flaky tests under real interleaving, the
+package typecheck (scope it: `--filter=@podium/server`, concurrency 1), and the lease-gated full
+suite.
+
+### Phase B.2 — the post-flip list, on main, no freeze
+
+One agent per item (rev 3: this list was placed nowhere in revision 2): exclusive operations for
+the file-level subsystem through the scheduler; lifecycle states and awaited shutdown with the
+parked-transaction test; the watchdog; the relay `create()` if B-prep did not finish it; the
+three ADR amendments; deletion of the synchronous transaction helper, the synchronous port types,
+the codemod, and the executor's legacy field if still present.
+
+Exit: existing suite green; scheduler and model tests green; measurement script green; the
+synchronous helper deleted and typecheck green; B.2's list complete; ADR 2, 6 and 9 amended
+(human gate).
 
 Stage B′ and the Postgres epic are outside this issue.
 
@@ -119,61 +153,80 @@ the spec's §7 or a step number, or "no rule": see §4.
 **Stage A, a query site or span.**
 1. Which of the spec's §1.7 constructs does it use, and what replaces each: rowid class (step
    6), every column named on an upsert, which port for PRAGMA, `sqlite_master`, `lastInsertRowid`?
-2. Which columns are JSON, and is each quarantined or throwing (rule 4)?
+2. Which columns are JSON, and does the corrupt-blob test say quarantine or throw for each?
 3. Which mapper lines are decisions and stay (rule 6), and which existed only because the driver
    returned `unknown` and go?
 4. Do brands flow from `$type` (rule 3), or is a cast left, and why?
 5. Does a span cross repositories, nest, or do read-decide-write, and does the conversion keep
    its boundaries and its immediate mode (rule 7)?
 6. Does anything inside a span call something that is not the database (spec §1.5 item 8)?
-   Note it for B-prep; do not fix it here.
-7. Does the oracle cover this statement? If thin, which golden test is added first?
-8. Is the statement on a hot path, and does it need `prepare()`?
+   Note it in the ledger for B-prep; do not fix it here.
+7. Does any bound parameter arrive as `undefined`, and what did the raw statement do with it?
+8. Does a dynamic `IN` list bound the number of distinct SQL texts (the statement cache)?
+9. Which test setups change (direct constructions, probes)? List them in the commit message.
+10. Is the method on the brief's uncovered list? Then its golden test comes first.
 
 **Stage B, a store consumer or state site.**
-1. From what context is the store reached: handler, constructor, getter, callback, predicate,
+1. Is every call awaited, including statement-position and boolean-position calls? (The
+   codemod's output for this file is empty.)
+2. From what context is the store reached: handler, constructor, getter, callback, predicate,
    timer, boot, inside a write span?
-2. Which §1.5 category, and which model: `create()`, batched read, single-flight, read scope,
+3. Which §1.5 category, and which model: `create()`, batched read, single-flight, read scope,
    rights read under the lease, ambient routing?
-3. Is a process-owned object mutated before commit or restored on failure, and which step 14a
+4. Is a process-owned object mutated before commit or restored on failure, and which step 14a
    model applies?
-4. Does the caller read a derived row immediately after a commit (the re-entrant timing
+5. Does the caller read a derived row immediately after a commit (the re-entrant timing
    contract)?
-5. Does any await now sit between two reads a frame cache covered?
-6. Which nested write becomes which post-commit mechanism, and does the outer promise wait for
+6. Does any await now sit between two reads a frame cache covered?
+7. Which nested write becomes which post-commit mechanism, and does the outer promise wait for
    it?
-7. Which scheduler test or barrier test proves it?
 
 ## 4. When no rule covers a site
 
-The worker stops on that site, leaves it unconverted with a one-line comment naming the
-question, and files a decision sub-issue under the epic with the site, the question, the
-candidate rules, and the other sites the rule would apply to. The coordinator resolves it by
-amending the spec's §7, never the site, and the workers that own the listed sites apply the
-rule. This is the one piece of process that is not optional, because it is what keeps a new
-kind of problem from being solved thirty times differently.
+The worker converts the site in the most literal form and marks the line `// DECISION POD-<n>`,
+the one token the lint allowlists (rev 3: `TODO` is banned and an unconverted raw statement has no
+handle to run on once the constructor takes the executor). It files the decision with the exact
+command from its brief:
 
-Banned in converted files, checked by the reviewer: `as any`, `@ts-expect-error`,
-`biome-ignore`, `TODO`, `sql.raw` outside the search port, a temporary second code path.
+    podium issue create --parent-id 3221 --outside-scope --title "Rule: <question>" \
+      --description "<one plain sentence>" \
+      --brief "<site, question, candidate rules, other sites the rule would apply to>"
+
+The coordinator resolves it by amending the spec's §7, never the site, and sends the answer to
+each affected worker's session with `--urgency interrupt`, because an issue-mailbox message does
+not wake a working agent. Workers that own listed sites apply the rule in a follow-up commit. The
+worker does not wait for the answer; it lands the rest of its package. The Phase A exit gate
+requires zero markers.
+
+Banned in converted files, checked by the lint where it can be and by the reviewer otherwise:
+`as any`, `@ts-expect-error`, `biome-ignore`, `TODO`, `sql.raw` outside the search port, a
+temporary second code path.
 
 ## 5. What is deleted, and when
 
+The v3 deletion audit is still a blocking CI step today, months after its purpose ended, because
+its deletion date lived in a document. So (rev 3): **when a temporary instrument lands, the same
+issue creates its deletion issue, blocked by the phase-exit issue, with the file paths in the
+brief.** The tracker holds the deletion; this table is the human summary.
+
 | Instrument | Deleted at |
 |---|---|
-| The legacy database type | Phase A exit |
-| The hazard inventory script | Phase B exit |
-| The synchronous transaction helper and the synchronous port types | Phase B exit |
+| The executor's `legacy` field | Phase A exit |
+| The codemod | Phase B.2 |
+| The synchronous transaction helper and the synchronous port types | Phase B.2 |
 | The freeze lock | Flip merged |
+| The ledger table | Lives in the flip issue; nothing to delete |
 | This document's checklists | When the epic closes; the rules live in the spec's §7 |
 
-Permanent: the scheduler's interleaving tests, the corrupt-blob table test, the two boundary
-rules, the two measurement scripts. Nothing else this epic adds survives it. No test that pins
-the transition is written: the existing suite is the oracle in both stages, and the scheduler
-tests test the scheduler.
+Permanent: the lint rule family, the scheduler and model tests, the corrupt-blob test, the two
+boundary rules, the measurement script. No test that pins the transition is written: the
+existing suite, awaited under 11a while still synchronous, is the oracle in both stages.
 
 ## 6. Roles
 
-A coordinator who owns the spec, the decisions and the landings and converts no code. Workers
-who own one repository, one category, or one module each, in their own worktree created with
-`bun run setup:worktree`, with a brief that names their files, the checklist and the spec's
-§6.1 and §7. One reviewer per wave, two for the five large repositories and the flip.
+A coordinator who owns the spec, the decisions, the shared edits of Phase 0, the freeze and the
+landings, and converts no repository. Workers who own one package, one category, or one module
+each, in their own worktree created with `bun run setup:worktree`, with a brief that names their
+files, the checklist, their uncovered-method list, the decision command, the freeze lock name
+while it is held, and the spec's §6.1 and §7. One reviewer per wave, two for the five large
+repositories and the flip.
