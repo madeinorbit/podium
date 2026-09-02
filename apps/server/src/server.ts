@@ -21,7 +21,9 @@ import {
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import {
+  assertAppUrlCompatible,
   loadConfig,
+  resolveAppUrl,
   resolveDevArtifactOrigin,
   resolveInstanceId,
   resolveMode,
@@ -114,12 +116,6 @@ import {
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import type { PodiumPlugin } from './plugins'
-import {
-  type PublicUrlProbe,
-  type PublicUrlVerification,
-  setProcessPublicUrlProbe,
-  startPublicUrlProbe,
-} from './public-url-probe'
 import {
   authReadinessBoundary,
   isHostLocalRequest,
@@ -318,15 +314,6 @@ export function registerVersionRoute(
     web?: () => ServedWebIdentity
     /** Parent health gate + settings: is the local daemon connected? */
     daemonConnected?: () => boolean
-    /**
-     * Whether this server has verified it can reach its OWN public URL
-     * (PDM-26). `null` while the first check is still outstanding, and absent
-     * entirely on a server assembled without a probe. Published here because it
-     * is the same question /version already answers for every other "what is
-     * this deployment" fact, and because an operator diagnosing a machine that
-     * enrolled but never connected reaches for this route first.
-     */
-    publicUrlVerified?: () => PublicUrlVerification | null
     /** Janitor co-host status for DEGRADED projection [POD-2505]. */
     janitor?: () =>
       | {
@@ -377,7 +364,6 @@ export function registerVersionRoute(
       ...(sourceDigest ? { sourceDigest } : {}),
       ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
-      ...(deps.publicUrlVerified ? { publicUrlVerified: deps.publicUrlVerified() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
       components,
@@ -480,6 +466,9 @@ export async function startServer(
   // site keeps this process's shape decided in one place, and makes the env
   // layer's "boot-time, never stale" property literally true.
   const envMode = resolveMode(config, process.env)
+  // Fails the boot rather than advertising a UI origin whose browser could never
+  // hold this server's session cookie (PDM-26).
+  assertAppUrlCompatible(config, process.env)
   const updateScope = resolveUpdateScope(config, process.env)
   const fleetOnly = updateScope === 'fleet-only'
   const lakeEnabled = (opts.transcriptLake ?? resolveTranscriptLake(config, process.env)) === 'on'
@@ -943,18 +932,8 @@ export async function startServer(
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let janitorHostClosing = false
-  /**
-   * LATE-BOUND, because the probe must not run before this process is listening:
-   * its very first request goes out through the front door and comes back to
-   * this same server, and a check that raced the listener would record a failure
-   * that says nothing about the deployment. Started immediately after boot
-   * resolves, below.
-   */
-  let publicUrlProbe: PublicUrlProbe | undefined
-  const publicUrlVerified = (): PublicUrlVerification | null => publicUrlProbe?.state() ?? null
   registerVersionRoute(app, {
     instanceId,
-    publicUrlVerified,
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,
     installKind: () => (developmentRuntime.runningFromSource ? 'source' : 'installed'),
@@ -1040,7 +1019,7 @@ export async function startServer(
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
   app.use('/setup/*', podiumCors())
   app.use('/readiness', podiumCors())
-  registerReadinessRoute(app, readiness, instanceId)
+  registerReadinessRoute(app, readiness)
   registerSetupRoute(app, {
     readiness,
     // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
@@ -1077,8 +1056,8 @@ export async function startServer(
     pairing: mobilePairing,
     serverIdentity: () => ({
       publicUrl: resolvePublicUrl(loadConfig(), process.env),
+      appUrl: resolveAppUrl(loadConfig(), process.env),
       instanceId,
-      publicUrlVerified: publicUrlVerified(),
     }),
     loginRequired: credentialsRequired,
     // Pairing and device management require a real credential. Open-mode's
@@ -1233,10 +1212,22 @@ export async function startServer(
   // Routing first so its /mobile fallback middleware owns the dist-absent case;
   // presence is probed per request (the mobile dist may be exported after boot).
   const mobileIndex = mobileWebDir ? join(mobileWebDir, 'index.html') : ''
+  const expoMobilePresent = (): boolean => mobileIndex !== '' && existsSync(mobileIndex)
   registerMobileRouting(app, {
-    expoMobilePresent: () => mobileIndex !== '' && existsSync(mobileIndex),
+    expoMobilePresent,
     redirectPhoneRoot: opts.redirectPhoneRootToMobile ?? true,
     operatorEntryAvailable: () => readiness().dataPlane === 'available',
+    /**
+     * ONLY WHEN THIS SERVER SERVES NO UI AT ALL (PDM-26).
+     *
+     * An API-only deployment has no page to give a browser, so those routes 404
+     * or bounce today and the app URL is the true answer. A server that HAS a
+     * bundle keeps serving it: redirecting away from a working local UI would
+     * take it from the operator standing in front of the box, which is the one
+     * person who most needs it.
+     */
+    appUrl: () =>
+      desktopWebDir() || expoMobilePresent() ? undefined : resolveAppUrl(loadConfig(), process.env),
   })
   // crossOriginIsolated: expo-sqlite web needs SharedArrayBuffer for durable
   // OPFS persistence (POD-541). Without these headers the replica degrades to
@@ -1581,14 +1572,6 @@ export async function startServer(
         schedule: timerSchedule,
       })
       targetsResolvedOnBoot = true
-      // Can this instance reach itself through its own front door (PDM-26)? It
-      // never blocks serving — see startPublicUrlProbe — and it runs for a
-      // file-layer URL too, so a self-hoster gets the same signal.
-      publicUrlProbe = startPublicUrlProbe({
-        publicUrl: resolvePublicUrl(config, process.env),
-        instanceId,
-      })
-      setProcessPublicUrlProbe(publicUrlProbe)
       resolve({
         port: server.port,
         instanceId,
@@ -1623,15 +1606,6 @@ export async function startServer(
               // (POD-611 made it deterministic and fast), and a report is worth
               // less than a fast stop. The queue is durable — it goes next boot.
               ['telemetry.stop', () => telemetry.stop()],
-              // An armed retry that outlived the server would keep fetching a
-              // URL nothing is listening on, forever, once per five minutes.
-              [
-                'publicUrlProbe.stop',
-                () => {
-                  publicUrlProbe?.stop()
-                  setProcessPublicUrlProbe(undefined)
-                },
-              ],
               // Release the per-origin client log descriptors. The sink writes
               // synchronously, so nothing is buffered and this loses no records —
               // it closes fds a long-lived process would otherwise hold.

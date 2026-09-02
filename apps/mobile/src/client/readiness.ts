@@ -29,7 +29,12 @@ export async function fetchServerReadiness(httpOrigin: string): Promise<ServerRe
     credentials: 'include',
     signal: timeoutSignal(READINESS_TIMEOUT_MS),
   })
-  if (!response.ok) throw new Error(`readiness failed: ${response.status}`)
+  // 503 carries the readiness body verbatim (PDM-26) — it is how a blocked data
+  // plane reports itself to a status-code-only health check, and reading it as a
+  // transport failure would cost the phone the screen that says what to do.
+  if (!response.ok && response.status !== 503) {
+    throw new Error(`readiness failed: ${response.status}`)
+  }
   const body: unknown = await response.json()
   if (!isServerReadiness(body)) throw new Error('readiness response was invalid')
   return body

@@ -10,14 +10,6 @@ interface NetworkInfo {
   mode: string | null
   publicUrl: string | null
   serverUrl: string | null
-  /**
-   * Whether this server has verified it can reach its OWN public URL (PDM-26).
-   * `null` = the first check has not completed. Shown here rather than in the
-   * app header because an unreachable public URL is not an outage — the operator
-   * looking at this page is being served perfectly well — it is a fact that
-   * explains why a machine enrolled and never connected.
-   */
-  publicUrlVerified?: { ok: boolean; checkedAt: string; error?: string } | null
   /** Credentialed cross-site origins this deployment allows. */
   allowedOrigins?: string[]
 }
@@ -116,7 +108,6 @@ export function NetworkSection({
       ) : (
         <NetworkStep embedded trpc={trpc} onSaved={load} onSaveStateChange={onSaveStateChange} />
       )}
-      <PublicUrlReachability verified={info.publicUrlVerified ?? null} />
       {(info.allowedOrigins?.length ?? 0) > 0 && (
         <>
           <Row
@@ -135,36 +126,5 @@ export function NetworkSection({
         </>
       )}
     </Section>
-  )
-}
-
-/**
- * Whether this server reached its own public URL through the front door.
- *
- * A FAILURE IS NOT AN OUTAGE, and the copy has to say so: the person reading it
- * is being served fine. What it explains is the thing that is otherwise
- * inexplicable — a machine that enrolled and then never connected, because the
- * URL it was handed does not answer.
- */
-function PublicUrlReachability({
-  verified,
-}: {
-  verified: { ok: boolean; checkedAt: string; error?: string } | null
-}): JSX.Element | null {
-  // Nothing to say before the first check completes; a "checking…" line on a
-  // settings page is noise the operator cannot act on.
-  if (!verified) return null
-  if (verified.ok) {
-    return (
-      <p className="mt-2 settings-prose text-muted-foreground">
-        This server reached its own public URL.
-      </p>
-    )
-  }
-  return (
-    <p role="status" className="mt-2 settings-prose text-warning">
-      This server could not reach its own public URL{verified.error ? `: ${verified.error}` : '.'}{' '}
-      Podium keeps serving, but new machines and phones cannot be paired until it answers.
-    </p>
   )
 }

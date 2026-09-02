@@ -2,24 +2,24 @@ import { randomBytes } from 'node:crypto'
 import type { UserId } from '@podium/model'
 import {
   encodePairingEnvelope,
-  mobilePairingUrl,
   MobilePairClaimRequest,
   MobilePairCompleteRequest,
+  type MobilePairEnvelope,
   MobilePairingIdRequest,
+  mobilePairingUrl,
   normalizeHttpOrigin,
   RevokeMobileClientSessionRequest,
-  type MobilePairEnvelope,
 } from '@podium/protocol'
 import type { Context, Hono } from 'hono'
 import {
+  type ClientCredentialHeaders,
   hashToken,
   isHttps,
   resolveClientCredential,
   SESSION_TTL_MS,
   setSessionCookie,
-  type ClientCredentialHeaders,
 } from './auth-route'
-import { MobilePairingManager } from './mobile-pairing'
+import type { MobilePairingManager } from './mobile-pairing'
 import type { AuthRepository } from './store/auth'
 
 const PAIRING_UNAVAILABLE = { error: 'pairing unavailable' } as const
@@ -148,14 +148,9 @@ export interface MobilePairingRouteOptions {
   pairing: MobilePairingManager
   serverIdentity: () => {
     publicUrl?: string
+    /** Where the web UI lives when it is not this server (PDM-26); absent means here. */
+    appUrl?: string
     instanceId: string
-    /**
-     * Whether this server has verified it can reach its own public URL
-     * (PDM-26). `null`/absent means the first check has not completed — pairing
-     * proceeds, because refusing during the first seconds of uptime would be a
-     * new flake rather than a safety property. Only a KNOWN failure refuses.
-     */
-    publicUrlVerified?: { ok: boolean; error?: string } | null
   }
   loginRequired: () => boolean
   resolveUserId: (headers: ClientCredentialHeaders) => UserId | undefined
@@ -216,17 +211,6 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       serverUrl = normalizeHttpOrigin(identity.publicUrl)
     } catch {
       return c.json({ error: 'public URL is invalid' }, 409)
-    }
-    // A pairing payload is a PROMISE about this URL that the phone cannot
-    // renegotiate: it is what the device dials from then on. Handing one out
-    // while we know the URL does not answer produces a paired device that can
-    // never connect, and nothing on the phone can explain why (PDM-26).
-    const verified = identity.publicUrlVerified
-    if (verified && !verified.ok) {
-      return c.json(
-        { error: `public URL not verified reachable: ${verified.error ?? 'unknown error'}` },
-        409,
-      )
     }
 
     if (!opts.loginRequired()) {

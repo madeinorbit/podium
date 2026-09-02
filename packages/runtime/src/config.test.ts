@@ -4,12 +4,13 @@ import { join } from 'node:path'
 import { addSink, type LogRecord } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  assertAppUrlCompatible,
   CONFIG_MIGRATIONS,
   CURRENT_CONFIG_VERSION,
-  LAYERED_ENV,
-  LAYERED_KEYS,
   configPath,
   inspectConfig,
+  LAYERED_ENV,
+  LAYERED_KEYS,
   loadConfig,
   localServerUrl,
   localServerWsUrl,
@@ -20,6 +21,7 @@ import {
   resolveAgentRelay,
   resolveAgentRelayPort,
   resolveAllowedOrigins,
+  resolveAppUrl,
   resolveDevArtifactOrigin,
   resolveFeatureOverrides,
   resolveHookPort,
@@ -631,7 +633,11 @@ describe('the layered keys a cloud deployment sets (PDM-26)', () => {
   })
 
   it('resolvePublicUrl: env rejects a path, query or fragment', () => {
-    for (const bad of ['https://a.example/podium', 'https://a.example?x=1', 'https://a.example#f']) {
+    for (const bad of [
+      'https://a.example/podium',
+      'https://a.example?x=1',
+      'https://a.example#f',
+    ]) {
       expect(() => resolvePublicUrl({}, { PODIUM_PUBLIC_URL: bad })).toThrow(/PODIUM_PUBLIC_URL/)
     }
   })
@@ -740,5 +746,81 @@ describe('resolveSetting provenance', () => {
     )
     expect(resolveSetting('updateFeed', config, env).value).toBe(resolveUpdateFeed(config, env))
     expect(resolveSetting('agentHome', config, env).value).toBe(resolveAgentHomeDir(config, env))
+  })
+})
+
+describe('appUrl — where the web UI is, when it is not this server', () => {
+  it('env wins, then file, then undefined (self-hosted serves its own UI)', () => {
+    expect(resolveAppUrl({}, {})).toBeUndefined()
+    expect(resolveAppUrl({ appUrl: 'https://app.example' }, {})).toBe('https://app.example')
+    expect(
+      resolveAppUrl({ appUrl: 'https://app.example' }, { PODIUM_APP_URL: 'https://ui.example/' }),
+    ).toBe('https://ui.example')
+  })
+
+  it('is https-only, with no loopback exemption — it exists because the UI is cross-site', () => {
+    expect(() => resolveAppUrl({}, { PODIUM_APP_URL: 'http://127.0.0.1:3000' })).toThrow(
+      /PODIUM_APP_URL.*https/,
+    )
+    expect(() => resolveAppUrl({}, { PODIUM_APP_URL: 'http://app.example' })).toThrow(
+      /PODIUM_APP_URL.*https/,
+    )
+  })
+
+  it('rejects a path, query or fragment — clients append their own routes', () => {
+    for (const bad of [
+      'https://app.example/ui',
+      'https://app.example?x=1',
+      'https://app.example#f',
+    ]) {
+      expect(() => resolveAppUrl({}, { PODIUM_APP_URL: bad })).toThrow(/PODIUM_APP_URL/)
+    }
+  })
+
+  it('validates the FILE layer too, naming the config key rather than a variable', () => {
+    expect(() => resolveAppUrl({ appUrl: 'http://app.example' }, {})).toThrow(/appUrl.*https/)
+  })
+})
+
+describe('assertAppUrlCompatible', () => {
+  it('says nothing when there is no app URL', () => {
+    expect(() => assertAppUrlCompatible({}, {})).not.toThrow()
+  })
+
+  it('accepts a UI on the same registrable domain as the public URL', () => {
+    expect(() =>
+      assertAppUrlCompatible(
+        { publicUrl: 'https://api.meetpodium.com', appUrl: 'https://app.meetpodium.com' },
+        {},
+      ),
+    ).not.toThrow()
+  })
+
+  it('refuses a UI on another site, naming the list that would allow it', () => {
+    expect(() =>
+      assertAppUrlCompatible(
+        { publicUrl: 'https://api.meetpodium.com', appUrl: 'https://app.elsewhere.test' },
+        {},
+      ),
+    ).toThrow(/PODIUM_APP_URL.*different site.*PODIUM_ALLOWED_ORIGINS/s)
+  })
+
+  it('accepts another site once it is stated in the allowlist', () => {
+    expect(() =>
+      assertAppUrlCompatible(
+        {
+          publicUrl: 'https://api.meetpodium.com',
+          appUrl: 'https://app.elsewhere.test',
+          allowedOrigins: ['https://app.elsewhere.test'],
+        },
+        {},
+      ),
+    ).not.toThrow()
+  })
+
+  it('refuses an app URL when there is no public URL to relate it to', () => {
+    expect(() => assertAppUrlCompatible({ appUrl: 'https://app.example' }, {})).toThrow(
+      /different site/,
+    )
   })
 })

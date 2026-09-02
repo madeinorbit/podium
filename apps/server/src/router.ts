@@ -42,10 +42,8 @@ import {
 } from './cloud-runtime'
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
-import { processPublicUrlVerification } from './public-url-probe'
 import { accountFamilyProcedures } from './modules/accounts/trpc'
 import { approvalFamilyProcedures } from './modules/approvals/trpc'
-import { interactionFamilyProcedures } from './modules/interactions/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
@@ -58,6 +56,7 @@ import {
   setupFamilyProcedures,
   telemetryFamilyProcedures,
 } from './modules/instance/trpc'
+import { interactionFamilyProcedures } from './modules/interactions/trpc'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { layoutFamilyProcedures } from './modules/layout/trpc'
@@ -263,10 +262,6 @@ const fleet = fleetProcedures({
         })
       : null
   },
-  // Read process-globally for the same reason `loadConfig()` above is: these
-  // ports are built at module load, before any server exists. See
-  // `setProcessPublicUrlProbe`.
-  publicUrlVerified: processPublicUrlVerification,
 })
 
 export const appRouter = t.router({

@@ -98,14 +98,6 @@ export interface InstanceDeps {
    * than pretending it restarted.
    */
   readonly requestCoordinatorRestart?: (() => void) | undefined
-  /**
-   * Whether this server has verified it can reach its own public URL (PDM-26).
-   * `null` while the first check is outstanding, absent on a server assembled
-   * without a probe. Settings → Network renders it; nothing here decides on it.
-   */
-  readonly publicUrlVerified?:
-    | (() => { ok: boolean; checkedAt: string; error?: string } | null)
-    | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
@@ -152,6 +144,7 @@ export class InstanceService {
     const c = loadConfig()
     const mode = resolveSetting('mode', c)
     const publicUrl = resolveSetting('publicUrl', c)
+    const appUrl = resolveSetting('appUrl', c)
     const allowedOrigins = resolveSetting('allowedOrigins', c)
     const transcriptLake = resolveSetting('transcriptLake', c)
     return {
@@ -159,7 +152,13 @@ export class InstanceService {
       modeSource: mode.source,
       publicUrl: publicUrl.value ?? null,
       publicUrlSource: publicUrl.source,
-      publicUrlVerified: this.deps.publicUrlVerified?.() ?? null,
+      /**
+       * Where the web UI is served from, when it is not this server (PDM-26).
+       * `null` is the ordinary self-hosted answer and means "here"; the desktop
+       * shell reads this to know where to navigate.
+       */
+      appUrl: appUrl.value ?? null,
+      appUrlSource: appUrl.source,
       allowedOrigins: allowedOrigins.value,
       allowedOriginsSource: allowedOrigins.source,
       transcriptLake: transcriptLake.value,

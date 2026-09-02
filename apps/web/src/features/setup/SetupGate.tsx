@@ -147,7 +147,11 @@ async function probeSetup(httpOrigin: string): Promise<ProbeResult> {
 async function probeRemoteReadiness(httpOrigin: string): Promise<ProbeResult> {
   try {
     const response = await fetch(`${httpOrigin}/readiness`)
-    if (!response.ok) return { phase: 'ready' }
+    // 503 IS AN ANSWER, not a failure (PDM-26): a blocked data plane now says so
+    // in the status code as well as the body, and the body is exactly what it
+    // always was. Treating it as unreachable here would wave a remote desktop
+    // straight past the setup screen it exists to show.
+    if (!response.ok && response.status !== 503) return { phase: 'ready' }
     const status: unknown = await response.json()
     if (!isServerReadiness(status)) {
       return {

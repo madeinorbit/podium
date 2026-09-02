@@ -10,7 +10,6 @@
  */
 
 import type { ServerReadiness, UserId } from '@podium/model'
-import { processPublicUrlVerification } from '../../public-url-probe'
 import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
 import { AUTH_QUERIES, SETUP_QUERIES, TELEMETRY_QUERIES } from './queries'
 import { AUTH_COMMANDS_TRPC, SETUP_COMMANDS_TRPC, TELEMETRY_COMMANDS_TRPC } from './registry'
@@ -44,9 +43,6 @@ const instanceService = (state: {
     // not activation-pending, so the restart cannot become a general bounce lever.
     readiness: state.readiness,
     requestCoordinatorRestart: state.requestCoordinatorRestart,
-    // Read process-globally, like `loadConfig()` inside the service itself: the
-    // probe belongs to the process, not to a request's state bundle (PDM-26).
-    publicUrlVerified: processPublicUrlVerification,
     // POD-1882: the fleet default is the channel every unpinned machine follows,
     // so writing it has to re-resolve their targets and push the new projection.
     onFleetChannelChanged: state.modules

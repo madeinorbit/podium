@@ -30,6 +30,7 @@
  * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
  * | PODIUM_MODE                   | config.mode             | `resolveMode()` — the deployment owns the mode          |
  * | PODIUM_PUBLIC_URL             | config.publicUrl        | `resolvePublicUrl()` — https unless loopback, immutable |
+ * | PODIUM_APP_URL                | config.appUrl           | `resolveAppUrl()` — where the web UI is served from     |
  * | PODIUM_ALLOWED_ORIGINS        | config.allowedOrigins   | `resolveAllowedOrigins()` — credentialed CORS list      |
  * | PODIUM_UPDATE_SCOPE           | config.updateScope      | `resolveUpdateScope()` — 'fleet-only' = CI owns server  |
  * | PODIUM_TRANSCRIPT_LAKE        | config.transcriptLake   | `resolveTranscriptLake()` — 'off' = no mirroring        |
@@ -172,6 +173,17 @@ export const PodiumConfig = z.object({
   updateChannel: z.enum(['stable', 'edge', 'dev']).optional(),
   /** Device-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
+  /**
+   * WHERE THE WEB UI LIVES WHEN IT IS NOT THIS SERVER.
+   *
+   * Absent for every self-hosted install: the server serves its own clients, and
+   * `publicUrl` is the whole address. Present when the UI is a separate origin —
+   * the hosted shape, `https://app.…` in front of an API-only `https://api.…` —
+   * and then it is what the server ADVERTISES to clients and what the desktop
+   * shell navigates to. It is not a second name for this server; a request that
+   * arrives at the API origin looking for a page is redirected here.
+   */
+  appUrl: z.string().optional(),
   /**
    * Browser origins allowed to make CREDENTIALED cross-site requests to this
    * instance (consumed by the CORS/WS checks, PDM-24). A DEPLOYMENT FACT — the
@@ -693,6 +705,7 @@ export const LAYERED_KEYS = [
   'updateFeed',
   'mode',
   'publicUrl',
+  'appUrl',
   'allowedOrigins',
   'updateScope',
   'transcriptLake',
@@ -709,6 +722,7 @@ export const LAYERED_ENV: Readonly<Record<LayeredKey, string>> = {
   updateFeed: 'PODIUM_UPDATE_FEED',
   mode: 'PODIUM_MODE',
   publicUrl: 'PODIUM_PUBLIC_URL',
+  appUrl: 'PODIUM_APP_URL',
   allowedOrigins: 'PODIUM_ALLOWED_ORIGINS',
   updateScope: 'PODIUM_UPDATE_SCOPE',
   transcriptLake: 'PODIUM_TRANSCRIPT_LAKE',
@@ -724,6 +738,7 @@ export interface LayeredValues {
   updateFeed: string | undefined
   mode: PodiumMode | undefined
   publicUrl: string | undefined
+  appUrl: string | undefined
   allowedOrigins: string[]
   updateScope: UpdateScope
   transcriptLake: TranscriptLakeMode
@@ -797,6 +812,51 @@ function parseEnvPublicUrl(raw: string): string {
 }
 
 /**
+ * The origin the web UI is served from, when it is not this server.
+ *
+ * HTTPS ONLY, and unlike the public URL there is no loopback exemption: an
+ * `appUrl` exists precisely because the UI is on a DIFFERENT site from the API,
+ * which means a real browser doing real cross-site requests, which means a
+ * secure context. A self-hoster whose UI is this server does not set this key at
+ * all.
+ *
+ * Bare origin, because it is advertised to clients that append their own routes
+ * to it — the same reason `publicUrl` is.
+ */
+function parseAppUrl(raw: string, name: string): string {
+  const trimmed = raw.trim()
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return envError(name, `not a valid URL: ${JSON.stringify(raw)}`)
+  }
+  if (url.protocol !== 'https:') {
+    envError(name, `must be an https:// origin (got ${trimmed})`)
+  }
+  if (url.search !== '' || url.hash !== '' || (url.pathname !== '' && url.pathname !== '/')) {
+    envError(name, `must be a bare origin with no path, query or fragment (got ${trimmed})`)
+  }
+  return url.origin
+}
+
+/**
+ * The registrable domain, APPROXIMATED as the last two labels.
+ *
+ * Deliberately not a public-suffix list. What this guards is a coarse mistake —
+ * an `appUrl` pointing at a site nothing about this deployment relates to — and
+ * the precise answer is already available by other means: an operator whose
+ * setup genuinely spans two registrable domains states the second one in
+ * `allowedOrigins`, which is the explicit list that decides trust anyway. A PSL
+ * here would make the approximation stricter without making the DECISION any
+ * different, because the escape hatch is the same either way.
+ */
+function registrableDomain(hostname: string): string {
+  const labels = hostname.toLowerCase().split('.')
+  return labels.slice(-2).join('.')
+}
+
+/**
  * A comma-separated origin allowlist.
  *
  * Every entry must be EXACTLY an origin — scheme, host, optional port, nothing
@@ -822,7 +882,10 @@ function parseAllowedOrigins(raw: string, name: string): string[] {
       envError(name, `${JSON.stringify(entry)} must name a host and may not use a wildcard`)
     }
     if (url.origin !== entry.replace(/\/$/, '')) {
-      envError(name, `${JSON.stringify(entry)} must be a bare origin with no path, query or fragment`)
+      envError(
+        name,
+        `${JSON.stringify(entry)} must be a bare origin with no path, query or fragment`,
+      )
     }
     if (seen.has(url.origin)) continue
     seen.add(url.origin)
@@ -887,7 +950,9 @@ const LAYERED_READERS: {
   },
   mode: {
     env: (env) =>
-      env.PODIUM_MODE === undefined ? undefined : parseEnum(env.PODIUM_MODE, PodiumMode.options, 'PODIUM_MODE'),
+      env.PODIUM_MODE === undefined
+        ? undefined
+        : parseEnum(env.PODIUM_MODE, PodiumMode.options, 'PODIUM_MODE'),
     file: (config) => config.mode,
     default: () => undefined,
   },
@@ -895,6 +960,15 @@ const LAYERED_READERS: {
     env: (env) =>
       env.PODIUM_PUBLIC_URL === undefined ? undefined : parseEnvPublicUrl(env.PODIUM_PUBLIC_URL),
     file: (config) => config.publicUrl,
+    default: () => undefined,
+  },
+  appUrl: {
+    env: (env) =>
+      env.PODIUM_APP_URL === undefined
+        ? undefined
+        : parseAppUrl(env.PODIUM_APP_URL, 'PODIUM_APP_URL'),
+    file: (config) =>
+      config.appUrl === undefined ? undefined : parseAppUrl(config.appUrl, 'appUrl'),
     default: () => undefined,
   },
   allowedOrigins: {
@@ -974,6 +1048,58 @@ export function resolvePublicUrl(
   env: EnvSource = process.env,
 ): string | undefined {
   return resolveSetting('publicUrl', config, env).value
+}
+
+/**
+ * The origin serving the web UI: PODIUM_APP_URL → config.appUrl → undefined.
+ *
+ * Undefined is the ordinary self-hosted answer and means "this server serves its
+ * own UI"; nothing changes anywhere when it is absent.
+ */
+export function resolveAppUrl(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string | undefined {
+  return resolveSetting('appUrl', config, env).value
+}
+
+/**
+ * A UI ON ANOTHER SITE HAS TO BE ONE THIS DEPLOYMENT VOUCHES FOR.
+ *
+ * Checked across three keys at once, which is why it is a separate assertion
+ * rather than part of `appUrl`'s own layer reader: a per-key parser sees one
+ * value and this question needs three.
+ *
+ * The session cookie is host-only on the API origin and `SameSite=Lax`, so a UI
+ * on an unrelated site could not log in even if it were advertised — the failure
+ * would be a redirect into a page that cannot authenticate, with nothing on
+ * screen to explain it. Sharing a registrable domain with `publicUrl` is the
+ * common case and needs no ceremony; anything else must appear in
+ * `allowedOrigins`, which is where this deployment states cross-site trust
+ * explicitly.
+ *
+ * Throws at boot, before the server listens.
+ */
+export function assertAppUrlCompatible(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): void {
+  const appUrl = resolveAppUrl(config, env)
+  if (appUrl === undefined) return
+  const publicUrl = resolvePublicUrl(config, env)
+  const appHost = new URL(appUrl).hostname
+  if (
+    publicUrl !== undefined &&
+    registrableDomain(new URL(publicUrl).hostname) === registrableDomain(appHost)
+  ) {
+    return
+  }
+  if (resolveAllowedOrigins(config, env).includes(appUrl)) return
+  throw new Error(
+    `${LAYERED_ENV.appUrl} (${appUrl}) is on a different site from the public URL ` +
+      `(${publicUrl ?? 'unset'}), so a browser there cannot hold this server's session cookie. ` +
+      `List it in ${LAYERED_ENV.allowedOrigins} to say that is deliberate.`,
+  )
 }
 
 /** Credentialed cross-site origins: PODIUM_ALLOWED_ORIGINS → config.allowedOrigins → [].

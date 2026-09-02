@@ -3,18 +3,22 @@ import type { Hono } from 'hono'
 
 /** Public, non-secret lifecycle status. This route stays independent from the
  * setup compatibility route so setup composition can evolve in its owner lane. */
-export function registerReadinessRoute(
-  app: Hono,
-  readiness: () => ServerReadiness,
-  instanceId: string,
-): void {
+export function registerReadinessRoute(app: Hono, readiness: () => ServerReadiness): void {
   /**
-   * The instance id rides along so an instance probing its OWN public URL can
-   * tell "my front door works" from "something else answers there" (PDM-26).
-   * It is not a secret — /version already publishes it on the same
-   * unauthenticated tier — and it names nothing about the work being done here.
+   * 503 WHILE THE DATA PLANE IS BLOCKED (PDM-26), body unchanged.
+   *
+   * A platform health check reads the STATUS CODE and nothing else — that is
+   * what a container orchestrator, a load balancer and an uptime monitor all
+   * do. Answering 200 with a body that says `dataPlane: 'blocked'` told every
+   * one of them that an instance which cannot serve any work is healthy, and
+   * the only readers who ever learned otherwise were the ones already parsing
+   * the body. The BODY IS UNTOUCHED, so every existing client reads exactly
+   * what it read before; only the code now agrees with it.
    */
-  app.get('/readiness', (c) => c.json({ ...readiness(), instanceId }))
+  app.get('/readiness', (c) => {
+    const status = readiness()
+    return c.json(status, status.dataPlane === 'available' ? 200 : 503)
+  })
   app.get('/setup/mobile', (c) => {
     const status = readiness()
     if (status.dataPlane === 'available') return c.redirect('/')

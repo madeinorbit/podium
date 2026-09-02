@@ -424,14 +424,38 @@ export function registerMobileRouting(
     expoMobilePresent: () => boolean
     redirectPhoneRoot?: boolean
     operatorEntryAvailable?: () => boolean
+    /**
+     * WHERE THE UI ACTUALLY IS, when it is not here (PDM-26, `appUrl`).
+     *
+     * An API-only server has no web dir, so every route below currently ends in
+     * a 404 or bounces between `/` and `/desktop` — the operator typed the
+     * address they were given and got nothing. With an app URL those requests
+     * have somewhere true to go. Read per request so a Settings write is
+     * followed without a restart, like every other read on this path.
+     */
+    appUrl?: () => string | undefined
   },
 ): void {
   const present = opts.expoMobilePresent
+  /**
+   * The UI lives elsewhere and there is nothing here to serve — send the browser
+   * there rather than 404ing it. Only when this server has no web bundle: a
+   * server that CAN serve the page keeps serving it, because a redirect would
+   * take a working local UI away from an operator on the box.
+   */
+  const toAppUrl = (c: Context): Response | undefined => {
+    const target = opts.appUrl?.()
+    if (!target) return undefined
+    const url = new URL(c.req.url)
+    return c.redirect(`${target}${url.pathname}${url.search}`)
+  }
   // Carries the ?desktop marker, which tells apps/web's browser-side redirect
   // that the Expo build is genuinely absent rather than bouncing back to it.
   const toDesktopShell = (c: Context) => c.redirect(desktopShellLocation(new URL(c.req.url).search))
   app.get('/', async (c, next) => {
     const url = new URL(c.req.url)
+    const away = toAppUrl(c)
+    if (away) return away
     if (opts.redirectPhoneRoot !== false) {
       const target = mobileEntryRedirect({
         pathname: url.pathname,
@@ -447,8 +471,10 @@ export function registerMobileRouting(
     }
     await next()
   })
-  app.get('/desktop', toDesktopShell)
+  app.get('/desktop', (c) => toAppUrl(c) ?? toDesktopShell(c))
   const mobileFallback = async (c: Context, next: () => Promise<void>) => {
+    const away = toAppUrl(c)
+    if (away) return away
     if (opts.operatorEntryAvailable?.() === false) return c.redirect('/setup/mobile')
     if (!present()) return toDesktopShell(c)
     await next()
