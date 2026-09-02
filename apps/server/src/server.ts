@@ -23,6 +23,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import {
   assertAppUrlCompatible,
   loadConfig,
+  resolveAllowedOrigins,
   resolveAppUrl,
   resolveDevArtifactOrigin,
   resolveInstanceId,
@@ -82,6 +83,7 @@ import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { MobilePairingManager } from './mobile-pairing'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
+import { originRefusalReporter } from './origin-refusal'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
@@ -954,6 +956,23 @@ export async function startServer(
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let janitorHostClosing = false
+  // RESOLVED ONCE, AT BOOT. This is a trust decision — which other origins may
+  // make credentialed calls and open sockets — and re-reading it per request
+  // would let it change under a socket that is already open. Empty on every
+  // install that names nothing, which is what makes both predicates below
+  // behave exactly as they did before this existed (PDM-24).
+  const allowedOrigins: ReadonlySet<string> = new Set(
+    resolveAllowedOrigins(loadConfig(), process.env),
+  )
+  const reportOriginRefusal = originRefusalReporter((message, fields) => log.warn(message, fields))
+  const cors = () => podiumCors({ allowed: allowedOrigins, onRefused: reportOriginRefusal })
+  // BEFORE the route, or Hono never runs it: middleware and handlers share one
+  // ordered list, so middleware registered after its handler is dead code.
+  //
+  // `/version` is how a page decides whether the bundle it is running is still
+  // the one being served (apps/web/src/lib/served-assets.ts). With the UI on its
+  // own host that question crosses an origin, so the answer needs CORS.
+  app.use('/version', cors())
   registerVersionRoute(app, {
     instanceId,
     appUrl: () => resolveAppUrl(loadConfig(), process.env),
@@ -1040,8 +1059,8 @@ export async function startServer(
     trustedProxyHops,
   })
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
-  app.use('/setup/*', podiumCors())
-  app.use('/readiness', podiumCors())
+  app.use('/setup/*', cors())
+  app.use('/readiness', cors())
   registerReadinessRoute(app, readiness)
   registerSetupRoute(app, {
     readiness,
@@ -1052,7 +1071,7 @@ export async function startServer(
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
-  app.use('/auth/*', podiumCors())
+  app.use('/auth/*', cors())
   app.use('/auth/*', authReadinessBoundary(readiness))
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
@@ -1095,6 +1114,12 @@ export async function startServer(
       request.headers.get('x-podium-peer-address') ?? requestPeerAddresses.get(request),
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
+  // An <img src> or a download link from another origin needs no CORS, but a
+  // fetch() of /files/asset does — and HtmlFilePanel and OpenInBrowserButton
+  // both build asset URLs from the resolved httpOrigin expecting them to be
+  // fetchable. `clientAuthGuard` already passes OPTIONS through, so the
+  // preflight reaches this middleware rather than the login gate.
+  app.use('/files/*', cors())
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
   registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
@@ -1122,7 +1147,7 @@ export async function startServer(
     // The per-thread token each harness invocation's mcp-config carries (issue #67).
     { resolveThread: (token) => superagent.threadForMcpToken(token) },
   )
-  app.use('/trpc/*', podiumCors())
+  app.use('/trpc/*', cors())
   app.use('/trpc/*', boundary)
   app.use('/trpc/*', async (c, next) => {
     // A host-local first run must remain possible when PODIUM_PASSWORD already
@@ -1303,37 +1328,43 @@ export async function startServer(
       )
     }
 
-    const ws = attachWebSockets(registry, {
-      readinessForClient: readiness,
-      validateClientCredential: (credentialId) =>
-        maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
-      principalForClient: (request) => {
-        if (
-          request.headers.has('authorization') &&
-          !isSecureRequest(
-            request.url,
-            request.headers.get('x-forwarded-proto') ?? undefined,
-            trustedProxyHops,
-          )
-        ) {
-          return undefined
-        }
-        const headers = {
-          cookieHeader: request.headers.get('cookie') ?? undefined,
-          authorizationHeader: request.headers.get('authorization') ?? undefined,
-        }
-        const credential = resolveClientCredential(store.auth, headers)
-        const principal = requestPrincipal(headers)
-        if (!principal) return undefined
-        const userRole = store.users.roleOf(principal.user)
-        if (!userRole) return undefined
-        return {
-          userId: principal.user,
-          userRole,
-          ...(credential ? { credentialId: credential.tokenHash } : {}),
-        }
+    const ws = attachWebSockets(
+      registry,
+      {
+        readinessForClient: readiness,
+        validateClientCredential: (credentialId) =>
+          maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
+        principalForClient: (request) => {
+          if (
+            request.headers.has('authorization') &&
+            !isSecureRequest(
+              request.url,
+              request.headers.get('x-forwarded-proto') ?? undefined,
+              trustedProxyHops,
+            )
+          ) {
+            return undefined
+          }
+          const headers = {
+            cookieHeader: request.headers.get('cookie') ?? undefined,
+            authorizationHeader: request.headers.get('authorization') ?? undefined,
+          }
+          const credential = resolveClientCredential(store.auth, headers)
+          const principal = requestPrincipal(headers)
+          if (!principal) return undefined
+          const userRole = store.users.roleOf(principal.user)
+          if (!userRole) return undefined
+          return {
+            userId: principal.user,
+            userRole,
+            ...(credential ? { credentialId: credential.tokenHash } : {}),
+          }
+        },
       },
-    })
+      // The same list and the same reporter as the HTTP plane: one statement of
+      // trust, read by both boundaries, so they cannot drift apart.
+      { allowedOrigins, onOriginRefused: reportOriginRefusal },
+    )
     revokeConnectedMobileSession = (sessionId) => ws.revokeClientCredential(sessionId)
 
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
