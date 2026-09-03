@@ -178,7 +178,7 @@ function DockShellTerminal({
   const issues = useReplicaIssues()
   const issuesRef = useRef(issues)
   issuesRef.current = issues
-  const { containerRef, ready, mountedRef } = useTerminalSession({
+  const { containerRef, viewportRef, ready, mountedRef } = useTerminalSession({
     hub,
     sessionId,
     appearance,

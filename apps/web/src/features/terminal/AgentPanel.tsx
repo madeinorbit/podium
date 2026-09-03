@@ -529,13 +529,9 @@ export function AgentPanel({
       termSurface.style.height = ''
     }
     if (dockOpenTarget) {
-      void termSurface.offsetHeight // reflow so fit() measures the pinned size
-      const m = mountedRef.current
-      if (m) {
-        const grid = m.view.fit()
-        if (grid) m.connection.sendResize(grid.cols, grid.rows)
-        m.view.scrollToBottom()
-      }
+      // Pinning the surface changes the BOX; the mount's ResizeObserver asks for
+      // the new size (one writer, POD-3239). Only the scroll is ours to do.
+      mountedRef.current?.view.scrollToBottom()
     }
     requestAnimationFrame(() => setDockOpen(dockOpenTarget))
     // Backstop: transitionEnd is the normal unpin; if it never fires (hidden
@@ -1550,25 +1546,17 @@ export function AgentPanel({
               data-testid="native-offer-dock"
               aria-hidden={!nativeOffer}
               onTransitionEnd={(e) => {
-                // The dock's height change must WINCH the PTY to its FINAL
-                // size, or a TUI that draws to the old grid (Codex) paints its
-                // prompt box under the dock. Don't rely on the debounced
-                // ResizeObserver alone: force a fit at the settled size, send
-                // the resize if the grid changed, and re-pin the viewport so
-                // any in-place-repaint ghost frame scrolls away. Unpin the
-                // surface FIRST so flex resumes before the settled-size fit
-                // (on open this fit is a no-op — the grid snapped at start).
+                // Unpin the surface so flex resumes; the settled box is a
+                // ResizeObserver event, and the mount asks for the size from
+                // there (one writer, POD-3239). Re-pin the viewport afterwards
+                // so any in-place-repaint ghost frame scrolls away.
                 // Own transition only. React's synthetic transitionend BUBBLES,
                 // so without the target check any descendant animating the same
                 // property re-grids the PTY behind the user's back.
                 if (e.target !== e.currentTarget || e.propertyName !== 'grid-template-rows') return
                 dockUnpinRef.current?.()
                 setTimeout(() => {
-                  const m = mountedRef.current
-                  if (!m) return
-                  const grid = m.view.fit()
-                  if (grid) m.connection.sendResize(grid.cols, grid.rows)
-                  m.view.scrollToBottom()
+                  mountedRef.current?.view.scrollToBottom()
                 }, 120)
               }}
             >

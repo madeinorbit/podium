@@ -12,12 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // PTY-size operations, which are the one place the arbitration change is a
 // correctness change and not a reshuffle.
 //
-// The dock's open/close is the only PTY-size path reachable without a real
-// ResizeObserver, so `fit`/`sendResize` are the instrument. They are spies on
-// the ONE mounted session the panel keeps across mode toggles.
+// The dock's open/close used to be the one PTY-size path the panel drove
+// itself. Since POD-3239 the mount's box observer is the only asker, so the
+// instrument here is `sendResize` staying SILENT: a spy on the ONE mounted
+// session the panel keeps across mode toggles.
 // ---------------------------------------------------------------------------
 
-const fit = vi.fn(() => ({ cols: 100, rows: 30 }))
 const sendResize = vi.fn()
 const scrollToBottom = vi.fn()
 const setActive = vi.fn()
@@ -40,7 +40,6 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
     screenText: () => '',
     scrollToBottom,
     requestPaste: vi.fn(),
-    fit,
   },
   setActive,
   setAppearance: vi.fn(),
@@ -251,34 +250,35 @@ describe('AgentPanel panel-mode persistence', () => {
   })
 })
 
-describe('AgentPanel PTY sizing is gated on the visibility foundation', () => {
-  it('winches the PTY when an offer docks on the VISIBLE pane', async () => {
+describe('AgentPanel never sizes the PTY itself (one writer, POD-3239)', () => {
+  // Pinning the surface for the dock changes the BOX; the mount's ResizeObserver
+  // asks for the size from there, gated on the mount's own eligibility. The
+  // panel's part is the scroll, and it must not have grown a second writer.
+  it('an offer docking on the VISIBLE pane scrolls, and sends no resize of its own', async () => {
     await render({ active: true })
-    expect(fit).not.toHaveBeenCalled()
     storeSessions = [meta({ offer: OFFER })]
     await render({ active: true })
-    expect(fit).toHaveBeenCalled()
-    expect(sendResize).toHaveBeenCalledWith(100, 30)
-  })
-
-  it('does NOT winch the PTY when the offer docks on a warm HIDDEN pane', async () => {
-    // PanelDeck `display:none`s a non-visible panel, so it measures ZERO height:
-    // fitting from here re-grids a live PTY to a box nobody is looking at. The
-    // dock still opens (un-animated) — only the sizing is withheld.
-    await render({ active: false })
-    storeSessions = [meta({ offer: OFFER })]
-    await render({ active: false })
-    expect(fit).not.toHaveBeenCalled()
+    expect(scrollToBottom).toHaveBeenCalled()
     expect(sendResize).not.toHaveBeenCalled()
     expect(container.querySelector('[data-testid="native-offer-dock"]')).toBeTruthy()
   })
 
-  it('does NOT winch the PTY when the pane is showing chat', async () => {
+  it('an offer docking on a warm HIDDEN pane sends no resize either', async () => {
+    // PanelDeck `display:none`s a non-visible panel, so it measures ZERO height.
+    // The dock still opens (un-animated); nothing here may touch the grid.
+    await render({ active: false })
+    storeSessions = [meta({ offer: OFFER })]
+    await render({ active: false })
+    expect(sendResize).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="native-offer-dock"]')).toBeTruthy()
+  })
+
+  it('an offer arriving while the pane shows chat sends no resize', async () => {
     storePanelMode = { s1: 'chat' }
     await render({ active: true })
     storeSessions = [meta({ offer: OFFER })]
     await render({ active: true })
-    expect(fit).not.toHaveBeenCalled()
+    expect(sendResize).not.toHaveBeenCalled()
   })
 })
 
