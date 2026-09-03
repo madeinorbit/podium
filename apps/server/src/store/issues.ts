@@ -22,6 +22,7 @@ import {
 import { letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray, requireUserId } from './helpers'
+import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
 
 const log = createLogger('server:store')
@@ -96,7 +97,29 @@ export class IssuesRepository {
     return opened
   }
 
-  upsertIssue(row: IssueRow): void {
+  upsertIssue(
+    row: IssueRow,
+    /**
+     * THE DURABLE HALF OF THE DRAFT MODEL [POD-3259, spec §3.6 model (b)].
+     *
+     * `expectedRevision` is the revision the caller's draft was cut from —
+     * `null` for a row that has never been written. When it is supplied and the
+     * stored revision has moved, this refuses INSIDE the transaction, so the
+     * loser's write rolls back rather than overwriting the winner's columns
+     * with a field set read before the winner existed.
+     *
+     * OPT-IN, and it has to be: most callers hand over a row they built from a
+     * literal or read outside any revision discipline, and turning their write
+     * into a precondition would be a behaviour change this epic does not make.
+     * `IssueRegistry.persistWith` passes it for every draft it cuts, which is
+     * every mutation path in the tracker.
+     *
+     * It cannot fire while the store is synchronous — nothing can run between
+     * cutting a draft and committing it — and that is the point: it is armed
+     * before the awaits arrive, not after.
+     */
+    opts?: { expectedRevision: number | null },
+  ): void {
     this.invalidateRowCache()
     if (
       !row.ownerUserId ||
@@ -146,6 +169,12 @@ export class IssuesRepository {
     const current = this.db.prepare('SELECT revision FROM issues WHERE id = ?').get(row.id) as
       | { revision: number | null }
       | undefined
+    if (opts) {
+      const found = current?.revision ?? null
+      if (found !== opts.expectedRevision) {
+        throw new StaleIssueRevisionError(row.id, opts.expectedRevision, found)
+      }
+    }
     row.revision = (current?.revision ?? 0) + 1
     this.db
       .prepare(

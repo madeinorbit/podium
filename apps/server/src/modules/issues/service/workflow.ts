@@ -181,11 +181,17 @@ export class IssueGitWorkflowModule {
       throw new Error('shipping stage is system-owned and cannot rehome issue work')
     }
     if (!this.isSameRepoIdentity(row, to.repoPath)) return null
-    row.repoPath = to.repoPath
-    return this.crud().update(id, {
-      machineId: asMachineId(to.machineId),
-      worktreePath: to.worktreePath,
-    })
+    // The repo move rides update()'s own draft [POD-3259]. It used to be
+    // assigned onto the map's row here, which left the new repoPath standing on
+    // the shared object whether or not the update below committed.
+    return this.crud().update(
+      id,
+      {
+        machineId: asMachineId(to.machineId),
+        worktreePath: to.worktreePath,
+      },
+      { repoPath: to.repoPath },
+    )
   }
 
   /**
@@ -263,7 +269,7 @@ export class IssueGitWorkflowModule {
         machine: string
       }>
   > {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot start issue work')
     }
@@ -522,7 +528,7 @@ export class IssueGitWorkflowModule {
     id: string,
     kind: 'rebase' | 'pr' | 'merge',
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     if (!row.worktreePath || !row.branch) throw new Error('issue not started')
     const gw = this.store.d.getSettings().gitWorkflow
     if (kind === 'rebase') {
@@ -701,7 +707,7 @@ export class IssueGitWorkflowModule {
     principal: CommandPrincipal,
     opts?: { force?: boolean },
   ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     const job = principal.kind === 'system' ? principal.job : 'stop'
     const refuse = (
       output: string,
@@ -834,7 +840,7 @@ export class IssueGitWorkflowModule {
     id: string,
     requestedMachineId?: MachineId,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot create an issue worktree')
     }
@@ -982,7 +988,7 @@ export class IssueGitWorkflowModule {
     id: string,
     principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     const machineId = row.machineId ?? undefined
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,

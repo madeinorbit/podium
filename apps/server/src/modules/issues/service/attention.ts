@@ -295,8 +295,8 @@ export class IssueAttentionModule {
    * release later.
    */
   private async maybeTakeOriginWorktree(originId: string, targetId: string): Promise<void> {
-    const origin = this.store.rows.get(originId)
-    const target = this.store.rows.get(targetId)
+    const origin = this.store.draft(originId)
+    const target = this.store.draft(targetId)
     if (!origin || !target || !origin.worktreePath || target.worktreePath) return
     const remaining = this.store
       .sessionsFor(origin)
@@ -566,16 +566,20 @@ export class IssueAttentionModule {
    *  instead of the manual `issue.archived` — the activity log (S3) renders it as
    *  its own line, and nothing downstream mistakes a sweep for a user action. */
   private autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): IssueWire {
-    row.archived = true
-    const wire = this.store.persist(row)
-    this.store.emitEvent('issue.auto_archived', row.id, {
-      seq: row.seq,
-      readAt: this.store.issueOverlay(row.id).readAt,
+    // Drafted HERE rather than by the two callers: both reach this with a row
+    // they read for a precondition check, and the sweep walks the map while it
+    // archives, so the row it hands over is the map's own object [POD-3259].
+    const draft = this.store.draftOf(row)
+    draft.archived = true
+    const wire = this.store.persist(draft)
+    this.store.emitEvent('issue.auto_archived', draft.id, {
+      seq: draft.seq,
+      readAt: this.store.issueOverlay(draft.id).readAt,
       ...(principal ? { attribution: attributionOf(principal) } : {}),
     })
     // Same teardown as the manual archive path — the sweep must not leave a
     // session-less worktree row (issue #133) or a checkout (POD-567) behind.
-    this.onIssueArchived(row)
+    this.onIssueArchived(draft)
     return wire
   }
 

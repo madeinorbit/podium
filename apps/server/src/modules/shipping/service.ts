@@ -40,6 +40,7 @@ import {
 } from '../../store/shipping'
 import type { ShippingIssueMutation } from '../issues/service/crud'
 import type { ShippingPolicyResolver } from './policy'
+import { LeaseProjection } from './lease-projection'
 import { shipOrderProjectionRow } from './projection'
 import {
   canonicalShippingDestination,
@@ -264,12 +265,6 @@ export interface ShippingServiceDeps {
   background?: boolean
 }
 
-interface Lease {
-  attemptId: ShipAttempt['id']
-  generation: number
-  expiresAt: number
-}
-
 export interface ResourceLease {
   lost: boolean
   expiresAt?: number
@@ -371,7 +366,7 @@ export { canonicalShippingDestination } from './queue'
 export class ShippingService {
   private readonly greenPrefixes = new GreenPrefixCache()
   private readonly now: () => string
-  private readonly leases = new Map<string, Lease>()
+  private readonly leases = new LeaseProjection()
   private readonly activeResourceLeases = new Set<ResourceLease>()
   private readonly inFlight = new Set<string>()
   private admissionTail: Promise<void> = Promise.resolve()
@@ -785,11 +780,7 @@ export class ShippingService {
   }
 
   heartbeat(orderId: ShipOrderId, attemptId: ShipAttempt['id'], generation: number): boolean {
-    const current = this.leases.get(orderId)
-    if (!current || current.attemptId !== attemptId || current.generation !== generation)
-      return false
-    current.expiresAt = Date.now() + LEASE_MS
-    return true
+    return this.leases.renew(orderId, attemptId, generation, Date.now() + LEASE_MS)
   }
 
   async tick(): Promise<void> {
@@ -1796,6 +1787,8 @@ export class ShippingService {
 
   private claimDurableTrain(train: ShippingTrain): void {
     const startedAt = this.now()
+    // Pinned BEFORE the write, checked after it — see {@link LeaseProjection}.
+    const pinned = this.leases.pin(train.orders.map((order) => order.id))
     const result = this.deps.ledger.commit({
       write: () =>
         this.deps.repository.claimTrain({
@@ -1809,11 +1802,23 @@ export class ShippingService {
         }),
       changes: () => this.projectionSpecs(),
     }).result
+    const expiresAt = Date.now() + LEASE_MS
+    const refused = new Set(
+      this.leases.installIfUnchanged(
+        pinned,
+        result.claimed.map(({ order, attempt }) => ({
+          orderId: order.id,
+          lease: { attemptId: attempt.id, generation: attempt.leaseGeneration, expiresAt },
+        })),
+      ),
+    )
     for (const { order, attempt } of result.claimed) {
-      this.leases.set(order.id, {
+      if (!refused.has(order.id)) continue
+      this.audit('shipping.lease_install_refused', order.issueId, {
+        orderId: order.id,
         attemptId: attempt.id,
         generation: attempt.leaseGeneration,
-        expiresAt: Date.now() + LEASE_MS,
+        reason: 'the order lease moved while the train claim was committing',
       })
     }
     this.audit('shipping.train_claimed', train.orders.at(-1)!.issueId, {
@@ -2317,6 +2322,8 @@ export class ShippingService {
   ): { order: ShipOrder; attempt: ShipAttempt } {
     const issue = this.deps.issues.get(order.issueId)
     const startedAt = this.now()
+    // Pinned BEFORE the write, checked after it — see {@link LeaseProjection}.
+    const pinned = this.leases.pin([order.id])
     const acquired = this.deps.ledger.commit({
       write: () =>
         this.deps.repository.claimAttempt({
@@ -2329,11 +2336,24 @@ export class ShippingService {
         }),
       changes: () => this.projectionSpecs(),
     }).result
-    this.leases.set(order.id, {
-      attemptId: acquired.attempt.id,
-      generation: acquired.attempt.leaseGeneration,
-      expiresAt: Date.now() + LEASE_MS,
-    })
+    const refused = this.leases.installIfUnchanged(pinned, [
+      {
+        orderId: order.id,
+        lease: {
+          attemptId: acquired.attempt.id,
+          generation: acquired.attempt.leaseGeneration,
+          expiresAt: Date.now() + LEASE_MS,
+        },
+      },
+    ])
+    if (refused.length > 0) {
+      this.audit('shipping.lease_install_refused', order.issueId, {
+        orderId: order.id,
+        attemptId: acquired.attempt.id,
+        generation: acquired.attempt.leaseGeneration,
+        reason: 'the order lease moved while the attempt claim was committing',
+      })
+    }
     this.audit('shipping.attempt_started', order.issueId, {
       orderId: order.id,
       attemptId: acquired.attempt.id,

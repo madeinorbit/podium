@@ -179,7 +179,7 @@ export class IssueCrudModule {
     mutation: ShippingIssueMutation,
     write: () => T,
   ): { issue: IssueWire; result: T } {
-    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    const row = this.store.draftOrThrow(this.store.resolveRef(id))
     const expectedStages = Array.isArray(mutation.expectedStage)
       ? mutation.expectedStage
       : [mutation.expectedStage]
@@ -240,7 +240,7 @@ export class IssueCrudModule {
     write: () => T,
   ): { issues: IssueWire[]; result: T } {
     if (entries.length === 0) throw new Error('shipping batch requires an affected issue')
-    const rows = entries.map(({ id }) => this.store.rowOrThrow(this.store.resolveRef(id)))
+    const rows = entries.map(({ id }) => this.store.draftOrThrow(this.store.resolveRef(id)))
     if (new Set(rows.map((row) => row.id)).size !== rows.length) {
       throw new Error('shipping batch contains a duplicate issue')
     }
@@ -321,7 +321,7 @@ export class IssueCrudModule {
    *  field the assistant digest maintains; an explicit agent post is fresher truth
    *  and simply overwrites, and vice versa). Shown in the issue sidebar header. */
   setState(id: string, text: string): IssueWire {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     row.activityNotes = text
     row.notesUpdatedAt = this.store.now()
     const wire = this.store.persist(row)
@@ -334,7 +334,7 @@ export class IssueCrudModule {
    *  and deferred-work items awaiting a user decision. Indexes are 1-based (what
    *  the CLI prints). Persists + broadcasts like any other issue update. */
   panelApply(id: string, op: IssuePanelOp): IssueWire {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     const panel = this.store.parsePanel(row)
     const at = <T>(list: T[], index: number): T => {
       const item = list[index - 1]
@@ -843,8 +843,11 @@ export class IssueCrudModule {
     for (const [i, row] of ordered.entries()) {
       const next = keys[i]
       if (next === undefined || row.sortKey === next) continue
-      row.sortKey = next
-      changed.push(row)
+      // The scope is read straight off the map, so each row that actually moves
+      // is drafted before its key is written [POD-3259].
+      const draft = this.store.draftOf(row)
+      draft.sortKey = next
+      changed.push(draft)
     }
     if (changed.length === 0) return
     // `touch: false` for the same reason the reorder itself carries it: a scope
@@ -971,7 +974,10 @@ export class IssueCrudModule {
     // spelling is the registry's. A fresh issue is unread, untucked and unpinned
     // FOR EVERY USER, which after POD-1076 is expressed by writing no per-user row
     // rather than by three nulls on the shared row.
-    const row: IssueRow = toStorage(issue, { repoPath: input.repoPath })
+    // A CREATE IS A DRAFT WITH NO PREDECESSOR [POD-3259]: pinning it to `null`
+    // makes `upsertIssue` refuse rather than overwrite if a row with this id
+    // somehow already exists by the time the write reaches the database.
+    const row: IssueRow = this.store.registerNewDraft(toStorage(issue, { repoPath: input.repoPath }))
     row.ownerUserId = input.ownerUserId ?? asUserId('user:sole')
     row.visibility = input.visibility ?? 'personal'
     row.createdByActor = input.createdByActor ?? row.ownerUserId
@@ -1009,10 +1015,17 @@ export class IssueCrudModule {
      *  Threaded onto the issue.closed / issue.ready events it emits so the steward
      *  can skip nudging the very session that caused them (self-nudge is noise).
      *  `cascadeArchive: false` keeps the close-sweep from also taking every
-     *  living descendant — that walk is reserved for an explicit archive. */
-    opts?: { actorSessionId?: SessionId; cascadeArchive?: boolean },
+     *  living descendant — that walk is reserved for an explicit archive.
+     *
+     *  `repoPath` is INTERNAL and deliberately not part of {@link IssuePatch}:
+     *  only {@link IssueWorkflow.rehome} sets it, and it is threaded here rather
+     *  than assigned onto the map's row beforehand because a row a caller
+     *  mutates before this method's commit is the exact shape POD-3259 removes.
+     *  Widening `IssuePatch` instead would let the router move an issue between
+     *  repositories, which is a different decision. */
+    opts?: { actorSessionId?: SessionId; cascadeArchive?: boolean; repoPath?: string },
   ): IssueWire {
-    const row = this.store.rows.get(this.store.resolveRef(id))
+    const row = this.store.draft(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     // `shipping` is lifecycle custody, not an ordinary board value. The
     // purpose-built Shipping service owns both directions; every existing
@@ -1024,6 +1037,7 @@ export class IssueCrudModule {
     ) {
       throw new Error('shipping stage is system-owned and cannot be changed by an issue update')
     }
+    if (opts?.repoPath !== undefined) row.repoPath = opts.repoPath
     const prevStage = row.stage
     const wasClosed = this.store.isClosed(row)
     if (patch.stage === 'review' && row.stage !== 'review') {
@@ -1262,7 +1276,7 @@ export class IssueCrudModule {
    *  STATE (POD-1076): the marker is written to the actor's `(userId, issueId)`
    *  row, not to the issue. */
   markIssueRead(id: string): IssueWire {
-    const row = this.store.rows.get(this.store.resolveRef(id))
+    const row = this.store.draft(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     this.store.writeIssueUserState(row.id, { readAt: this.coveringReadAt(row) })
     const wire = this.store.persist(row, { touch: false })
@@ -1300,7 +1314,7 @@ export class IssueCrudModule {
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
   markIssueUnread(id: string): IssueWire {
-    const row = this.store.rows.get(this.store.resolveRef(id))
+    const row = this.store.draft(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     this.store.writeIssueUserState(row.id, { readAt: null })
     const wire = this.store.persist(row, { touch: false })
@@ -1319,7 +1333,7 @@ export class IssueCrudModule {
    *  rejected rather than stored: the fold is for finished work, and a stamp
    *  parked on an open row would fire the moment it later closed. */
   setIssueTucked(id: string, tucked: boolean): IssueWire {
-    const row = this.store.rows.get(this.store.resolveRef(id))
+    const row = this.store.draft(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     if (tucked && !this.store.isClosed(row)) throw new Error(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
@@ -1352,7 +1366,12 @@ export class IssueCrudModule {
       worktreePath: row.worktreePath,
       wire,
       write: () => {
-        this.store.deps.store.issues.upsertIssue(row)
+        // The prepare/apply pair has always been draft-then-install; POD-3259
+        // gave it the precondition the rest of the registry now carries, so two
+        // lifecycle plans cut from one row cannot both commit.
+        this.store.deps.store.issues.upsertIssue(row, {
+          expectedRevision: current.revision ?? null,
+        })
         committed = this.store.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
@@ -1414,7 +1433,12 @@ export class IssueCrudModule {
       worktreePath: row.worktreePath,
       wire,
       write: () => {
-        this.store.deps.store.issues.upsertIssue(row)
+        // The prepare/apply pair has always been draft-then-install; POD-3259
+        // gave it the precondition the rest of the registry now carries, so two
+        // lifecycle plans cut from one row cannot both commit.
+        this.store.deps.store.issues.upsertIssue(row, {
+          expectedRevision: current.revision ?? null,
+        })
         committed = this.store.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
@@ -1428,7 +1452,7 @@ export class IssueCrudModule {
 
   setLabels(id: string, labels: string[]): IssueWire {
     id = this.store.resolveRef(id)
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     return this.store.persistWith(row, () =>
       this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
     )
@@ -1440,7 +1464,7 @@ export class IssueCrudModule {
     verb: GrantVerb,
     attribution: { actor: string; onBehalfOf: UserId },
   ): IssueWire {
-    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    const row = this.store.draftOrThrow(this.store.resolveRef(id))
     if (!row.ownerUserId) throw new Error('issue has no accountable owner')
     const owner = row.ownerUserId
     const actorKind = attribution.actor.startsWith('session:')
@@ -1471,7 +1495,7 @@ export class IssueCrudModule {
   }
 
   unshare(id: string, grantee: UserId, verb: GrantVerb): IssueWire {
-    const row = this.store.rowOrThrow(this.store.resolveRef(id))
+    const row = this.store.draftOrThrow(this.store.resolveRef(id))
     const wire = this.store.persistWith(row, () =>
       this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
     )
@@ -1492,7 +1516,7 @@ export class IssueCrudModule {
    *  stale defer on open). Emits issue.unsnoozed directly — routing a past deferUntil
    *  through update() would misfire issue.snoozed. No-op when the issue isn't deferred. */
   undefer(id: string): IssueWire {
-    const row = this.store.rows.get(this.store.resolveRef(id))
+    const row = this.store.draft(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     if (row.deferUntil == null) return this.store.toWire(row)
     row.deferUntil = new Date(Date.parse(this.store.now()) - UNSNOOZE_BACKDATE_MS).toISOString()
@@ -1594,7 +1618,7 @@ export class IssueCrudModule {
   }
 
   applySuggestion(id: string): IssueWire {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot apply an issue suggestion')
     }
@@ -1609,7 +1633,7 @@ export class IssueCrudModule {
     return this.store.persistRow(row)
   }
   dismissSuggestion(id: string): IssueWire {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot dismiss an issue suggestion')
     }

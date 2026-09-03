@@ -59,7 +59,7 @@ export class IssueAssistantDigestModule {
   }
 
   async refreshAssistant(id: string): Promise<IssueWire> {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     if (!row.worktreePath) return this.store.toWire(row)
     const settings = this.store.d.getSettings()
     const members = this.store.sessionsFor(row).map((s) => ({

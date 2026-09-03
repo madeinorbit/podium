@@ -45,7 +45,7 @@ export class IssueHierarchyModule {
     if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
     const fromId = this.store.resolveRef(fromRef)
     const toId = this.store.resolveRef(toRef)
-    const row = this.store.rowOrThrow(fromId)
+    const row = this.store.draftOrThrow(fromId)
     this.store.rowOrThrow(toId)
     if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
     if (type === 'blocks') {
@@ -70,7 +70,7 @@ export class IssueHierarchyModule {
       throw new Error('parent-child is managed by reparent, not removeDep')
     const fromId = this.store.resolveRef(fromRef)
     const toId = this.store.resolveRef(toRef)
-    const row = this.store.rowOrThrow(fromId)
+    const row = this.store.draftOrThrow(fromId)
     const removed = this.store.deps.store.issues
       .listIssueDeps(fromId)
       .filter((d) => d.toId === toId && (type === undefined || d.type === type))
@@ -111,7 +111,7 @@ export class IssueHierarchyModule {
    * structural-only edit.
    */
   reparent(id: string, parentId: string | null): IssueWire {
-    const row = this.store.rowOrThrow(id)
+    const row = this.store.draftOrThrow(id)
     this.setParentForUpdate(row, parentId == null ? null : this.store.resolveRef(parentId))
     const wire = this.store.persist(row)
     this.store.broadcastList()

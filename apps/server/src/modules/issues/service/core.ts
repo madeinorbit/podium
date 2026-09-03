@@ -206,6 +206,115 @@ export class IssueStore {
     return this.hydrated as Map<string, IssueRow>
   }
 
+  /**
+   * DRAFT-THEN-INSTALL, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].
+   *
+   * `rows` is process-owned mutable state, and until this issue every mutation
+   * path took the MAP'S OWN object, assigned onto it, and persisted it — so the
+   * uncommitted field set was visible to every other holder of that row for as
+   * long as the write took, and a failed commit had to be undone by assigning a
+   * backup back over it. That is correct only because nothing can run between
+   * the assignment and the commit. With awaits in the picture it has two
+   * failure modes, neither of which any test could see today:
+   *
+   *  - a reader between the mutation and the commit observes fields no
+   *    committed row backs, and if the commit then fails it observed a value
+   *    that never existed;
+   *  - two updates read the same row, both mutate it, one commits, and the
+   *    loser's rollback-by-assignment writes the WINNER's row back to a stale
+   *    value — silently, with both callers told they succeeded.
+   *
+   * So a mutation path takes a DRAFT: a copy, pinned to the revision it was cut
+   * from. The draft is what gets persisted, and it is installed into the map
+   * only after the commit — which is what {@link IssueLifecyclePlan} (the
+   * soft-delete and restore paths) has done all along; this generalises it to
+   * every write. Nothing is rolled back on failure because the shared object was
+   * never touched.
+   *
+   * The pin is checked ONCE, and durably: `upsertIssue`'s `expectedRevision`
+   * precondition refuses inside the transaction, so a loser's write rolls back
+   * instead of overwriting the winner's columns. A second check at install time
+   * was written first and then removed — it can never fire (the install follows
+   * the write that would already have been refused) and it CAN fire wrongly,
+   * because `reload()` landing in the gap re-hydrates the map to the revision
+   * this write just committed. See {@link StaleIssueRevisionError}.
+   */
+  private readonly draftOrigins = new WeakMap<IssueRow, number | null>()
+
+  /** A draft of the committed row for `id`, or undefined when there is none. */
+  draft(id: string): IssueRow | undefined {
+    const committed = this.rows.get(this.resolveRef(id))
+    return committed ? this.draftOf(committed) : undefined
+  }
+
+  /** {@link draft}, refusing an unknown issue the way {@link rowOrThrow} does. */
+  draftOrThrow(id: string): IssueRow {
+    const draft = this.draft(id)
+    if (!draft) throw new IssueNotFound(id)
+    return draft
+  }
+
+  /** A draft of a row already in hand. The arrays are copied too: a shallow
+   *  spread would share them, and an in-place `blockedBy` edit would then be
+   *  exactly the shared mutation drafting exists to prevent. */
+  draftOf(committed: IssueRow): IssueRow {
+    const copy: IssueRow = {
+      ...committed,
+      blockedBy: [...committed.blockedBy],
+      ...(Array.isArray(committed.humanQuestionOptions)
+        ? { humanQuestionOptions: [...committed.humanQuestionOptions] }
+        : {}),
+    }
+    this.draftOrigins.set(copy, committed.revision ?? null)
+    return copy
+  }
+
+  /** Pin a row that has NEVER been written — a create. Its expected revision is
+   *  `null`, so a second create of the same id is refused durably instead of
+   *  overwriting the first. */
+  registerNewDraft(row: IssueRow): IssueRow {
+    this.draftOrigins.set(row, null)
+    return row
+  }
+
+  /** The revision this row was drafted from, or undefined when the caller built
+   *  it outside the draft seam (a row literal, a direct repository test). Such a
+   *  row still installs after the commit; it just carries no precondition. */
+  private draftPin(row: IssueRow): number | null | undefined {
+    return this.draftOrigins.get(row)
+  }
+
+  /** The one thing the model forbids outright: persisting the map's own object.
+   *  Refused rather than tolerated because it is invisible in every other way —
+   *  the write succeeds, the rows are right, and the shared object carried
+   *  uncommitted fields the whole time. */
+  private refuseMapOwnedRow(row: IssueRow): void {
+    if (this.rows.get(row.id) !== row) return
+    throw new Error(
+      `persist(${row.id}): the map-owned row was mutated in place. Take a draft ` +
+        `(IssueRegistry.draft/draftOrThrow) and persist that instead [POD-3259, spec §3.6].`,
+    )
+  }
+
+  /**
+   * Install a committed draft.
+   *
+   * What goes into the map is a SNAPSHOT of the draft, not the draft itself, and
+   * that is load-bearing rather than defensive copying. Several paths persist
+   * one draft more than once — `cleanup()` writes it four times as each git step
+   * settles, and `inspectRemovableWorktree` writes its caller's row before
+   * handing control back. If the caller's object became the map's object, the
+   * second write would be a mutation of shared state again, and every write
+   * after the first would be refused by {@link refuseMapOwnedRow}. Snapshotting
+   * keeps the caller's row private for its whole sequence; re-pinning it to the
+   * revision just committed is what lets its next write carry a precondition
+   * that is true rather than three writes stale.
+   */
+  private installDraft(row: IssueRow, pin: number | null | undefined): void {
+    this.rows.set(row.id, this.draftOf(row))
+    if (pin !== undefined) this.draftOrigins.set(row, row.revision ?? null)
+  }
+
   /** Explicit hydration for the composition root (relay) — same load the lazy
    *  path performs, done eagerly so boot surfaces load logs immediately. */
   init(): this {
@@ -902,19 +1011,16 @@ export class IssueStore {
       extraChanges?: readonly EntityChangeSpec[] | (() => readonly EntityChangeSpec[])
     },
   ): IssueWire {
-    // In-place rollback seam (#247): for an EXISTING issue, `row` is the
-    // MAP-OWNED object and every mutation path (update()'s Object.assign,
-    // setState/panelApply/markIssueRead/undefer/workflow's field writes, plus
-    // the updatedAt stamp below) mutates it in place BEFORE the commit. A
-    // commit throw rolls the durable write back, but the object would keep the
-    // new fields — and the next full-list reconcile would durably publish the
-    // phantom. Snapshot the last-COMMITTED field state (the store's current
-    // row — exactly what sqlite rolls back to; it also covers mutations the
-    // caller made before entering this seam) and, on a throw, restore it INTO
-    // THE SAME object reference so every holder of the row sees the rollback.
-    // A brand-new row has no committed state (backup null): the post-commit
-    // rows.set() below is what keeps a failed create out of the map.
-    const backup = this.deps.store.issues.getIssue(row.id)
+    // DRAFT-THEN-INSTALL (#247 rebuilt for the async store, POD-3259). `row` is
+    // a DRAFT — a copy pinned to the revision it was cut from — never the
+    // map-owned object, which is what {@link refuseMapOwnedRow} enforces. There
+    // is therefore nothing to roll back on a throw: no holder of the committed
+    // row ever saw this write, the map still has the row sqlite still has, and
+    // the install below is what publishes both at once. What replaced the
+    // backup-and-restore is the pin: `expectedRevision` refuses the write
+    // durably, inside the transaction, if the row moved after the draft was cut.
+    this.refuseMapOwnedRow(row)
+    const pin = this.draftPin(row)
     // One spelling for absent (POD-820): `''` on a nullable text column is a
     // second encoding of `null` that no reader can tell apart. Collapsed here —
     // the choke point every row write passes through — and BEFORE the backup is
@@ -927,34 +1033,31 @@ export class IssueStore {
     // computeUnread (lastActivity > readAt) would flip the issue straight back to
     // unread. It also must not reorder sidebar recency.
     if (opts?.touch !== false) row.updatedAt = this.now()
-    let wire: IssueWire
-    try {
-      wire = this.deps.ledger.commit({
-        write: () => {
-          extraWrite?.()
-          this.deps.store.issues.upsertIssue(row)
-          // toWire never looks `row` itself up in the map (children/blocked scan
-          // OTHER rows), so it is safe to serialize before the map install below.
-          return this.toWire(row)
-        },
-        // Both kinds are declared by the SAME commit, so they land in one
-        // transact span: a cap client and a legacy client can never observe an
-        // issue at two different truths, and neither feed can record a write
-        // the other rolled back. The projection is built from `row` (post-write,
-        // so it carries the revision upsertIssue just assigned — the same
-        // ordering `w` depends on), not from `w`.
-        changes: (w) => [
-          { entity: 'issue', id: row.id, op: 'upsert', value: w },
-          ...this.projectionChanges(row),
-          ...(typeof opts?.extraChanges === 'function'
-            ? opts.extraChanges()
-            : (opts?.extraChanges ?? [])),
-        ],
-      }).result
-    } catch (err) {
-      if (backup) Object.assign(row, backup)
-      throw err
-    }
+    // NO try/catch: there is nothing to undo on a throw, which is the whole
+    // point of the draft above. The commit stands unguarded and the caller sees
+    // the ledger's own failure.
+    const wire = this.deps.ledger.commit({
+      write: () => {
+        extraWrite?.()
+        this.deps.store.issues.upsertIssue(row, pin === undefined ? undefined : { expectedRevision: pin })
+        // toWire never looks `row` itself up in the map (children/blocked scan
+        // OTHER rows), so it is safe to serialize before the map install below.
+        return this.toWire(row)
+      },
+      // Both kinds are declared by the SAME commit, so they land in one
+      // transact span: a cap client and a legacy client can never observe an
+      // issue at two different truths, and neither feed can record a write
+      // the other rolled back. The projection is built from `row` (post-write,
+      // so it carries the revision upsertIssue just assigned — the same
+      // ordering `w` depends on), not from `w`.
+      changes: (w) => [
+        { entity: 'issue', id: row.id, op: 'upsert', value: w },
+        ...this.projectionChanges(row),
+        ...(typeof opts?.extraChanges === 'function'
+          ? opts.extraChanges()
+          : (opts?.extraChanges ?? [])),
+      ],
+    }).result
     // The commit changed an issue-side input feeding toWire (row / label / dep /
     // comment via extraWrite, or read state) — invalidate the wire memo
     // [POD-723]. LOST IN THE POD-1246 MERGE and restored here: without it a
@@ -965,10 +1068,10 @@ export class IssueStore {
     // Install into the map only AFTER the commit succeeded (#247): a throw in
     // the transact span (write or change append) rolls the durable state back,
     // and the map must not keep a row the store never accepted — a phantom row
-    // would make the next full-list reconcile fabricate an upsert for it.
-    // (Update paths mutate the map's own row object in place, so for them this
-    // set is a no-op either way; the guard matters for NEW rows, i.e. create.)
-    this.rows.set(row.id, row)
+    // would make the next full-list reconcile fabricate an upsert for it. Since
+    // POD-3259 this is the ONLY way an update becomes visible in memory too, so
+    // it is no longer a no-op for anything.
+    this.installDraft(row, pin)
     return wire
   }
 
@@ -988,74 +1091,77 @@ export class IssueStore {
     }[] = () => [],
     opts?: { touch?: boolean },
   ): { issues: IssueWire[]; result: T } {
-    // ONE read for every pre-image, not a `getIssue` per row (POD-3257). This is
-    // the restore-on-failure snapshot for a path built for shipping, where `rows`
-    // is hundreds long; on a networked backend the old shape was a round trip per
-    // row before the transaction even opened.
-    //
-    // `getIssues` returns only the rows that EXIST, so the absent ones are written
-    // back as null explicitly — every row id must have an entry, because the catch
-    // below restores by looking one up and a missing key would read as "no backup"
-    // for a row that genuinely had none.
-    const found = this.deps.store.issues.getIssues(rows.map((row) => row.id))
-    const backups = new Map(rows.map((row) => [row.id, found.get(row.id) ?? null] as const))
+    // DRAFT-THEN-INSTALL, same model as {@link persistWith} (POD-3259): every
+    // row here is a draft pinned to the revision it was cut from, so the
+    // backup-and-restore loop this replaced has nothing left to undo.
+    const pins = new Map<string, number | null | undefined>()
     for (const row of rows) {
+      this.refuseMapOwnedRow(row)
+      pins.set(row.id, this.draftPin(row))
       normalizeBlankIssueText(row)
       if (opts?.touch !== false) row.updatedAt = this.now()
     }
+    // The events below read `repoPath` off the map, which still holds the
+    // PRE-commit rows while the drafts are in flight. Read the drafts first so a
+    // write that moves an issue between repos stamps its events with where the
+    // issue is going rather than where it was.
+    const drafted = new Map<string, IssueRow>(rows.map((row) => [row.id, row] as const))
     let result!: T
     let wires!: IssueWire[]
     let eventIds: number[] = []
-    try {
-      const committed = this.deps.ledger.commit({
-        write: () => {
-          result = write()
-          for (const row of rows) this.deps.store.issues.upsertIssue(row)
-          // Beyond a handful of rows the per-row joins dominate — see
-          // `wireBatch`. Built HERE, after `write` and the upserts, so it can
-          // never serve a projection from before the mutation it describes; the
-          // threshold keeps the shipping paths (a few rows) off an
-          // O(all issues) prefetch they would not amortize.
-          const batch = rows.length > 8 ? this.wireBatch() : undefined
-          wires = rows.map((row) => this.toWire(row, undefined, batch))
-          eventIds = events(result).map((event) =>
-            this.deps.store.events.appendEvent(
-              {
-                ts: this.now(),
-                kind: event.kind,
-                subject: event.subject,
-                repoPath: this.rows.get(event.subject)?.repoPath ?? null,
-                payload: event.payload,
-              },
-              { announce: false },
-            ),
+    // NO try/catch — see persistWith: the drafts are the only objects that
+    // carry this write, so a throw has nothing to undo.
+    const committed = this.deps.ledger.commit({
+      write: () => {
+        result = write()
+        for (const row of rows) {
+          const pin = pins.get(row.id)
+          this.deps.store.issues.upsertIssue(
+            row,
+            pin === undefined ? undefined : { expectedRevision: pin },
           )
-          return { result, wires }
-        },
-        changes: ({ result: value, wires: committedWires }) => [
-          ...rows.flatMap((row, index) => [
+        }
+        // Beyond a handful of rows the per-row joins dominate — see
+        // `wireBatch`. Built HERE, after `write` and the upserts, so it can
+        // never serve a projection from before the mutation it describes; the
+        // threshold keeps the shipping paths (a few rows) off an
+        // O(all issues) prefetch they would not amortize.
+        const batch = rows.length > 8 ? this.wireBatch() : undefined
+        wires = rows.map((row) => this.toWire(row, undefined, batch))
+        eventIds = events(result).map((event) =>
+          this.deps.store.events.appendEvent(
             {
-              entity: 'issue' as const,
-              id: row.id,
-              op: 'upsert' as const,
-              value: committedWires[index]!,
+              ts: this.now(),
+              kind: event.kind,
+              subject: event.subject,
+              repoPath:
+                drafted.get(event.subject)?.repoPath ??
+                this.rows.get(event.subject)?.repoPath ??
+                null,
+              payload: event.payload,
             },
-            ...this.projectionChanges(row),
-          ]),
-          ...extraChanges(value),
-        ],
-      }).result
-      result = committed.result
-      wires = committed.wires
-    } catch (error) {
-      for (const row of rows) {
-        const backup = backups.get(row.id)
-        if (backup) Object.assign(row, backup)
-      }
-      throw error
-    }
+            { announce: false },
+          ),
+        )
+        return { result, wires }
+      },
+      changes: ({ result: value, wires: committedWires }) => [
+        ...rows.flatMap((row, index) => [
+          {
+            entity: 'issue' as const,
+            id: row.id,
+            op: 'upsert' as const,
+            value: committedWires[index]!,
+          },
+          ...this.projectionChanges(row),
+        ]),
+        ...extraChanges(value),
+      ],
+    }).result
+    result = committed.result
+    wires = committed.wires
     this.bumpIssueInputs()
-    for (const row of rows) this.rows.set(row.id, row)
+    for (const row of rows) this.installDraft(row, pins.get(row.id))
     for (const eventId of eventIds) this.deps.store.events.announceEvent(eventId)
     return { issues: wires, result }
   }

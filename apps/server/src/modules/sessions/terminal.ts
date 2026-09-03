@@ -1135,10 +1135,18 @@ export class SessionTerminal {
       this.setGeometry(state.grid.cols, state.grid.rows)
       this.announceGeometry()
     }
-    ;[this.outputAtMs_, this.inputAtMs_, this.resumedAtMs_] = state.times
-    ;[this.inputCount_, this.outputCount_, this.activityCount_] = state.counts
-    this.activityDirty_ = state.dirty
-    ;[this.shellBusy_, this.shellCommandRunning] = state.shell
+    // THE LIVE HALF IS NOT REWOUND [POD-3259, spec §3.6]. `times`, `counts`,
+    // `dirty` and `shell` are observations of a pty, not fields the failed
+    // metadata write was about, and they MAY change while persistence is
+    // awaiting — a process does not stop producing output because a row is
+    // being written. Putting them back would discard activity that really
+    // happened, and `dirty: false` in particular would tell `flushActivity`
+    // there is nothing to write, losing the counter advance until the next
+    // frame arrives. Today this changes nothing: capture and restore are one
+    // uninterruptible pair, so the values are identical either way. It is
+    // written now so the rollback is right once the commit between them can
+    // await. The grid above IS restored, because a rollback undoes what the
+    // SERVER believed about geometry and the clients cached that belief.
   }
 
   private setController(clientId: string, client: ClientConn | undefined): void {
