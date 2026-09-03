@@ -332,6 +332,39 @@ export function afterCommit(step: PostCommitStep, label: string): void {
   scope.frame.postCommit.effect(step, label)
 }
 
+/**
+ * Is a unit of work open whose COMMIT a fold must wait for [POD-3328]?
+ *
+ * The same predicate {@link afterCommit} applies, named so a caller can ask
+ * BEFORE it stages anything. A read scope answers false for the reason
+ * `postCommit()` refuses one: a read commits nothing, so there is nothing to
+ * wait for.
+ */
+export function spanOpen(): boolean {
+  const scope = currentScope()
+  return scope.kind === 'transaction' && scope.frame.lane !== 'read' && addressable(scope.frame)
+}
+
+/**
+ * Register a COMMIT APPLICATION (mechanism 1) — the baseline fold and the
+ * mandatory cache invalidations — to run after the outermost commit.
+ *
+ * Unlike {@link afterCommit} this refuses when there is no span, rather than
+ * running the step now. A commit application is an invariant of a commit that
+ * happened; a caller with no span open has no commit to hang one off, and
+ * {@link spanOpen} is how it finds that out before it stages the work.
+ */
+export function applyAfterCommit(step: PostCommitStep, label: string): void {
+  const scope = currentScope()
+  if (!spanOpen() || scope.kind !== 'transaction') {
+    throw new Error(
+      `commit application "${label}" was registered with no open transaction scope: there is ` +
+        'nothing for it to follow (POD-3328).',
+    )
+  }
+  scope.frame.postCommit.applyCommit(step, label)
+}
+
 /** `assertAddressable` as a predicate: is this frame still the one to register on? */
 function addressable(frame: TransactionFrame): boolean {
   try {

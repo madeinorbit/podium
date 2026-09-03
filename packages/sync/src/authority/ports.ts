@@ -120,6 +120,28 @@ export type TransactPort = <T>(fn: () => T) => T
 export type PostCommitEffectPort = (step: () => void, label: string) => void
 
 /**
+ * The seam the BASELINE FOLD hangs off [POD-3328, spec §3.3 mechanism 1].
+ *
+ * Separate from {@link PostCommitEffectPort} because the two are different
+ * mechanisms with different failure contracts: a broadcast is an external
+ * effect nobody waits for, while the fold is a commit application — not
+ * skippable, and a failure means the in-memory projection no longer matches the
+ * database.
+ *
+ * `spanOpen` is asked BEFORE anything is staged, because the honest answer
+ * differs: with no enclosing unit of work a commit IS the outermost commit and
+ * the fold applies at once, which is where it happens today. Inside one, the
+ * commit is a savepoint release, the rows are not durable yet, and the fold
+ * waits for `onCommit`.
+ */
+export interface BaselineFoldPort {
+  /** Is an enclosing unit of work open whose commit the fold must wait for? */
+  spanOpen(): boolean
+  /** Register a commit application to run after the OUTERMOST commit. */
+  onCommit(step: () => void, label: string): void
+}
+
+/**
  * The Authority's clock — epoch milliseconds, injected.
  *
  * This is the clock ADR 1 D3 names as the ONLY one `field-LWW` may arbitrate on

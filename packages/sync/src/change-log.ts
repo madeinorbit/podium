@@ -160,6 +160,27 @@ export function detectionKey(entity: MetadataEntityKind, value: unknown, json: s
 }
 
 /**
+ * One folded row, as the baseline records it. Carries the detection key rather
+ * than recomputing it, so a staged row and the row eventually folded into the
+ * committed maps cannot disagree about what "changed" means.
+ */
+export type BaselineFold =
+  | {
+      readonly entity: MetadataEntityKind
+      readonly id: string
+      readonly op: 'upsert'
+      readonly value: unknown
+      readonly key: string
+    }
+  | { readonly entity: MetadataEntityKind; readonly id: string; readonly op: 'remove' }
+
+/** One staged batch, awaiting the outermost commit that makes it durable. */
+interface PendingBatch {
+  readonly token: number
+  readonly rows: readonly BaselineFold[]
+}
+
+/**
  * The in-memory dedup baseline: per (entity, id), the serialized wire JSON of
  * the last recorded state — plus, for conversations, the stable-field
  * projection that is the actual change-detection key for that entity.
@@ -167,6 +188,24 @@ export function detectionKey(entity: MetadataEntityKind, value: unknown, json: s
  * Owned by exactly one writer at a time; callers mutate it only AFTER the
  * durable append committed, so a throw mid-append never desyncs it from the
  * log.
+ *
+ * THE PENDING LAYER (POD-3328). "After the append committed" is not the same
+ * moment as "after the append's span returned". A write nested inside an
+ * enclosing unit of work returns when its SAVEPOINT is released, and a released
+ * savepoint is not a commit: the enclosing span can still roll back and take
+ * the rows with it. So rows staged inside an open span go into
+ * {@link stagePending} and reach the committed maps only through
+ * {@link promotePending}, which the writer registers as a commit application on
+ * the OUTERMOST commit (spec §3.3 mechanism 1). A batch whose span rolled back
+ * is never promoted, and {@link discardPending} clears whatever a rollback left
+ * behind the next time the writer is called with no span open.
+ *
+ * READS SEE THE PENDING LAYER, and that is not a convenience. `Authority.stage`
+ * dedups against this baseline and DROPS a remove whose id the baseline does not
+ * hold; a baseline that could not see the span's own earlier writes would drop
+ * the remove half of a create-then-delete inside one span, leaving the log
+ * claiming a row the transaction deleted. Deferring the fold without the overlay
+ * would trade one divergence for another.
  */
 export class ChangeBaseline {
   /** entity -> id -> DETECTION KEY of the last recorded state (see
@@ -174,6 +213,9 @@ export class ChangeBaseline {
    *  else the serialized wire JSON). */
   private readonly last = new Map<MetadataEntityKind, Map<string, string>>()
   private readonly current = new Map<MetadataEntityKind, Map<string, unknown>>()
+  /** Staged batches, in stage order. Empty whenever no span is open. */
+  private readonly pending: PendingBatch[] = []
+  private nextToken = 1
 
   private byEntity(entity: MetadataEntityKind): Map<string, string> {
     let m = this.last.get(entity)
@@ -212,16 +254,29 @@ export class ChangeBaseline {
   /** Would upserting (id, value) change anything? Byte-equality on the
    *  entity's detection key (see {@link detectionKey}). */
   upsertChanged(entity: MetadataEntityKind, id: string, value: unknown, json: string): boolean {
-    return this.byEntity(entity).get(id) !== detectionKey(entity, value, json)
+    const staged = this.staged(entity, id)
+    const key = detectionKey(entity, value, json)
+    if (staged) return staged.op === 'remove' || staged.key !== key
+    return this.byEntity(entity).get(id) !== key
   }
 
   has(entity: MetadataEntityKind, id: string): boolean {
+    const staged = this.staged(entity, id)
+    if (staged) return staged.op === 'upsert'
     return this.byEntity(entity).has(id)
   }
 
   /** Ids currently present in the baseline for one entity kind (remove-diff input). */
   ids(entity: MetadataEntityKind): string[] {
-    return [...this.byEntity(entity).keys()]
+    const ids = new Set(this.byEntity(entity).keys())
+    for (const batch of this.pending) {
+      for (const row of batch.rows) {
+        if (row.entity !== entity) continue
+        if (row.op === 'upsert') ids.add(row.id)
+        else ids.delete(row.id)
+      }
+    }
+    return [...ids]
   }
 
   applyUpsert(entity: MetadataEntityKind, id: string, value: unknown, json: string): void {
@@ -236,7 +291,70 @@ export class ChangeBaseline {
 
   /** Current durable projection for global snapshot assembly. */
   values(entity: MetadataEntityKind): readonly unknown[] {
-    return [...this.currentEntity(entity).values()].map((value) => structuredClone(value))
+    const rows = new Map(this.currentEntity(entity))
+    for (const batch of this.pending) {
+      for (const row of batch.rows) {
+        if (row.entity !== entity) continue
+        if (row.op === 'upsert') rows.set(row.id, row.value)
+        else rows.delete(row.id)
+      }
+    }
+    return [...rows.values()].map((value) => structuredClone(value))
+  }
+
+  // -------------------------------------------------------------------------
+  // The pending layer (POD-3328)
+  // -------------------------------------------------------------------------
+
+  /** Stage a batch against the OPEN span. Returns the token that promotes it. */
+  stagePending(rows: readonly BaselineFold[]): number {
+    const token = this.nextToken++
+    this.pending.push({ token, rows })
+    return token
+  }
+
+  /**
+   * Fold one staged batch into the committed maps. Called from the commit
+   * application of the span that staged it, so a batch whose span never
+   * committed is simply never promoted.
+   */
+  promotePending(token: number): void {
+    const index = this.pending.findIndex((batch) => batch.token === token)
+    if (index === -1) return
+    const [batch] = this.pending.splice(index, 1) as [PendingBatch]
+    for (const row of batch.rows) this.apply(row)
+  }
+
+  /**
+   * Drop everything staged. The writer calls this when it is about to stage or
+   * read with NO span open: anything still here belongs to a span that ended
+   * without promoting, which is a span that rolled back.
+   */
+  discardPending(): void {
+    this.pending.length = 0
+  }
+
+  /** Fold a row that is already durable. */
+  apply(row: BaselineFold): void {
+    if (row.op === 'upsert') {
+      this.byEntity(row.entity).set(row.id, row.key)
+      this.currentEntity(row.entity).set(row.id, structuredClone(row.value))
+    } else {
+      this.byEntity(row.entity).delete(row.id)
+      this.currentEntity(row.entity).delete(row.id)
+    }
+  }
+
+  /** The last staged state for (entity, id), or undefined if none is staged. */
+  private staged(entity: MetadataEntityKind, id: string): BaselineFold | undefined {
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const rows = (this.pending[i] as PendingBatch).rows
+      for (let j = rows.length - 1; j >= 0; j--) {
+        const row = rows[j] as BaselineFold
+        if (row.entity === entity && row.id === id) return row
+      }
+    }
+    return undefined
   }
 }
 

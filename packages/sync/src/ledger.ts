@@ -6,7 +6,7 @@ import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
 } from './authority/change-lifecycle'
-import type { AuthorityCommit, PostCommitEffectPort } from './authority/ports'
+import type { AuthorityCommit, BaselineFoldPort, PostCommitEffectPort } from './authority/ports'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -77,9 +77,10 @@ const log = createLogger('sync:ledger')
  * 81MB/day churn fix). No-op upserts and removes of ids the log never
  * recorded are dropped; a fully-deduped commit appends nothing.
  *
- * The in-memory baseline is mutated only after the transact span returns
- * successfully — a throw anywhere inside (write, changes(), append) rolls the
- * durable state back and leaves the baseline untouched.
+ * The in-memory baseline is mutated only after the write is DURABLE — a throw
+ * anywhere inside (write, changes(), append) rolls the durable state back and
+ * leaves the baseline untouched, and when this commit is a savepoint inside a
+ * caller's wider span the fold waits for that span's commit (POD-3328).
  */
 
 /**
@@ -120,6 +121,13 @@ export interface LedgerDeps {
    * every client adapter want.
    */
   postCommit?: PostCommitEffectPort
+  /**
+   * Where the baseline fold waits for the OUTERMOST commit [POD-3328]. Passed
+   * straight to the Authority — see `AuthorityDeps.applyCommit`. Unset means the
+   * fold applies as soon as the append returns, which is what a pass-through
+   * `transact` in a unit test wants.
+   */
+  applyCommit?: BaselineFoldPort
   /** Monotonic clock seam for deterministic maintenance scheduling tests. */
   monotonicNow?: () => number
   /** Records each retention job's total duration and max uninterrupted slice. */
@@ -193,6 +201,7 @@ export class Ledger {
       now: deps.now,
       transact: deps.transact,
       ...(deps.postCommit === undefined ? {} : { postCommit: deps.postCommit }),
+      ...(deps.applyCommit === undefined ? {} : { applyCommit: deps.applyCommit }),
       // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
       //
       // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant
