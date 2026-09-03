@@ -133,6 +133,25 @@ violations against the base — see below. No
 worker issue writes a spec; workers report in their handoff and the coordinator records at the
 checkpoint.
 
+NEVER MERGE A GENERATED MANIFEST; REGENERATE IT (coordinator's own defect, 2026-09-03, caught by
+POD-3260). `apps/server/test-shards.json` and `apps/server/turbo.json` are produced together by
+`bun scripts/server-test-shards.ts --write` from one import-closure scan. `test-shards.json` is an
+EXPLICIT FILE LIST, not a glob.
+
+Resolving a rebase, the coordinator merged it textually and landed the result. The merge dropped
+entries neither side had deleted: `statement-probe.test.ts` fell out of the store shard entirely,
+plus eleven dependency entries across two shards.
+
+THE FAILURE MODE IS WHY THIS IS IN THE METHOD RATHER THAN A COMMIT MESSAGE: a shard fails when it is
+EMPTY and never when it is SHORT. The file simply stops running, in no lane, with every gate still
+green. The dropped file was POD-3281's statement probe — the thing the hot-path measurements now sit
+on — so the gate protecting the measurement would have been silently unarmed while continuing to
+report success.
+
+RULE: after any rebase or merge that touches either file, run the generator and commit its output.
+Never hand-resolve a conflict in them. The same reasoning applies to any generated artefact whose
+consumer iterates an explicit list.
+
 A NAME-MATCHING SCAN CANNOT CARRY A COMPLETENESS GATE (POD-3257, 2026-09-03). This method's first
 principle is that completeness comes from the compiler and a lint, never from grep — and here is the
 concrete proof, found by a worker on its own work rather than by a reviewer.
