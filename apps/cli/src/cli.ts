@@ -2005,30 +2005,20 @@ export async function main(
     }
     case 'interactive-setup': {
       const { runCliSetup } = await import('./cli-setup')
-      const { createInterface } = await import('node:readline/promises')
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      })
+      const { clackIO } = await import('./setup-ui')
       await runCliSetup(
-        { prompt: (q) => rl.question(q), print: (s) => console.log(s) },
+        clackIO(),
         plan.port,
         // `--confirm-url-change` answers the "this strands joined machines"
         // question ahead of time, for a run that cannot answer a prompt.
         argv.includes('--confirm-url-change') ? { confirmUrlChange: true } : {},
       )
-      rl.close()
       return
     }
     case 'interactive-vps-setup': {
       const { runVpsSetup } = await import('./cli-setup')
-      const { createInterface } = await import('node:readline/promises')
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      })
-      await runVpsSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
-      rl.close()
+      const { clackIO } = await import('./setup-ui')
+      await runVpsSetup(clackIO(), plan.port)
       return
     }
     case 'client': {

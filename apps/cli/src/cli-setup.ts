@@ -8,6 +8,7 @@ import {
   saveConfig,
 } from '@podium/runtime/config'
 import { connectivityPath, readConnectivity } from '@podium/runtime/connectivity'
+import { decodeJoin } from '@podium/runtime/join'
 import {
   assertModeWritable,
   assertPublicUrlWritable,
@@ -19,11 +20,9 @@ import {
 } from '@podium/runtime/setup'
 import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
+import { isCancel, type SetupIO } from './setup-ui'
 
-export interface SetupIO {
-  prompt(q: string): Promise<string>
-  print(s: string): void
-}
+export type { SetupIO } from './setup-ui'
 
 export interface StartBackendOpts {
   persistence: 'systemd' | 'detached'
@@ -163,6 +162,8 @@ export function shouldRunCliSetup(opts: {
 }
 
 type HostMode = 'all-in-one' | 'server'
+/** What the mode menu can return. The three modes, plus the host-only quick edits. */
+type SetupChoice = HostMode | 'daemon' | 'url' | 'password' | 'telemetry'
 
 /**
  * WHAT THE DEPLOYMENT OWNS, THIS COMMAND MAY NOT WRITE (PDM-26).
@@ -178,7 +179,7 @@ function deploymentOwns(io: SetupIO, what: 'mode' | 'publicUrl'): boolean {
     else assertPublicUrlWritable()
     return false
   } catch (e) {
-    io.print(`\n${(e as Error).message}`)
+    io.error((e as Error).message)
     return true
   }
 }
@@ -199,12 +200,22 @@ async function confirmUrlChange(
   const current = loadConfig().publicUrl
   if (!current || current === next) return true
   if (preConfirmed) return true
-  io.print(`\nThis instance is already reachable at ${current}.`)
-  io.print('Changing it strands every machine that joined at the old URL — they will not')
-  io.print('be told about the new one and will have to be pointed at it by hand.')
-  const answer = ((await io.prompt(`Type CHANGE to replace it with ${next}: `)) ?? '').trim()
-  if (answer === 'CHANGE') return true
-  io.print('Left the URL as it was.')
+  io.warn(
+    `This instance is already reachable at ${current}.\n` +
+      'Changing it strands every machine that joined at the old URL — they will not\n' +
+      'be told about the new one and will have to be pointed at it by hand.',
+  )
+  // Deliberately a typed word rather than a confirm: this is destructive in a way no other
+  // answer in the flow is, and `--confirm-url-change` exists precisely because it is heavy.
+  const answer = await io.text({
+    message: `Type CHANGE to replace it with ${next}`,
+    validate: (v) =>
+      v.trim() === 'CHANGE' || v.trim() === ''
+        ? undefined
+        : 'Type CHANGE, or leave blank to keep the current URL.',
+  })
+  if (!isCancel(answer) && answer.trim() === 'CHANGE') return true
+  io.step('Left the URL as it was.')
   return false
 }
 
@@ -226,42 +237,47 @@ async function reachabilityStep(
   mode: HostMode,
   opts: { save: boolean; confirmUrlChange?: boolean } = { save: true },
 ): Promise<ReachabilityChoice | undefined> {
-  io.print('Make this instance reachable (encrypted, no domain needed):')
-  NETWORK_OPTIONS.forEach((o, i) => {
-    io.print(`  ${i + 1}) ${o.label} — ${o.note}`)
+  const opt = await io.select({
+    message: 'Make this instance reachable (encrypted, no domain needed)',
+    options: NETWORK_OPTIONS.map((o) => ({ value: o, label: o.label, hint: o.note })),
   })
-  const choice = Number((await io.prompt('Choose 1-4: ')).trim()) || 1
-  const opt = NETWORK_OPTIONS[Math.min(Math.max(choice, 1), NETWORK_OPTIONS.length) - 1]
-  // (Latent since the scripts/ era, surfaced by the first real typecheck: this
-  // returned `false` from a string|undefined function — falsy either way.)
-  if (!opt) return undefined
+  if (isCancel(opt) || !opt) return undefined
   const { command, hint } = networkOptionCommand(opt.id, port)
-  if (command) io.print(`\nRun this, then come back:\n\n    ${command}\n`)
-  io.print(hint)
-  // loop until a valid URL is pasted, but give up after a bounded number of attempts
-  // (else stdin EOF/Ctrl-D makes `prompt` resolve '' forever → infinite spin).
-  const MAX_ATTEMPTS = 10
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const pasted = await io.prompt('\nPaste the resulting URL: ')
-    const v = validatePublicUrl(pasted)
-    if (v.ok) {
-      if (opts.save) {
-        if (!(await confirmUrlChange(io, v.normalized, opts.confirmUrlChange === true))) {
-          return undefined
-        }
-        saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized, networkOption: opt.id })
-        io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
-      } else {
-        io.print(`\nThis instance will be reachable at ${v.normalized}.`)
-      }
-      const warning = ephemeralTunnelWarning(v.normalized)
-      if (warning) io.print(`\nWarning: ${warning}`)
-      return { publicUrl: v.normalized, networkOption: opt.id }
-    }
-    io.print(`  ${v.error}`)
+  // The one thing on this screen the operator must COPY gets a box of its own.
+  if (command) io.command(command, 'Run this, then come back:')
+  // A URL is re-asked by the prompt itself until it validates, so there is no attempt
+  // counter here any more: a cancelled prompt returns CANCEL rather than '' forever.
+  const pasted = await io.text({
+    message: hint,
+    placeholder: 'https://…',
+    validate: (v) =>
+      v.trim() === ''
+        ? 'Paste the URL, or press Ctrl-C to give up.'
+        : validatePublicUrl(v).ok
+          ? undefined
+          : (validatePublicUrl(v) as { error: string }).error,
+  })
+  if (isCancel(pasted)) {
+    io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
+    return undefined
   }
-  io.print('\nNo valid URL after several attempts — giving up. Re-run `podium setup` when ready.')
-  return undefined
+  const v = validatePublicUrl(pasted)
+  if (!v.ok) {
+    io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
+    return undefined
+  }
+  if (opts.save) {
+    if (!(await confirmUrlChange(io, v.normalized, opts.confirmUrlChange === true))) {
+      return undefined
+    }
+    saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized, networkOption: opt.id })
+    io.success(`Saved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
+  } else {
+    io.step(`This instance will be reachable at ${v.normalized}.`)
+  }
+  const warning = ephemeralTunnelWarning(v.normalized)
+  if (warning) io.warn(warning)
+  return { publicUrl: v.normalized, networkOption: opt.id }
 }
 
 /**
@@ -275,28 +291,32 @@ async function passwordStep(
   io: SetupIO,
   setPassword: (password: string) => Promise<void>,
 ): Promise<boolean> {
-  io.print('\nSet a password to require login (recommended for a public URL).')
-  const MAX_ATTEMPTS = 5
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const pw = (
-      (await io.prompt('Password (recommended; blank starts no-password confirmation): ')) ?? ''
-    ).trim()
-    if (pw) {
-      await setPassword(pw)
-      io.print('Password set — devices must log in to use this instance.')
+  io.step('Set a password to require login (recommended for a public URL).')
+  // Loops until the operator either sets a password or explicitly accepts an open box.
+  // A cancel (Ctrl-C, or a scripted run out of answers) ends it — which is why there is no
+  // attempt counter: CANCEL is the terminating condition readline could never report.
+  for (;;) {
+    const pw = await io.password({ message: 'Password (leave blank to run without one)' })
+    if (isCancel(pw)) break
+    if (pw.trim()) {
+      await setPassword(pw.trim())
+      io.success('Password set — devices must log in to use this instance.')
       return true
     }
-    io.print('No password means anyone who can reach this URL can use this instance.')
-    const confirm = ((await io.prompt('Type "open" to run without a password: ')) ?? '')
-      .trim()
-      .toLowerCase()
-    if (confirm === 'open') {
-      io.print('No password set — anyone who can reach this URL can use this instance.')
+    // SP-7f2c: the no-password option must be an explicit opt-in behind a confirmed warning.
+    io.warn('No password means anyone who can reach this URL can use this instance.')
+    const open = await io.confirm({
+      message: 'Run without a password?',
+      initialValue: false,
+    })
+    if (isCancel(open)) break
+    if (open) {
+      io.warn('No password set — anyone who can reach this URL can use this instance.')
       return true
     }
-    io.print('No-password mode was not confirmed.')
+    io.step('No-password mode was not confirmed.')
   }
-  io.print('No password chosen and no-password mode not confirmed.')
+  io.error('No password chosen and no-password mode not confirmed.')
   return false
 }
 
@@ -312,28 +332,23 @@ async function passwordStep(
  * import `apps/*`, so an example defined here could never be drift-tested (it
  * shipped advertising a `claude` session kind that the wire has never had).
  */
-export const TELEMETRY_PROMPT_HEADER = [
-  '',
-  '── Anonymous telemetry (opt-in) ─────────────────────────────────',
-  '',
-  '  Nothing is collected unless you turn it on. One report a day,',
-  '  and this is exactly what it looks like:',
+export const TELEMETRY_PROMPT_BODY = [
+  'Nothing is collected unless you turn it on. One report a day,',
+  'and this is exactly what it looks like:',
   '',
   indentExample(),
   '',
-  '  • Never     paths, repo names, prompts, code, any free text',
-  '  • Your IP   dropped at ingest, never reaches analytics',
-  '  • Opt out   anytime in Settings → Privacy, or: podium telemetry off',
-  '  • Details   podium telemetry show · podium.dev/telemetry',
-  '',
+  '• Never     paths, repo names, prompts, code, any free text',
+  '• Your IP   dropped at ingest, never reaches analytics',
+  '• Opt out   anytime in Settings → Privacy, or: podium telemetry off',
+  '• Details   podium telemetry show · podium.dev/telemetry',
 ].join('\n')
 
 /** Read one [y/N] answer. Anything that isn't an explicit yes is a NO — the
  *  default must never drift toward on, and stdin EOF resolves '' forever
  *  (which lands here as 'no', not as a spin). */
-function yes(answer: string | undefined): boolean {
-  const a = (answer ?? '').trim().toLowerCase()
-  return a === 'y' || a === 'yes'
+function yes(answer: unknown): boolean {
+  return answer === true
 }
 
 /**
@@ -355,17 +370,23 @@ function yes(answer: string | undefined): boolean {
  */
 export async function telemetryStep(io: SetupIO, env: EnvSource = process.env): Promise<void> {
   if (!shouldAskForConsent(env)) return
-  io.print(TELEMETRY_PROMPT_HEADER)
-  const usage = yes(await io.prompt('  Send anonymous usage reports?           [y/N] '))
-  const crash = yes(await io.prompt('  Send crash reports (scrubbed traces)?   [y/N] '))
+  io.note(TELEMETRY_PROMPT_BODY, 'Anonymous telemetry (opt-in)')
+  const usage = yes(
+    await io.confirm({ message: 'Send anonymous usage reports?', initialValue: false }),
+  )
+  const crash = yes(
+    await io.confirm({ message: 'Send crash reports (scrubbed traces)?', initialValue: false }),
+  )
   // Written even when both are 'no': an explicit 'off' is not the same as
   // 'absent', and recording the answer is how we know we asked (D11).
   setConsent({ usage: usage ? 'on' : 'off', crash: crash ? 'on' : 'off' })
-  io.print(
-    usage || crash
-      ? `\n  Thanks — ${[usage ? 'usage' : '', crash ? 'crash' : ''].filter(Boolean).join(' + ')} reporting is on. Turn it off any time: podium telemetry off`
-      : '\n  Telemetry stays off. Nothing will be collected or sent.',
-  )
+  if (usage || crash) {
+    const on = [usage ? 'usage' : '', crash ? 'crash' : ''].filter(Boolean).join(' + ')
+    io.success(`Thanks — ${on} reporting is on.`)
+    io.command('podium telemetry off', 'Turn it off any time:')
+  } else {
+    io.step('Telemetry stays off. Nothing will be collected or sent.')
+  }
 }
 
 /**
@@ -380,12 +401,13 @@ async function persistenceStep(
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
   options: { activateImmediately?: boolean } = {},
 ): Promise<StartBackendResult> {
-  const ans = (
-    (await io.prompt('\nKeep Podium running as a systemd service (survives reboot)? [Y/n]: ')) ?? ''
-  )
-    .trim()
-    .toLowerCase()
-  const wantSystemd = ans === '' || ans === 'y' || ans === 'yes'
+  const answer = await io.confirm({
+    message: 'Keep Podium running as a systemd service (survives reboot)?',
+    initialValue: true,
+  })
+  // A cancel here must not silently pick the weaker option: default to the recommended
+  // systemd path, exactly as a bare Enter did before.
+  const wantSystemd = isCancel(answer) ? true : answer
   const requestedPersistence = wantSystemd ? 'systemd' : 'detached'
   // A new VPS must boot against its final config, otherwise `/readiness` correctly reports that
   // the server still needs a restart. Record the requested value before its first process starts.
@@ -398,7 +420,7 @@ async function persistenceStep(
     res = await startBackend({ persistence: res.effectivePersistence, mode, port })
     savePersistence(res.effectivePersistence)
   }
-  io.print(res.message)
+  io.step(res.message)
   return res
 }
 
@@ -462,11 +484,11 @@ async function hostStep(
   const { publicUrl, networkOption } = reachability
   if (!(await confirmUrlChange(io, publicUrl, options.confirmUrlChange === true))) return
   if (!(await passwordStep(io, setPassword))) {
-    io.print('Nothing saved — re-run `podium setup` to start over.')
+    io.error('Nothing saved — re-run `podium setup` to start over.')
     return
   }
   saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
-  io.print(`\nSaved. This instance is reachable at ${publicUrl}.`)
+  io.success(`Saved. This instance is reachable at ${publicUrl}.`)
   await persistenceStep(io, port, mode, startBackend, {
     activateImmediately: options.activateImmediately,
   })
@@ -486,11 +508,13 @@ async function hostStep(
 export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
   const inspection = inspectConfig()
   if (inspection.state === 'corrupt') {
-    io.print(`Your config file (${configPath()}) exists but is invalid: ${inspection.error}`)
-    io.print('Refusing to set up over it. Fix the file, or run `podium setup --repair`.')
+    io.error(
+      `Your config file (${configPath()}) exists but is invalid: ${inspection.error}\n` +
+        'Refusing to set up over it. Fix the file, or run `podium setup --repair`.',
+    )
     return
   }
-  io.print('Set up this VPS as your always-on Podium.')
+  io.intro('Set up this VPS as your always-on Podium')
   await hostStep(
     io,
     port,
@@ -510,26 +534,40 @@ async function joinStep(
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
   waitForEnrollment: () => Promise<void>,
 ): Promise<void> {
-  io.print('\nPaste the join code from the server (its Machines → Add machine screen).')
-  const MAX_ATTEMPTS = 5
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const token = ((await io.prompt('Join code (blank to cancel): ')) ?? '').trim()
-    if (!token) {
-      io.print('Cancelled.')
-      return
-    }
-    try {
-      const { name, warning } = await applyJoinToken(token)
-      if (warning) io.print(`\nWarning: ${warning}`)
-      await persistenceStep(io, port, 'daemon', startBackend)
-      await waitForEnrollment()
-      io.print(`\nJoined as "${name}".`)
-      return
-    } catch (e) {
-      io.print(`  ${(e as Error).message}`)
-    }
+  io.note('Find it on the server, under Machines \u2192 Add machine.', 'Paste the join code')
+  // Validated in the prompt, so a typo is corrected in place rather than restarting the step.
+  const token = await io.text({
+    message: 'Join code',
+    validate: (v) => {
+      if (v.trim() === '') return 'Paste the join code, or press Ctrl-C to cancel.'
+      try {
+        decodeJoin(v.trim())
+        return undefined
+      } catch (e) {
+        return (e as Error).message
+      }
+    },
+  })
+  if (isCancel(token)) {
+    io.step('Cancelled.')
+    return
   }
-  io.print('\nNo valid join code after several attempts — giving up.')
+  try {
+    const { name, warning } = await applyJoinToken(token.trim())
+    if (warning) io.warn(warning)
+    await persistenceStep(io, port, 'daemon', startBackend)
+    const spin = io.spinner()
+    spin.start('Waiting for the server to accept this machine')
+    try {
+      await waitForEnrollment()
+      spin.stop(`Joined as "${name}".`)
+    } catch (e) {
+      spin.error((e as Error).message)
+      throw e
+    }
+  } catch (e) {
+    io.error((e as Error).message)
+  }
 }
 
 /**
@@ -564,9 +602,11 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   // writes over an existing-but-invalid file, #21) — surface the repair path up front.
   const inspection = inspectConfig()
   if (inspection.state === 'corrupt') {
-    io.print(`Your config file (${configPath()}) exists but is invalid: ${inspection.error}`)
-    io.print('Refusing to set up over it. Fix the file, or run `podium setup --repair` to')
-    io.print('back it up and start fresh.')
+    io.error(
+      `Your config file (${configPath()}) exists but is invalid: ${inspection.error}\n` +
+        'Refusing to set up over it. Fix the file, or run `podium setup --repair` to\n' +
+        'back it up and start fresh.',
+    )
     return
   }
   const setPassword = deps.setPassword ?? realSetPassword
@@ -575,44 +615,61 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   const mode = loadConfig().mode
   const hostsServer = mode === 'all-in-one' || mode === 'server'
 
-  io.print('What do you want this machine to do?')
-  io.print('')
-  io.print('  1) Run Podium on this machine')
-  io.print('       The app AND your agents run right here. Best if this is your only computer.')
-  io.print('  2) Set up a hub for your other machines')
-  io.print('       This box hosts the app; your agents run on the machines that connect to it,')
-  io.print('       not here. Best for an always-on server or VPS.')
-  io.print('  3) Add this machine to a Podium you already run')
-  io.print('       It runs agents here and connects to your existing server. Paste its join code.')
+  const menu: { value: SetupChoice; label: string; hint: string }[] = [
+    {
+      value: 'all-in-one',
+      label: 'Run Podium on this machine',
+      hint: 'The app AND your agents run right here. Best if this is your only computer.',
+    },
+    {
+      value: 'server',
+      label: 'Set up a hub for your other machines',
+      hint: 'This box hosts the app; your agents run on the machines that connect to it, not here. Best for an always-on server or VPS.',
+    },
+    {
+      value: 'daemon',
+      label: 'Add this machine to a Podium you already run',
+      hint: 'It runs agents here and connects to your existing server. Paste its join code.',
+    },
+  ]
   if (hostsServer) {
-    io.print('  4) Change how this machine is reached (its URL)')
-    io.print('  5) Change or remove the login password')
-    // Host-only, same condition as 4/5 [spec:SP-f933]: only hosts emit, so only
-    // hosts are asked (D10). This is the entire "ask an existing install" story —
-    // no one-time card, no prompt on a bare `podium` (D11).
-    io.print('  6) Change telemetry')
+    menu.push(
+      { value: 'url', label: 'Change how this machine is reached (its URL)', hint: '' },
+      { value: 'password', label: 'Change or remove the login password', hint: '' },
+      // Host-only, same condition as the two above [spec:SP-f933]: only hosts emit, so only
+      // hosts are asked (D10). This is the entire "ask an existing install" story —
+      // no one-time card, no prompt on a bare `podium` (D11).
+      { value: 'telemetry', label: 'Change telemetry', hint: '' },
+    )
   }
-  const choice = ((await io.prompt('Choose (blank to cancel): ')) ?? '').trim()
+  const choice = await io.select({
+    message: 'What do you want this machine to do?',
+    options: menu.map((m) => ({
+      value: m.value,
+      label: m.label,
+      ...(m.hint ? { hint: m.hint } : {}),
+    })),
+  })
 
   const hostOptions = deps.confirmUrlChange ? { confirmUrlChange: true } : {}
-  if (choice === '1') {
+  if (choice === 'all-in-one') {
     await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
-  } else if (choice === '2') {
+  } else if (choice === 'server') {
     await hostStep(io, port, 'server', setPassword, startBackend, hostOptions)
-  } else if (choice === '3') {
+  } else if (choice === 'daemon') {
     if (deploymentOwns(io, 'mode')) return
     await joinStep(io, port, startBackend, waitForEnrollment)
-  } else if (choice === '4' && hostsServer) {
+  } else if (choice === 'url' && hostsServer) {
     if (deploymentOwns(io, 'publicUrl')) return
     await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one', {
       save: true,
       ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
     })
-  } else if (choice === '5' && hostsServer) {
+  } else if (choice === 'password' && hostsServer) {
     await passwordStep(io, setPassword)
-  } else if (choice === '6' && hostsServer) {
+  } else if (choice === 'telemetry' && hostsServer) {
     await telemetryStep(io)
   } else {
-    io.print('Nothing changed.')
+    io.step('Nothing changed.')
   }
 }

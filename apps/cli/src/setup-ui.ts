@@ -136,14 +136,36 @@ export function clackIO(): SetupIO {
  * exhausted queue yields CANCEL — the same terminating condition as a real Ctrl-C, which is
  * what keeps a flow from spinning when a test under-supplies answers.
  */
-export function scriptedIO(answers: unknown[]): { io: SetupIO; output: string[] } {
+export interface ScriptedIO {
+  io: SetupIO
+  /** Everything PRINTED, one entry per line. */
+  output: string[]
+  /** Everything ASKED, one entry per line: each prompt's message, plus a select's option
+   *  labels — so a test can assert an option was (or was not) offered. */
+  prompts: string[]
+  /** Both, interleaved in the order they happened, for assertions about ordering. */
+  transcript: string[]
+}
+
+export function scriptedIO(answers: unknown[]): ScriptedIO {
   const queue = [...answers]
   const output: string[] = []
+  const prompts: string[] = []
+  const transcript: string[] = []
+  const ask = (message: string, labels: string[] = []) => {
+    for (const line of [message, ...labels]) {
+      prompts.push(line)
+      transcript.push(line)
+    }
+  }
   // `output` is LINE-oriented: a multi-line note or command block contributes one entry per
   // line, so a test can assert that a command sits alone on its own line (R9) rather than
   // merely appearing somewhere inside a blob.
   const say = (s: string) => {
-    output.push(...s.split('\n'))
+    for (const line of s.split('\n')) {
+      output.push(line)
+      transcript.push(line)
+    }
   }
   /** Shift answers until one passes `validate`; CANCEL when the queue runs dry. */
   const take = <T>(validate?: (value: string) => string | undefined): Cancellable<T> => {
@@ -164,14 +186,25 @@ export function scriptedIO(answers: unknown[]): { io: SetupIO; output: string[] 
       success: say,
       warn: say,
       error: say,
-      select: async <T>(_o: SelectOptions<T>) => take<T>(),
+      select: async <T>(o: SelectOptions<T>) => {
+        ask(
+          o.message,
+          o.options.map((x) => (x.hint ? `${x.label} — ${x.hint}` : x.label)),
+        )
+        return take<T>()
+      },
       text: async (o) => {
+        ask(o.message)
         const v = take<string>(o.validate)
         if (isCancel(v)) return v
         return v === '' || v === undefined ? (o.defaultValue ?? '') : v
       },
-      password: async (o) => take<string>(o.validate),
+      password: async (o) => {
+        ask(o.message)
+        return take<string>(o.validate)
+      },
       confirm: async (o) => {
+        ask(o.message)
         const v = take<boolean>()
         if (isCancel(v)) return v
         return v === undefined ? (o.initialValue ?? false) : v
@@ -187,5 +220,7 @@ export function scriptedIO(answers: unknown[]): { io: SetupIO; output: string[] 
       }),
     },
     output,
+    prompts,
+    transcript,
   }
 }
