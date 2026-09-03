@@ -381,6 +381,8 @@ export class StewardService {
   private static readonly COMMUNICATED_GRACE_MS = 5 * 60_000
 
   private timer: ReturnType<typeof setInterval> | undefined
+  /** True while a poll is running — see {@link StewardService.tick}. */
+  private ticking = false
   private readonly arbiter: NotificationArbiter
   private readonly principal: SystemCommandPrincipal
 
@@ -473,6 +475,26 @@ export class StewardService {
   /** One poll: read past the cursor, coalesce, handle, then advance. Public so
    *  tests drive it directly instead of waiting on real timers. */
   async tick(options: StewardTickOptions = {}): Promise<void> {
+    // SINGLE-FLIGHT (POD-3258). A poll is a read-decide-write over ONE durable
+    // cursor: read it, list the events past it, deliver them, then advance it.
+    // The cursor is what makes an event window run once, and it is not written
+    // until the deliveries are durable — deliberately, so a failure re-reads the
+    // window. Two polls overlapping therefore both read the pre-advance cursor
+    // and both handle the same events. The handlers are idempotent and
+    // mutation-keyed, so this is survivable rather than corrupting, but it is
+    // the same window done twice and the timer and the janitor drive the same
+    // instance. Skipped, not queued: the cursor is durable, so whatever a
+    // dropped poll would have read is still past the cursor for the next one.
+    if (this.ticking) return
+    this.ticking = true
+    try {
+      await this.runTick(options)
+    } finally {
+      this.ticking = false
+    }
+  }
+
+  private async runTick(options: StewardTickOptions): Promise<void> {
     if (!this.deps.getSettings().steward?.enabled) return
     if (options.owner === 'janitor') {
       const seededAt = this.deps.store.activateJanitorSteward()

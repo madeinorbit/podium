@@ -270,12 +270,14 @@ interface Lease {
   expiresAt: number
 }
 
-interface ResourceLease {
+export interface ResourceLease {
   lost: boolean
   expiresAt?: number
   ttlMs?: number
   renew?: () => boolean
   timer?: ReturnType<typeof setInterval>
+  /** True while this lease's renew tick is running — its single-flight fence. */
+  renewing?: boolean
 }
 
 const terminalStep = (step: ShipStep | null): boolean =>
@@ -375,6 +377,8 @@ export class ShippingService {
   private admissionTail: Promise<void> = Promise.resolve()
   private admissionsInFlight = 0
   private timer: ReturnType<typeof setInterval> | undefined
+  /** True while a scheduler pass is running — see {@link ShippingService.tick}. */
+  private ticking = false
 
   constructor(private readonly deps: ShippingServiceDeps) {
     this.now = deps.now ?? (() => new Date().toISOString())
@@ -789,6 +793,25 @@ export class ShippingService {
   }
 
   async tick(): Promise<void> {
+    // SINGLE-FLIGHT ON THE PASS (POD-3258). `admissionsInFlight` and `inFlight`
+    // fence the ADMISSION, not the pass that decides it, and everything before
+    // the first admission already awaits: the covered-prefix recovery, the order
+    // read, the schedule build. Two ticks overlapping both build a schedule from
+    // the same pre-admission snapshot and both pick the same head order; the
+    // custody check in `runOrder` is then the only thing between them and a
+    // double admission. Skipped, not queued: the schedule is recomputed from
+    // durable order state every pass, so a dropped tick decides the same queue
+    // one interval later.
+    if (this.ticking) return
+    this.ticking = true
+    try {
+      await this.runTick()
+    } finally {
+      this.ticking = false
+    }
+  }
+
+  private async runTick(): Promise<void> {
     if (this.admissionsInFlight > 0) return
     await this.recoverCoveredPrefixes()
     const now = Date.now()
@@ -3391,22 +3414,47 @@ export class ShippingService {
         }) === true,
     }
     const renewEveryMs = Math.max(250, Math.floor((ttlSeconds * 1_000) / 3))
-    lease.timer = setInterval(() => {
-      if (!this.resourceLeaseLive(lease)) return
-      try {
-        if (!lease.renew?.()) {
-          lease.lost = true
-        } else {
-          lease.expiresAt = Date.now() + ttlSeconds * 1_000
-        }
-      } catch {
-        lease.lost = true
-      }
-      if (lease.lost && lease.timer) clearInterval(lease.timer)
-    }, renewEveryMs)
+    lease.timer = setInterval(() => this.renewResourceLeaseTick(lease, ttlSeconds), renewEveryMs)
     lease.timer.unref?.()
     this.activeResourceLeases.add(lease)
     return lease
+  }
+
+  /**
+   * One renew tick for a resource lease.
+   *
+   * SINGLE-FLIGHT PER LEASE (POD-3258). `renew` reaches the lock service, which
+   * is a read-decide-write over the durable lock rows, and this tick fires every
+   * ttl/3 — so a renew that takes longer than a third of the TTL is met by the
+   * next tick while it is still out. Two renews for one lease race on
+   * `lease.lost` and `lease.expiresAt`: the loser's stale verdict can overwrite
+   * the winner's, either extending a lease that was actually lost or condemning
+   * one that was renewed. Skipped, not queued — the tick is pure heartbeat, and
+   * the next one is a third of a TTL away, which is the margin the cadence was
+   * chosen to leave.
+   *
+   * A NAMED METHOD RATHER THAN THE INTERVAL'S CLOSURE, so the fence is testable:
+   * fake timers will not re-fire an interval that is currently executing, so an
+   * anonymous callback here has no seam a unit test can produce an overlap
+   * through. This is the same extraction the other guarded passes in this epic
+   * took (`runStalledSweep`, `runTurnReap`, `runTick`).
+   */
+  renewResourceLeaseTick(lease: ResourceLease, ttlSeconds: number): void {
+    if (!this.resourceLeaseLive(lease)) return
+    if (lease.renewing === true) return
+    lease.renewing = true
+    try {
+      if (!lease.renew?.()) {
+        lease.lost = true
+      } else {
+        lease.expiresAt = Date.now() + ttlSeconds * 1_000
+      }
+    } catch {
+      lease.lost = true
+    } finally {
+      lease.renewing = false
+    }
+    if (lease.lost && lease.timer) clearInterval(lease.timer)
   }
 
   private releaseResources(

@@ -556,6 +556,8 @@ function sessionSendRefusalReason(
 
 export class SessionInbox {
   private readonly activeDrains = new Set<SessionId>()
+  /** True while a queued-input sweep is running — see {@link sweepQueuedInputs}. */
+  private sweepingQueuedInputs = false
   /** Generation fence for timers and contract receipts that outlive a bind. */
   private readonly drainGenerations = new Map<SessionId, number>()
   /** A fresh server bind must not trust the previous process state projection. */
@@ -1161,9 +1163,23 @@ export class SessionInbox {
    * what makes it safe to run over every pending session on a fixed interval.
    */
   sweepQueuedInputs(): void {
-    const pending = this.deps.queue.sessionsWithPending?.()
-    if (!pending) return
-    for (const sessionId of pending) this.drain(sessionId)
+    // SINGLE-FLIGHT ON THE SWEEP, over the per-session one the fan-out already
+    // has (POD-3258). `drain` is fenced by `activeDrains`, so an overlapping
+    // sweep could never double-deliver a row even without this. What it fences
+    // is the enumeration itself: `sessionsWithPending` is a store read, and once
+    // it awaits, a second tick lands on the same durable queue and walks it
+    // again to reach a fan-out that will refuse every entry. Skipped, not
+    // queued — the sweep is a backstop whose subject is durable, so the next
+    // tick sees whatever is still pending.
+    if (this.sweepingQueuedInputs) return
+    this.sweepingQueuedInputs = true
+    try {
+      const pending = this.deps.queue.sessionsWithPending?.()
+      if (!pending) return
+      for (const sessionId of pending) this.drain(sessionId)
+    } finally {
+      this.sweepingQueuedInputs = false
+    }
   }
 
   /**

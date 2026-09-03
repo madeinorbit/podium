@@ -21,6 +21,7 @@ import {
   ShippingOrderAccessError,
   shippingResourceHolderId,
   ShippingService,
+  type ResourceLease,
 } from './service'
 import type { ShippingRepairContext, ShippingRepairPort } from './repair-contract'
 import { ShippingEvidenceRegistry } from './shipwright'
@@ -2175,6 +2176,146 @@ describe('ShippingService enqueue transaction', () => {
         .listEventsSince(0, { kinds: ['issue.shipping_train_reset'] })
         .some((event) => event.subject === sibling.issue.id),
     ).toBe(true)
+    service.dispose()
+  })
+})
+
+/**
+ * SINGLE-FLIGHT GUARDS (POD-3258). Two timer callbacks in this service reach the
+ * store and had no fence of their own: the scheduler pass, and each resource
+ * lease's renew tick.
+ */
+describe('ShippingService single-flight guards (POD-3258)', () => {
+  /**
+   * `admissionsInFlight` and `inFlight` fence the ADMISSION, not the pass that
+   * decides it — and everything before the first admission already awaits: the
+   * covered-prefix recovery, the order read, the schedule build. So two ticks
+   * could both build a schedule from the same pre-admission snapshot and both
+   * pick the same head order, leaving the custody check in `runOrder` as the
+   * only thing between them and a double admission.
+   *
+   * The probe re-enters from inside `listReceipts`, which the schedule build
+   * asks for on every pass — after the awaits and before any admission.
+   */
+  it('the scheduler pass skips a tick that lands on a pass already running', async () => {
+    const { store, service } = harness()
+    let calls = 0
+    let inner: Promise<void> | undefined
+    const original = store.shipping.listReceipts.bind(store.shipping)
+    const spy = vi.spyOn(store.shipping, 'listReceipts').mockImplementation(() => {
+      calls += 1
+      if (!inner) inner = service.tick()
+      return original()
+    })
+
+    await service.tick()
+    await inner
+
+    expect(inner).toBeDefined()
+    expect(calls).toBe(1)
+    spy.mockRestore()
+    service.dispose()
+  })
+
+  it('the scheduler pass runs normally once the previous pass has finished', async () => {
+    const { store, service } = harness()
+    let calls = 0
+    const original = store.shipping.listReceipts.bind(store.shipping)
+    const spy = vi.spyOn(store.shipping, 'listReceipts').mockImplementation(() => {
+      calls += 1
+      return original()
+    })
+
+    await service.tick()
+    await service.tick()
+
+    expect(calls).toBe(2)
+    spy.mockRestore()
+    service.dispose()
+  })
+
+  /**
+   * The renew tick fires every ttl/3 and reaches the lock service, so a renew
+   * slower than a third of the TTL is met by the next tick while it is still
+   * out. Two renews for one lease race on `lease.lost` and `lease.expiresAt`:
+   * the loser's stale verdict can overwrite the winner's, either extending a
+   * lease that was actually lost or condemning one that was renewed.
+   *
+   * Driven through `renewResourceLeaseTick` rather than the interval, because
+   * fake timers will not re-fire an interval that is currently executing — a
+   * nested advance produces no second call, and the test would pass vacuously
+   * whether the fence existed or not.
+   */
+  it('a lease renew skips a tick that lands on a renew already running', () => {
+    const { service } = harness()
+    let renews = 0
+    let reentered = false
+    // Renews that happened DURING the re-entrant call — the overlapping tick
+    // only, which is the thing the fence is supposed to refuse.
+    let renewsDuringReentry = -1
+    const lease: ResourceLease = {
+      lost: false,
+      expiresAt: Date.now() + 120_000,
+      ttlMs: 120_000,
+      renew: () => {
+        renews += 1
+        if (!reentered) {
+          reentered = true
+          const before = renews
+          service.renewResourceLeaseTick(lease, 120)
+          renewsDuringReentry = renews - before
+        }
+        return true
+      },
+    }
+
+    service.renewResourceLeaseTick(lease, 120)
+
+    expect(reentered).toBe(true)
+    expect(renewsDuringReentry).toBe(0)
+    expect(renews).toBe(1)
+    expect(lease.lost).toBe(false)
+    service.dispose()
+  })
+
+  it('a later, non-overlapping lease renew runs normally', () => {
+    const { service } = harness()
+    let renews = 0
+    const lease: ResourceLease = {
+      lost: false,
+      expiresAt: Date.now() + 120_000,
+      ttlMs: 120_000,
+      renew: () => {
+        renews += 1
+        return true
+      },
+    }
+
+    service.renewResourceLeaseTick(lease, 120)
+    service.renewResourceLeaseTick(lease, 120)
+
+    expect(renews).toBe(2)
+    service.dispose()
+  })
+
+  it('releases the lease fence when a renew throws, and marks the lease lost', () => {
+    const { service } = harness()
+    let renews = 0
+    const lease: ResourceLease = {
+      lost: false,
+      expiresAt: Date.now() + 120_000,
+      ttlMs: 120_000,
+      renew: () => {
+        renews += 1
+        throw new Error('lock service is gone')
+      },
+    }
+
+    service.renewResourceLeaseTick(lease, 120)
+
+    expect(renews).toBe(1)
+    expect(lease.lost).toBe(true)
+    expect(lease.renewing).toBe(false)
     service.dispose()
   })
 })
