@@ -321,12 +321,12 @@ const NOT_A_SPAN_OPENER: readonly (SourceSite & { readonly why: string })[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 124,
+    line: 131,
     why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 114,
+    line: 115,
     why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above.',
   },
   {
@@ -358,6 +358,16 @@ const POST_COMMIT_REGISTRARS: readonly { readonly file: string; readonly symbol:
   // The replica's own protocol for the same thing, which POD-3260's ledger
   // names as the shape the server-side rows were copied from.
   { file: 'packages/sync/src/span.ts', symbol: 'onCommit' },
+  // POD-3328's baseline fold, registered as a commit application so a batch
+  // whose span never committed is never promoted. Same category as the rows
+  // above: the callback is code already moved OUT of the transaction, so its
+  // argument subtree is deliberately not walked.
+  { file: 'packages/sync/src/authority/ports.ts', symbol: 'onCommit' },
+  // POD-3328's baseline fold, registered as a commit application so a batch
+  // whose span never committed is never promoted. Same category as the rows
+  // above: the callback is code already moved OUT of the transaction, so its
+  // argument subtree is deliberately not walked.
+
 ]
 
 /* ------------------------------------------------------- capability tables */
@@ -454,6 +464,11 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  /* --- POD-3328's baseline fold port -------------------------------------- */
+  'packages/sync/src/authority/ports.ts#BaselineFoldPort.spanOpen': {
+    kind: 'contained',
+    why: "a predicate asking whether an enclosing unit of work is open. It reads the ambient span state and returns a boolean; it writes nothing, and nothing outside the process can tell it was called. Its ANSWER decides whether the fold applies at once or waits for the outermost commit, which is the rule-19 judgement — but asking the question is not itself an effect.",
+  },
   /* --- the sync adapter's narrow port over that same handle [POD-3338] ----- */
   'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlConnection.prepare': {
     kind: 'contained',
