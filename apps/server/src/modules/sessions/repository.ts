@@ -21,7 +21,7 @@ export type SessionWirePrincipal = SessionStatePrincipal
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { DaemonPtyInputBatch, MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import type { EntityChangeSpec } from '@podium/sync'
+import type { BaselineFoldPort, EntityChangeSpec } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
 import type { SessionRow, SessionStore } from '../../store'
@@ -67,6 +67,16 @@ export interface SessionRepositoryPorts {
   store: SessionStore
   memory: Pick<MemoryService, 'conversationPodiumId'>
   ledger: SessionLedger
+  /**
+   * Where the committed durable baseline waits for the OUTERMOST commit
+   * [POD-3361, spec §3.3 mechanism 1] — the same port and the same seam
+   * POD-3328 gave the change baseline.
+   *
+   * Unset means "there is no unit of work to wait for", which is what a unit
+   * test with a pass-through ledger wants: the baseline installs as soon as the
+   * commit returns, exactly as it did before this port existed.
+   */
+  applyCommit?: BaselineFoldPort
   funnel: WriteFunnel
   view: SessionView
   state: SessionStateService
@@ -120,6 +130,41 @@ export class SessionRepository {
    * is what separates the two, and the refusing version loses that case.
    */
   private readonly capturedSessionStates = new Map<SessionId, SessionDurableState>()
+  /**
+   * BASELINES STAGED AGAINST AN OPEN SPAN, in install order [POD-3361].
+   *
+   * A SAVEPOINT RELEASE IS NOT A COMMIT. `persist` commits through the ledger,
+   * whose `transact` degrades to a savepoint whenever a caller already has a
+   * span open — `IssueAttachOrchestrator` wraps a whole attach in one, and the
+   * write funnel opens one around every `mutateSessionMeta`. Installing the
+   * draft when that savepoint releases makes memory claim a row the enclosing
+   * span can still roll back: `committedDurableState` then reports a state no
+   * commit kept, and the next failed persist restores the live object to it —
+   * "a state no commit ever saw", which is exactly what {@link persist}'s draft
+   * comment says must not happen.
+   *
+   * So a baseline installed inside a span lands here and reaches
+   * {@link capturedSessionStates} only through the commit application
+   * registered on the OUTERMOST commit (spec §3.3 mechanism 1). A span that
+   * rolls back never promotes, and {@link freshenDurableBaselines} clears what
+   * it left behind the next time this map is used with no span open.
+   *
+   * READS SEE THE STAGED LAYER, and that is the same answer POD-3328 reached
+   * for the change baseline rather than a copy of its shape. The in-window
+   * reader here is `persist`'s own catch arm: a second persist failing inside
+   * the same enclosing span restores the live object from this map. Without the
+   * overlay it would restore the state from BEFORE the span — undoing the
+   * earlier nested write's fields on the live object while the enclosing span
+   * may still go on to commit them, so the next persist would write the stale
+   * fields back over the committed row. The overlay keeps that reader seeing
+   * exactly what it sees today; only the committed map waits.
+   */
+  private readonly stagedSessionStates: {
+    token: number
+    sessionId: SessionId
+    state: SessionDurableState
+  }[] = []
+  private nextDurableBaselineToken = 1
   /** True while an activity flush is running — see {@link flushActivity}. */
   private flushingActivity = false
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
@@ -306,14 +351,65 @@ export class SessionRepository {
     }
   }
 
-  /** Install a committed durable snapshot as the session's new baseline. */
+  /**
+   * Install a durable snapshot as the session's new baseline — after the commit
+   * that made it durable, which is NOT always the commit that just returned
+   * [POD-3361]. With a span open the snapshot is staged and promoted by the
+   * outermost commit; with none open this is the outermost commit, so it
+   * installs at once, which is where it happens today.
+   */
   private commitDurableBaseline(sessionId: SessionId, state: SessionDurableState): void {
-    this.capturedSessionStates.set(sessionId, state)
+    this.freshenDurableBaselines()
+    const fold = this.ports.applyCommit
+    if (!fold?.spanOpen()) {
+      this.capturedSessionStates.set(sessionId, state)
+      return
+    }
+    const token = this.nextDurableBaselineToken++
+    this.stagedSessionStates.push({ token, sessionId, state })
+    fold.onCommit(() => this.promoteDurableBaseline(token), 'session-durable-baseline-fold')
   }
 
-  /** The committed durable baseline for a session, for tests and diagnostics. */
-  committedDurableState(sessionId: SessionId): SessionDurableState | undefined {
+  /** Fold one staged baseline into the committed map, from the commit
+   *  application of the span that staged it. */
+  private promoteDurableBaseline(token: number): void {
+    const index = this.stagedSessionStates.findIndex((staged) => staged.token === token)
+    if (index === -1) return
+    const [staged] = this.stagedSessionStates.splice(index, 1)
+    if (staged) this.capturedSessionStates.set(staged.sessionId, staged.state)
+  }
+
+  /**
+   * Drop what a rolled-back span left staged, checked on the way IN rather than
+   * reported on the way out [POD-3361, and the asymmetry POD-3328 kept].
+   *
+   * A staged baseline reaches the committed map through its commit application
+   * and nowhere else, so anything still staged when NO span is open belongs to
+   * a unit of work that ended without committing. Nothing has to remember to
+   * report a rollback, so a report that never arrives — a crash, not merely a
+   * caught exception — cannot leave memory claiming a state the database threw
+   * away. There is no abort hook, deliberately.
+   */
+  private freshenDurableBaselines(): void {
+    if (this.stagedSessionStates.length === 0) return
+    if (!this.ports.applyCommit?.spanOpen()) this.stagedSessionStates.length = 0
+  }
+
+  /** The durable baseline this session would be rolled back to: the staged
+   *  state if this span installed one, else the committed one. */
+  private durableBaselineFor(sessionId: SessionId): SessionDurableState | undefined {
+    this.freshenDurableBaselines()
+    for (let i = this.stagedSessionStates.length - 1; i >= 0; i--) {
+      const staged = this.stagedSessionStates[i]
+      if (staged?.sessionId === sessionId) return staged.state
+    }
     return this.capturedSessionStates.get(sessionId)
+  }
+
+  /** The committed durable baseline for a session, for tests and diagnostics.
+   *  Reads the staged layer for the reason the field's doc gives. */
+  committedDurableState(sessionId: SessionId): SessionDurableState | undefined {
+    return this.durableBaselineFor(sessionId)
   }
 
   /** Synchronous dispose/test barrier: drain the complete pending set. */
@@ -395,7 +491,7 @@ export class SessionRepository {
       })
       changes = committed.changes
     } catch (err) {
-      const captured = this.capturedSessionStates.get(session.sessionId)
+      const captured = this.durableBaselineFor(session.sessionId)
       // The LATEST committed baseline, deliberately — see the field's doc for
       // why a version-pinned refusal is the wrong answer here. The live terminal
       // half survives this either way.
@@ -682,6 +778,14 @@ export class SessionRepository {
   forget(sessionId: SessionId): void {
     this.pendingVolatileSessions.delete(sessionId)
     this.capturedSessionStates.delete(sessionId)
+    // Memory-only, and the staged layer goes with it: this drops a session from
+    // the process, so a baseline still waiting for a commit has nothing left to
+    // be the baseline OF [POD-3361].
+    for (let i = this.stagedSessionStates.length - 1; i >= 0; i--) {
+      if (this.stagedSessionStates[i]?.sessionId === sessionId) {
+        this.stagedSessionStates.splice(i, 1)
+      }
+    }
     if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
   }
 }

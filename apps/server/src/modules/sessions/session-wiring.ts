@@ -32,6 +32,7 @@ import {
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
+import { applyAfterCommit, spanOpen } from '../../store/executor/synchronous-span'
 import { HeadlessService } from '../superagent/headless'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
@@ -262,6 +263,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     store: bag.store,
     memory: bag.deps.memory,
     ledger: bag.deps.ledger,
+    // The same wiring `relay.ts` gives the change baseline (POD-3328): the
+    // session's committed durable baseline is mechanism 1 on the OUTERMOST
+    // commit, so an enclosing span that rolls back takes it with it [POD-3361].
+    applyCommit: { spanOpen, onCommit: applyAfterCommit },
     funnel: bag.funnel,
     view: bag.view,
     state: bag.state,

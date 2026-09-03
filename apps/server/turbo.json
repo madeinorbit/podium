@@ -1057,6 +1057,7 @@
         "src/modules/sessions/rename-offline.test.ts",
         "src/modules/sessions/rename-shadow.test.ts",
         "src/modules/sessions/rename-target-path.ts",
+        "src/modules/sessions/repository.durable-baseline-fold.test.ts",
         "src/modules/sessions/repository.single-flight.test.ts",
         "src/modules/sessions/repository.state-model.test.ts",
         "src/modules/sessions/repository.ts",
