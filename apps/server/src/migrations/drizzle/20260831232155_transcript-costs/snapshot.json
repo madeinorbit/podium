@@ -3,8 +3,7 @@
   "dialect": "sqlite",
   "id": "aa2a39ee-3116-4841-9a76-2c0314b4cfc0",
   "prevIds": [
-    "05cb13bc-1814-43fa-a616-8e15d3344679",
-    "de8716c6-e0df-4608-bf13-a36c0caaf526"
+    "8a3ca50c-b4a2-43cd-8008-647c59c9a4fb"
   ],
   "ddl": [
     {
@@ -140,6 +139,10 @@
       "entityType": "tables"
     },
     {
+      "name": "pending_interactions",
+      "entityType": "tables"
+    },
+    {
       "name": "pins",
       "entityType": "tables"
     },
@@ -173,6 +176,14 @@
     },
     {
       "name": "root_integration_receipts",
+      "entityType": "tables"
+    },
+    {
+      "name": "runtime_event_checkpoints",
+      "entityType": "tables"
+    },
+    {
+      "name": "runtime_event_projection_cursors",
       "entityType": "tables"
     },
     {
@@ -3299,6 +3310,16 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "attachments_json",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "expires_at",
       "entityType": "columns",
       "table": "messages"
@@ -3410,6 +3431,26 @@
       "default": null,
       "generated": null,
       "name": "injected_at",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delivery_deferred_at",
+      "entityType": "columns",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delivery_deferred_reason",
       "entityType": "columns",
       "table": "messages"
     },
@@ -3722,6 +3763,166 @@
       "name": "payload",
       "entityType": "columns",
       "table": "operations"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload_json",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "answerable",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fingerprint",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'asked'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "policy_verdict",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "asked_at",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "answered_at",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "answered_by",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "answer_json",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "delivered_via",
+      "entityType": "columns",
+      "table": "pending_interactions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "expired_at",
+      "entityType": "columns",
+      "table": "pending_interactions"
     },
     {
       "type": "text",
@@ -4319,6 +4520,96 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "runtime_event_checkpoints"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "observer_generation",
+      "entityType": "columns",
+      "table": "runtime_event_checkpoints"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "cursor_json",
+      "entityType": "columns",
+      "table": "runtime_event_checkpoints"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "turn_epoch",
+      "entityType": "columns",
+      "table": "runtime_event_checkpoints"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "closed_turn_epoch",
+      "entityType": "columns",
+      "table": "runtime_event_checkpoints"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "runtime_event_checkpoints"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "projector",
+      "entityType": "columns",
+      "table": "runtime_event_projection_cursors"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_event_id",
+      "entityType": "columns",
+      "table": "runtime_event_projection_cursors"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "runtime_event_projection_cursors"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "key",
       "entityType": "columns",
       "table": "server_secrets"
@@ -4709,6 +5000,26 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
+      "name": "requested_model",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "requested_effort",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
       "name": "account_id",
       "entityType": "columns",
       "table": "sessions"
@@ -4780,6 +5091,26 @@
       "default": null,
       "generated": null,
       "name": "resume_value",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "selected_driver_id",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "requested_driver_id",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -4970,6 +5301,16 @@
       "default": null,
       "generated": null,
       "name": "stop_reason",
+      "entityType": "columns",
+      "table": "sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "oom_killed_at",
       "entityType": "columns",
       "table": "sessions"
     },
@@ -9788,6 +10129,15 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "pending_interactions_pk",
+      "table": "pending_interactions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "podium_events_pk",
       "table": "podium_events",
       "entityType": "pks"
@@ -9817,6 +10167,24 @@
       "nameExplicit": false,
       "name": "repo_prefixes_pk",
       "table": "repo_prefixes",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "nameExplicit": false,
+      "name": "runtime_event_checkpoints_pk",
+      "table": "runtime_event_checkpoints",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "projector"
+      ],
+      "nameExplicit": false,
+      "name": "runtime_event_projection_cursors_pk",
+      "table": "runtime_event_projection_cursors",
       "entityType": "pks"
     },
     {
@@ -10736,6 +11104,60 @@
       "name": "idx_operations_kind_created",
       "entityType": "indexes",
       "table": "operations"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_pending_interactions_session",
+      "entityType": "indexes",
+      "table": "pending_interactions"
+    },
+    {
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false
+        },
+        {
+          "value": "asked_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "idx_pending_interactions_open",
+      "entityType": "indexes",
+      "table": "pending_interactions"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "fingerprint",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": "status = 'asked'",
+      "origin": "manual",
+      "name": "idx_pending_interactions_fingerprint",
+      "entityType": "indexes",
+      "table": "pending_interactions"
     },
     {
       "columns": [
@@ -11682,6 +12104,24 @@
       "name": "messages_check_10",
       "entityType": "checks",
       "table": "messages"
+    },
+    {
+      "value": "status IN ('asked','answered','expired','superseded')",
+      "name": "pending_interactions_status_check",
+      "entityType": "checks",
+      "table": "pending_interactions"
+    },
+    {
+      "value": "kind IN ('permission','question','plan-approval','elicitation','login','recovery')",
+      "name": "pending_interactions_kind_check",
+      "entityType": "checks",
+      "table": "pending_interactions"
+    },
+    {
+      "value": "source IN ('protocol','sdk-callback','hook','screen-classifier')",
+      "name": "pending_interactions_source_check",
+      "entityType": "checks",
+      "table": "pending_interactions"
     },
     {
       "value": "principal_kind IN ('user','agent','system')",

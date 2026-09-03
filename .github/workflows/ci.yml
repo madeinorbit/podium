@@ -208,6 +208,11 @@ jobs:
         run: bun run migration:manifest --check
       - name: expand-only migration audit
         run: bun run audit:expand-only
+      # `migration:check` reads the snapshot DAG and never reads schema.ts, so a
+      # head snapshot that has fallen behind the schema passes it (POD-3341).
+      # This dry-runs `generate` and fails when it still has DDL to emit.
+      - name: migration chain has not drifted from the schema
+        run: bun run audit:migration-drift
 
   # The desktop shell's RUST tests — the native NDJSON log sink, its rotation
   # bound, the panic hook's payloads and the pending-crash queue. Nothing ran
