@@ -14,8 +14,8 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import type { DriverSession, QueryClient, StoreDriver } from './driver'
-import { queryClientOver } from './driver'
+import type { DriverSession, QueryClient, Statement, StoreDriver } from './driver'
+import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import {
   ExclusiveInsideLeaseError,
   ParallelNestedTransactionError,
@@ -360,6 +360,7 @@ describe('the exclusive lane', () => {
 function laneOnlyDriver(readConcurrency: number): StoreDriver<QueryClient> {
   const session: DriverSession = {
     execute: async () => ({ rows: [] }),
+    executeBatch: async (statements) => statements.map(() => ({ rows: [] })),
     begin: async () => undefined,
     commit: async () => undefined,
     rollback: async () => undefined,
@@ -371,8 +372,9 @@ function laneOnlyDriver(readConcurrency: number): StoreDriver<QueryClient> {
   return {
     kind: 'lane-only',
     lanes: { readConcurrency },
+    limits: { writeBudgetMs: UNBOUNDED_WRITE_BUDGET_MS, busyRetry: NO_BUSY_RETRY },
     open: async () => session,
-    client: (route) => queryClientOver(route),
+    client: (route, routeBatch) => queryClientOver(route, routeBatch),
     close: async () => undefined,
   }
 }
@@ -528,6 +530,164 @@ describe('scheduler liveness under driver failure', () => {
 
     await expect(first).rejects.toThrow('open failed')
     expect(await within(queued)).toBe('queued')
+    await scheduler.close()
+  })
+})
+
+/**
+ * THE CAPABILITIES THE REMOTE PATH IS LOAD-BEARING ON [POD-3310, V1 finding 3].
+ *
+ * The contract had one-statement routing and nothing else, so E.5 would have had
+ * to change a supposedly-settled interface or reach around it. All three of
+ * these are measured facts about Turso, not speculation: a batch is 42x
+ * (POD-3251), the write transaction dies at about 9 s, and a concurrent writer
+ * gets a busy shape that only a bounded retry above the transaction can answer.
+ */
+describe('the batch capability', () => {
+  const run = (body: string): Statement => ({ sql: insert, params: [body], method: 'run' })
+
+  it('reaches the driver as ONE call, on the open transaction', async () => {
+    const h = open()
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.batch([run('a'), run('b'), run('c')])
+    })
+
+    // One entry, not three: a batch that resolved its scope per statement would
+    // be three round trips again, and would lose its atomicity.
+    expect(h.log.entries.filter((entry) => entry.includes('BATCH'))).toEqual(['s1:BATCH[3]'])
+    expect(await noteBodies(h.db)).toEqual(['a', 'b', 'c'])
+    expect(h.log.boundaries()).toEqual(['s1:BEGIN IMMEDIATE', 's1:COMMIT'])
+  })
+
+  it('routes a root batch ambiently, on the write lane, atomically', async () => {
+    const h = open()
+    // The second statement violates NOT NULL, so the batch fails as a unit.
+    await expect(
+      h.db.batch([run('kept'), { sql: insert, params: [null], method: 'run' }]),
+    ).rejects.toThrow()
+    expect(await noteBodies(h.db), 'all of it or none of it').toEqual([])
+
+    await h.db.batch([run('a'), run('b')])
+    expect(await noteBodies(h.db)).toEqual(['a', 'b'])
+  })
+
+  it('refuses a batch on a transaction whose scope has ended', async () => {
+    // The token rule is not per operation shape: a batch is as capable of
+    // running after its commit as a statement is.
+    const h = open()
+    let escaped: StoreExecutor<QueryClient> | undefined
+    await h.executor.transact(async (tx) => {
+      escaped = tx
+      await tx.drizzle.run(insert, 'committed')
+    })
+    await expect(
+      (escaped as StoreExecutor<QueryClient>).drizzle.batch([run('late')]),
+    ).rejects.toBeInstanceOf(StaleTransactionError)
+    expect(await noteBodies(h.db)).toEqual(['committed'])
+  })
+})
+
+describe('the declared write budget and busy retry', () => {
+  const busy = new Error('SQLITE_BUSY: database is locked')
+  const remoteLimits = {
+    writeBudgetMs: 9_000,
+    busyRetry: { attempts: 4, initialDelayMs: 10, maxDelayMs: 40 },
+  }
+  const classify = (error: unknown) => (error === busy ? ('busy' as const) : ('fatal' as const))
+
+  it('refuses a watchdog budget at or above the driver’s hard limit', () => {
+    // A watchdog above the engine's own limit can never fire first: it would
+    // report a transaction the server has already killed.
+    const driver = asyncFakeDriver({ limits: remoteLimits })
+    expect(() =>
+      createScheduler({ driver, watchdog: { budgetMs: 9_000, report: () => undefined } }),
+    ).toThrow(/not below/)
+
+    const ok = createScheduler({
+      driver: asyncFakeDriver({ limits: remoteLimits }),
+      watchdog: { budgetMs: 5_000, report: () => undefined },
+    })
+    expect(ok.state).toBe('accepting')
+  })
+
+  it('retries a busy BEGIN within the declared policy, and not a fatal one', async () => {
+    let attempts = 0
+    const driver = asyncFakeDriver({
+      limits: remoteLimits,
+      classify,
+      hooks: {
+        begin: async () => {
+          if (++attempts < 3) throw busy
+        },
+      },
+    })
+    const slept: number[] = []
+    const scheduler = createScheduler({ driver, sleep: async (ms) => void slept.push(ms) })
+
+    const result = await scheduler.run('write', async (lease) => {
+      await lease.begin('write')
+      return 'committed'
+    })
+
+    expect(result).toBe('committed')
+    expect(attempts).toBe(3)
+    expect(slept, 'the declared backoff, doubling to its cap').toEqual([10, 20])
+    await scheduler.close()
+  })
+
+  it('does not retry a failure the driver does not call busy', async () => {
+    // A retry of work that may already have applied is worse than a failure, so
+    // anything unclassified is fatal.
+    let attempts = 0
+    const driver = asyncFakeDriver({
+      limits: remoteLimits,
+      classify,
+      hooks: {
+        open: async () => {
+          attempts++
+          throw new Error('TRANSACTION_CLOSED')
+        },
+      },
+    })
+    const slept: number[] = []
+    const scheduler = createScheduler({ driver, sleep: async (ms) => void slept.push(ms) })
+
+    await expect(scheduler.run('write', async () => 'never')).rejects.toThrow('TRANSACTION_CLOSED')
+    expect(attempts).toBe(1)
+    expect(slept).toEqual([])
+    await scheduler.close()
+  })
+
+  it('retries a busy acquisition, and stops at the declared deadline', async () => {
+    let attempts = 0
+    const driver = asyncFakeDriver({
+      // A short budget with a long backoff: the attempt count would allow five
+      // tries, the budget allows one retry.
+      limits: { writeBudgetMs: 100, busyRetry: { attempts: 5, initialDelayMs: 80, maxDelayMs: 160 } },
+      classify,
+      hooks: {
+        open: async () => {
+          attempts++
+          throw busy
+        },
+      },
+    })
+    let clock = 0
+    const slept: number[] = []
+    const scheduler = createScheduler({
+      driver,
+      now: () => clock,
+      sleep: async (ms) => {
+        slept.push(ms)
+        clock += ms
+      },
+    })
+
+    await expect(scheduler.run('write', async () => 'never')).rejects.toThrow(busy.message)
+    // Waiting longer than the transaction could have lived buys nothing.
+    expect(attempts).toBe(2)
+    expect(slept).toEqual([80])
+    expect(scheduler.state).toBe('accepting')
     await scheduler.close()
   })
 })

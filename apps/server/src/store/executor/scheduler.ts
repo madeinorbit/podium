@@ -27,13 +27,21 @@
  * deterministic rather than merely usually right.
  */
 
-import type { DriverSession, Lane, StoreDriver } from './driver'
+import type { BusyRetryPolicy, DriverSession, Lane, StoreDriver } from './driver'
 import { SchedulerClosedError } from './errors'
 
 export interface Lease {
   readonly id: number
   readonly lane: Lane
   readonly session: DriverSession
+  /**
+   * Open this lane's transaction, with the driver's bounded busy retry. It is
+   * here rather than on the session because the retry is the SCHEDULER's
+   * business: nothing of the body has run yet, so this is the last point at
+   * which trying again is safe (spec §6 rule 7 — a network blip closes a remote
+   * transaction permanently, so retry belongs above it, never inside it).
+   */
+  begin(lane: Lane): Promise<void>
   /** Wall time this lease has held its connection, ms. */
   heldMs(): number
 }
@@ -55,6 +63,8 @@ export interface SchedulerOptions {
    */
   watchdog?: { budgetMs: number; report: (report: WatchdogReport) => void }
   now?: () => number
+  /** Injectable so the busy-retry backoff is a test's choice, not a duration to wait out. */
+  sleep?: (ms: number) => Promise<void>
 }
 
 export type SchedulerState = 'accepting' | 'draining' | 'closed'
@@ -80,9 +90,52 @@ interface Waiter {
   readonly start: () => void
 }
 
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
+
 export function createScheduler(options: SchedulerOptions): Scheduler {
   const { driver } = options
   const now = options.now ?? (() => Date.now())
+  const sleep = options.sleep ?? defaultSleep
+  const limits = driver.limits
+  /**
+   * The watchdog reports a body that has held its connection too long, so a
+   * budget at or above the engine's own hard limit reports a transaction the
+   * server has already killed — it can never fire first. This is a
+   * misconfiguration, and the constructor is where it is cheap to find.
+   */
+  if (options.watchdog && options.watchdog.budgetMs >= limits.writeBudgetMs) {
+    throw new Error(
+      `watchdog budget ${options.watchdog.budgetMs}ms is not below driver ${driver.kind}'s ` +
+        `write budget of ${limits.writeBudgetMs}ms: the engine would end the transaction ` +
+        'before the watchdog could report it',
+    )
+  }
+
+  /**
+   * A bounded retry for an ACQUISITION only. It stops on the attempt count, on
+   * a non-busy failure, and on the driver's own write budget: waiting longer
+   * than the transaction could have lived buys nothing.
+   */
+  async function withBusyRetry<T>(attempt: () => Promise<T>): Promise<T> {
+    const policy: BusyRetryPolicy = limits.busyRetry
+    const startedAt = now()
+    let delay = policy.initialDelayMs
+    for (let tries = 1; ; tries++) {
+      try {
+        return await attempt()
+      } catch (error) {
+        const classified = driver.classify?.(error) ?? 'fatal'
+        if (classified !== 'busy' || tries >= policy.attempts) throw error
+        if (now() - startedAt + delay >= limits.writeBudgetMs) throw error
+        await sleep(delay)
+        delay = Math.min(delay * 2 || policy.initialDelayMs, policy.maxDelayMs)
+      }
+    }
+  }
   const readConcurrency = driver.lanes.readConcurrency
   /** Reads with no lane of their own take the write slot (bun:sqlite). */
   const readsUseWriteSlot = readConcurrency === 0
@@ -162,12 +215,14 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     // release, and a throw here is exactly what used to skip it.
     const acquireAndRun = async (): Promise<LeaseOutcome<T>> => {
       try {
-        session = await driver.open(lane)
+        session = await withBusyRetry(() => driver.open(lane))
+        const held = session
         const startedAt = now()
         const lease: Lease = {
           id: nextLeaseId++,
           lane,
           session,
+          begin: (beginLane: Lane) => withBusyRetry(() => held.begin(beginLane)),
           heldMs: () => now() - startedAt,
         }
         const watchdog = options.watchdog

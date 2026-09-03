@@ -17,6 +17,8 @@
 
 import type { SqlDatabase, SqlStatement } from '@podium/runtime/sqlite'
 import type {
+  BatchRouter,
+  DriverLimits,
   DriverSession,
   Lane,
   LanePolicy,
@@ -26,7 +28,7 @@ import type {
   StatementRouter,
   StoreDriver,
 } from './driver'
-import { queryClientOver } from './driver'
+import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 
 export interface BunDriverOptions {
   /** The shared connection. The scheduler's queue owns it. */
@@ -48,12 +50,25 @@ export interface BunDriverOptions {
  */
 const BUN_LANES: LanePolicy = { readConcurrency: 0 }
 
+/**
+ * In-process and single-writer by construction: no server ends a transaction
+ * under us, and the scheduler's size-one queue means a second writer never
+ * reaches the engine, so there is no busy error to retry. Both numbers are
+ * DECLARED rather than assumed by the scheduler, because the remote driver's
+ * are neither (spec §6 rule 7: about 9 s and a real busy shape on Turso).
+ */
+const BUN_LIMITS: DriverLimits = {
+  writeBudgetMs: UNBOUNDED_WRITE_BUDGET_MS,
+  busyRetry: NO_BUSY_RETRY,
+}
+
 export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<QueryClient> {
   const readers: SqlDatabase[] = []
   let closed = false
   return {
     kind: 'bun-sqlite',
     lanes: BUN_LANES,
+    limits: BUN_LIMITS,
     async open(lane) {
       if (closed) throw new Error('bun-sqlite driver is closed')
       return session(options.database, lane === 'read' ? 'shared-read' : 'owner')
@@ -72,8 +87,8 @@ export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<Qu
           },
         }
       : {}),
-    client(route: StatementRouter): QueryClient {
-      return queryClientOver(route)
+    client(route: StatementRouter, routeBatch: BatchRouter): QueryClient {
+      return queryClientOver(route, routeBatch)
     },
     async close() {
       if (closed) return
@@ -112,17 +127,42 @@ function session(db: SqlDatabase, role: SessionRole, onClose?: () => void): Driv
   const live = () => {
     if (closed) throw new Error('driver session is closed')
   }
+  const runOne = (request: Statement): StatementResult => {
+    const st = statement(request.sql)
+    const params = [...request.params]
+    if (request.method === 'run') return { rows: [], run: st.run(...params) }
+    if (request.method === 'get') {
+      const row = st.get(...params)
+      return { rows: row === undefined ? [] : [row] }
+    }
+    return { rows: st.all(...params) }
+  }
   return {
     async execute(request: Statement): Promise<StatementResult> {
       live()
-      const st = statement(request.sql)
-      const params = [...request.params]
-      if (request.method === 'run') return { rows: [], run: st.run(...params) }
-      if (request.method === 'get') {
-        const row = st.get(...params)
-        return { rows: row === undefined ? [] : [row] }
+      return runOne(request)
+    },
+    async executeBatch(requests: readonly Statement[]): Promise<readonly StatementResult[]> {
+      live()
+      if (requests.length === 0) return []
+      /**
+       * ATOMIC, like the remote `client.batch` this stands in for: all of it
+       * applies or none of it does. When the caller already has a transaction
+       * open, that transaction is the atomic boundary and a second one would be
+       * wrong; otherwise the batch opens and closes its own. A read-only session
+       * has nothing to make atomic.
+       */
+      const implicit = !open && role === 'owner'
+      if (implicit) db.exec('BEGIN IMMEDIATE')
+      try {
+        const results: StatementResult[] = []
+        for (const request of requests) results.push(runOne(request))
+        if (implicit) db.exec('COMMIT')
+        return results
+      } catch (error) {
+        if (implicit) db.exec('ROLLBACK')
+        throw error
       }
-      return { rows: st.all(...params) }
     },
     async begin(lane: Lane) {
       live()

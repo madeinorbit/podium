@@ -18,8 +18,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { createBunSqliteDriver } from './bun-driver'
-import type { DriverSession, Lane, QueryClient, Statement, StoreDriver } from './driver'
-import { queryClientOver } from './driver'
+import type {
+  DriverLimits,
+  DriverSession,
+  FailureClass,
+  Lane,
+  QueryClient,
+  Statement,
+  StoreDriver,
+} from './driver'
+import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
 
 export interface Barrier {
@@ -78,6 +86,13 @@ function recordingDriver(
         note(statement.sql)
         return session.execute(statement)
       },
+      async executeBatch(statements) {
+        // ONE entry, not one per statement: whether a batch reached the driver
+        // as a single call is the whole question, and the individual SQL is
+        // visible in the results.
+        note(`BATCH[${statements.length}]`)
+        return session.executeBatch(statements)
+      },
       async begin(lane: Lane) {
         if (lane === 'write') note('BEGIN IMMEDIATE')
         return session.begin(lane)
@@ -109,6 +124,8 @@ function recordingDriver(
   return {
     kind: inner.kind,
     lanes: inner.lanes,
+    limits: inner.limits,
+    ...(inner.classify ? { classify: (error: unknown) => inner.classify?.(error) ?? 'fatal' } : {}),
     async open(lane) {
       return wrap(await inner.open(lane), `s${nextSessionId++}`)
     },
@@ -122,7 +139,7 @@ function recordingDriver(
           },
         }
       : {}),
-    client: (route) => inner.client(route),
+    client: (route, routeBatch) => inner.client(route, routeBatch),
     close: () => inner.close(),
   }
 }
@@ -140,6 +157,7 @@ function recordingDriver(
  */
 export interface AsyncDriverHooks {
   open?(lane: Lane, attempt: number): Promise<void>
+  executeBatch?(statements: readonly Statement[]): Promise<void>
   begin?(lane: Lane): Promise<void>
   execute?(statement: Statement): Promise<void>
   commit?(attempt: number): Promise<void>
@@ -159,7 +177,12 @@ export interface AsyncFakeDriver extends StoreDriver<QueryClient> {
 }
 
 export function asyncFakeDriver(
-  options: { hooks?: AsyncDriverHooks; readConcurrency?: number } = {},
+  options: {
+    hooks?: AsyncDriverHooks
+    readConcurrency?: number
+    limits?: DriverLimits
+    classify?: (error: unknown) => FailureClass
+  } = {},
 ): AsyncFakeDriver {
   const hooks = options.hooks ?? {}
   const calls: string[] = []
@@ -180,6 +203,13 @@ export function asyncFakeDriver(
         calls.push(`${tag}:execute:${statement.sql}`)
         await hooks.execute?.(statement)
         return statement.method === 'run' ? { rows: [], run } : { rows: [] }
+      },
+      async executeBatch(statements) {
+        calls.push(`${tag}:batch[${statements.length}]`)
+        await hooks.executeBatch?.(statements)
+        return statements.map((statement) =>
+          statement.method === 'run' ? { rows: [], run } : { rows: [] },
+        )
       },
       async begin(lane) {
         calls.push(`${tag}:begin:${lane}`)
@@ -215,13 +245,15 @@ export function asyncFakeDriver(
   return {
     kind: 'async-fake',
     lanes: { readConcurrency: options.readConcurrency ?? 0 },
+    limits: options.limits ?? { writeBudgetMs: UNBOUNDED_WRITE_BUDGET_MS, busyRetry: NO_BUSY_RETRY },
+    ...(options.classify ? { classify: options.classify } : {}),
     async open(lane) {
       const attempt = ++opens
       calls.push(`open:${lane}`)
       await hooks.open?.(lane, attempt)
       return makeSession(attempt)
     },
-    client: (route) => queryClientOver(route),
+    client: (route, routeBatch) => queryClientOver(route, routeBatch),
     async close() {
       calls.push('driver-close')
     },

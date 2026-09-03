@@ -24,9 +24,14 @@ export {
   type TransactionToken,
 } from './context'
 export {
+  type BatchRouter,
+  type BusyRetryPolicy,
+  type DriverLimits,
   type DriverSession,
+  type FailureClass,
   type Lane,
   type LanePolicy,
+  NO_BUSY_RETRY,
   type QueryClient,
   queryClientOver,
   type SqlParam,
@@ -36,6 +41,7 @@ export {
   type StatementResult,
   type StatementRouter,
   type StoreDriver,
+  UNBOUNDED_WRITE_BUDGET_MS,
 } from './driver'
 export {
   ExclusiveInsideLeaseError,

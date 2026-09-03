@@ -35,7 +35,15 @@ import {
   runInScope,
   type TransactionFrame,
 } from './context'
-import type { DriverSession, Lane, QueryClient, StatementRouter, StoreDriver } from './driver'
+import type {
+  BatchRouter,
+  DriverSession,
+  Lane,
+  QueryClient,
+  Statement,
+  StatementRouter,
+  StoreDriver,
+} from './driver'
 import {
   ExclusiveInsideLeaseError,
   NoPostCommitScopeError,
@@ -223,11 +231,43 @@ export function createStoreExecutor<TClient>(
     )
   }
 
+  /**
+   * The batch form of the ambient router. Same three routes, one driver call —
+   * a batch that resolved its scope per statement would be N round trips again
+   * and would lose the atomicity the batch is for.
+   */
+  const ambientBatchRouter: BatchRouter = async (statements) => {
+    assertHealthy()
+    const scope = currentScope()
+    if (scope.kind === 'transaction') {
+      assertAddressable(scope.frame)
+      return scope.frame.lease.session.executeBatch(statements)
+    }
+    if (scope.kind === 'post-commit') {
+      assertDraining(scope)
+      return scope.lease.session.executeBatch(statements)
+    }
+    return scheduler.run(batchLane(statements), (lease) => lease.session.executeBatch(statements))
+  }
+
+  /** A batch that writes anything takes the write lane: it is one transaction. */
+  function batchLane(statements: readonly Statement[]): Lane {
+    return statements.some((statement) => statement.method === 'run') ? 'write' : 'read'
+  }
+
   function frameRouter(frame: TransactionFrame): StatementRouter {
     return async (statement) => {
       assertHealthy()
       assertAddressable(frame)
       return frame.lease.session.execute(statement)
+    }
+  }
+
+  function frameBatchRouter(frame: TransactionFrame): BatchRouter {
+    return async (statements) => {
+      assertHealthy()
+      assertAddressable(frame)
+      return frame.lease.session.executeBatch(statements)
     }
   }
 
@@ -237,7 +277,7 @@ export function createStoreExecutor<TClient>(
     const cached = boundExecutors.get(frame)
     if (cached) return cached
     const bound: StoreExecutor<TClient> = {
-      drizzle: driver.client(frameRouter(frame)),
+      drizzle: driver.client(frameRouter(frame), frameBatchRouter(frame)),
       legacy: options.legacy,
       context: {},
       transact: (fn) => transactOn(frame, fn),
@@ -249,7 +289,15 @@ export function createStoreExecutor<TClient>(
 
   /** A frame over a session that the scheduler does not lease (the reader). */
   function detachedLease(session: DriverSession): Lease {
-    return { id: 0, lane: 'read', session, heldMs: () => 0 }
+    // No transaction and no scheduler slot: the reader connection is its own
+    // snapshot, so `begin` has nothing to open and nothing to retry.
+    return {
+      id: 0,
+      lane: 'read',
+      session,
+      begin: async () => undefined,
+      heldMs: () => 0,
+    }
   }
 
   async function runTopLevel<T>(
@@ -260,7 +308,9 @@ export function createStoreExecutor<TClient>(
   ): Promise<T> {
     const registry = new PostCommitRegistry()
     const frame = createFrame({ lane, lease, parent: undefined, postCommit: registry })
-    await lease.session.begin(lane)
+    // Through the LEASE, so the driver's bounded busy retry applies: this is
+    // the last point at which nothing of the body has run.
+    await lease.begin(lane)
     let result: T
     try {
       result = await runInScope({ kind: 'transaction', frame }, () => fn(executorForFrame(frame)))
@@ -391,7 +441,7 @@ export function createStoreExecutor<TClient>(
   }
 
   const root: RootStoreExecutor<TClient> = {
-    drizzle: driver.client(ambientRouter),
+    drizzle: driver.client(ambientRouter, ambientBatchRouter),
     legacy: options.legacy,
     context: {},
     transact,
