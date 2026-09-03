@@ -720,7 +720,37 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
     the statement never REACHED the session. Any test of a guard whose real backend enforces the
     same property anyway must do this, or it proves nothing.
 
-15. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
+16. **Statement intent is DECLARED at the client, never inferred, and the default is `write`.**
+    Decided 2026-09-03 answering POD-3323, which POD-3321 correctly refused to decide for itself.
+
+    THE MECHANISM: the executor hands a repository a client that carries its intent, and the
+    sqlite-proxy adapter closes over that intent rather than deriving one. drizzle's callback
+    receives only `(sql, params, method)`, so the adapter has nothing to derive from — which is the
+    point. A repository that wants the read lane binds a reading client explicitly.
+
+    THE DEFAULT IS `write`, INCLUDING FOR ANYTHING UNMARKED. The two errors are not symmetric, and
+    that asymmetry is the whole argument. A write mistaken for a read escapes the single write slot,
+    can run beside a real writer, and on a driver with `openReader` can be handed a read-only
+    connection — silent, and exactly the defect POD-3318 just fixed. A read mistaken for a write
+    takes the write slot: slower, visible in the hot-path measurements, and harmless to
+    correctness. So the unsafe direction must be the one somebody has to type.
+
+    THIS COSTS NOTHING TODAY. On bun:sqlite `readConcurrency` is 0, so reads take the write slot
+    anyway — a `write` default is the current behaviour exactly. Read concurrency only pays on the
+    remote driver, so the opt-in can be made per repository during its conversion wave, by someone
+    reasoning about that repository, against the measurement script, instead of guessed for all 38
+    up front.
+
+    SQL TEXT PARSING IS BANNED. Deriving intent from the leading keyword was candidate 1 in
+    POD-3323 and it is refused: it is the same move that produced the defect — reading semantics
+    out of a field that was not defined to carry them — relocated one layer down, where CTEs,
+    `PRAGMA`, `EXPLAIN` and `sql.raw` make it wrong in ways nothing would catch. Cheap and total is
+    not the test; failing safe is.
+
+    Candidate 2 (ambient intent through the ALS) was not chosen: it makes intent invisible at the
+    call site, and its unmarked case is precisely the silent-write hazard above.
+
+17. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
     identifier is shell command substitution and vanishes silently, taking part of the message with
     it. Quote the body from a heredoc file, or write without backticks. Costs a round trip every
     time; it has already cost two.
