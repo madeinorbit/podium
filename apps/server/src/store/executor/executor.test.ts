@@ -215,8 +215,14 @@ describe('the prepared-statement cache', () => {
       await noteBodies(h.db)
     }
 
-    expect(prepared.filter((sql) => sql === insert), 'three writes, one prepare').toHaveLength(1)
-    expect(prepared.filter((sql) => sql === bodies), 'three reads, one prepare').toHaveLength(1)
+    expect(
+      prepared.filter((sql) => sql === insert),
+      'three writes, one prepare',
+    ).toHaveLength(1)
+    expect(
+      prepared.filter((sql) => sql === bodies),
+      'three reads, one prepare',
+    ).toHaveLength(1)
   })
 })
 
@@ -775,7 +781,10 @@ describe('the declared write budget and busy retry', () => {
     const driver = asyncFakeDriver({
       // A short budget with a long backoff: the attempt count would allow five
       // tries, the budget allows one retry.
-      limits: { writeBudgetMs: 100, busyRetry: { attempts: 5, initialDelayMs: 80, maxDelayMs: 160 } },
+      limits: {
+        writeBudgetMs: 100,
+        busyRetry: { attempts: 5, initialDelayMs: 80, maxDelayMs: 160 },
+      },
       classify,
       hooks: {
         open: async () => {
@@ -890,10 +899,12 @@ describe('post-commit', () => {
 
     // The REFUSAL afterwards is the opposite case and must say so: the store is
     // unhealthy, the work never ran, and nothing committed.
-    const refusal = await h.executor.read(async () => undefined).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+    const refusal = await h.executor
+      .read(async () => undefined)
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
     expect(refusal).toBeInstanceOf(StoreUnhealthyError)
     expect((refusal as StoreUnhealthyError).committed).toBe(false)
   })

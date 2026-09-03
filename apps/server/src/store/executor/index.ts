@@ -20,9 +20,9 @@ export {
   assertAddressable,
   currentScope,
   type StoreScope,
-  type TransactionUnit,
   type TransactionFrame,
   type TransactionToken,
+  type TransactionUnit,
 } from './context'
 export {
   type BatchRouter,

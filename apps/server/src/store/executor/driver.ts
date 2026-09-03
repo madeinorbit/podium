@@ -75,9 +75,7 @@ export type StatementRouter = (statement: Statement) => Promise<StatementResult>
  * server-side transaction with a full rollback on failure, and a driver that
  * has no such call must reproduce that, not approximate it.
  */
-export type BatchRouter = (
-  statements: readonly Statement[],
-) => Promise<readonly StatementResult[]>
+export type BatchRouter = (statements: readonly Statement[]) => Promise<readonly StatementResult[]>
 
 /** How a failure the driver raised should be treated. */
 export type FailureClass = 'busy' | 'fatal'

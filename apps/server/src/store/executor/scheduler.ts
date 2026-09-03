@@ -83,7 +83,9 @@ export interface Scheduler {
   close(): Promise<void>
 }
 
-type LeaseOutcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown }
+type LeaseOutcome<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: unknown }
 
 interface Waiter {
   readonly lane: Lane

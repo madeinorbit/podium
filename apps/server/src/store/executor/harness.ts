@@ -245,7 +245,10 @@ export function asyncFakeDriver(
   return {
     kind: 'async-fake',
     lanes: { readConcurrency: options.readConcurrency ?? 0 },
-    limits: options.limits ?? { writeBudgetMs: UNBOUNDED_WRITE_BUDGET_MS, busyRetry: NO_BUSY_RETRY },
+    limits: options.limits ?? {
+      writeBudgetMs: UNBOUNDED_WRITE_BUDGET_MS,
+      busyRetry: NO_BUSY_RETRY,
+    },
     ...(options.classify ? { classify: options.classify } : {}),
     async open(lane) {
       const attempt = ++opens
