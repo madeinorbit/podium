@@ -81,7 +81,20 @@
  *     reasoning, and what the rule deliberately cannot see, sits with
  *     {@link checkConsoleOwnership}.
  *
- * Alongside these eleven sits the ARCHITECTURE MANIFEST (POD-296,
+ * 13. The STORE BOUNDARY family (POD-3252, epic POD-3221): four rules over the
+ *     repositories — no raw SQLite handle (`@podium/runtime/sqlite`,
+ *     `.prepare(`, a whole raw statement on `db.all/get/run/values`), no
+ *     `PRAGMA`/`sqlite_master`/`ATTACH` inside a `sql` body, no drizzle
+ *     transaction outside the store's `transact` port, drizzle imported only
+ *     from persistence, and no `sql.raw` of a non-literal. Before the drizzle
+ *     conversion they are Stage A's COMPLETENESS PROOF, gated by the shrinking
+ *     {@link STAGE_A_UNCONVERTED} ledger; after it they are the permanent guard
+ *     that keeps the hosted server able to run on Turso. Full reasoning, the
+ *     exemptions and what is deliberately NOT banned:
+ *     docs/gates/pod-3252-store-boundary-lint.md.
+ *
+ * Alongside these (and rule 12, `sync-browser-reach`, documented at its own
+ * definition) sits the ARCHITECTURE MANIFEST (POD-296,
  * scripts/architecture-manifest.ts): tags per workspace and a dependency matrix
  * derived from them. The two families coexist until POD-335 retires each legacy
  * rule against an equivalent manifest constraint.
@@ -93,8 +106,9 @@
  * failing every branch, without opening the door to new ones.
  *
  * Run:
- *  - `bun run lint:boundaries` — everything (wired into `bun run lint`, which is
- *    `continue-on-error` in CI while biome's backlog is burned down).
+ *  - `bun run lint:boundaries` — everything, and the BLOCKING CI step. It is
+ *    also wired into `bun run lint`, which is `continue-on-error` while
+ *    biome's backlog is burned down; that bundle is not what gates.
  *  - `bun run lint:architecture` — the manifest alone (`--manifest-only`), the
  *    BLOCKING CI step. Separate precisely because `bun run lint` cannot block.
  *
@@ -1014,6 +1028,600 @@ export function checkSessionBindingFieldAccess(file: string, source: string): Vi
   return violations
 }
 
+// ---------------------------------------------------------------------------
+// Rules 13-16 — the STORE BOUNDARY family (POD-3252, epic POD-3221)
+//
+// Four rules that together do two jobs. Before the drizzle conversion they are
+// the COMPLETENESS PROOF for Stage A: a repository is converted when it no
+// longer holds a raw SQLite handle, and nothing but a lint can tell you that
+// about forty files at once (method §2, first row — "completeness comes from
+// the compiler and a lint, never from grep or memory"). After the conversion
+// they are the PERMANENT GUARD: the constructs banned here are the ones a
+// remote connection cannot rely on, or that belong to the driver and the
+// migrations alone, and the hosted server runs on Turso (spec §2.7, §6 rules
+// 1-2, §7 decision 5).
+//
+// WHAT IS NOT BANNED, said explicitly because the temptation is to ban more.
+// Under the one-dialect decision (spec §7.5 — SQLite everywhere, bun:sqlite
+// locally, Turso remotely) both drivers accept rowid ordering, `INSERT OR
+// REPLACE`, `INSERT OR IGNORE`, `ON CONFLICT`, `RETURNING`, `GLOB`,
+// `lastInsertRowid` and the JSON functions. None of them is a portability
+// problem and none is flagged. The `sql` TAG itself is not banned either:
+// spec §6 rule 1 says fragments inside builder queries are fine anywhere;
+// what is banned is a WHOLE raw statement handed to drizzle's raw-execution
+// methods. And the per-site "an `OR REPLACE` conversion must name every
+// column" check stays a REVIEWER rule — it is a property of the column list
+// against the schema, which source text cannot see.
+//
+// THE ONLY SITE-LEVEL ALLOWLIST is a line carrying `// DECISION POD-<n>`
+// (method §4). A worker that meets a site no rule covers converts it in the
+// most literal form, marks the line, and files the decision issue; Stage A's
+// exit gate requires zero markers, so every marker is a filed question rather
+// than a permanent excuse. {@link STORE_BOUNDARY_DECISION_MARKER}.
+// ---------------------------------------------------------------------------
+
+/**
+ * The directories held to rule 13. Exact, and deliberately not "everything
+ * that touches SQLite": these are the places the epic converts, so a violation
+ * here is unconverted code, and a violation outside here is a different
+ * question with a different answer.
+ */
+const STORE_BOUNDARY_ROOTS: readonly string[] = [
+  'apps/server/src/store/',
+  'packages/sync/src/adapters/sqlite/',
+]
+
+/** The one FILE outside those directories that is a repository (spec §6 rule 2). */
+const STORE_BOUNDARY_FILES: ReadonlySet<string> = new Set([
+  'apps/server/src/modules/operations/store.ts',
+])
+
+/**
+ * The SearchIndex port — the two modules that own FTS5, by EXACT PATH.
+ *
+ * FTS5 stays behind the search port (spec §2.7): `MATCH` is not a builder
+ * construct, the index is a virtual table drizzle has no model for, and the
+ * queries are whole raw statements by nature. So these two are exempt from
+ * rule 13's raw-statement clauses and are the only place rule 16 allows
+ * `sql.raw` at all.
+ *
+ * A SET OF PATHS, NOT A GLOB, on purpose. `store/conversations/` also holds
+ * `mirror.ts` and `registry.ts`, which are ordinary repositories; a
+ * `conversations/**` exemption would carry them along and nobody would notice.
+ * Adding a third search module is then an edit to this line, which is a
+ * decision someone makes rather than one the rule absorbs.
+ */
+const SEARCH_INDEX_PORT: ReadonlySet<string> = new Set([
+  'apps/server/src/store/conversations/index.ts',
+  'apps/server/src/store/conversations/transcript-index.ts',
+])
+
+/**
+ * The executor's DRIVER SEAM — the three modules that legitimately name the raw
+ * handle, and the only permanent exemption from rule 12's raw-handle clauses.
+ *
+ * `bun-driver.ts` is the driver: its whole job is to turn the router's
+ * per-statement callbacks into `prepare`/`run` on a bun:sqlite connection.
+ * `driver.ts` is the interface it implements, and it imports `SqlParam` /
+ * `SqlRunResult` — the parameter and result vocabulary every driver needs,
+ * including the libsql one E.5 adds. `harness.ts` is the deterministic
+ * interleaving harness (POD-3248): test scaffolding whose every importer is a
+ * `.test.ts`, but whose filename does not say so, so the test-directory
+ * exemption cannot see it. Named here rather than renamed, because renaming it
+ * is the executor owner's call and not this rule's business.
+ *
+ * SPEC §6 RULE 2 SAYS "exactly one file (`store/executor/bun-driver.ts`)" — a
+ * single line to allow rather than a package boundary to reason about. As
+ * landed (POD-3248, 5dce237f3) it is three, for the reason above; the count is
+ * the only part that moved, not the shape.
+ *
+ * `executor.ts` IS DELIBERATELY ABSENT even though it imports `SqlDatabase`
+ * today. That import is `readonly legacy: SqlDatabase | undefined` — the
+ * executor's legacy field, which Stage A's exit gate deletes by name (method
+ * §5, Phase A exit). So it sits in {@link STAGE_A_UNCONVERTED} instead, which
+ * makes the ledger's last remaining line the exit gate itself: when the field
+ * goes, the ledger empties, and both halves of the gate are one check.
+ */
+const RAW_HANDLE_OWNERS: ReadonlySet<string> = new Set([
+  'apps/server/src/store/executor/driver.ts',
+  'apps/server/src/store/executor/bun-driver.ts',
+  'apps/server/src/store/executor/harness.ts',
+])
+
+/** The runtime's SQLite shim: the raw handle, by any subpath spelling. */
+const RUNTIME_SQLITE_SPECIFIER = /^@podium\/runtime\/sqlite(?:\/|$)/
+
+/** drizzle, by any subpath spelling (`drizzle-orm`, `drizzle-orm/sqlite-core`, …). */
+const DRIZZLE_SPECIFIER = /^drizzle-orm(?:\/|$)/
+
+/**
+ * The one allowlist token (method §4). Checked against the RAW source line, not
+ * the comment-stripped one, because it IS a comment.
+ */
+const STORE_BOUNDARY_DECISION_MARKER = /\/\/\s*DECISION POD-\d+/
+
+/** `.prepare(` — a prepared statement is a raw handle by definition. */
+const PREPARE_CALL = /\.\s*prepare\s*\(/
+
+/**
+ * A WHOLE raw statement handed to one of drizzle's four raw-execution methods.
+ *
+ * The discriminator is the ARGUMENT, not the method: `db.all(sql`SELECT …`)`
+ * is a raw statement wearing a builder's clothes, while `.where(sql`…`)` is a
+ * fragment inside a builder query and is explicitly allowed (spec §6 rule 1).
+ * So the pattern requires the `sql` tag to open the argument list.
+ */
+const RAW_EXECUTION_CALL = /\.\s*(all|get|run|values)\s*\(\s*sql\s*`/
+
+/**
+ * Constructs banned INSIDE a `sql` template body. Each belongs to the driver or
+ * to the migrations, and none of the three survives a remote connection as
+ * written: `PRAGMA` is a parse error on Turso for `busy_timeout`,
+ * `journal_mode` and `wal_checkpoint` (measured, POD-3251), `sqlite_master` is
+ * schema introspection the migrations own, and `ATTACH` names a second local
+ * file that does not exist at the other end of a network.
+ */
+const DRIVER_ONLY_SQL = /\b(PRAGMA|sqlite_master|sqlite_schema|ATTACH)\b/i
+
+/** drizzle's own transaction method, on any receiver. */
+const DRIZZLE_TRANSACTION_CALL = /\b[A-Za-z_$][\w$]*\s*\.\s*transaction\s*\(/
+
+/** `sql.raw(` — the one drizzle construct that splices a value in UNBOUND. */
+const SQL_RAW_CALL = /\bsql\s*\.\s*raw\s*\(/
+
+/**
+ * A string literal written down IN FULL and nothing else: a quoted string, or a
+ * template with no `${…}` hole. Anchored at BOTH ends, because the whole point
+ * is that the argument is exhaustively readable — `'a' + b` opens with a
+ * literal and is not one.
+ */
+const SQL_RAW_STRING_LITERAL =
+  /^(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\$]|\\.|\$(?!\{))*`)$/
+
+/** Where drizzle may be imported (spec §6 rule 2). */
+const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
+  'apps/server/src/store/',
+  'apps/server/src/migrations/',
+  'packages/sync/src/adapters/sqlite/',
+]
+
+/**
+ * STAGE A's CONVERSION LEDGER — the repository files that still hold a raw
+ * SQLite handle, one exact path per line, and the whole reason this family can
+ * be armed BEFORE the conversion instead of after it.
+ *
+ * WHY IT EXISTS. Rule 13 is the completeness proof for Stage A (method §2,
+ * first row), and a proof that is only switched on once the work is finished
+ * proves nothing while the work is happening: forty agents convert forty files
+ * in parallel over several waves, and the question each of them has to be able
+ * to answer is "is MY file done", which a rule that runs nowhere cannot answer.
+ * Armed with no ledger it would instead paint `bun run lint:boundaries` — the
+ * BLOCKING CI step (ci.yml) and Phase 0's own exit gate — red for every worker
+ * on the integration branch until the last wave lands.
+ *
+ * WHAT IT IS NOT. It is not an allowlist of VIOLATIONS, and it does not
+ * weaken the "the only allowlist is `// DECISION POD-<n>`" rule (method §4),
+ * which is about SITES. It is the Stage A worklist expressed as code: a file
+ * in it is not yet converted and is checked by rules 14-16 and by rule 13's
+ * `sql`-body clause but not by rule 13's raw-handle clauses; a file out of it
+ * is held to the whole family. Nothing here excuses a construct — it names a
+ * FILE that has not been started.
+ *
+ * WHY IT CANNOT ROT, which is the property that matters. Two checks in
+ * {@link checkStoreBoundaryLedger} make the ledger monotone:
+ *   - a listed file that no longer has a raw-handle violation FAILS. So the
+ *     agent that converts `store/issues.ts` cannot leave its line behind; the
+ *     build tells it to delete the line in the same commit. Slack cannot
+ *     accumulate, which is how the count is trustworthy as a progress measure.
+ *   - a listed file that does not exist FAILS, so a rename cannot silently
+ *     turn an entry into a permanent no-op.
+ * There are no COUNTS here, only paths, precisely so that a partial conversion
+ * cannot be recorded as progress: a file is unconverted until it holds no raw
+ * handle at all.
+ *
+ * STAGE A IS COMPLETE WHEN THIS ARRAY IS EMPTY. That is the gate, it is one
+ * `length === 0`, and it is what {@link checkStoreBoundaryLedger} reports.
+ *
+ * DERIVED, NOT HAND-WRITTEN (2026-09-03, at POD-3252): the initial contents are
+ * exactly the files rule 13 flagged on the branch tip, printed by the rule
+ * itself. A hand-built list would have been a second opinion about which files
+ * are unconverted, and the rule's opinion is the one that gates.
+ */
+export const STAGE_A_UNCONVERTED: readonly string[] = [
+  'apps/server/src/modules/operations/store.ts',
+  'apps/server/src/store/accounts.ts',
+  'apps/server/src/store/approvals.ts',
+  'apps/server/src/store/auth.ts',
+  'apps/server/src/store/automations.ts',
+  'apps/server/src/store/conversations.ts',
+  'apps/server/src/store/conversations/mirror.ts',
+  'apps/server/src/store/conversations/registry.ts',
+  'apps/server/src/store/events.ts',
+  'apps/server/src/store/executor/executor.ts',
+  'apps/server/src/store/grants.ts',
+  'apps/server/src/store/interactions.ts',
+  'apps/server/src/store/issues.ts',
+  'apps/server/src/store/locks.ts',
+  'apps/server/src/store/machines.ts',
+  'apps/server/src/store/maintenance.ts',
+  'apps/server/src/store/messages.ts',
+  'apps/server/src/store/messaging-topics.ts',
+  'apps/server/src/store/notification-facts.ts',
+  'apps/server/src/store/observation-checkpoints.ts',
+  'apps/server/src/store/quota-history.ts',
+  'apps/server/src/store/read-watermarks.ts',
+  'apps/server/src/store/repos.ts',
+  'apps/server/src/store/server-secrets.ts',
+  'apps/server/src/store/sessions.ts',
+  'apps/server/src/store/settings-audit.ts',
+  'apps/server/src/store/settings.ts',
+  'apps/server/src/store/shipping.ts',
+  'apps/server/src/store/superagent.ts',
+  'apps/server/src/store/telegram-bindings.ts',
+  'apps/server/src/store/transcript-costs.ts',
+  'apps/server/src/store/user-layout.ts',
+  'apps/server/src/store/user-preferences.ts',
+  'apps/server/src/store/user-read-position.ts',
+  'apps/server/src/store/users.ts',
+  'apps/server/src/store/workflows.ts',
+  'packages/sync/src/adapters/sqlite/sync-repository.ts',
+  'packages/sync/src/adapters/sqlite/test-support.ts',
+]
+
+const inStoreBoundary = (file: string): boolean =>
+  STORE_BOUNDARY_FILES.has(file) || STORE_BOUNDARY_ROOTS.some((root) => file.startsWith(root))
+
+/**
+ * Lines carrying the one allowlist token. Read off the RAW source, because the
+ * marker IS a comment and {@link stripComments} has already blanked it by the
+ * time a rule looks at a line.
+ */
+function decisionMarkedLines(source: string): ReadonlySet<number> {
+  const marked = new Set<number>()
+  source.split('\n').forEach((line, i) => {
+    if (STORE_BOUNDARY_DECISION_MARKER.test(line)) marked.add(i + 1)
+  })
+  return marked
+}
+
+/**
+ * The bodies of `sql` tagged templates, so that a rule can read what a
+ * statement SAYS rather than only which module it came from — the brief's
+ * "scans template bodies, not only import lines".
+ *
+ * `${…}` holes are dropped rather than kept: an interpolation is a bound
+ * parameter or a column reference, never the `PRAGMA` keyword, and keeping the
+ * text inside them would read a neighbouring identifier as part of the
+ * statement. Nesting is counted so a hole containing its own template (a
+ * fragment built from a fragment, which the epic's batching work produces)
+ * closes at the right brace.
+ */
+/**
+ * The text between `code[open]` (an open paren) and its matching close paren,
+ * or null when the parens do not balance before the end of the file. Brackets
+ * and braces are counted too, so an argument containing `f(x[y(1)])` closes
+ * where a paren-only counter would already have stopped.
+ */
+function balancedArgument(code: string, open: number): string | null {
+  let depth = 0
+  for (let i = open; i < code.length; i++) {
+    const ch = code[i]
+    if (ch === '(' || ch === '[' || ch === '{') depth++
+    else if (ch === ')' || ch === ']' || ch === '}') {
+      depth--
+      if (depth === 0) return code.slice(open + 1, i)
+    }
+  }
+  return null
+}
+
+export function sqlTemplateBodies(source: string): { body: string; line: number }[] {
+  const code = stripComments(source)
+  const bodies: { body: string; line: number }[] = []
+  const opener = /\bsql\s*`/g
+  let m: RegExpExecArray | null = opener.exec(code)
+  while (m !== null) {
+    const start = m.index + m[0].length
+    let i = start
+    let body = ''
+    let closed = false
+    while (i < code.length) {
+      const ch = code[i]
+      if (ch === '\\') {
+        i += 2
+        continue
+      }
+      if (ch === '`') {
+        closed = true
+        break
+      }
+      if (ch === '$' && code[i + 1] === '{') {
+        let depth = 1
+        i += 2
+        while (i < code.length && depth > 0) {
+          if (code[i] === '{') depth++
+          else if (code[i] === '}') depth--
+          i++
+        }
+        body += ' '
+        continue
+      }
+      body += ch
+      i++
+    }
+    // An unterminated template means the scanner lost the thread; reporting the
+    // fragment it did read would be a guess, so it is dropped and the next
+    // opener is searched for after the one that failed.
+    if (closed) bodies.push({ body, line: code.slice(0, m.index).split('\n').length })
+    opener.lastIndex = closed ? i + 1 : m.index + m[0].length
+    m = opener.exec(code)
+  }
+  return bodies
+}
+
+/** Rule 13's raw-handle clauses, WITHOUT the Stage A ledger applied. */
+function rawHandleViolations(file: string, source: string): Violation[] {
+  const violations: Violation[] = []
+  const marked = decisionMarkedLines(source)
+  const lines = stripComments(source).split('\n')
+  const add = (line: number, specifier: string, why: string): void => {
+    if (marked.has(line)) return
+    violations.push({
+      file,
+      specifier,
+      rule: 'store-raw-handle',
+      message: `${file}:${line}: ${why} The repositories run on the executor's query layer, not on a connection: what is banned here is what a remote connection cannot rely on, or what belongs to the driver and the migrations alone (POD-3221 spec §2.7, §6 rules 1-2). If no rule covers this site, convert it literally, mark the line \`// DECISION POD-<n>\` and file the decision issue (method §4).`,
+    })
+  }
+  for (const ref of extractImports(source)) {
+    if (!RUNTIME_SQLITE_SPECIFIER.test(ref.specifier)) continue
+    // Type-only counts. `import type { SqlDatabase }` is a repository still
+    // NAMING the raw handle in its own signature, which is exactly the field
+    // Stage A's exit gate deletes; erasure at build time is not the point.
+    const line = lines.findIndex((l) => l.includes(ref.specifier)) + 1
+    add(line || 1, ref.specifier, `imports '${ref.specifier}' — the raw SQLite handle.`)
+  }
+  lines.forEach((line, i) => {
+    if (PREPARE_CALL.test(line)) {
+      add(i + 1, '.prepare(', 'prepares a statement on a raw connection.')
+    }
+    const rawExec = RAW_EXECUTION_CALL.exec(line)
+    if (rawExec) {
+      add(
+        i + 1,
+        `.${rawExec[1]}(sql\`…\`)`,
+        `hands a WHOLE raw statement to drizzle's \`.${rawExec[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port.`,
+      )
+    }
+  })
+  return violations
+}
+
+/**
+ * Rule 13 — no raw handles, and no driver-only construct in a `sql` body, over
+ * the store directories, the operations store and the sync SQLite adapter.
+ */
+export function checkStoreRawHandles(file: string, source: string): Violation[] {
+  if (!inStoreBoundary(file)) return []
+  if (isTestFile(file)) return []
+  if (SEARCH_INDEX_PORT.has(file)) return []
+  if (RAW_HANDLE_OWNERS.has(file)) return []
+  const violations: Violation[] = []
+  if (!STAGE_A_UNCONVERTED.includes(file)) violations.push(...rawHandleViolations(file, source))
+  // The `sql`-body clause runs even on an UNCONVERTED file. Nothing about
+  // being mid-conversion makes a `PRAGMA` acceptable, and a converted-looking
+  // `sql` template is exactly where one would arrive unnoticed.
+  const marked = decisionMarkedLines(source)
+  for (const { body, line } of sqlTemplateBodies(source)) {
+    const hit = DRIVER_ONLY_SQL.exec(body)
+    if (!hit || marked.has(line)) continue
+    violations.push({
+      file,
+      specifier: hit[1] ?? 'driver-only SQL',
+      rule: 'store-raw-handle',
+      message: `${file}:${line}: the \`sql\` body names '${hit[1]}'. \`PRAGMA\`, \`sqlite_master\` and \`ATTACH\` belong to the driver and the migrations: on Turso \`busy_timeout\`, \`journal_mode\` and \`wal_checkpoint\` are hard SQL parse errors (measured, POD-3251), schema introspection is the migrations' job, and a second database file does not exist at the far end of a network (POD-3221 spec §2.7).`,
+    })
+  }
+  return violations
+}
+
+/**
+ * Rule 14 — drizzle's own `db.transaction` / `tx.transaction` is forbidden.
+ *
+ * The store's `transact` port is the only transaction boundary, because the
+ * boundary is where the epic's guarantees live: the scheduler issues `BEGIN
+ * IMMEDIATE` on bun:sqlite and `client.transaction("write")` on libsql, and a
+ * raw `BEGIN` on Turso executes successfully and is then silently useless —
+ * each `execute()` is its own stream (measured, POD-3251). drizzle's own
+ * transaction takes neither route: its bun-sqlite transaction defaults to
+ * DEFERRED and its libsql transaction relies on a deprecated default (spec §6
+ * rule 7). A caller that reaches it gets no write lane, no busy retry, no
+ * post-commit tail and no savepoint discipline.
+ *
+ * SCOPE: everywhere a drizzle handle can be in scope, which — given rule 15 —
+ * is exactly the store boundary plus any file importing drizzle. That is a
+ * derived closure rather than a name list, and it is what keeps IndexedDB out:
+ * `packages/sync/src/adapters/indexeddb/store.ts` calls
+ * `db.transaction([...ALL_STORES], 'readwrite')`, which is the browser's
+ * IDBDatabase API and has nothing to do with this rule. It is excluded because
+ * it cannot hold a drizzle handle, not because its name was recognised.
+ *
+ * `scripts/` is out, for rules 14, 15 and 16 alike and for the same two
+ * reasons: it is the build tier every other rule in this file already excludes
+ * (see the console-ownership block), and this lint's own fixtures live in
+ * `scripts/check-boundaries.test.ts`. That second reason is not squeamishness —
+ * {@link stripComments} does not strip STRING literals, so a fixture source
+ * held in a template literal reads to {@link extractImports} as a real import,
+ * and a rule that fired on the text of its own test would have to be written
+ * around rather than written.
+ */
+export function checkDrizzleTransaction(file: string, source: string): Violation[] {
+  if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
+  // Cheap first, because this rule's scope is derived from the import list and
+  // {@link extractImports} over every file in apps/ and packages/ is the most
+  // expensive thing in this script. The pre-filter runs on the RAW source, so
+  // it is a strict superset of what the rule can flag — a mention inside a
+  // comment costs one wasted scan and can never cost a miss.
+  if (!DRIZZLE_TRANSACTION_CALL.test(source)) return []
+  const importsDrizzle = extractImports(source).some((ref) => DRIZZLE_SPECIFIER.test(ref.specifier))
+  if (!inStoreBoundary(file) && !importsDrizzle) return []
+  const violations: Violation[] = []
+  const marked = decisionMarkedLines(source)
+  stripComments(source)
+    .split('\n')
+    .forEach((line, i) => {
+      const hit = DRIZZLE_TRANSACTION_CALL.exec(line)
+      if (!hit || marked.has(i + 1)) return
+      violations.push({
+        file,
+        specifier: hit[0].trim(),
+        rule: 'store-transaction-port',
+        message: `${file}:${i + 1}: '${hit[0].trim()}' is drizzle's own transaction. The store's \`transact\` port is the only transaction boundary — it is what issues \`BEGIN IMMEDIATE\` / \`client.transaction("write")\`, applies the bounded busy retry, and runs the post-commit tail; drizzle's own defaults to DEFERRED on bun-sqlite and to a deprecated default on libsql (POD-3221 spec §6 rule 7).`,
+      })
+    })
+  return violations
+}
+
+/**
+ * Rule 15 — drizzle is imported only from the store, the operations store, the
+ * migrations and the sync SQLite adapter (spec §6 rule 2).
+ *
+ * The rule the other three lean on: it is what makes "a drizzle handle can only
+ * exist in persistence" a fact rather than a convention, and therefore what
+ * makes rule 14's derived scope a closure rather than a guess. Repositories
+ * return the domain row types in `store/types.ts`; a module that imports
+ * drizzle to name a row type is a module that has the query layer's types in
+ * its signature.
+ *
+ * `scripts/` IS OUT OF SCOPE, deliberately and not by oversight. It is the
+ * build tier for every other rule in this file (see the console-ownership block
+ * above), `scripts/new-migration.ts` and `scripts/build-drizzle-manifest.ts`
+ * are exactly the tooling that legitimately knows about drizzle, and this
+ * lint's own fixtures live in `scripts/check-boundaries.test.ts` — a rule that
+ * fired on the string in its own test would be self-defeating.
+ */
+export function checkDrizzleImportHome(file: string, source: string): Violation[] {
+  // Superset pre-filter, same reason as rule 14: every specifier this rule can
+  // flag matches /^drizzle-orm(\/|$)/ and so contains this substring.
+  if (!source.includes('drizzle-orm')) return []
+  if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
+  if (STORE_BOUNDARY_FILES.has(file)) return []
+  if (DRIZZLE_IMPORT_ROOTS.some((root) => file.startsWith(root))) return []
+  const violations: Violation[] = []
+  const marked = decisionMarkedLines(source)
+  const lines = stripComments(source).split('\n')
+  for (const ref of extractImports(source)) {
+    if (!DRIZZLE_SPECIFIER.test(ref.specifier)) continue
+    const line = lines.findIndex((l) => l.includes(ref.specifier)) + 1 || 1
+    if (marked.has(line)) continue
+    violations.push({
+      file,
+      specifier: ref.specifier,
+      rule: 'drizzle-import-home',
+      message: `${file}:${line}: imports '${ref.specifier}' outside persistence. drizzle may be imported only from ${DRIZZLE_IMPORT_ROOTS.join(', ')} and apps/server/src/modules/operations/store.ts; everywhere else takes the domain row types in apps/server/src/store/types.ts (POD-3221 spec §6 rule 2).`,
+    })
+  }
+  return violations
+}
+
+/**
+ * Rule 16 — `sql.raw` of a non-literal, outside the SearchIndex port.
+ *
+ * `sql.raw` splices its argument into the statement UNBOUND: it is the one
+ * drizzle construct that can turn a value into SQL. A string literal written in
+ * the source is a decision the author made and a reviewer can read; anything
+ * else — an identifier, a call, a template with a `${…}` hole — is a value
+ * whose provenance the rule cannot see, and "never `sql.raw` of user input"
+ * (spec §6 rule 1) is not a property source text can check one call at a time.
+ * So the rule bans the CAPABILITY rather than trying to trace the argument: if
+ * it is not literally written down, it is refused.
+ *
+ * The SearchIndex port is exempt because dynamic identifiers are what it is
+ * for — an FTS5 column filter and a table name chosen per index.
+ */
+export function checkSqlRawLiteral(file: string, source: string): Violation[] {
+  // Superset pre-filter, same reason as rule 14.
+  if (!SQL_RAW_CALL.test(source)) return []
+  if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
+  if (SEARCH_INDEX_PORT.has(file)) return []
+  const violations: Violation[] = []
+  const marked = decisionMarkedLines(source)
+  const code = stripComments(source)
+  const call = new RegExp(SQL_RAW_CALL.source, 'g')
+  let m: RegExpExecArray | null = call.exec(code)
+  while (m !== null) {
+    const line = code.slice(0, m.index).split('\n').length
+    // The WHOLE argument, not its first token. Checking only the start passes
+    // `sql.raw('a' + b)` — a concatenation that opens with a literal — which is
+    // exactly the defeat this rule exists to refuse, and a fixture pins it.
+    const argument = balancedArgument(code, m.index + m[0].length - 1)
+    if (argument !== null && !SQL_RAW_STRING_LITERAL.test(argument.trim()) && !marked.has(line)) {
+      violations.push({
+        file,
+        specifier: 'sql.raw',
+        rule: 'sql-raw-literal',
+        message: `${file}:${line}: \`sql.raw\` of something other than a string literal written in this file. \`sql.raw\` splices its argument into the statement UNBOUND, so an identifier, a call or a template with a hole is an injection the reviewer cannot rule out by reading the line (POD-3221 spec §6 rule 1). Bind the value as a parameter, or move the statement behind the SearchIndex port.`,
+      })
+    }
+    m = call.exec(code)
+  }
+  return violations
+}
+
+/**
+ * The ledger's own ratchet — what stops {@link STAGE_A_UNCONVERTED} from
+ * rotting into a permanent exemption list.
+ *
+ * Three things are checked, and each answers a way a shrinking list stops
+ * shrinking:
+ *   - SLACK. A listed file with no raw-handle violation left has been
+ *     converted, and its line must go in the same commit. Without this the
+ *     list would only ever be as accurate as somebody remembering to prune it,
+ *     and the count — which is Stage A's progress measure and its exit gate —
+ *     would drift upward of the truth.
+ *   - STALE. A listed file that does not exist is a rename or a deletion that
+ *     turned an entry into a silent no-op.
+ *   - OUT OF SCOPE. A listed file outside the store boundary is exempting
+ *     nothing, because rule 13 never looked at it.
+ *
+ * Deliberately NOT allowlistable and NOT ratcheted itself: these three are
+ * always errors. An entry here is a claim about work not yet done, and a claim
+ * that has stopped being true is worse than no claim at all.
+ */
+export function checkStoreBoundaryLedger(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  for (const file of STAGE_A_UNCONVERTED) {
+    if (!inStoreBoundary(file)) {
+      violations.push({
+        file,
+        specifier: file,
+        rule: 'store-boundary-ledger',
+        message: `${file}: listed in STAGE_A_UNCONVERTED but outside the store boundary (${[...STORE_BOUNDARY_ROOTS, ...STORE_BOUNDARY_FILES].join(', ')}), so it exempts nothing — rule 13 never looked at it. Delete the line.`,
+      })
+      continue
+    }
+    const abs = join(repoRoot, file)
+    if (!existsSync(abs)) {
+      violations.push({
+        file,
+        specifier: file,
+        rule: 'store-boundary-ledger',
+        message: `${file}: listed in STAGE_A_UNCONVERTED but does not exist. A renamed or deleted file leaves an entry that exempts nothing and can never be paid off; delete the line, or list the new path if the file moved.`,
+      })
+      continue
+    }
+    if (rawHandleViolations(file, readFileSync(abs, 'utf8')).length === 0) {
+      violations.push({
+        file,
+        specifier: file,
+        rule: 'store-boundary-ledger',
+        message: `${file}: listed in STAGE_A_UNCONVERTED but holds no raw handle — it is CONVERTED. Delete the line from scripts/check-boundaries.ts in the same commit as the conversion. Stage A is complete when the array is empty (POD-3221 method §5, Phase A exit).`,
+      })
+    }
+  }
+  return violations
+}
+
 /**
  * Check one file against the rules that are NOT the architecture manifest.
  *
@@ -1031,6 +1639,10 @@ export function checkSessionBindingFieldAccess(file: string, source: string): Vi
 export function checkFile(file: string, source: string): Violation[] {
   return [
     ...checkReplicaDirection(file, source),
+    ...checkStoreRawHandles(file, source),
+    ...checkDrizzleTransaction(file, source),
+    ...checkDrizzleImportHome(file, source),
+    ...checkSqlRawLiteral(file, source),
     ...checkSyncKernelPurity(file, source),
     ...checkSessionBindingFieldAccess(file, source),
     ...checkUiStorageOwnership(file, source),
@@ -1483,6 +2095,7 @@ export function runCheck(repoRoot: string): {
     }
   }
   violations.push(...checkDeclaredDeps(repoRoot))
+  violations.push(...checkStoreBoundaryLedger(repoRoot))
   violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
   manifest.push(...checkBrowserGraphAll(repoRoot))
