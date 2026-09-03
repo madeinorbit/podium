@@ -484,6 +484,27 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
 2. **drizzle stays inside persistence.** Imported only from the store, the operations store,
    the migrations and the sync SQLite adapter; repositories return the domain row types in
    `store/types.ts`.
+
+   PLACEMENT DECIDED 2026-09-03 (POD-3248, landed as 5dce237f3). The executor lives in
+   `apps/server/src/store/executor/`, NOT in `packages/runtime`. The executor's drizzle field is
+   the query layer, and this rule keeps drizzle inside persistence; splitting the scheduler out
+   would put half these interfaces outside the directories the 0.10 lint family watches, for no
+   second consumer. `packages/runtime` keeps `SqlDatabase`, imported by exactly one file
+   (`store/executor/bun-driver.ts`), so the lint family has a single line to allow rather than a
+   package boundary to reason about.
+
+   THE INTERFACE SHAPE THAT MATTERS DOWNSTREAM: the query client is built from a ROUTER, one
+   async callback per statement. That is the only shape both drizzle drivers accept — sqlite-proxy
+   takes exactly sql/params/method — and it is what makes ambient routing possible at all. E.5's
+   libsql driver implements the same router. `openReader` is an optional CAPABILITY: a
+   committed-view read from inside an open body needs a second connection, so a driver without one
+   refuses `outsideTransaction` rather than deadlocking.
+
+   THE WAITING RULE, which every caller depends on: `transact`'s promise resolves after COMMIT,
+   after every commit application, and after every durable follow-up including those a follow-up
+   itself registers. It does NOT wait for external effects. A failure in a commit application or a
+   follow-up rejects with `committed: true`, so a caller can never read the rejection as a
+   rollback.
 3. **The schema file is the type source of truth, and brands survive** through `$type`; the
    `Record<string, unknown>` reads, the hand-typed selects and the re-entry casts go.
 4. **`mode: 'json'` is not a drop-in for the quarantine.** drizzle's JSON column throws on a
