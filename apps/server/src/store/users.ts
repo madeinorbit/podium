@@ -17,6 +17,7 @@
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { currentReadScope, readScopeSlot } from './executor/read-scope'
 
 export interface UserAccountRow {
   id: string
@@ -56,28 +57,32 @@ export class UsersRepository {
    * `SELECT * FROM users WHERE id = ?` statements — against a table holding ONE
    * row. The answer was identical 1,221 times.
    *
-   * An account cannot change inside a frame that never yields, so within one
-   * synchronous turn the second read is the first read's answer.
-   * `queueMicrotask` is the invalidation because a microtask cannot run inside a
-   * synchronous frame: the cache lives exactly as long as the turn that filled
-   * it, and the first `await` anywhere re-reads.
+   * An account cannot change inside a read scope, so the second read inside one
+   * is the first read's answer.
    *
-   * `create` is the table's ONLY writer in product code — there is no UPDATE or
-   * DELETE against `users` anywhere — and it drops the cache, so an account
-   * minted mid-frame is visible to the read after it. A caller still gets its
-   * own object per call: `undefined` is cached as an answer too, because
-   * "no account" is the verdict every caller acts on.
+   * WHAT CHANGED [POD-3261]. The lifetime used to be a `queueMicrotask` — sound
+   * only because a microtask cannot run inside a synchronous turn, which is to
+   * say sound only while the store is synchronous, and dropped by the first
+   * `await` anywhere in the fan-out this exists for. It is a {@link ReadScope}
+   * slot now: a pass opens a scope around itself and the cache lives for the
+   * scope, which becomes a real read lease at the flip. The microtask turn
+   * survives only as the scope's fallback owner, in `read-scope.ts`.
+   *
+   * THE ACCOUNT READ IS AN AUTHORIZATION INPUT, and reading it through a slot
+   * is the PER-PASS form of spec rule 18's open question. It is legitimate here
+   * for a reason that does not extend to grants: `create` is the table's ONLY
+   * writer in product code — there is no UPDATE or DELETE against `users`
+   * anywhere — and it drops the cache, so the only mutation that exists is one
+   * this cache already honours. A caller still gets its own object per call;
+   * `undefined` is cached as an answer too, because "no account" is the verdict
+   * every caller acts on.
    */
-  private frameAccounts: Map<string, UserAccountRow | undefined> | undefined
+  private readonly accountsSlot = readScopeSlot(
+    () => new Map<string, UserAccountRow | undefined>(),
+  )
 
   private frameCache(): Map<string, UserAccountRow | undefined> {
-    if (this.frameAccounts) return this.frameAccounts
-    const opened = new Map<string, UserAccountRow | undefined>()
-    this.frameAccounts = opened
-    queueMicrotask(() => {
-      if (this.frameAccounts === opened) this.frameAccounts = undefined
-    })
-    return opened
+    return currentReadScope().slot(this.accountsSlot)
   }
 
   /**
@@ -159,9 +164,9 @@ export class UsersRepository {
   }
 
   create(account: UserAccountRow, passwordHash: string): void {
-    // The table's only writer drops the frame cache, so the read after a mint
-    // sees the account rather than the "no account" this frame had cached.
-    this.frameAccounts = undefined
+    // The table's only writer drops the scope's cache, so the read after a mint
+    // sees the account rather than the "no account" this scope had cached.
+    currentReadScope().clear(this.accountsSlot)
     try {
       transaction(this.db, () => {
         this.db
@@ -179,7 +184,7 @@ export class UsersRepository {
       // And again on the way out — in a `finally`, because the case that needs
       // it is the ROLLBACK. A read taken inside the transaction would otherwise
       // outlive it and hold an account that does not exist.
-      this.frameAccounts = undefined
+      currentReadScope().clear(this.accountsSlot)
     }
   }
 

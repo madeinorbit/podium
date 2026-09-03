@@ -105,8 +105,11 @@ import {
   DEFAULT_RESCOPE_THRESHOLD,
   type ScopedBootstrap,
   type ScopedDelivery,
+  type PreparedBatch,
+  prepareBatch,
   scopeBatch,
   scopeBootstrap,
+  type ScopingDeps,
 } from './scoping'
 
 /** Both hosts, one namespace — see the note on `sync:ledger`. */
@@ -407,17 +410,25 @@ export class Authority implements AuthorityPort {
     principal: Principal,
     changes: readonly SequencedChange[],
     throughSeq: number,
+    prepared?: PreparedBatch,
   ): ScopedDelivery {
     return scopeBatch(
-      {
-        policy: this.deps.visibility,
-        anchors: this.deps.anchors,
-        rescopeThreshold: this.deps.rescopeThreshold ?? DEFAULT_RESCOPE_THRESHOLD,
-      },
+      this.scopingDeps(),
       principal,
       changes,
       throughSeq,
+      // Absent — `watermark` and the single-principal paths — `scopeBatch`
+      // prepares its own for this one principal.
+      prepared,
     )
+  }
+
+  private scopingDeps(): ScopingDeps {
+    return {
+      policy: this.deps.visibility,
+      anchors: this.deps.anchors,
+      rescopeThreshold: this.deps.rescopeThreshold ?? DEFAULT_RESCOPE_THRESHOLD,
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -567,11 +578,27 @@ export class Authority implements AuthorityPort {
         // is the invisible permanent gap arriving through the ordering door
         // rather than the visibility one.
         const throughSeq = batch[batch.length - 1]?.seq ?? 0
+        // THE PRINCIPAL-INDEPENDENT HALF, ONCE PER BATCH [POD-3261]. Every
+        // subscriber's slice reads the same rows through the same policy, so
+        // without this the store answers the same questions N times — N round
+        // trips on a remote database, per subscriber, per batch.
+        //
+        // IT IS ALSO A STATEMENT ABOUT WHEN. The edge lookups and the prefetched
+        // rows are now read at ONE moment, before the loop, rather than
+        // re-read between principals. That is the same claim this loop already
+        // makes one line up: `throughSeq` is captured before any subscriber can
+        // commit again, precisely so the batch is certified at one position.
+        // Evaluating its visibility at a position the certified range does not
+        // match is the inconsistency, not the fix for it. Spec §3.5 rules on it
+        // directly — phase 3 reads rights under the writer's lease at the
+        // committed head — which is why this is not spec rule 18's forbidden
+        // batch.
+        const prepared = prepareBatch(this.scopingDeps(), batch)
         for (const subscription of this.subscribers) {
           try {
             // Evaluated PER SUBSCRIBER, inside the one ordered drain: N
             // principals see N slices of one batch, and never two orders of it.
-            subscription.deliver(this.scope(subscription.principal, batch, throughSeq))
+            subscription.deliver(this.scope(subscription.principal, batch, throughSeq, prepared))
           } catch (err) {
             log.error('change subscriber threw', { throughSeq, err })
           }

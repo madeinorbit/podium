@@ -234,6 +234,25 @@ export interface VisibilityStatePort {
    * batching seam, not a long-lived authorization cache.
    */
   forBootstrap?(refs: readonly EntityRef[]): VisibilityStatePort
+  /**
+   * The same seam for ONE APPENDED BATCH, evaluated across every subscribed
+   * principal [POD-3261].
+   *
+   * Identical contract to {@link forBootstrap} — memoise the named refs, stay
+   * live outside them — and a separate method rather than a shared one because
+   * the two passes have different lifetimes and the names are what say so at
+   * every call site. A bootstrap prepares a whole world for one principal; a
+   * batch prepares a handful of rows for N principals, so the prepared port is
+   * built ONCE per batch and reused across the subscriber loop.
+   *
+   * WHY THIS IS NOT SPEC RULE 18's FORBIDDEN BATCH. The rule bans a batch that
+   * changes WHEN an authorization input is read. Spec §3.5 settles when, for
+   * this pass specifically: "live means read under the lease that applies or
+   * publishes the decision", and phase 3 publishes under the writer's lease at
+   * the committed head. One read per batch under that lease IS the live read;
+   * one read per row was one live read too many, not a stricter guarantee.
+   */
+  forBatch?(refs: readonly EntityRef[]): VisibilityStatePort
 }
 
 /**
@@ -309,6 +328,15 @@ export interface FeedVisibilityPolicy {
    * the fallback for live deltas and refs outside the prepared set.
    */
   forBootstrap?(refs: readonly EntityRef[]): FeedVisibilityPolicy
+  /**
+   * The same, for one appended batch [POD-3261]. See
+   * {@link VisibilityStatePort.forBatch} for why a batch gets its own method
+   * and why one read per batch is the live read rather than a weakening of it.
+   *
+   * The returned policy is used for EVERY principal in the batch, so an
+   * implementation must not close over a principal.
+   */
+  forBatch?(refs: readonly EntityRef[]): FeedVisibilityPolicy
 }
 
 /**
@@ -357,7 +385,22 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
   ) {}
 
   forBootstrap(refs: readonly EntityRef[]): FeedVisibilityPolicy {
-    const prepared = this.state.forBootstrap?.(refs)
+    return this.over(this.state.forBootstrap?.(refs))
+  }
+
+  forBatch(refs: readonly EntityRef[]): FeedVisibilityPolicy {
+    return this.over(this.state.forBatch?.(refs))
+  }
+
+  /**
+   * The prepared policy, or this one when the port declined to prepare.
+   *
+   * The DELEGATION port is carried across unchanged and is deliberately NOT
+   * part of what a prepared port may memoise: ADR 9 A1's ceiling is resolved
+   * live on every call (see {@link underDelegation}), and handing a batching
+   * seam the chance to hold one is how an agent keeps its reach past a revoke.
+   */
+  private over(prepared: VisibilityStatePort | undefined): FeedVisibilityPolicy {
     return prepared === undefined || prepared === this.state
       ? this
       : new GrantEdgeVisibilityPolicy(prepared, this.delegations)

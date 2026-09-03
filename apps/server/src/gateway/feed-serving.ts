@@ -124,6 +124,7 @@ import type {
 } from '@podium/sync'
 import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
+import { withReadScope } from '../store/executor/read-scope'
 import { perf } from '../modules/perf/registry'
 import { traceFeedPeer } from './feed-peer-trace'
 import {
@@ -279,18 +280,39 @@ export class FeedServing {
     cause: BootstrapCause,
     resumeFrom: FeedCursorField | undefined,
   ): void {
-    if (resumeFrom === undefined) {
-      this.serveWorld(peer, principal, routingPrincipal, cause)
-      return
-    }
-    if (!this.canResume(peer, resumeFrom)) {
-      // NAMED, so the traces can tell a client that could not be resumed from one
-      // that never asked. A rising `cursor-rejected` rate is a retention or epoch
-      // problem; a rising `hello` rate is just cold clients.
-      this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
-      return
-    }
-    this.serveResume(peer, principal, routingPrincipal, resumeFrom)
+    // ONE READ SCOPE OVER THE WHOLE ADMISSION [POD-3261, spec §3.5].
+    //
+    // Admission is a read followed by a registration that CLAIMS the position
+    // that read was taken at: the world (or the resumability of the cursor the
+    // client brought), then `publisher.connect`/`rearm` and `retainPrincipal`.
+    // The two are one decision, and today they are indivisible only because
+    // nothing between them yields. After the flip they are not: a commit landing
+    // in the gap would leave the connection framed from a seq that is no longer
+    // the position the rows it was just sent describe — a contiguity break the
+    // replica can only answer by healing, forever.
+    //
+    // So the scope goes around the whole thing rather than around the read. It
+    // also takes in `canResume`, whose `authority.cursor()` and
+    // `retention.minAvailableSeq()` are inputs to the same decision: a cursor
+    // judged resumable against one head and then framed against another is the
+    // same defect wearing the resume path's clothes.
+    //
+    // `worldFor` reads the authorization revision inside this scope for the same
+    // reason — it is the other half of what the cached world is validated on.
+    withReadScope(() => {
+      if (resumeFrom === undefined) {
+        this.serveWorld(peer, principal, routingPrincipal, cause)
+        return
+      }
+      if (!this.canResume(peer, resumeFrom)) {
+        // NAMED, so the traces can tell a client that could not be resumed from one
+        // that never asked. A rising `cursor-rejected` rate is a retention or epoch
+        // problem; a rising `hello` rate is just cold clients.
+        this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
+        return
+      }
+      this.serveResume(peer, principal, routingPrincipal, resumeFrom)
+    })
   }
 
   /**
@@ -628,7 +650,13 @@ export class FeedServing {
     // — the one its v1 world was served at — and the thing that is wrong with it
     // is the dialect, not the seq. Honouring a cursor here would move a
     // connection's position for a reason that has nothing to do with where it is.
-    this.serveWorld(peer, principal, routingPrincipal, 'version-change')
+    //
+    // The SECOND admission site, and it takes the same scope as {@link admit}
+    // for the same reason: this one also reads a world and then installs the
+    // position it was read at.
+    withReadScope(() => {
+      this.serveWorld(peer, principal, routingPrincipal, 'version-change')
+    })
     return null
   }
 
@@ -652,14 +680,29 @@ export class FeedServing {
     queueMicrotask(() => this.flushPending())
   }
 
-  /** Flush every principal independently, preserving certified range order. */
+  /**
+   * Flush every principal independently, preserving certified range order.
+   *
+   * THE PUBLISH FLUSH IS A FAN-OUT PASS, AND IT GETS ONE READ SCOPE [POD-3261,
+   * spec §3.6]. It is O(principals x deliveries), and every delivery resolves
+   * rows — the owning issue of every session it admits, the account behind every
+   * principal — which is the pass POD-1931 measured at 5,163 `getIssue` calls
+   * and 13 s of CPU in a single frame. Those repeat reads are answered from the
+   * caches in `store/issues.ts` and `store/users.ts`, and the scope is what
+   * those caches now live in: today it is one synchronous turn either way, and
+   * after the flip it is the only thing that keeps them alive at all.
+   */
   flushPending(): void {
     this.flushScheduled = false
     const pending = [...this.pendingByPrincipal.values()]
     this.pendingByPrincipal.clear()
-    for (const { principal, deliveries } of pending) {
-      for (const delivery of coalesceScopedDeliveries(deliveries)) this.publish(principal, delivery)
-    }
+    withReadScope(() => {
+      for (const { principal, deliveries } of pending) {
+        for (const delivery of coalesceScopedDeliveries(deliveries)) {
+          this.publish(principal, delivery)
+        }
+      }
+    })
   }
 
   /**

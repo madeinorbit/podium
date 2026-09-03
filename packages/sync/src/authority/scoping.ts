@@ -99,6 +99,56 @@ export interface ScopingDeps {
 export const DEFAULT_RESCOPE_THRESHOLD = 32
 
 /**
+ * ONE BATCH, EVALUATED ONCE, BEFORE ANY PRINCIPAL IS CONSIDERED [POD-3261].
+ *
+ * Two things in {@link scopeBatch} do not depend on the principal, and both were
+ * being redone per principal:
+ *
+ *   THE VISIBILITY EDGE. `anchors.visibilityEdge(change)` answers "did this row
+ *   move anyone's visibility", and its answer — an audience and a subject list —
+ *   is a property of the row and the tables, not of who is asking. The
+ *   per-principal test is the `audience.includes(human)` line below, which is
+ *   free once the edge is in hand.
+ *
+ *   THE PREFETCH. Every principal asks `decide` about the same refs, so the rows
+ *   those decisions read are the same rows N times over. On a remote database
+ *   each of those reads is a round trip, which is what makes this worth a
+ *   separate pass rather than a memo.
+ *
+ * The subject refs are included in the prefetch, not just the changes: an
+ * anchored row's `decide` and `currentValueOf` reach rows the batch never
+ * mentions, and a prefetch that stopped at the changes would leave exactly the
+ * grant-driven fan-out unbatched.
+ *
+ * WHAT A CALLER MUST KNOW BEFORE SHARING ONE. A prepared batch is a set of
+ * answers read at ONE moment. Sharing it across principals is correct only where
+ * every principal's slice is meant to be judged against one state — which is
+ * what the ordered drain in `authority.ts` already guarantees for a batch, by
+ * capturing `throughSeq` before any subscriber can commit again. A caller that
+ * cannot make that claim passes nothing and {@link scopeBatch} prepares its own.
+ */
+export interface PreparedBatch {
+  /** The policy the whole batch is decided through: prefetched where the port
+   *  can prefetch, the ordinary policy where it cannot. */
+  readonly policy: FeedVisibilityPolicy
+  /** `visibilityEdge` per change, positionally. `null` is the common answer. */
+  readonly edges: readonly (ReturnType<VisibilityAnchorPort['visibilityEdge']>)[]
+}
+
+export function prepareBatch(
+  deps: Pick<ScopingDeps, 'policy' | 'anchors'>,
+  changes: readonly SequencedChange[],
+): PreparedBatch {
+  const edges = changes.map((change) => deps.anchors.visibilityEdge(change))
+  const refs: EntityRef[] = changes.map(({ entity, entityId }) => ({ entity, entityId }))
+  for (const edge of edges) {
+    if (edge === null) continue
+    for (const subject of edge.subjects) refs.push(subject)
+  }
+  return { policy: deps.policy.forBatch?.(refs) ?? deps.policy, edges }
+}
+
+/**
  * Evaluate one appended batch for one principal.
  *
  * `throughSeq` is the head of the range the AUTHORITY evaluated, not the last
@@ -106,32 +156,40 @@ export const DEFAULT_RESCOPE_THRESHOLD = 32
  * data would certify a range that ends where the visible data ends, silently
  * skipping every seq that was evaluated and suppressed — the invisible permanent
  * gap, arriving through the exact door D13 was written to close.
+ *
+ * `prepared` is the batch's principal-independent half, shared across the
+ * subscriber loop by the caller that owns the loop. Absent, it is computed here
+ * for this one principal — same answers, one principal's worth of batching.
  */
 export function scopeBatch(
   deps: ScopingDeps,
   principal: Principal,
   changes: readonly SequencedChange[],
   throughSeq: number,
+  prepared: PreparedBatch = prepareBatch(deps, changes),
 ): ScopedDelivery {
   const visible: ScopedChange[] = []
   const anchored: ScopedChange[] = []
   const human = humanOf(principal)
+  // Every decision in this pass — the ordinary rows and the anchored ones — goes
+  // through the prepared policy, or the two halves would answer from two states.
+  const scoped: ScopingDeps = { ...deps, policy: prepared.policy }
 
-  for (const change of changes) {
+  for (const [index, change] of changes.entries()) {
     // 1. The ordinary path: is this row in this principal's slice right now?
-    if (deps.policy.decide(principal, change).visible) visible.push(change)
+    if (scoped.policy.decide(principal, change).visible) visible.push(change)
 
     // 2. D14.3: did this row MOVE anyone's visibility? Asked of the port that
     //    owns the tables, never inferred from the payload — a payload-shaped
     //    check would classify by content, and content is exactly what a caller
     //    controls.
-    const edge = deps.anchors.visibilityEdge(change)
+    const edge = prepared.edges[index] ?? null
     if (edge === null) continue
     // A principal with no human (machine/system) is in nobody's audience by
     // construction — `audience` names HUMANS whose view moved (D14.3).
     if (human === null || !edge.audience.includes(human)) continue
     for (const subject of edge.subjects) {
-      anchored.push(anchorFor(deps, principal, subject, change.seq))
+      anchored.push(anchorFor(scoped, principal, subject, change.seq))
     }
   }
 
