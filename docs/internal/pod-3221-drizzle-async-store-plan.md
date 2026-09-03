@@ -14,7 +14,7 @@ different costs:
 |---|---|---|
 | A. Drizzle query builder over the existing sync `bun:sqlite` connection | Typed queries from the schema we already maintain, one truth for column names/types, a query logger, fewer hand-written row mappers | ~530 `prepare()` sites in 45 repository files. Local to the store. |
 | B. Async repositories with an explicit executor (`db` or `tx`) | Driver independence *within the SQLite dialect*: `Bun.SQL`, libsql remote (Turso), Cloudflare D1/DO-SQLite | The whole server domain: ~620 repository methods, ~750 synchronous service methods, the sync kernel's Ledger/Authority ports, boot, 107 test files |
-| B′. Backend enablement | A second backend can boot, migrate, search, back up, shut down and serve the external clients | Ports for open/migrate, search, durability, transfer and the operator clients; per-backend acceptance |
+| B′. Backend enablement (revision 12: the hosted Turso backend, inside this issue's definition of done) | The hosted server runs on a Turso database through the libsql remote client with the same store code | The libsql driver implementation of the executor, open and migrate over the remote connection, the durability port the platform leaves empty, the operator paths as server clients, the tenant import, per-backend acceptance |
 | C. Postgres dialect | A Postgres backend, in a tenant topology still to be decided (database or schema per tenant, or shared tables with a tenant key everywhere) | A second schema (88 tables), a second migration journal, FTS port, a data-copy tool, a transactional feed-head allocator, and the durability subsystem, which is file-level today |
 
 A and B are worth doing and can be sequenced so that B is a decision gate rather than a
@@ -420,8 +420,11 @@ size-one queue is the community's answer and this plan's.
      every column not named in the statement to its default, which an `onConflictDoUpdate`
      naming only some columns would not. The per-site check is therefore "does the statement
      name every column"; `grants.ts:199` and `auth.ts:70` name all of theirs;
-   - `rowid`: **classify each use, then an additive ordinal column, never a primary-key
-     change** (rev 9 Codex finding 11; rev 10.1 Fable layers F2). Every affected table already
+   - `rowid`: **superseded by decision 5 (revision 12): rowid ordering is valid on both
+     drivers and stays; no ordinal column is added.** The classification below is kept as the
+     record of what a Postgres path would have required.
+     Classify each use, then an additive ordinal column, never a primary-key
+     change (rev 9 Codex finding 11; rev 10.1 Fable layers F2). Every affected table already
      has a primary key, and an `INTEGER PRIMARY KEY` is only the rowid under another name, so
      the rev 9 surrogate-key rebuild of `sessions`, `issues` and `messages` would have rebuilt
      the parents of most of the schema's 41 `onDelete` edges inside the foreign-keys-off window
@@ -927,8 +930,25 @@ Stage B′.
 3. **Two requirements govern every step.** Podium as it exists keeps running exactly as it does
    today on SQLite, and the server is ready for Postgres at the end. Section 6 turns both into
    checkable criteria.
-4. Still open, not blocking: self-hosted Turso as remote-only (pure JS) or embedded replica
-   (native addon beside the binary). Nothing in A or B depends on the answer.
+4. Resolved by decision 5: Turso is used remote-only, through the pure-JavaScript libsql web
+   client; no embedded replica and no native addon in the binary.
+5. **Engine and drivers, decided 2026-09-03 (revision 12).** SQLite dialect everywhere.
+   bun:sqlite for self-hosted installs and the desktop sidecar, exactly as today. Hosted Turso
+   for the server, through the libsql remote client (hrana over HTTP or WebSocket), so the
+   platform owns replication, backup and point-in-time restore. Postgres is not pursued; the
+   Postgres material in Stage C and section 8 stays as the recorded fallback, and if a second
+   dialect is ever needed the Kysely path is the one to take. Consequences: drizzle's SQLite
+   tables serve both drivers, so drizzle stays the query layer with two drivers
+   (`drizzle-orm/bun-sqlite`, `drizzle-orm/libsql`); no schema twin, no second journal, no
+   ordinal migrations (rowid ordering is valid on both drivers); the section 1.7 constructs
+   that both drivers accept are no longer removed for portability, only `PRAGMA`, schema
+   introspection and file-level operations leave the repositories because a remote
+   connection cannot rely on them; the file-level durability subsystem goes behind a port
+   the Turso backend leaves empty; the executor takes a driver interface with two
+   implementations, and the risk of the epic moves from schema duplication to network
+   latency, which makes batching, prefetch, read scope, the watchdog and the side-effect
+   rules the core of Stage B rather than its hygiene. The issue tree was reworked to this
+   path on the same day (execution method section 8).
 
 ## 6. Definition of done
 
@@ -1013,16 +1033,14 @@ Checkable at the end of Stage B, and the acceptance for this issue's tree:
   second export, not a rewrite.
 - The one-time boot upgrades and `PRAGMA table_info` probes are retired, not ported.
 - Sequence numbers in the sync repository come from `RETURNING`, never from rowid arithmetic.
-- **The proof for this issue is the dual-backend vertical slice of step 3b** (rev 11, finding
-  1): locks, one aggregate with joins and JSON, the sync append with feed-head allocation, boot
-  and shutdown, running on real SQLite and real Postgres through the same executor interface,
-  with the dialect-query strategy and the schema-twin technique chosen from that measured code.
-  That is what "prepared for Postgres" means here. "Postgres-ready" in the B′ sense (a backend
-  that boots a fresh database, upgrades and reopens one, runs the full store and service suites,
-  shuts down cleanly, passes the tenant-isolation test for the chosen topology, the gap-free feed
-  test with two independent pools, and a fenced cutover from SQLite) is the acceptance of the
-  later Postgres epic, and it runs unconditionally there, not on the assumption that deploys
-  never overlap.
+- **The proof for this issue is the Turso backend running end to end** (revision 12, replacing
+  the Postgres vertical slice of rev 11): the hosted server boots a fresh Turso database,
+  upgrades and reopens an imported one, runs the full store and service suites against the
+  local Turso server in CI and once against a real Turso database, shuts down cleanly with a
+  parked transaction, survives network loss mid-transaction, and stays within the round-trip
+  budget set by the spike. The sync-append proof (issue 0.8) and the remote spike (issue 0.9)
+  are its early evidence. The Postgres material below is kept as the recorded fallback and is
+  not part of this issue's definition of done.
 
 ## 7. Working rules for the conversion
 

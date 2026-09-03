@@ -233,9 +233,18 @@ repositories and the flip.
 
 ## 7. Which parts depend on the engine decision
 
-Two scenarios are open: **B**, Postgres in the cloud and SQLite self-hosted (the spec as written),
-and **A**, Postgres everywhere, with PGlite embedded for desktop and starter installs and real
-Postgres for scale. This section says what stays, what changes, and what can start now.
+**Decided 2026-09-03: SQLite dialect everywhere, bun:sqlite locally, hosted Turso remotely**
+(spec section 5 decision 5). The analysis below is kept as the record of why the twenty
+engine-independent items could be filed before the decision. Under the decision: no schema
+twin, no second journal, no ordinal migrations; the lint's construct list shrinks to what a
+remote connection cannot rely on; the PGlite spike became the Turso remote spike; the Postgres
+allocator slice became the Turso sync-append proof; the durability subsystem goes behind a port
+the Turso backend leaves empty; the cutover is a platform import; backend enablement is the
+Turso version and is inside the epic's definition of done.
+
+Two scenarios were open: **B**, Postgres in the cloud and SQLite self-hosted (the spec as
+written), and **A**, Postgres everywhere, with PGlite embedded for desktop and starter installs
+and real Postgres for scale. This section says what stays, what changes, and what can start now.
 
 ### 7.1 The query layer is the same choice in both scenarios
 
@@ -295,7 +304,7 @@ Prefix gives the order; edges in the tracker give the real dependencies (`podium
 
 | Prefix | Issue | Depends on |
 |---|---|---|
-| 0.0 | POD-3242 Query layer decision | none |
+| 0.0 | POD-3242 Query layer confirmation (drizzle, two drivers) | none |
 | 0.1 | POD-3243 Hot-path measurement baseline | none |
 | 0.2 | POD-3244 Store coverage census | none |
 | 0.3 | POD-3245 Corrupt-blob oracle test | none |
@@ -303,12 +312,12 @@ Prefix gives the order; edges in the tracker give the real dependencies (`podium
 | 0.5 | POD-3247 Repos cache invalidation seam | none |
 | 0.6 | POD-3248 Executor prototype and harness | none |
 | 0.7 | POD-3249 Sync adapter table injection | 0.0 |
-| 0.8 | POD-3250 Postgres feed-head allocator slice | 0.6 |
-| 0.9 | POD-3251 PGlite engine spike | none |
+| 0.8 | POD-3250 Turso sync-append proof | 0.6 |
+| 0.9 | POD-3251 Turso remote spike | none |
 | 0.10 | POD-3252 Store boundary lint family | 0.0 |
 | 0.11 | POD-3253 Issues writer-guard replacement | 0.0 |
 | 0.12 | POD-3254 Shared schema and constructor edits | 0.3, 0.6 |
-| A | POD-3255 Repository conversion waves (placeholder) | 0.0, 0.4, 0.5, 0.10, 0.11, 0.12; related E.2 |
+| A | POD-3255 Repository conversion waves (placeholder) | 0.0, 0.4, 0.5, 0.10, 0.11, 0.12 |
 | B0.1 | POD-3256 Hidden store reads | 0.6 |
 | B0.2 | POD-3257 Array-callback batched reads | none |
 | B0.3 | POD-3258 Timer single-flight guards | none |
@@ -321,11 +330,12 @@ Prefix gives the order; edges in the tracker give the real dependencies (`podium
 | B2.2 | POD-3265 Transaction watchdog | B1 |
 | B2.3 | POD-3266 ADR amendments | B1 |
 | B2.4 | POD-3267 Transitional instrument deletion | B1, B2.1 |
-| E.1 | POD-3268 Engine decision (placeholder) | 0.9 |
-| E.2 | POD-3269 Schema form and journal (placeholder) | E.1 |
-| E.3 | POD-3270 Durability on chosen engine (placeholder) | E.1, B1 |
-| E.4 | POD-3271 Install cutover tool (placeholder) | E.1, E.2 |
-| E.5 | POD-3272 Backend enablement (placeholder) | E.1, B1, E.3 |
+| E.1 | POD-3268 Engine decision record | closed 2026-09-03: decision taken |
+| E.2 | POD-3269 Schema form and journal | archived 2026-09-03: not needed under one dialect |
+| E.3 | POD-3270 Durability port for Turso | B1 |
+| E.4 | POD-3271 Turso database import | E.5 |
+| E.5 | POD-3272 Turso backend enablement | B1, 0.9, E.3 |
 
-Ready at filing time: 0.0 to 0.6, 0.9, B0.2, B0.3. Placeholders (A, E.1 to E.5) are not to be
-decomposed or started until their gating decision is taken.
+Ready at filing time: 0.0 to 0.6, 0.9, B0.2, B0.3. The only remaining placeholder is A, filled
+after 0.0 and its Phase 0 prerequisites are green. E.3 to E.5 are real issues on the Turso path
+and inside the epic's definition of done.
