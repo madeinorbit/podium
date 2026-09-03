@@ -108,16 +108,18 @@ next phase is ready until the checkpoint closes.
    ambient routing, the three post-commit mechanisms with synchronous implementations, the
    executor object, the interleaving harness and the model tests; a driver interface with the
    remote driver in mind (0.6).
-4. The query-layer confirmation with its three driver checks (0.0); the sync-adapter table
-   injection (0.7); the lint family with fixtures (0.10); the writer-guard replacement (0.11);
+4. The sync-adapter table injection (0.7); the lint family with fixtures (0.10); the
+   writer-guard replacement (0.11);
    the shared edits, once, by the coordinator: the 34 constructor lines take the executor, the
    column modes and JSON decisions recorded in the schema, no migration (0.12); attribution at
    the execution seam with the probes moved and the baseline re-captured (0.13).
 5. In parallel, gated by the human's Turso access (H): the Turso remote spike (0.9) and the
    sync-append proof on Turso (0.8).
 
-Exit: items 0.6 and 0.0 written into the spec as rules (human gate at R1); everything else
-landed; `bun run lint:boundaries` green.
+Exit: the interfaces built by 0.6 and the numbers from 0.8 and 0.9 recorded in the spec by the
+coordinator at R1 (human gate); everything else landed; `bun run lint:boundaries` green. No
+worker issue writes a spec; workers report in their handoff and the coordinator records at the
+checkpoint.
 
 **Checkpoint R1** reviews the subtree, the measurements and the spike numbers, decomposes the
 Phase A placeholder into wave issues, and confirms the wave plan with the human.
@@ -239,7 +241,7 @@ Prefix gives the order; edges in the tracker give the real dependencies
 | Prefix | Issue | Depends on |
 |---|---|---|
 | H | POD-3289 Turso platform access (human) | none |
-| 0.0 | POD-3242 Query layer confirmation (coordinator) | none |
+| 0.0 | POD-3242 Query layer confirmation | closed 2026-09-03: drizzle with two drivers; driver facts in spec §3.7; typecheck cost measured by the first wave |
 | 0.1 | POD-3243 Hot-path measurement baseline | none |
 | 0.2 | POD-3244 Store coverage census | none |
 | 0.3 | POD-3245 Corrupt-blob oracle test | none |

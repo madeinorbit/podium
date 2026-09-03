@@ -340,6 +340,32 @@ that does not exist and are corrected).
 
 ### 3.7 The two drivers and the Turso backend
 
+**Driver facts settled by the query-layer confirmation (issue 0.0, 2026-09-03).**
+
+- The libsql client's transaction modes map to SQL as `write` = `BEGIN IMMEDIATE`, `read` =
+  `BEGIN TRANSACTION READONLY`, `deferred` = `BEGIN DEFERRED` (`@libsql/core/util`
+  `transactionModeToBegin`). drizzle's libsql driver calls `client.transaction()` with no mode
+  and relies on the client's default of `write`, which the client marks deprecated and will
+  remove. So the scheduler's libsql implementation calls `client.transaction("write")`
+  explicitly and never relies on drizzle's own transaction method, which the lint forbids
+  anyway. Write-lock-first semantics are therefore identical on both drivers.
+- Remote interactive transactions lock the database for writing until committed or rolled back,
+  **with a 5-second server-side timeout** (Turso client reference). That is a hard budget for any
+  write transaction on the Turso backend: the watchdog budget there is below it, no body may await
+  anything but the database, and the sync-append proof measures how many round trips fit. A
+  batch (`client.batch`) runs its statements in one implicit server-side transaction with a
+  full rollback on failure and is the preferred form for multi-statement writes that need no
+  read-decide-write.
+- A client performs up to 20 concurrent requests by default; the read lane's concurrency on
+  Turso is bounded by that and by what the spike measures.
+- Savepoints are ordinary statements inside the open transaction; the spike confirms nesting
+  over hrana. The error shape a concurrent writer receives, and behaviour on network loss
+  mid-transaction, are not documented and are measured by the spike (issue 0.9, gate 3).
+- Only the `/web` entry of `@libsql/client` is pure JavaScript; the default entry loads the
+  native `libsql` package and must not be imported anywhere.
+- Typecheck cost of drizzle's generics on `apps/server` is measured on real code by the first
+  conversion wave, scoped and with concurrency 1, and recorded at checkpoint R2.
+
 The executor takes a driver interface. bun:sqlite: synchronous, in-process, the queue owns the
 connection, attribution wraps the raw client's `query` and `prepare` (forwarding `exec`,
 `transaction`, `serialize`, `values`) and registers with `aliasBunSqliteClient` so the migrator
@@ -442,8 +468,10 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    `unknown` goes; a mapper line that is a decision (`requireUserId` failing closed, the
    `LockSessionKey` union, the legacy machine-id refusal) stays with its comment.
 7. **Transaction semantics are preserved exactly, including the immediate mode.** drizzle's
-   bun-sqlite transaction defaults to deferred and is never used; boundaries, ordering and
-   `ON CONFLICT` targets are reviewed per statement.
+   bun-sqlite transaction defaults to deferred and its libsql transaction relies on a deprecated
+   default; neither is used. The scheduler issues `BEGIN IMMEDIATE` on bun:sqlite and
+   `client.transaction("write")` on libsql. Boundaries, ordering and `ON CONFLICT` targets are
+   reviewed per statement. On Turso a write transaction has a 5-second server budget.
 8. **Observability moves with the queries**, at the execution seam, not the logger; stack
    capture stays gated behind `PODIUM_LOOP_PROFILE`.
 9. **Builder only; no relational API, no generic base repository.** Aggregate assembly keeps
