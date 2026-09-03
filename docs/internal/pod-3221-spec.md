@@ -562,11 +562,49 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    bun-sqlite transaction defaults to deferred and its libsql transaction relies on a deprecated
    default; neither is used. The scheduler issues `BEGIN IMMEDIATE` on bun:sqlite and
    `client.transaction("write")` on libsql. Boundaries, ordering and `ON CONFLICT` targets are
-   reviewed per statement. On Turso a write transaction has a 5-second server budget.
+   reviewed per statement.
+
+   MEASURED ON TURSO (POD-3251, 2026-09-03). The write-transaction budget is about **9 seconds**,
+   not the 5 this spec assumed: alive at an 8 s gap, dead at 10. Four constraints follow, and they
+   bind the flip and E.5, not just the Turso backend:
+   - **No slow await inside a transaction body.** The budget is wall-clock on the server. This is
+     the same requirement as B0.5's span side-effect classification, now with a number on it.
+   - **`BEGIN IMMEDIATE` is available ONLY through `client.transaction("write")`.** A raw `BEGIN`
+     executes successfully and is then silently useless, because each `execute()` is its own
+     stream. A silent no-op is the worst failure mode available here, so the executor's libsql
+     driver must never issue a bare BEGIN and the boundary lint should be able to say so.
+   - **`busy_timeout` cannot be raised** — it is a hard SQL parse error, as are
+     `journal_mode` and `wal_checkpoint`. A concurrent writer does not get a fast busy error: it
+     blocks the FULL window and then wins. Measured at 10.2 s.
+   - **A network blip closes the transaction permanently** (`TRANSACTION_CLOSED`, work lost),
+     although the client itself recovers with no manual reconnect. Retry belongs above the
+     transaction, not inside it.
+   Savepoints work, so re-entrant transact is unaffected.
+
+   MIGRATIONS ARE A BOOT-TIMEOUT FACT. The 97-migration chain applies clean to a fresh remote
+   database — 587 statements, 685 round trips, 0 failures — but takes **136 s** against 1.5 s on a
+   local twin built the same way, with one single migration taking 19 s. Any boot timeout, health
+   check or CI provisioning step that assumes migrations are fast is wrong on Turso.
 8. **Observability moves with the queries**, at the execution seam, not the logger; stack
    capture stays gated behind `PODIUM_LOOP_PROFILE`.
 9. **Builder only; no relational API, no generic base repository.** Aggregate assembly keeps
    its multi-query shape, batched with `IN` lists where a loop is an obvious N+1.
+
+   PRICED 2026-09-03 (POD-3251), and the price changes what this rule is. Replayed against an
+   imported production dataset on a real Turso database: the issue frame's 371 statements run
+   sequentially cost **37.6 s**; the same 371 as one batch cost **0.22 s**; the same fan-out
+   rewritten as the four `IN`-list queries this rule asks for cost **114 ms — one round trip**.
+   Feed bootstrap: 44 sequential 4.63 s, one batch 0.40 s. Batch size is not a constraint (20,000
+   statements in one batch took 2.75 s). The coordinator reproduced the headline independently:
+   37.05 s sequential against 0.877 s batched on a warm connection, a 42x difference.
+
+   SO B0.2 AND B0.6 ARE PRECONDITIONS FOR THE TURSO BACKEND, NOT OPTIMISATIONS. A rule that reads
+   as hygiene on SQLite is the difference between 114 ms and 37 s on Turso.
+
+   AND THE RISK BESIDE IT (POD-3251, quantified). Rule 6.9's mechanism is not 13 s of CPU on
+   Turso, it is **8.5 minutes**: the first await in the issue read fan-out drops the
+   microtask-keyed frame cache, 371 becomes 5,163 statements, and unbatched that is 512 s.
+   `scripts/measure-hot-paths.ts` gates exactly this, and it must stay in the flip's gate.
 
    MEASURED 2026-09-03 (POD-3243). The N+1s this rule exists for are located, and they are the
    whole of the issue-frame cost. Of 371 queries per issue-frame read over 80 issue rows: 160
