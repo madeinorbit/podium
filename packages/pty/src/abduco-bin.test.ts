@@ -1,10 +1,29 @@
-import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
-import { buildVendoredAbduco, defaultAbducoCachePath, resolveAbducoBin } from './abduco-bin.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  ABDUCO_FEATURES,
+  abducoBinFeatures,
+  buildVendoredAbduco,
+  defaultAbducoCachePath,
+  ensureManagedAbduco,
+  managedAbducoDir,
+  resolveAbducoBin,
+  vendoredAbducoSourceHash,
+} from './abduco-bin.js'
 
 const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
   try {
@@ -235,5 +254,243 @@ describe('C9: abduco resolution order', () => {
       expect(existsSync(resolved as string)).toBe(true)
     },
     120_000,
+// ---------------------------------------------------------------------------
+// R1 — a managed binary that actually runs [spec:SP-6144]
+//
+// The point of the feature stamp is that podium's PATCHED abduco is what runs.
+// On a machine with a distro abduco (or a cache from an older podium) the old
+// order silently preferred the unpatched binary, so a patch could land and never
+// execute. These tests pin the order that prevents that.
+//
+// PATH order MUST be exercised in a child process: under Bun, spawnSync resolves
+// a bare name against the PATH the process STARTED with, so mutating
+// process.env.PATH in-process makes `runs('abduco')` tests pass vacuously.
+// ---------------------------------------------------------------------------
+
+const MODULE_URL = new URL('./abduco-bin.ts', import.meta.url)
+const MODULE_PATH = fileURLToPath(MODULE_URL)
+const PKG_ROOT = dirname(dirname(MODULE_PATH))
+// Children must sit inside the repo so `@podium/runtime/config` resolves.
+const childRoot = (): string => mkdtempSync(join(PKG_ROOT, '.abduco-child-'))
+const isBun = process.versions.bun !== undefined
+
+/** An upstream (unpatched) abduco: runs, but has no --podium-features option. */
+function fakeUpstreamAbduco(dir: string, name = 'abduco'): string {
+  mkdirSync(dir, { recursive: true })
+  const p = join(dir, name)
+  writeFileSync(
+    p,
+    [
+      '#!/bin/sh',
+      'case "$1" in',
+      '  -v) echo "abduco-0.6 (c) 2013-2018"; exit 0;;',
+      'esac',
+      'echo "abduco: invalid option" >&2',
+      'exit 1',
+      '',
+    ].join('\n'),
+  )
+  chmodSync(p, 0o755)
+  return p
+}
+
+/** Run a snippet against the real module in a fresh process with a given env. */
+function inChild(body: string, env: Record<string, string | undefined>): string {
+  const dir = childRoot()
+  try {
+    const file = join(dir, 'child.ts')
+    writeFileSync(file, `import * as A from ${JSON.stringify(MODULE_PATH)}\n${body}\n`)
+    const r = spawnSync(process.execPath, [file], {
+      encoding: 'utf8',
+      env: { ...process.env, ...env } as NodeJS.ProcessEnv,
+    })
+    if (r.status !== 0) throw new Error(`child failed (${r.status}): ${r.stderr}`)
+    return (r.stdout ?? '').trim().split('\n').pop() ?? ''
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe.skipIf(!hasCompiler)('abduco feature stamp', () => {
+  it('a podium build answers --podium-features; an upstream one does not', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-feat-'))
+    try {
+      const out = buildVendoredAbduco(join(dir, 'bin', 'abduco')) as string
+      expect(out).toBeDefined()
+      expect(abducoBinFeatures(out)).toBe(ABDUCO_FEATURES)
+      expect(abducoBinFeatures(fakeUpstreamAbduco(join(dir, 'sys')))).toBe(0)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 60000)
+})
+
+describe.skipIf(!hasCompiler)('managed abduco build', () => {
+  let state: string
+  const savedState = process.env.PODIUM_STATE_DIR
+  beforeEach(() => {
+    state = mkdtempSync(join(tmpdir(), 'podium-abduco-state-'))
+    process.env.PODIUM_STATE_DIR = state
+  })
+  afterEach(() => {
+    if (savedState === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = savedState
+    rmSync(state, { recursive: true, force: true })
+    resolveAbducoBin({ fresh: true })
+  })
+
+  it('builds once, then reuses; a stale sourceHash rebuilds', () => {
+    const first = ensureManagedAbduco()
+    expect(first).toEqual({ bin: join(managedAbducoDir(), 'abduco'), built: true })
+    expect(ensureManagedAbduco()?.built).toBe(false) // verified, not rebuilt
+
+    const manifestPath = join(managedAbducoDir(), 'manifest.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      features: number
+      sourceHash: string
+    }
+    expect(manifest.features).toBe(ABDUCO_FEATURES)
+    expect(manifest.sourceHash).toBe(vendoredAbducoSourceHash())
+
+    writeFileSync(manifestPath, JSON.stringify({ ...manifest, sourceHash: 'stale' }))
+    expect(ensureManagedAbduco()?.built).toBe(true) // the sources moved on
+    expect(
+      (JSON.parse(readFileSync(manifestPath, 'utf8')) as { sourceHash: string }).sourceHash,
+    ).toBe(vendoredAbducoSourceHash())
+  }, 90000)
+
+  it('rebuilds when the managed binary itself lost the feature', () => {
+    expect(ensureManagedAbduco()?.built).toBe(true)
+    // A binary that no longer answers the probe cannot be trusted whatever its
+    // manifest says — verification runs the binary on every selection.
+    fakeUpstreamAbduco(managedAbducoDir())
+    expect(ensureManagedAbduco()?.built).toBe(true)
+    expect(abducoBinFeatures(join(managedAbducoDir(), 'abduco'))).toBe(ABDUCO_FEATURES)
+  }, 90000)
+
+  it('publishes binary + manifest together and leaves no partial state behind', () => {
+    ensureManagedAbduco()
+    // Rebuild over the live directory, the case where a half-publish would show.
+    writeFileSync(
+      join(managedAbducoDir(), 'manifest.json'),
+      JSON.stringify({ features: 1, sourceHash: 'stale' }),
+    )
+    expect(ensureManagedAbduco()?.built).toBe(true)
+
+    const dir = managedAbducoDir()
+    expect(existsSync(join(dir, 'abduco'))).toBe(true)
+    expect(
+      (JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as { sourceHash: string })
+        .sourceHash,
+    ).toBe(vendoredAbducoSourceHash())
+    // No staging dir, displaced dir, or lock survives a completed build.
+    expect(readdirSync(join(state, 'bin')).filter((f) => f.startsWith('.'))).toEqual([])
+  }, 90000)
+
+  it('points the documented cache path at the managed build', () => {
+    ensureManagedAbduco()
+    expect(realpathSync(defaultAbducoCachePath())).toBe(
+      realpathSync(join(managedAbducoDir(), 'abduco')),
+    )
+  }, 90000)
+
+  it('concurrent builders serialize — exactly one compiles, both get the binary', async () => {
+    const body = `const r = A.ensureManagedAbduco({ requireFeatures: A.ABDUCO_FEATURES }); console.log(JSON.stringify(r ?? null))`
+    const dirs = [childRoot(), childRoot()]
+    try {
+      const results = await Promise.all(
+        dirs.map(
+          (dir) =>
+            new Promise<{ bin: string; built: boolean } | null>((resolve, reject) => {
+              const file = join(dir, 'child.ts')
+              writeFileSync(file, `import * as A from ${JSON.stringify(MODULE_PATH)}\n${body}\n`)
+              const p = spawn(process.execPath, [file], {
+                env: { ...process.env, PODIUM_STATE_DIR: state } as NodeJS.ProcessEnv,
+              })
+              let out = ''
+              let err = ''
+              p.stdout.on('data', (d) => {
+                out += d
+              })
+              p.stderr.on('data', (d) => {
+                err += d
+              })
+              p.on('close', (code) =>
+                code === 0
+                  ? resolve(JSON.parse(out.trim().split('\n').pop() as string))
+                  : reject(new Error(`child ${code}: ${err}`)),
+              )
+            }),
+        ),
+      )
+      expect(results.every((r) => r?.bin === join(managedAbducoDir(), 'abduco'))).toBe(true)
+      expect(results.filter((r) => r?.built === true)).toHaveLength(1)
+    } finally {
+      for (const d of dirs) rmSync(d, { recursive: true, force: true })
+    }
+  }, 120000)
+})
+
+describe.skipIf(!hasCompiler)('selection when a feature is required', () => {
+  let state: string
+  let sys: string
+  const savedState = process.env.PODIUM_STATE_DIR
+  const savedExplicit = process.env.PODIUM_ABDUCO
+  beforeEach(() => {
+    state = mkdtempSync(join(tmpdir(), 'podium-abduco-sel-'))
+    sys = join(state, 'sysbin')
+    fakeUpstreamAbduco(sys)
+    process.env.PODIUM_STATE_DIR = state
+  })
+  afterEach(() => {
+    // Never unset: the suite's hermetic guard refuses a ~/.podium fallback.
+    if (savedState === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = savedState
+    if (savedExplicit === undefined) delete process.env.PODIUM_ABDUCO
+    else process.env.PODIUM_ABDUCO = savedExplicit
+    rmSync(state, { recursive: true, force: true })
+    resolveAbducoBin({ fresh: true })
+  })
+
+  it('an explicit PODIUM_ABDUCO without the feature FAILS LOUDLY (no silent fallback)', () => {
+    const explicit = join(sys, 'abduco')
+    const errs: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => {
+      errs.push(a.join(' '))
+    })
+    try {
+      process.env.PODIUM_ABDUCO = explicit
+      expect(resolveAbducoBin({ fresh: true, requireFeatures: 1 })).toBeUndefined()
+      expect(errs.join('\n')).toContain(explicit)
+      // Without a required feature the same override is honoured — today's order.
+      expect(resolveAbducoBin({ fresh: true })).toBe(explicit)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it.skipIf(!isBun)(
+    'a system abduco without the feature is skipped for the managed build',
+    () => {
+      // PATH must be set for the child at spawn time; see the note above.
+      const env = {
+        PATH: `${sys}:/usr/bin:/bin`,
+        PODIUM_STATE_DIR: state,
+        PODIUM_ABDUCO: undefined,
+      }
+      const required = inChild(
+        `console.log(JSON.stringify(A.resolveAbducoBin({ fresh: true, requireFeatures: A.ABDUCO_FEATURES }) ?? null))`,
+        env,
+      )
+      expect(JSON.parse(required)).toBe(join(state, 'bin', `abduco-v${ABDUCO_FEATURES}`, 'abduco'))
+
+      // ...and with no feature required, that same system binary still wins.
+      const plain = inChild(
+        `console.log(JSON.stringify(A.resolveAbducoBin({ fresh: true }) ?? null))`,
+        env,
+      )
+      expect(JSON.parse(plain)).toBe('abduco')
+    },
+    120000,
   )
 })

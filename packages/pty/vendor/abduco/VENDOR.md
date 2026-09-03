@@ -12,4 +12,12 @@ src/abduco-bin.ts compiles it on demand with the same flags as the upstream
 Makefile and caches the binary under $PODIUM_STATE_DIR/bin (else ~/.podium/bin).
 config.h is upstream's config.def.h verbatim.
 
-Local changes: none.
+Local changes:
+
+- `abduco.c`: a `--podium-features` option that prints the feature level the
+  binary was built with (`-DPODIUM_ABDUCO_FEATURES`, stamped by
+  `src/abduco-bin.ts`) and exits 0. An upstream abduco rejects the option and
+  exits non-zero, which is how the resolver tells a podium build from a distro
+  one and refuses to run patched-abduco features on an unpatched binary
+  [spec:SP-6144]. Bump `ABDUCO_FEATURES` in `src/abduco-bin.ts` whenever a patch
+  changes what callers may rely on.

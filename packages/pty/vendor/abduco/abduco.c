@@ -54,6 +54,13 @@
 
 #include "config.h"
 
+/* podium: the feature level this binary was built with. The build stamps it via
+ * -DPODIUM_ABDUCO_FEATURES=<n>; an upstream binary has no --podium-features option
+ * at all and exits non-zero, which is how the resolver tells the two apart. */
+#ifndef PODIUM_ABDUCO_FEATURES
+#define PODIUM_ABDUCO_FEATURES 0
+#endif
+
 #if defined(_AIX)
 # include "forkpty-aix.c"
 #elif defined(__sun)
@@ -601,6 +608,14 @@ int main(int argc, char *argv[]) {
 	if (!default_cmd[2]) {
 		default_cmd[0] = ABDUCO_CMD;
 		default_cmd[1] = NULL;
+	}
+
+	/* podium: answer the feature probe before getopt, which has no long options. */
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--podium-features")) {
+			printf("%d\n", PODIUM_ABDUCO_FEATURES);
+			exit(EXIT_SUCCESS);
+		}
 	}
 
 	server.name = basename(argv[0]);
