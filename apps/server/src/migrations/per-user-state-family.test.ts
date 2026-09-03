@@ -290,6 +290,12 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
         'created_by_on_behalf_of',
         // These fields are later additive migrations in the union chain.
         'selected_driver_id',
+        // POD-3102's experimental-driver request (20260830003000) — the driver the
+        // START ASKED FOR, kept separately from `selected_driver_id`, which records
+        // what the launch actually resolved to. Another later additive migration in
+        // the chain, so it belongs in this ADDITIONS list and is not a column this
+        // migration lost.
+        'requested_driver_id',
         // Main's conversation binding migration is another additive field.
         'conversation_binding',
         // OOM attribution is recorded by a later additive migration.
