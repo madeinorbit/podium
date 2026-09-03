@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import {
   asAccountId,
   asIssueId,
@@ -13,68 +12,11 @@ import {
   SOLE_USER_ID,
 } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
-import { SessionsRepository } from './store/sessions'
-
-describe('versioned drafts — column guard (POD-859)', () => {
-  // A DB where the versioned-draft migration has not applied → session_drafts lacks
-  // rev/origin/history. The versioned store path must degrade, never crash — boot
-  // (loadFromStore → loadDraftDocs) runs unconditionally, so this would otherwise
-  // crash-loop with the flag OFF. drizzle applies by name so this is defense-in-depth.
-  function legacyDraftsDb() {
-    const db = openDatabase(':memory:')
-    db.exec(
-      `CREATE TABLE session_drafts (
-         session_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL
-       )`,
-    )
-    return db
-  }
-
-  it('loadDraftDocs returns the legacy shape (rev 0) instead of "no such column: rev"', () => {
-    const db = legacyDraftsDb()
-    db.prepare('INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?,?,?)').run(
-      'sess',
-      'legacy draft',
-      '2026-01-01T00:00:00.000Z',
-    )
-    const repo = new SessionsRepository(db)
-    expect(() => repo.loadDraftDocs()).not.toThrow()
-    expect(repo.loadDraftDocs()[asSessionId('sess')]).toEqual({
-      text: 'legacy draft',
-      updatedAt: '2026-01-01T00:00:00.000Z',
-      rev: 0,
-      origin: null,
-      history: [],
-    })
-    db.close()
-  })
-
-  it('setDraftDoc degrades to a text-only write when the versioning columns are absent', () => {
-    const db = legacyDraftsDb()
-    const repo = new SessionsRepository(db)
-    expect(() =>
-      repo.setDraftDoc(asSessionId('sess'), {
-        text: 'v2 text',
-        updatedAt: '2026-02-02T00:00:00.000Z',
-        rev: 5,
-        origin: 'clientA',
-        history: ['old'],
-      }),
-    ).not.toThrow()
-    expect(repo.loadDraftDocs()[asSessionId('sess')]).toMatchObject({
-      text: 'v2 text',
-      rev: 0,
-      history: [],
-    })
-    db.close()
-  })
-})
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -605,29 +547,6 @@ describe('SessionStore drafts', () => {
     store.sessions.setDraft(asSessionId('  '), 'orphan')
     expect(store.sessions.loadDrafts()).toEqual({})
     store.close()
-  })
-})
-
-describe('SessionStore repos.json import', () => {
-  it('imports a sibling repos.json into an empty db, once', async () => {
-    const file = await tmpDbPath()
-    await writeFile(join(dirname(file), 'repos.json'), JSON.stringify(['/a', '/b']))
-    const a = new SessionStore(file)
-    expect(a.repos.listRepoPaths()).toEqual(['/a', '/b'])
-    a.close()
-    // Re-open: repos already present, so a (possibly changed) json is NOT re-imported.
-    await writeFile(join(dirname(file), 'repos.json'), JSON.stringify(['/c']))
-    const b = new SessionStore(file)
-    expect(b.repos.listRepoPaths()).toEqual(['/a', '/b'])
-    b.close()
-  })
-
-  it('tolerates a missing or corrupt repos.json', async () => {
-    const missing = await tmpDbPath()
-    expect(new SessionStore(missing).repos.listRepoPaths()).toEqual([])
-    const corrupt = await tmpDbPath()
-    await writeFile(join(dirname(corrupt), 'repos.json'), 'not json')
-    expect(new SessionStore(corrupt).repos.listRepoPaths()).toEqual([])
   })
 })
 

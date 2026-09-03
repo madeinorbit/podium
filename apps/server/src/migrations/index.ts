@@ -109,6 +109,27 @@ export function appliedDrizzleNames(db: SqlDatabase): Set<string> {
 }
 
 /**
+ * THE NEWEST MIGRATION IDENTITY THIS DATABASE HAS APPLIED — the exact string a
+ * transfer target verifies against its own build (`server-transfer.ts`).
+ *
+ * Here rather than in the store facade (POD-3246) because the ledger belongs to
+ * the migrator: the facade holds no SQL of its own, and a second place that
+ * knows the ledger's name and shape is a second opinion about what "this
+ * database's schema version" means.
+ *
+ * `undefined` when the ledger holds nothing — a database that has applied no
+ * migration has no identity to transfer, which is a different answer from a
+ * failure to read one.
+ */
+export function latestAppliedMigration(db: SqlDatabase): string | undefined {
+  if (!hasTable(db, LEDGER)) return undefined
+  const row = db.prepare(`SELECT name FROM ${LEDGER} ORDER BY name DESC LIMIT 1`).get() as
+    | { name?: unknown }
+    | undefined
+  return typeof row?.name === 'string' && row.name.length > 0 ? row.name : undefined
+}
+
+/**
  * drizzle's `created_at`: the folder-name's 14-digit `YYYYMMDDHHMMSS` UTC prefix
  * as epoch millis, matching what the bun:sqlite migrator records for the same
  * migration.

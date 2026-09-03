@@ -630,6 +630,7 @@
         "src/store/issues.ts",
         "src/store/json-column-corruption-oracle.test.ts",
         "src/store/locks.ts",
+        "src/store/machines-sentinel-scan.test.ts",
         "src/store/machines.build.test.ts",
         "src/store/machines.ts",
         "src/store/maintenance.ts",

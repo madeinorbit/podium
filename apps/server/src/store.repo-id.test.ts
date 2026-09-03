@@ -1,11 +1,11 @@
-import { asMachineId, FIRST_ADMIN_USER_ID, SOLE_USER_ID, asIssueId } from '@podium/model'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asIssueId, asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
-import { SessionStore } from './store'
 import type { IssueRow } from './store'
+import { SessionStore } from './store'
 
 function db(store: SessionStore) {
   // @ts-expect-error private db — schema/migration assertions
@@ -78,49 +78,6 @@ describe('repo_id schema (v8, #74)', () => {
     // NOT carried on a fresh drizzle-built DB [spec:SP-4428] — the baseline is
     // DDL only, and nothing at runtime reads that marker. It still appears on
     // pre-drizzle databases healed by the legacy chain (see the backfill test).
-    s.close()
-  })
-
-  it('the one-time upgrade fills repo_id on pre-v8 repos and issues rows', () => {
-    const s = new SessionStore(':memory:')
-    // Simulate a v7 DB: rows present, repo_id wiped, marker at 7.
-    db(s)
-      .prepare(
-        `INSERT INTO repos (machine_id, path, origin_url, added_at)
-         VALUES ('m1', '/r', 'git@github.com:o/r.git', 't'),
-                ('m2', '/no-origin', NULL, 't')`,
-      )
-      .run()
-    db(s)
-      .prepare(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
-           created_at, updated_at)
-         VALUES ('iss_1', '/r/sub', 1, 'A', 'backlog', 'main', 'claude-code', 't', 't'),
-                ('iss_2', '/unregistered', 1, 'B', 'backlog', 'main', 'claude-code', 't', 't')`,
-      )
-      .run()
-    s.migrateLegacyRepoIdentity()
-    const repos = s.repos.listRepos()
-    expect(repos.find((r) => r.path === '/r')?.repoId).toBe(
-      deriveRepoId({
-        originUrl: 'git@github.com:o/r.git',
-        machineId: asMachineId('m1'),
-        path: '/r',
-      }),
-    )
-    expect(repos.find((r) => r.path === '/no-origin')?.repoId).toBe(
-      deriveRepoId({ machineId: asMachineId('m2'), path: '/no-origin' }),
-    )
-    // Issue under a registered repo inherits its repo_id via prefix match…
-    expect(s.issues.getIssue('iss_1')?.repoId).toBe(repos.find((r) => r.path === '/r')?.repoId)
-    // …and an unregistered repo_path gets the deterministic (host, path) fallback.
-    // POD-318: the machine half of that derivation is this host's minted id, not the
-    // `'__local__'` placeholder it used to be. A path NOBODY has registered is the
-    // only thing that ever reaches it — every registered repo returns its STORED id,
-    // untouched by the identity change (see `resolveRepoIdForPath`).
-    expect(s.issues.getIssue('iss_2')?.repoId).toBe(
-      deriveRepoId({ machineId: s.hostMachineId, path: '/unregistered' }),
-    )
     s.close()
   })
 
@@ -199,260 +156,93 @@ describe('repo_id schema (v8, #74)', () => {
 })
 
 /**
- * THE UPGRADE IS BOUNDED, NOT A STANDING HEAL (POD-1360).
+ * WHAT THE RETIRED UPGRADE LEFT: A REFUSAL (POD-1360, retired at POD-3246).
  *
- * The four heals this replaced ran on EVERY boot, and one of them — the local-origin
- * step — did real work every time: a git-config read off disk per originless repo,
- * forever, because "no originless rows left" is a state a fleet with remote-machine
- * repos never reaches. These pin the two halves of the replacement: the upgrade does
- * the legacy work when a database has not seen it, and does NOT run again afterwards.
+ * The rewrite that filled `repo_id` on pre-v8 rows is gone. It could go because
+ * every writer left derives an id before it inserts and the last one that could
+ * not — the legacy `repos.json` import — was itself retired: nothing has written
+ * that file since 2026-06-09, ten weeks before the first release.
+ *
+ * What a database with an unfilled `repo_id` means is unchanged, and it is not
+ * cosmetic: `repo_id` is what issues are bucketed and numbered by, so serving one
+ * means serving rows that belong to no repo. The boot refuses instead.
  */
-describe('the repo-identity upgrade is spent once per database (POD-1360)', () => {
-  /** A legacy pair — a repo row and an issue row, both with no repo_id. */
-  function insertLegacyRows(s: SessionStore): void {
-    db(s)
-      .prepare(
-        `INSERT INTO repos (machine_id, path, origin_url, added_at)
-         VALUES ('m1', '/legacy', 'git@github.com:o/r.git', 't')`,
-      )
-      .run()
-    db(s)
-      .prepare(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
-           created_at, updated_at)
-         VALUES ('iss_legacy', '/legacy', 1, 'A', 'backlog', 'main', 'claude-code', 't', 't')`,
-      )
-      .run()
-  }
-
-  function nullRepoIdCounts(s: SessionStore): { repos: number; issues: number } {
-    const count = (sql: string) => (db(s).prepare(sql).get() as { c: number }).c
-    return {
-      repos: count('SELECT COUNT(*) AS c FROM repos WHERE repo_id IS NULL'),
-      issues: count('SELECT COUNT(*) AS c FROM issues WHERE repo_id IS NULL'),
-    }
-  }
-
-  it('a database that has never seen it gets the legacy rows filled; the next boot does not', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'podium-repo-upgrade-'))
+describe('the repo-identity boot refusal (POD-1360)', () => {
+  it('refuses to open a database whose repo rows carry no repo_id', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-repo-refusal-'))
     try {
       const file = join(dir, 'podium.db')
-      // First boot on a fresh file spends the upgrade (there is nothing to do) and
-      // stamps the marker. Legacy rows planted AFTER it are the probe.
+      // Plant the legacy row behind the repository, which is the only way to make
+      // one: `addRepo` derives an id before it inserts.
       const first = new SessionStore(file)
-      insertLegacyRows(first)
-      first.close()
-
-      // Second boot: the marker is set, so the upgrade must not run — the planted
-      // rows are still NULL. This is the assertion the old per-boot heal could not
-      // make, and it is what "bounded" means here.
-      const second = new SessionStore(file)
-      expect(nullRepoIdCounts(second)).toEqual({ repos: 1, issues: 1 })
-      // Clearing the marker is the counterfactual: the SAME boot path, on a database
-      // that has not been past this code, does fill them. Without this the test above
-      // would pass just as well if the upgrade had been deleted outright.
-      db(second).prepare("DELETE FROM meta WHERE key = 'repo-identity-upgrade'").run()
-      second.close()
-
-      const third = new SessionStore(file)
-      expect(nullRepoIdCounts(third)).toEqual({ repos: 0, issues: 0 })
-      expect(third.issues.getIssue('iss_legacy')?.repoId).toBe(
-        deriveRepoId({
-          originUrl: 'git@github.com:o/r.git',
-          machineId: asMachineId('m1'),
-          path: '/legacy',
-        }),
-      )
-      // …and it re-stamps the marker, so a fourth boot is bounded again.
-      expect(
-        db(third).prepare("SELECT value FROM meta WHERE key = 'repo-identity-upgrade'").get(),
-      ).toBeDefined()
-      third.close()
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('a legacy repos.json import is covered even on a database that already spent the marker', () => {
-    // THE ONE HOLE A MARKER LEAVES, closed and pinned. `importReposJson` inserts rows
-    // with a NULL repo_id and no prefix — it is the only writer left that can create
-    // work for this upgrade. A spent marker would otherwise mean those rows are never
-    // identified. Today the import runs before the marker is read, so this can only be
-    // reached by moving that call; the test exists so that move fails loudly here
-    // instead of silently stranding repos.
-    const dir = mkdtempSync(join(tmpdir(), 'podium-repos-json-'))
-    try {
-      const file = join(dir, 'podium.db')
-      // Boot once on an empty db with no repos.json: the marker is spent doing nothing.
-      new SessionStore(file).close()
-      // NOW the legacy file appears, and the repos table is empty, so the next boot
-      // imports it — on a database whose marker says the upgrade is already done.
-      writeFileSync(join(dir, 'repos.json'), JSON.stringify(['/legacy/one', '/legacy/two']))
-
-      const second = new SessionStore(file)
-      expect(second.repos.listRepoPaths()).toEqual(['/legacy/one', '/legacy/two'])
-      // Every imported row identified, despite the spent marker…
-      for (const r of second.repos.listRepos()) {
-        expect(r.repoId, `repo ${r.path} has no repo_id`).not.toBeNull()
-        expect(
-          second.repos.prefixForRepoId(r.repoId!),
-          `repo ${r.path} has no prefix`,
-        ).not.toBeNull()
-      }
-      second.close()
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('records the local origin for a repo whose checkout this host can read', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'podium-repo-origin-'))
-    try {
-      // A checkout on disk with an origin, registered the way a pre-v8 row was:
-      // origin_url NULL, so the row sits on a path-fallback id until something reads
-      // the git config. The upgrade is now the only thing at boot that does.
-      mkdirSync(join(dir, '.git'), { recursive: true })
-      writeFileSync(
-        join(dir, '.git', 'config'),
-        '[remote "origin"]\n\turl = git@github.com:o/local.git\n',
-      )
-      const s = new SessionStore(':memory:')
-      db(s)
+      db(first)
         .prepare(
           `INSERT INTO repos (machine_id, path, origin_url, added_at)
-           VALUES ('m1', ?, NULL, 't')`,
+           VALUES ('m1', '/legacy', NULL, 't')`,
         )
-        .run(dir)
+        .run()
+      first.close()
 
-      s.migrateLegacyRepoIdentity()
-
-      const row = s.repos.listRepos()[0]
-      expect(row?.originUrl).toBe('git@github.com:o/local.git')
-      // The identity upgraded with it — a path fallback replaced by the origin-derived
-      // id, which is the whole reason the origin read was worth doing at all.
-      expect(row?.repoId).toBe(
-        deriveRepoId({
-          originUrl: 'git@github.com:o/local.git',
-          machineId: asMachineId('m1'),
-          path: dir,
-        }),
-      )
-      // And the prefix step ran after it, keyed on the settled id (#474).
-      expect(s.repos.prefixForRepoId(row!.repoId!)).not.toBeNull()
-      s.close()
+      expect(() => new SessionStore(file)).toThrow(/legacy repo identity is unfilled.*repos: 1/s)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it('the upgrade drops the frame row cache, so a same-frame read sees the new repo_id', async () => {
-    // THE COUPLING TO POD-1931, ASSERTED RATHER THAN REMEMBERED. `IssuesRepository`
-    // caches mapped issue rows for the duration of one synchronous frame, and every
-    // writer owes `invalidateRowCache()`. This upgrade is a writer, and it is an easy
-    // one to miss: it arrived as a RENAME of `backfillNullRepoIds`, and a rename that
-    // drops a line merges perfectly cleanly. The failure it would cause does not look
-    // like this issue's — it looks like the cache serving stale rows — so the guard
-    // belongs here, next to the rename, not in a comment on the cache.
-    //
-    // THE AWAIT BELOW IS LOAD-BEARING, and its absence is what made the first version
-    // of this test vacuous. Constructing a SessionStore RUNS the upgrade, which writes,
-    // which disarms caching for the remainder of that frame — so a test that builds a
-    // store and reads in the same frame never caches anything, and would have passed
-    // with the invalidate deleted while asserting nothing at all. One microtask ends
-    // the constructor's frame and re-arms the cache; everything after it is one frame.
-    const s = new SessionStore(':memory:')
-    // THE REPO IS FULLY REGISTERED ON PURPOSE — id, origin and prefix all present — so
-    // the repos half of the upgrade has nothing to write. That isolation is the point:
-    // `assignRepoIdToIssuesUnder` on the repos path invalidates too, so a fixture where
-    // BOTH halves write would still go green with this method's own invalidate deleted,
-    // and would be testing POD-1931's line instead of the one this issue owns.
-    s.repos.addRepo('/framed', asMachineId('m1'), 'git@github.com:o/r.git')
-    db(s)
-      .prepare(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
-           created_at, updated_at)
-         VALUES ('iss_framed', '/framed', 1, 'A', 'backlog', 'main', 'claude-code', 't', 't')`,
-      )
-      .run()
+  it('refuses when the unfilled row is an issue rather than a repo', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-issue-refusal-'))
+    try {
+      const file = join(dir, 'podium.db')
+      const first = new SessionStore(file)
+      db(first)
+        .prepare(
+          `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
+             created_at, updated_at)
+           VALUES ('iss_legacy', '/legacy', 1, 'A', 'backlog', 'main', 'claude-code', 't', 't')`,
+        )
+        .run()
+      first.close()
 
-    // End the constructor's frame; caching is armed again from here.
-    await Promise.resolve()
-
-    // Read FIRST, so the frame cache is holding the pre-upgrade row (repoId null)…
-    expect(s.issues.getIssue('iss_framed')?.repoId).toBeNull()
-
-    // …and PROVE the cache is actually armed in this frame, rather than assuming it.
-    // Without this the test below would pass just as well against a store that has no
-    // cache at all, or one whose frame had already been disarmed by something else —
-    // it would asserts nothing about the invalidate. So: write the row behind the
-    // repository's back, on the raw handle, which performs no invalidation. A live
-    // cache MUST still serve the stale answer here.
-    db(s).prepare("UPDATE issues SET title = 'behind-the-cache' WHERE id = 'iss_framed'").run()
-    expect(s.issues.getIssue('iss_framed')?.title).toBe('A')
-
-    // Now the upgrade — a repository write, which owes an invalidate — and a read in
-    // that same frame. This is the assertion that fails if the rename ever drops it.
-    s.migrateLegacyRepoIdentity()
-    expect(s.issues.getIssue('iss_framed')?.title).toBe('behind-the-cache')
-
-    expect(s.issues.getIssue('iss_framed')?.repoId).toBe(
-      deriveRepoId({
-        originUrl: 'git@github.com:o/r.git',
-        machineId: asMachineId('m1'),
-        path: '/framed',
-      }),
-    )
-    s.close()
+      expect(() => new SessionStore(file)).toThrow(/legacy repo identity is unfilled.*issues: 1/s)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
-  it('fails the boot loudly when a repo_id survives the rewrite', () => {
-    // THE RESIDUE CHECK MUST BE ABLE TO FIRE, or it is decoration. Stubbing the repos
-    // half out is the only way to produce the state it guards — the derivation cannot
-    // fail, so in production a survivor means the rewrite did not run. That is exactly
-    // what this simulates, and the check catches it on its own second read.
-    const s = new SessionStore(':memory:')
-    db(s)
-      .prepare(
-        `INSERT INTO repos (machine_id, path, origin_url, added_at)
-         VALUES ('m1', '/legacy', NULL, 't')`,
-      )
-      .run()
-    s.repos.migrateLegacyRepoRows = () => {}
+  it('opens a database whose rows all carry one — the refusal is not always-on', () => {
+    // The counterfactual for both tests above: the same boot path, on the ordinary
+    // state, does not throw. Without it they would pass against a store that
+    // refused every database.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-repo-refusal-ok-'))
+    try {
+      const file = join(dir, 'podium.db')
+      const first = new SessionStore(file)
+      first.repos.addRepo('/ordinary', first.hostMachineId)
+      first.close()
 
-    expect(() => s.migrateLegacyRepoIdentity()).toThrow(/legacy repo identity survived/)
-    s.close()
+      const second = new SessionStore(file)
+      expect(second.repos.listRepoPaths()).toEqual(['/ordinary'])
+      second.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
 /**
- * REPO-ID STABILITY ACROSS THE MACHINE-IDENTITY CHANGE (POD-318).
+ * A STORED REPO ID IS OPAQUE, AND NOTHING RE-DERIVES IT (POD-318).
  *
  * A `repo_id` is OPAQUE STORED IDENTITY. Issues, locks, prefixes and the session
  * view all key off it, so rewriting one cascades into every referencing row for
- * zero product value — which is why the boot upgrade moves `machine_id` and does
- * not touch `repo_id`, even though a path-fallback id was derived FROM the machine
- * id it is moving off.
+ * zero product value — which is why the retired machine-identity upgrade moved
+ * `machine_id` and never touched `repo_id`, even though a path-fallback id was
+ * derived FROM the machine id it was moving off.
  *
- * These pin the property that makes that safe: a repo that has a row answers with
- * its STORED id, so no reader re-derives to find it.
+ * These pin the property that made that safe and still governs every reader: a
+ * repo that has a row answers with its STORED id, so no reader re-derives to
+ * find it, and a repo minted under another machine keeps its id here.
  */
-describe('stored repo ids survive the machine-identity upgrade untouched', () => {
-  it('the row keeps the id it was minted with after its machine_id is rewritten', () => {
-    const s = new SessionStore(':memory:')
-    // A pre-POD-318 row: minted under the placeholder, machine column since moved.
-    s.repos.addRepo('/legacy', asMachineId('__local__'))
-    const minted = s.repos.listRepos()[0]?.repoId
-    expect(minted).toBe(deriveRepoId({ machineId: asMachineId('__local__'), path: '/legacy' }))
-
-    s.migrateLegacyMachineIdentity(s.hostMachineId)
-
-    const row = s.repos.listRepos()[0]
-    expect(row?.machineId).toBe(s.hostMachineId)
-    // The id did NOT move with the machine. That is the whole decision.
-    expect(row?.repoId).toBe(minted)
-    s.close()
-  })
-
+describe('stored repo ids are read, never re-derived', () => {
   it('a registered path resolves to the STORED id, never to a fresh derivation', () => {
     // The property the design asked to be PROVEN, at the one function every reader
     // goes through: `resolveRepoIdForPath` returns `match?.repoId` for anything a
@@ -460,8 +250,7 @@ describe('stored repo ids survive the machine-identity upgrade untouched', () =>
     // counterfactual is right there, since deriving the same path under this host
     // gives a DIFFERENT id.
     const s = new SessionStore(':memory:')
-    s.repos.addRepo('/legacy', asMachineId('__local__'))
-    s.migrateLegacyMachineIdentity(s.hostMachineId)
+    s.repos.addRepo('/legacy', asMachineId('11112222-3333-4444-5555-666677778888'))
 
     const stored = s.repos.listRepos()[0]?.repoId
     expect(s.repos.resolveRepoIdForPath('/legacy')).toBe(stored)

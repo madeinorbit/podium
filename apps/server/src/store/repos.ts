@@ -8,8 +8,6 @@
  */
 
 import { asMachineId, type MachineId, type RepoId } from '@podium/model'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
 import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
@@ -411,79 +409,18 @@ export class ReposRepository {
     }
   }
 
-  // ---- the repos half of the one-time repo-identity upgrade (POD-1360) ----
+  // ---- what the retired repo-identity upgrade left behind (POD-1360) ----
 
   /**
-   * THE REPOS HALF OF THE ONE-TIME REPO-IDENTITY UPGRADE — three rewrites that used
-   * to be three standing per-boot heals (`backfillRepoIds`, `healLocalOrigins`,
-   * `backfillPrefixes`), sequenced with the issues half by the SessionStore facade.
+   * Rows still carrying no repo_id, and logical repos still carrying no prefix.
    *
-   * NONE OF THEM WAS EVER A HEAL. Each repairs a row shape NO CURRENT WRITER CAN
-   * PRODUCE: `addRepo` reads the local origin, derives the repo_id and ensures the
-   * prefix, all before it inserts. The one producer left is `importReposJson`, itself
-   * a one-shot legacy import that runs immediately before this — so the work is
-   * finite, and the facade spends it once per database instead of every boot.
-   *
-   * THE ORDER IS LOAD-BEARING, and it is not quite the order the heals ran in.
-   * Origins are recorded BEFORE prefixes because `updateRepoOrigin` upgrades a
-   * path-fallback id to the origin-derived one and re-keys the prefix onto it;
-   * deriving a prefix first would mint one against an id about to be replaced. They
-   * are recorded before the ISSUES half too (the facade's ordering), so a legacy
-   * issue lands on the final id in one write instead of being dual-written twice.
-   */
-  migrateLegacyRepoRows(): void {
-    const withoutRepoId = this.db
-      .prepare('SELECT machine_id, path, origin_url FROM repos WHERE repo_id IS NULL')
-      .all() as { machine_id: MachineId; path: string; origin_url: string | null }[]
-    const setRepo = this.db.prepare(
-      'UPDATE repos SET repo_id = ? WHERE machine_id = ? AND path = ?',
-    )
-    for (const r of withoutRepoId) {
-      setRepo.run(
-        deriveRepoId({ originUrl: r.origin_url, machineId: r.machine_id, path: r.path }),
-        r.machine_id,
-        r.path,
-      )
-    }
-
-    // Pre-v8 rows never recorded origin_url, so without this they sit on path-fallback
-    // ids until a daemon scan happens to run. `updateRepoOrigin` upgrades fallback ids
-    // only (and dual-writes issues), so recording an origin twice is a no-op.
-    //
-    // THIS IS THE STEP THAT COULD NOT BOUND ITSELF, and the reason the facade needs a
-    // marker rather than idempotence-by-construction: a repo on another machine, or one
-    // with no remote at all, is legitimately `origin_url IS NULL` FOREVER. "No originless
-    // rows left" is never true, so as a heal this re-read those git configs off disk on
-    // every boot, for the life of the install, to find what it found last time.
-    const originless = this.db
-      .prepare('SELECT machine_id, path FROM repos WHERE origin_url IS NULL')
-      .all() as { machine_id: MachineId; path: string }[]
-    for (const r of originless) {
-      const origin = readLocalOriginUrl(r.path)
-      if (origin) this.updateRepoOrigin(r.machine_id, r.path, origin)
-    }
-
-    // #474: a human-facing prefix for every logical repo still missing one. Keyed by
-    // resolved repo_id, so it reads the ids the two steps above just settled.
-    const rows = this.db
-      .prepare('SELECT path, repo_name, repo_id FROM repos ORDER BY rowid ASC')
-      // SERIALIZATION EDGE: untyped columns; repo_id re-enters its id space.
-      .all() as { path: string; repo_name: string | null; repo_id: RepoId | null }[]
-    for (const r of rows) {
-      const repoId = r.repo_id ?? this.resolveRepoIdForPath(r.path)
-      this.ensurePrefixForRepoId(repoId, r.repo_name ?? r.path.split('/').pop() ?? 'REPO')
-    }
-  }
-
-  /**
-   * What the repos half left behind: rows still carrying no repo_id, and logical repos
-   * still carrying no prefix.
-   *
-   * A SECOND READ of the database rather than a restatement of what was just written —
-   * the same discipline as `migrateLegacyMachineIdentity`'s residue check. The facade
-   * decides what each number means; note that ORIGINS ARE ABSENT ON PURPOSE, because
-   * originless is a legitimate resting state and a check that can never reach zero
-   * would only reintroduce the heal it replaced.
+   * The rewrite these two numbers used to audit was retired at POD-3246 — no
+   * released binary could ever have written a row without a repo_id, so the work
+   * is provably done. The READ stays: it is what the facade's boot refusal asks,
+   * and the facade decides what each number means (a missing repo_id refuses the
+   * boot, a missing prefix warns). ORIGINS ARE ABSENT ON PURPOSE, because
+   * originless is a legitimate resting state and a check that can never reach
+   * zero would only reintroduce the heal this replaced.
    */
   legacyRepoResidue(): { repoIdsMissing: number; prefixesMissing: number } {
     const count = (sql: string): number => (this.db.prepare(sql).get() as { c: number }).c
@@ -494,45 +431,5 @@ export class ReposRepository {
           WHERE repo_id IS NOT NULL AND repo_id NOT IN (SELECT repo_id FROM repo_prefixes)`,
       ),
     }
-  }
-
-  /**
-   * One-time import of a legacy ~/.podium/repos.json sitting next to the db.
-   *
-   * RETURNS HOW MANY ROWS IT INSERTED, and that number is load-bearing rather than
-   * informational: these rows land with a NULL repo_id and no prefix, so this is the
-   * one writer left in the process that can still create work for the repo-identity
-   * upgrade. The facade runs the upgrade when a database has never been past it OR
-   * when this reports an import, so the upgrade's bound does not rest on the
-   * assumption that a legacy import can only ever precede the marker.
-   */
-  importReposJson(dbPath: string, machineId: MachineId): number {
-    if (dbPath === ':memory:') return 0
-    const count = (this.db.prepare('SELECT COUNT(*) AS c FROM repos').get() as { c: number }).c
-    if (count > 0) return 0
-    let raw: string
-    try {
-      raw = readFileSync(join(dirname(dbPath), 'repos.json'), 'utf8')
-    } catch {
-      return 0 // no legacy file
-    }
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      return 0 // corrupt file -> skip
-    }
-    if (!Array.isArray(parsed)) return 0
-    const insert = this.db.prepare(
-      'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, added_at) VALUES (?, ?, NULL, ?, ?)',
-    )
-    const now = new Date().toISOString()
-    let imported = 0
-    for (const p of parsed)
-      if (typeof p === 'string') {
-        insert.run(machineId, p, p.split('/').pop() ?? null, now)
-        imported += 1
-      }
-    return imported
   }
 }
