@@ -57,8 +57,10 @@ const VENDOR_ABDUCO_C = join(VENDOR_DIR, 'abduco.c')
  * is the only way to tell a patched binary from an upstream one.
  *
  * 1 — the feature probe itself.
+ * 2 — `-N`: attach without announcing a size (attach never resizes or SIGWINCHes
+ *     the running program; only a later SIGWINCH on the attach pty does).
  */
-export const ABDUCO_FEATURES = 1
+export const ABDUCO_FEATURES = 2
 
 /** What a managed build records beside its binary. */
 export type AbducoManifest = { features: number; sourceHash: string; builtAt?: string }
@@ -149,8 +151,12 @@ function findCompiler(): string | undefined {
  * so a failed link is retried without it. Returns the path, or undefined when no
  * compiler is available or the build fails.
  */
-export function buildVendoredAbduco(out: string): string | undefined {
+export function buildVendoredAbduco(out: string, opts?: { features?: number }): string | undefined {
   if (!abducoSupported()) return undefined // POSIX-only source (forkpty)
+  // A lower `features` builds the same source with podium's newer patches
+  // compiled out — how the compatibility matrix gets an "old" abduco to test
+  // against without vendoring a second copy of upstream.
+  const features = opts?.features ?? ABDUCO_FEATURES
   const cc = findCompiler()
   if (!cc) return undefined
   mkdirSync(dirname(out), { recursive: true })
@@ -165,7 +171,7 @@ export function buildVendoredAbduco(out: string): string | undefined {
     '-DNDEBUG',
     '-DVERSION="0.6-podium"',
     // Stamps the binary so `--podium-features` can identify a podium build.
-    `-DPODIUM_ABDUCO_FEATURES=${ABDUCO_FEATURES}`,
+    `-DPODIUM_ABDUCO_FEATURES=${features}`,
     VENDOR_ABDUCO_C,
     '-o',
     out,

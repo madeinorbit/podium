@@ -29,7 +29,7 @@ import {
   scopeBudgetProperties,
   sliceBudgetArgv,
 } from '@podium/runtime/scope'
-import { resolveAbducoBin } from './abduco-bin.js'
+import { ABDUCO_FEATURES, resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
@@ -54,9 +54,38 @@ const log = createLogger('pty:abduco')
  * é/à/ö, far worse than the default), so the attach command routes through
  * `sh -c` with printf producing the byte.
  */
-export function abducoAttachArgv(label: string, bin = 'abduco'): string[] {
-  return ['sh', '-c', `exec ${shellQuote(bin)} -q -e "$(printf '\\377')" -a "$0"`, label]
+export function abducoAttachArgv(
+  label: string,
+  bin = 'abduco',
+  opts?: { sizeNeutral?: boolean },
+): string[] {
+  // -N (podium's abduco patch): attach without announcing a size. Only a binary
+  // that carries the feature understands it — an upstream abduco would reject it
+  // and the attach would fail, so the caller resolves that binary first.
+  const flags = `-q${opts?.sizeNeutral ? ' -N' : ''}`
+  return ['sh', '-c', `exec ${shellQuote(bin)} ${flags} -e "$(printf '\\377')" -a "$0"`, label]
 }
+
+/**
+ * The binary for an attach, plus whether it can actually be asked to attach
+ * size-neutrally. A caller that wants `-N` needs the patched build; when the
+ * machine only has an upstream abduco the attach still happens, with today's
+ * resize-on-attach behaviour, rather than failing outright.
+ */
+export function resolveAttachBin(sizeNeutral: boolean): { bin: string; sizeNeutral: boolean } {
+  if (!sizeNeutral) return { bin: resolveAbducoBin() ?? 'abduco', sizeNeutral: false }
+  const patched = resolveAbducoBin({ requireFeatures: ABDUCO_FEATURES })
+  if (patched) return { bin: patched, sizeNeutral: true }
+  if (!warnedNoSizeNeutral) {
+    warnedNoSizeNeutral = true
+    log.warn('no podium abduco build available — attaching will resize the running program', {
+      requiredFeatures: ABDUCO_FEATURES,
+    })
+  }
+  return { bin: resolveAbducoBin() ?? 'abduco', sizeNeutral: false }
+}
+
+let warnedNoSizeNeutral = false
 
 /** abduco runs the command via execvp from argv — no shell, no quoting needed. */
 export function abducoCreateArgv(label: string, cmd: string, args: string[] = []): string[] {
@@ -1025,7 +1054,11 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   // every later spawn/reattach readdir pays for them. Sweep first so the
   // lookups below see live sockets, not thousands of leftover `.abduco-<pid>`.
   reapStaleAbducoBindTemps(childEnv)
-  const attachTo = (socketPath: string, repaintOnAttach = true): AgentSession =>
+  const attachTo = (
+    socketPath: string,
+    repaintOnAttach = true,
+    sizeNeutral = false,
+  ): AgentSession =>
     attachAbducoAgent({
       label: opts.label,
       socketPath,
@@ -1034,6 +1067,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.backend ? { backend: opts.backend } : {}),
       repaintOnAttach,
+      sizeNeutral,
     })
   const attachCreated = async (): Promise<AgentSession> =>
     attachTo(await waitForAbducoSocket(opts.label, childEnv))
@@ -1050,7 +1084,9 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       label: opts.label,
       socketPath,
     })
-    return { ...attachTo(socketPath, !opts.preserveReplayOnAdopt), adopted: true }
+    // Adopting a LIVE master: its program is already running at a size of its
+    // own, so this attach must not move it.
+    return { ...attachTo(socketPath, !opts.preserveReplayOnAdopt, true), adopted: true }
   }
   const live = abducoSocketPath(opts.label, childEnv)
   if (live) return adopt(live)
@@ -1064,12 +1100,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   }
   if (childEnv.ABDUCO_SOCKET_DIR) {
     assertLinuxUnixSocketPath(
-      abducoSocketPathname(
-        childEnv.ABDUCO_SOCKET_DIR,
-        opts.label,
-        userInfo().username,
-        hostname(),
-      ),
+      abducoSocketPathname(childEnv.ABDUCO_SOCKET_DIR, opts.label, userInfo().username, hostname()),
       resolveInstanceId(childEnv),
       'an abduco session socket',
     )
@@ -1167,12 +1198,23 @@ export function attachAbducoAgent(opts: {
    * Fresh attaches default true; explicit redraw remains available afterward.
    */
   repaintOnAttach?: boolean
+  /**
+   * Attach without announcing a size (`-N`): the running program is neither
+   * resized nor signalled by this attach, whatever cols/rows the attach pty is
+   * given. Every attach to an ALREADY RUNNING program wants this — a reconnect
+   * is not a viewer asking for a size, and the caller's last-known size may be
+   * stale. The exception is the attach right after a create: the master's pty is
+   * forked at abduco's own default (80x25, it has no tty), and that first
+   * attach's resize packet is the only thing that moves the program to the
+   * requested size [spec:SP-6144].
+   */
+  sizeNeutral?: boolean
   backend?: PtyBackend
 }): AgentSession {
-  const [cmd, ...args] = abducoAttachArgv(
-    opts.socketPath ?? opts.label,
-    resolveAbducoBin() ?? 'abduco',
-  )
+  const attach = resolveAttachBin(opts.sizeNeutral ?? false)
+  const [cmd, ...args] = abducoAttachArgv(opts.socketPath ?? opts.label, attach.bin, {
+    sizeNeutral: attach.sizeNeutral,
+  })
   const backend = opts.backend ?? defaultPtyBackend()
   const proc = backend.spawn({
     file: cmd as string,
