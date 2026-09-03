@@ -680,18 +680,49 @@ describe('ADR 2 D7 — replica heal and re-bootstrap never drop the outbox', () 
     // round 1 pointed out that a future `destroy`/`flush`, or a deletion slipped
     // inside a maintenance path, sails straight through a regex over method
     // names. The primary guard is structural — every id that disappears from a
-    // draft must carry one of D9 invariant 1's two licences (see the
+    // draft must carry one of the `RemovalLicence` arms (see the
     // "removal without a licence" case below). Both are kept: the cheap one
     // catches the obvious naming, the structural one catches the rest.
     const surface = Object.getOwnPropertyNames(Outbox.prototype).filter((n) => n !== 'constructor')
     expect(
       surface.filter((n) => /rebootstrap|rescope|epoch|cache|clear|reset|wipe|drop/i.test(n)),
     ).toEqual([])
-    // And the only two removals that exist are D9 invariant 1's two licences.
+    // And every removal that exists claims one of D9 invariant 1's licences
+    // (`RemovalLicence`, outbox.ts). Adding a name to this list is a decision,
+    // not a formality: argue it back to invariant 1 first, here, in writing.
     expect(surface.filter((n) => /retire|purge/i.test(n)).sort()).toEqual([
+      // Invariant 1's USER-ACTION arm. The row goes only after the user's own
+      // discard is already durable — two steps, so the decision survives a
+      // crash between them.
       'purgeCancelled',
+      // Invariant 1's APPLIED-RETIREMENT arm, in bulk and one at a time:
+      // covering truth landed, so the entry's work is in the replica already.
       'retireAllApplied',
       'retireApplied',
+      // POD-827, licence `automatic-bookkeeping`. Reviewed against invariant 1
+      // and kept — NOT a third exit for authored work:
+      //
+      //  - Its subject is never authored content. It refuses any state but
+      //    `dead-letter`, and the only caller (kernel-outbox.ts
+      //    `discardAutomaticDeadLetters`) selects by `shouldParkDeadLetter`
+      //    (wiring.ts), which parks anything carrying the author's own words,
+      //    and fails closed to `recover` for a kind it does not know. What is
+      //    left is machine-emitted bookkeeping — today `issues.markRead` from
+      //    the foreground reaction — and refused writes with no typed words,
+      //    which revert-and-toast by the product decision that predates this.
+      //  - It is not the SILENT drop invariant 1 forbids by name: it emits its
+      //    own `retired-automatic` event, distinct from `cancelled` so nothing
+      //    misattributes it to the user, and the caller has already surfaced
+      //    the refusal.
+      //  - Leaving the row is not the safer option. The recovery surface hides
+      //    these entries behind that same predicate, so a row nobody can act on
+      //    and nothing can remove wedges its partition for ever — ADR 3 D12,
+      //    and the measured POD-785 incident.
+      //
+      // What is NOT licensed, and is the line to hold: a rights refusal on
+      // authored work. Dropping that is ADR 3 amendment 1's named violation of
+      // this invariant; it dead-letters with a reason instead.
+      'retireAutomaticBookkeeping',
     ])
   })
 
