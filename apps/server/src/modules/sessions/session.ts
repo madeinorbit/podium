@@ -1009,6 +1009,11 @@ export class Session {
       controllerId: this.terminal.controllerId,
       geometry: { ...this.terminal.geometry },
       geometryState: this.geometryState(),
+      // Only when there is something to report (POD-3239 B6).
+      ...(this.terminal.requestsGated > 0 ? { requestsGated: this.terminal.requestsGated } : {}),
+      ...(this.terminal.requestsDuplicate > 0
+        ? { requestsDuplicate: this.terminal.requestsDuplicate }
+        : {}),
       epoch: this.terminal.epoch,
       clientCount: this.terminal.clientCount,
       createdAt: this.createdAt,

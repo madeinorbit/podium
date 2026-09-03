@@ -396,6 +396,19 @@ export const SessionMetaEntity = z.object({
   /** What `geometry` above is WORTH — see {@link GeometryState}. Absent from an
    *  older server, which a reader reads as `unknown`. */
   geometryState: GeometryState.optional(),
+  /**
+   * HOW MANY VIEWPORT REQUESTS THIS SESSION REFUSED, and how many it rejected as
+   * duplicates (POD-3239 B6). Omitted when zero — a session that has refused
+   * nothing says nothing — which is also what keeps them additive for a reader
+   * that has never seen them.
+   *
+   * The whole point of the pair is that these refusals used to be invisible: the
+   * server returned without a broadcast, without a daemon frame and without
+   * telling the client anything, so a pane wrongly stuck at a stale grid looked
+   * exactly like one that had never asked.
+   */
+  requestsGated: z.number().int().nonnegative().optional(),
+  requestsDuplicate: z.number().int().nonnegative().optional(),
   epoch: z.number().int().nonnegative(),
   clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601
