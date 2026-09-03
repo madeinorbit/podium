@@ -55,6 +55,7 @@ import {
   SnapshotVerifier,
   type SnapshotVerifierDeps,
 } from './migrations/snapshot-verifier'
+import { syncServerTables } from './migrations/sync-server-tables'
 import { OperationStore } from './modules/operations/store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
@@ -269,7 +270,7 @@ export class SessionStore {
     this.approvals = new ApprovalsRepository(this.db)
     this.interactions = new InteractionsRepository(this.db)
     this.conversations = new ConversationsRepository(this.db, this.hostMachineId)
-    this.sync = new SyncRepository(this.db)
+    this.sync = new SyncRepository(this.db, syncServerTables)
     this.auth = new AuthRepository(this.db)
     this.superagent = new SuperagentRepository(this.db)
     this.settings = new SettingsRepository(this.db)

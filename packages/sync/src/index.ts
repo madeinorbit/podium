@@ -99,6 +99,14 @@ export * from './outbox'
 export * from './replica/index'
 export * from './adapters/sqlite/sync-repository'
 /**
+ * The shape of the two server-owned tables `SyncRepository` takes (POD-3249).
+ * `queued_messages` and `upstream_outbox` are declared in `apps/server`'s
+ * schema, which stays the one declaration; a package cannot import that, so this
+ * describes only what the adapter reads and the composition root supplies the
+ * objects.
+ */
+export * from './adapters/sqlite/server-tables'
+/**
  * The WEB replica storage adapter (POD-374) — ADR 6 D1's transactional
  * IndexedDB, as a sibling of the SQLite adapter and held to the same rule 11:
  * DOM is named there and nowhere else in this package.

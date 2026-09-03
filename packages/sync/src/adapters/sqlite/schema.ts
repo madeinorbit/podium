@@ -16,7 +16,11 @@
  *                                  `upstream_outbox` is the node→hub forwarder's;
  *                                  both remain in `apps/server`'s schema even
  *                                  though this adapter's repository reads them,
- *                                  because reading a table is not owning it.
+ *                                  because reading a table is not owning it. A
+ *                                  package cannot import `apps/server`, so the
+ *                                  composition root hands those two objects to
+ *                                  `SyncRepository` instead (POD-3249; see
+ *                                  `./server-tables.ts`).
  *
  * ---------------------------------------------------------------------------
  * HOW TWO SCHEMA FILES FEED ONE JOURNAL — the fork the ADR asked to be resolved
@@ -44,9 +48,12 @@
  * change safe to ship separately from the column addition below.
  *
  * Like `apps/server/src/migrations/schema.ts`, this is an AUTHORING import of
- * drizzle-orm (a devDependency). Runtime code never imports drizzle-orm — the
- * applier is `apps/server/src/migrations/drizzle-runner.ts`, and this adapter's
- * repository speaks hand-written SQL over the shared connection.
+ * drizzle-orm: the applier is `apps/server/src/migrations/drizzle-runner.ts`,
+ * and this adapter's repository still speaks hand-written SQL over the shared
+ * connection until POD-3221 Stage A converts it. It does import drizzle-orm for
+ * one thing already — resolving the names of the two injected server-owned
+ * tables (POD-3249) — which is why `drizzle-orm` is a dependency of this package
+ * rather than a devDependency.
  */
 
 import type { MutationId } from '@podium/model'
