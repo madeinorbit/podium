@@ -468,6 +468,32 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
   Stage A exit.
 - Full-text search sits behind a `SearchIndex` port with the FTS5 implementation; whole raw
   statements are allowed there only, with parameters bound.
+
+  BLOCKED, AND THIS IS A DECISION FOR THE HUMAN (POD-3251, 2026-09-03). **FTS5 does not exist on
+  Turso as provisioned.** Both databases report `PRAGMA journal_mode = mvcc` and refuse every
+  virtual table: `Tursodb error: Parse error: Virtual tables are not supported in MVCC mode`.
+  Verified independently by the coordinator with a control — a plain `CREATE TABLE` on the same
+  connection succeeds, a `CREATE VIRTUAL TABLE ... USING fts5` is refused. So `conversations_fts`
+  and `transcript_fts` cannot be created on the hosted backend.
+
+  It does not break the boot: `store/conversations/index.ts` catches and falls back to `LIKE`. That
+  fallback is the problem, not the safety net — on Turso it becomes a remote `LIKE` scan over 3,528
+  conversations and 32,697 transcript rows, so command-palette and transcript search would be
+  unusable rather than merely slower.
+
+  Also refused on the same databases: `PRAGMA journal_mode = WAL`, `wal_checkpoint`,
+  `busy_timeout`. Accepted: `foreign_keys` (per connection, reads back), `defer_foreign_keys`,
+  `synchronous`, `user_version`, `table_info`. And the WebSocket transport does not exist at all —
+  a `wss` upgrade is answered `400 protocol upgrade not supported`, so hrana over HTTP is the only
+  transport and the spec's "HTTP and WebSocket transports" has one arm that cannot be measured.
+
+  THE OPEN QUESTION, which is a platform question before it is a design one: is a non-MVCC or
+  legacy sqld Turso database available on this plan? If yes, this clause stands unchanged and the
+  spike re-runs against one. If no, E.5 needs a different `SearchIndex` implementation for the
+  Turso backend, and that is a scope change the human must take, not the coordinator. Until it is
+  answered, treat E.5's full-text arm as unspecified. The good news either way: the migration chain
+  applies clean to a fresh remote database — 97 migrations, 587 statements, 685 round trips, 0
+  failures, 136 s — and `__drizzle_migrations` reads back remotely at 97/97.
 - The Turso backend boots a fresh database, upgrades and reopens an imported one, runs the full
   store and service suites against the local Turso server in CI and once against a real Turso
   database, shuts down cleanly with a parked transaction, survives network loss
