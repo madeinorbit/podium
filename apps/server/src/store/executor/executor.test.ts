@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverSession, QueryClient, Statement, StoreDriver } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import {
+  AbandonedNestedTransactionError,
   ExclusiveInsideLeaseError,
   ParallelNestedTransactionError,
   PostCommitError,
@@ -689,6 +690,75 @@ describe('the batch capability', () => {
     expect(await noteBodies(h.db)).toEqual(['a', 'b'])
   })
 
+  it('rolls a caught batch failure back inside an open transaction, prefix and all', async () => {
+    // WOULD CATCH the batch that treats the ENCLOSING transaction as its
+    // boundary: inside `transact` the statements ran in a bare loop, so a body
+    // that CAUGHT the failure and carried on committed the prefix that had
+    // already applied. "All of it applies or none of it does" is a property of
+    // the batch, not of whatever transaction happens to be open around it.
+    const h = open()
+    await h.executor.transact(async (tx) => {
+      await expect(
+        tx.drizzle.batch([run('partial'), { sql: insert, params: [null], method: 'run' }]),
+      ).rejects.toThrow()
+      // The body catches and carries on, which is the whole point: the outer
+      // rollback is not what makes the batch atomic.
+      await tx.drizzle.run(insert, 'after')
+      await tx.drizzle.batch([run('later')])
+    })
+
+    expect(await noteBodies(h.db), 'the caught batch left nothing behind').toEqual([
+      'after',
+      'later',
+    ])
+    // And it is still ONE driver call, with the transaction's own boundaries
+    // unchanged: the batch's savepoint is the driver's business, not a frame.
+    expect(h.log.entries.filter((entry) => entry.includes('BATCH'))).toEqual([
+      's1:BATCH[2]',
+      's1:BATCH[1]',
+    ])
+    expect(h.log.boundaries()).toEqual(['s1:BEGIN IMMEDIATE', 's1:COMMIT'])
+  })
+
+  it('refuses a root-bound ambient batch that resumes after the commit', async () => {
+    // WOULD CATCH the ambient BATCH router losing its token check. The test
+    // below leaks a TRANSACTION-bound handle, so it drives `frameBatchRouter`
+    // and says nothing about the root client's transaction branch — which is
+    // the branch a root-bound `store.drizzle.batch` inside a body takes, and
+    // the one a mutation could empty while all 59 tests stayed green.
+    const commitParked = barrier()
+    const escaped = barrier()
+    const driver = asyncFakeDriver({
+      hooks: {
+        commit: async () => {
+          await commitParked.wait()
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let leaked: Promise<unknown> | undefined
+
+    const done = executor.transact(async (tx) => {
+      // The ROOT client, resumed from the body's own context: the ambient
+      // router's transaction branch, not the frame-bound one.
+      leaked = escaped.wait().then(() => executor.drizzle.batch([run('late')]))
+      await tx.drizzle.run(insert, 'body')
+    })
+
+    await commitParked.reached()
+    escaped.release()
+    await settle()
+    await expect(leaked).rejects.toBeInstanceOf(StaleTransactionError)
+
+    commitParked.release()
+    await done
+
+    // Never reached the session: a batch that ran during the commit would still
+    // have returned results, so only the call log can say this.
+    expect(driver.calls.filter((call) => call.includes(':batch['))).toEqual([])
+    await executor.close()
+  })
+
   it('refuses a batch on a transaction whose scope has ended', async () => {
     // The token rule is not per operation shape: a batch is as capable of
     // running after its commit as a statement is.
@@ -774,6 +844,115 @@ describe('the declared write budget and busy retry', () => {
     expect(attempts).toBe(1)
     expect(slept).toEqual([])
     await scheduler.close()
+  })
+
+  /**
+   * THROUGH `createStoreExecutor`, NOT THROUGH A `Lease`.
+   *
+   * The three tests above build a scheduler and call `Lease.begin` themselves.
+   * That proves the retry EXISTS; it cannot prove the executor uses it, and a
+   * `transact` that called `lease.session.begin` instead would drop the
+   * declared policy from every executor transaction with all of them still
+   * green. Same for the implicit writes, which never pass through `begin` at
+   * all. So these drive the production entry points and assert the exact
+   * driver call sequence, which is the only place a retry is visible.
+   */
+  const write = (body: string): Statement => ({ sql: insert, params: [body], method: 'run' })
+
+  it('opens the executor’s own transaction through the lease, so a busy BEGIN retries', async () => {
+    let attempts = 0
+    const driver = asyncFakeDriver({
+      limits: remoteLimits,
+      classify,
+      hooks: {
+        begin: async () => {
+          if (++attempts < 3) throw busy
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    const result = await executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'body')
+      return 'committed'
+    })
+
+    expect(result).toBe('committed')
+    // Three BEGINs on ONE session, then the body: the retry is above the
+    // transaction, so nothing of the body ran before the last attempt.
+    expect(driver.calls).toEqual([
+      'open:write',
+      's1:begin:write',
+      's1:begin:write',
+      's1:begin:write',
+      `s1:execute:${insert}`,
+      's1:commit',
+      's1:close',
+    ])
+    await executor.close()
+  })
+
+  it('retries a busy root autocommit write and a busy root batch, on the executor’s client', async () => {
+    // An implicit atomic write takes the write lock inside the driver call, so
+    // on Turso this is the COMMON busy path — and it never touches `begin`.
+    // Retrying it is safe for exactly one reason: a busy classification is
+    // raised at acquisition, before any of the unit applied, and the unit is
+    // atomic, so a second attempt cannot double-apply a prefix.
+    let statementAttempts = 0
+    let batchAttempts = 0
+    const driver = asyncFakeDriver({
+      limits: remoteLimits,
+      classify,
+      hooks: {
+        execute: async () => {
+          if (++statementAttempts < 2) throw busy
+        },
+        executeBatch: async () => {
+          if (++batchAttempts < 2) throw busy
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    await executor.drizzle.run(insert, 'root')
+    await executor.drizzle.batch([write('a'), write('b')])
+
+    expect(statementAttempts).toBe(2)
+    expect(batchAttempts).toBe(2)
+    expect(driver.calls).toEqual([
+      'open:write',
+      `s1:execute:${insert}`,
+      `s1:execute:${insert}`,
+      's1:close',
+      'open:write',
+      's2:batch[2]',
+      's2:batch[2]',
+      's2:close',
+    ])
+    await executor.close()
+  })
+
+  it('does not retry an implicit root write the driver calls fatal', async () => {
+    // The bound matters as much as the retry: `TRANSACTION_CLOSED` and any
+    // ambiguous post-application failure are attempted exactly once, because a
+    // retry of work that may already have applied is worse than a failure.
+    let attempts = 0
+    const driver = asyncFakeDriver({
+      limits: remoteLimits,
+      classify,
+      hooks: {
+        executeBatch: async () => {
+          attempts++
+          throw new Error('TRANSACTION_CLOSED')
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    await expect(executor.drizzle.batch([write('a')])).rejects.toThrow('TRANSACTION_CLOSED')
+    expect(attempts).toBe(1)
+    expect(driver.calls).toEqual(['open:write', 's1:batch[1]', 's1:close'])
+    await executor.close()
   })
 
   it('retries a busy acquisition, and stops at the declared deadline', async () => {
@@ -1151,6 +1330,218 @@ describe('the token during an asynchronous commit', () => {
       `s2:execute:${insert}`,
     ])
     await executor.close()
+  })
+})
+
+describe('scopes that outlive the lease they run on', () => {
+  it('refuses to commit over a nested scope the body never awaited, and refuses that scope', async () => {
+    // WOULD CATCH the dropped nested transaction. `runNested` claims the child
+    // before its first await, so the parent can return, commit and hand the
+    // connection back while the child is still parked on `enterSavepoint` —
+    // and the child's own token is still valid, because nothing closed it.
+    const savepointParked = barrier()
+    const driver = asyncFakeDriver({
+      hooks: {
+        enterSavepoint: async () => {
+          await savepointParked.wait()
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let dropped: Promise<unknown> | undefined
+    let nestedBodyRan = false
+
+    const done = executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'outer')
+      // Started and never awaited: the body returns out from under it.
+      dropped = tx.transact(async (inner) => {
+        nestedBodyRan = true
+        await inner.drizzle.run(insert, 'nested')
+      })
+    })
+
+    await expect(done).rejects.toBeInstanceOf(AbandonedNestedTransactionError)
+
+    savepointParked.release()
+    await expect(dropped).rejects.toBeInstanceOf(StaleTransactionError)
+    await settle()
+
+    // The body never RAN, not merely "its statements were refused": the
+    // savepoint resolved into a unit that had already rolled back, and a body
+    // with a side effect outside the store would otherwise have taken it.
+    expect(nestedBodyRan).toBe(false)
+
+    // ROLLBACK, not COMMIT, and the nested body's statement never reached the
+    // session — which results cannot show, because a statement issued on a
+    // released session still returns rows.
+    expect(driver.calls).toEqual([
+      'open:write',
+      's1:begin:write',
+      `s1:execute:${insert}`,
+      's1:enter:podium_sp_1',
+      's1:rollback',
+      's1:close',
+    ])
+    await executor.close()
+  })
+
+  it('refuses an abandoned nested body that was already running when its parent gave up', async () => {
+    // WOULD CATCH the frame close that does not CASCADE. The test above parks
+    // before the savepoint opens, so the nested scope is refused by its
+    // parent's state; this one parks INSIDE the body, past that check, where
+    // the only thing standing between a resumed statement and a released
+    // session is the nested frame's own token — which nobody closes, because
+    // nobody is left to close it.
+    const insideNested = barrier()
+    const driver = asyncFakeDriver()
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let dropped: Promise<unknown> | undefined
+
+    const done = executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'outer')
+      dropped = tx.transact(async (inner) => {
+        await insideNested.wait()
+        await inner.drizzle.run(insert, 'nested')
+      })
+      // Let the nested body start and reach its barrier, then return out from
+      // under it without awaiting it.
+      await insideNested.reached()
+    })
+
+    await expect(done).rejects.toBeInstanceOf(AbandonedNestedTransactionError)
+
+    insideNested.release()
+    await expect(dropped).rejects.toBeInstanceOf(StaleTransactionError)
+    await settle()
+
+    // The savepoint opened and the nested body ran, and its statement STILL
+    // never reached the session.
+    expect(driver.calls).toEqual([
+      'open:write',
+      's1:begin:write',
+      `s1:execute:${insert}`,
+      's1:enter:podium_sp_1',
+      's1:rollback',
+      's1:close',
+    ])
+    await executor.close()
+  })
+
+  it('refuses a durable follow-up’s transaction whose promise the follow-up dropped', async () => {
+    // WOULD CATCH the same escape one phase later. The drain can only wait for
+    // what a step RETURNS, so a follow-up that starts a transaction and drops
+    // its promise resumes after the drain ended and the lease went back to the
+    // scheduler — and then begins, writes and commits on it.
+    const beginParked = barrier()
+    let begins = 0
+    const driver = asyncFakeDriver({
+      hooks: {
+        begin: async () => {
+          // The outer transaction's own BEGIN must not park; the follow-up's must.
+          if (++begins === 2) await beginParked.wait()
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let dropped: Promise<unknown> | undefined
+
+    await executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'body')
+      postCommit().followUp(() => {
+        dropped = executor.transact(async (inner) => {
+          await inner.drizzle.run(insert, 'follow-up')
+        })
+      }, 'leak')
+    })
+
+    expect(driver.closes, 'the drain ended and the lease is back with the scheduler').toBe(1)
+
+    beginParked.release()
+    await expect(dropped).rejects.toBeInstanceOf(StaleTransactionError)
+    await settle()
+
+    // The dropped transaction's BEGIN was issued while the drain still held the
+    // lease; nothing after it was. No second execute, and no second COMMIT on a
+    // connection somebody else may already hold.
+    expect(driver.calls).toEqual([
+      'open:write',
+      's1:begin:write',
+      `s1:execute:${insert}`,
+      's1:commit',
+      's1:begin:write',
+      's1:close',
+    ])
+    await executor.close()
+  })
+
+  it('refuses a root write that was already queued when a commit application failed', async () => {
+    // WOULD CATCH the unfenced queue. Both ambient routers check health before
+    // they ask for a slot, and then wait in admission: a write queued behind
+    // the very transaction whose mechanism-1 step fails got its slot after the
+    // store became unhealthy and committed into it anyway.
+    const applying = barrier()
+    const diverged = new Error('the projection no longer matches the database')
+    const driver = asyncFakeDriver()
+    const executor = createStoreExecutor<QueryClient>({ driver, onUnhealthy: () => undefined })
+
+    const first = executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'first')
+      postCommit().applyCommit(async () => {
+        await applying.wait()
+        throw diverged
+      }, 'fold')
+    })
+
+    // The lease is held by the parked commit application, so this WAITS.
+    await applying.reached()
+    const queued = executor.drizzle.run(insert, 'queued')
+    await settle()
+    applying.release()
+
+    await expect(first).rejects.toMatchObject({ committed: true })
+    await expect(first).rejects.toBeInstanceOf(StoreUnhealthyError)
+    // Refused, and refused as NOT committed: nothing of it was written.
+    await expect(queued).rejects.toBeInstanceOf(StoreUnhealthyError)
+    await expect(queued).rejects.toMatchObject({ committed: false })
+    expect(executor.health.healthy).toBe(false)
+
+    // It got its slot and its connection, and was turned away there: one
+    // execute in the whole log, the first transaction's.
+    expect(driver.calls).toEqual([
+      'open:write',
+      's1:begin:write',
+      `s1:execute:${insert}`,
+      's1:commit',
+      's1:close',
+      'open:write',
+      's2:close',
+    ])
+    await executor.close()
+  })
+
+  it('refuses the committed-view read from a context that resumes after the commit', async () => {
+    // WOULD CATCH `outsideTransaction` branching on the transaction scope
+    // without checking its token. The context is permission to look outside a
+    // transaction that is still OPEN; a continuation the body left in flight
+    // carries that context with it and would otherwise read the committed view
+    // successfully, long after "nothing runs after its commit".
+    const h = open()
+    const escaped = barrier()
+    let leaked: Promise<unknown> | undefined
+
+    await h.executor.transact(async (tx) => {
+      leaked = escaped
+        .wait()
+        .then(() => h.executor.outsideTransaction(async (view) => noteBodies(view.drizzle)))
+      await tx.drizzle.run(insert, 'committed')
+    })
+
+    escaped.release()
+    await expect(leaked).rejects.toBeInstanceOf(StaleTransactionError)
+    // And no reader connection was ever opened: the refusal is at the token,
+    // not a lucky failure further in.
+    expect(h.log.entries.filter((entry) => entry.startsWith('r'))).toEqual([])
+    expect(await noteBodies(h.db)).toEqual(['committed'])
   })
 })
 

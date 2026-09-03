@@ -61,10 +61,24 @@ export interface TransactionFrame {
   readonly token: TransactionToken
   readonly unit: TransactionUnit
   readonly postCommit: PostCommitRegistry
+  /**
+   * An EXTERNAL lifetime this frame is bound to, on top of its own token.
+   *
+   * A phase-3 transaction runs on the lease the post-commit drain holds, and
+   * that drain can end while one of the transaction's own awaits is still in
+   * flight — a follow-up that started a `transact` and did not return its
+   * promise. The frame's `active` cannot see that: nothing closes the frame,
+   * because nobody told it. So the frame carries the scope's own liveness and
+   * refuses with it. The root path passes {@link ALWAYS_ALIVE}.
+   */
+  readonly alive: () => boolean
   /** The open nested scope, if any. Only the innermost frame is addressable. */
   child: TransactionFrame | undefined
   active: boolean
 }
+
+/** A frame with no lifetime beyond its own token: everything at the root. */
+export const ALWAYS_ALIVE = (): boolean => true
 
 export type StoreScope =
   | { readonly kind: 'root' }
@@ -115,6 +129,7 @@ export function createFrame(input: {
   lease: Lease
   parent: TransactionFrame | undefined
   postCommit: PostCommitRegistry
+  alive?: () => boolean
 }): TransactionFrame {
   const id = nextFrameId++
   const frame: TransactionFrame = {
@@ -125,6 +140,8 @@ export function createFrame(input: {
     parent: input.parent,
     unit: input.parent ? input.parent.unit : { poisoned: undefined },
     postCommit: input.postCommit,
+    // A savepoint inherits its parent's: the whole unit dies with the lease.
+    alive: input.alive ?? input.parent?.alive ?? ALWAYS_ALIVE,
     child: undefined,
     active: true,
     token: {
@@ -157,6 +174,13 @@ export function assertAddressable(frame: TransactionFrame): void {
         'A promise the body did not await is the usual cause.',
     )
   }
+  if (!frame.alive()) {
+    throw new StaleTransactionError(
+      `transaction ${frame.id} ran on a lease that has been released: the post-commit drain ` +
+        'that held the connection ended while this transaction was still in flight. A ' +
+        'follow-up that did not return its transaction promise is the usual cause.',
+    )
+  }
   if (frame.child) {
     throw new ParallelNestedTransactionError(
       `transaction ${frame.id} has an open nested scope (${frame.child.id}); only the ` +
@@ -174,8 +198,19 @@ export function poisonUnit(frame: TransactionFrame, cause: unknown): void {
   if (frame.unit.poisoned === undefined) frame.unit.poisoned = cause
 }
 
-/** Close a frame. Called before its body's result is returned, always. */
+/**
+ * Close a frame. Called before its body's result is returned, always.
+ *
+ * It CASCADES, because a nested scope whose promise the body dropped is never
+ * closed by anyone: `runNested` claimed it on the parent and then parked. Left
+ * open it stays addressable, so a statement resuming inside it passes the token
+ * check and reaches a session its parent has already committed and handed back
+ * to the scheduler. Closing the chain is what makes that a refusal.
+ */
 export function closeFrame(frame: TransactionFrame): void {
   frame.active = false
+  for (let abandoned = frame.child; abandoned; abandoned = abandoned.child) {
+    abandoned.active = false
+  }
   if (frame.parent?.child === frame) frame.parent.child = undefined
 }
