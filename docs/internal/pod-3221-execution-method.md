@@ -152,6 +152,25 @@ RULE: after any rebase or merge that touches either file, run the generator and 
 Never hand-resolve a conflict in them. The same reasoning applies to any generated artefact whose
 consumer iterates an explicit list.
 
+TWO BROAD MECHANICAL PASSES OVER ONE FILE SET MUST BE SERIALIZED, AND THE SECOND ONE REGENERATES
+(coordinator's scheduling defect, 2026-09-03). POD-3262 routed 481 test constructions through a
+helper and inserted 4,278 awaits across 158 test files, all from a compiler-API pass. While it ran,
+POD-3256 landed and rewrote 154 test files with 1,840 insertions. The two overlapped in 51 files and
+the merge conflicted in every one.
+
+Nothing was wrong with either commit. The defect is mine: I let two generated passes over the same
+file set run concurrently, which guarantees a conflict whose resolution nobody can check. A
+three-way merge of one pass's output against another's produces a file no tool ever emitted, and for
+an await-insertion the reviewer's rule — a changed test line differs only by `await`, `async` or the
+helper rename — stops being decidable, which was the entire reason for landing the awaits early.
+
+RULE, TWO PARTS. First, before starting a broad mechanical pass, check what else is live against
+those files and sequence them; a pass over the test suite holds the lock on the test suite. Second,
+when a generated pass does conflict, the loser REGENERATES against the new tip rather than resolving
+— reset to the tip, re-run the pass on the new content, and RE-DERIVE the refusal set from the
+compiler rather than reusing the previous one as a list, because the other pass moved code and a
+site that had to stay synchronous may not exist any more.
+
 A NAME-MATCHING SCAN CANNOT CARRY A COMPLETENESS GATE (POD-3257, 2026-09-03). This method's first
 principle is that completeness comes from the compiler and a lint, never from grep — and here is the
 concrete proof, found by a worker on its own work rather than by a reviewer.
