@@ -545,6 +545,16 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    only ever drives a synchronous local driver is blind to the entire class of async-boundary
    defect this epic exists to introduce; build the parking fake before trusting a green.
 
+   DO NOT DELETE `SessionStore.tableWrites` AS DEAD CODE (POD-3247, landed 2026-09-03). The
+   per-table write announcement has NO production caller, because POD-3246 retired the one writer it
+   was built for — the boot machine-identity upgrade, which wrote `repos` on the raw handle. The
+   writer went; the SHAPE did not. Every statement the query layer runs through the executor is the
+   same shape: a write to a table some repository holds a cached read of, issued by something that
+   does not know which caches exist. Its two behavioural tests construct a repository directly and
+   raise the announcement with no caller involved, so it is exercised rather than merely present.
+   A reviewer meeting an uncalled mechanism should read this paragraph before proposing its removal;
+   the conversion waves are what will call it.
+
    THE INTERFACE SHAPE THAT MATTERS DOWNSTREAM: the query client is built from a ROUTER, one
    async callback per statement. That is the only shape both drizzle drivers accept — sqlite-proxy
    takes exactly sql/params/method — and it is what makes ambient routing possible at all. E.5's
