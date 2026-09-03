@@ -73,6 +73,8 @@ export interface Scheduler {
   close(): Promise<void>
 }
 
+type LeaseOutcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown }
+
 interface Waiter {
   readonly lane: Lane
   readonly start: () => void
@@ -145,35 +147,82 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     if (state !== 'accepting') throw new SchedulerClosedError(`scheduler is ${state}`)
     const queued = admit(lane)
     if (queued) await queued
-    const session = await driver.open(lane)
-    const startedAt = now()
-    const lease: Lease = {
-      id: nextLeaseId++,
-      lane,
-      session,
-      heldMs: () => now() - startedAt,
+    /**
+     * THE SLOT IS HELD FROM HERE, so everything that can reject is inside the
+     * release `finally` — acquiring the connection as much as the body and
+     * returning it. `driver.open` is a network call on the remote driver and
+     * `close` returns a connection to a pool; either can reject on a blip. A
+     * rejection that skipped the release would leave the slot taken forever
+     * while the scheduler still reported `accepting`: every later write and
+     * `close()` would wait for a lease nobody holds. One transient failure
+     * would wedge the server.
+     */
+    let session: DriverSession | undefined
+    // Acquire and run, and never throw out of it: the caller below owns the
+    // release, and a throw here is exactly what used to skip it.
+    const acquireAndRun = async (): Promise<LeaseOutcome<T>> => {
+      try {
+        session = await driver.open(lane)
+        const startedAt = now()
+        const lease: Lease = {
+          id: nextLeaseId++,
+          lane,
+          session,
+          heldMs: () => now() - startedAt,
+        }
+        const watchdog = options.watchdog
+        // `unref` so a forgotten timer can never hold a process open — the
+        // watchdog is a report, never a deadline.
+        const timer = watchdog
+          ? setTimeout(() => {
+              watchdog.report({
+                leaseId: lease.id,
+                lane,
+                heldMs: lease.heldMs(),
+                budgetMs: watchdog.budgetMs,
+              })
+            }, watchdog.budgetMs)
+          : undefined
+        timer?.unref?.()
+        try {
+          return { ok: true, value: await body(lease) }
+        } finally {
+          if (timer) clearTimeout(timer)
+        }
+      } catch (error) {
+        return { ok: false, error }
+      }
     }
-    const watchdog = options.watchdog
-    // `unref` so a forgotten timer can never hold a process open — the watchdog
-    // is a report, never a deadline.
-    const timer = watchdog
-      ? setTimeout(() => {
-          watchdog.report({
-            leaseId: lease.id,
-            lane,
-            heldMs: lease.heldMs(),
-            budgetMs: watchdog.budgetMs,
-          })
-        }, watchdog.budgetMs)
-      : undefined
-    timer?.unref?.()
+    let outcome = await acquireAndRun()
     try {
-      return await body(lease)
+      // Only a session that was actually acquired is closed.
+      if (session) await session.close()
+    } catch (closeError) {
+      outcome = closeOutcome(outcome, closeError)
     } finally {
-      if (timer) clearTimeout(timer)
-      await session.close()
       give(lane)
       pump()
+    }
+    if (outcome.ok) return outcome.value
+    throw outcome.error
+  }
+
+  /**
+   * Returning the connection failed. Neither failure may be dropped: the body's
+   * is what the caller asked about, and a connection that did not come back is
+   * the driver's problem, so a double failure is reported as both.
+   */
+  function closeOutcome<T>(
+    outcome: LeaseOutcome<T>,
+    closeError: unknown,
+  ): { ok: false; error: unknown } {
+    if (outcome.ok) return { ok: false, error: closeError }
+    return {
+      ok: false,
+      error: new AggregateError(
+        [outcome.error, closeError],
+        'the lease body failed and returning the connection failed',
+      ),
     }
   }
 
@@ -184,7 +233,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     run(lane, body) {
       return runLease(lane, body)
     },
-    async detachedRead(body) {
+    async detachedRead<T>(body: (session: DriverSession) => Promise<T>): Promise<T> {
       if (state === 'closed') throw new SchedulerClosedError('scheduler is closed')
       const openReader = driver.openReader
       if (!openReader) {
@@ -195,11 +244,19 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
         )
       }
       const session = await openReader.call(driver)
+      let outcome: LeaseOutcome<T>
       try {
-        return await body(session)
-      } finally {
-        await session.close()
+        outcome = { ok: true, value: await body(session) }
+      } catch (error) {
+        outcome = { ok: false, error }
       }
+      try {
+        await session.close()
+      } catch (closeError) {
+        outcome = closeOutcome(outcome, closeError)
+      }
+      if (outcome.ok) return outcome.value
+      throw outcome.error
     },
     onIdle(listener) {
       idleListeners.add(listener)

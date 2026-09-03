@@ -26,7 +26,7 @@ import {
 } from './errors'
 import { postCommit, type StoreExecutor } from './executor'
 import { createFrameFlusher } from './frame-flusher'
-import { barrier, type Harness, openHarness, settle } from './harness'
+import { asyncFakeDriver, barrier, type Harness, openHarness, settle } from './harness'
 import { createScheduler } from './scheduler'
 
 let harness: Harness | undefined
@@ -413,6 +413,121 @@ describe('the remote lane policy', () => {
     parked.release()
     await Promise.all([...reads, exclusive, behind])
     expect(order.slice(-2)).toEqual(['exclusive', 'behind'])
+    await scheduler.close()
+  })
+})
+
+/**
+ * The remote failures bun:sqlite cannot produce. `open` and `close` are network
+ * calls there, so both can reject, and the scheduler's slot is what a rejection
+ * must never take with it.
+ */
+describe('scheduler liveness under driver failure', () => {
+  async function within<T>(promise: Promise<T>, ms = 100): Promise<T | 'blocked'> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const guard = new Promise<'blocked'>((resolve) => {
+      timer = setTimeout(() => resolve('blocked'), ms)
+    })
+    try {
+      return await Promise.race([promise, guard])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  it('releases the slot when the driver’s open rejects', async () => {
+    // WOULD CATCH the wedge V1 reproduced: `take()` happens before `open()`, so
+    // a rejected connection acquisition — busy exhaustion, a network blip —
+    // keeps the write slot forever while the state still reads `accepting`.
+    const driver = asyncFakeDriver({
+      hooks: {
+        open: async (_lane, attempt) => {
+          if (attempt === 1) throw new Error('open failed')
+        },
+      },
+    })
+    const scheduler = createScheduler({ driver })
+
+    await expect(scheduler.run('write', async () => 'first')).rejects.toThrow('open failed')
+
+    expect(await within(scheduler.run('write', async () => 'second'))).toBe('second')
+    expect(scheduler.state).toBe('accepting')
+    expect(await within(scheduler.close())).not.toBe('blocked')
+  })
+
+  it('releases the slot when the session’s close rejects', async () => {
+    // The other end of the same lease. `close()` returns the connection; a
+    // rejection there skipped `give()` and `pump()` exactly as `open` did.
+    const driver = asyncFakeDriver({
+      hooks: {
+        close: async (attempt) => {
+          if (attempt === 1) throw new Error('close failed')
+        },
+      },
+    })
+    const scheduler = createScheduler({ driver })
+
+    await expect(scheduler.run('write', async () => 'first')).rejects.toThrow('close failed')
+
+    expect(await within(scheduler.run('write', async () => 'second'))).toBe('second')
+    expect(scheduler.state).toBe('accepting')
+    expect(await within(scheduler.close())).not.toBe('blocked')
+  })
+
+  it('keeps both failures when the body and the close both fail', async () => {
+    // Neither may be dropped: the body's failure is what the caller asked
+    // about, and a connection that never came back is the driver's problem.
+    const driver = asyncFakeDriver({
+      hooks: {
+        close: async (attempt) => {
+          if (attempt === 1) throw new Error('close failed')
+        },
+      },
+    })
+    const scheduler = createScheduler({ driver })
+
+    const failure = await scheduler
+      .run('write', async () => {
+        throw new Error('body failed')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors.map((error: Error) => error.message)).toEqual([
+      'body failed',
+      'close failed',
+    ])
+    expect(await within(scheduler.run('read', async () => 'after'))).toBe('after')
+    await scheduler.close()
+  })
+
+  it('lets a queued waiter through when the holder’s open rejects', async () => {
+    // The queued form of the same wedge: the second writer is already parked in
+    // the FIFO when the first lease fails to acquire its connection.
+    const parked = barrier()
+    const driver = asyncFakeDriver({
+      hooks: {
+        open: async (_lane, attempt) => {
+          if (attempt === 1) {
+            await parked.wait()
+            throw new Error('open failed')
+          }
+        },
+      },
+    })
+    const scheduler = createScheduler({ driver })
+
+    const first = scheduler.run('write', async () => 'first')
+    const queued = scheduler.run('write', async () => 'queued')
+    await parked.reached()
+    await settle()
+    parked.release()
+
+    await expect(first).rejects.toThrow('open failed')
+    expect(await within(queued)).toBe('queued')
     await scheduler.close()
   })
 })

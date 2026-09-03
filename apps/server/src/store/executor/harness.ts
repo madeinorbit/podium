@@ -18,7 +18,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { createBunSqliteDriver } from './bun-driver'
-import type { DriverSession, Lane, QueryClient, StoreDriver } from './driver'
+import type { DriverSession, Lane, QueryClient, Statement, StoreDriver } from './driver'
+import { queryClientOver } from './driver'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
 
 export interface Barrier {
@@ -123,6 +124,112 @@ function recordingDriver(
       : {}),
     client: (route) => inner.client(route),
     close: () => inner.close(),
+  }
+}
+
+/**
+ * A FULLY ASYNCHRONOUS driver with a hook on every operation, for the failures
+ * bun:sqlite cannot produce [POD-3310].
+ *
+ * bun:sqlite's boundaries are synchronous and infallible, so no test over it can
+ * open the gap the remote driver has at every one of them: `open` is a network
+ * call, `close` returns a connection to a pool, `commit` is held on the server,
+ * and any of them can reject or take arbitrarily long. Each hook may park (the
+ * test releases it), reject (the operation fails), or be absent (the operation
+ * succeeds immediately).
+ */
+export interface AsyncDriverHooks {
+  open?(lane: Lane, attempt: number): Promise<void>
+  begin?(lane: Lane): Promise<void>
+  execute?(statement: Statement): Promise<void>
+  commit?(attempt: number): Promise<void>
+  rollback?(): Promise<void>
+  close?(attempt: number): Promise<void>
+  enterSavepoint?(name: string): Promise<void>
+  releaseSavepoint?(name: string): Promise<void>
+  rollbackToSavepoint?(name: string): Promise<void>
+}
+
+export interface AsyncFakeDriver extends StoreDriver<QueryClient> {
+  /** Every operation, in order. */
+  readonly calls: readonly string[]
+  /** Sessions opened, and sessions whose `close` completed. */
+  readonly opens: number
+  readonly closes: number
+}
+
+export function asyncFakeDriver(
+  options: { hooks?: AsyncDriverHooks; readConcurrency?: number } = {},
+): AsyncFakeDriver {
+  const hooks = options.hooks ?? {}
+  const calls: string[] = []
+  let opens = 0
+  let closes = 0
+  // Driver-wide, not per session: the hook's `attempt` counts operations across
+  // the whole driver, so "fail the first close only" means what it says.
+  let closeAttempts = 0
+  let commitAttempts = 0
+  const run = { changes: 0, lastInsertRowid: 0 }
+  const makeSession = (): DriverSession => {
+    return {
+      async execute(statement) {
+        calls.push(`execute:${statement.sql}`)
+        await hooks.execute?.(statement)
+        return statement.method === 'run' ? { rows: [], run } : { rows: [] }
+      },
+      async begin(lane) {
+        calls.push(`begin:${lane}`)
+        await hooks.begin?.(lane)
+      },
+      async commit() {
+        calls.push('commit')
+        await hooks.commit?.(++commitAttempts)
+      },
+      async rollback() {
+        calls.push('rollback')
+        await hooks.rollback?.()
+      },
+      async enterSavepoint(name) {
+        calls.push(`enter:${name}`)
+        await hooks.enterSavepoint?.(name)
+      },
+      async releaseSavepoint(name) {
+        calls.push(`release:${name}`)
+        await hooks.releaseSavepoint?.(name)
+      },
+      async rollbackToSavepoint(name) {
+        calls.push(`rollbackTo:${name}`)
+        await hooks.rollbackToSavepoint?.(name)
+      },
+      async close() {
+        calls.push('close')
+        await hooks.close?.(++closeAttempts)
+        closes++
+      },
+    }
+  }
+  return {
+    kind: 'async-fake',
+    lanes: { readConcurrency: options.readConcurrency ?? 0 },
+    async open(lane) {
+      const attempt = ++opens
+      calls.push(`open:${lane}`)
+      await hooks.open?.(lane, attempt)
+      return makeSession()
+    },
+    client: (route) => queryClientOver(route),
+    async close() {
+      calls.push('driver-close')
+    },
+    get calls() {
+      return calls
+    },
+    get opens() {
+      return opens
+    },
+    get closes() {
+      return closes
+    },
   }
 }
 
