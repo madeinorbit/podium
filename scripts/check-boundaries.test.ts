@@ -1384,3 +1384,40 @@ describe('store-boundary-ledger (POD-3252, Stage A’s completeness proof)', () 
     expect(STAGE_A_UNCONVERTED).toContain('apps/server/src/store/executor/executor.ts')
   })
 })
+
+describe('store-boundary family vs the write-announcement seam (POD-3247)', () => {
+  const SEAM = 'apps/server/src/store/table-writes.ts'
+
+  it('leaves the seam alone — it is clean, and NOT on the ledger', () => {
+    // POD-3247's `TableWrites` has no production caller ON PURPOSE: POD-3246
+    // retired the one writer it was built for, the shape survives the writer,
+    // and the conversion waves are what will call it. Nothing in this family
+    // asks whether a seam is called — but pinning it by path means a future
+    // widening that starts flagging it fails here instead of getting the
+    // mechanism deleted.
+    const source = readFileSync(join(REPO_ROOT, SEAM), 'utf8')
+    expect(checkStoreRawHandles(SEAM, source)).toEqual([])
+    expect(checkDrizzleTransaction(SEAM, source)).toEqual([])
+    expect(checkDrizzleImportHome(SEAM, source)).toEqual([])
+    expect(checkSqlRawLiteral(SEAM, source)).toEqual([])
+    expect(STAGE_A_UNCONVERTED).not.toContain(SEAM)
+  })
+
+  it('is clean DESPITE naming sqlite_master and prepare in its prose', () => {
+    // The seam's docstring explains the bug it replaces: "the boot upgrades
+    // build SQL from `sqlite_master` on the raw handle" and "a `prepare`
+    // wrapper that dropped the cache". A grep would flag both. Documenting the
+    // prohibition must not trip the lint enforcing it — the same treatment
+    // checkSyncKernelPurity gives its DOM globals, and this file is the live
+    // case that would catch a regression in it.
+    const source = readFileSync(join(REPO_ROOT, SEAM), 'utf8')
+    expect(source).toContain('sqlite_master')
+    expect(source).toContain('prepare')
+    expect(checkStoreRawHandles(SEAM, source)).toEqual([])
+    // …and the same two constructs in CODE are still refused.
+    expect(
+      checkStoreRawHandles(SEAM, `const q = sql\`SELECT name FROM sqlite_master\`\n`),
+    ).toHaveLength(1)
+    expect(checkStoreRawHandles(SEAM, `const s = db.prepare('SELECT 1')\n`)).toHaveLength(1)
+  })
+})
