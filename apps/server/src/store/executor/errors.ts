@@ -52,6 +52,17 @@ export class TransactionPoisonedError extends StoreExecutorError {
   }
 }
 
+/**
+ * A body returned while a nested scope it opened was still open.
+ *
+ * The savepoint under it never released, so what the engine holds is not what
+ * the frame stack says, and the nested body may still be parked on an await.
+ * Committing would commit a unit whose inner half nobody has finished, so the
+ * transaction rolls back instead. `Promise.all` over a `transact` the body
+ * forgot to await is the usual cause.
+ */
+export class AbandonedNestedTransactionError extends StoreExecutorError {}
+
 /** `exclusive` was requested from inside a lease it would have to wait for. */
 export class ExclusiveInsideLeaseError extends StoreExecutorError {}
 

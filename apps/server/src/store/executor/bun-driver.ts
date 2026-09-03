@@ -146,6 +146,12 @@ function session(
     return made
   }
   let closed = false
+  /**
+   * Names the savepoint a batch inside an open transaction takes as its own
+   * boundary. Per session and monotonic, so it can never collide with the
+   * executor's `podium_sp_<depth>` frames or with another batch's.
+   */
+  let nextBatchBoundary = 1
   // Whether `begin` actually opened a transaction on this connection. `commit`
   // and `rollback` are no-ops when it did not, so the scheduler can drive the
   // same begin/commit shape on every lane and let the driver decide which lanes
@@ -174,20 +180,33 @@ function session(
       if (requests.length === 0) return []
       /**
        * ATOMIC, like the remote `client.batch` this stands in for: all of it
-       * applies or none of it does. When the caller already has a transaction
-       * open, that transaction is the atomic boundary and a second one would be
-       * wrong; otherwise the batch opens and closes its own. A read-only session
-       * has nothing to make atomic.
+       * applies or none of it does. A read-only session has nothing to make
+       * atomic; a writer gets a boundary either way.
+       *
+       * THE ENCLOSING TRANSACTION IS NOT THE BATCH'S BOUNDARY. It used to be
+       * treated as one, so inside `transact` the statements ran in a bare loop:
+       * a caller that CAUGHT the batch's error and let the outer body commit
+       * committed the prefix that had already applied, which is precisely what
+       * the contract says cannot happen. So an open transaction gets a
+       * SAVEPOINT of its own, rolled back and released on failure, leaving the
+       * transaction exactly as the batch found it.
        */
       const implicit = !open && role === 'owner'
+      const boundary = open && role === 'owner' ? `podium_batch_${nextBatchBoundary++}` : undefined
       if (implicit) db.exec('BEGIN IMMEDIATE')
+      else if (boundary) db.exec(`SAVEPOINT ${boundary}`)
       try {
         const results: StatementResult[] = []
         for (const request of requests) results.push(runOne(request))
         if (implicit) db.exec('COMMIT')
+        else if (boundary) db.exec(`RELEASE SAVEPOINT ${boundary}`)
         return results
       } catch (error) {
         if (implicit) db.exec('ROLLBACK')
+        else if (boundary) {
+          db.exec(`ROLLBACK TO SAVEPOINT ${boundary}`)
+          db.exec(`RELEASE SAVEPOINT ${boundary}`)
+        }
         throw error
       }
     },

@@ -12,7 +12,9 @@
  *     round trip; there is no free `prepare`; writers are serialised by the
  *     platform and a concurrent writer gets a busy error; reads may run
  *     concurrently on separate connections; an interactive transaction is held
- *     open ON THE SERVER across awaits, with a 5-second budget.
+ *     open ON THE SERVER across awaits, with a measured budget of about nine
+ *     seconds (POD-3251, spec §6 rule 7) that the driver DECLARES in
+ *     {@link DriverLimits} rather than the caller assuming a number.
  *
  * So: everything returns a promise, a "connection" is whatever `open` hands
  * back rather than a process-wide singleton, and nothing here is allowed to
@@ -74,6 +76,13 @@ export type StatementRouter = (statement: Statement) => Promise<StatementResult>
  * A batch is ATOMIC: `client.batch` runs its statements in one implicit
  * server-side transaction with a full rollback on failure, and a driver that
  * has no such call must reproduce that, not approximate it.
+ *
+ * INSIDE AN OPEN TRANSACTION IT IS STILL ATOMIC, and that is the case a loop
+ * gets wrong. The enclosing transaction is not the batch's boundary: a caller
+ * that CATCHES the batch's error and carries on would otherwise commit the
+ * prefix that did apply. A driver reproducing this must therefore open a
+ * savepoint of its own around a batch issued inside a transaction, so a failed
+ * batch leaves the transaction exactly as it found it.
  */
 export type BatchRouter = (statements: readonly Statement[]) => Promise<readonly StatementResult[]>
 

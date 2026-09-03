@@ -42,6 +42,20 @@ export interface Lease {
    * transaction permanently, so retry belongs above it, never inside it).
    */
   begin(lane: Lane): Promise<void>
+  /**
+   * Run an IMPLICIT atomic write — a root autocommit statement, or a root batch
+   * — with the same bounded busy retry `begin` gets.
+   *
+   * These never pass through `begin`, so without this they are the one write
+   * path outside the declared policy, which on Turso is the COMMON path: a root
+   * batch acquires the write lock inside the driver call. It is safe for the
+   * same reason `begin` is and for no other: a busy classification is raised at
+   * ACQUISITION, before any of the unit applied, and the unit is atomic, so a
+   * second attempt cannot double-apply a prefix. Anything the driver does not
+   * classify `busy` — `TRANSACTION_CLOSED`, an ambiguous post-application
+   * failure — is fatal and is never retried.
+   */
+  atomicWrite<T>(attempt: () => Promise<T>): Promise<T>
   /** Wall time this lease has held its connection, ms. */
   heldMs(): number
 }
@@ -59,7 +73,10 @@ export interface SchedulerOptions {
    * Reports a body that has held its connection past its budget. Injectable
    * because the useful sink differs by caller: the server logs it, the tests
    * collect it, and on Turso the budget has to sit below the platform's own
-   * 5-second interactive-transaction timeout.
+   * interactive-transaction timeout — the driver's own declared
+   * `limits.writeBudgetMs`, measured at about 9 s (POD-3251, spec §6 rule 7),
+   * which the constructor below checks against rather than any number written
+   * here.
    */
   watchdog?: { budgetMs: number; report: (report: WatchdogReport) => void }
   now?: () => number
@@ -225,6 +242,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
           lane,
           session,
           begin: (beginLane: Lane) => withBusyRetry(() => held.begin(beginLane)),
+          atomicWrite: (attempt) => withBusyRetry(attempt),
           heldMs: () => now() - startedAt,
         }
         const watchdog = options.watchdog
