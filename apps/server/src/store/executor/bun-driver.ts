@@ -29,6 +29,7 @@ import type {
   StoreDriver,
 } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
+import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
 
 export interface BunDriverOptions {
   /** The shared connection. The scheduler's queue owns it. */
@@ -267,4 +268,41 @@ function session(
       onClose?.()
     },
   }
+}
+
+export interface BunStoreExecutorOptions
+  extends Omit<StoreExecutorOptions<QueryClient>, 'driver' | 'legacy'> {
+  /** The shared connection. Becomes both the driver's and the legacy handle. */
+  database: SqlDatabase
+  /** See {@link BunDriverOptions.openReader}. */
+  openReader?: () => SqlDatabase
+  /** See {@link BunDriverOptions.onClose}. */
+  onClose?: () => void
+}
+
+/**
+ * The bun:sqlite composition root: driver, executor, and the legacy handle the
+ * unconverted repositories still run on [POD-3254].
+ *
+ * ONE factory rather than a production one and a test one. `SessionStore` builds
+ * its repository set through this, and so does every test that constructs a
+ * repository directly — which matters because those tests are the only place a
+ * repository is exercised OUTSIDE the store, and a second composition there
+ * would be a second opinion about what a repository is bound to. The `legacy`
+ * field is filled from the same connection the driver holds, so a converted and
+ * an unconverted repository in the same set are talking to one database.
+ */
+export function createBunStoreExecutor(
+  options: BunStoreExecutorOptions,
+): RootStoreExecutor<QueryClient> {
+  const { database, openReader, onClose, ...executor } = options
+  return createStoreExecutor<QueryClient>({
+    driver: createBunSqliteDriver({
+      database,
+      ...(openReader ? { openReader } : {}),
+      ...(onClose ? { onClose } : {}),
+    }),
+    legacy: database,
+    ...executor,
+  })
 }

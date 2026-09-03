@@ -15,6 +15,7 @@ import {
 } from '@podium/model'
 import type { QuestionPrompt, QuestionSelection } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { createBunStoreExecutor } from '../../store/executor'
 import { type InteractionRow, InteractionsRepository } from '../../store/interactions'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import type { InboxPrincipalReference } from '../sessions/inbox'
@@ -103,7 +104,7 @@ function harness(
   } = {},
 ) {
   const db = openMigratedTestDatabase()
-  const store = new InteractionsRepository(db)
+  const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
   const published: InteractionRow[] = []
   const delivered: string[] = []
   const typedAtMenu: Array<readonly QuestionSelection[]> = []
@@ -298,7 +299,9 @@ describe('InteractionService — synthesis', () => {
     // A transcript read that rejects must not break the state-change fan-out
     // the badge and the inbox ride on.
     const broken = new InteractionService({
-      store: new InteractionsRepository(openMigratedTestDatabase()),
+      store: new InteractionsRepository(
+        createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+      ),
       now: () => '2026-08-14T00:00:00.000Z',
       publish: () => {},
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
@@ -774,7 +777,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // P0/1. The read is an enrichment; letting it throw took the whole
     // synthesis down and stranded a live native menu with no row at all.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     let clock = 0
     const service = new InteractionService({
       store,
@@ -841,7 +844,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // P1/4. The driver said it did not apply the answer, so its request is
     // still open — leaving the row resolved hides a session that is blocked.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     let clock = 0
     const published: InteractionRow[] = []
     const service = new InteractionService({
@@ -885,7 +888,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // close because none was inserted yet, and let the stale question land
     // behind it. The card then said "blocked" about a session that was running.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     const published: InteractionRow[] = []
     let releaseRead: () => void = () => {}
     const readGate = new Promise<void>((resolve) => {
@@ -931,7 +934,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // still empty and the transcript read then inserted an ask for a process
     // that no longer exists — a card offering to answer a dead session.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     let releaseRead: () => void = () => {}
     const readGate = new Promise<void>((resolve) => {
       releaseRead = resolve
@@ -970,7 +973,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // behind it must not publish its login ask first. The per-session chain is
     // the ordering guarantee, not an incidental choice of which promise wins.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     const published: InteractionRow[] = []
     let releaseRead: () => void = () => {}
     const readGate = new Promise<void>((resolve) => {
@@ -1020,7 +1023,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // supersede it; without the in-flight guard the reopen put a blocked card
     // back on a session that had demonstrably moved on.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     let clock = 0
     let service!: InteractionService
     service = new InteractionService({
@@ -1124,7 +1127,7 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     // by replying to the driver holding it. The keystroke form of the same ask
     // has no such route and is refused — see the review-round block above.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     let clock = 0
     const structured: unknown[] = []
     const service = new InteractionService({
@@ -1158,7 +1161,7 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     // failed, and the row left `listOpen` and the feed — so a session stalled at
     // startup became a session stalled with nothing on any surface.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     let clock = 0
     const published: InteractionRow[] = []
     const service = new InteractionService({
@@ -1363,7 +1366,7 @@ describe('InteractionService — a policy answer whose delivery THREW (POD-2414)
     // `ok: false`, an early return on the boolean caught it first and the row
     // stayed swallowed. What the row ACTUALLY is decides, not the boolean.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(db)
+    const store = new InteractionsRepository(createBunStoreExecutor({ database: db }))
     let clock = 0
     const published: InteractionRow[] = []
     const service = new InteractionService({
@@ -1409,7 +1412,9 @@ describe('InteractionsRepository', () => {
   })
 
   it('collapses a duplicate open fingerprint and reports it as not inserted', () => {
-    const store = new InteractionsRepository(openMigratedTestDatabase())
+    const store = new InteractionsRepository(
+      createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+    )
     expect(store.insert(row('a', 'fp')).inserted).toBe(true)
     const second = store.insert(row('b', 'fp'))
     expect(second.inserted).toBe(false)
@@ -1420,7 +1425,9 @@ describe('InteractionsRepository', () => {
   it('lets the SAME question be asked again once the first is resolved', () => {
     // A long session hits the same permission prompt repeatedly and each one
     // needs its own answer — which is why the unique index is partial.
-    const store = new InteractionsRepository(openMigratedTestDatabase())
+    const store = new InteractionsRepository(
+      createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+    )
     store.insert(row('a', 'fp'))
     store.answer({
       id: 'a',
@@ -1434,7 +1441,9 @@ describe('InteractionsRepository', () => {
   })
 
   it('does not collapse the same fingerprint across sessions', () => {
-    const store = new InteractionsRepository(openMigratedTestDatabase())
+    const store = new InteractionsRepository(
+      createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+    )
     store.insert(row('a', 'fp'))
     expect(store.insert(row('b', 'fp', asSessionId('ses_2'))).inserted).toBe(true)
   })
@@ -1444,7 +1453,9 @@ describe('InteractionsRepository', () => {
     // `answer()`, whose `WHERE status = 'asked'` guard — the idempotency claim —
     // matched nothing by then, so every successfully delivered answer stayed
     // recorded as `unverified`.
-    const store = new InteractionsRepository(openMigratedTestDatabase())
+    const store = new InteractionsRepository(
+      createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+    )
     store.insert(row('a', 'fp'))
     store.answer({
       id: 'a',
@@ -1458,14 +1469,18 @@ describe('InteractionsRepository', () => {
   })
 
   it('recordDelivery does NOT resurrect an expired row', () => {
-    const store = new InteractionsRepository(openMigratedTestDatabase())
+    const store = new InteractionsRepository(
+      createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+    )
     store.insert(row('a', 'fp'))
     store.close('a', 'expired', '2026-08-14T00:01:00.000Z')
     expect(store.recordDelivery('a', 'menu')).toBe(false)
   })
 
   it('answer() is the idempotency guarantee — the second conditional update loses', () => {
-    const store = new InteractionsRepository(openMigratedTestDatabase())
+    const store = new InteractionsRepository(
+      createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+    )
     store.insert(row('a', 'fp'))
     const claim = () =>
       store.answer({
@@ -1480,7 +1495,9 @@ describe('InteractionsRepository', () => {
   })
 
   it('prunes resolved rows and NEVER open ones', () => {
-    const store = new InteractionsRepository(openMigratedTestDatabase())
+    const store = new InteractionsRepository(
+      createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+    )
     store.insert(row('open', 'fp1'))
     store.insert(row('done', 'fp2'))
     store.close('done', 'expired', '2026-08-14T00:00:30.000Z')

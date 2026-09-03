@@ -64,6 +64,7 @@ import { AuthRepository } from './store/auth'
 import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
+import { createBunStoreExecutor, type QueryClient, type RootStoreExecutor } from './store/executor'
 import { GrantsRepository } from './store/grants'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
@@ -105,6 +106,22 @@ export function defaultDbPath(): string {
 
 export class SessionStore {
   private readonly db: SqlDatabase
+  /**
+   * WHAT THE REPOSITORY SET IS BOUND TO [POD-3254, spec §3.1].
+   *
+   * Every repository below takes this object rather than the connection, so that
+   * converting one to the query layer is a change to that repository's own file
+   * and to nothing here — which is the whole reason this edit is made once, up
+   * front, instead of thirty-eight times during the conversion waves.
+   *
+   * An unconverted repository reads `executor.legacy`, the same connection this
+   * store opened; POD-3267 deletes that field at the end of Stage A, and the
+   * compiler then names anything still on it. Nothing has moved through the
+   * scheduler yet: `close()` below still closes the connection directly, because
+   * routing the lifecycle through the executor makes it asynchronous and that
+   * belongs to Stage B, not to a binding change.
+   */
+  private readonly executor: RootStoreExecutor<QueryClient>
   /**
    * The store's per-table write announcement (POD-3247).
    *
@@ -254,49 +271,64 @@ export class SessionStore {
     // migrator (which runs table rebuilds with enforcement off) is done.
     this.db.exec('PRAGMA foreign_keys = ON')
 
-    // Compose the per-aggregate repositories. The two cross-aggregate edges are
-    // injected as late-bound lambdas: issues resolve their stable repo_id via
-    // the repos aggregate, and a repo-identity upgrade dual-writes onto issues.
-    this.observationCheckpoints = new ObservationCheckpointsRepository(this.db)
-    this.sessions = new SessionsRepository(this.db, (id) => this.observationCheckpoints.purge(id))
-    this.issues = new IssuesRepository(this.db, (repoPath) =>
+    // The executor the whole repository set is bound to. It is built AFTER the
+    // migration chain for the same reason the repositories are: the connection
+    // it wraps has to be the migrated one. No `openReader`, so a committed-view
+    // read from inside a body refuses rather than deadlocking — nothing asks for
+    // one yet, and a second connection to `:memory:` would be a second database.
+    this.executor = createBunStoreExecutor({ database: this.db })
+
+    // Compose the per-aggregate repositories. The three cross-aggregate edges are
+    // injected as late-bound lambdas, bound WITHIN the set being built: sessions
+    // purge observation checkpoints, issues resolve their stable repo_id via the
+    // repos aggregate, and a repo-identity upgrade dual-writes onto issues.
+    this.observationCheckpoints = new ObservationCheckpointsRepository(this.executor)
+    this.sessions = new SessionsRepository(this.executor, (id) =>
+      this.observationCheckpoints.purge(id),
+    )
+    this.issues = new IssuesRepository(this.executor, (repoPath) =>
       this.repos.resolveRepoIdForPath(repoPath),
     )
     this.repos = new ReposRepository(
-      this.db,
+      this.executor,
       (repoId, repoPath) => this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
       this.hostMachineId,
       this.tableWrites,
     )
-    this.approvals = new ApprovalsRepository(this.db)
-    this.interactions = new InteractionsRepository(this.db)
-    this.conversations = new ConversationsRepository(this.db, this.hostMachineId)
+    this.approvals = new ApprovalsRepository(this.executor)
+    this.interactions = new InteractionsRepository(this.executor)
+    this.conversations = new ConversationsRepository(this.executor, this.hostMachineId)
+    // THE ONE REPOSITORY STILL HANDED THE CONNECTION, and not by oversight:
+    // `SyncRepository` lives in `@podium/sync`, which cannot import the store's
+    // executor without inverting the package dependency. Its conversion is the
+    // sync adapter's own, under the kernel's synchronous-by-decision rules
+    // (spec §2.4), so it stays on the handle this store opened [POD-3254].
     this.sync = new SyncRepository(this.db, syncServerTables)
-    this.auth = new AuthRepository(this.db)
-    this.superagent = new SuperagentRepository(this.db)
-    this.settings = new SettingsRepository(this.db)
-    this.layout = new UserLayoutRepository(this.db)
-    this.readPositions = new UserReadPositionRepository(this.db)
-    this.secrets = new ServerSecretsRepository(this.db)
-    this.settingsAudit = new SettingsAuditRepository(this.db)
-    this.accounts = new AccountsRepository(this.db)
-    this.machines = new MachinesRepository(this.db)
-    this.grants = new GrantsRepository(this.db)
-    this.users = new UsersRepository(this.db)
-    this.telegramBindings = new TelegramBindingsRepository(this.db)
-    this.events = new EventsRepository(this.db)
-    this.notificationFacts = new NotificationFactsRepository(this.db)
-    this.quotaHistory = new QuotaHistoryRepository(this.db)
-    this.transcriptCosts = new TranscriptCostsRepository(this.db)
-    this.messages = new MessagesRepository(this.db)
-    this.readWatermarks = new ReadWatermarksRepository(this.db)
-    this.workflows = new WorkflowsRepository(this.db)
-    this.locks = new LocksRepository(this.db)
-    this.maintenance = new MaintenanceRepository(this.db)
-    this.automations = new AutomationsRepository(this.db)
-    this.shipping = new ShippingRepository(this.db)
-    this.operations = new OperationStore(this.db)
-    this.messagingTopics = new MessagingTopicsRepository(this.db)
+    this.auth = new AuthRepository(this.executor)
+    this.superagent = new SuperagentRepository(this.executor)
+    this.settings = new SettingsRepository(this.executor)
+    this.layout = new UserLayoutRepository(this.executor)
+    this.readPositions = new UserReadPositionRepository(this.executor)
+    this.secrets = new ServerSecretsRepository(this.executor)
+    this.settingsAudit = new SettingsAuditRepository(this.executor)
+    this.accounts = new AccountsRepository(this.executor)
+    this.machines = new MachinesRepository(this.executor)
+    this.grants = new GrantsRepository(this.executor)
+    this.users = new UsersRepository(this.executor)
+    this.telegramBindings = new TelegramBindingsRepository(this.executor)
+    this.events = new EventsRepository(this.executor)
+    this.notificationFacts = new NotificationFactsRepository(this.executor)
+    this.quotaHistory = new QuotaHistoryRepository(this.executor)
+    this.transcriptCosts = new TranscriptCostsRepository(this.executor)
+    this.messages = new MessagesRepository(this.executor)
+    this.readWatermarks = new ReadWatermarksRepository(this.executor)
+    this.workflows = new WorkflowsRepository(this.executor)
+    this.locks = new LocksRepository(this.executor)
+    this.maintenance = new MaintenanceRepository(this.executor)
+    this.automations = new AutomationsRepository(this.executor)
+    this.shipping = new ShippingRepository(this.executor)
+    this.operations = new OperationStore(this.executor)
+    this.messagingTopics = new MessagingTopicsRepository(this.executor)
 
     // Per-boot runtime steps (environment-conditional FTS objects, the identity
     // refusals and the remaining data heals) — never schema DDL.

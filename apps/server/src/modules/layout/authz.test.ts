@@ -8,6 +8,7 @@
 import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { createBunStoreExecutor } from '../../store/executor'
 import { UserLayoutRepository } from '../../store/user-layout'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { type LayoutAuthzDeps, layoutAuthzFailure } from './authz'
@@ -40,7 +41,7 @@ describe('layoutAuthzFailure reads the contract floor LIVE', () => {
 describe('a refused principal does not write', () => {
   it('gate refusal means the repository is never called', () => {
     const db = openMigratedTestDatabase()
-    const repo = new UserLayoutRepository(db)
+    const repo = new UserLayoutRepository(createBunStoreExecutor({ database: db }))
     const service = new LayoutService({ layout: repo })
 
     const refusal = layoutAuthzFailure('layout.set', deps(undefined))

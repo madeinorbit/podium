@@ -3,6 +3,7 @@ import type { ApprovalOp, LiveServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { ApprovalsRepository } from '../../store/approvals'
+import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { APPROVAL_EXEC_DEADLINE_MS, ApprovalService } from './service'
 
@@ -20,7 +21,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
    *  the rows survive, every in-memory field (the stall clock) does not. */
   const build = () =>
     new ApprovalService({
-      store: new ApprovalsRepository(db),
+      store: new ApprovalsRepository(createBunStoreExecutor({ database: db })),
       now: () => '2026-07-13T00:00:00.000Z',
       toMachine: (machineId, msg) => sent.push({ machineId, msg }),
       hasDaemon: () => daemon.attached,

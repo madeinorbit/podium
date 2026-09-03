@@ -15,6 +15,7 @@ import {
 } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import type { MachineRecord } from './types'
 
 /** Defensive parse of a stored inventory blob → undefined on any failure. Goes
@@ -137,7 +138,11 @@ export const MACHINE_ID_SITES: readonly string[] = [
 ]
 
 export class MachinesRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * WHERE A RETIRED MACHINE SENTINEL IS STILL STORED — empty on every database

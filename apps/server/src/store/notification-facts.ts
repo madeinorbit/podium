@@ -1,5 +1,6 @@
 import type { IssueId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -14,7 +15,11 @@ interface FactClaim {
 
 /** Durable atomic claims behind the steward's notification arbiter [spec:SP-ba61]. */
 export class NotificationFactsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * Insert a new claim, or refresh a retired claim. The conflict guard is part of

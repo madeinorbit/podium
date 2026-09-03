@@ -5,6 +5,7 @@
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { createBunStoreExecutor } from './executor'
 import { UserLayoutRepository } from './user-layout'
 
 const ALICE: UserId = FIRST_ADMIN_USER_ID
@@ -15,7 +16,7 @@ let layout: UserLayoutRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  layout = new UserLayoutRepository(db)
+  layout = new UserLayoutRepository(createBunStoreExecutor({ database: db }))
 })
 
 describe('UserLayoutRepository', () => {

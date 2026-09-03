@@ -5,9 +5,10 @@
  * modules/lock/service.ts.
  */
 
-import { asRepoId } from '@podium/model'
 import type { IssueId, SessionId, RepoId } from '@podium/model'
+import { asRepoId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
 export const OPERATOR_LOCK_SESSION = 'operator'
@@ -62,7 +63,11 @@ export interface LockWaiterRow {
 }
 
 export class LocksRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   private mapLock(r: Record<string, unknown>): LockRow {
     return {

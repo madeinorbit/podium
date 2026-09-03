@@ -9,6 +9,7 @@
 
 import type { AccountId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 export interface ManagedAccountRow {
   id: AccountId
@@ -45,7 +46,11 @@ function toRow(r: Row): ManagedAccountRow {
 }
 
 export class AccountsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   list(): ManagedAccountRow[] {
     const rows = this.db.prepare('SELECT * FROM accounts ORDER BY created_at ASC').all() as Row[]

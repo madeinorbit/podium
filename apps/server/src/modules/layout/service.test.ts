@@ -4,6 +4,7 @@
 
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { createBunStoreExecutor } from '../../store/executor'
 import { UserLayoutRepository } from '../../store/user-layout'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { LayoutService } from './service'
@@ -15,7 +16,9 @@ let service: LayoutService
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  service = new LayoutService({ layout: new UserLayoutRepository(db) })
+  service = new LayoutService({
+    layout: new UserLayoutRepository(createBunStoreExecutor({ database: db })),
+  })
 })
 
 describe('LayoutService', () => {

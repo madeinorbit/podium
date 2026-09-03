@@ -124,6 +124,28 @@ export interface StoreExecutorOptions<TClient> {
 }
 
 /**
+ * The raw handle a repository that has not been converted yet still runs on
+ * [POD-3254]. TRANSITIONAL, and the refusal is the point: `legacy` is optional
+ * on the executor because a fake driver or a remote one has no bun:sqlite handle
+ * to offer, and a repository built over such an executor must fail LOUDLY at
+ * construction rather than at the first statement, where the stack no longer
+ * says which repository was mis-wired.
+ *
+ * POD-3267 deletes this function together with the field it reads, and the
+ * compiler then names every repository that still had not been converted.
+ */
+export function legacyHandle(executor: { readonly legacy: SqlDatabase | undefined }): SqlDatabase {
+  if (!executor.legacy) {
+    throw new Error(
+      'this executor carries no legacy handle, and the repository being constructed has not ' +
+        'been converted to the query layer yet. Build the executor with `legacy` set (the ' +
+        'bun:sqlite composition does), or convert the repository.',
+    )
+  }
+  return executor.legacy
+}
+
+/**
  * The registrar for the three post-commit mechanisms, from inside a body.
  * Registered on the innermost open scope; a savepoint's registrations merge
  * into its parent when it releases and are discarded when it rolls back,

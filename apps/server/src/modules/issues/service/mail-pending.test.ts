@@ -2,6 +2,7 @@ import { asThreadId, asIssueId, asSessionId } from '@podium/model'
 import { type SqlDatabase, type SqlParam } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore, type MessageRow } from '../../../store'
+import { createBunStoreExecutor } from '../../../store/executor'
 import { MessagesRepository } from '../../../store/messages'
 import { countContextAwarePendingMail } from './mail-pending'
 
@@ -76,7 +77,9 @@ describe('countContextAwarePendingMail', () => {
     try {
       const db = (store as unknown as { db: SqlDatabase }).db
       const counts = new Map<string, number>()
-      const messages = new MessagesRepository(counting(db, counts))
+      const messages = new MessagesRepository(
+        createBunStoreExecutor({ database: counting(db, counts) }),
+      )
 
       store.messages.addMessage(
         message({ id: 'msg-peer-1', fromIssue: 'iss_peer', fromSession: 'peer-session' }),

@@ -29,6 +29,7 @@
 
 import { asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { createBunStoreExecutor } from '../../store/executor'
 import { SessionsRepository } from '../../store/sessions'
 import type { SessionRow } from '../../store/types'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
@@ -83,7 +84,7 @@ describe('a runtime model change survives a server restart', () => {
   it('round-trips through the sessions table and comes back on the rehydrated session', () => {
     const db = openMigratedTestDatabase()
     try {
-      const store = new SessionsRepository(db)
+      const store = new SessionsRepository(createBunStoreExecutor({ database: db }))
       const session = launched()
       expect(session.setRequestedModel({ model: 'gpt-5.1-codex-max', effort: 'high' })).toBe(true)
 
@@ -119,7 +120,7 @@ describe('a runtime model change survives a server restart', () => {
   it('leaves a never-configured session with no runtime request at all', () => {
     const db = openMigratedTestDatabase()
     try {
-      const store = new SessionsRepository(db)
+      const store = new SessionsRepository(createBunStoreExecutor({ database: db }))
       store.upsertSession(launched().toRow())
 
       const stored = store.getSession(SID)
@@ -144,7 +145,7 @@ describe('a runtime model change survives a server restart', () => {
   it('carries a LATER change over the earlier one, one field at a time', () => {
     const db = openMigratedTestDatabase()
     try {
-      const store = new SessionsRepository(db)
+      const store = new SessionsRepository(createBunStoreExecutor({ database: db }))
       const session = launched()
       session.setRequestedModel({ model: 'gpt-5.1-codex-max' })
       store.upsertSession(session.toRow())

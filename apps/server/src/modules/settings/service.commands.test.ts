@@ -28,6 +28,7 @@ import {
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createBunStoreExecutor } from '../../store/executor'
 import { SettingsRepository } from '../../store/settings'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { EventBus } from '../bus'
@@ -46,7 +47,7 @@ import { SettingsService } from './service'
  */
 function makeStore(): SettingsRepository {
   const db = openMigratedTestDatabase()
-  return new SettingsRepository(db)
+  return new SettingsRepository(createBunStoreExecutor({ database: db }))
 }
 
 /** The person every write below is made by. Named once so a test asserting

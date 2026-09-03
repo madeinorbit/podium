@@ -2,6 +2,7 @@ import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -52,7 +53,11 @@ export type ObservationRebindResult =
 
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   private mapRow(r: Record<string, unknown>): ObservationLeaseRecord | null {
     const provider = ObservationProvider.safeParse(r.provider)

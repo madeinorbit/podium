@@ -1,12 +1,13 @@
 import { asAccountId } from '@podium/model'
 import { expect, it } from 'vitest'
 import { AccountsRepository } from '../../store/accounts'
+import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { resolveAccountEnv } from './account-env'
 
 function repoWith(...rows: Array<Parameters<AccountsRepository['upsert']>[0]>) {
   const db = openMigratedTestDatabase()
-  const repo = new AccountsRepository(db)
+  const repo = new AccountsRepository(createBunStoreExecutor({ database: db }))
   for (const r of rows) repo.upsert(r)
   return repo
 }

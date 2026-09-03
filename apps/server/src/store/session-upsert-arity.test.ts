@@ -7,13 +7,14 @@
 import { actorUser, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { createBunStoreExecutor } from './executor'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
 describe('session upsert rebase seam', () => {
   it('persists driver, login, and creator columns in one current-schema row', () => {
     const db = openMigratedTestDatabase()
-    const sessions = new SessionsRepository(db)
+    const sessions = new SessionsRepository(createBunStoreExecutor({ database: db }))
     const row: SessionRow = {
       id: asSessionId('session-rebase-seam'),
       ownerUserId: FIRST_ADMIN_USER_ID,

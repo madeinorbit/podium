@@ -33,6 +33,7 @@ import {
 } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /** Quantisation behind the uniqueness constraint only — never an identity test. */
 const RESET_BUCKET_MS = 60_000
@@ -123,7 +124,11 @@ function toWire(row: Row, nowMs: number): QuotaWindowHistoryWire {
 }
 
 export class QuotaHistoryRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * Fold one sample into the ledger. Returns whether it opened a new window —

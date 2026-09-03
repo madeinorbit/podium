@@ -46,6 +46,7 @@
 import type { RedactionReport } from '@podium/commands'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
  *  a trail that records only successes cannot answer "who TRIED to rotate this
@@ -117,7 +118,11 @@ export function settingsAuditRow(input: {
 }
 
 export class SettingsAuditRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * Append one row. Append-only: there is no update and no delete, because an

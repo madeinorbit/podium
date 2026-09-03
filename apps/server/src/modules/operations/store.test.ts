@@ -2,6 +2,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
+import { createBunStoreExecutor } from '../../store/executor'
 import { OperationStore, type PersistedOperation } from './store'
 
 /** A real database over the real migration chain — the operations table has to
@@ -9,7 +10,7 @@ import { OperationStore, type PersistedOperation } from './store'
 function store(): OperationStore {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  return new OperationStore(db)
+  return new OperationStore(createBunStoreExecutor({ database: db }))
 }
 
 const op = (over: Partial<PersistedOperation> = {}): PersistedOperation => ({

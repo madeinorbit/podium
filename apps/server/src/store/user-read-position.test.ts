@@ -10,6 +10,7 @@
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { createBunStoreExecutor } from './executor'
 import { UserReadPositionRepository } from './user-read-position'
 
 const ALICE: UserId = FIRST_ADMIN_USER_ID
@@ -20,7 +21,7 @@ let cursors: UserReadPositionRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  cursors = new UserReadPositionRepository(db)
+  cursors = new UserReadPositionRepository(createBunStoreExecutor({ database: db }))
 })
 
 describe('UserReadPositionRepository', () => {

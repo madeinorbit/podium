@@ -33,6 +33,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 interface CursorRow {
   stream_id: string
@@ -47,7 +48,11 @@ export interface StoredReadPosition {
 }
 
 export class UserReadPositionRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /** One person's position in every stream they have read. Absent key = never. */
   getSnapshot(userId: UserId): ReadPositionSnapshot {

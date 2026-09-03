@@ -8,6 +8,7 @@ import { ConversationIndexRepository } from './conversations/index'
 import { TranscriptMirrorRepository } from './conversations/mirror'
 import { ConversationRegistryRepository } from './conversations/registry'
 import { TranscriptIndexRepository } from './conversations/transcript-index'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 export class ConversationsRepository {
   readonly index: ConversationIndexRepository
@@ -16,11 +17,15 @@ export class ConversationsRepository {
   readonly transcriptIndex: TranscriptIndexRepository
 
   constructor(
-    db: SqlDatabase,
+    executor: StoreExecutor<QueryClient>,
     /** This host's minted machine id — the machine a row this composition has to
      *  CONJURE belongs to (POD-318). See {@link ConversationIndexRepository.setMeta}. */
     hostMachineId: MachineId,
   ) {
+    // The sub-repositories of this aggregate are composed HERE and nowhere else,
+    // so they stay on the raw handle until their own conversion; only the set
+    // `SessionStore` builds takes the executor [POD-3254].
+    const db: SqlDatabase = legacyHandle(executor)
     this.index = new ConversationIndexRepository(db, hostMachineId)
     this.registry = new ConversationRegistryRepository(db)
     this.mirror = new TranscriptMirrorRepository(db)

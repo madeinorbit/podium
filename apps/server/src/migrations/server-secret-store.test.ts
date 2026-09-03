@@ -36,9 +36,10 @@
  * concurrently, and pinning "last" makes a green test a function of merge order.
  */
 
-import { openDatabase } from '@podium/runtime/sqlite'
 import { SERVER_SECRET_KEYS } from '@podium/model'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import { createBunStoreExecutor } from '../store/executor'
 import { ServerSecretsRepository } from '../store/server-secrets'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
@@ -290,7 +291,7 @@ describe('the repository reads what the migration wrote', () => {
       apiKeys: { openai: SEEDED['apiKeys.openai'], anthropic: '', openrouter: '' },
     })
     runDrizzleMigrations(db, throughThisMigration())
-    const secrets = new ServerSecretsRepository(db)
+    const secrets = new ServerSecretsRepository(createBunStoreExecutor({ database: db }))
 
     // The POSITIVE control beside the negative: a repository that returned
     // `undefined` for everything would satisfy the absence assertion alone.
@@ -303,7 +304,9 @@ describe('the repository reads what the migration wrote', () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
 
-    const presence = new ServerSecretsRepository(db).presence()
+    const presence = new ServerSecretsRepository(
+      createBunStoreExecutor({ database: db }),
+    ).presence()
     expect(presence.map((p) => p.key).sort()).toEqual([...SERVER_SECRET_KEYS].sort())
     expect(presence.every((p) => p.present)).toBe(true)
     // The projection has no value key BY CONSTRUCTION (it is a separate shape,
@@ -315,7 +318,7 @@ describe('the repository reads what the migration wrote', () => {
   it('a cleared secret leaves no row, and a blank write is a clear', () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
-    const secrets = new ServerSecretsRepository(db)
+    const secrets = new ServerSecretsRepository(createBunStoreExecutor({ database: db }))
 
     secrets.clear('apiKeys.openai')
     expect(secrets.get('apiKeys.openai')).toBeUndefined()

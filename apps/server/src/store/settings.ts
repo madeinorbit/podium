@@ -34,6 +34,7 @@ import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@po
 import type { UserId, MachineId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
 export class SettingsRepository {
@@ -43,8 +44,13 @@ export class SettingsRepository {
    *  tier a key is in. */
   readonly userPreferences: UserPreferencesRepository
 
-  constructor(private readonly db: SqlDatabase) {
-    this.userPreferences = new UserPreferencesRepository(db)
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    // `UserPreferencesRepository` is composed here, not by `SessionStore`, so it
+    // keeps the raw handle until its own conversion [POD-3254].
+    this.db = legacyHandle(executor)
+    this.userPreferences = new UserPreferencesRepository(this.db)
   }
 
   /**

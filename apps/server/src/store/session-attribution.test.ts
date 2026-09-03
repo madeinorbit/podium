@@ -32,6 +32,7 @@ import {
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { createBunStoreExecutor } from './executor'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
@@ -43,7 +44,7 @@ let sessions: SessionsRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(db)
+  sessions = new SessionsRepository(createBunStoreExecutor({ database: db }))
 })
 
 const row = (id: string, createdBy: Attribution | undefined): SessionRow => ({

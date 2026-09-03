@@ -14,7 +14,9 @@
 
 export {
   type BunDriverOptions,
+  type BunStoreExecutorOptions,
   createBunSqliteDriver,
+  createBunStoreExecutor,
 } from './bun-driver'
 export {
   assertAddressable,
@@ -60,6 +62,7 @@ export {
 } from './errors'
 export {
   createStoreExecutor,
+  legacyHandle,
   postCommit,
   type RootStoreExecutor,
   type StoreContext,
