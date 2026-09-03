@@ -21,7 +21,8 @@ the integration branch.
 
 1. **Completeness comes from the compiler and a lint, never from grep or memory.** A stage is
    complete when a type the old code needed no longer exists, the lint family is green, and the
-   count of decision markers is zero.
+   count of decision markers is zero — except markers naming an OPEN decision scheduled at a named
+   later checkpoint, which R2 enumerates rather than counts.
 2. **Every occurrence has a classification and a decision, or it blocks.** Each site is put
    through the checklist for its phase (§3); every answer maps to a rule in the spec's §6 or to
    "no rule covers this".
@@ -98,7 +99,8 @@ the one token the lint allowlists. It files the decision with the exact command 
 The coordinator resolves it by amending the spec's §6, never the site, and sends the answer to
 each affected worker's session with `--urgency interrupt`, because an issue-mailbox message does
 not wake a working agent. The worker does not wait; it lands the rest of its package. Stage A's
-exit gate requires zero markers.
+exit gate requires zero markers, except those naming an open decision scheduled at a named later
+checkpoint (see the marker rule below).
 
 Banned in converted files: `as any`, `@ts-expect-error`, `biome-ignore`, `TODO`, `sql.raw` of
 user input, a temporary second code path.
@@ -170,6 +172,30 @@ when a generated pass does conflict, the loser REGENERATES against the new tip r
 — reset to the tip, re-run the pass on the new content, and RE-DERIVE the refusal set from the
 compiler rather than reusing the previous one as a list, because the other pass moved code and a
 site that had to stay synchronous may not exist any more.
+
+A DECISION MARKER MUST NAME AN OPEN ISSUE (R1 finding, 2026-09-04). The rule was "every marker must
+have a filed issue", and it was satisfied in letter and void in substance. POD-3325 answered the half
+of its site that had no semantic question and ESCALATED the other half to R3; it was then closed as
+done. Three markers in relay.ts and native-login.ts went on pointing at it. So no open issue named
+those sites, nothing would have surfaced them, and Stage A's zero-marker exit gate at R2 would have
+failed with the only thing that can clear it scheduled at R3 — after it.
+
+TWO CORRECTIONS, and the first is the general one.
+
+A marker names an issue that is OPEN. Closing an issue while a marker still names it is forbidden: if
+part of a decision is answered and part deferred, the deferred part is a NEW open issue and the
+markers are re-pointed at it before the original closes. An answered rule and a tracked site are
+different things, and one closing must not silently end the other.
+
+The zero-marker exit gate reads: zero markers, EXCEPT those naming an open decision explicitly
+scheduled at a NAMED later checkpoint, and R2 must list them with that checkpoint. A gate that
+cannot express "decided later, on purpose" gets met by deleting markers, which is the one outcome
+worse than the drift. That is not a loophole as long as the exception is enumerated rather than
+counted: a marker with no named checkpoint still fails.
+
+The concrete case is POD-3365, three sites, decided at R3, because before the flip a live read and a
+snapshot read are INDISTINGUISHABLE and the question is untestable. That is the honest reason a
+decision waits, and the shape of reason the exception exists for.
 
 "INHERITED RED" HAS A MOVING BASE, SO NAME THE COMMIT (POD-3336, 2026-09-04). The coordinator's
 standing brief told workers that certain lane failures were "inherited reds on the base, not ours".

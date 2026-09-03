@@ -73,7 +73,7 @@ export class NativeLoginService {
     // SPLIT PER SPEC RULE 18 (POD-3325). The owner row is read ONCE for the whole
     // scan instead of once per candidate.
     //
-    // DECISION POD-3325 — what remains inside the callback is the per-machine
+    // DECISION POD-3365 — what remains inside the callback is the per-machine
     // GRANT read, left there deliberately: ADR 9 D2 rule 4 evaluates a grant
     // LIVE, so batching it would make this pass snapshot-consistent instead.
     // Today the loop is synchronous and the two are indistinguishable; after the

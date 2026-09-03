@@ -1162,7 +1162,7 @@ export class SessionRegistry {
             },
           },
           machines: {
-            // DECISION POD-3325 — one ownershipRows() scan plus one grants read
+            // DECISION POD-3365 — one ownershipRows() scan plus one grants read
             // per machine asked about, on a predicate the kernel calls in a
             // loop. Same ruling blocks batching it: rule 4 wants the grant read
             // live per decision.
@@ -1257,7 +1257,7 @@ export class SessionRegistry {
         if (user?.role !== 'admin') return () => 'native provider login requires an admin account'
         const principal = userCommandPrincipal(ownerUserId, user.role)
         return (machineId) => {
-          // DECISION POD-3325 — one ownershipRows() scan plus one grants read per
+          // DECISION POD-3365 — one ownershipRows() scan plus one grants read per
           // machine, kept live on purpose. See the comment above.
           const access = checkMachineUse(principal, machineId, ownershipFromMachines(machines))
           return access === 'absent'
