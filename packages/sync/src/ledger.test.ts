@@ -7,6 +7,7 @@ import {
   createTestSyncDatabase,
   createTestSyncRepository,
   createTestTransact,
+  testSyncServerTables,
 } from './adapters/sqlite/test-support'
 import { CHANGE_MAX_AGE_MS, CHANGE_PRUNE_EVERY } from './change-log'
 import { type EntityChangeSpec, entityOverlayKey, Ledger, prepareLedgerBoot } from './ledger'
@@ -490,7 +491,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
   function makeSqliteFixture() {
     const db = createTestSyncDatabase()
     db.exec('CREATE TABLE issues (id TEXT PRIMARY KEY, title TEXT)')
-    const repo = new SyncRepository(db)
+    const repo = new SyncRepository(db, testSyncServerTables)
     const transact = createTestTransact(db)
     const insertIssue = (id: string, title: string) =>
       db.prepare('INSERT INTO issues (id, title) VALUES (?, ?)').run(id, title)

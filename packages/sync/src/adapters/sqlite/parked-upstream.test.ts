@@ -13,8 +13,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createTestSyncDatabase } from './test-support'
 import { SyncRepository } from './sync-repository'
+import { createTestSyncDatabase, testSyncServerTables } from './test-support'
 
 function parkRow(
   db: ReturnType<typeof createTestSyncDatabase>,
@@ -30,7 +30,7 @@ function parkRow(
 describe('listParkedUpstreamMutations — the archived outbox, read-only', () => {
   it('reports nothing on a database with an empty outbox', () => {
     const db = createTestSyncDatabase()
-    expect(new SyncRepository(db).listParkedUpstreamMutations()).toEqual([])
+    expect(new SyncRepository(db, testSyncServerTables).listParkedUpstreamMutations()).toEqual([])
   })
 
   /**
@@ -45,7 +45,7 @@ describe('listParkedUpstreamMutations — the archived outbox, read-only', () =>
     parkRow(db, 'm-late', 'close', 3_000)
     parkRow(db, 'm-early', 'update', 1_000)
     parkRow(db, 'm-mid', 'claim', 2_000)
-    expect(new SyncRepository(db).listParkedUpstreamMutations()).toEqual([
+    expect(new SyncRepository(db, testSyncServerTables).listParkedUpstreamMutations()).toEqual([
       { mutationId: 'm-early', proc: 'update', queuedAt: 1_000 },
       { mutationId: 'm-mid', proc: 'claim', queuedAt: 2_000 },
       { mutationId: 'm-late', proc: 'close', queuedAt: 3_000 },
@@ -62,7 +62,7 @@ describe('listParkedUpstreamMutations — the archived outbox, read-only', () =>
    * a repository that failed to construct.
    */
   it('exposes a reader and NO writer for the archived table', () => {
-    const repo = new SyncRepository(createTestSyncDatabase())
+    const repo = new SyncRepository(createTestSyncDatabase(), testSyncServerTables)
     const surface = repo as unknown as Record<string, unknown>
     expect(typeof surface.listParkedUpstreamMutations).toBe('function')
     for (const writer of [

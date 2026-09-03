@@ -5,13 +5,31 @@
  * `queued_messages`, docs/spec/outbox-write-path.md) and the node⇄hub
  * issue-write outbox (`upstream_outbox` — ARCHIVED at POD-309: read-only, see
  * `listParkedUpstreamMutations`).
+ *
+ * `queued_messages` and `upstream_outbox` are the two tables this repository
+ * READS BUT DOES NOT OWN: they are declared in `apps/server`'s schema, and a
+ * package may not import from `apps/server`. So they are INJECTED — see
+ * `./server-tables.ts` for why, and the constructor for what that buys.
  */
 
 import { asMutationId, type MutationId, type SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
+import { getTableName } from 'drizzle-orm'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
+import type { SyncServerTables } from './server-tables'
+
+/**
+ * A table identifier for interpolation into this repository's statements.
+ *
+ * The name comes from a drizzle schema object, never from a caller — the
+ * quoting is here so that the identifier stays an identifier no matter what the
+ * schema calls the table, not as protection against input that cannot reach it.
+ */
+function quoteIdentifier(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`
+}
 
 /** Map a raw `changes` SELECT row onto the composed lifecycle read shape. */
 function mapChangeLogReadRow(r: Record<string, unknown>): ChangeLogReadRow {
@@ -35,7 +53,23 @@ export class SyncRepository {
   private latestChangeStatesCache: ChangeLogReadRow[] | undefined
   private latestChangeStatesGenerationValue = 0
 
-  constructor(private readonly db: SqlDatabase) {}
+  /**
+   * The two server-owned tables, resolved from the objects the composition root
+   * hands in rather than spelled out in the SQL below. That is the whole point of
+   * the injection: this file no longer names a table `apps/server` owns, so the
+   * declaration stays single and the drizzle conversion (POD-3221 Stage A) has
+   * the real table objects to build its queries from.
+   */
+  private readonly queuedMessagesTable: string
+  private readonly upstreamOutboxTable: string
+
+  constructor(
+    private readonly db: SqlDatabase,
+    tables: SyncServerTables,
+  ) {
+    this.queuedMessagesTable = quoteIdentifier(getTableName(tables.queuedMessages))
+    this.upstreamOutboxTable = quoteIdentifier(getTableName(tables.upstreamOutbox))
+  }
 
   // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
 
@@ -278,7 +312,7 @@ export class SyncRepository {
   }): boolean {
     const r = this.db
       .prepare(
-        `INSERT OR IGNORE INTO queued_messages
+        `INSERT OR IGNORE INTO ${this.queuedMessagesTable}
           (id, session_id, text, queued_at, input_origin, principal_kind,
            principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of,
            source_message_id)
@@ -319,7 +353,7 @@ export class SyncRepository {
       .prepare(
         `SELECT id, text, attempts, input_origin, principal_kind, principal_ref,
                 delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id
-           FROM queued_messages WHERE session_id = ?
+           FROM ${this.queuedMessagesTable} WHERE session_id = ?
           ORDER BY queued_at ASC, rowid ASC`,
       )
       .all(sessionId) as Record<string, unknown>[]
@@ -341,29 +375,33 @@ export class SyncRepository {
   /** Per-session queued counts — the boot seed for Session.queuedMessageCount. */
   queuedMessageCounts(): Map<SessionId, number> {
     const rows = this.db
-      .prepare('SELECT session_id, COUNT(*) AS n FROM queued_messages GROUP BY session_id')
+      .prepare(
+        `SELECT session_id, COUNT(*) AS n FROM ${this.queuedMessagesTable} GROUP BY session_id`,
+      )
       // SERIALIZATION EDGE: an untyped column re-entering the session id space.
       .all() as { session_id: SessionId; n: number }[]
     return new Map(rows.map((r) => [r.session_id, r.n]))
   }
 
   deleteQueuedMessage(id: string): void {
-    this.db.prepare('DELETE FROM queued_messages WHERE id = ?').run(id)
+    this.db.prepare(`DELETE FROM ${this.queuedMessagesTable} WHERE id = ?`).run(id)
   }
 
   bumpQueuedAttempts(id: string): void {
-    this.db.prepare('UPDATE queued_messages SET attempts = attempts + 1 WHERE id = ?').run(id)
+    this.db
+      .prepare(`UPDATE ${this.queuedMessagesTable} SET attempts = attempts + 1 WHERE id = ?`)
+      .run(id)
   }
 
   /** The count bounds how many copies ONE CLI process may be typed; a fresh PTY
    *  has received none of them, so a bind clears it (POD-1242). */
   resetQueuedAttempts(id: string): void {
-    this.db.prepare('UPDATE queued_messages SET attempts = 0 WHERE id = ?').run(id)
+    this.db.prepare(`UPDATE ${this.queuedMessagesTable} SET attempts = 0 WHERE id = ?`).run(id)
   }
 
   /** Drop a dead session's queue (kill without resume ref, permanent delete). */
   deleteQueuedMessagesForSession(sessionId: SessionId): void {
-    this.db.prepare('DELETE FROM queued_messages WHERE session_id = ?').run(sessionId)
+    this.db.prepare(`DELETE FROM ${this.queuedMessagesTable} WHERE session_id = ?`).run(sessionId)
   }
 
   // ---- ARCHIVED: the retired node→hub issue-write outbox (POD-309) ----
@@ -382,7 +420,8 @@ export class SyncRepository {
   listParkedUpstreamMutations(): { mutationId: MutationId; proc: string; queuedAt: number }[] {
     const rows = this.db
       .prepare(
-        'SELECT mutation_id, proc, queued_at FROM upstream_outbox ORDER BY queued_at ASC, rowid ASC',
+        `SELECT mutation_id, proc, queued_at FROM ${this.upstreamOutboxTable}
+          ORDER BY queued_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
     return rows.map((r) => ({

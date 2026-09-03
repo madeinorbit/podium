@@ -71,6 +71,7 @@ import { dirname } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { FeedIdentityRegistry, SyncRepository } from '@podium/sync'
 import { freeDiskBytes } from './backup'
+import { syncServerTables } from './sync-server-tables'
 
 export interface RestoreReport {
   /** The backup that was restored. */
@@ -251,7 +252,7 @@ function remintRestoredEpoch(
   // `'restore'` is not decoration: D1's hard case is that there is NO restore
   // code path to hook (a restore is `cp podium.db`), so the recorded cause is the
   // only evidence afterwards about which generation is which.
-  const repo = new SyncRepository(db)
+  const repo = new SyncRepository(db, syncServerTables)
   const registry = new FeedIdentityRegistry(
     {
       readIdentity: () => repo.readFeedIdentity(),

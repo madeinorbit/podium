@@ -1,5 +1,63 @@
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { sql } from 'drizzle-orm'
+import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import type { SyncServerTables } from './server-tables'
 import { SyncRepository } from './sync-repository'
+
+/**
+ * THE FIXTURE'S STAND-IN FOR THE TWO SERVER-OWNED TABLES (POD-3249).
+ *
+ * `SyncRepository` takes `queued_messages` and `upstream_outbox` as injected
+ * drizzle objects, because a package may not import `apps/server`'s schema
+ * (`./server-tables.ts`). This package's own unit tests need something to hand
+ * it, and they need it to be the same shape the product deploys — so the
+ * declarations are mirrored here, beside the DDL that has always mirrored them,
+ * and `schema.test.ts` holds the two halves together the same way it does for
+ * the adapter's own tables.
+ *
+ * MIRRORED, NOT OWNED. `apps/server/src/migrations/schema.ts` is still the one
+ * declaration that migrations are generated from; nothing here reaches
+ * `drizzle.config.ts`, so this emits no migration and cannot change the product
+ * schema. It is a test fixture with a type, which is what it was before — it
+ * just stopped being only a string.
+ */
+export const testQueuedMessages = sqliteTable(
+  'queued_messages',
+  {
+    id: text().primaryKey(),
+    sessionId: text('session_id').notNull(),
+    text: text().notNull(),
+    queuedAt: integer('queued_at').notNull(),
+    inputOrigin: text('input_origin').default('unknown').notNull(),
+    attempts: integer().default(0).notNull(),
+    principalKind: text('principal_kind').default('system').notNull(),
+    principalRef: text('principal_ref').default('legacy-session-inbox').notNull(),
+    delegationRef: text('delegation_ref'),
+    actorKind: text('actor_kind').default('system').notNull(),
+    actorId: text('actor_id').default('legacy-session-inbox').notNull(),
+    onBehalfOf: text('on_behalf_of'),
+    sourceMessageId: text('source_message_id'),
+  },
+  (table) => [
+    index('queued_messages_session').on(table.sessionId, table.queuedAt),
+    check('queued_messages_principal_kind', sql`principal_kind IN ('user','agent','system')`),
+    check('queued_messages_actor_kind', sql`actor_kind IN ('user','agent','system')`),
+  ],
+)
+
+export const testUpstreamOutbox = sqliteTable('upstream_outbox', {
+  mutationId: text('mutation_id').primaryKey(),
+  proc: text().notNull(),
+  input: text().notNull(),
+  queuedAt: integer('queued_at').notNull(),
+  attempts: integer().default(0).notNull(),
+})
+
+/** What the fixture hands `SyncRepository` where the server hands it the real ones. */
+export const testSyncServerTables: SyncServerTables = {
+  queuedMessages: testQueuedMessages,
+  upstreamOutbox: testUpstreamOutbox,
+}
 
 /**
  * A `SyncRepository` over a fresh in-memory SQLite DB carrying the tables it
@@ -19,7 +77,7 @@ import { SyncRepository } from './sync-repository'
  * this fixture did not have them.
  */
 export function createTestSyncRepository(): SyncRepository {
-  return new SyncRepository(createTestSyncDatabase())
+  return new SyncRepository(createTestSyncDatabase(), testSyncServerTables)
 }
 
 /** The bare in-memory DB behind {@link createTestSyncRepository}, for tests
@@ -76,12 +134,27 @@ export function createTestSyncDatabase(): SqlDatabase {
      )`,
   )
   db.exec(
+    // THE FULL session inbox, matching {@link testQueuedMessages} and therefore
+    // apps/server's declaration. The eight provenance and attribution columns are
+    // not optional decoration: `enqueueMessage` names all twelve, so a fixture
+    // that stopped at `attempts` — as this one did until POD-3249 — could not run
+    // the repository's own INSERT at all.
     `CREATE TABLE queued_messages (
-       id         TEXT PRIMARY KEY,
-       session_id TEXT NOT NULL,
-       text       TEXT NOT NULL,
-       queued_at  INTEGER NOT NULL,
-       attempts   INTEGER NOT NULL DEFAULT 0
+       id            TEXT PRIMARY KEY,
+       session_id    TEXT NOT NULL,
+       text          TEXT NOT NULL,
+       queued_at     INTEGER NOT NULL,
+       input_origin  TEXT NOT NULL DEFAULT 'unknown',
+       attempts      INTEGER NOT NULL DEFAULT 0,
+       principal_kind TEXT NOT NULL DEFAULT 'system',
+       principal_ref  TEXT NOT NULL DEFAULT 'legacy-session-inbox',
+       delegation_ref TEXT,
+       actor_kind    TEXT NOT NULL DEFAULT 'system',
+       actor_id      TEXT NOT NULL DEFAULT 'legacy-session-inbox',
+       on_behalf_of  TEXT,
+       source_message_id TEXT,
+       CONSTRAINT queued_messages_principal_kind CHECK (principal_kind IN ('user','agent','system')),
+       CONSTRAINT queued_messages_actor_kind CHECK (actor_kind IN ('user','agent','system'))
      )`,
   )
   db.exec('CREATE INDEX queued_messages_session ON queued_messages(session_id, queued_at)')

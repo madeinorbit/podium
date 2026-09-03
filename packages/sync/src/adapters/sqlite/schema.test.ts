@@ -23,7 +23,13 @@ import { describe, expect, it } from 'vitest'
 import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
 import { FeedIdentityRegistry } from '../../feed'
 import { SyncRepository } from './sync-repository'
-import { createTestSyncDatabase, createTestSyncRepository } from './test-support'
+import {
+  createTestSyncDatabase,
+  createTestSyncRepository,
+  testQueuedMessages,
+  testSyncServerTables,
+  testUpstreamOutbox,
+} from './test-support'
 
 /** The column names the drizzle schema declares for a table. */
 const declaredColumns = (table: Parameters<typeof getTableConfig>[0]): string[] =>
@@ -59,6 +65,27 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
     expect(fixtureColumns('feed_identity')).toEqual(declaredColumns(feedIdentity))
   })
 
+  /**
+   * THE TWO SERVER-OWNED TABLES (POD-3249). `SyncRepository` takes them as
+   * injected drizzle objects because a package may not import `apps/server`'s
+   * schema, and the fixture supplies its own mirror of them. The mirror has two
+   * halves — the declaration and the DDL — so it gets the same treatment as the
+   * adapter's own tables: the agreement is a test, not a comment.
+   *
+   * What this CANNOT check is the mirror against `apps/server`'s declaration,
+   * which is on the other side of a package boundary. That half is covered by
+   * behaviour instead: `apps/server` drives these very methods through
+   * `store.sync` against the real migrated schema (relay.outbox, characterization),
+   * so a column that moved there fails a server test rather than passing here.
+   */
+  it('agrees on the session inbox’s columns', () => {
+    expect(fixtureColumns('queued_messages')).toEqual(declaredColumns(testQueuedMessages))
+  })
+
+  it('agrees on the archived upstream outbox’s columns', () => {
+    expect(fixtureColumns('upstream_outbox')).toEqual(declaredColumns(testUpstreamOutbox))
+  })
+
   it('the comparison is not vacuous — both sides are non-empty and specific', () => {
     // Guard against the shape where `getTableConfig` returns nothing and the
     // fixture's PRAGMA also returns nothing, making every assertion above
@@ -66,6 +93,11 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
     expect(declaredColumns(changes)).toContain('causation_id')
     expect(fixtureColumns('changes')).toContain('seq')
     expect(declaredColumns(changes).length).toBeGreaterThan(6)
+    // The same guard for the injected pair: `queued_messages` is the one whose
+    // fixture was SHORT — five columns against the product's thirteen — so a
+    // length floor is what would have caught it.
+    expect(fixtureColumns('queued_messages')).toContain('source_message_id')
+    expect(declaredColumns(testQueuedMessages).length).toBeGreaterThan(12)
   })
 })
 
@@ -123,7 +155,7 @@ describe('feed identity persists, and there is exactly one of it', () => {
     // row count is the assertion; equality of the read alone would pass against an
     // append-only table whose SELECT happened to return the newest row.
     const db = createTestSyncDatabase()
-    const repo = new SyncRepository(db)
+    const repo = new SyncRepository(db, testSyncServerTables)
     repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1)
     repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P9Q1C2D3E4F5G6H7J8K9M' }, 2)
 
@@ -139,7 +171,8 @@ describe('feed identity persists, and there is exactly one of it', () => {
     // store is this adapter's; neither file alone proves they compose.
     const repo = createTestSyncRepository()
     let index = 0
-    const mint = () => ['feed-x', '01JQ0PB5X7Y8Z9A0B1C2D3E4F5', '01JQ0PC6Y8Z9A0B1C2D3E4F5G6'][index++] as string
+    const mint = () =>
+      ['feed-x', '01JQ0PB5X7Y8Z9A0B1C2D3E4F5', '01JQ0PC6Y8Z9A0B1C2D3E4F5G6'][index++] as string
     const store = {
       readIdentity: () => repo.readFeedIdentity(),
       writeIdentity: (identity: { feedId: string; epoch: string }) =>
