@@ -90,13 +90,13 @@ function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
     typeof requestCoordinatorRestart === 'function'
       ? { requestCoordinatorRestart }
       : (requestCoordinatorRestart ?? {})
-  const registry = new SessionRegistry(opts.store, undefined, { instanceId: 'updates-test' })
+  const registry = SessionRegistry.create(opts.store, undefined, { instanceId: 'updates-test' })
   const hostMachineId = registry.sessionStore.hostMachineId
   const hostUpdateReceiver = opts.hostUpdateReceiver ?? (() => {})
   if (hostUpdateReceiver !== false) registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
   registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const readServedWeb =
     typeof opts.servedWebDigest === 'function'
       ? opts.servedWebDigest

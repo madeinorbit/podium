@@ -41,7 +41,7 @@ type TurnAck = Extract<ControlMessage, { type: 'headlessTurnAck' }>
 type SpawnMsg = Extract<ControlMessage, { type: 'spawn' }>
 
 async function harness() {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   const turnReqs: TurnReq[] = []
   const bindReqs: BindReq[] = []
@@ -92,7 +92,7 @@ async function harness() {
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r')
-  const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
   attachTestClient(registry.clientGateway, (m) => clientMsgs.push(m))
@@ -1040,14 +1040,14 @@ describe('boot reconciliation for headless sessions', () => {
     expect(h.registry.sessionStore.superagent.listPendingTurns()).toHaveLength(0)
 
     const store = h.registry.sessionStore
-    const reborn = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reborn = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
     reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
-    const superagent = new SuperagentService(reborn.modules, repos, store)
+    const superagent = SuperagentService.create(reborn.modules, repos, store)
     superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
     await new Promise((resolve) => setTimeout(resolve))
 
@@ -1077,14 +1077,14 @@ describe('boot reconciliation for headless sessions', () => {
     expect(h.registry.sessionStore.superagent.listQueuedInputs()[0]?.agentKind).toBe('grok')
 
     const store = h.registry.sessionStore
-    const reborn = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reborn = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
     reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
       if (message.type === 'headlessTurnRequest') replayed.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
-    const superagent = new SuperagentService(reborn.modules, repos, store)
+    const superagent = SuperagentService.create(reborn.modules, repos, store)
     superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
     await new Promise((resolve) => setTimeout(resolve))
 
@@ -1107,7 +1107,7 @@ describe('boot reconciliation for headless sessions', () => {
     expect(h.registry.sessionStore.superagent.listPendingTurns()).toHaveLength(1)
 
     const store = h.registry.sessionStore
-    const reborn = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reborn = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const replayed: TurnReq[] = []
     const acknowledgements: TurnAck[] = []
@@ -1116,7 +1116,7 @@ describe('boot reconciliation for headless sessions', () => {
       if (message.type === 'headlessTurnAck') acknowledgements.push(message)
     })
     const repos = new RepoRegistry(reborn, store)
-    const superagent = new SuperagentService(reborn.modules, repos, store)
+    const superagent = SuperagentService.create(reborn.modules, repos, store)
     superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
     await new Promise((resolve) => setTimeout(resolve))
 
@@ -1171,7 +1171,7 @@ describe('boot reconciliation for headless sessions', () => {
       h.registry.sessionStore.superagent.getSuperagentThread('global')?.podiumSessionId
     // "Restart": a fresh registry over the same store.
     const store = h.registry.sessionStore
-    const reborn = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reborn = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reborn)
     const binds: BindReq[] = []
     const reattaches: string[] = []

@@ -251,7 +251,12 @@ export class SuperagentService {
   /** Raw rows per concierge event-log read. Injectable for overflow tests. */
   private readonly eventReadLimit: number
 
-  constructor(
+  /**
+   * Composition only — {@link SuperagentService.create} is the entry point,
+   * because adopting the in-flight turns is a store read and a constructor may
+   * not do one (POD-3256).
+   */
+  private constructor(
     private readonly modules: RegistryModules,
     private readonly repos: { list(): string[] },
     private readonly store: SessionStore,
@@ -259,20 +264,46 @@ export class SuperagentService {
   ) {
     this.waitPollMs = opts?.waitPollMs ?? 2000
     this.eventReadLimit = opts?.eventReadLimit ?? 500
-    // Only a PENDING row means a turn is in flight. A QUEUED row does not: it is
-    // a message waiting its turn, and marking its thread in-flight at boot was
-    // what made a queue impossible to drain (the pump refuses a thread that is
-    // already flagged, so the flag had to be set by dispatch, not by arrival).
-    for (const pending of this.store.superagent.listPendingTurns()) {
-      this.turnInFlight.add(pending.threadId)
-    }
-    this.modules.bus.on('machine.connected', ({ machineId }) => {
-      this.resumePendingTurns(machineId)
-    })
     const reapEvery = opts?.reapIntervalMs ?? TURN_REAP_INTERVAL_MS
     if (reapEvery > 0) {
       this.reaper = setInterval(() => this.reapStaleTurns(), reapEvery)
       this.reaper.unref?.()
+    }
+  }
+
+  /**
+   * Build the service and adopt the turns that were in flight when the process
+   * stopped. The read is here rather than in the constructor (POD-3256); its
+   * body is synchronous today and becomes asynchronous at the flip.
+   */
+  static create(
+    modules: RegistryModules,
+    repos: { list(): string[] },
+    store: SessionStore,
+    opts?: { waitPollMs?: number; eventReadLimit?: number; reapIntervalMs?: number },
+  ): SuperagentService {
+    const service = new SuperagentService(modules, repos, store, opts)
+    // ADOPT BEFORE SUBSCRIBING, which is the order the constructor had: a
+    // `machine.connected` handled before the in-flight set is loaded would
+    // resume a turn this process does not yet know is running. Nothing can
+    // arrive between these two lines today, and at the flip the read is awaited
+    // in between — which is exactly why the order is written down.
+    service.adoptPendingTurns()
+    modules.bus.on('machine.connected', ({ machineId }) => {
+      service.resumePendingTurns(machineId)
+    })
+    return service
+  }
+
+  /**
+   * Only a PENDING row means a turn is in flight. A QUEUED row does not: it is
+   * a message waiting its turn, and marking its thread in-flight at boot was
+   * what made a queue impossible to drain (the pump refuses a thread that is
+   * already flagged, so the flag had to be set by dispatch, not by arrival).
+   */
+  private adoptPendingTurns(): void {
+    for (const pending of this.store.superagent.listPendingTurns()) {
+      this.turnInFlight.add(pending.threadId)
     }
   }
 

@@ -27,7 +27,7 @@ afterEach(async () => {
 /** Start a real native Bun server with an open client surface. */
 async function start(): Promise<string> {
   store = new SessionStore(':memory:')
-  registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
     userForClient: () => FIRST_ADMIN_USER_ID,
     roleForClient: () => 'admin',

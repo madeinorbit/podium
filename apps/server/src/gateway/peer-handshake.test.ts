@@ -59,7 +59,7 @@ const registryWithMachine = (id = 'm1', token = 'tok', updatePubkey?: string) =>
     tokenHash: sha256(token),
     ownerUserId: asUserId('user:sole'),
   })
-  return new SessionRegistry(store, undefined, {
+  return SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     ...(updatePubkey === undefined ? {} : { updatePubkey: () => updatePubkey }),
   })
@@ -424,7 +424,7 @@ describe('payload identity is inert at the real MachinesService', () => {
   it('pairing passes the peer name through and mints a token once', () => {
     const store = new SessionStore(':memory:')
     const pairing = new PairingManager()
-    const reg = new SessionRegistry(store, undefined, {
+    const reg = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing,
       updatePubkey: () => 'server-key-1',
@@ -471,7 +471,7 @@ describe('payload identity is inert at the real MachinesService', () => {
       ownerUserId: null,
     })
     const pairing = new PairingManager()
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default', pairing })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default', pairing })
     const machines = reg.modules.machines
     // Mint via the service so ownerUserId is stamped (hub PairingGrant is a narrower type).
     const code = machines.mintPairingCode({ ownerUserId: asUserId('user:attacker') })

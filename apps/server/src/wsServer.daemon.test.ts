@@ -50,7 +50,7 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -83,7 +83,7 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('sekret'),
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame')
     const ws = fakeWs()
@@ -150,7 +150,7 @@ describe('daemon socket auth', () => {
 
   it('rejects an unknown hello with helloRejected and does not attach', () => {
     const store = new SessionStore(':memory:')
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -163,7 +163,7 @@ describe('daemon socket auth', () => {
   it('a pair frame redeems a code, replies once with paired, then attaches', () => {
     const store = new SessionStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
-    const reg = new SessionRegistry(store, undefined, {
+    const reg = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),
     })
@@ -205,7 +205,7 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -225,7 +225,7 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)

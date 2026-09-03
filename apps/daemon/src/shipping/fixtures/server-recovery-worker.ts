@@ -31,7 +31,7 @@ const ledger = new Ledger({
   now: Date.now,
   transact: (fn) => store.transact(fn),
 })
-const issues = new IssueService({
+const issues = IssueService.create({
   store,
   listSessions: () => [],
   getSettings: () =>

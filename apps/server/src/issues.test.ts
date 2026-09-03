@@ -63,7 +63,7 @@ function harness(sessions: SessionMeta[] = []) {
   return {
     store,
     deps,
-    svc: new IssueService(deps),
+    svc: IssueService.create(deps),
     setSessionArchived,
     clearSessionOffer,
     onWorktreesChanged,
@@ -147,7 +147,7 @@ describe('IssueService repo_id scoping (#140)', () => {
     const origin = 'git@github.com:acme/app.git'
     store.repos.addRepo('/home/alice/app', asMachineId('m-alice'), origin)
     store.repos.addRepo('/home/bob/app', asMachineId('m-bob'), origin) // same origin ⇒ same repo_id
-    const svc = new IssueService(deps)
+    const svc = IssueService.create(deps)
     const a = svc.create({ repoPath: '/home/alice/app', title: 'from alice', startNow: false })
     const b = svc.create({ repoPath: '/home/bob/app', title: 'from bob', startNow: false })
     expect(a.seq).toBe(1)
@@ -171,7 +171,7 @@ describe('IssueService repo_id scoping (#140)', () => {
     const { store, deps } = harness()
     store.repos.addRepo('/repoA', asMachineId('mA'), 'git@github.com:o/a.git')
     store.repos.addRepo('/repoB', asMachineId('mB'), 'git@github.com:o/b.git') // distinct origins
-    const svc = new IssueService(deps)
+    const svc = IssueService.create(deps)
     const a = svc.create({ repoPath: '/repoA', title: 'A1', startNow: false })
     const b = svc.create({ repoPath: '/repoB', title: 'B1', startNow: false })
     expect(a.seq).toBe(1)
@@ -509,7 +509,7 @@ describe('IssueService unread (#124)', () => {
       onWorktreesChanged: vi.fn(),
       now: () => clock,
     }
-    const svc = new IssueService(deps)
+    const svc = IssueService.create(deps)
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.markIssueRead(w.id)
     expect(svc.unreadFor(w.id)).toBe(false)
@@ -554,7 +554,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     )
     // …so a cold service over the same store — the "different browser / after a
     // restart" case — serves the same fold instead of an un-tucked live row.
-    expect(new IssueService(deps).get(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect(IssueService.create(deps).get(w.id)!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
   })
 
   it('broadcasts the change so every OTHER connected client folds the same row', () => {
@@ -611,7 +611,7 @@ describe('IssueService tuck-away (POD-333)', () => {
       onWorktreesChanged: vi.fn(),
       now: () => clock,
     }
-    const svc = new IssueService(deps)
+    const svc = IssueService.create(deps)
     const w = closedIssue(svc)
     expect(svc.setIssueTucked(w.id, true).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
 
@@ -2693,7 +2693,7 @@ describe('IssueService assistant', () => {
         issues: { assistantEnabled: true },
         workLlm: { kind: 'api', provider: 'openrouter', model: 'm' },
       })
-    return { svc: new IssueService(deps), deps }
+    return { svc: IssueService.create(deps), deps }
   }
 
   it('refreshAssistant writes activity notes + suggestion and broadcasts', async () => {
@@ -4927,7 +4927,7 @@ describe('IssueService panelApply (agent-published human panel)', () => {
     const wire = svc.panelApply(w.id, { op: 'deferred-remove', index: 1 })
     expect(wire.panel?.deferred).toEqual([])
     // reload from the same store: panel round-trips through the DB
-    const svc2 = new IssueService(deps)
+    const svc2 = IssueService.create(deps)
     expect(svc2.get(w.id)?.panel?.artifacts[0]?.title).toBe('v2')
     expect(store.issues.getIssue(w.id)?.panel).toContain('a.png')
   })
@@ -4974,7 +4974,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       remove,
       removeIssue: vi.fn(async () => {}),
     }
-    const svc = new IssueService(h.deps)
+    const svc = IssueService.create(h.deps)
     return { ...h, svc, snapshot, remove, read, stored, repoOp, sessions }
   }
 
@@ -5213,7 +5213,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       remove: vi.fn(async () => {}),
       removeIssue: vi.fn(async () => {}),
     }
-    const svc = new IssueService(h.deps)
+    const svc = IssueService.create(h.deps)
     const issue = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.update(issue.id, { worktreePath: '/wt/issue-1' })
     return { svc, issue, stored, read, snapshot }
@@ -5323,7 +5323,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       }
       const h = harness([sess('/wt')])
       h.deps.artifacts = new IssueArtifactStore(base, rpc)
-      const svc = new IssueService(h.deps)
+      const svc = IssueService.create(h.deps)
       const issue = svc.create({ repoPath: '/r', title: 'X', startNow: false })
       svc.update(issue.id, { worktreePath: '/wt/issue-1' })
       await svc.panelArtifactAdd(issue.id, { path: 'shots/a.png', title: 'Shot' })
@@ -5830,7 +5830,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
   ) => {
     const h = harness(sessions)
     h.deps.getSettings = () => normalizeSettings({ worktreeGc })
-    return { ...h, svc: new IssueService(h.deps) }
+    return { ...h, svc: IssueService.create(h.deps) }
   }
 
   const closedIssueWithCheckout = (

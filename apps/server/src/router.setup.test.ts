@@ -24,10 +24,10 @@ import { OPERATOR } from './test-support/capabilities'
 let harness: ReturnType<typeof makeHarness> | undefined
 
 function makeHarness() {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
   return {
     users,
@@ -56,10 +56,10 @@ function activationHarness(opts: {
   readiness: () => ServerReadiness
   requestCoordinatorRestart?: () => void
 }) {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
   return appRouter.createCaller({
     registry,

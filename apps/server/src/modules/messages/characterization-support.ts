@@ -274,7 +274,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     ...issueTestPlumbing(),
     now,
   }
-  const issues = new IssueService(issueDeps)
+  const issues = IssueService.create(issueDeps)
 
   const record =
     (fn: Push['fn']) => (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {

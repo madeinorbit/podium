@@ -189,7 +189,7 @@ async function runArm(label: string): Promise<ArmReport> {
   store.transact(() => {
     for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
   })
-  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const sessionIds: SessionId[] = []
   try {
     for (let index = 0; index < SESSION_COUNT; index += 1) {

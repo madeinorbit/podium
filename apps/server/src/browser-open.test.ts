@@ -42,7 +42,7 @@ function setup() {
   })
   store.machines.setMachineInventory('m1', inventory)
   store.machines.setMachineInventory('m2', inventory)
-  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []

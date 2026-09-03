@@ -28,7 +28,7 @@ function regWithTwoDaemons() {
     tokenHash: 'y',
     ownerUserId: asUserId('user:sole'),
   })
-  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(reg, store)
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
@@ -229,7 +229,7 @@ describe('RepoRegistry.scanReposAll()', () => {
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))

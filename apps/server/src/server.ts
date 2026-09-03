@@ -628,7 +628,7 @@ export async function startServer(
   // `tsgo`, which does not report this family; `tsc --noEmit` in apps/server
   // does. That difference is why the same tree was honestly reported as both
   // clean and broken by different readers (POD-1858, POD-1862).
-  const registry: SessionRegistry = new SessionRegistry(store, undefined, {
+  const registry: SessionRegistry = SessionRegistry.create(store, undefined, {
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
     // The server's baked product label is the Phase 1 target identity. The richer
@@ -737,7 +737,7 @@ export async function startServer(
   })
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
-  const superagent = new SuperagentService(registry.modules, repos, store)
+  const superagent = SuperagentService.create(registry.modules, repos, store)
   // Its turn reaper is a periodic write; the registry's dispose is what stops it
   // before `store.close()` on every close path (POD-2772).
   registry.adoptSuperagent(superagent)

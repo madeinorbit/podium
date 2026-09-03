@@ -60,7 +60,7 @@ afterEach(() => {
  */
 function revocableStack() {
   const store = new SessionStore(':memory:')
-  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   const sessions = reg.modules.sessions

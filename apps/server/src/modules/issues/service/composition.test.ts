@@ -28,7 +28,7 @@ describe('issue tracker capability composition', () => {
       repoOp: async () => ({ ok: true, output: '' }),
       ...issueTestPlumbing(),
     }
-    const tracker = new IssueService(deps)
+    const tracker = IssueService.create(deps)
     const capabilities = [
       tracker.crud,
       tracker.hierarchy,

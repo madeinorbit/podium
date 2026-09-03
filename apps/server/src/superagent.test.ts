@@ -137,7 +137,7 @@ describe('harnessAllowedTools', () => {
 // auto-answers git ops so issues.start can complete.
 describe('start_agent tool wiring (issue #60)', () => {
   function harness() {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
@@ -151,7 +151,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       }
     })
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
+    const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore)
     sa.history(FIRST_ADMIN_USER_ID)
     sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('s1') })
     sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('parent') })
@@ -343,7 +343,7 @@ describe('session-steering tool belt (issue #62)', () => {
   const pendingQuestion = st('needs_user', { need: { kind: 'question' } })
 
   function harness(opts?: { waitPollMs?: number; transcriptItems?: TranscriptItem[] }) {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const inputs: string[] = []
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'input') inputs.push(Buffer.from(m.data, 'base64').toString())
@@ -370,7 +370,7 @@ describe('session-steering tool belt (issue #62)', () => {
       }
     })
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, {
+    const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore, {
       waitPollMs: opts?.waitPollMs ?? 5,
     })
     sa.history(FIRST_ADMIN_USER_ID)
@@ -796,11 +796,11 @@ describe('superagent turn reaper disposal (POD-2772)', () => {
   const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
   it('stops reading the store once the registry it was adopted by is disposed', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const store = registry.sessionStore
     const repos = new RepoRegistry(registry, store)
     // Fast enough to observe within a test, slow enough to tick more than once.
-    const sa = new SuperagentService(registry.modules, repos, store, { reapIntervalMs: 5 })
+    const sa = SuperagentService.create(registry.modules, repos, store, { reapIntervalMs: 5 })
     registry.adoptSuperagent(sa)
 
     let reads = 0

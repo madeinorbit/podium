@@ -63,8 +63,19 @@ export class MemoryService {
       },
       options,
     )
-    // The repair is memory-owned now, rather than a SessionStore boot side effect.
-    deps.store.conversations.registry.repairSubagentSegmentPaths()
+  }
+
+  /**
+   * THE ONE WRITE THIS SERVICE OWNS AT BOOT — the subagent evidence repair,
+   * memory-owned rather than a SessionStore boot side effect.
+   *
+   * It is a boot STEP rather than a line in the constructor (POD-3256): the
+   * composition root runs it after the object exists, so constructing a memory
+   * service never touches the database. The order the root calls it in is the
+   * order the constructor established.
+   */
+  repairSubagentEvidence(): void {
+    this.deps.store.conversations.registry.repairSubagentSegmentPaths()
   }
 
   forReader(reader: MemoryReader): MemoryReaderView {

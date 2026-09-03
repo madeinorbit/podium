@@ -183,7 +183,31 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
   readonly reports: IssueReportsModule
   private readonly legacyOwners: object[]
 
-  constructor(deps: IssueDeps) {
+  /**
+   * Compose the tracker WITHOUT reading anything. The caller owns hydration and
+   * runs {@link IssueServiceRoot.boot} (or `init()`) as its own boot step — this
+   * is the shape a composition root needs, because at the flip a constructor
+   * cannot await and `relay.ts` composes this object inside one.
+   */
+  static compose(deps: IssueDeps): IssueServiceRoot {
+    return new IssueServiceRoot(deps)
+  }
+
+  /**
+   * Compose the tracker and load the row map it serves — the entry point for a
+   * caller that has no boot list of its own.
+   *
+   * The load is an explicit step rather than a lazy getter (POD-3256):
+   * `IssueStore`'s `rows` getter used to hydrate on first touch, and a getter
+   * cannot await. The body is synchronous today and gains an await at the flip.
+   */
+  static create(deps: IssueDeps): IssueServiceRoot {
+    const service = IssueServiceRoot.compose(deps)
+    service.store.init()
+    return service
+  }
+
+  private constructor(deps: IssueDeps) {
     const store = new IssueStore(deps)
     this.store = store
 
@@ -350,5 +374,6 @@ const log = createLogger('server:issues')
  */
 export type IssueService = IssueServiceRoot & IssueLegacySurface
 export const IssueService = IssueServiceRoot as unknown as {
-  new (deps: IssueDeps): IssueService
+  compose(deps: IssueDeps): IssueService
+  create(deps: IssueDeps): IssueService
 }

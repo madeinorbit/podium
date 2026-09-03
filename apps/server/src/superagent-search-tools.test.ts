@@ -20,10 +20,10 @@ afterEach(() => {
 })
 
 async function toolNames(): Promise<string[]> {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   sa.history(FIRST_ADMIN_USER_ID)
   return sa.mcpToolSpecs().map((t) => t.name)
 }

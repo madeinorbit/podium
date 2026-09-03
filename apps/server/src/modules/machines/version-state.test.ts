@@ -65,7 +65,7 @@ describe('deriveVersionState', () => {
 
   it('composes the server target into the machine read model', () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, {
+    const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       targetVersion: () => '0.4.2',
     })

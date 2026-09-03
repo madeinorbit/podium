@@ -16,13 +16,13 @@ describe('SessionRegistry metadata deltas', () => {
   })
 
   function makeRegistry(): SessionRegistry {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }
 
   function makeLegacyRegistry(): SessionRegistry {
-    const registry = new SessionRegistry(new SessionStore(':memory:'), undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(new SessionStore(':memory:'), undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }

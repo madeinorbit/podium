@@ -108,7 +108,7 @@ function bindContract(registry: SessionRegistry, store: SessionStore) {
 describe('durable runtime observation gate', () => {
   it('accepts a generation-one live event after an empty bootstrap snapshot', () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
 
     registry.gateway.routeDaemonFrame(store.hostMachineId, {
@@ -149,7 +149,7 @@ describe('durable runtime observation gate', () => {
 
   it('keeps live-tail and completion-reconcile overlap exact after reload', async () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
 
     registry.gateway.routeDaemonFrame(store.hostMachineId, {
@@ -308,7 +308,7 @@ describe('durable runtime observation gate', () => {
     })
 
     registry.dispose()
-    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const restarted = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const rehydrated = restarted.modules.sessions.sessionById(sessionId)
     expect(rehydrated?.transcriptAvailable).toBe(true)
 
@@ -324,7 +324,7 @@ describe('durable runtime observation gate', () => {
 
   it('never projects a rejected complete event and preserves one interrupt across restart', async () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const rejectedItem = {
       id: 'rejected-before-gate',
@@ -379,7 +379,7 @@ describe('durable runtime observation gate', () => {
     expect(live.some((item) => item.id === rejectedItem.id)).toBe(false)
 
     registry.dispose()
-    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const restarted = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const reloaded = restarted.modules.sessions.transcriptFor(sessionId)
     expect(reloaded).toEqual([interruptItem])
     expect(reloaded.some((item) => item.id === rejectedItem.id)).toBe(false)
@@ -390,7 +390,7 @@ describe('durable runtime observation gate', () => {
 
   it('projects causal failure detail into SessionMeta, beside the turn event', () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'
 
@@ -460,7 +460,7 @@ describe('durable runtime observation gate', () => {
 
   it('owns recency/board after readiness and enforces restart, segment, epoch, and terminal fences', async () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const initial = registry.modules.sessions.sessionById(sessionId)
     expect(initial).toBeDefined()
@@ -531,7 +531,7 @@ describe('durable runtime observation gate', () => {
 
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     registry.dispose()
-    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const restarted = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     restarted.gateway.attachDaemon(store.hostMachineId, () => {})
     const restartedBoard: string[] = []
     restarted.bus.on('issue.runtimeDerived', (event) => restartedBoard.push(event.kind))
@@ -747,7 +747,7 @@ describe('durable runtime observation gate', () => {
 
   it('rolls event, checkpoint, and session recency back together when ingress persistence fails', () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const before = registry.modules.sessions.sessionById(sessionId)?.lastActiveAt ?? ''
     registry.gateway.routeDaemonFrame(store.hostMachineId, {
@@ -791,7 +791,7 @@ describe('durable runtime observation gate', () => {
 
   it('replays after a server kill while an asynchronous board effect is pending', async () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const initial = registry.modules.sessions.sessionById(sessionId)
     const at = new Date(Date.parse(initial?.lastActiveAt ?? '') + 1_000).toISOString()
@@ -842,7 +842,7 @@ describe('durable runtime observation gate', () => {
 
     // Dispose without resolving the listener: this is the server-kill window.
     registry.dispose()
-    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const restarted = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await restarted.modules.sessions.runtimeGateway.replayBoardProjection()
     expect(store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBeGreaterThan(
       baselineCursor,
@@ -855,7 +855,7 @@ describe('durable runtime observation gate', () => {
 
   it('accepts a process exit after the final turn epoch is closed', async () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
 
     registry.gateway.routeDaemonFrame(store.hostMachineId, {
@@ -992,7 +992,7 @@ describe('causal failure ownership', () => {
     // recovery ask was dropped as a duplicate of a causal failure that does not
     // exist, and a session waiting on a human went silent.
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     send(
       registry,
@@ -1029,7 +1029,7 @@ describe('causal failure ownership', () => {
 
   it('a LIVE turn/failed in the current turn is ownership', () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     send(
       registry,
@@ -1059,7 +1059,7 @@ describe('causal failure ownership', () => {
     // legacy path must still be able to ask: the old failure is not evidence
     // about this one.
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     send(
       registry,
@@ -1100,7 +1100,7 @@ describe('causal failure ownership', () => {
     // replayed failure as ownership would silence the shadow with nothing
     // standing in its place.
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     send(
       registry,

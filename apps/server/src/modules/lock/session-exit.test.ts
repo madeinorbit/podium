@@ -25,7 +25,7 @@ const bind = (sessionId: SessionId, cwd: string) =>
   }) as const
 
 function regWithDaemon() {
-  const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
 }

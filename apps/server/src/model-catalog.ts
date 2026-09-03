@@ -56,7 +56,7 @@ export class ModelCatalog {
   private readonly snapshots = new Map<string, ModelCatalogSnapshot>()
   private readonly inflight = new Map<string, Promise<void>>()
 
-  // Default probe is an empty no-op so `new SessionRegistry()` (every test) never
+  // Default probe is an empty no-op so `SessionRegistry.create()` (every test) never
   // reaches for a daemon; the real one (a `modelProbeRequest` to the named
   // machine) is injected at boot in startServer via
   // SessionRegistryOptions.modelProbe.

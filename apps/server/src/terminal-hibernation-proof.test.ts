@@ -46,7 +46,7 @@ function harness({
 } = {}) {
   const store = new SessionStore(':memory:')
   const daemon: ControlMessage[] = []
-  const registry = new SessionRegistry(store, undefined, { instanceId })
+  const registry = SessionRegistry.create(store, undefined, { instanceId })
   registries.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
     daemon.push(message),
@@ -149,7 +149,7 @@ function harness({
 
 describe('durable terminal hibernation proof', () => {
   it('keeps explicit legacy hibernation proof-free', () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -233,7 +233,7 @@ describe('durable terminal hibernation proof', () => {
       registry.gateway.detachDaemon(registry.sessionStore.hostMachineId)
     } else {
       registry.dispose()
-      registry = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
+      registry = SessionRegistry.create(h.store, undefined, { instanceId: 'default' })
       registries.push(registry)
     }
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
@@ -408,7 +408,7 @@ describe('durable terminal hibernation proof', () => {
     })
 
     const controls: ControlMessage[] = []
-    const restarted = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
+    const restarted = SessionRegistry.create(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
       controls.push(message),
@@ -448,7 +448,7 @@ describe('durable terminal hibernation proof', () => {
     })
 
     const controls: ControlMessage[] = []
-    const restarted = new SessionRegistry(h.store, undefined, { instanceId: 'default' })
+    const restarted = SessionRegistry.create(h.store, undefined, { instanceId: 'default' })
     registries.push(restarted)
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (message) =>
       controls.push(message),

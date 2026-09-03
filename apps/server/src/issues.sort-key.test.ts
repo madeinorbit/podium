@@ -24,7 +24,7 @@ const ctx = (registry: SessionRegistry) =>
 
 describe('sortKey minting on create (POD-168)', () => {
   it('each new top-level issue mints above the scope minimum', async () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'first', startNow: false })
@@ -43,7 +43,7 @@ describe('sortKey minting on create (POD-168)', () => {
   })
 
   it("a parent's children are an independent key space", async () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const first = await op.issues.create({ repoPath: '/r', title: 'top A', startNow: false })
@@ -71,7 +71,7 @@ describe('sortKey minting on create (POD-168)', () => {
   })
 
   it('scopes are per repo group at the top level', async () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r1', title: 'repo1 top', startNow: false })
@@ -86,7 +86,7 @@ describe('sortKey minting on create (POD-168)', () => {
 
 describe('sortKey update patch (POD-168)', () => {
   it('round-trips through issues.update and persists on the wire', async () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'movable', startNow: false })
@@ -100,7 +100,7 @@ describe('sortKey update patch (POD-168)', () => {
   })
 
   it('rejects malformed keys (uppercase, trailing zero, empty)', async () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'guarded', startNow: false })
@@ -113,7 +113,7 @@ describe('sortKey update patch (POD-168)', () => {
   })
 
   it('pin/unpin leaves the sortKey untouched (unpin returns to its position)', async () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'pin me', startNow: false })
@@ -152,7 +152,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
   }
 
   it('keeps a long scope writable, in the order the operator is looking at', async () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const ids: string[] = []
@@ -190,7 +190,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
     // create shortens them. A drag re-keys one row between two neighbours and
     // cannot move the scope's minimum, so making it pay for a whole-scope
     // renumber bought nothing and cost 2.5 seconds mid-gesture on a real board.
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       for (let i = 0; i < 12; i++) {
@@ -233,7 +233,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
     // it could do: the writer that grew those keys mints inside the service and
     // never meets a schema, so the only party the cap could ever punish was the
     // drag. Now it lands, and the row goes where it was dropped.
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       for (let i = 0; i < 12; i++) {
@@ -287,7 +287,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
     //
     // Pin/unpin leaves `sortKey` untouched precisely so unpinning returns the
     // row to its position. That only holds while the two are comparable.
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const ids: string[] = []
@@ -329,7 +329,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
   }, 60_000)
 
   it('leaves a young scope alone — compaction is a repair, not a policy', async () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const op = ctx(reg)
       const a = await op.issues.create({ repoPath: '/r', title: 'one', startNow: false })

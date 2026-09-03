@@ -16,7 +16,7 @@ import { CLOSED_ISSUE_SWEEP_INTERVAL_MS } from './issue-session-lifecycle'
  */
 describe('IssueSessionLifecycle closed-issue sweep single-flight (POD-3258)', () => {
   function harness() {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     let calls = 0
     let onList: () => void = () => {}
     const spy = vi.spyOn(registry.modules.issues.reports, 'list').mockImplementation(() => {

@@ -53,7 +53,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
       })
       store.machines.setMachineInventory(id, INVENTORY)
     }
-    registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     toDaemon = []
     registry.gateway.attachDaemon(MACHINE, (message) => toDaemon.push(message))
     registry.gateway.attachDaemon(OTHER_MACHINE, () => {})

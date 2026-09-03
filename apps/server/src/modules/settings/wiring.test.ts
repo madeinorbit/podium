@@ -50,7 +50,7 @@ const SECRET = 'sk-ant-real-material-do-not-log'
 
 function harness(role: UserRole | undefined) {
   const store = new SessionStore(':memory:')
-  const registry = new SessionRegistry(store, undefined, {
+  const registry = SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     pairing: new PairingManager(),
   })
@@ -62,7 +62,7 @@ function harness(role: UserRole | undefined) {
   const users = store.users as { roleOf: (id: UserId) => UserRole | undefined }
   users.roleOf = (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
     store,
     call: appRouter.createCaller({

@@ -24,7 +24,7 @@ afterEach(() => {
 })
 
 function makeRegistry(store?: SessionStore): { reg: SessionRegistry; daemon: ControlMessage[] } {
-  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -196,7 +196,7 @@ describe('Claude SDK continuity projection', () => {
     ).toBe('claude-sdk')
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     reg.dispose()
-    const reloaded = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reloaded = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     daemon.length = 0
     reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
@@ -244,7 +244,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     first.reg.gateway.detachDaemon(first.reg.sessionStore.hostMachineId)
     first.reg.dispose()
 
-    const reloaded = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reloaded = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     const daemon: ControlMessage[] = []
     reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
@@ -350,7 +350,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     first.reg.gateway.detachDaemon(first.reg.sessionStore.hostMachineId)
     first.reg.dispose()
 
-    const reloaded = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reloaded = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     const daemon: ControlMessage[] = []
     reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>

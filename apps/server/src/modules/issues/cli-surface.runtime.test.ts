@@ -5,7 +5,7 @@
  * Its whole reason for existing is the failure class that dominated this run: POD-732
  * found the workflow CLI suite driving a `Proxy` that answers every procedure, so it
  * "would stay green against a server serving nothing". THERE IS NO PROXY AND NO MOCK
- * HERE. `new SessionRegistry()` builds the real `IssueCommandDispatcher` over the real
+ * HERE. `SessionRegistry.create()` builds the real `IssueCommandDispatcher` over the real
  * `IssueService`, and `asIssueTrpc` is the same object the in-process MCP tools call.
  *
  * ## What is executed for real, and what deliberately is not
@@ -41,7 +41,7 @@ import { OPERATOR } from '../../test-support/capabilities'
 
 const registries: SessionRegistry[] = []
 const fresh = (): SessionRegistry => {
-  const r = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const r = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(r)
   return r
 }

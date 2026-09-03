@@ -53,7 +53,7 @@ function makeRig(
   })
   store.repos.addRepo(SOURCE, asMachineId('src'))
   store.repos.addRepo(TARGET, asMachineId('tgt'))
-  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const calls: OpCall[] = []
   const rpc = {
     repoOp: (op: string, cwd: string, args: Record<string, string> = {}, machineId?: string) => {

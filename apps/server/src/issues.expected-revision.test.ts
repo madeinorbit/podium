@@ -58,7 +58,7 @@ async function expectConflict(fn: () => Promise<unknown>) {
 
 describe('expectedRevision preconditions (ADR 3 D13)', () => {
   it('(a) refuses the second of two concurrent edits and reports the current revision', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -105,7 +105,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   it('(a2) applies the second edit once it rebases onto the revision the conflict reported', async () => {
     // The conflict has to be actionable, not just loud — the number it hands back
     // must be the one that works on retry.
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -126,7 +126,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   })
 
   it('routes supplied preconditions through the production Authority hook', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const base = revisionOf(registry, issue.id) as number
@@ -155,7 +155,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   })
 
   it('applies a write whose precondition is current', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -173,7 +173,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   it('leaves a write with no precondition on last-write-wins, as today', async () => {
     // The field is optional until clients carry revisions (POD-795/796). An
     // omitted precondition must keep every shipped CLI/agent/MCP write working.
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -188,7 +188,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
   it('(d) applies an append-only command that carries no expectedRevision', async () => {
     // ADR 1 files comments as an APPEND create: a comment is not based on the
     // issue's prior state, so it must land even when the issue has moved under it.
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -224,7 +224,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
     // arbitration tests, where the input can actually be constructed. This test guards
     // the premise: if a local issue ever loses its revision, the fail-closed arm starts
     // firing on ordinary edits and this goes red first.
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -241,7 +241,7 @@ describe('expectedRevision preconditions (ADR 3 D13)', () => {
 
 describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
   it('(b) returns the stored result on replay without re-applying', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -269,7 +269,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
   })
 
   it('(b1) replays an exp-rev command without re-arbitrating its now-stale token', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -336,7 +336,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
   })
 
   it('replays under a DIFFERENT mutationId apply again (the id is the dedupe key)', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const caller = callerFor(registry)
@@ -355,7 +355,7 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
     // dispatcher → errorFormatter → JSON. createCaller would skip the formatter,
     // which is exactly the seam where a structured rejection quietly degrades into
     // prose a client has to parse.
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = seed(registry)
       const base = revisionOf(registry, issue.id) as number

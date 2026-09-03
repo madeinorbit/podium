@@ -194,7 +194,7 @@ describe('a database that already ran the retired upgrades', () => {
 describe('the split-mode local daemon authenticates as this host', () => {
   const bootedRegistry = (secret: string) => {
     const store = new SessionStore(':memory:', HOST)
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', secret)
     return registry
   }
@@ -220,7 +220,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
     // its own. A hard-coded `'local'` could not tell them apart.
     const other = asMachineId('11112222-3333-4444-5555-666677778888')
     const store = new SessionStore(':memory:', other)
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('other-host', 'other-secret')
 
     expect(
@@ -232,7 +232,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
 describe('composition threads deployment identity explicitly', () => {
   it('derives fleet and durable-session namespaces from the constructor parameter', () => {
     const store = new SessionStore(':memory:', HOST)
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'blue' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'blue' })
 
     expect(registry.modules.machines.instanceId).toBe('blue')
     const { sessionId } = registry.modules.sessions.createSession({
@@ -257,7 +257,7 @@ describe('composition threads deployment identity explicitly', () => {
 describe('rows are attributed from birth — there is no placeholder phase', () => {
   it('a session created before any daemon connects already names the host', () => {
     const store = new SessionStore(':memory:', HOST)
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
     const { sessionId } = registry.modules.sessions.createSession({
@@ -274,7 +274,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
 
   it('defaultMachine answers with the host even when its daemon is offline', () => {
     const store = new SessionStore(':memory:', HOST)
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
     expect(registry.modules.machines.defaultMachine()).toBe(HOST)

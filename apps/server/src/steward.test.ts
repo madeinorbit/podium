@@ -54,7 +54,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     ...issueTestPlumbing(),
     now,
   }
-  const issues = new IssueService(issueDeps)
+  const issues = IssueService.create(issueDeps)
   const sendTextWhenReady = vi.fn()
   // The external-notification seam (#470) [spec:SP-17db] — injected, so the unit
   // tests assert the call without ever reaching ntfy/Telegram.

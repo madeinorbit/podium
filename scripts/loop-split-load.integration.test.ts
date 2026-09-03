@@ -84,7 +84,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
     store.transact(() => {
       for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
     })
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionIds: SessionId[] = []
     let loop: ReturnType<typeof startLoopMetrics> | undefined
     try {

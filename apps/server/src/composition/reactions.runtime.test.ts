@@ -26,7 +26,7 @@ describe('composition root reaction principals', () => {
     }
     expect(
       () =>
-        new SessionRegistry(undefined, undefined, {
+        SessionRegistry.create(undefined, undefined, {
           instanceId: 'default',
           reactions: [...REACTIONS, widening],
         }),
@@ -34,7 +34,7 @@ describe('composition root reaction principals', () => {
   })
 
   it('publishes the declared registry when every principal is in scope', () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     expect(registry.modules.reactions).toHaveLength(REACTIONS.length)
     for (const reaction of registry.modules.reactions) {

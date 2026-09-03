@@ -23,7 +23,7 @@ function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-02T00:00:00.000Z',
   }
-  return { store, deps, svc: new IssueService({ ...deps, ...extra }) }
+  return { store, deps, svc: IssueService.create({ ...deps, ...extra }) }
 }
 
 describe('SessionStore event log', () => {
@@ -477,7 +477,7 @@ describe('SessionRegistry session.phase events', () => {
 
   it('skips the prev-undefined seed and logs only real phase transitions', () => {
     const store = new SessionStore(':memory:')
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     // First state after boot/spawn: prev is undefined → no phantom row.

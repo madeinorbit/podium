@@ -44,7 +44,7 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
   }
   // The plumbing wires a REAL Ledger; widen from the narrow IssueLedger face so
   // tests can read the log back (cursor/changesSince).
-  return { svc: new IssueService(deps), repoOp, broadcast, ledger: plumbing.ledger as Ledger }
+  return { svc: IssueService.create(deps), repoOp, broadcast, ledger: plumbing.ledger as Ledger }
 }
 
 const member = (sessionId: SessionId, issueId: string): SessionMeta =>
