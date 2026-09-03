@@ -26,11 +26,15 @@ import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { ReposRepository } from './repos'
+import { TableWrites } from './table-writes'
 
 const HOST = 'machine-host'
 
 let counts: Map<string, number>
 let repos: ReposRepository
+let tableWrites: TableWrites
+/** The handle UNDER the counting wrapper — the bypassing writer's way in. */
+let rawDb: SqlDatabase
 
 /** Count executions per statement, delegating to the real database. */
 function counting(db: SqlDatabase, into: Map<string, number>): SqlDatabase {
@@ -68,9 +72,10 @@ const tableReads = (table: string): number =>
   )
 
 beforeEach(() => {
-  const raw = openMigratedTestDatabase()
+  rawDb = openMigratedTestDatabase()
   counts = new Map()
-  repos = new ReposRepository(counting(raw, counts), () => {}, asMachineId(HOST))
+  tableWrites = new TableWrites()
+  repos = new ReposRepository(counting(rawDb, counts), () => {}, asMachineId(HOST), tableWrites)
   repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
   repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
   counts.clear()
@@ -156,3 +161,49 @@ describe('repo reads under a projection pass', () => {
  * proves a bypassing writer cannot serve a stale registry belongs to that
  * mechanism, not to a boot upgrade that no longer exists.
  */
+describe('registry cache vs writers that bypass the repository', () => {
+  /**
+   * THE SEAM, DRIVEN WITHOUT A CALLER (POD-3247), which is the only way left to
+   * drive it and the reason it is worth a test at all.
+   *
+   * POD-3246 took the last bypassing writer out of the tree, so this mechanism has
+   * no production caller today. It is not speculative: it is the shape of every
+   * statement the async query layer will run through an executor, and the failure
+   * it prevents — `listRepos()` answering from a read taken before someone else's
+   * write — is one that already reached a live instance once.
+   *
+   * So the write below is issued on the handle DIRECTLY, with no repository
+   * involved and nothing about it this class could recognise if it were still
+   * reading SQL text.
+   */
+  it('a write announced to the store, from no repository at all, drops the held read', () => {
+    // Hold the read, so there is something to go stale. Without this the assertion
+    // at the end passes against a cache that is simply empty.
+    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/alpha')
+
+    rawDb.prepare("UPDATE repos SET path = '/renamed' WHERE path = '/home/u/alpha'").run()
+
+    // Still stale, and that is the point: the ANNOUNCEMENT is what fixes this, not
+    // the write. Skipping this step would leave a test that passes against a
+    // repository holding no cache at all.
+    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/alpha')
+
+    tableWrites.wrote('repos')
+
+    expect(repos.listRepos().map((r) => r.path)).toContain('/renamed')
+  })
+
+  it('announces per table, so an unrelated table does not drop the read', () => {
+    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/alpha')
+    rawDb.prepare("UPDATE repos SET path = '/renamed' WHERE path = '/home/u/alpha'").run()
+
+    // The counterfactual for the test above: if any announcement dropped the read,
+    // that test would hold for any argument and would not be about `repos` at all.
+    tableWrites.wrote('sessions')
+    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/alpha')
+
+    // The other subscribed table, because the prefix map is held by the same read.
+    tableWrites.wrote('repo_prefixes')
+    expect(repos.listRepos().map((r) => r.path)).toContain('/renamed')
+  })
+})

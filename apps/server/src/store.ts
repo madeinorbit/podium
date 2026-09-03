@@ -81,6 +81,7 @@ import { SettingsRepository } from './store/settings'
 import { SettingsAuditRepository } from './store/settings-audit'
 import { ShippingRepository } from './store/shipping'
 import { SuperagentRepository } from './store/superagent'
+import { TableWrites } from './store/table-writes'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
 import { TranscriptCostsRepository } from './store/transcript-costs'
 import { UserLayoutRepository } from './store/user-layout'
@@ -102,6 +103,18 @@ export function defaultDbPath(): string {
 
 export class SessionStore {
   private readonly db: SqlDatabase
+  /**
+   * The store's per-table write announcement (POD-3247).
+   *
+   * Raised by write paths that do not go through the repository owning a cached
+   * read of that table. It has NO caller in the tree today: the one it was built
+   * for — the boot machine-identity upgrade, which wrote `repos` on the raw handle
+   * with SQL built from `sqlite_master` — was retired at POD-3246. The writer went;
+   * the shape did not. Every statement the async query layer runs through an
+   * executor is one, and a repository holding a cached read subscribes here rather
+   * than being named by each writer in turn. See `store/table-writes.ts`.
+   */
+  readonly tableWrites = new TableWrites()
   /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
   private readonly snapshotVerifier: SnapshotVerifier
   readonly repos: ReposRepository
@@ -251,6 +264,7 @@ export class SessionStore {
       this.db,
       (repoId, repoPath) => this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
       this.hostMachineId,
+      this.tableWrites,
     )
     this.approvals = new ApprovalsRepository(this.db)
     this.interactions = new InteractionsRepository(this.db)
