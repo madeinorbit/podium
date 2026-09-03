@@ -2178,3 +2178,121 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
   })
 })
+
+/**
+ * SINGLE-FLIGHT GUARDS (POD-3258). Two timer callbacks in this service reach the
+ * store and had no fence of their own: the scheduler pass, and each resource
+ * lease's renew tick.
+ */
+describe('ShippingService single-flight guards (POD-3258)', () => {
+  /**
+   * `admissionsInFlight` and `inFlight` fence the ADMISSION, not the pass that
+   * decides it — and everything before the first admission already awaits: the
+   * covered-prefix recovery, the order read, the schedule build. So two ticks
+   * could both build a schedule from the same pre-admission snapshot and both
+   * pick the same head order, leaving the custody check in `runOrder` as the
+   * only thing between them and a double admission.
+   *
+   * The probe re-enters from inside `listReceipts`, which the schedule build
+   * asks for on every pass — after the awaits and before any admission.
+   */
+  it('the scheduler pass skips a tick that lands on a pass already running', async () => {
+    const { store, service } = harness()
+    let calls = 0
+    let inner: Promise<void> | undefined
+    const original = store.shipping.listReceipts.bind(store.shipping)
+    const spy = vi.spyOn(store.shipping, 'listReceipts').mockImplementation(() => {
+      calls += 1
+      if (!inner) inner = service.tick()
+      return original()
+    })
+
+    await service.tick()
+    await inner
+
+    expect(inner).toBeDefined()
+    expect(calls).toBe(1)
+    spy.mockRestore()
+    service.dispose()
+  })
+
+  it('the scheduler pass runs normally once the previous pass has finished', async () => {
+    const { store, service } = harness()
+    let calls = 0
+    const original = store.shipping.listReceipts.bind(store.shipping)
+    const spy = vi.spyOn(store.shipping, 'listReceipts').mockImplementation(() => {
+      calls += 1
+      return original()
+    })
+
+    await service.tick()
+    await service.tick()
+
+    expect(calls).toBe(2)
+    spy.mockRestore()
+    service.dispose()
+  })
+
+  /**
+   * The renew tick fires every ttl/3 and reaches the lock service, so a renew
+   * slower than a third of the TTL is met by the next tick while it is still
+   * out. Two renews for one lease race on `lease.lost` and `lease.expiresAt`:
+   * the loser's stale verdict can overwrite the winner's, either extending a
+   * lease that was actually lost or condemning one that was renewed.
+   */
+  it('a lease renew skips a tick that lands on a renew already running', async () => {
+    vi.useFakeTimers()
+    let markCommitStarted!: () => void
+    const commitStarted = new Promise<void>((resolve) => {
+      markCommitStarted = resolve
+    })
+    let finishCommit!: () => void
+    const daemon: NonNullable<
+      ConstructorParameters<typeof ShippingService>[0]['daemon']
+    >['shippingJob'] = async (input, machineId) => {
+      if (input.action === 'start' && input.operation === 'commit-merge-group') {
+        markCommitStarted()
+        return new Promise<ShippingJobResult>((resolve) => {
+          finishCommit = () => {
+            void provedShippingJob(input, machineId).then(resolve)
+          }
+        })
+      }
+      return provedShippingJob(input, machineId)
+    }
+
+    let renews = 0
+    let reentered = false
+    // Renews that happened DURING the nested advance — i.e. the overlapping
+    // tick only. Counting total renews instead would also count the legitimate
+    // ticks the surrounding time advance is entitled to fire.
+    let renewsDuringReentry = -1
+    const renew = vi.fn(() => {
+      renews += 1
+      if (!reentered) {
+        reentered = true
+        // Fire this lease's renew interval again from inside the renew.
+        const before = renews
+        vi.advanceTimersByTime(40_000)
+        renewsDuringReentry = renews - before
+      }
+      return true
+    })
+    const resourceAdmission = { acquire: vi.fn(() => true), renew, release: vi.fn() }
+    const { issues, service } = harness(daemon, { resourceAdmission })
+    const issue = issues.create({ repoPath: '/repo', title: 'renew fence', startNow: false })
+    issues.update(issue.id, { stage: 'review' })
+    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+
+    const running = service.runOrder(order.id)
+    await commitStarted
+    await vi.advanceTimersByTimeAsync(40_000)
+
+    expect(reentered).toBe(true)
+    expect(renewsDuringReentry).toBe(0)
+
+    finishCommit()
+    await running
+    service.dispose()
+  })
+})

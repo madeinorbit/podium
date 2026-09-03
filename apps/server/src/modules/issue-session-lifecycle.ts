@@ -27,6 +27,8 @@ export interface RestoreIssueResult {
 export class IssueSessionLifecycle {
   private readonly closedIssueStops = new Map<string, Promise<void>>()
   private closedIssueSweepTimer: ReturnType<typeof setInterval> | undefined
+  /** True while a closed-issue sweep is running — see {@link sweepClosedIssues}. */
+  private sweepingClosedIssues = false
 
   constructor(
     private readonly deps: {
@@ -122,15 +124,29 @@ export class IssueSessionLifecycle {
   }
 
   private async sweepClosedIssues(reason: Exclude<ClosedIssueSweepReason, 'close'>): Promise<void> {
-    let issues: IssueWire[]
+    // SINGLE-FLIGHT (POD-3258). This one is not waiting for the async store to
+    // become a hazard — it already awaits per issue inside the loop, so the
+    // startup pass and the first periodic tick can be in the list at the same
+    // time on any slow boot. Both would then call `stopClosedIssueNow` for the
+    // same issue against the snapshot they each took before the other's stops
+    // landed. Skipped, not queued: the sweep is a backstop over durable issue
+    // state, so anything a dropped tick would have stopped is still closed and
+    // still there for the next one.
+    if (this.sweepingClosedIssues) return
+    this.sweepingClosedIssues = true
     try {
-      issues = this.deps.issues.reports.list()
-    } catch (error) {
-      log.warn('closed issue sweep could not list issues', { err: error, reason })
-      return
-    }
-    for (const issue of issues) {
-      await this.stopClosedIssueNow({ issueId: issue.id, reason })
+      let issues: IssueWire[]
+      try {
+        issues = this.deps.issues.reports.list()
+      } catch (error) {
+        log.warn('closed issue sweep could not list issues', { err: error, reason })
+        return
+      }
+      for (const issue of issues) {
+        await this.stopClosedIssueNow({ issueId: issue.id, reason })
+      }
+    } finally {
+      this.sweepingClosedIssues = false
     }
   }
 

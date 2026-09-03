@@ -96,6 +96,9 @@ export class ApprovalService {
    */
   private readonly stallClock = new Map<string, number>()
 
+  /** True while a stall sweep is running — see {@link sweepStalledExecutions}. */
+  private sweepingStalled = false
+
   /** Rows this server failed for stalling. Kept so a result that arrives ANYWAY can
    *  correct the record rather than be dropped on a transition that no longer matches
    *  — being told "it failed" about an op that ran is worse than being told nothing. */
@@ -327,6 +330,26 @@ export class ApprovalService {
    * Drive it from a timer at {@link APPROVAL_STALL_SWEEP_MS}. Idempotent and cheap.
    */
   sweepStalledExecutions(now: number = this.nowMs()): void {
+    // SINGLE-FLIGHT (POD-3258). The pass is a read-decide-write over
+    // `stallClock`: it reads the executing rows, decides per row against a clock
+    // it also mutates, then reconciles the clock against the rows it just saw.
+    // Two passes interleaved would each see the other's half-written clock — the
+    // reconcile at the bottom deletes every id not in ITS `live` set, so an
+    // overlapping pass would drop the clock entries the first one had just
+    // seeded and restart the deadline for rows that are genuinely stalling.
+    // Skipped, not queued: the sweep is idempotent and the next tick is one
+    // interval away, so a dropped tick costs at most that much deadline
+    // resolution and never a wrong verdict.
+    if (this.sweepingStalled) return
+    this.sweepingStalled = true
+    try {
+      this.runStalledSweep(now)
+    } finally {
+      this.sweepingStalled = false
+    }
+  }
+
+  private runStalledSweep(now: number): void {
     const rows = this.deps.store.listExecuting()
     if (rows.length === 0) {
       this.stallClock.clear()

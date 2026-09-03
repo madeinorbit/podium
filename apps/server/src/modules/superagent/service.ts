@@ -222,6 +222,8 @@ export class SuperagentService {
   /** Pending force-stop timers from `interruptTurn`, keyed by turn. */
   private readonly interruptFallbacks = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly reaper: ReturnType<typeof setInterval> | undefined
+  /** True while a turn reap is running — see {@link reapStaleTurns}. */
+  private reaping = false
   private readonly preparingInputs = new Map<
     string,
     Promise<{ threadId: ThreadId; podiumSessionId: SessionId }>
@@ -891,6 +893,24 @@ export class SuperagentService {
    * process is actively driving are skipped — their promise is still live.
    */
   private reapStaleTurns(): void {
+    // SINGLE-FLIGHT (POD-3258). The reaper reads the pending turns and finishes
+    // the ones past their budget, and `dispatchedTurnIds` plus the finish itself
+    // are what stop a turn being reaped twice — both of which are only written
+    // once `finishPendingTurn` has run. An overlapping pass reading the list
+    // before that lands would see the same turn still pending and still
+    // undispatched, and would report it lost a second time to a caller who has
+    // already been told. Skipped, not queued: staleness is measured against
+    // wall-clock age, so a dropped tick reaps the same turns one interval later.
+    if (this.reaping) return
+    this.reaping = true
+    try {
+      this.runTurnReap()
+    } finally {
+      this.reaping = false
+    }
+  }
+
+  private runTurnReap(): void {
     const now = Date.now()
     for (const pending of this.store.superagent.listPendingTurns()) {
       if (this.dispatchedTurnIds.has(pending.turnId)) continue

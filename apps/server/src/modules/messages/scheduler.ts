@@ -344,7 +344,18 @@ export class DeliveryScheduler {
    *  janitor; this actor-owned retry may resolve live session state. [spec:SP-c29e] */
   sweep(): void {
     const now = this.deps.now()
-    if (this.retryBackstopTimer) return
+    // SINGLE-FLIGHT ON THE PASS, NOT ON THE TIMER HANDLE (POD-3258). A retry
+    // pass spans pages, and `retryBackstopTimer` is null for the whole of every
+    // page body — it is set only in the gap between one page and the next. The
+    // handle therefore answers "is a page scheduled", which is not the question
+    // this fence asks. That was harmless only while a page ran to completion in
+    // one synchronous turn; the moment a page awaits its query, an overlapping
+    // tick walks in on a live pass and both re-attempt the same rows.
+    // `retryPassStartedAt` is non-null for exactly the pass's lifetime, so it is
+    // the predicate that was already being maintained. An overlapping tick is
+    // SKIPPED, not queued: this is a backstop whose next run is one interval
+    // away, and the rows it would have read are still queued for that run.
+    if (this.retryPassStartedAt !== null) return
     this.retryBackstopCursor = null
     this.retryPassStartedAt = Date.parse(now)
     this.runRetryBackstopPage()
@@ -424,6 +435,9 @@ export class DeliveryScheduler {
     this.deliveryTriggerTimer = null
     this.reconcileTimer = null
     this.retryBackstopTimer = null
+    // The pass fence goes with the pages it fenced; a disposed owner that kept it
+    // set could never sweep again if it were reused.
+    this.retryPassStartedAt = null
     this.pendingDeliveryTargets.clear()
     this.activeBoundaryTargets.clear()
     this.deferredBoundaryTargets.clear()

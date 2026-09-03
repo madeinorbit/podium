@@ -91,6 +91,8 @@ export class SessionRepository {
   private volatileSessionMutationVersion = 0
   private readonly pendingVolatileSessions = new Map<SessionId, PendingVolatileState>()
   private readonly capturedSessionStates = new Map<SessionId, SessionDurableState>()
+  /** True while an activity flush is running — see {@link flushActivity}. */
+  private flushingActivity = false
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
   static readonly VOLATILE_SLICE_MAX_ITEMS = 32
@@ -368,11 +370,25 @@ export class SessionRepository {
    *  Keeps the per-frame / per-keystroke path off the DB — the timer above calls
    *  this on a coarse interval, so a busy session writes at most once per tick. */
   flushActivity(): void {
-    for (const s of this.sessions.values()) {
-      if (s.terminal.activityDirty) {
-        this.persist(s)
-        s.terminal.clearActivityDirty()
+    // SINGLE-FLIGHT (POD-3258). The dirty flag is cleared AFTER the persist, so
+    // it is only a fence while the pair is one uninterrupted turn. Once the
+    // persist awaits, an overlapping flush walks the same map, finds the same
+    // session still marked dirty, and persists the row a second time — two
+    // ledger commits and two projections for one counter advance. Skipped, not
+    // queued: `activityDirty` is the durable-ish record of what still needs
+    // writing, so anything this pass does not reach stays marked and goes out on
+    // the next 12 s tick.
+    if (this.flushingActivity) return
+    this.flushingActivity = true
+    try {
+      for (const s of this.sessions.values()) {
+        if (s.terminal.activityDirty) {
+          this.persist(s)
+          s.terminal.clearActivityDirty()
+        }
       }
+    } finally {
+      this.flushingActivity = false
     }
   }
 
