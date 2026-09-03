@@ -681,6 +681,28 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
 13. **A site no rule covers stops the worker** and becomes a decision issue for the coordinator
     (method §4); the coordinator answers with a rule, never a site edit.
 
+14. **Test the arm the passing test does not walk, and assert the mechanism rather than the
+    outcome.** Added 2026-09-03 from POD-3313's audit, and it is the sharpest thing this epic has
+    learned about its own testing. Four rounds of review found guards whose removal changed
+    nothing a test could see; every one of the gaps was on an arm the happy case never reaches —
+    a rollback arm, a teardown after the interesting work is done, a refusal branch — and every one
+    was invisible for the same reason: the OUTCOME was still correct (the promise rejected, the
+    rows were right) while the MECHANISM was absent. Concretely, for every guard: ask which arm a
+    passing test walks, write the test for the other one, and assert the driver call sequence,
+    because on both arms the returned value is identical.
+
+    The corollary, also from POD-3313: **a fake that self-heals hides the thing under test.**
+    bun:sqlite refuses a statement on a closed session by itself, so a token test running over it
+    passes whether or not the token does any work — the engine refuses on the executor's behalf.
+    Both of that issue's new tests run on a driver whose sessions do NOT self-invalidate and assert
+    the statement never REACHED the session. Any test of a guard whose real backend enforces the
+    same property anyway must do this, or it proves nothing.
+
+15. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
+    identifier is shell command substitution and vanishes silently, taking part of the message with
+    it. Quote the body from a heredoc file, or write without backticks. Costs a round trip every
+    time; it has already cost two.
+
 ## 7. Decisions on record
 
 1. Postgres was the original direction; this epic was its preparation. On 2026-09-03 the
