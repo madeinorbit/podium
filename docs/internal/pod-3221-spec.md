@@ -851,9 +851,29 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
     would have a legacy reader it cannot delete. A gate that cannot pass stops being read; that
     lesson is already in the method.
 
-    INTERIM AND SEQUENCE: the exception stands as [0.12] committed it, because nothing else was
-    available today. The port is its own sub-issue and must land BEFORE Stage A's exit, so the exit
-    gate keeps its absolute wording — the array empties, no carve-out.
+    CORRECTED 2026-09-03 BY POD-3338, which checked the claim instead of executing it. THE PORT
+    DOES NOT EMPTY THE LEDGER, and my original wording said it would. A port changes what
+    `SyncRepository` is HANDED; it does not change what it DOES — the file still calls `.prepare()`
+    on 22 lines and still imports `@podium/runtime/sqlite` (both verified), so rule 13's raw-handle
+    clauses still fail it, and deleting its ledger line would make the LINT fire, not the
+    listed-but-clean guard.
+
+    WHAT EMPTIES THE LEDGER IS THE DRIZZLE CONVERSION, which is Phase A wave work (POD-3255) and
+    cannot happen yet: the executor's client is still the prototype QueryClient and is fully async,
+    so there is nothing a synchronous Stage A repository could be converted onto today. The
+    tracker's own edges already say so — POD-3255 waits on the port, not the other way round.
+
+    SO THE PORT'S JUSTIFICATION IS NARROWER THAN I FIRST WROTE, and it still stands: it removes the
+    raw `SqlDatabase` from the CONSTRUCTOR, which is what dependency direction requires and what
+    [0.12] is about, and it removes a reader of the executor's legacy field so POD-3267 can delete
+    it. It does not, and was never able to, make the Stage A ledger empty. Both
+    `sync-repository.ts` and `test-support.ts` stay on the ledger until their conversion wave.
+
+    A port shape that emptied the ledger without converting would be worse than useless: renaming
+    `prepare` to something the regex misses would pass the lint while the file still built SQL
+    strings by hand — the exact false progress the ledger exists to prevent.
+
+    SEQUENCE: the port lands AFTER [0.12] (POD-3254), which creates the executor field it needs.
 
 21. **Applying a recorded decision MAY replace the assertion it falsifies, under three conditions.**
     Decided 2026-09-03 answering POD-3335, which reported rather than asked and was right to.
