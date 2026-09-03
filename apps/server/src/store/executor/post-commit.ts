@@ -33,6 +33,7 @@
  * permanent gap.
  */
 
+import { runAtRoot } from './context'
 import { PostCommitError, StoreUnhealthyError } from './errors'
 
 export type PostCommitStep = () => void | Promise<void>
@@ -189,7 +190,9 @@ export class PostCommitRunner {
   private dispatch(entry: RegisteredStep): void {
     let result: void | Promise<void>
     try {
-      result = entry.step()
+      // AT THE ROOT, not on the lease that just committed: the effect is not
+      // awaited, so its continuation outlives the drain and the lease.
+      result = runAtRoot(() => entry.step())
     } catch (error) {
       this.report(this.options.effectSink, error, entry.label)
       return

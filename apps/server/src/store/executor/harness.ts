@@ -170,39 +170,43 @@ export function asyncFakeDriver(
   let closeAttempts = 0
   let commitAttempts = 0
   const run = { changes: 0, lastInsertRowid: 0 }
-  const makeSession = (): DriverSession => {
+  const makeSession = (id: number): DriverSession => {
+    // Tagged per session, like `recordingDriver`: which session a statement
+    // reached is the whole question for a leaked scope, and results cannot
+    // show it.
+    const tag = `s${id}`
     return {
       async execute(statement) {
-        calls.push(`execute:${statement.sql}`)
+        calls.push(`${tag}:execute:${statement.sql}`)
         await hooks.execute?.(statement)
         return statement.method === 'run' ? { rows: [], run } : { rows: [] }
       },
       async begin(lane) {
-        calls.push(`begin:${lane}`)
+        calls.push(`${tag}:begin:${lane}`)
         await hooks.begin?.(lane)
       },
       async commit() {
-        calls.push('commit')
+        calls.push(`${tag}:commit`)
         await hooks.commit?.(++commitAttempts)
       },
       async rollback() {
-        calls.push('rollback')
+        calls.push(`${tag}:rollback`)
         await hooks.rollback?.()
       },
       async enterSavepoint(name) {
-        calls.push(`enter:${name}`)
+        calls.push(`${tag}:enter:${name}`)
         await hooks.enterSavepoint?.(name)
       },
       async releaseSavepoint(name) {
-        calls.push(`release:${name}`)
+        calls.push(`${tag}:release:${name}`)
         await hooks.releaseSavepoint?.(name)
       },
       async rollbackToSavepoint(name) {
-        calls.push(`rollbackTo:${name}`)
+        calls.push(`${tag}:rollbackTo:${name}`)
         await hooks.rollbackToSavepoint?.(name)
       },
       async close() {
-        calls.push('close')
+        calls.push(`${tag}:close`)
         await hooks.close?.(++closeAttempts)
         closes++
       },
@@ -215,7 +219,7 @@ export function asyncFakeDriver(
       const attempt = ++opens
       calls.push(`open:${lane}`)
       await hooks.open?.(lane, attempt)
-      return makeSession()
+      return makeSession(attempt)
     },
     client: (route) => queryClientOver(route),
     async close() {

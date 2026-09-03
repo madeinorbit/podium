@@ -24,7 +24,7 @@ import {
   StaleTransactionError,
   StoreUnhealthyError,
 } from './errors'
-import { postCommit, type StoreExecutor } from './executor'
+import { createStoreExecutor, postCommit, type StoreExecutor } from './executor'
 import { createFrameFlusher } from './frame-flusher'
 import { asyncFakeDriver, barrier, type Harness, openHarness, settle } from './harness'
 import { createScheduler } from './scheduler'
@@ -761,6 +761,113 @@ describe('post-commit', () => {
       expect(ran, 'nothing runs before the commit').toEqual([])
     })
     expect(ran).toEqual(['outer', 'kept'])
+  })
+})
+
+/**
+ * THE TIMING THE TOKEN ACTUALLY CLAIMS [POD-3310, V1 finding 5].
+ *
+ * The landed harness proved the token only AFTER the outer promise resolved, so
+ * two mutations survived all 36 tests: moving `closeFrame(frame)` to after
+ * `await session.commit()`, and removing `assertAddressable(scope.frame)` only
+ * from the ambient router's transaction branch. Both need a commit that PARKS —
+ * a gap bun:sqlite's synchronous COMMIT does not have — and unawaited work
+ * issued from the body's own context while it is parked.
+ */
+describe('the token during an asynchronous commit', () => {
+  it('refuses the body’s unawaited work while the commit is parked', async () => {
+    const commitParked = barrier()
+    const escaped = barrier()
+    const driver = asyncFakeDriver({
+      hooks: {
+        commit: async () => {
+          await commitParked.wait()
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let leakedExplicit: Promise<unknown> | undefined
+    let leakedAmbient: Promise<unknown> | undefined
+
+    const done = executor.transact(async (tx) => {
+      // Neither is awaited by the body. Both resume from the body's own ALS
+      // context — the explicit handle and the ROOT-bound client, which is the
+      // ambient router's transaction branch.
+      leakedExplicit = escaped.wait().then(() => tx.drizzle.all(bodies))
+      leakedAmbient = escaped.wait().then(() => executor.drizzle.all(bodies))
+      await tx.drizzle.run(insert, 'body')
+    })
+
+    await commitParked.reached()
+    escaped.release()
+    await settle()
+
+    // The token died BEFORE the commit was issued, so both are refused while
+    // the commit is still open on the connection.
+    await expect(leakedExplicit).rejects.toBeInstanceOf(StaleTransactionError)
+    await expect(leakedAmbient).rejects.toBeInstanceOf(StaleTransactionError)
+
+    commitParked.release()
+    await done
+
+    // And neither statement ever reached the session: results alone cannot say
+    // this, because a statement run during the commit still returns rows.
+    expect(driver.calls.filter((call) => call.includes(':execute:'))).toEqual([
+      `s1:execute:${insert}`,
+    ])
+    await executor.close()
+  })
+
+  it('refuses a post-commit continuation that resumes after the drain', async () => {
+    // The same rule one phase later. The lease goes back to the scheduler when
+    // the drain ends, so a follow-up's unawaited promise must be refused, not
+    // issued on a connection somebody else now holds.
+    const escaped = barrier()
+    const driver = asyncFakeDriver()
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let leaked: Promise<unknown> | undefined
+
+    await executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'body')
+      postCommit().followUp(() => {
+        leaked = escaped.wait().then(() => executor.drizzle.all(bodies))
+      }, 'leak')
+    })
+
+    escaped.release()
+    await expect(leaked).rejects.toBeInstanceOf(StaleTransactionError)
+    await executor.close()
+  })
+
+  it('sends a late external effect to the root, not to its released lease', async () => {
+    // WOULD CATCH the stale post-commit scope: an effect is never awaited, so
+    // its continuation resumes after the lease is released. Routed to that
+    // lease it addresses a connection the scheduler has handed back — on a
+    // reusable remote client that is an out-of-order write on somebody else's
+    // session, not an error.
+    const parked = barrier()
+    const driver = asyncFakeDriver()
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    await executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'body')
+      postCommit().effect(async () => {
+        await parked.wait()
+        await executor.drizzle.run(insert, 'from-effect')
+      }, 'late')
+    })
+
+    expect(driver.closes, 'the lease is back with the scheduler').toBe(1)
+    parked.release()
+    await executor.effectsSettled()
+
+    // A SECOND lease, taken through admission like any other root caller.
+    expect(driver.opens).toBe(2)
+    expect(driver.calls.filter((call) => call.includes(':execute:'))).toEqual([
+      `s1:execute:${insert}`,
+      `s2:execute:${insert}`,
+    ])
+    await executor.close()
   })
 })
 

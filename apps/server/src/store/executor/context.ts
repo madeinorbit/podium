@@ -52,7 +52,18 @@ export interface TransactionFrame {
 export type StoreScope =
   | { readonly kind: 'root' }
   | { readonly kind: 'transaction'; readonly frame: TransactionFrame }
-  | { readonly kind: 'post-commit'; readonly lease: Lease; readonly runner: PostCommitRunner }
+  | {
+      readonly kind: 'post-commit'
+      readonly lease: Lease
+      readonly runner: PostCommitRunner
+      /**
+       * The post-commit scope has the SAME lifetime problem a transaction frame
+       * has, and needs the same token: the lease it routes to is released when
+       * the drain ends, so a continuation that resolves later would address a
+       * connection the scheduler has handed back.
+       */
+      active(): boolean
+    }
 
 const ROOT: StoreScope = { kind: 'root' }
 
@@ -64,6 +75,20 @@ export function currentScope(): StoreScope {
 
 export function runInScope<T>(scope: StoreScope, fn: () => T): T {
   return storage.run(scope, fn)
+}
+
+/**
+ * Run `fn` at the ROOT scope, whatever scope the caller is in.
+ *
+ * This is how an external effect is dispatched. An effect is not waited for, so
+ * its continuation resumes after the drain returned and the lease was released;
+ * inheriting the post-commit scope would send that continuation to a connection
+ * the scheduler no longer owns — which on a reusable remote client means
+ * executing out of order on someone else's session rather than failing. At the
+ * root it queues through admission like any other caller.
+ */
+export function runAtRoot<T>(fn: () => T): T {
+  return storage.run(ROOT, fn)
 }
 
 let nextFrameId = 1

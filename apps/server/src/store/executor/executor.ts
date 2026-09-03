@@ -39,6 +39,7 @@ import type { DriverSession, Lane, QueryClient, StatementRouter, StoreDriver } f
 import {
   ExclusiveInsideLeaseError,
   NoPostCommitScopeError,
+  StaleTransactionError,
   StoreUnhealthyError,
   WriteInsideReadLeaseError,
 } from './errors'
@@ -172,10 +173,25 @@ export function createStoreExecutor<TClient>(
     if (scope.kind === 'post-commit') {
       // The transaction is closed, so this is a root statement — but it stays
       // on the held lease, inside the scheduler's ordered operation.
+      assertDraining(scope)
       return scope.lease.session.execute(statement)
     }
     const lane: Lane = statement.method === 'run' ? 'write' : 'read'
     return scheduler.run(lane, (lease) => lease.session.execute(statement))
+  }
+
+  /**
+   * The post-commit half of the token rule. The lease is released when the
+   * drain ends, so a continuation that resolves after it — a follow-up promise
+   * the drain did not await — must be refused rather than issued on a
+   * connection the scheduler has already handed back.
+   */
+  function assertDraining(scope: { active(): boolean }): void {
+    if (scope.active()) return
+    throw new StaleTransactionError(
+      'the post-commit scope this operation addressed has ended, so its lease is released. ' +
+        'A promise the post-commit work did not await is the usual cause.',
+    )
   }
 
   function frameRouter(frame: TransactionFrame): StatementRouter {
@@ -230,7 +246,16 @@ export function createStoreExecutor<TClient>(
     closeFrame(frame)
     await lease.session.commit()
     if (runner) {
-      await runInScope({ kind: 'post-commit', lease, runner }, () => runner.drain(registry))
+      // The scope dies when the drain does, for the same reason the frame's
+      // token dies before the commit: the lease goes back to the scheduler.
+      let draining = true
+      try {
+        await runInScope({ kind: 'post-commit', lease, runner, active: () => draining }, () =>
+          runner.drain(registry),
+        )
+      } finally {
+        draining = false
+      }
     }
     return result
   }
@@ -312,6 +337,7 @@ export function createStoreExecutor<TClient>(
     if (scope.kind === 'post-commit') {
       // A follow-up committing durably: the same lease, a fresh transaction,
       // and its own post-commit work queued behind the batch being drained.
+      assertDraining(scope)
       return runTopLevel(scope.lease, 'write', fn, scope.runner)
     }
     return scheduler.run('write', (lease) => runTopLevel(lease, 'write', fn, newRunner()))
@@ -321,7 +347,10 @@ export function createStoreExecutor<TClient>(
     assertHealthy()
     const scope = currentScope()
     if (scope.kind === 'transaction') return readOn(scope.frame, fn)
-    if (scope.kind === 'post-commit') return runTopLevel(scope.lease, 'read', fn, undefined)
+    if (scope.kind === 'post-commit') {
+      assertDraining(scope)
+      return runTopLevel(scope.lease, 'read', fn, undefined)
+    }
     return scheduler.run('read', (lease) => runTopLevel(lease, 'read', fn, undefined))
   }
 
