@@ -158,14 +158,22 @@ describe('abduco command builders', () => {
       expect(resizes).toEqual([])
       expect(writes).toEqual([]) // no attach-time repaint at all
 
-      // Suppression is attach-time only; a later explicit redraw stays real —
-      // but on an adopted (size-neutral) attach it repaints with Ctrl-L rather
-      // than the shrink-and-restore nudge, because that nudge is a real resize
-      // the attach client would forward to a program nobody asked to move
-      // [spec:SP-6144].
+      // Even an explicit redraw stays silent while nothing has been asked of this
+      // session: its pty is a sentinel, so the nudge would move a program nobody
+      // asked to move, and the ask itself repaints [spec:SP-6144].
       replaying.redraw()
-      expect(writes).toEqual(['0c']) // explicit, so immediate
+      expect(writes).toEqual([])
       expect(resizes).toEqual([])
+
+      // Once a viewer HAS asked, the session is an ordinary one again: that one
+      // resize, and then a real nudge on demand.
+      replaying.resize(80, 24)
+      expect(resizes).toEqual([{ cols: 80, rows: 24 }])
+      replaying.redraw()
+      expect(resizes).toEqual([
+        { cols: 80, rows: 24 },
+        { cols: 80, rows: 23 },
+      ])
       replaying.dispose()
 
       resizes.length = 0
@@ -179,11 +187,12 @@ describe('abduco command builders', () => {
         backend,
       })
       expect(ordinary.adopted).toBe(true)
-      // An ordinary adoption still repaints on attach — deferred until the attach
-      // client is up (this fake never emits, so the fallback timer delivers it).
-      const until = Date.now() + 4000
-      while (writes.length === 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 25))
-      expect(writes).toEqual(['0c'])
+      // An ordinary adoption asks for the attach-time repaint, and on this path
+      // that repaint is now nothing at all: adopting a live master may not touch
+      // the program, and the first viewport request is what repaints it. Give the
+      // deferred-repaint fallback time to prove it stays silent.
+      await new Promise((r) => setTimeout(r, 1500))
+      expect(writes).toEqual([])
       expect(resizes).toEqual([])
       ordinary.dispose()
     } finally {

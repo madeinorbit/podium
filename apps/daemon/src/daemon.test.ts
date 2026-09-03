@@ -1902,8 +1902,8 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     // attach used to make it one: the client announced its size on connect and
     // the master signalled the program on every packet, so a reconnect resized a
     // running agent to a number nobody asked for [spec:SP-6144]. The attach is
-    // size-neutral now — and the resize control, a viewer actually asking, still
-    // moves it.
+    // size-neutral now — it touches the agent in no way at all — and the resize
+    // control, a viewer actually asking, both moves it and repaints it.
     //
     // The daemon MUST be a new one: a reattach while the old daemon still holds
     // the bridge returns early and never attaches at all.
@@ -1985,14 +1985,14 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         geometry: { cols: 120, rows: 45 },
       })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // The repaint path is retained, so the agent DOES paint again...
-      await waitFor(() => painted().includes('PODIUM-FIXTURE'))
-      await new Promise((r) => setTimeout(r, 400))
-      // ...at the size it was already running at, never the reattach's number.
-      expect(painted()).toContain(`cols=${G.cols} rows=${G.rows}`)
+      await new Promise((r) => setTimeout(r, 800))
+      // The agent is not touched by the reattach: not moved, not signalled, not
+      // even sent a redraw key. Nothing has asked it for anything.
+      expect(painted()).toBe('')
       expect(painted()).not.toContain('cols=120')
 
-      // A viewer asking still moves it — that is the only thing that may.
+      // The first viewport request is what moves it — and, because the master
+      // signals the program on every resize packet, is also what repaints it.
       received.length = 0
       send({ type: 'resize', sessionId, cols: 120, rows: 45 })
       await waitFor(() => painted().includes('cols=120 rows=45'))

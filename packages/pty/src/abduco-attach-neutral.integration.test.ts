@@ -22,7 +22,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { attachAbducoAgent, killAbducoSession, spawnAbducoAgent } from './abduco.js'
 import { ABDUCO_FEATURES, buildVendoredAbduco } from './abduco-bin.js'
 import { bunTerminalBackend } from './backends/index.js'
-import type { PtyProcess } from './backends/types.js'
+import type { PtyBackend, PtyProcess } from './backends/types.js'
 
 const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
   try {
@@ -332,6 +332,57 @@ describe.skipIf(!hasCompiler)('the first ask after a size-neutral attach', () =>
       session.dispose()
     }
   }, 40000)
+})
+
+describe.skipIf(!hasCompiler)('what a size-neutral attach does to its own pty', () => {
+  /**
+   * The agent-visible half of this is in the test above, but it can only say
+   * "one SIGWINCH": abduco's client coalesces resizes behind a flag, so a
+   * shrink-and-restore issued back-to-back usually reaches the agent as a single
+   * packet at the final size. Usually — the client is a separate process, and if
+   * its loop runs between the two, the agent reflows at the short size. The seam
+   * is where that race is decided, so pin it here: one ask, one resize.
+   */
+  it('opens at the sentinel and turns one ask into exactly one resize', () => {
+    const resizes: Array<[number, number]> = []
+    const proc: PtyProcess = {
+      pid: 99,
+      onData: () => {},
+      onExit: () => {},
+      write: () => {},
+      resize: (c, r) => {
+        resizes.push([c, r])
+      },
+      kill: () => {},
+    }
+    const spawns: Array<{ cols: number; rows: number }> = []
+    const backend: PtyBackend = {
+      name: 'bun-terminal',
+      spawn: (o) => {
+        spawns.push({ cols: o.cols, rows: o.rows })
+        return proc
+      },
+    }
+
+    const session = attachAbducoAgent({
+      label: 'podium-attach-neutral-seam',
+      cols: 111,
+      rows: 37,
+      sizeNeutral: true,
+      backend,
+    })
+    try {
+      // Not the caller's geometry: a size nobody can ask for.
+      expect(spawns).toEqual([{ cols: 1, rows: 1 }])
+      expect(resizes).toEqual([])
+
+      // The ask a daemon restart produces: for exactly the size the agent is at.
+      session.resize(111, 37)
+      expect(resizes).toEqual([[111, 37]])
+    } finally {
+      session.dispose()
+    }
+  })
 })
 
 describe.skipIf(!hasCompiler)('the birth size still has a producer', () => {
