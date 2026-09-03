@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { applyAllowlist, BROWSER_ENTRYPOINTS, partitionAllowlist } from './architecture-manifest'
@@ -9,6 +9,8 @@ import {
   checkBrowserGraphAll,
   checkConsoleOwnership,
   checkDeclaredDeps,
+  checkDrizzleImportHome,
+  checkDrizzleTransaction,
   checkFile,
   checkHarnessClassifierBoundary,
   checkHostEdgeSeparationAll,
@@ -16,11 +18,54 @@ import {
   checkPlaneLeakAll,
   checkPrincipalFree,
   checkSessionBindingFieldAccess,
+  checkSqlRawLiteral,
+  checkStoreBoundaryLedger,
+  checkStoreRawHandles,
   checkUiStorageOwnership,
   clauseIsTypeOnly,
   extractImports,
   loadModelExportNames,
+  STAGE_A_UNCONVERTED,
+  type Violation,
 } from './check-boundaries'
+
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+/**
+ * Every violation the STORE BOUNDARY family reports on the real tree, computed
+ * once. Each rule's "quiet on the REAL repository" control reads from this: a
+ * rule that is red on the tree it ships with is a rule somebody switches off,
+ * so the control is as load-bearing as the fixtures that prove it can fire.
+ */
+let realRepoCache: Violation[] | undefined
+function realRepoViolations(): Violation[] {
+  if (realRepoCache) return realRepoCache
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      if (e.name.startsWith('.')) return []
+      if (e.isDirectory()) {
+        return ['node_modules', 'dist', 'build', 'coverage', 'target', '.expo'].includes(e.name)
+          ? []
+          : walk(join(dir, e.name))
+      }
+      return /\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts') ? [join(dir, e.name)] : []
+    })
+  const out: Violation[] = []
+  for (const rootDir of ['apps', 'packages']) {
+    for (const abs of walk(join(REPO_ROOT, rootDir))) {
+      const file = relative(REPO_ROOT, abs).split(sep).join('/')
+      const source = readFileSync(abs, 'utf8')
+      out.push(
+        ...checkStoreRawHandles(file, source),
+        ...checkDrizzleTransaction(file, source),
+        ...checkDrizzleImportHome(file, source),
+        ...checkSqlRawLiteral(file, source),
+      )
+    }
+  }
+  realRepoCache = out
+  return out
+}
 
 describe('console-ownership (POD-1905)', () => {
   it('flags a raw console call in server product code', () => {
@@ -989,5 +1034,390 @@ describe('manifest-plane-leak — the browser barrel does not reach the daemon p
     const v = checkPlaneLeakAll(root)
     expect(v.map((x) => x.rule)).toEqual(['manifest-plane-leak'])
     expect(v[0]?.message).toContain('EMPTY')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The STORE BOUNDARY family (POD-3252, epic POD-3221)
+//
+// Every rule gets a case that FAILS and a case that PASSES, because either one
+// alone is worthless: a rule with only failing fixtures might refuse everything,
+// and a rule with only passing ones might refuse nothing. Where a rule draws a
+// line, both edges are pinned — the last thing included and the first thing
+// excluded — since widening is the direction a rule silently loses.
+// ---------------------------------------------------------------------------
+
+describe('store-raw-handle (POD-3252 rule 13)', () => {
+  // A repository under the store boundary that is NOT on the Stage A ledger, so
+  // the rule applies to it in full. Chosen as a path that does not exist rather
+  // than a real file, so these cases cannot be broken by a conversion landing.
+  const REPO = 'apps/server/src/store/widgets.ts'
+
+  it('flags an import of the raw SQLite handle', () => {
+    const vs = checkStoreRawHandles(
+      REPO,
+      `import type { SqlDatabase } from '@podium/runtime/sqlite'\n`,
+    )
+    expect(vs.map((v) => v.rule)).toEqual(['store-raw-handle'])
+    expect(vs[0]?.specifier).toBe('@podium/runtime/sqlite')
+  })
+
+  it('flags a TYPE-ONLY import too — naming the handle is the point', () => {
+    // `import type` is erased at build, so a rule that skipped it would let a
+    // repository keep `SqlDatabase` in its own signature. That field IS what
+    // Stage A's exit gate deletes; erasure is not the criterion.
+    expect(
+      checkStoreRawHandles(REPO, `import type { SqlDatabase } from '@podium/runtime/sqlite'\n`),
+    ).toHaveLength(1)
+    expect(
+      checkStoreRawHandles(REPO, `import { transaction } from '@podium/runtime/sqlite'\n`),
+    ).toHaveLength(1)
+  })
+
+  it('flags a prepared statement', () => {
+    const vs = checkStoreRawHandles(REPO, `export const f = (db: D) => db.prepare('SELECT 1')\n`)
+    expect(vs.map((v) => v.specifier)).toEqual(['.prepare('])
+  })
+
+  it('flags a WHOLE raw statement on each of drizzle’s four raw-execution methods', () => {
+    for (const method of ['all', 'get', 'run', 'values']) {
+      const vs = checkStoreRawHandles(REPO, `const r = db.${method}(sql\`SELECT 1\`)\n`)
+      expect(vs.map((v) => v.specifier)).toEqual([`.${method}(sql\`…\`)`])
+    }
+  })
+
+  it('does NOT flag a `sql` FRAGMENT inside a builder query — the line the rule draws', () => {
+    // Spec §6 rule 1: fragments inside builder queries are fine ANYWHERE; only
+    // a whole statement handed to a raw-execution method is banned. Getting
+    // this edge wrong would ban the epic's own idiom.
+    expect(
+      checkStoreRawHandles(
+        REPO,
+        `const r = db.select().from(t).where(sql\`\${t.id} = 1\`).all()\n`,
+      ),
+    ).toEqual([])
+  })
+
+  it('flags PRAGMA, sqlite_master and ATTACH inside a `sql` BODY, not just in an import line', () => {
+    const constructs = [
+      'PRAGMA table_info(sessions)',
+      'SELECT * FROM sqlite_master',
+      "ATTACH DATABASE 'other.db' AS other",
+    ]
+    for (const construct of constructs) {
+      const vs = checkStoreRawHandles(REPO, `const q = sql\`${construct}\`\n`)
+      expect(vs.map((v) => v.rule)).toEqual(['store-raw-handle'])
+    }
+  })
+
+  it('checks the `sql` body even on an UNCONVERTED file', () => {
+    // The ledger excuses a file's RAW HANDLES, never its statements: an
+    // unconverted repository that starts writing `sql` templates is exactly
+    // where a PRAGMA would arrive looking like progress.
+    const ledgered = STAGE_A_UNCONVERTED[0]
+    expect(ledgered).toBeDefined()
+    expect(
+      checkStoreRawHandles(
+        ledgered as string,
+        `import { transaction } from '@podium/runtime/sqlite'\n`,
+      ),
+    ).toEqual([])
+    expect(
+      checkStoreRawHandles(ledgered as string, `const q = sql\`PRAGMA foreign_keys = ON\`\n`),
+    ).toHaveLength(1)
+  })
+
+  it('does NOT flag the constructs the one-dialect decision keeps', () => {
+    // Spec §2.7 / §7.5: both bun:sqlite and Turso accept these, so none of them
+    // is a portability problem. A rule that banned them would be enforcing a
+    // decision nobody made — and the per-site "an OR REPLACE conversion must
+    // name every column" check stays a REVIEWER rule, because it is a property
+    // of the column list against the schema.
+    const kept = [
+      `const q = sql\`SELECT rowid FROM t ORDER BY rowid\`\n`,
+      `const q = sql\`INSERT OR REPLACE INTO t (a, b) VALUES (1, 2)\`\n`,
+      `const q = sql\`INSERT OR IGNORE INTO t (a) VALUES (1)\`\n`,
+      `const q = sql\`SELECT * FROM t WHERE name GLOB 'a*'\`\n`,
+      `const q = sql\`INSERT INTO t (a) VALUES (1) ON CONFLICT (a) DO NOTHING RETURNING a\`\n`,
+      `const q = sql\`SELECT json_extract(payload, '$.x') FROM t\`\n`,
+      `export const id = res.lastInsertRowid\n`,
+    ]
+    for (const source of kept) expect(checkStoreRawHandles(REPO, source)).toEqual([])
+  })
+
+  it('exempts the SearchIndex port, the driver seam and test files — and nothing near them', () => {
+    const raw = `import { openDatabase } from '@podium/runtime/sqlite'\nconst s = db.prepare('SELECT 1')\n`
+    for (const exempt of [
+      'apps/server/src/store/conversations/index.ts',
+      'apps/server/src/store/conversations/transcript-index.ts',
+      'apps/server/src/store/executor/driver.ts',
+      'apps/server/src/store/executor/bun-driver.ts',
+      'apps/server/src/store/executor/harness.ts',
+      'apps/server/src/store/widgets.test.ts',
+      'apps/server/src/store/test-support/seed.ts',
+    ]) {
+      expect(checkStoreRawHandles(exempt, raw)).toEqual([])
+    }
+    // The first thing EXCLUDED from each exemption, which is the edge that
+    // matters: `conversations/` also holds ordinary repositories (mirror.ts,
+    // registry.ts) and `executor/` holds modules that are not the driver, so a
+    // `conversations/**` or `executor/**` glob would have carried them along.
+    // Named as paths that do not exist, so a conversion landing on a real
+    // sibling cannot quietly turn this assertion into a ledger check.
+    for (const held of [
+      'apps/server/src/store/conversations/widgets.ts',
+      'apps/server/src/store/executor/widgets.ts',
+    ]) {
+      expect(checkStoreRawHandles(held, raw)).toHaveLength(2)
+    }
+  })
+
+  it('covers the operations store and the sync SQLite adapter, and stops there', () => {
+    const raw = `const s = db.prepare('SELECT 1')\n`
+    expect(checkStoreRawHandles('apps/server/src/modules/operations/widgets.ts', raw)).toEqual([])
+    expect(checkStoreRawHandles('packages/sync/src/adapters/indexeddb/store.ts', raw)).toEqual([])
+    // …but a NEW file in the sync SQLite adapter is covered with no edit here.
+    expect(checkStoreRawHandles('packages/sync/src/adapters/sqlite/widgets.ts', raw)).toHaveLength(
+      1,
+    )
+  })
+
+  it('honours the one site allowlist, and only on the marked LINE', () => {
+    const source = `const a = db.prepare('SELECT 1') // DECISION POD-4242\nconst b = db.prepare('SELECT 2')\n`
+    const vs = checkStoreRawHandles(REPO, source)
+    expect(vs).toHaveLength(1)
+    expect(vs[0]?.message).toContain(`${REPO}:2`)
+  })
+})
+
+describe('store-transaction-port (POD-3252 rule 14)', () => {
+  const DRIZZLE_IMPORT = `import { eq } from 'drizzle-orm'\n`
+
+  it('flags drizzle’s own transaction, on the db and on a tx', () => {
+    for (const receiver of ['db', 'tx']) {
+      const vs = checkDrizzleTransaction(
+        'apps/server/src/store/widgets.ts',
+        `await ${receiver}.transaction(async (t) => t)\n`,
+      )
+      expect(vs.map((v) => v.rule)).toEqual(['store-transaction-port'])
+    }
+  })
+
+  it('flags it OUTSIDE the store too, wherever a drizzle handle can reach', () => {
+    const vs = checkDrizzleTransaction(
+      'apps/server/src/modules/issues/service.ts',
+      `${DRIZZLE_IMPORT}await database.transaction(async (t) => t)\n`,
+    )
+    expect(vs).toHaveLength(1)
+  })
+
+  it('does NOT flag IndexedDB’s transaction — the browser API of the same name', () => {
+    // The discriminator is whether a drizzle handle can be in scope at all,
+    // which rule 15 makes decidable from the import list. indexeddb/store.ts is
+    // excluded because it cannot hold one, not because its path was recognised.
+    expect(
+      checkDrizzleTransaction(
+        'packages/sync/src/adapters/indexeddb/store.ts',
+        `const tx = db.transaction([...ALL_STORES], 'readwrite')\n`,
+      ),
+    ).toEqual([])
+  })
+
+  it('does NOT flag the store’s own port, nor the runtime’s free function', () => {
+    expect(
+      checkDrizzleTransaction(
+        'apps/server/src/store/widgets.ts',
+        `await this.transact(async () => 1)\n`,
+      ),
+    ).toEqual([])
+    expect(
+      checkDrizzleTransaction(
+        'apps/server/src/store/widgets.ts',
+        `transaction(this.db, () => 1)\n`,
+      ),
+    ).toEqual([])
+  })
+
+  it('is quiet on the REAL repository — the control', () => {
+    // A rule this broad is only usable if it is silent on the tree it ships
+    // with; a red baseline is how a guard gets switched off.
+    expect(realRepoViolations().filter((v) => v.rule === 'store-transaction-port')).toEqual([])
+  })
+})
+
+describe('drizzle-import-home (POD-3252 rule 15)', () => {
+  it('flags drizzle imported outside persistence, by any subpath', () => {
+    for (const specifier of ['drizzle-orm', 'drizzle-orm/sqlite-core']) {
+      const vs = checkDrizzleImportHome(
+        'apps/server/src/modules/issues/service.ts',
+        `import { eq } from '${specifier}'\n`,
+      )
+      expect(vs.map((v) => v.rule)).toEqual(['drizzle-import-home'])
+      expect(vs[0]?.specifier).toBe(specifier)
+    }
+  })
+
+  it('allows the four homes, and holds everything else', () => {
+    const source = `import { eq } from 'drizzle-orm'\n`
+    for (const home of [
+      'apps/server/src/store/widgets.ts',
+      'apps/server/src/store/conversations/mirror.ts',
+      'apps/server/src/modules/operations/store.ts',
+      'apps/server/src/migrations/schema.ts',
+      'packages/sync/src/adapters/sqlite/schema.ts',
+    ]) {
+      expect(checkDrizzleImportHome(home, source)).toEqual([])
+    }
+    // The first thing excluded from each: a SIBLING of the operations store,
+    // and the sync adapter's non-SQLite neighbour.
+    for (const held of [
+      'apps/server/src/modules/operations/service.ts',
+      'packages/sync/src/adapters/indexeddb/store.ts',
+      'apps/web/src/features/issues/list.tsx',
+    ]) {
+      expect(checkDrizzleImportHome(held, source)).toHaveLength(1)
+    }
+  })
+
+  it('does NOT flag a package whose name merely starts the same way', () => {
+    expect(
+      checkDrizzleImportHome('apps/web/src/x.ts', `import x from 'drizzle-orm-extras'\n`),
+    ).toEqual([])
+  })
+
+  it('is quiet on the REAL repository — the control', () => {
+    expect(realRepoViolations().filter((v) => v.rule === 'drizzle-import-home')).toEqual([])
+  })
+})
+
+describe('sql-raw-literal (POD-3252 rule 16)', () => {
+  const FILE = 'apps/server/src/store/widgets.ts'
+
+  it('flags sql.raw of anything that is not written down as a literal', () => {
+    for (const argument of ['column', 'toColumn(x)', '`${table}`', "'a' + b"]) {
+      const vs = checkSqlRawLiteral(FILE, `const f = sql.raw(${argument})\n`)
+      expect(vs.map((v) => v.rule)).toEqual(['sql-raw-literal'])
+    }
+  })
+
+  it('allows a literal written in the file — including a template with no hole', () => {
+    for (const argument of ["'created_at'", '"created_at"', '`created_at`']) {
+      expect(checkSqlRawLiteral(FILE, `const f = sql.raw(${argument})\n`)).toEqual([])
+    }
+  })
+
+  it('exempts the SearchIndex port, where a dynamic identifier is the job', () => {
+    expect(
+      checkSqlRawLiteral(
+        'apps/server/src/store/conversations/index.ts',
+        `const f = sql.raw(column)\n`,
+      ),
+    ).toEqual([])
+  })
+
+  it('is quiet on the REAL repository — the control', () => {
+    expect(realRepoViolations().filter((v) => v.rule === 'sql-raw-literal')).toEqual([])
+  })
+})
+
+describe('store-boundary-ledger (POD-3252, Stage A’s completeness proof)', () => {
+  function plantLedger(files: Record<string, string>): string {
+    const root = mkdtempSync(join(tmpdir(), 'store-ledger-'))
+    for (const [rel, source] of Object.entries(files)) {
+      const abs = join(root, rel)
+      mkdirSync(join(abs, '..'), { recursive: true })
+      writeFileSync(abs, source)
+    }
+    return root
+  }
+
+  it('says YES on the real repository — every listed file is really unconverted', () => {
+    // The control that makes the count trustworthy. If this ever fails, the
+    // ledger has drifted above the truth and Stage A's progress measure is
+    // reporting more work left than exists.
+    expect(checkStoreBoundaryLedger(REPO_ROOT)).toEqual([])
+  })
+
+  it('refuses SLACK — a listed file that has been converted', () => {
+    // The property that keeps the ledger monotone. Without it the agent that
+    // converts a repository can leave its line behind and the list stops
+    // measuring anything. Every OTHER entry is planted still-unconverted, so
+    // the one violation reported is attributable to the one file that changed.
+    const converted = STAGE_A_UNCONVERTED[0]
+    expect(converted).toBeDefined()
+    const unconverted = `import type { SqlDatabase } from '@podium/runtime/sqlite'\n`
+    const root = plantLedger(
+      Object.fromEntries(
+        STAGE_A_UNCONVERTED.map((f) => [
+          f,
+          f === converted ? `export const clean = 1\n` : unconverted,
+        ]),
+      ),
+    )
+    const v = checkStoreBoundaryLedger(root)
+    expect(v.map((x) => x.file)).toEqual([converted])
+    expect(v[0]?.rule).toBe('store-boundary-ledger')
+    expect(v[0]?.message).toContain('CONVERTED')
+  })
+
+  it('refuses a STALE entry — a listed file that no longer exists', () => {
+    const v = checkStoreBoundaryLedger(plantLedger({}))
+    expect(v.length).toBe(STAGE_A_UNCONVERTED.length)
+    expect(v.every((x) => x.message.includes('does not exist'))).toBe(true)
+  })
+
+  it('every entry is inside the store boundary — an entry outside exempts nothing', () => {
+    for (const entry of STAGE_A_UNCONVERTED) {
+      expect(
+        entry.startsWith('apps/server/src/store/') ||
+          entry.startsWith('packages/sync/src/adapters/sqlite/') ||
+          entry === 'apps/server/src/modules/operations/store.ts',
+      ).toBe(true)
+    }
+  })
+
+  it('names the executor legacy field’s module, so the ledger and the exit gate empty together', () => {
+    // Stage A's exit gate is two clauses — "lint family green" AND "the
+    // executor's legacy field deleted" (method §5). `executor.ts` is on the
+    // ledger precisely because its `readonly legacy: SqlDatabase | undefined`
+    // is that field, so the second clause cannot be met while the first is not.
+    expect(STAGE_A_UNCONVERTED).toContain('apps/server/src/store/executor/executor.ts')
+  })
+})
+
+describe('store-boundary family vs the write-announcement seam (POD-3247)', () => {
+  const SEAM = 'apps/server/src/store/table-writes.ts'
+
+  it('leaves the seam alone — it is clean, and NOT on the ledger', () => {
+    // POD-3247's `TableWrites` has no production caller ON PURPOSE: POD-3246
+    // retired the one writer it was built for, the shape survives the writer,
+    // and the conversion waves are what will call it. Nothing in this family
+    // asks whether a seam is called — but pinning it by path means a future
+    // widening that starts flagging it fails here instead of getting the
+    // mechanism deleted.
+    const source = readFileSync(join(REPO_ROOT, SEAM), 'utf8')
+    expect(checkStoreRawHandles(SEAM, source)).toEqual([])
+    expect(checkDrizzleTransaction(SEAM, source)).toEqual([])
+    expect(checkDrizzleImportHome(SEAM, source)).toEqual([])
+    expect(checkSqlRawLiteral(SEAM, source)).toEqual([])
+    expect(STAGE_A_UNCONVERTED).not.toContain(SEAM)
+  })
+
+  it('is clean DESPITE naming sqlite_master and prepare in its prose', () => {
+    // The seam's docstring explains the bug it replaces: "the boot upgrades
+    // build SQL from `sqlite_master` on the raw handle" and "a `prepare`
+    // wrapper that dropped the cache". A grep would flag both. Documenting the
+    // prohibition must not trip the lint enforcing it — the same treatment
+    // checkSyncKernelPurity gives its DOM globals, and this file is the live
+    // case that would catch a regression in it.
+    const source = readFileSync(join(REPO_ROOT, SEAM), 'utf8')
+    expect(source).toContain('sqlite_master')
+    expect(source).toContain('prepare')
+    expect(checkStoreRawHandles(SEAM, source)).toEqual([])
+    // …and the same two constructs in CODE are still refused.
+    expect(
+      checkStoreRawHandles(SEAM, `const q = sql\`SELECT name FROM sqlite_master\`\n`),
+    ).toHaveLength(1)
+    expect(checkStoreRawHandles(SEAM, `const s = db.prepare('SELECT 1')\n`)).toHaveLength(1)
   })
 })
