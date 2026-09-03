@@ -171,6 +171,26 @@ when a generated pass does conflict, the loser REGENERATES against the new tip r
 compiler rather than reusing the previous one as a list, because the other pass moved code and a
 site that had to stay synchronous may not exist any more.
 
+"INHERITED RED" HAS A MOVING BASE, SO NAME THE COMMIT (POD-3336, 2026-09-04). The coordinator's
+standing brief told workers that certain lane failures were "inherited reds on the base, not ours".
+That is true and it was still misleading, because THE BASE MOVES: this branch starts from dev/mw and
+picks up dev/mw's own progress, so a failure absent when a worker last looked can appear later
+without anyone here writing a line of it.
+
+POD-3336 measured a dev/mw baseline and found 40 of 53 failures were not present there, and
+reasonably wrote that they "arrived on the integration branch after the branch point". Checked
+against the graph, five of the named causes are upstream dev/mw commits its baseline commit
+PREDATED, and two were already failing at that baseline. Every one is an ancestor of dev/mw and none
+originates in this epic — but nothing in the phrase "arrived after the branch point" distinguishes
+"upstream moved" from "we broke it", and those demand opposite responses.
+
+RULE, THREE PARTS. Never write "pre-existing" or "inherited" without the commit that introduced it
+and whether it is an ancestor of dev/mw — `git merge-base --is-ancestor <c> origin/dev/mw` settles
+it in one command. State the BASELINE COMMIT you compared against, not just the branch name, because
+"dev/mw" names different trees on different days. And compare lanes by SET DIFFERENCE ON FAILING
+TEST NAMES rather than by counts: POD-3336's delta survived its baseline being stale precisely
+because names are stable under a moving base and counts are not.
+
 A NAME-MATCHING SCAN CANNOT CARRY A COMPLETENESS GATE (POD-3257, 2026-09-03). This method's first
 principle is that completeness comes from the compiler and a lint, never from grep — and here is the
 concrete proof, found by a worker on its own work rather than by a reviewer.
