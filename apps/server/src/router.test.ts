@@ -15,10 +15,10 @@ import { OPERATOR } from './test-support/capabilities'
 const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
 function caller() {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
     registry,
     call: appRouter.createCaller({
@@ -33,13 +33,13 @@ function caller() {
 
 describe('appRouter', () => {
   it('models.refresh + models.catalog return the injected live catalog', async () => {
-    const registry = new SessionRegistry(undefined, undefined, {
+    const registry = SessionRegistry.create(undefined, undefined, {
       instanceId: 'default',
       modelProbe: async (_machineId) => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
     })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -63,11 +63,11 @@ describe('appRouter', () => {
   })
 
   it('sessions.create passes initialPrompt to the daemon spawn for argv agents (POD-549)', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: unknown[] = []
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -202,14 +202,14 @@ describe('appRouter', () => {
 
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
     const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const readTranscript = vi.spyOn(registry.modules.rpc, 'readTranscript')
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
+      superagent: SuperagentService.create(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
       principal: TEST_PRINCIPAL,
     })
@@ -235,7 +235,7 @@ describe('appRouter', () => {
   })
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     let polled = ''
     // The router reaches settings through the typed modules seam — stub there.
@@ -264,7 +264,7 @@ describe('appRouter', () => {
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
+      superagent: SuperagentService.create(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
       principal: TEST_PRINCIPAL,
     })
@@ -294,7 +294,7 @@ describe('appRouter', () => {
 })
 
 function repoCaller() {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -305,7 +305,7 @@ function repoCaller() {
     call: appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
+      superagent: SuperagentService.create(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
       principal: TEST_PRINCIPAL,
     }),

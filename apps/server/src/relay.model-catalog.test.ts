@@ -5,7 +5,7 @@ import { SessionStore } from './store'
 
 describe('SessionRegistry model catalog wiring', () => {
   it('defaults to an empty catalog and never shells out when no probe is injected', () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const machineId = registry.sessionStore.hostMachineId
     // No modelProbe → empty snapshot, and get() must not throw (default no-op probe).
     expect(registry.modules.settings.getModelCatalog(machineId)).toEqual({
@@ -21,7 +21,7 @@ describe('SessionRegistry model catalog wiring', () => {
       grok: [{ value: 'grok-build', label: 'grok-build' }],
       cursor: [{ value: 'composer-2.5', label: 'Composer 2.5' }],
     }))
-    const registry = new SessionRegistry(undefined, undefined, {
+    const registry = SessionRegistry.create(undefined, undefined, {
       instanceId: 'default',
       modelProbe,
     })
@@ -43,7 +43,7 @@ describe('SessionRegistry model catalog wiring', () => {
     const probe = vi.fn(async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }))
 
     // First "boot": probe once, which persists to the shared store under this machine.
-    const first = new SessionRegistry(store, undefined, {
+    const first = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       modelProbe: probe,
     })
@@ -53,7 +53,7 @@ describe('SessionRegistry model catalog wiring', () => {
     // Second "boot" (same DB): the catalog is served from persistence immediately —
     // get() returns it with no additional probe on the fresh registry.
     const probe2 = vi.fn(async () => ({}))
-    const second = new SessionRegistry(store, undefined, {
+    const second = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       modelProbe: probe2,
     })
@@ -77,7 +77,7 @@ describe('SessionRegistry model catalog wiring', () => {
         ? { grok: [{ value: 'host-model', label: 'host-model' }] }
         : { grok: [{ value: 'other-model', label: 'other-model' }] },
     )
-    const registry = new SessionRegistry(store, undefined, {
+    const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       modelProbe: probe,
     })
@@ -106,7 +106,7 @@ describe('SessionRegistry model catalog wiring', () => {
 
     // Restart: each machine still reads its own persisted catalog, not the other's.
     const probe2 = vi.fn(async () => ({}))
-    const second = new SessionRegistry(store, undefined, {
+    const second = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       modelProbe: probe2,
     })

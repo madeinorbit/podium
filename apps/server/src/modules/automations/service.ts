@@ -123,9 +123,19 @@ class AutomationSpawnError extends Error {
 }
 
 export class AutomationsService {
-  constructor(private readonly deps: AutomationsDeps) {
-    // Full boot truth closes changes made while the server was down and seeds
-    // both new durable kinds before a client can ask for its cursor.
+  constructor(private readonly deps: AutomationsDeps) {}
+
+  /**
+   * SEED THE LEDGER FROM DURABLE TRUTH — the service's one boot step.
+   *
+   * Full boot truth closes changes made while the server was down and seeds
+   * both new durable kinds before a client can ask for its cursor. It is a boot
+   * STEP rather than two lines in the constructor (POD-3256): the composition
+   * root runs it after the object exists, in the order the constructor
+   * established, so constructing an automations service never reads the store.
+   */
+  reconcileFromStore(): void {
+    const deps = this.deps
     deps.ledger.reconcile(
       'automation',
       deps.store.list().map((automation) => ({ id: automation.id, value: automation })),

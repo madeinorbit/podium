@@ -28,7 +28,7 @@ function harness(sessions: SessionMeta[]) {
     setSessionArchived: vi.fn(),
     now: () => '2026-06-30T00:00:00.000Z',
   }
-  return { store, svc: new IssueService(deps) }
+  return { store, svc: IssueService.create(deps) }
 }
 
 const member = (sessionId: SessionId, issueId: string, workState?: string): SessionMeta =>

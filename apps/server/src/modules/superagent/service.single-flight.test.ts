@@ -21,9 +21,9 @@ describe('SuperagentService turn reaper single-flight (POD-3258)', () => {
   it('skips a reap that lands on a reap already running', () => {
     vi.useFakeTimers()
     try {
-      const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const repos = new RepoRegistry(registry, registry.sessionStore)
-      const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, {
+      const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore, {
         reapIntervalMs: REAP_MS,
       })
 
@@ -55,9 +55,9 @@ describe('SuperagentService turn reaper single-flight (POD-3258)', () => {
   it('a later, non-overlapping reap runs normally', () => {
     vi.useFakeTimers()
     try {
-      const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const repos = new RepoRegistry(registry, registry.sessionStore)
-      const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, {
+      const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore, {
         reapIntervalMs: REAP_MS,
       })
 

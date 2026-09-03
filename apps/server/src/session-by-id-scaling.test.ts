@@ -89,7 +89,7 @@ function sessionsProjectedResolvingPrincipal(reg: SessionRegistry, leaf: string)
 
 describe('POD-1646 — resolving a principal does not project every session', () => {
   it('projects nothing at all: the chain walk is a by-id read', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const CORPUS = 20
     const leaf = seedChain(reg, CORPUS, 3)
 
@@ -104,9 +104,9 @@ describe('POD-1646 — resolving a principal does not project every session', ()
   })
 
   it('costs the same whether the machine holds 8 sessions or 64', () => {
-    const small = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const small = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const smallLeaf = seedChain(small, 8, 3)
-    const large = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const large = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const largeLeaf = seedChain(large, 64, 3)
 
     // The property, stated directly: growing the corpus 8x must not grow the

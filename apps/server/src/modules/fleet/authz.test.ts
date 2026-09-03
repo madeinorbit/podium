@@ -521,7 +521,7 @@ describe('the derived fleet router actually calls the gate', () => {
       tokenHash: 'h1',
       ownerUserId: ownerUserId === null ? null : asUserId(ownerUserId),
     })
-    const registry = new SessionRegistry(store, undefined, {
+    const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),
       // Ownership transfer commits to the ledger, so the wiring arm needs a real
@@ -530,7 +530,7 @@ describe('the derived fleet router actually calls the gate', () => {
     })
     registry.modules.machines.ensureHostMachine('machine-under-test')
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
     return {
       store,
       // Exposed so a test can read the LEDGER (`effectiveOwner`) and not only
@@ -842,7 +842,7 @@ describe('the derived fleet router actually calls the gate', () => {
 describe('a paired machine belongs to whoever minted its code', () => {
   function service() {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, {
+    const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),
     })

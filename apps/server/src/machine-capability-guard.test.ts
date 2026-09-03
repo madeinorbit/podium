@@ -34,7 +34,7 @@ import { OPERATOR } from './test-support/capabilities'
  */
 function fleet() {
   const store = new SessionStore(':memory:')
-  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   // The coordinator row, stamped `server` by boot exactly as production does.
   const coordinator = asMachineId(registry.modules.machines.ensureHostMachine('source'))
   store.machines.upsertMachine({
@@ -52,7 +52,7 @@ function fleet() {
   registry.gateway.attachDaemon(laptop, laptopSocket)
   registry.modules.machines.invalidateMachineCache()
   const repos = new RepoRegistry(registry, store)
-  const superagent = new SuperagentService(registry.modules, repos, store)
+  const superagent = SuperagentService.create(registry.modules, repos, store)
   return {
     registry,
     repos,

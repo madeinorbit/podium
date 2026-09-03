@@ -51,7 +51,7 @@ function rig() {
     tokenHash: 'y',
     ...machine,
   })
-  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   return { store, sessions: reg.modules.sessions }
 }
 

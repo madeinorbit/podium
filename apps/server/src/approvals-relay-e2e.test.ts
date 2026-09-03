@@ -20,7 +20,7 @@ describe('approval broker relay e2e (#410)', () => {
   let daemonInbox: ControlMessage[]
 
   beforeEach(() => {
-    registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const A = registry.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
     registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })

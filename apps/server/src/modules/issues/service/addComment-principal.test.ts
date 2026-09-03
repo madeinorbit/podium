@@ -49,7 +49,7 @@ function harness() {
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-06-30T00:00:00.000Z',
   }
-  const svc = new IssueService(deps)
+  const svc = IssueService.create(deps)
   const issue = svc.create({ repoPath: '/r', title: 'A', startNow: false })
   return { store, svc, issue }
 }

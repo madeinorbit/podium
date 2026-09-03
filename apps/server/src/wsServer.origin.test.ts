@@ -132,7 +132,7 @@ describe('the CSWSH guard on the real upgrade path', () => {
 
   async function start(deps: WsTransportDeps = {}): Promise<string> {
     store = new SessionStore(':memory:')
-    registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     handle = attachWebSockets(
       registry,
       {

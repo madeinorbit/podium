@@ -31,7 +31,7 @@ function harness() {
     setSessionArchived: vi.fn(),
     now: () => '2026-06-30T00:00:00.000Z',
   }
-  return { store, svc: new IssueService(deps) }
+  return { store, svc: IssueService.create(deps) }
 }
 
 describe('blank issue text normalizes to null', () => {

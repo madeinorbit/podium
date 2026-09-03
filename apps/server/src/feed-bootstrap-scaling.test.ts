@@ -160,7 +160,7 @@ function bootstrapRepositoryCalls(reg: SessionRegistry): {
 
 describe('POD-1614 — a bootstrap does not re-read the sessions table per row', () => {
   it('never loads the whole sessions table while scoping conversation rows', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const CONVERSATIONS = 24
 
     // CONTROL: the rows really landed in the change log, so the bootstrap below
@@ -175,9 +175,9 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
   })
 
   it('costs the same whether the corpus has 8 conversation rows or 64', () => {
-    const small = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const small = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     seedConversations(small, 8)
-    const large = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const large = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     seedConversations(large, 64)
 
     // The property, stated directly: growing the corpus 8x must not grow the
@@ -185,7 +185,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     expect(loadSessionsCallsDuringBootstrap(large)).toBe(loadSessionsCallsDuringBootstrap(small))
   })
   it('memoizes authorization snapshots across anchored issue refs and refreshes after append', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
     for (const issueId of ['i1', 'i2']) {
       store.grants.upsert({
@@ -269,8 +269,8 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
 
 describe('POD-1732 — a bootstrap resolves visibility in batches, not per row', () => {
   it('grows its corpus without growing its point-read count', () => {
-    const small = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
-    const large = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const small = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const large = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 
     // CONTROL, same reason as the POD-1614 case above: prove the rows landed,
     // or a count of 0 passes against an empty world for the wrong reason.

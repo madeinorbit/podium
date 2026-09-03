@@ -60,7 +60,7 @@ function harness(machines: { id: string; token: string }[]) {
       ownerUserId: asUserId('user:sole'),
     })
   }
-  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const attach = vi.spyOn(reg.gateway, 'attachDaemon')
   const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
   const ws = fakeWs()

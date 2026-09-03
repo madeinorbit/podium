@@ -569,7 +569,7 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
   }
 
   const attachWith = (caps: string[]) => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(reg)
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(
@@ -649,11 +649,11 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     // create path would leave every session that survived a restart on the
     // fallback branch, silently, forever.
     const store = new SessionStore(':memory:')
-    const first = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(first)
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
-    const restarted = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const restarted = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(restarted)
     restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, () => {}, [
       CAP_DAEMON_GEOMETRY_APPLIED,

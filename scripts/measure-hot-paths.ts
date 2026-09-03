@@ -250,7 +250,7 @@ async function buildFixture(): Promise<Fixture> {
       ownerUserId: asUserId('user:sole'),
     })
   }
-  const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon('m1', () => {})
   registry.gateway.attachDaemon('m2', () => {})
   const issueIds: IssueId[] = []

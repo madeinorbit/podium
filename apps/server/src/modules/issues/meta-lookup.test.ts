@@ -26,7 +26,7 @@ function harness() {
     setSessionArchived: vi.fn(),
     now: () => '2026-07-17T00:00:00.000Z',
   }
-  return { listSessions, svc: new IssueService(deps) }
+  return { listSessions, svc: IssueService.create(deps) }
 }
 
 describe('POD-826 lightweight issue lookups', () => {

@@ -37,7 +37,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // and that is decided when the store is constructed — so force the flag on
   // through config BEFORE the registry mints its store.
   forceFeature('command-palette', true)
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
   // conciergeTurn flow completes without a real harness.
@@ -70,7 +70,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r') // conciergeTurn rejects unregistered repos
-  const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, opts)
+  const sa = SuperagentService.create(registry.modules, repos, registry.sessionStore, opts)
   sa.history(FIRST_ADMIN_USER_ID)
   sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('s1') })
   sa.ensureConciergeThread({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/r' })

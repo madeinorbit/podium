@@ -38,7 +38,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
       ...issueTestPlumbing(),
       now,
     }
-    const issues = new IssueService(issueDeps)
+    const issues = IssueService.create(issueDeps)
 
     let listEventsSinceCalls = 0
     let onListEvents: () => void = () => {}

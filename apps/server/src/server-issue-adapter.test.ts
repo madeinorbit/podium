@@ -14,7 +14,7 @@ afterEach(() => {
 })
 
 function client() {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   return registry.issueCommands.asIssueTrpc(OPERATOR)
 }

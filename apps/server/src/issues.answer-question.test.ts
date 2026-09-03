@@ -39,7 +39,7 @@ function harness(
     ...issueTestPlumbing(),
     now: () => '2026-07-14T00:00:00.000Z',
   }
-  const svc = new IssueService(deps)
+  const svc = IssueService.create(deps)
   const dispatcher = new IssueCommandDispatcher({
     issues: svc,
     shipping: {

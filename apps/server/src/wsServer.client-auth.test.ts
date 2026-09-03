@@ -37,7 +37,7 @@ async function start(
   },
 ) {
   store = new SessionStore(':memory:')
-  registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(
     registry,
     {
@@ -71,7 +71,7 @@ async function start(
 
 async function startNotReady() {
   store = new SessionStore(':memory:')
-  registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
     readinessForClient: () => ({
       state: 'activation_pending',

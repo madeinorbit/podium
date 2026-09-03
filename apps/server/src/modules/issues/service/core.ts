@@ -130,18 +130,12 @@ export class IssueStore {
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
   issueOverlay(issueId: IssueId): IssueUserOverlay {
-    if (this.viewerState === null) {
-      this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
-    }
-    return issueOverlayOf(this.viewerState.get(issueId))
+    return issueOverlayOf(this.requireHydrated().viewerState.get(issueId))
   }
 
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`. */
   issueUserState(issueId: IssueId): StoredIssueUserState | undefined {
-    if (this.viewerState === null) {
-      this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
-    }
-    return this.viewerState.get(issueId)
+    return this.requireHydrated().viewerState.get(issueId)
   }
 
   /**
@@ -155,13 +149,10 @@ export class IssueStore {
   writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): void {
     const user = this.broadcastViewer()
     this.deps.store.issues.setIssueUserState(user, issueId, patch)
-    if (this.viewerState === null) {
-      this.viewerState = this.deps.store.issues.listIssueUserState(user)
-    } else {
-      const next = this.deps.store.issues.getIssueUserState(user, issueId)
-      if (next) this.viewerState.set(issueId, next)
-      else this.viewerState.delete(issueId)
-    }
+    const viewerState = this.requireHydrated().viewerState
+    const next = this.deps.store.issues.getIssueUserState(user, issueId)
+    if (next) viewerState.set(issueId, next)
+    else viewerState.delete(issueId)
     this.bumpIssueInputs()
   }
 
@@ -198,12 +189,15 @@ export class IssueStore {
     this.issueInputsGen++
   }
 
-  /** The in-memory row map, lazily hydrated. Row-level quarantine lives in the
-   *  store (listIssueRows skips + logs + counts corrupt rows), so hydration is
-   *  total: a corrupt row costs that row, never the boot. */
+  /** The in-memory row map. Row-level quarantine lives in the store
+   *  (listIssueRows skips + logs + counts corrupt rows), so hydration is total:
+   *  a corrupt row costs that row, never the boot.
+   *
+   *  The getter used to hydrate on first touch. It does not any more (POD-3256):
+   *  a getter cannot await, so the load is an explicit step {@link init} that
+   *  the factory runs, and this getter only serves what that step loaded. */
   get rows(): Map<string, IssueRow> {
-    if (this.hydrated === null) this.hydrate()
-    return this.hydrated as Map<string, IssueRow>
+    return this.requireHydrated().rows
   }
 
   /**
@@ -315,11 +309,32 @@ export class IssueStore {
     if (pin !== undefined) this.draftOrigins.set(row, row.revision ?? null)
   }
 
-  /** Explicit hydration for the composition root (relay) — same load the lazy
-   *  path performs, done eagerly so boot surfaces load logs immediately. */
+  /** Explicit hydration, run by `IssueService.create` before any reader exists
+   *  (POD-3256) — the same load the lazy path performs, done eagerly so boot
+   *  surfaces load logs immediately. */
   init(): this {
     this.hydrate()
     return this
+  }
+
+  /**
+   * The loaded state, or a refusal naming the missing step.
+   *
+   * Reaching a reader before hydration is a composition mistake, not a
+   * recoverable condition: the only two ways to get an IssueStore are the
+   * factory (which hydrates) and {@link reload}, so a null here means somebody
+   * built the object by a route that no longer exists.
+   */
+  private requireHydrated(): {
+    rows: Map<string, IssueRow>
+    viewerState: Map<string, StoredIssueUserState>
+  } {
+    if (this.hydrated === null || this.viewerState === null) {
+      throw new Error(
+        'IssueStore read before init(): the issue service hydrates through its factory',
+      )
+    }
+    return { rows: this.hydrated, viewerState: this.viewerState }
   }
 
   /** Clear and re-hydrate the in-memory row map from the store. Lets tests (and
@@ -332,10 +347,12 @@ export class IssueStore {
     const map = new Map<string, IssueRow>()
     for (const r of this.deps.store.issues.listIssueRows()) map.set(r.id, r)
     this.hydrated = map
-    // The per-user markers are re-read on next touch for the same reason the rows
-    // are re-read: a test (or a future external mutator) that wrote them directly
-    // must not keep serving a stale overlay.
-    this.viewerState = null
+    // The per-user markers are re-read for the same reason the rows are re-read:
+    // a test (or a future external mutator) that wrote them directly must not
+    // keep serving a stale overlay. They are re-read HERE rather than on next
+    // touch (POD-3256) — `issueOverlay` is called from the synchronous wire
+    // serializer, so its read has to have happened already.
+    this.viewerState = this.deps.store.issues.listIssueUserState(this.broadcastViewer())
     // Wholesale row replacement invalidates every cached wire, and dropping the
     // map also prunes entries for purged issues (bounds memory to live issues)
     // [POD-723].

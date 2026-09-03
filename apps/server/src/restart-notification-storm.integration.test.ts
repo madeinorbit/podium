@@ -125,7 +125,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // would model a replacement machine and invalidate every durable binding.
       const hostMachineId = asMachineId(randomUUID())
       let store = new SessionStore(dbPath, hostMachineId)
-      let registry = new SessionRegistry(store, { ntfy, telegram }, { instanceId: 'default' })
+      let registry = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
       registry.bus.on('notification.telegramRequested', telegramRequest)
       const controls: ControlMessage[] = []
       const attach = () =>
@@ -272,7 +272,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           registry.dispose()
           store.close()
           store = new SessionStore(dbPath, hostMachineId)
-          registry = new SessionRegistry(store, { ntfy, telegram }, { instanceId: 'default' })
+          registry = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
           registry.bus.on('notification.telegramRequested', telegramRequest)
           attachTestClient(registry.clientGateway, (message) => web.push(message))
           attach()

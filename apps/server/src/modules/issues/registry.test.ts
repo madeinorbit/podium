@@ -294,7 +294,7 @@ describe('the issue contract table declares no CLI hints', () => {
 describe('guardIssueCommand authorization matrix', () => {
   const registries: SessionRegistry[] = []
   const fresh = () => {
-    const r = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const r = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(r)
     return r
   }
@@ -452,7 +452,7 @@ describe('Shipping command boundary', () => {
   })
 
   const harness = () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const enqueueCurrent = vi.fn(async (input: { issueId: string }) => ({
       created: true,
@@ -689,7 +689,7 @@ describe('Shipping command boundary', () => {
   })
 
   it('intersects an agent subtree with the human current role and issue write right', () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const root = registry.issues.create({
       repoPath: '/r',
@@ -749,7 +749,7 @@ describe('Shipping command boundary', () => {
   })
 
   it('authorizes receipt reads from the active human owner or grant, not agent write scope', () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     const attached = registry.issues.create({
       repoPath: '/r',
@@ -809,7 +809,7 @@ describe('Shipping command boundary', () => {
 
 describe('issues.get session membership', () => {
   it('returns every attached agent and excludes shell sessions', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
       registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
@@ -847,7 +847,7 @@ describe('issues.get session membership', () => {
 
 describe('issue spawn provenance', () => {
   it('stamps agent comment actor and human owner from the transport principal', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
       await registry.issueCommands.dispatch(
@@ -882,7 +882,7 @@ describe('issue spawn provenance', () => {
   })
 
   it('passes the exact initiating session through start and add-session commands', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
       registry.issues.update(issue.id, {
@@ -916,7 +916,7 @@ describe('issue spawn provenance', () => {
   })
 
   it('agent create stamps startedBySession; setCoordinator claim/set/clear round-trips', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       // Operator create → no startedBySession.
       const op = (await registry.issueCommands.dispatch(
@@ -990,7 +990,7 @@ describe('issue spawn provenance', () => {
   // tests exists to separate (the defect is SILENT — mail reaches someone, nothing
   // errors, no lane goes red).
   it('exposes coordinatorSessionId on issues.get(), the projection mail routing reads', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({
         repoPath: '/r',
@@ -1027,7 +1027,7 @@ describe('issue spawn provenance', () => {
  */
 describe('issue mail read state is per reading session [POD-1379]', () => {
   it('a peer read leaves the other agent on the issue still pending, and no self-nag', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = registry.issues.create({ repoPath: '/r', title: 'Shared', startNow: false })
       // REAL SESSIONS, not the bare ids main used. `authorizeAtApply` re-resolves

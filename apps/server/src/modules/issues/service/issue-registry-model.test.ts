@@ -78,7 +78,7 @@ const open = (): Harness => {
   }
   return {
     store,
-    svc: new IssueService(deps),
+    svc: IssueService.create(deps),
     duringNextWrite: (fn, when = 'before') => {
       during = { fn, when }
     },

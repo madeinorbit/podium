@@ -58,7 +58,7 @@ class FakeSocket extends EventEmitter {
 
 describe('coarse runtime events across a daemon disconnect', () => {
   it('retains a disconnected coarse event, replays it after reconnect, and retires it on commit ack', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const machineId: MachineId = registry.sessionStore.hostMachineId
     const runtimeOutbox = createRuntimeEventOutbox(temp())
     const sockets = [new FakeSocket(), new FakeSocket(), new FakeSocket()]

@@ -157,7 +157,7 @@ describe('queueText (durable outbox sends)', () => {
   it('rejects an offline queued agent write when its human is revoked before drain', async () => {
     vi.useFakeTimers()
     try {
-      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
 
@@ -224,7 +224,7 @@ describe('queueText (durable outbox sends)', () => {
   it('wakes a hibernated resumable session, shows the count, and delivers exactly once after bind + settle', async () => {
     vi.useFakeTimers()
     try {
-      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const sessionId = hibernatedSession(reg)
@@ -287,7 +287,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-dead-send-reconcile-')), 'podium.db')
       const storeA = new SessionStore(file, TEST_MACHINE)
-      const regA = new SessionRegistry(storeA, undefined, { instanceId: 'default' })
+      const regA = SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
       regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, () => {})
       const sessionId = hibernatedSession(regA)
       regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
@@ -306,7 +306,7 @@ describe('queueText (durable outbox sends)', () => {
       regA.dispose()
 
       const storeB = new SessionStore(file, TEST_MACHINE)
-      const regB = new SessionRegistry(storeB, undefined, { instanceId: 'default' })
+      const regB = SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (message) => daemon.push(message))
       expect(
@@ -346,7 +346,7 @@ describe('queueText (durable outbox sends)', () => {
   it('a due one-off wakes a hibernated target and delivers its message exactly once', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-16T22:00:00.000Z'))
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
@@ -407,7 +407,7 @@ describe('queueText (durable outbox sends)', () => {
   })
 
   it('refuses a parked agent with no resume ref and queues NOTHING', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = reg.modules.sessions.createSession({
@@ -437,7 +437,7 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-outbox-relay-')), 'podium.db')
       const storeA = new SessionStore(file, TEST_MACHINE)
-      const regA = new SessionRegistry(storeA, undefined, { instanceId: 'default' })
+      const regA = SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
       const daemonA: ControlMessage[] = []
       regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, (m) => daemonA.push(m))
       const sessionId = hibernatedSession(regA)
@@ -458,7 +458,7 @@ describe('queueText (durable outbox sends)', () => {
 
       // Restart: fresh store + registry over the same DB file.
       const storeB = new SessionStore(file, TEST_MACHINE)
-      const regB = new SessionRegistry(storeB, undefined, { instanceId: 'default' })
+      const regB = SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       expect(
         regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
           ?.queuedMessageCount,
@@ -495,7 +495,7 @@ describe('queueText (durable outbox sends)', () => {
   it('delivers two queued messages FIFO, spaced, each as its own input', () => {
     vi.useFakeTimers()
     try {
-      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = reg.modules.sessions.createSession({
@@ -549,7 +549,7 @@ describe('queueText (durable outbox sends)', () => {
   it('a failed drain (never live before the deadline) keeps the rows; the next bind delivers', () => {
     vi.useFakeTimers()
     try {
-      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       // No bind: the session sits in 'starting' past the 25s drain deadline.
@@ -590,7 +590,7 @@ describe('queueText (durable outbox sends)', () => {
   })
 
   it('surfaces the queued count on the P2 delta stream (session upsert with queuedMessageCount 1)', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionId = hibernatedSession(reg)
 
@@ -626,7 +626,7 @@ describe('queueText (durable outbox sends)', () => {
   })
 
   it('clears an existing snooze when a message is queued (fresh user intent)', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionId = hibernatedSession(reg)
     reg.modules.sessions.setSnooze({
@@ -657,7 +657,7 @@ describe('queueText (durable outbox sends)', () => {
  */
 describe('framework idempotency (modules.mutations)', () => {
   it('runs once per id; a replay returns the recorded result without re-running', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     let runs = 0
     const first = reg.modules.mutations.once(asMutationId('m-1'), 'test.proc', () => {
       runs += 1
@@ -694,7 +694,7 @@ describe('framework idempotency (modules.mutations)', () => {
   it('records the RESOLVED value of an async proc, not the pending Promise (issues.create shape)', async () => {
     // Regression guard: JSON.stringify(promise) === '{}', which would poison every
     // replay of an async proc with an empty object.
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     let runs = 0
     const fn = async () => {
       runs += 1
@@ -710,7 +710,7 @@ describe('framework idempotency (modules.mutations)', () => {
   it('a replayed sendText types exactly one input frame (no double-type into the PTY)', () => {
     vi.useFakeTimers()
     try {
-      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = reg.modules.sessions.createSession({

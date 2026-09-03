@@ -19,9 +19,9 @@ import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 
 function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return appRouter.createCaller({
     registry,
     repos,

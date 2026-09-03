@@ -64,7 +64,7 @@ class FakeSocket extends EventEmitter {
 
 describe('queue-drain abandonment across a daemon disconnect', () => {
   it('replays after reconnect until the durable row is terminal and acknowledged', async () => {
-    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const machineId: MachineId = registry.sessionStore.hostMachineId
     const outbox = createQueueDrainOutbox(temp())
     const sockets = [new FakeSocket(), new FakeSocket()]

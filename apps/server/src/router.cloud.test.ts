@@ -26,10 +26,10 @@ function caller(
   cloud?: CloudRuntimeProvider,
   onDaemon: (message: ControlMessage) => void = () => {},
 ) {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({
     registry,
     repos,

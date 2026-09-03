@@ -221,7 +221,7 @@ export function makeOracle(
       }),
     )
   }
-  const reg = new SessionRegistry(store, undefined, {
+  const reg = SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     ...(opts.portableStateFence ? { portableStateFence: opts.portableStateFence } : {}),
     ...(opts.now ? { now: opts.now } : {}),
@@ -261,7 +261,7 @@ export function makeOracle(
     viewport: { cols: 80, rows: 24, dpr: 1 },
   })
   const repos = new RepoRegistry(reg, reg.sessionStore)
-  const superagent = new SuperagentService(reg.modules, repos, reg.sessionStore)
+  const superagent = SuperagentService.create(reg.modules, repos, reg.sessionStore)
   // The oracle's own teardown is `reg.dispose()`; adoption is what makes that
   // stop the turn reaper too (POD-2772).
   reg.adoptSuperagent(superagent)

@@ -185,6 +185,18 @@ const log = createLogger('server:relay')
 
 export type { MemoryBreakdown }
 
+/**
+ * The durable state the composition itself needs, read by
+ * {@link SessionRegistry.create} before the graph exists (POD-3256).
+ *
+ * It holds only what cannot wait for {@link SessionRegistry.hydrate}: the
+ * feature gate closes over the settings VALUE, so the value has to be in hand
+ * when the closure is made.
+ */
+interface SessionRegistryBoot {
+  readonly settings: ReturnType<SessionStore['settings']['getSettings']>
+}
+
 interface SessionRegistryOptions {
   /** Boot-resolved deployment identity; every composition root names it explicitly. */
   instanceId: string
@@ -431,23 +443,94 @@ export class SessionRegistry {
    *  {@link adoptSuperagent}. */
   private adoptedSuperagent: { dispose(): void } | undefined
 
-  constructor(
+  /**
+   * THE BOOT STEPS, in the order the constructor ran them.
+   *
+   * Each line used to sit inside a constructor — this one's, or one of the
+   * services it builds — and each is a store call, so none of them may stay
+   * there (POD-3256). They run after the graph exists and before the server
+   * listens, which is where they always effectively ran: the durable seeds
+   * below only have to beat the first client asking for a cursor.
+   *
+   * The body is synchronous today. At the flip every line takes an await, and
+   * this method is where the awaits go — which is the whole reason the steps are
+   * a list in one place rather than three lines in three constructors.
+   */
+  private hydrate(): void {
+    // Full boot truth for the order plane, closing changes made while the server
+    // was down.
+    this.ledger.reconcile(
+      'shipOrder',
+      scheduledShipOrderProjectionRows(
+        this.store.shipping.listOrders(),
+        this.store.shipping.listHolds(),
+        this.store.shipping.listReceipts(),
+        this.now(),
+        this.store.shipping.listAttempts().flatMap((attempt) => {
+          if (!attempt.finishedAt || attempt.outcome !== 'succeeded') return []
+          const durationMs = Date.parse(attempt.finishedAt) - Date.parse(attempt.startedAt)
+          return Number.isFinite(durationMs) && durationMs >= 0
+            ? [{ orderId: attempt.orderId, durationMs, completedAt: attempt.finishedAt }]
+            : []
+        }),
+      ),
+    )
+    // The one boot WRITE, owned by the memory service rather than by the store.
+    this.modules.memory.repairSubagentEvidence()
+    // Full boot truth for both automation kinds.
+    this.modules.automations.reconcileFromStore()
+  }
+
+  /**
+   * BUILD THE SERVER — the entry point, because composing the graph is not the
+   * whole of booting it (POD-3256).
+   *
+   * The composition root reads the store in two places: the settings snapshot
+   * the feature gate closes over, which has to exist BEFORE the graph is built,
+   * and the ledger reconciles and the evidence repair, which need the built
+   * objects. So the read that must come first is done here and handed to the
+   * constructor, and the rest is {@link hydrate}, run after it. Both bodies are
+   * synchronous today and gain awaits at the flip; the order is the order the
+   * constructor established, and the store's own constructor establishes the
+   * order above that (POD-318: machine identity before any reader).
+   */
+  static create(
     store: SessionStore | undefined,
     notificationPushers: NotificationPushers | undefined,
     options: SessionRegistryOptions,
+  ): SessionRegistry {
+    const resolvedStore = store ?? new SessionStore(':memory:')
+    const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
+      settings: resolvedStore.settings.getSettings(),
+    })
+    registry.hydrate()
+    return registry
+  }
+
+  /**
+   * Composition only — no store call reaches this body. {@link SessionRegistry.create}
+   * is the entry point.
+   */
+  private constructor(
+    store: SessionStore,
+    notificationPushers: NotificationPushers | undefined,
+    options: SessionRegistryOptions,
+    boot: SessionRegistryBoot,
   ) {
     // Validated BEFORE anything is constructed: an invalid reaction principal — a
     // system reaction widening its writeScope — must refuse the assembly outright
     // rather than surface after services and timers exist (POD-1470).
     const reactions = composeReactions(options.reactions ?? REACTIONS)
-    this.store = store ?? new SessionStore(':memory:')
+    this.store = store
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
     // Resolve feature state once, then keep it atomic with settings changes. This also
     // avoids reading persistence during instruction preparation after async recovery.
-    let currentSettings = this.store.settings.getSettings()
+    // The read itself is the factory's (POD-3256): the gate below closes over the
+    // value, and closing over a promise is not the same object.
+    let currentSettings = boot.settings
     this.bus.on('settings.changed', ({ next }) => {
       currentSettings = next
     })
@@ -784,22 +867,6 @@ export class SessionRegistry {
       seed: () => ledger.authority.snapshot('issueEvent') as IssueEventWire[],
     })
     this.store.events.onAppend((id, event) => issueEventFeed?.publish(id, event))
-    ledger.reconcile(
-      'shipOrder',
-      scheduledShipOrderProjectionRows(
-        this.store.shipping.listOrders(),
-        this.store.shipping.listHolds(),
-        this.store.shipping.listReceipts(),
-        this.now(),
-        this.store.shipping.listAttempts().flatMap((attempt) => {
-          if (!attempt.finishedAt || attempt.outcome !== 'succeeded') return []
-          const durationMs = Date.parse(attempt.finishedAt) - Date.parse(attempt.startedAt)
-          return Number.isFinite(durationMs) && durationMs >= 0
-            ? [{ orderId: attempt.orderId, durationMs, completedAt: attempt.finishedAt }]
-            : []
-        }),
-      ),
-    )
     const issueArbitration = new IssueAuthorityArbitration(ledger)
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
@@ -1347,7 +1414,7 @@ export class SessionRegistry {
     )
     let stopClosedIssue: ((input: { issueId: IssueId }) => void) | undefined
 
-    const issues = new IssueService({
+    const issues = IssueService.compose({
       store: this.store,
       artifacts: issueArtifacts,
       listSessions: () => sessionsSvc.listSessions(),

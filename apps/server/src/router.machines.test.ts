@@ -21,14 +21,14 @@ function machineCaller() {
     ownerUserId: asUserId('user:sole'),
   })
   // Pairing is a hub-role capability, injected the way server assembly does it.
-  const registry = new SessionRegistry(store, undefined, {
+  const registry = SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     pairing: new PairingManager(),
   })
   registry.modules.machines.ensureHostMachine('machine-under-test')
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
     registry,
     call: appRouter.createCaller({
@@ -102,10 +102,10 @@ describe('sessions.create with machineId', () => {
         tools: [],
       }),
     )
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.gateway.attachDaemon('m2', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -127,11 +127,11 @@ describe('sessions.create with machineId', () => {
 
   it('sessions.create works without machineId (falls back to local)', async () => {
     const store = new SessionStore(':memory:')
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('machine-under-test')
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+    const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,

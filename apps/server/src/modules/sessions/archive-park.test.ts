@@ -16,7 +16,7 @@ afterEach(() => {
 })
 
 function makeRegistry(): { reg: SessionRegistry; daemon: ControlMessage[] } {
-  const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))

@@ -48,7 +48,7 @@ function regWithTwoDaemons() {
     tokenHash: 'y',
     ownerUserId: asUserId('user:sole'),
   })
-  const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
   reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
@@ -108,7 +108,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const out: ControlMessage[] = []
     reg.gateway.attachDaemon('m1', (msg) => out.push(msg))
 
@@ -129,7 +129,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 
   it('returns [] when no daemon is online', async () => {
     const store = new SessionStore(':memory:')
-    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect(await reg.modules.rpc.agentQuotaAll()).toEqual([])
   })
 })

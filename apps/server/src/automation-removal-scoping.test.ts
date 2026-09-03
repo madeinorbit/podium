@@ -99,7 +99,7 @@ const automationInput = {
 
 describe('POD-1509 — a removal reaches the principal who owned the row', () => {
   it("delivers the automation's `remove` to its owner, not a bare watermark", () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const principal = userCommandPrincipal(OWNER, 'admin')
     const delivered = deliveriesFor(reg, feedPrincipalFor(SOLE_USER_ID))
 
@@ -130,7 +130,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
   })
 
   it("delivers a run's `remove` too — the cascade no longer fires, so it is stamped", () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const principal = userCommandPrincipal(OWNER, 'admin')
     const delivered = deliveriesFor(reg, feedPrincipalFor(SOLE_USER_ID))
     const store = (reg as unknown as { store: { automations: AutomationRunWriter } }).store
@@ -172,7 +172,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
   })
 
   it('does not deliver another user’s removal — the fix widens delivery, not visibility', () => {
-    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const owner = userCommandPrincipal(OWNER, 'admin')
     const stranger = deliveriesFor(reg, feedPrincipalFor('user:someone-else'))
 

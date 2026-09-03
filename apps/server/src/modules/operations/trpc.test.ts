@@ -31,10 +31,10 @@ import type { OperationKindDefinition, StepOutcome } from './kinds'
 const registries: SessionRegistry[] = []
 
 function harness() {
-  const registry = new SessionRegistry(undefined, undefined, { instanceId: 'operations-test' })
+  const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'operations-test' })
   registries.push(registry)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
+  const superagent = SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const caller = appRouter.createCaller({
     registry,
     repos,
