@@ -24,6 +24,26 @@ export interface FrameFlusherOptions<T> {
   maxBatch?: number
   /** Flush after this long even if the scheduler never goes idle. */
   maxDelayMs?: number
+  /**
+   * The MAX-DELAY TIMER's flush failed.
+   *
+   * That path has no caller to reject: it is raised from `setTimeout`, where an
+   * escaping error is an uncaught exception that takes the process down. So it
+   * is isolated and reported here; absent, the failure is dropped.
+   *
+   * The IDLE path is not this sink's business, and deliberately so. It is
+   * raised from inside the release of the operation that just committed, so
+   * isolating it is the SCHEDULER's job (`SchedulerOptions.onIdleFailure`) —
+   * a listener that threw must not take out the listeners after it or the
+   * scheduler's own close, whether or not it happens to be a flusher. Layering
+   * a second catch here would only make that one untestable.
+   *
+   * THE BATCH IS LOST when a flush throws: the buffer is emptied before the
+   * frame is emitted, and re-buffering it would retry a poisoned batch forever.
+   * A direct {@link FrameFlusher.flushNow} still throws to its own caller,
+   * which is the one path that has somewhere to report to.
+   */
+  onFlushFailure?: (error: unknown) => void
 }
 
 export interface FrameFlusher<T> {
@@ -52,6 +72,19 @@ export function createFrameFlusher<T>(options: FrameFlusherOptions<T>): FrameFlu
     options.flush(batch)
   }
 
+  /** The TIMER's form: see {@link FrameFlusherOptions.onFlushFailure}. */
+  function flushOnTimer(): void {
+    try {
+      flushNow()
+    } catch (error) {
+      try {
+        options.onFlushFailure?.(error)
+      } catch {
+        /* the flush-failure sink threw; there is nowhere further to report it */
+      }
+    }
+  }
+
   const unsubscribe = options.scheduler.onIdle(flushNow)
 
   return {
@@ -62,7 +95,7 @@ export function createFrameFlusher<T>(options: FrameFlusherOptions<T>): FrameFlu
         return
       }
       if (options.maxDelayMs !== undefined && timer === undefined) {
-        timer = setTimeout(flushNow, options.maxDelayMs)
+        timer = setTimeout(flushOnTimer, options.maxDelayMs)
         // `unref` so a buffered frame can never hold a process open.
         timer.unref?.()
       }

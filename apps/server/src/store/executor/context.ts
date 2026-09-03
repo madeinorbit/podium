@@ -49,6 +49,78 @@ export interface TransactionToken {
  */
 export interface TransactionUnit {
   poisoned: unknown
+  /**
+   * Statements this unit has ADMITTED and that have not yet resolved.
+   *
+   * The token refuses work that arrives after a scope ended; it says nothing
+   * about work that was let through and is still parked inside
+   * `DriverSession.execute` when the body returns. On the remote driver that
+   * statement is a round trip in flight on the connection the scope is about to
+   * commit and hand back, so the scope must WAIT for it rather than commit
+   * underneath it. It is on the UNIT, not the frame, because a savepoint's
+   * statements run on the same session as its parent's.
+   */
+  readonly inFlight: InFlight
+}
+
+/**
+ * A count of admitted-but-unresolved work, and a way to wait for it to reach
+ * zero. See {@link TransactionUnit.inFlight} for why waiting is the answer here
+ * rather than refusing.
+ */
+export interface InFlight {
+  readonly count: number
+  /** Count `work` while it runs. The count drops BEFORE the caller resumes. */
+  track<T>(work: () => Promise<T>): Promise<T>
+  /** Resolves once the count reaches zero. */
+  settled(): Promise<void>
+}
+
+export function createInFlight(): InFlight {
+  let count = 0
+  let waiting: (() => void)[] = []
+  const done = (): void => {
+    count--
+    if (count > 0) return
+    const waiters = waiting
+    waiting = []
+    for (const resolve of waiters) resolve()
+  }
+  return {
+    get count() {
+      return count
+    },
+    track(work) {
+      count++
+      return work().then(
+        (value) => {
+          done()
+          return value
+        },
+        (error: unknown) => {
+          done()
+          throw error
+        },
+      )
+    },
+    settled() {
+      if (count === 0) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        waiting.push(resolve)
+      })
+    },
+  }
+}
+
+/**
+ * Wait until nothing this tracker admitted is still running.
+ *
+ * A LOOP, not one await: a continuation the body dropped can be resumed by the
+ * very statement we are waiting for and admit another one before the scope has
+ * closed, so a single `settled()` would return with work still in flight.
+ */
+export async function settleInFlight(inFlight: InFlight): Promise<void> {
+  while (inFlight.count > 0) await inFlight.settled()
 }
 
 /** One `transact` scope: the top-level transaction, or a savepoint under it. */
@@ -87,6 +159,8 @@ export type StoreScope =
       readonly kind: 'post-commit'
       readonly lease: Lease
       readonly runner: PostCommitRunner
+      /** Statements this scope admitted on the held lease. See {@link TransactionUnit.inFlight}. */
+      readonly inFlight: InFlight
       /**
        * The post-commit scope has the SAME lifetime problem a transaction frame
        * has, and needs the same token: the lease it routes to is released when
@@ -138,7 +212,7 @@ export function createFrame(input: {
     lease: input.lease,
     depth: input.parent ? input.parent.depth + 1 : 0,
     parent: input.parent,
-    unit: input.parent ? input.parent.unit : { poisoned: undefined },
+    unit: input.parent ? input.parent.unit : { poisoned: undefined, inFlight: createInFlight() },
     postCommit: input.postCommit,
     // A savepoint inherits its parent's: the whole unit dies with the lease.
     alive: input.alive ?? input.parent?.alive ?? ALWAYS_ALIVE,

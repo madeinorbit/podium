@@ -44,12 +44,38 @@ export type { SqlParam, SqlRunResult }
  */
 export type Lane = 'read' | 'write' | 'exclusive'
 
+/**
+ * How the DRIVER should decode the result, and nothing else.
+ *
+ * IT IS NOT WRITE INTENT (POD-3316/POD-3318, spec §6 rule 2). drizzle's async
+ * sqlite-proxy path prepares every `INSERT`, `UPDATE` and `DELETE` carrying a
+ * `RETURNING` clause with method `all` — the argument in
+ * `drizzle-orm/sqlite-core/async/{insert,update,delete}.js` is literally
+ * `this.config.returning ? "all" : "run"`. A router that read `method === 'run'`
+ * as "this writes" would therefore route a `RETURNING` write to the READ lane:
+ * past the single write slot, alongside a real writer, and on a driver with
+ * {@link StoreDriver.openReader} onto a read-only connection. The store already
+ * has such a statement (`store/notification-facts.ts`), so this is live.
+ */
 export type StatementMethod = 'run' | 'get' | 'all'
+
+/**
+ * Whether this statement MUTATES, declared by the caller.
+ *
+ * Separate from {@link StatementMethod} because result shape and write intent
+ * are independent: `INSERT ... RETURNING` is a write that decodes as `all`, and
+ * a `SELECT` decodes as `all` too. Nothing in this package may infer one from
+ * the other.
+ */
+export type StatementIntent = 'read' | 'write'
 
 export interface Statement {
   readonly sql: string
   readonly params: readonly SqlParam[]
+  /** RESULT DECODING ONLY. See {@link StatementMethod}. */
   readonly method: StatementMethod
+  /** WRITE INTENT, declared rather than inferred. See {@link StatementIntent}. */
+  readonly intent: StatementIntent
 }
 
 export interface StatementResult {
@@ -209,10 +235,25 @@ export interface StoreDriver<TClient = QueryClient> {
  * therefore scope-bound, not that it is this shape.
  */
 export interface QueryClient {
+  /** A WRITE returning no rows. */
   run(sql: string, ...params: SqlParam[]): Promise<SqlRunResult>
+  /** A READ of at most one row. */
   get(sql: string, ...params: SqlParam[]): Promise<unknown>
+  /** A READ of every row. */
   all(sql: string, ...params: SqlParam[]): Promise<unknown[]>
-  /** Every statement in one driver call, atomically. */
+  /**
+   * A WRITE that returns one row — `INSERT ... RETURNING`, and the reason
+   * intent cannot be read off the method: this decodes exactly like
+   * {@link QueryClient.get} and is nothing like it.
+   */
+  writeGet(sql: string, ...params: SqlParam[]): Promise<unknown>
+  /** A WRITE that returns rows. */
+  writeAll(sql: string, ...params: SqlParam[]): Promise<unknown[]>
+  /**
+   * Every statement in one driver call, atomically. Each statement carries its
+   * own {@link Statement.intent}; the batch takes the write lane if any of them
+   * writes.
+   */
   batch(statements: readonly Statement[]): Promise<readonly StatementResult[]>
 }
 
@@ -223,16 +264,24 @@ export function queryClientOver(route: StatementRouter, routeBatch: BatchRouter)
       return routeBatch(statements)
     },
     async run(sql, ...params) {
-      const result = await route({ sql, params, method: 'run' })
+      const result = await route({ sql, params, method: 'run', intent: 'write' })
       if (!result.run) throw new Error(`driver returned no run result for: ${sql}`)
       return result.run
     },
     async get(sql, ...params) {
-      const result = await route({ sql, params, method: 'get' })
+      const result = await route({ sql, params, method: 'get', intent: 'read' })
       return result.rows[0]
     },
     async all(sql, ...params) {
-      const result = await route({ sql, params, method: 'all' })
+      const result = await route({ sql, params, method: 'all', intent: 'read' })
+      return [...result.rows]
+    },
+    async writeGet(sql, ...params) {
+      const result = await route({ sql, params, method: 'get', intent: 'write' })
+      return result.rows[0]
+    },
+    async writeAll(sql, ...params) {
+      const result = await route({ sql, params, method: 'all', intent: 'write' })
       return [...result.rows]
     },
   }

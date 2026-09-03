@@ -82,6 +82,18 @@ export interface SchedulerOptions {
   now?: () => number
   /** Injectable so the busy-retry backoff is a test's choice, not a duration to wait out. */
   sleep?: (ms: number) => Promise<void>
+  /**
+   * An idle listener threw.
+   *
+   * Idle is raised from `runLease`'s release `finally`, which is on the path of
+   * every operation the scheduler runs — including the one that has just
+   * COMMITTED. An unguarded listener therefore replaces that operation's result
+   * with its own error, and a caller reads a publication failure as a rollback
+   * of a durable write. That is exactly the guarantee POD-3310 gave mechanism
+   * 1, so idle gets it too: every listener is isolated, the rest still run, and
+   * the failure is reported here instead of propagating. Absent, it is dropped.
+   */
+  onIdleFailure?: (error: unknown) => void
 }
 
 export type SchedulerState = 'accepting' | 'draining' | 'closed'
@@ -159,6 +171,15 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   /** Reads with no lane of their own take the write slot (bun:sqlite). */
   const readsUseWriteSlot = readConcurrency === 0
 
+  /** The sink is itself a caller's adapter, so it gets the same isolation it provides. */
+  function reportIdleFailure(error: unknown): void {
+    try {
+      options.onIdleFailure?.(error)
+    } catch {
+      /* the idle-failure sink threw; there is nowhere further to report it */
+    }
+  }
+
   const pending: Waiter[] = []
   const idleListeners = new Set<() => void>()
   let writeSlotHeld = false
@@ -200,7 +221,16 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
       i++
     }
     if (inFlight === 0 && pending.length === 0) {
-      for (const listener of [...idleListeners]) listener()
+      // ONE CATCH PER LISTENER: a throwing subscriber must not take out the
+      // ones registered after it, and must not take out `finishClose` either —
+      // a `close()` that never resolves because a logger threw is a hang.
+      for (const listener of [...idleListeners]) {
+        try {
+          listener()
+        } catch (error) {
+          reportIdleFailure(error)
+        }
+      }
       finishClose?.()
     }
   }

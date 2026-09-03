@@ -160,7 +160,22 @@ function session(
   const live = () => {
     if (closed) throw new Error('driver session is closed')
   }
+  /**
+   * A session that is not the owner may not be written on.
+   *
+   * The `shared-read` role is the SAME connection as the owner, so bun would
+   * happily autocommit a write issued on a read lease — outside the unit of
+   * work and outside the write lane. The detached reader is read-only by
+   * construction and would refuse with an engine error instead, which says the
+   * same thing far less clearly. `intent` is DECLARED by the caller and never
+   * read off `method`, which for an `INSERT ... RETURNING` says `all`.
+   */
+  const assertMayWrite = (request: Statement): void => {
+    if (request.intent !== 'write' || role === 'owner') return
+    throw new Error(`cannot write on a ${role} session: ${request.sql}`)
+  }
   const runOne = (request: Statement): StatementResult => {
+    assertMayWrite(request)
     const st = statement(request.sql)
     const params = [...request.params]
     if (request.method === 'run') return { rows: [], run: st.run(...params) }
