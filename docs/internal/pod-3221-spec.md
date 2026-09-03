@@ -444,6 +444,12 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
   `feedBootstrap.queriesPerRequest` 44, `issueFrameReads.queriesPerRequest` 371,
   `bootReconcile.framesPerBurst` 1, `bindStorm.framesPerBurst` 2. Reproduced independently by
   the coordinator before landing; the gate was proven able to fail four ways.
+  What the numbers are: the 44 bootstrap reads are 27 single-row machine lookups and 9 grant
+  reads; the 371 issue-frame reads for 80 rows are the child-table N+1 (issue_deps 240,
+  issue_labels 80, issue_comments 51) while the issues table itself is read zero times because
+  the frame cache holds. Those are the targets of issues B0.2 and B0.6, and the first `await`
+  anywhere in the issue read fan-out drops the frame cache, which is the exact mechanism by
+  which the conversion could move the 371.
 - **The file-level subsystem behaves as today.** Its code goes through the scheduler and
   behind the durability port; its behaviour does not change; the janitor's and the CLI's paths
   keep working on SQLite.
@@ -482,7 +488,24 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    `Record<string, unknown>` reads, the hand-typed selects and the re-entry casts go.
 4. **`mode: 'json'` is not a drop-in for the quarantine.** drizzle's JSON column throws on a
    corrupt value; `helpers.ts` and shipping's readers quarantine, and the corrupt-blob oracle
-   records which columns must keep doing so. Decided per column, before the conversion.
+   records which columns must keep doing so. Decided per column, before the conversion. The
+   oracle's findings (issue 0.3, 2026-09-03, 26 cases: all 23 `mode: 'json'` columns plus the
+   three superagent text columns read through the parsers) settle the decisions: five columns
+   throw today and the throw is intended (`ship_steps.input_fence`,
+   `ship_train_manifests.provider_ref` and `.validation_profile`,
+   `ship_train_members.delivery_depends_on`, `ship_orders.validation_profile`), so
+   `mode: 'json'` is acceptable for them; every other column keeps its quarantine or its
+   passthrough exactly as pinned, including `ship_orders.descendant_manifest` and
+   `.current_integration_receipt`, whose behaviour depends on the row (plain orders quarantine,
+   stacked orders throw through the binding refinement) and is pinned per case; the three
+   columns that pass a wrong-shape value straight through (`settings_audit_events.detail_json`
+   and `.redacted_paths`, `podium_events.payload`) keep passing it through, because tightening
+   them is a behaviour change; `workflow_events.payload_json` has no store reader by design
+   (`listRunEvents` projects only the attribution pair) and the conversion must not add one,
+   since that would be a redaction decision. `ship_holds.actions` throws by accident (the
+   quarantine yields `[]` and the hold parser then refuses an empty list, so one corrupt hold
+   makes every hold unreadable); the conversion preserves that behaviour, and the fix is filed
+   as a separate bug outside this epic.
 5. **Trust the database's types; enforce invariants in the database** with CHECK constraints;
    keep validating external boundaries and JSON blobs.
 6. **Mapping with semantics stays.** A mapper line that only existed because the driver returned
