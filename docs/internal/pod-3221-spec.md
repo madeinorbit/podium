@@ -235,7 +235,8 @@ body becomes a savepoint on the open transaction, never a queue wait on itself. 
 transaction token is checked on every operation and invalidated before the callback's result is
 returned and before the connection is released; a stale context rejects; parallel nested
 transaction branches reject; an `exclusive` request from a lease holder rejects. A watchdog
-reports a body holding the connection past a budget through an injectable sink. No I/O other
+reports a body that has gone SILENT past a budget — the gap since its last statement, not
+its total duration — through an injectable sink. No I/O other
 than the database runs inside a body.
 
 Lifecycle: `open → accepting → draining → closed`. Intake and background producers stop,
@@ -352,9 +353,12 @@ that does not exist and are corrected).
   explicitly and never relies on drizzle's own transaction method, which the lint forbids
   anyway. Write-lock-first semantics are therefore identical on both drivers.
 - Remote interactive transactions lock the database for writing until committed or rolled back,
-  **with a 5-second server-side timeout** (Turso client reference). That is a hard budget for any
-  write transaction on the Turso backend: the watchdog budget there is below it, no body may await
-  anything but the database, and the sync-append proof measures how many round trips fit. A
+  **with a 5-second server-side timeout** (Turso client reference). THAT TIMEOUT BOUNDS THE GAP
+  BETWEEN STATEMENTS, NOT THE TRANSACTION'S TOTAL DURATION — it is an idle timeout, and POD-3345
+  measured both arms against the engine to be sure: a 20-second transaction with a statement every
+  2 seconds commits untouched, while a single 12-second silence is reaped. So on the Turso backend
+  the watchdog budget is below it and measures the same quantity, no body may await anything but
+  the database, and the sync-append proof measures how many round trips fit. A
   batch (`client.batch`) runs its statements in one implicit server-side transaction with a
   full rollback on failure and is the preferred form for multi-statement writes that need no
   read-decide-write.
